@@ -129,6 +129,20 @@ class Settings:
     # Default num_results for web_search
     default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
 
+    # Per-tool rate limiting
+    rate_limit_web_search_rps: float = float(
+        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
+    )
+    rate_limit_web_search_burst: int = int(
+        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_BURST", "12")
+    )
+    rate_limit_expensive_rps: float = float(
+        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_RPS", "0.5")
+    )
+    rate_limit_expensive_burst: int = int(
+        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_BURST", "1")
+    )
+
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
             self.rrf_provider_weights = _parse_json_dict(
