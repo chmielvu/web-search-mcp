@@ -7,7 +7,12 @@ Also provides exact query cache and page cache for deterministic caching.
 """
 
 from .content_type import ADAPTIVE_TTL, ADAPTIVE_TTL_SECONDS, ContentType, classify_content_type
-from .schema import SEMANTIC_CACHE_SCHEMA, SEMANTIC_CACHE_TABLE_NAME
+from .schema import (
+    SEMANTIC_CACHE_SCHEMA,
+    SEMANTIC_CACHE_TABLE_NAME,
+    get_semantic_cache_schema,
+    get_semantic_cache_table_name,
+)
 from .semantic_cache import get_semantic_cache, set_semantic_cache
 from .store import SemanticCacheStore
 from .query_cache import (
@@ -22,6 +27,8 @@ __all__ = [
     # Schema
     "SEMANTIC_CACHE_SCHEMA",
     "SEMANTIC_CACHE_TABLE_NAME",
+    "get_semantic_cache_schema",
+    "get_semantic_cache_table_name",
     # Semantic cache store
     "SemanticCacheStore",
     # Semantic cache operations

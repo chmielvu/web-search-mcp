@@ -13,7 +13,13 @@ load_dotenv()  # Also try cwd as fallback
 
 # Initialize OpenTelemetry BEFORE any other imports
 # This ensures all HTTP calls (httpx, etc.) are auto-instrumented
-from .telemetry import init_telemetry, SEARCH_QUERY, SEARCH_NUM_RESULTS_REQUESTED
+from .telemetry import (
+    init_telemetry,
+    SEARCH_QUERY,
+    SEARCH_NUM_RESULTS_REQUESTED,
+    record_mcp_tool_call,
+    record_tool_details,
+)
 from opentelemetry import trace
 init_telemetry(service_name="web-search-mcp")
 
@@ -69,6 +75,10 @@ from .utils.diagnostics import (
     sample_data,
 )
 from .utils.logging import configure_logging
+from .utils.observability import (
+    emit_observability_event,
+    preview_text,
+)
 from .utils.singleflight import SingleFlight
 
 configure_logging()
@@ -88,6 +98,30 @@ def _get_cache_store() -> SemanticCacheStore:
         _CACHE_STORE = SemanticCacheStore(db_path=settings.lancedb_dir)
         LOGGER.info(f"Initialized semantic cache store at {settings.lancedb_dir}")
     return _CACHE_STORE
+
+
+def _record_tool_success(
+    tool_name: str,
+    *,
+    input_query: str | None = None,
+    input_url_count: int | None = None,
+    output_result_count: int | None = None,
+    output_content: str | None = None,
+    output_transcript: str | None = None,
+) -> None:
+    record_mcp_tool_call(tool_name, success=True)
+    record_tool_details(
+        tool_name=tool_name,
+        input_query_length=len(input_query) if input_query is not None else None,
+        input_url_count=input_url_count,
+        output_result_count=output_result_count,
+        output_content_length=len(output_content) if output_content is not None else None,
+        output_transcript_length=len(output_transcript) if output_transcript is not None else None,
+    )
+
+
+def _record_tool_failure(tool_name: str) -> None:
+    record_mcp_tool_call(tool_name, success=False)
 
 mcp = FastMCP(
     "kindly-web-search",
@@ -424,6 +458,18 @@ async def web_search(
         # 1. Exact query cache lookup (fastest, deterministic)
         normalized_query = normalize_query(query)
         providers_key = provider_cache_key(providers)
+        emit_observability_event(
+            LOGGER,
+            "tool.web_search.request",
+            tool_name="web_search",
+            query=query,
+            normalized_query=normalized_query,
+            research_goal=research_goal,
+            num_results=num_results,
+            rewrite_enabled=rewrite,
+            providers_requested=providers or [],
+            providers_key=providers_key,
+        )
         try:
             exact_cache = get_query_cache()
             exact_cached = exact_cache.lookup(
@@ -437,7 +483,24 @@ async def web_search(
                 LOGGER.debug(f"Exact query cache hit for: {query[:100]}")
                 root_span.set_attribute("cache.hit", "exact")
                 root_span.set_attribute("search.num_results_returned", len(exact_cached.get("results", [])))
-                return _normalize_lightweight_search_response(exact_cached, query=query)
+                exact_response = _normalize_lightweight_search_response(exact_cached, query=query)
+                emit_observability_event(
+                    LOGGER,
+                    "tool.web_search.response",
+                    tool_name="web_search",
+                    cache_hit="exact",
+                    query=query,
+                    normalized_query=normalized_query,
+                    result_count=len(exact_response.get("results", [])),
+                    providers_used=exact_response.get("providers_used", []),
+                    results=exact_response.get("results", []),
+                )
+                _record_tool_success(
+                    "web_search",
+                    input_query=query,
+                    output_result_count=len(exact_response.get("results", [])),
+                )
+                return exact_response
         except Exception as e:
             LOGGER.warning(f"Exact query cache lookup failed: {e}")
 
@@ -459,7 +522,24 @@ async def web_search(
                         parsed = json.loads(cached_response)
                         root_span.set_attribute("cache.hit", "semantic")
                         root_span.set_attribute("search.num_results_returned", len(parsed.get("results", [])))
-                        return _normalize_lightweight_search_response(parsed, query=query)
+                        semantic_response = _normalize_lightweight_search_response(parsed, query=query)
+                        emit_observability_event(
+                            LOGGER,
+                            "tool.web_search.response",
+                            tool_name="web_search",
+                            cache_hit="semantic",
+                            query=query,
+                            normalized_query=normalized_query,
+                            result_count=len(semantic_response.get("results", [])),
+                            providers_used=semantic_response.get("providers_used", []),
+                            results=semantic_response.get("results", []),
+                        )
+                        _record_tool_success(
+                            "web_search",
+                            input_query=query,
+                            output_result_count=len(semantic_response.get("results", [])),
+                        )
+                        return semantic_response
             except Exception as e:
                 LOGGER.warning(f"Cache lookup failed: {e}")
 
@@ -550,6 +630,22 @@ async def web_search(
         # Add final span attributes
         root_span.set_attribute("search.num_results_returned", len(response.get("results", [])))
         root_span.set_status(trace.StatusCode.OK)
+        emit_observability_event(
+            LOGGER,
+            "tool.web_search.response",
+            tool_name="web_search",
+            cache_hit="miss",
+            query=query,
+            normalized_query=normalized_query,
+            result_count=len(response.get("results", [])),
+            providers_used=response.get("providers_used", []),
+            results=response.get("results", []),
+        )
+        _record_tool_success(
+            "web_search",
+            input_query=query,
+            output_result_count=len(response.get("results", [])),
+        )
 
         # Report completion
         await ctx.info(f"Found {len(response.get('results', []))} results")
@@ -596,6 +692,12 @@ async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
 
     # Report progress
     await ctx.info(f"Fetching: {url[:80]}...")
+    emit_observability_event(
+        LOGGER,
+        "tool.get_content.request",
+        tool_name="get_content",
+        url=url,
+    )
 
     # 1. Page cache lookup
     canonical_url = canonicalize_url(url)
@@ -606,11 +708,25 @@ async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
             LOGGER.debug(
                 f"Page cache hit for: {url[:50]} (method={cached_page.get('extraction_method')}, age={cached_page.get('age_seconds', 0):.0f}s)"
             )
-            return GetContentResponse(
+            cached_response = GetContentResponse(
                 url=url,
                 page_content=cached_page["page_content"],
                 diagnostics=None,
             ).model_dump(exclude_none=True)
+            emit_observability_event(
+                LOGGER,
+                "tool.get_content.response",
+                tool_name="get_content",
+                url=url,
+                cache_hit="page",
+                content_length=len(cached_response["page_content"]),
+                content_preview=preview_text(cached_response["page_content"]),
+            )
+            _record_tool_success(
+                "get_content",
+                output_content=cached_response["page_content"],
+            )
+            return cached_response
     except Exception as e:
         LOGGER.warning(f"Page cache lookup failed: {e}")
 
@@ -690,12 +806,26 @@ async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
 
     # Report completion
     await ctx.info(f"Extracted {len(page_md)} chars")
-
-    return GetContentResponse(
+    response = GetContentResponse(
         url=url,
         page_content=page_md,
         diagnostics=diag.entries if diag_enabled else None,
     ).model_dump(exclude_none=True)
+    emit_observability_event(
+        LOGGER,
+        "tool.get_content.response",
+        tool_name="get_content",
+        url=url,
+        cache_hit="miss",
+        content_length=len(response["page_content"]),
+        content_preview=preview_text(response["page_content"]),
+        diagnostics_count=len(diag.entries) if diag_enabled else 0,
+    )
+    _record_tool_success(
+        "get_content",
+        output_content=response["page_content"],
+    )
+    return response
 
 
 @mcp.tool(
@@ -741,6 +871,15 @@ async def batch_get_content(
     timeout_seconds = _resolve_tool_total_timeout_seconds()
     per_url_timeout = max(10.0, timeout_seconds / max(len(urls), 1))
     semaphore = asyncio.Semaphore(max_concurrency)
+    emit_observability_event(
+        LOGGER,
+        "tool.batch_get_content.request",
+        tool_name="batch_get_content",
+        urls=urls,
+        url_count=len(urls),
+        max_concurrency=max_concurrency,
+        per_url_timeout_seconds=per_url_timeout,
+    )
 
     async def _fetch_one(url: str) -> dict:
         async with semaphore:
@@ -782,7 +921,20 @@ async def batch_get_content(
     results = await asyncio.gather(*[_fetch_one(u) for u in urls])
     success_count = sum(1 for r in results if not r["error"])
     await ctx.info(f"Fetched {success_count}/{len(urls)} URLs successfully")
-
+    emit_observability_event(
+        LOGGER,
+        "tool.batch_get_content.response",
+        tool_name="batch_get_content",
+        url_count=len(urls),
+        success_count=success_count,
+        error_count=len(urls) - success_count,
+        results=results,
+    )
+    _record_tool_success(
+        "batch_get_content",
+        input_url_count=len(urls),
+        output_result_count=len(results),
+    )
     return {"results": list(results)}
 
 
@@ -825,10 +977,52 @@ async def gemini_search(
     - Provides inline citations with [N] notation
     - Requires KINDLY_GEMINI_API_KEY environment variable
     """
-    result = await gemini_search_with_grounding(
-        query, structured_output=structured_output, research_goal=research_goal
+    emit_observability_event(
+        LOGGER,
+        "tool.gemini_search.request",
+        tool_name="gemini_search",
+        query=query,
+        structured_output=structured_output,
+        research_goal=research_goal,
     )
-    return result.model_dump(exclude_none=True)
+    try:
+        result = await gemini_search_with_grounding(
+            query, structured_output=structured_output, research_goal=research_goal
+        )
+        response = result.model_dump(exclude_none=True)
+        emit_observability_event(
+            LOGGER,
+            "tool.gemini_search.response",
+            tool_name="gemini_search",
+            query=query,
+            structured_output=structured_output,
+            research_goal=research_goal,
+            answer=response.get("answer"),
+            structured_result=response.get("structured_result"),
+            web_search_queries=response.get("web_search_queries", []),
+            grounding_chunks=response.get("grounding_chunks", []),
+            error=response.get("error"),
+        )
+        _record_tool_success(
+            "gemini_search",
+            input_query=query,
+            output_content=response.get("answer") if isinstance(response.get("answer"), str) else None,
+        )
+        return response
+    except Exception as exc:
+        emit_observability_event(
+            LOGGER,
+            "tool.gemini_search.error",
+            level=logging.WARNING,
+            tool_name="gemini_search",
+            query=query,
+            structured_output=structured_output,
+            research_goal=research_goal,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+        _record_tool_failure("gemini_search")
+        raise
 
 
 @mcp.tool(
@@ -875,23 +1069,74 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
     from .search.pollinations import get_pollinations_client
 
     client = get_pollinations_client()
+    emit_observability_event(
+        LOGGER,
+        "tool.perplexity_search.request",
+        tool_name="perplexity_search",
+        query=query,
+        depth=depth,
+        research_goal=research_goal,
+    )
 
     try:
         result = await client.web_search(query, depth, research_goal=research_goal)
-        return {
+        response = {
             "query": result["query"],
             "answer": result["answer"],
             "sources": result["sources"],
             "model": result["model"],
             "error": None,
         }
+        emit_observability_event(
+            LOGGER,
+            "tool.perplexity_search.response",
+            tool_name="perplexity_search",
+            query=query,
+            depth=depth,
+            research_goal=research_goal,
+            answer=response["answer"],
+            sources=response["sources"],
+            model=response["model"],
+            error=None,
+        )
+        _record_tool_success(
+            "perplexity_search",
+            input_query=query,
+            output_content=response["answer"],
+        )
+        return response
     except ValueError as e:
+        _record_tool_failure("perplexity_search")
         return format_tool_error(e, provider="perplexity")
     except httpx.HTTPError as e:
         LOGGER.warning(f"Perplexity search failed: {e}")
+        emit_observability_event(
+            LOGGER,
+            "tool.perplexity_search.error",
+            level=logging.WARNING,
+            tool_name="perplexity_search",
+            query=query,
+            depth=depth,
+            research_goal=research_goal,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
+        _record_tool_failure("perplexity_search")
         return format_tool_error(e, provider="perplexity")
     except Exception as e:
         LOGGER.warning(f"Perplexity search unexpected error: {e}")
+        emit_observability_event(
+            LOGGER,
+            "tool.perplexity_search.error",
+            level=logging.WARNING,
+            tool_name="perplexity_search",
+            query=query,
+            depth=depth,
+            research_goal=research_goal,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
+        _record_tool_failure("perplexity_search")
         return format_tool_error(e, provider="perplexity")
 
 

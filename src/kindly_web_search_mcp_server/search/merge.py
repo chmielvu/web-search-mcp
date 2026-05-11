@@ -30,12 +30,16 @@ class _MergedCandidate:
     providers: set[str] = field(default_factory=set)
 
 
-def _result_signal(result: WebSearchResult) -> int:
-    return len((result.title or "").strip()) + len((result.snippet or "").strip())
-
-
-def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearchResult:
-    if _result_signal(candidate) > _result_signal(base):
+def _pick_better(
+    base: WebSearchResult,
+    candidate: WebSearchResult,
+    weights: dict[str, float],
+) -> WebSearchResult:
+    base_w = max((weights.get(p, 1.0) for p in base.providers or []), default=1.0)
+    cand_w = max((weights.get(p, 1.0) for p in candidate.providers or []), default=1.0)
+    if cand_w > base_w:
+        return candidate
+    if cand_w == base_w and len(candidate.snippet or "") < len(base.snippet or ""):
         return candidate
     return base
 
@@ -83,6 +87,9 @@ def _apply_host_cap(
         host = _normalize_host(candidate.result.link, candidate.result.domain)
         overflow_by_host.setdefault(host, []).append((key, candidate))
         host_order.setdefault(host, encounter_order[key])
+
+    for host in overflow_by_host:
+        overflow_by_host[host].sort(key=lambda x: -x[1].score)
 
     host_cycle = sorted(host_order, key=lambda host: host_order[host])
     while len(selected) < top_k and host_cycle:
@@ -164,7 +171,7 @@ def merge_search_results(
             if result_providers:
                 merged[key].providers.update(p for p in result_providers if p)
 
-            merged[key].result = _pick_better(merged[key].result, result)
+            merged[key].result = _pick_better(merged[key].result, result, weights)
 
     ranked = sorted(
         merged.items(),
@@ -183,6 +190,7 @@ def merge_search_results(
         result = bucket.result.model_copy(
             update={
                 "providers": sorted(bucket.providers) or bucket.result.providers,
+                "provider_count": len(bucket.providers),
                 "score": bucket.score,
             }
         )

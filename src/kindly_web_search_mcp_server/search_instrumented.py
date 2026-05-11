@@ -41,6 +41,7 @@ from .telemetry import (
     add_results_to_span,
 )
 from .utils.diagnostics import Diagnostics
+from .utils.observability import emit_observability_event, serialize_search_results
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
@@ -85,7 +86,7 @@ async def _search_single_provider_instrumented(
                 provider=provider_name,
                 duration_seconds=duration,
                 result_count=len(results),
-                status="success",
+                status_code=200,
             )
 
             # Add span attributes
@@ -95,6 +96,16 @@ async def _search_single_provider_instrumented(
 
             # ADD ACTUAL RESULTS TO SPAN - THIS IS WHAT YOU WANT TO SEE IN GRAFANA
             add_results_to_span(span, results, max_results=5)
+            emit_observability_event(
+                LOGGER,
+                "provider.search.result",
+                provider_name=provider_name,
+                query=query,
+                num_results_requested=num_results,
+                duration_ms=round(duration * 1000, 3),
+                result_count=len(results),
+                results=serialize_search_results(results, max_results=5),
+            )
 
             LOGGER.debug(f"Provider {provider_name}: {len(results)} results in {duration*1000:.1f}ms")
             return results
@@ -107,7 +118,7 @@ async def _search_single_provider_instrumented(
                 provider=provider_name,
                 duration_seconds=duration,
                 result_count=0,
-                status="error",
+                status_code=500,
                 error_type=type(e).__name__,
             )
 
@@ -116,6 +127,17 @@ async def _search_single_provider_instrumented(
             span.set_attribute("error_type", type(e).__name__)
             span.set_attribute("error_message", str(e)[:500])
             span.record_exception(e)
+            emit_observability_event(
+                LOGGER,
+                "provider.search.error",
+                level=logging.WARNING,
+                provider_name=provider_name,
+                query=query,
+                num_results_requested=num_results,
+                duration_ms=round(duration * 1000, 3),
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
 
             LOGGER.warning(f"Provider {provider_name} failed: {type(e).__name__}: {e}")
             return []
@@ -236,6 +258,16 @@ async def search_single_query(
             span.set_attribute("result_count", len(merged))
             span.set_attribute("providers_used", provider_names)
             add_results_to_span(span, merged, max_results=10)
+            emit_observability_event(
+                LOGGER,
+                "search.single_query.response",
+                query=query,
+                num_results_requested=num_results,
+                active_providers=[c.name for c in active_configs],
+                providers_used=provider_names,
+                merged_result_count=len(merged),
+                results=serialize_search_results(merged[:num_results], max_results=num_results),
+            )
 
             if diagnostics:
                 diagnostics.emit(

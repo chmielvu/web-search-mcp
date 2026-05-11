@@ -1,45 +1,53 @@
 # SearXNG for AI Coding Agents
 
-Optimized SearXNG deployment for AI coding agents (smolagents, LangChain, MCP servers) focusing on Python and AI/ML queries.
+Optimized SearXNG deployment for AI coding agents (smolagents, LangChain, MCP servers) focusing on reliable general discovery, exact coding-error lookup, package lookup, and science/AI searches.
 
 ## Quick Start
 
 ```bash
-cd C:\Users\Jan\CLI\searxng-agent
-docker-compose up -d
+docker compose -f searxng-settings/docker-compose.yml up -d
 ```
 
 Wait ~15 seconds for health check, then verify:
 ```bash
-curl "http://localhost:8080/search?q=python async retry&format=json&engines=github_code,stackoverflow"
+curl "http://localhost:8080/search?q=python async retry&format=json"
 ```
 
 ## Configuration Highlights
 
-### Engine Curation (12 engines, optimized for coding)
+### Engine Curation (15 engines, live-tested for this MCP)
 
 | Category | Engines | Weight |
 |----------|---------|--------|
-| **General** | duckduckgo, brave, wikipedia | 1.0-1.5 |
-| **Code** | github, github_code, stackoverflow, pypi, npm | 2.0-2.5 |
-| **AI/ML** | huggingface, arxiv | 1.5-1.8 |
-| **Q&A** | askubuntu, superuser | 1.5 |
+| **General default** | duckduckgo, startpage, wikipedia | 1.0-1.4 |
+| **Code/Q&A available** | github, github code, stackoverflow, askubuntu, superuser | 1.4-2.5 |
+| **Packages/AI** | pypi, npm, huggingface | 1.4-1.8 |
+| **Science** | arxiv, semantic scholar, openalex, pubmed | 1.1-1.5 |
+
+Excluded after live tests:
+
+- `bing`: returned high-rank unrelated pages for exact technical queries.
+- `brave`: immediately hit upstream too-many-requests suspension locally.
+- `mojeek`: loaded, then failed its startup probe with HTTP 403 and suspended for 24h.
+- `crossref`: produced useful science results but timed out during live probes and triggered a SearXNG unresponsive-engine error.
+- Broad `it` engines such as Docker Hub, Sourcehut, MDN, and Microsoft Learn: useful in principle, but noisy without per-query routing.
 
 ### Key Settings
 
 - `keep_only:` pattern for clean whitelist
 - `limiter: false` for agent workloads
-- `request_timeout: 2.5s` for responsiveness
+- `request_timeout: 3.0s` for responsiveness
 - Valkey 9-alpine with LRU cache (256MB)
+- `SEARXNG_VALKEY_URL` / `valkey.url`, not deprecated `redis.url`
 - JSON format enabled
 
-### github_code Authentication
+### `github code` Authentication
 
 Default uses `ghc_auth.type: "none"` (works without token, ~30 req/min).
 
 For higher limits, add a GitHub PAT:
 ```yaml
-- name: github_code
+- name: github code
   ghc_auth:
     type: "personal_access_token"
     token: "ghp_your_token_here"
@@ -85,11 +93,11 @@ Add to Claude Code settings:
 # Basic search
 curl "http://localhost:8080/search?q=query&format=json"
 
-# Code-specific search
-curl "http://localhost:8080/search?q=error+ModuleNotFoundError&format=json&engines=stackoverflow,github_code&categories=it"
+# Exact coding-error search; default general engines performed best in live tests
+curl "http://localhost:8080/search?q=%22RuntimeError%3A%20Event%20loop%20is%20closed%22%20%22pytest-asyncio%22%20github%20issue&format=json"
 
-# AI/ML search
-curl "http://localhost:8080/search?q=transformer+attention+mechanism&format=json&engines=arxiv,huggingface&categories=science"
+# Science search
+curl "http://localhost:8080/search?q=transformer+attention+mechanism&format=json&categories=science"
 
 # Time-filtered (recent)
 curl "http://localhost:8080/search?q=python news&format=json&time_range=week"
@@ -99,28 +107,30 @@ curl "http://localhost:8080/search?q=python news&format=json&time_range=week"
 
 ```bash
 # Start
-docker-compose up -d
+docker compose -f searxng-settings/docker-compose.yml up -d
 
 # Logs
-docker-compose logs -f searxng
+docker compose -f searxng-settings/docker-compose.yml logs -f searxng
 
 # Health check
-docker-compose ps
+docker compose -f searxng-settings/docker-compose.yml ps
 
 # Stop
-docker-compose down
+docker compose -f searxng-settings/docker-compose.yml down
 
 # Update
-docker-compose pull && docker-compose up -d
+docker compose -f searxng-settings/docker-compose.yml pull
+docker compose -f searxng-settings/docker-compose.yml up -d
 ```
 
 ## Validation Checklist
 
 After deployment, verify:
 1. `curl "http://localhost:8080/search?q=test&format=json"` → returns JSON
-2. Cache hit: repeat same query → latency <100ms
-3. Code engines: query with `engines=github_code` → returns code snippets
-4. No rate limits: rapid queries work without 429 errors
+2. FastMCP docs query returns `gofastmcp.com` in the top results in ~3s.
+3. Exact pytest-asyncio error query returns GitHub issues / StackOverflow in the top results in ~3s.
+4. Science query with `categories=science` returns arXiv/Semantic Scholar/OpenAlex/PubMed in ~5-6s.
+5. Avoid relying on `categories=it` until query-specific routing is implemented and re-tested; live tests showed either noisy results or zero results depending on the engine set.
 
 ## Resource Limits
 

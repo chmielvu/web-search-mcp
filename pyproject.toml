@@ -47,6 +47,7 @@ observability = [
     "prometheus-client>=0.20.0",
     "opentelemetry-instrumentation-httpx>=0.40b0",
     "opentelemetry-instrumentation-logging>=0.40b0",
+    "structlog>=24.0.0",
 ]
 
 [project.scripts]

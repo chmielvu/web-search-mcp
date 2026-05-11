@@ -36,6 +36,10 @@ class WebSearchResult(BaseModel):
         default=None,
         description="Search providers that surfaced this result.",
     )
+    provider_count: int | None = Field(
+        default=None,
+        description="Number of providers that surfaced this result (agreement signal).",
+    )
     score: float | None = Field(
         default=None,
         description="Merged/reranked score used for final ordering.",
@@ -183,6 +187,24 @@ class ImageSearchResponse(BaseModel):
     page: int = Field(default=0, description="Image search page index.")
 
 
+class QuickWebSearchCitation(BaseModel):
+    """Single citation/source from Composio Quick Web Search."""
+    title: str | None = Field(default=None, description="Citation title from the source.")
+    url: str | None = Field(default=None, description="URL of the cited source.")
+    snippet: str | None = Field(default=None, description="Text snippet from the source.")
+
+
+class QuickWebSearchResponse(BaseModel):
+    """Response from Composio Quick Web Search (COMPOSIO_SEARCH_WEB)."""
+    query: str = Field(description="Original search query.")
+    answer: str | None = Field(default=None, description="AI-synthesized narrative summary.")
+    citations: list[QuickWebSearchCitation] = Field(
+        default_factory=list,
+        description="Source citations (prioritize these over answer for evidence).",
+    )
+    total_citations: int = Field(default=0, description="Total citations returned.")
+
+
 # ============================================================================
 # Error Response Model
 # ============================================================================
@@ -238,3 +260,4 @@ YouTubeTranscriptResultType = YouTubeTranscriptResponse | ToolErrorResponse
 YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse
 SimilarLinksResultType = SimilarLinksResponse | ToolErrorResponse
 ImageSearchResultType = ImageSearchResponse | ToolErrorResponse
+QuickWebSearchResultType = QuickWebSearchResponse | ToolErrorResponse

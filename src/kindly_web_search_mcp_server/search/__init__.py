@@ -114,15 +114,15 @@ class ProviderBudget:
 # Provider Registry
 # =============================================================================
 
-def _resolve_mode(env_mode: str, default: ProviderMode) -> ProviderMode:
-    """Resolve provider mode from settings."""
-    parsed = parse_provider_mode(env_mode)
-    return parsed if parsed else default
+def _parse_mode(mode_str: str) -> ProviderMode:
+    """Parse mode string to ProviderMode. Defaults to ALWAYS if invalid."""
+    parsed = parse_provider_mode(mode_str)
+    return parsed if parsed else ProviderMode.ALWAYS
 
 
 def _init_provider_registry() -> None:
     """Initialize provider registry with configured modes."""
-    # Tier 1: Free providers (always)
+    # Tier 1: Free providers (default always, configurable via env)
     register_provider(ProviderConfig(
         name="searxng",
         mode=ProviderMode.ALWAYS,
@@ -133,17 +133,17 @@ def _init_provider_registry() -> None:
     ))
     register_provider(ProviderConfig(
         name="ddg",
-        mode=ProviderMode.ALWAYS,
+        mode=_parse_mode(settings.ddg_mode),  # default "always" in settings.py
         env_key="",  # No env key needed
         search_fn=search_ddg,
         is_free=True,
         requires_key=False,
     ))
 
-    # Tier 2: Paid providers (mode from settings)
+    # Tier 2: Paid providers (mode from settings.py defaults)
     register_provider(ProviderConfig(
         name="tavily",
-        mode=_resolve_mode(settings.tavily_mode, ProviderMode.NEVER),
+        mode=_parse_mode(settings.tavily_mode),  # default "never" in settings.py
         env_key="TAVILY_API_KEY",
         search_fn=search_tavily,
         is_free=False,
@@ -151,7 +151,7 @@ def _init_provider_registry() -> None:
     ))
     register_provider(ProviderConfig(
         name="brave",
-        mode=_resolve_mode(settings.brave_mode, ProviderMode.NEVER),
+        mode=_parse_mode(settings.brave_mode),  # default "never" in settings.py
         env_key="BRAVE_API_KEY",
         search_fn=search_brave,
         is_free=False,
@@ -159,7 +159,7 @@ def _init_provider_registry() -> None:
     ))
     register_provider(ProviderConfig(
         name="jina",
-        mode=_resolve_mode(settings.jina_mode, ProviderMode.CONDITIONAL),
+        mode=_parse_mode(settings.jina_mode),  # default "conditional" in settings.py
         env_key="JINA_API_KEY",
         search_fn=search_jina,
         is_free=False,
@@ -167,7 +167,7 @@ def _init_provider_registry() -> None:
     ))
     register_provider(ProviderConfig(
         name="gemini",
-        mode=_resolve_mode(settings.gemini_mode, ProviderMode.ALWAYS),
+        mode=_parse_mode(settings.gemini_mode),  # default "always" in settings.py
         env_key="POLLINATIONS_API_KEY",
         search_fn=search_gemini_pollinations,
         is_free=False,
@@ -175,7 +175,7 @@ def _init_provider_registry() -> None:
     ))
     register_provider(ProviderConfig(
         name="composio_llm_search",
-        mode=_resolve_mode(settings.composio_llm_search_mode, ProviderMode.CONDITIONAL),
+        mode=_parse_mode(settings.composio_llm_search_mode),  # default "always" in settings.py
         env_key="COMPOSIO_API_KEY",
         search_fn=search_composio_llm_search,
         is_free=False,
