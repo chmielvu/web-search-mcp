@@ -28,7 +28,7 @@ dependencies = [
     "gradio_client>=1.10.1",
     "huggingface_hub>=1.0.0",
     "youtube-transcript-api>=0.6.0",
-    "duckduckgo-search>=6.0.0",
+    "ddgs>=7.0.0",
     "rich>=13.0.0",
 ]
 

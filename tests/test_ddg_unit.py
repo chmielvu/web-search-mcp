@@ -100,7 +100,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=5)
@@ -120,7 +120,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=5)
@@ -137,7 +137,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=5)
@@ -154,7 +154,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=5)
@@ -173,7 +173,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=3)
@@ -182,7 +182,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         self.assertEqual(len(results), 3)
 
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             mock_ddgs_class,
         ):
             results = _search_ddg_sync("test query", num_results=3)
@@ -192,7 +192,7 @@ class TestDDGSyncSearch(unittest.TestCase):
 
     def test_search_ddg_sync_import_error(self) -> None:
         with patch(
-            "duckduckgo_search.DDGS",
+            "ddgs.DDGS",
             side_effect=ImportError("No module"),
         ):
             results = _search_ddg_sync("test query", num_results=5)

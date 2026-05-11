@@ -64,7 +64,7 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
     Returns:
         List of WebSearchResult objects
     """
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 
     results: list[WebSearchResult] = []
 
@@ -103,7 +103,7 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
                     break
 
     except ImportError:
-        logger.warning("duckduckgo-search library not installed. Install with: pip install duckduckgo-search")
+        logger.warning("ddgs library not installed. Install with: pip install ddgs")
         return []
     except Exception as e:
         logger.warning(f"DDG sync search error: {e}")
