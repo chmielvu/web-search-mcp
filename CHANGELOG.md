@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- RRF merge now applies deterministic host/domain caps in the top results to reduce domain clustering while preserving strong candidates and encounter-order tie breaks.
+- Rerank diversity is now always-on with true MMR host-aware diversification driven by HF embeddings (query-to-document and document-to-document cosine) (relevance + semantic novelty + host penalty) plus strict near-duplicate suppression to improve final result usability.
+
 - Replaced the HF Space reranker path with Jina API reranking in the core rerank pipeline.
 - Replaced the HF Space embedding path with Hugging Face Inference Provider embeddings.
 - Semantic cache now uses a BGE-M3-specific 1024-dimension LanceDB table (`semantic_cache_hf_inference_BAAI_bge_m3_1024`) instead of the old 512-dimension table.
