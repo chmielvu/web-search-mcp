@@ -169,7 +169,7 @@ async def search_gemini_pollinations(
             link=uri,
             snippet=snippet,
             domain=domain,
-            providers=["gemini-pollinations"],
+            providers=["gemini"],
             diagnostics=[
                 {
                     "grounding_chunk": {

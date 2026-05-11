@@ -66,10 +66,15 @@ class TestProviderConfig(unittest.TestCase):
             is_free=True,
             requires_key=False,
         )
-        # Always mode should return True for should_fire when available
+        # Always mode should return True for should_fire when available (no caller list)
         self.assertTrue(config.should_fire())
         self.assertTrue(config.should_fire(caller_providers=None))
-        self.assertTrue(config.should_fire(caller_providers=["other"]))
+
+        # When caller specifies explicit providers, acts as allow-list.
+        # "ddg" not in ["other"] -> should NOT fire
+        self.assertFalse(config.should_fire(caller_providers=["other"]))
+        # "ddg" in ["ddg", "tavily"] -> should fire
+        self.assertTrue(config.should_fire(caller_providers=["ddg", "tavily"]))
 
     def test_provider_mode_never(self) -> None:
         config = ProviderConfig(
@@ -193,6 +198,55 @@ class TestProviderConfig(unittest.TestCase):
         # NEVER mode should report not available regardless of key
         self.assertFalse(config.is_available())
         os.environ.pop("TEST_KEY", None)
+
+    def test_always_provider_respects_allow_list(self) -> None:
+        """Test that explicit caller_providers acts as allow-list for ALWAYS providers."""
+        # Simulate SearXNG (ALWAYS mode, free)
+        searxng = ProviderConfig(
+            name="searxng",
+            mode=ProviderMode.ALWAYS,
+            env_key="SEARXNG_BASE_URL",
+            search_fn=lambda: [],
+            is_free=True,
+            requires_key=False,
+        )
+        os.environ["SEARXNG_BASE_URL"] = "http://localhost:8080"
+
+        # Simulate DDG (ALWAYS mode, free, no env key)
+        ddg = ProviderConfig(
+            name="ddg",
+            mode=ProviderMode.ALWAYS,
+            env_key="",  # No env key needed
+            search_fn=lambda: [],
+            is_free=True,
+            requires_key=False,
+        )
+
+        # When caller requests ONLY composio, ALWAYS providers should NOT fire
+        self.assertFalse(searxng.should_fire(caller_providers=["composio_llm_search"]))
+        self.assertFalse(ddg.should_fire(caller_providers=["composio_llm_search"]))
+
+        # When caller requests ONLY jina, ALWAYS providers should NOT fire
+        self.assertFalse(searxng.should_fire(caller_providers=["jina"]))
+        self.assertFalse(ddg.should_fire(caller_providers=["jina"]))
+
+        # When caller explicitly includes searxng, it should fire
+        self.assertTrue(searxng.should_fire(caller_providers=["searxng"]))
+        self.assertTrue(searxng.should_fire(caller_providers=["searxng", "tavily"]))
+
+        # When caller explicitly includes ddg, it should fire
+        self.assertTrue(ddg.should_fire(caller_providers=["ddg"]))
+        self.assertTrue(ddg.should_fire(caller_providers=["ddg", "searxng"]))
+
+        # Empty caller list should NOT fire any provider (empty allow-list)
+        self.assertFalse(searxng.should_fire(caller_providers=[]))
+        self.assertFalse(ddg.should_fire(caller_providers=[]))
+
+        # No caller list specified -> use mode-based (ALWAYS fires)
+        self.assertTrue(searxng.should_fire(caller_providers=None))
+        self.assertTrue(ddg.should_fire(caller_providers=None))
+
+        os.environ.pop("SEARXNG_BASE_URL", None)
 
 
 if __name__ == "__main__":

@@ -66,6 +66,13 @@ LanceDB-backed fuzzy query matching:
 |----------|---------|-------------|
 | `KINDLY_LANCEDB_DIR` | `./lancedb_data` | Directory for LanceDB semantic cache storage |
 | `KINDLY_SEMANTIC_CACHE_MIN_SCORE` | `0.82` | Minimum similarity score (0.0-1.0) for cache hit |
+| `KINDLY_HF_EMBEDDING_MODEL` | `ibm-granite/granite-embedding-97m-multilingual-r2` | Embedding model used for semantic cache vectors |
+| `KINDLY_EMBEDDING_DIM` | `384` | Expected embedding vector dimension for the active model |
+
+The semantic cache table name is derived from the active embedding model and
+dimension. Changing `KINDLY_HF_EMBEDDING_MODEL` or `KINDLY_EMBEDDING_DIM`
+creates or opens a different LanceDB table, which prevents vector-dimension
+collisions with older cache data.
 
 ---
 

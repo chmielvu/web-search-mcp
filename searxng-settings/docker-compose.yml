@@ -36,7 +36,7 @@ services:
       - UWSGI_THREADS=4
       # Pass settings via environment for fallback
       - SEARXNG_SECRET_KEY=a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890
-      - SEARXNG_REDIS_URL=valkey://searxng-valkey:6379/0
+      - SEARXNG_VALKEY_URL=valkey://searxng-valkey:6379/0
     networks:
       - searxng-net
     depends_on:

@@ -46,7 +46,10 @@ class ProviderConfig:
         """Determine if this provider should be used for current search.
 
         Args:
-            caller_providers: Optional list of provider names explicitly requested by caller
+            caller_providers: Optional list of provider names explicitly requested by caller.
+                When provided (including empty list), acts as an allow-list.
+                Empty list [] means "no providers" - nothing fires.
+                None means "use default mode-based selection".
 
         Returns:
             True if this provider should fire for this search
@@ -54,13 +57,18 @@ class ProviderConfig:
         if self.mode == ProviderMode.NEVER:
             return False
 
+        # When caller specifies explicit providers (including empty), treat as allow-list.
+        # Only fire if this provider is in the caller's list AND is available.
+        # Empty list [] -> allow-list with nothing allowed -> nothing fires.
+        if caller_providers is not None:
+            return self.name in caller_providers and self.is_available()
+
+        # No explicit caller list (None) - use mode-based selection.
         if self.mode == ProviderMode.ALWAYS:
             return self.is_available()
 
         if self.mode == ProviderMode.CONDITIONAL:
-            # Only fire when explicitly requested by caller
-            if caller_providers and self.name in caller_providers:
-                return self.is_available()
+            # Only fire when explicitly requested (but caller_providers was None)
             return False
 
         return False

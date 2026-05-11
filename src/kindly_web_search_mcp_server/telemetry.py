@@ -54,16 +54,18 @@ except ImportError:
 
 # Logging bridge (experimental but useful)
 try:
+    from opentelemetry._logs import set_logger_provider
     from opentelemetry.sdk._logs import LoggerProvider
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-    from opentelemetry.instrumentation.logging import LoggingInstrumentor
+    from opentelemetry.instrumentation.logging.handler import LoggingHandler
     LOGS_AVAILABLE = True
 except ImportError:
     LOGS_AVAILABLE = False
 
 
 _initialized = False
+_otel_logging_handler: logging.Handler | None = None
 
 
 # ============================================================================
@@ -276,6 +278,10 @@ _perplexity_counter: metrics.Counter | None = None
 _youtube_transcript_counter: metrics.Counter | None = None
 _youtube_search_counter: metrics.Counter | None = None
 
+# Query quality metrics (Phase 2)
+_query_length_histogram: metrics.Histogram | None = None
+_domain_diversity_histogram: metrics.Histogram | None = None
+
 
 # ============================================================================
 # INITIALIZATION
@@ -435,12 +441,32 @@ def init_telemetry(
             )
             logger_provider = LoggerProvider(resource=resource)
             logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+            set_logger_provider(logger_provider)
 
-            # Bridge Python logging to OTEL
-            LoggingInstrumentor().instrument(set_logging_format=True)
-            logging.info("OTLP log export enabled - logs correlated with traces")
+            global _otel_logging_handler
+            if _otel_logging_handler is None:
+                _otel_logging_handler = LoggingHandler(
+                    level=logging.NOTSET,
+                    logger_provider=logger_provider,
+                )
+                setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
+                logging.getLogger().addHandler(_otel_logging_handler)
+
+            logging.info("OTLP log export enabled - standard logging bridged to OpenTelemetry")
         except Exception as e:
             logging.warning(f"Failed to initialize log export: {e}")
+
+    # Configure structlog for Loki JSON format with trace context injection
+    # Set KINDLY_STRUCTURED_LOGGING=true to enable JSON output (recommended for Grafana Loki)
+    # Default: plain text logs (easier for local development)
+    try:
+        from .utils.structured_logging import configure_structlog
+        json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in ("true", "1", "yes")
+        configure_structlog(json_output=json_logs)
+        if json_logs:
+            logging.info("Structured logging enabled - JSON format for Grafana Loki")
+    except ImportError:
+        logging.info("structlog not installed - using standard Python logging. Install: pip install structlog")
 
     _initialized = True
     logging.info(f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}")
@@ -524,6 +550,12 @@ def get_search_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
         )
 
     return _search_total_counter, _search_duration_histogram, _search_merge_histogram
+
+
+def get_search_total_metric() -> metrics.Counter:
+    """Get search total counter directly (convenience function for search_instrumented.py)."""
+    total_counter, _, _ = get_search_metrics()
+    return total_counter
 
 
 def get_cache_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
@@ -787,6 +819,36 @@ def get_youtube_metrics() -> tuple[metrics.Counter, metrics.Counter]:
         )
 
     return _youtube_transcript_counter, _youtube_search_counter
+
+
+def get_query_quality_metrics() -> tuple[metrics.Histogram, metrics.Histogram]:
+    """Get query quality metrics (P2-1: query length, P2-2: domain diversity).
+
+    Returns:
+        Tuple of (query_length_histogram, domain_diversity_histogram)
+    """
+    meter = get_meter()
+    global _query_length_histogram, _domain_diversity_histogram
+
+    if _query_length_histogram is None:
+        _query_length_histogram = meter.create_histogram(
+            name="web_search_query_length_chars",
+            description="Distribution of query string lengths (detect keyword pile-on)",
+            unit="chars",
+            # Buckets: short queries (10-50 chars), medium (100 chars), long keyword pile-on (500+)
+            explicit_bucket_boundaries_advisory=[10, 20, 50, 100, 200, 500],
+        )
+
+    if _domain_diversity_histogram is None:
+        _domain_diversity_histogram = meter.create_histogram(
+            name="web_search_domain_diversity",
+            description="Unique domains in top N results (detect homogeneous results)",
+            unit="domains",
+            # Buckets: 1 domain (all same), 3-5 (good diversity), 10+ (excellent)
+            explicit_bucket_boundaries_advisory=[1, 2, 3, 5, 7, 10, 15],
+        )
+
+    return _query_length_histogram, _domain_diversity_histogram
 
 
 # ============================================================================
@@ -1186,6 +1248,41 @@ def record_youtube_search(
     _, search_counter = get_youtube_metrics()
     search_counter.add(1, {
         SEARCH_NUM_RESULTS_RETURNED: num_results,
+    })
+
+
+def record_query_length(
+    query_length: int,
+    policy: str,
+) -> None:
+    """Record query length for detecting keyword pile-on patterns.
+
+    Args:
+        query_length: Length of original query in characters
+        policy: Rewrite policy mode (bypass, light_rewrite, expand)
+    """
+    query_length_histogram, _ = get_query_quality_metrics()
+    query_length_histogram.record(query_length, {
+        REWRITE_POLICY: policy,
+    })
+
+
+def record_domain_diversity(
+    unique_domains: int,
+    total_results: int,
+    providers_used: list[str],
+) -> None:
+    """Record domain diversity for detecting homogeneous results.
+
+    Args:
+        unique_domains: Number of unique domains in top N results
+        total_results: Total number of results returned
+        providers_used: List of providers that contributed results
+    """
+    _, domain_diversity_histogram = get_query_quality_metrics()
+    domain_diversity_histogram.record(unique_domains, {
+        SEARCH_NUM_RESULTS_RETURNED: total_results,
+        SEARCH_PROVIDERS_USED: str(providers_used),
     })
 
 
@@ -1613,6 +1710,7 @@ __all__ = [
     "init_telemetry",
     "get_tracer",
     "get_meter",
+    "get_search_total_metric",
 
     # Basic metrics recording
     "record_provider_call",
@@ -1646,6 +1744,10 @@ __all__ = [
     "record_youtube_transcript",
     "record_youtube_search",
     "record_tool_details",
+
+    # Query quality metrics (Phase 2)
+    "record_query_length",
+    "record_domain_diversity",
 
     # Span creation
     "create_search_span",

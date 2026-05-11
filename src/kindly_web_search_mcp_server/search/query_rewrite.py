@@ -20,10 +20,11 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from ..settings import settings
 from ..utils.diagnostics import Diagnostics
+from ..utils.observability import emit_observability_event
 from ..telemetry import (
     record_query_rewrite,
+    record_query_length,
     REWRITE_POLICY,
-    REWRITE_VARIANT_COUNT,
     REWRITE_MODEL,
     SEARCH_QUERY,
 )
@@ -318,6 +319,9 @@ async def rewrite_search_query(
     policy = await resolve_query_routing(query, diagnostics=diagnostics)
     max_variants = max(1, min(settings.query_rewrite_max_variants, 3))
 
+    # Record query length for keyword pile-on detection (P2-1 metric)
+    record_query_length(len(query), policy=policy.mode)
+
     # Create telemetry span
     with tracer.start_as_current_span(
         "query.rewrite",
@@ -341,6 +345,14 @@ async def rewrite_search_query(
                 model="disabled",
             )
             span.add_event("rewrite.disabled", attributes={"reason": "Query rewriting disabled"})
+            emit_observability_event(
+                logger,
+                "query.rewrite.disabled",
+                query=query,
+                normalized_query=normalized_query,
+                policy=policy.mode,
+                reason="Query rewriting disabled",
+            )
             return _fallback_plan(query, policy, "Query rewriting disabled.")
 
         if policy.mode == "bypass":
@@ -354,6 +366,15 @@ async def rewrite_search_query(
                 model="bypass",
             )
             span.add_event("rewrite.bypass", attributes={"reason": policy.reason[:100]})
+            emit_observability_event(
+                logger,
+                "query.rewrite.bypass",
+                query=query,
+                normalized_query=normalized_query,
+                policy=policy.mode,
+                reason=policy.reason,
+                final_queries=[normalized_query],
+            )
             return _fallback_plan(query, policy, policy.reason)
 
         if not settings.mistral_api_key:
@@ -367,6 +388,15 @@ async def rewrite_search_query(
                 model="fallback",
             )
             span.add_event("rewrite.fallback", attributes={"reason": "No Mistral API key"})
+            emit_observability_event(
+                logger,
+                "query.rewrite.fallback",
+                query=query,
+                normalized_query=normalized_query,
+                policy=policy.mode,
+                reason="No Mistral API key configured.",
+                final_queries=[normalized_query],
+            )
             return _fallback_plan(query, policy, "No Mistral API key configured.")
 
         if diagnostics:
@@ -438,9 +468,24 @@ async def rewrite_search_query(
             # Add variants as span events
             for i, variant in enumerate(plan.variants[:5]):
                 span.add_event(f"rewrite.variant.{i}", attributes={
-                    "variant.type": getattr(variant, 'type', 'unknown'),
-                    "variant.text": getattr(variant, 'text', str(variant))[:100],
+                    "variant.kind": variant.kind,
+                    "variant.query": variant.query[:100],
+                    "variant.why": variant.why[:100] if variant.why else "",
                 })
+
+            emit_observability_event(
+                logger,
+                "query.rewrite.completed",
+                query=query,
+                normalized_query=normalized_query,
+                policy=policy.mode,
+                intent=intent,
+                research_goal=research_goal,
+                final_queries=plan.final_queries,
+                variants=[variant.model_dump() for variant in plan.variants],
+                duration_ms=round(duration * 1000, 3),
+                model=settings.query_rewrite_model,
+            )
 
             if diagnostics:
                 diagnostics.emit(
@@ -474,6 +519,19 @@ async def rewrite_search_query(
                 "error.type": type(exc).__name__,
                 "error.message": str(exc)[:100],
             })
+            emit_observability_event(
+                logger,
+                "query.rewrite.error",
+                level=logging.WARNING,
+                query=query,
+                normalized_query=normalized_query,
+                policy=policy.mode,
+                intent=intent,
+                research_goal=research_goal,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                final_queries=[normalized_query],
+            )
 
             if diagnostics:
                 diagnostics.emit(

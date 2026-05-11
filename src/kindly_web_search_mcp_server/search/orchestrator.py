@@ -13,8 +13,10 @@ import httpx
 from ..models import WebSearchResponse
 from ..rerank import rerank_results
 from ..settings import settings
+from ..telemetry import record_domain_diversity
 from ..utils.diagnostics import Diagnostics
-from . import search_single_query
+from ..utils.observability import emit_observability_event, serialize_search_results
+from ..search_instrumented import search_single_query
 from .merge import merge_search_results
 from .normalize import normalize_query
 from .query_policy import RewriteMode, RewritePolicy
@@ -77,6 +79,19 @@ async def run_web_search(
 
     per_query_k = _resolve_per_query_k(num_results, rewrite_policy.mode)
 
+    emit_observability_event(
+        logger,
+        "search.orchestrator.plan",
+        query=query,
+        normalized_query=normalized_query,
+        rewrite_enabled=rewrite,
+        rewrite_policy=rewrite_policy.mode,
+        final_queries=queries,
+        per_query_k=per_query_k,
+        providers_requested=providers or [],
+        research_goal=research_goal,
+    )
+
     if diagnostics:
         diagnostics.emit(
             "web_search.rewrite_plan",
@@ -108,6 +123,11 @@ async def run_web_search(
         )
 
     merged = merge_search_results(result_lists)
+
+    # Record domain diversity for homogeneous result detection
+    unique_domains = len(set(r.domain for r in merged if r.domain))
+    record_domain_diversity(unique_domains, len(merged), providers or [])
+
     if settings.reranking_enabled and len(merged) > 1:
         try:
             merged = await rerank_results(normalized_query, merged, top_k=num_results)
@@ -115,4 +135,30 @@ async def run_web_search(
             logger.warning("Reranking failed in web search orchestrator: %s", exc)
 
     final_results = merged[:num_results]
-    return WebSearchResponse(query=query, results=final_results)
+
+    # Aggregate providers_used from merged results
+    providers_used = sorted(
+        set(p for r in final_results for p in (r.providers or []))
+    )
+
+    emit_observability_event(
+        logger,
+        "search.orchestrator.response",
+        query=query,
+        normalized_query=normalized_query,
+        rewrite_enabled=rewrite,
+        rewrite_policy=rewrite_policy.mode,
+        unique_domains=unique_domains,
+        merged_result_count=len(merged),
+        final_result_count=len(final_results),
+        providers_requested=providers or [],
+        providers_used=providers_used,
+        results=serialize_search_results(final_results, max_results=num_results),
+    )
+
+    return WebSearchResponse(
+        query=query,
+        results=final_results,
+        total_results=len(final_results),
+        providers_used=providers_used,
+    )

@@ -1,11 +1,10 @@
-# SearXNG Settings for AI Coding Agents - Docker Desktop Compatible
+# SearXNG Settings for AI Coding Agents - Research-backed configuration
+# Source: SearXNG Practitioner's Guide (May 2026)
 # Optimized for: smolagents, LangChain tools, MCP servers
-# Based on operator evidence baseline with fixes for Windows/Docker Desktop
 
 use_default_settings: true
 
 general:
-  debug: false
   instance_name: "SearXNG-Agent"
   enable_metrics: false
 
@@ -14,28 +13,25 @@ search:
   autocomplete: ""
   formats:
     - html
-    - json
+    - json                     # Required for LLM agent integration
   ban_time_on_fail: 5
   max_ban_time_on_fail: 120
-  # Long suspension times for Cloudflare/CAPTCHA/429 - critical for reliability
+  # Shorter suspension times for faster recovery on private instance
   suspended_times:
-    SearxEngineAccessDenied: 86400
-    SearxEngineCaptcha: 86400
-    SearxEngineTooManyRequests: 3600
-    cf_SearxEngineCaptcha: 1296000
-    cf_SearxEngineAccessDenied: 86400
-    recaptcha_SearxEngineCaptcha: 604800
+    SearxEngineAccessDenied: 3600       # 1h (private instance: faster recovery)
+    SearxEngineCaptcha: 3600            # 1h (private instance: faster recovery)
+    SearxEngineTooManyRequests: 1800    # 30min (private instance: faster recovery)
+    cf_SearxEngineCaptcha: 3600         # 1h (reduced from 15 days)
+    recaptcha_SearxEngineCaptcha: 3600  # 1h (reduced from 7 days)
 
 server:
-  # Generated with: openssl rand -hex 32
   secret_key: "a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890"
-  limiter: false
+  limiter: false               # Required for LLM agent tool calls
+  public_instance: false
   image_proxy: false
   method: "GET"
-  base_url: http://localhost:8080/
 
-# Use redis: key for broader compatibility (SearXNG treats valkey:// URLs correctly)
-redis:
+valkey:
   url: valkey://searxng-valkey:6379/0
 
 outgoing:
@@ -45,51 +41,104 @@ outgoing:
   pool_maxsize: 20
   keepalive_expiry: 10.0
   enable_http2: true
+  retries: 1
+  retry_on_http_error: 429
 
 ui:
   default_theme: simple
 
 engines:
-  # === GENERAL WEB (Reliable choices) ===
-  - name: duckduckgo
-    disabled: false
-    timeout: 3.0
-    weight: 1.4
-
+  # === TIER 1: Core web search (weight 2) ===
   - name: brave
+    engine: brave
+    weight: 2
     disabled: false
-    timeout: 3.0
-    weight: 1.3
+
+  - name: duckduckgo
+    engine: duckduckgo
+    weight: 2
+    disabled: false
 
   - name: wikipedia
+    engine: wikipedia
+    weight: 2
     disabled: false
-    timeout: 2.5
-    weight: 1.0
 
-  # Google/Bing: Enable but with caution - may hit CAPTCHA
-  - name: google
+  # === TIER 2: Independent indexes ===
+  - name: mojeek
+    engine: mojeek
+    weight: 1
+    disabled: false            # Enable it (disabled by default upstream)
+
+  - name: qwant
+    engine: qwant
+    weight: 1
     disabled: false
-    timeout: 3.0
-    weight: 1.2
 
+  - name: yandex
+    engine: yandex
+    weight: 1.4
+    disabled: false
+    yandex_category: web       # Own massive index, good for technical queries
+
+  # === DISABLED: Known broken (May 2026) ===
+  - name: yahoo
+    engine: yahoo
+    inactive: true             # HTTP protocol error + first-word-only bug
+
+  - name: wikidata
+    engine: wikidata
+    inactive: true             # HTTP 403 init failure
+
+  - name: startpage
+    engine: startpage
+    inactive: true             # JSON parse errors since Sep 2025
+
+  - name: google news
+    engine: google_news
+    inactive: true             # Broken since March 2026 (protobuf URL change)
+
+  - name: karmasearch
+    engine: karma
+    inactive: true             # HTTP 403 universal
+
+  # Bing disabled per user request - known relevance issues on long queries
   - name: bing
-    disabled: false
-    timeout: 3.0
-    weight: 1.0
+    engine: bing
+    inactive: true
 
-  # === CODE SEARCH (HIGH PRIORITY) ===
-  - name: github
+  # === Science / Academic ===
+  - name: arxiv
+    engine: arxiv
+    categories: science
     disabled: false
-    timeout: 3.0
-    weight: 2.0
+
+  - name: google scholar
+    engine: google_scholar
+    categories: science
+    disabled: false
+
+  - name: semantic scholar
+    engine: semantic_scholar
+    categories: science
+    disabled: false
+
+  - name: pubmed
+    engine: pubmed
+    categories: science
+    disabled: false
+
+  # === IT / Developer tools ===
+  - name: github
+    engine: github
+    categories: it
+    disabled: false
+    weight: 2
 
   - name: github code
+    engine: github
+    categories: it
     disabled: false
-    inactive: false
-    ghc_auth:
-      type: "none"
-    ghc_highlight_matching_lines: true
-    timeout: 4.0
     weight: 2.5
 
   - name: stackoverflow
@@ -98,8 +147,7 @@ engines:
     api_site: 'stackoverflow'
     categories: [it, q&a]
     disabled: false
-    timeout: 3.0
-    weight: 2.0
+    weight: 2
 
   - name: askubuntu
     engine: stackexchange
@@ -107,8 +155,6 @@ engines:
     api_site: 'askubuntu'
     categories: [it, q&a]
     disabled: false
-    timeout: 3.0
-    weight: 1.4
 
   - name: superuser
     engine: stackexchange
@@ -116,50 +162,45 @@ engines:
     api_site: 'superuser'
     categories: [it, q&a]
     disabled: false
-    timeout: 3.0
-    weight: 1.4
+
+  - name: hackernews
+    engine: hackernews
+    categories: it
+    disabled: false            # Enable it (disabled by default)
+
+  - name: huggingface
+    engine: huggingface
+    categories: it
+    disabled: false            # Enable it (disabled by default)
 
   - name: pypi
+    engine: pypi
+    categories: it
     disabled: false
-    timeout: 3.0
-    weight: 1.8
 
   - name: npm
+    engine: npm
+    categories: it
     disabled: false
-    timeout: 3.0
-    weight: 1.4
 
-  # === AI/ML SPECIALIZED ===
-  - name: huggingface
+  # === News (working sources) ===
+  - name: reuters
+    engine: reuters
+    categories: news
     disabled: false
-    huggingface_endpoint: 'models'
-    timeout: 4.0
-    weight: 1.8
 
-  - name: arxiv
+  # === SPECIALTY: Indie/non-commercial web (custom json_engine) ===
+  # Marginalia - focuses on non-commercial, personal, indie web content
+  # Excellent complement to mainstream engines for niche technical queries
+  - name: marginalia
+    engine: json_engine
+    categories: general
+    url: "https://marginalia.nu/search?query={query}&js=true"
     disabled: false
-    timeout: 4.0
-    weight: 1.5
-    categories: [science]
-
-  # === COMMUNITY/QA ===
-  - name: reddit
-    disabled: false
-    timeout: 4.0
-    weight: 0.8
-
-  # === DISABLE NOISY/SLOW ENGINES ===
-  - name: qwant
-    disabled: true
-
-  - name: yahoo
-    disabled: true
+    weight: 1
+    timeout: 5.0
 
 plugins:
-  searx.plugins.infinite_scroll.SXNGPlugin:
-    active: false
-  searx.plugins.tor_check.SXNGPlugin:
-    active: false
   searx.plugins.tracker_url_remover.SXNGPlugin:
     active: true
 

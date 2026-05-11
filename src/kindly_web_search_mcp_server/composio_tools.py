@@ -11,12 +11,15 @@ from .composio_client import execute_composio_tool
 from .models import (
     ImageSearchResponse,
     ImageSearchResult,
+    QuickWebSearchCitation,
+    QuickWebSearchResponse,
     SimilarLinkResult,
     SimilarLinksResponse,
 )
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
 IMAGE_SEARCH_SLUG = "COMPOSIO_SEARCH_IMAGE"
+WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_WEB"
 
 
 def _string_list(values: list[str] | None) -> list[str] | None:
@@ -39,6 +42,62 @@ def _parse_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _extract_web_search_results(data: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
+    """Extract answer and citations from COMPOSIO_SEARCH_WEB response.
+
+    The Composio SEARCH_WEB tool returns a nested structure:
+    - results.answer: narrative summary
+    - results.citations: list of source objects with title/url/snippet
+    """
+    results_container = data.get("results", data)
+    if not isinstance(results_container, dict):
+        return None, []
+
+    answer = results_container.get("answer")
+    if not isinstance(answer, str):
+        answer = None
+
+    citations_raw = results_container.get("citations", [])
+    if not isinstance(citations_raw, list):
+        citations_raw = []
+
+    return answer, citations_raw
+
+
+async def _quick_web_search_impl(query: str) -> QuickWebSearchResponse:
+    """Execute COMPOSIO_SEARCH_WEB and parse the response.
+
+    Composio SEARCH_WEB returns:
+    - results.answer: narrative summary (can be vague, prioritize citations)
+    - results.citations: list of sources with title/url/snippet
+    """
+    data = await execute_composio_tool(WEB_SEARCH_SLUG, {"query": query})
+
+    answer, citations_raw = _extract_web_search_results(data)
+    citations: list[QuickWebSearchCitation] = []
+
+    for item in citations_raw:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        url = item.get("url")
+        snippet = item.get("snippet")
+        citations.append(
+            QuickWebSearchCitation(
+                title=title.strip() if isinstance(title, str) else None,
+                url=url.strip() if isinstance(url, str) else None,
+                snippet=snippet.strip() if isinstance(snippet, str) else None,
+            )
+        )
+
+    return QuickWebSearchResponse(
+        query=query,
+        answer=answer,
+        citations=citations,
+        total_citations=len(citations),
+    )
 
 
 async def _composio_similarlinks_impl(
@@ -128,6 +187,33 @@ async def _composio_image_search_impl(
 
 def register_composio_tools(mcp: Any) -> None:
     """Register standalone Composio Search toolkit tools."""
+
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            title="Quick Web Search",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        )
+    )
+    async def quick_web_search(
+        query: str,
+        ctx: Context = CurrentContext(),
+    ) -> dict:
+        """Quick web search using Composio SEARCH_WEB (Exa-backed).
+
+        Returns an AI-synthesized answer and citations. Prioritize citations
+        as primary evidence over the answer, which can be vague. Only indexes
+        publicly available content — no paywalled or private pages.
+
+        Args:
+            query: Search query. Add qualifiers (year, region, platform) for
+                   better results. Broad queries return generic content.
+        """
+        await ctx.info(f"Quick web search: {query[:80]}...")
+        response = await _quick_web_search_impl(query)
+        await ctx.info(f"Found {response.total_citations} citations")
+        return response.model_dump(exclude_none=True)
 
     @mcp.tool(
         annotations=ToolAnnotations(
