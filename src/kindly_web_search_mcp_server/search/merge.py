@@ -4,6 +4,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from collections import Counter
+from urllib.parse import urlparse
 from typing import Any
 
 from ..models import WebSearchResult
@@ -39,11 +40,75 @@ def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearch
     return base
 
 
+def _normalize_host(link: str, fallback_domain: str | None = None) -> str:
+    host = (urlparse(link).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host:
+        return host
+    return (fallback_domain or "").strip().lower() or "__unknown_host__"
+
+
+def _apply_host_cap(
+    ranked: list[tuple[str, _MergedCandidate]],
+    encounter_order: dict[str, int],
+    *,
+    max_per_host: int,
+    top_k: int,
+) -> list[tuple[str, _MergedCandidate]]:
+    """Reduce host clustering while preserving deterministic ranking semantics."""
+    if max_per_host <= 0 or top_k <= 0:
+        return ranked
+
+    capped_count: Counter[str] = Counter()
+    selected: list[tuple[str, _MergedCandidate]] = []
+    overflow: list[tuple[str, _MergedCandidate]] = []
+
+    # First pass: preserve each host's best results up to cap.
+    for key, candidate in ranked:
+        host = _normalize_host(candidate.result.link, candidate.result.domain)
+        if len(selected) < top_k and capped_count[host] < max_per_host:
+            selected.append((key, candidate))
+            capped_count[host] += 1
+        else:
+            overflow.append((key, candidate))
+
+    if len(selected) >= top_k:
+        return selected + overflow
+
+    # Second pass: interleave remaining hosts (deterministic via encounter order).
+    overflow_by_host: dict[str, list[tuple[str, _MergedCandidate]]] = {}
+    host_order: dict[str, int] = {}
+    for key, candidate in overflow:
+        host = _normalize_host(candidate.result.link, candidate.result.domain)
+        overflow_by_host.setdefault(host, []).append((key, candidate))
+        host_order.setdefault(host, encounter_order[key])
+
+    host_cycle = sorted(host_order, key=lambda host: host_order[host])
+    while len(selected) < top_k and host_cycle:
+        next_cycle: list[str] = []
+        for host in host_cycle:
+            queue = overflow_by_host.get(host)
+            if not queue:
+                continue
+            selected.append(queue.pop(0))
+            if len(selected) >= top_k:
+                break
+            if queue:
+                next_cycle.append(host)
+        host_cycle = next_cycle
+
+    remaining = [item for host in host_order for item in overflow_by_host.get(host, [])]
+    return selected + remaining
+
+
 def merge_search_results(
     result_lists: list[list[WebSearchResult]],
     *,
     k: int | None = None,
     provider_weights: dict[str, float] | None = None,
+    max_per_host: int = 2,
+    host_cap_top_k: int | None = None,
     enable_telemetry: bool = True,
 ) -> list[WebSearchResult]:
     """Merge multiple ranked lists using Weighted Reciprocal Rank Fusion.
@@ -54,6 +119,8 @@ def merge_search_results(
         result_lists: Lists of results from different providers/queries.
         k: RRF constant. Lower = more rank-sensitive. Default from settings.
         provider_weights: Per-provider weight multipliers. Default from settings.
+        max_per_host: Maximum results per host in the top-k diversification window.
+        host_cap_top_k: Size of the diversification window. Defaults to all ranked results.
         enable_telemetry: If True, record RRF metrics (default True).
     """
     tracer = trace.get_tracer("web-search-mcp") if enable_telemetry else None
@@ -104,8 +171,15 @@ def merge_search_results(
         key=lambda item: (-item[1].score, encounter_order[item[0]]),
     )
 
+    capped_ranked = _apply_host_cap(
+        ranked,
+        encounter_order,
+        max_per_host=max_per_host,
+        top_k=host_cap_top_k or len(ranked),
+    )
+
     output: list[WebSearchResult] = []
-    for _, bucket in ranked:
+    for _, bucket in capped_ranked:
         result = bucket.result.model_copy(
             update={
                 "providers": sorted(bucket.providers) or bucket.result.providers,
@@ -146,36 +220,37 @@ def merge_search_results(
                 record_rrf_score(result.score, i + 1)
 
     # Add span events with RRF details
-    with tracer.start_as_current_span(
-        "rrf_merge",
-        kind=trace.SpanKind.INTERNAL,
-        attributes={
-            RRF_INPUT_LISTS: len(result_lists),
-            RRF_INPUT_TOTAL: total_input,
-            "merge.k": k,
-            "merge.output_total": len(output),
-            "merge.discarded_count": discarded_count,
-            "merge.overlap_rate": round(overlap_rate, 3),
-        },
-    ) as span:
-        # Add provider contribution events
-        for provider, count in provider_contributions.items():
-            span.add_event(f"rrf.provider.{provider}", attributes={
-                "provider.name": provider,
-                "rrf.provider_contribution": count,
-            })
+    if tracer is not None:
+        with tracer.start_as_current_span(
+            "rrf_merge",
+            kind=trace.SpanKind.INTERNAL,
+            attributes={
+                RRF_INPUT_LISTS: len(result_lists),
+                RRF_INPUT_TOTAL: total_input,
+                "merge.k": k,
+                "merge.output_total": len(output),
+                "merge.discarded_count": discarded_count,
+                "merge.overlap_rate": round(overlap_rate, 3),
+            },
+        ) as span:
+            # Add provider contribution events
+            for provider, count in provider_contributions.items():
+                span.add_event(f"rrf.provider.{provider}", attributes={
+                    "provider.name": provider,
+                    "rrf.provider_contribution": count,
+                })
 
-        # Add discarded sample
-        if discarded_count > 0:
-            span.add_event("rrf.discards", attributes={
-                "rrf.discarded_count": discarded_count,
-            })
+            # Add discarded sample
+            if discarded_count > 0:
+                span.add_event("rrf.discards", attributes={
+                    "rrf.discarded_count": discarded_count,
+                })
 
-        # Add overlap sample
-        if overlapping_urls:
-            span.add_event("rrf.overlap", attributes={
-                "rrf.overlapping_count": len(overlapping_urls),
-            })
+            # Add overlap sample
+            if overlapping_urls:
+                span.add_event("rrf.overlap", attributes={
+                    "rrf.overlapping_count": len(overlapping_urls),
+                })
 
     logger.debug(
         "RRF merge: k=%d, %d lists → %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
@@ -184,4 +259,3 @@ def merge_search_results(
     )
 
     return output
-

@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from ..embeddings import embed_texts
+from ..embeddings import embed_query, embed_texts
 from ..embeddings.hf_inference import EmbeddingAPIError, EmbeddingTimeoutError
 from ..models import WebSearchResult
 from ..telemetry import (
@@ -18,7 +18,7 @@ from ..telemetry import (
     SEARCH_QUERY,
 )
 from .bi_encoder import bi_encoder_filter
-from .diversity import compute_embedding_diversity
+from .diversity import compute_embedding_diversity, maximal_marginal_relevance_rank
 from .jina import jina_rerank
 from opentelemetry import trace
 
@@ -162,8 +162,23 @@ async def rerank_results(
         try:
             embeddings = await embed_texts(texts, timeout=60.0)
             if embeddings and len(embeddings) == len(candidates[: top_k * 2]):
-                original_indices = list(range(len(candidates[: top_k * 2])))
-                kept_indices = compute_embedding_diversity(embeddings, threshold=0.85)
+                scoped_count = len(candidates[: top_k * 2])
+                scoped_urls = [candidate.link for candidate in candidates[: top_k * 2]]
+                query_embedding = await embed_query(query, timeout=30.0)
+
+                diversified_rank = maximal_marginal_relevance_rank(
+                    query_embedding,
+                    embeddings,
+                    scoped_urls,
+                    lambda_param=0.7,
+                    max_per_host=2,
+                )
+
+                duplicate_keep = compute_embedding_diversity(embeddings, threshold=0.9)
+                duplicate_keep_set = set(duplicate_keep)
+                kept_indices = [idx for idx in diversified_rank if idx in duplicate_keep_set]
+
+                original_indices = list(range(scoped_count))
 
                 # Track removed items for telemetry
                 removed_indices = set(original_indices) - set(kept_indices)
@@ -174,7 +189,7 @@ async def rerank_results(
                 for _ in removed_indices:
                     record_diversity_removal(similarity_score=0.85, threshold=0.85)
 
-                candidates = [candidates[i] for i in kept_indices]
+                candidates = [candidates[i] for i in kept_indices] + candidates[top_k * 2 :]
                 stage3_output_count = len(candidates)
                 logger.debug(f"After diversity pruning: {len(candidates)} candidates")
             else:
