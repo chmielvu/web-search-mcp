@@ -3,6 +3,7 @@
 Simple flow:
 1. Detect precision signals → bypass (return original only)
 2. No signals → expand via Mistral with docs/issues angles
+3. Uses CoT prompting - model thinks through restructuring before generating
 """
 
 from __future__ import annotations
@@ -60,7 +61,18 @@ def _load_mistral_client_class():
 class QueryVariant(BaseModel):
     """A single query variant for web search."""
 
-    kind: Literal["original", "official_docs", "community_issues"]
+    kind: Literal[
+        # Code intent variants
+        "original",
+        "official_docs",
+        "community_issues",
+        # General research intent variants
+        "expanded",
+        "focused",
+        # Comparison intent variants
+        "entity_a",
+        "entity_b",
+    ]
     query: str = Field(
         description=(
             "A concise web search query. Preserve exact technical literals: package names, "
@@ -97,111 +109,112 @@ class QueryRewritePlan(BaseModel):
 
 
 MISTRAL_QUERY_REWRITE_SYSTEM_PROMPT = """
-You are a expert query optimizer, your job is to rewrite messy coding-related search queries into a small set of better web-search queries.
+You are a query optimizer for a coding assistant's web search tool.
+
+CORE TASK: Take an over-keyworded or messy query and produce 3 concise, diverse search queries.
 
 Return JSON only.
 Follow the schema exactly.
 
-Task:
-- You receive ONE raw query string from a coding agent.
-- The input may be a bag of words, missing punctuation, or badly phrased.
-- Produce 2 or 3 complementary web-search queries.
+CRITICAL INSTRUCTION FROM RESEARCH:
+"Strip out all information that is not relevant for the retrieval task"
+- Reduce keyword pile-on (agents dump 10+ keywords)
+- Keep only terms that meaningfully impact search results
+- Preserve exact technical literals verbatim: package names, versions, CLI flags, repo names, model names, function/class names, file paths, exact error fragments, quoted text.
 
-Hard rules:
-1. Keep one query very close to the original intent.
-2. Preserve exact technical literals when present:
-   package names, versions, CLI flags, repo names, model names,
-   function/class names, file paths, exact error fragments, quoted text.
-3. Do not invent package names, versions, issue numbers, or APIs.
-4. Do not over-interpret vague queries. Clean them up, but stay conservative.
-5. Make the variants complementary, not near-duplicates.
+CHAIN-OF-THINK PROCESS (think before generating):
+1. Analyze: What is the core intent? Identify key technical terms vs filler keywords.
+2. Strip: Remove redundant keywords, fix typos, normalize library names.
+3. Generate: Produce 3 variants with different vocabulary/perspective/source focus.
 
-Preferred variants:
-- original: cleaned, minimal rewrite, closest to the raw query
-- official_docs: docs / API reference / migration guide / release notes angle
-- community_issues: GitHub issues / discussions / Stack Overflow / workaround angle
+Generate 3 diverse search queries focusing on:
+- Different vocabulary: Use synonyms, related technical terms
+- Different perspectives: User language vs expert/documentation language
+- Different sources: Target docs sites, GitHub issues, tutorials
 
-When the raw query already explicitly targets one of those angles, still return complementary variants if possible.
+Query types (for intent="code"):
+- original: Strip irrelevant keywords, fix typos, restructure for clarity
+- official_docs: Target documentation sites (docs.*, API references)
+- community_issues: Target GitHub issues, Stack Overflow, discussions
 
-Good examples:
+IMPORTANT: For web search, keep queries CONCISE (under 60 characters ideal). Do NOT expand into paragraphs.
 
-Input:
-langchain agent react 2024 2025
+Good examples (showing chain-of-think process):
 
+Input: "query reformulation web search LLM best practices 2025 2026 fanout expansion agentic"
+Chain-of-think: Core intent is "LLM query reformulation for web search", years 2025-2026 are relevant, "fanout expansion agentic" are filler keywords. Strip these, normalize to essential terms.
 Output:
 {
   "variants": [
-    {
-      "kind": "original",
-      "query": "langchain react agent 2024 2025",
-      "why": "Closest cleaned version of the original keyword query."
-    },
-    {
-      "kind": "official_docs",
-      "query": "LangChain ReAct agent docs 2024 2025",
-      "why": "Targets official documentation and current guidance."
-    },
-    {
-      "kind": "community_issues",
-      "query": "LangChain ReAct agent GitHub issue discussion 2024 2025",
-      "why": "Targets implementation problems and community discussions."
-    }
+    {"kind": "original", "query": "LLM query reformulation web search 2025", "why": "Reduced from 10 keywords to 4 core terms"},
+    {"kind": "official_docs", "query": "LLM query reformulation documentation", "why": "Docs perspective, expert vocabulary"},
+    {"kind": "community_issues", "query": "LLM query reformulation GitHub discussion", "why": "Community sources, problem-focused"}
   ]
 }
 
-Input:
-pydantic undefined import error v2 fastapi
-
+Input: "TypeError Cannot read property undefined JavaScript fix error"
+Chain-of-think: Exact error terms "TypeError Cannot read property undefined" are precision signals, "fix error" are redundant filler (already implied). Remove filler, keep exact error.
 Output:
 {
   "variants": [
-    {
-      "kind": "original",
-      "query": "pydantic Undefined import error v2 FastAPI",
-      "why": "Keeps the exact error terms and involved libraries."
-    },
-    {
-      "kind": "official_docs",
-      "query": "Pydantic v2 migration Undefined import FastAPI",
-      "why": "Targets migration or API-change documentation."
-    },
-    {
-      "kind": "community_issues",
-      "query": "Pydantic Undefined import FastAPI GitHub issue workaround",
-      "why": "Targets bug reports and fixes."
-    }
+    {"kind": "original", "query": "TypeError Cannot read property undefined JavaScript", "why": "Kept exact error terms, removed filler"},
+    {"kind": "official_docs", "query": "JavaScript TypeError property access docs", "why": "Docs vocabulary: property access instead of undefined"},
+    {"kind": "community_issues", "query": "TypeError Cannot read property undefined Stack Overflow", "why": "Community sources with exact error"}
   ]
 }
 
-Input:
-crewai memory sqlite chroma best practice
-
+Input: "langchain agent memory sqlite chromadb tutorial guide"
+Chain-of-think: "langchain agent memory" is core intent, "sqlite chromadb" are specific backends, "tutorial guide" are redundant keywords. Remove tutorial/guide, normalize chromadb to chroma.
 Output:
 {
   "variants": [
-    {
-      "kind": "original",
-      "query": "CrewAI memory sqlite chroma best practices",
-      "why": "Closest cleaned version of the original keyword query."
-    },
-    {
-      "kind": "official_docs",
-      "query": "CrewAI memory documentation sqlite chroma",
-      "why": "Targets framework documentation and official examples."
-    },
-    {
-      "kind": "community_issues",
-      "query": "CrewAI memory sqlite chroma GitHub discussion issue",
-      "why": "Targets practitioner discussion and troubleshooting."
-    }
+    {"kind": "original", "query": "LangChain agent memory sqlite chroma", "why": "Normalized chromadb to chroma, removed tutorial/guide"},
+    {"kind": "official_docs", "query": "LangChain memory documentation sqlite integration", "why": "Docs perspective, official sources"},
+    {"kind": "community_issues", "query": "LangChain memory sqlite chroma GitHub issue", "why": "Community sources, implementation problems"}
+  ]
+}
+
+Input: "pydantic undefined import error v2 fastapi"
+Chain-of-think: Error terms "pydantic undefined import error v2 fastapi" are all relevant. Version v2 is precision signal, FastAPI is context. Keep all, add docs/community angles.
+Output:
+{
+  "variants": [
+    {"kind": "original", "query": "Pydantic Undefined import error v2 FastAPI", "why": "Kept exact error terms and involved libraries"},
+    {"kind": "official_docs", "query": "Pydantic v2 migration Undefined import FastAPI", "why": "Targets migration or API-change documentation"},
+    {"kind": "community_issues", "query": "Pydantic Undefined import FastAPI GitHub issue workaround", "why": "Targets bug reports and fixes"}
+  ]
+}
+
+Non-code examples (intent="general_research"):
+Input: "best payment gateway for SaaS startups Europe"
+Chain-of-think: Core intent is payment gateway comparison for SaaS in Europe. Remove "for" (noise), keep geographic scope.
+Output:
+{
+  "variants": [
+    {"kind": "original", "query": "best payment gateway SaaS Europe", "why": "Kept core intent, minimal change"},
+    {"kind": "expanded", "query": "payment gateway comparison Stripe PayPal Europe SaaS", "why": "Broader context, added comparison entities"},
+    {"kind": "focused", "query": "SaaS payment gateway Europe pricing fees", "why": "Narrowed to practical considerations"}
+  ]
+}
+
+Comparison examples (intent="comparison"):
+Input: "React vs Vue performance 2025"
+Chain-of-think: Comparison structure with two entities (React, Vue), topic (performance), time scope (2025). Already clean, generate entity-specific variants.
+Output:
+{
+  "variants": [
+    {"kind": "original", "query": "React vs Vue performance 2025", "why": "Kept comparison structure intact"},
+    {"kind": "entity_a", "query": "React performance benchmark 2025", "why": "Focus on React side for depth"},
+    {"kind": "entity_b", "query": "Vue performance benchmark 2025", "why": "Focus on Vue side for depth"}
   ]
 }
 
 Bad behavior:
 - turning a vague query into a highly specific claim
 - inventing a library version not present in the input
-- rewriting away exact literals
+- rewriting away exact literals (error codes, package names, versions)
 - returning paragraphs instead of concise search queries
+- adding more keywords instead of reducing keyword pile-on
 """.strip()
 
 
@@ -276,7 +289,9 @@ def _postprocess(
 async def rewrite_search_query(
     query: str,
     *,
+    intent: Literal["code", "general_research", "comparison"] = "code",
     diagnostics: Diagnostics | None = None,
+    research_goal: str | None = None,
 ) -> QueryRewritePlan:
     """Rewrite query via Mistral if no precision signals detected.
 
@@ -287,7 +302,12 @@ async def rewrite_search_query(
 
     Args:
         query: Raw query string
+        intent: Client-provided intent (NOT classified by Mistral).
+            "code" → original, official_docs, community_issues variants
+            "general_research" → original, expanded, focused variants
+            "comparison" → original, entity_a, entity_b variants
         diagnostics: Optional diagnostics emitter
+        research_goal: Optional context/goal from client to guide query optimization
 
     Returns:
         QueryRewritePlan with final queries to execute
@@ -356,13 +376,27 @@ async def rewrite_search_query(
                 {
                     "query": query,
                     "policy": policy.mode,
+                    "intent": intent,
                     "must_keep_terms": policy.must_keep_terms,
                     "model": settings.query_rewrite_model,
                     "max_variants": max_variants,
                 },
             )
 
-        user_prompt = f"Raw query: {normalize_query(query)}"
+        # Include intent in user prompt so Mistral knows which variant types to generate
+        intent_context = ""
+        if intent == "general_research":
+            intent_context = " (intent: general_research - use original, expanded, focused variants)"
+        elif intent == "comparison":
+            intent_context = " (intent: comparison - use original, entity_a, entity_b variants)"
+        # Default "code" intent uses original, official_docs, community_issues variants
+
+        # Include research_goal if provided by client
+        goal_context = ""
+        if research_goal:
+            goal_context = f"\n\nResearch goal from user: {research_goal}"
+
+        user_prompt = f"Raw query: {normalize_query(query)}{intent_context}{goal_context}"
 
         try:
             mistral_client_cls = _load_mistral_client_class()

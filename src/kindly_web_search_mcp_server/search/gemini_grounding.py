@@ -32,6 +32,12 @@ Given a query:
 3. Cross-reference across sources
 4. Synthesize into structured report
 
+<research_goal>
+{research_goal}
+</research_goal>
+
+Keep the research goal in mind when prioritizing which information to surface.
+
 Output:
 - Executive summary first
 - Key findings with inline [N] citations
@@ -82,12 +88,14 @@ def get_gemini_client() -> genai.Client | None:
 async def gemini_search_with_grounding(
     query: str,
     structured_output: bool = False,
+    research_goal: str | None = None,
 ) -> GeminiGroundingResult:
     """Execute Gemini grounding with optional structured output.
 
     Args:
         query: The research query to search
         structured_output: If True, request structured JSON output
+        research_goal: Optional context/goal from client to guide research focus
 
     Returns:
         GeminiGroundingResult with answer, metadata, and grounding information
@@ -102,8 +110,12 @@ async def gemini_search_with_grounding(
             error="Set KINDLY_GEMINI_API_KEY environment variable",
         )
 
+    # Format system prompt with research goal if provided
+    goal = research_goal or "Gather relevant information for the query"
+    formatted_system_prompt = RESEARCH_SYSTEM_PROMPT.format(research_goal=goal)
+
     config_dict: dict[str, Any] = {
-        "system_instruction": RESEARCH_SYSTEM_PROMPT,
+        "system_instruction": formatted_system_prompt,
         "tools": [types.Tool(google_search=types.GoogleSearch())],
     }
 

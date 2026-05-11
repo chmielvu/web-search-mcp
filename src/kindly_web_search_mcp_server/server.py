@@ -347,6 +347,7 @@ async def web_search(
     num_results: int = 5,
     rewrite: bool = True,
     providers: list[str] | None = None,
+    research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
     """Search the web and return lightweight results only.
@@ -373,6 +374,8 @@ async def web_search(
       - Standard providers (searxng, ddg, gemini) fire automatically when configured.
       - Conditional providers only fire when listed here.
       - Available providers: searxng, ddg, tavily, brave, jina, gemini, composio_llm_search.
+    - research_goal: Optional context/goal from client to guide query optimization.
+      Passed to Mistral query rewrite and AI search tools for better targeting.
     - ctx: FastMCP context (auto-injected, used for logging).
 
     Prerequisites:
@@ -475,6 +478,7 @@ async def web_search(
             rewrite=rewrite,
             diagnostics=parent_diag,
             providers=providers,
+            research_goal=research_goal,
         )
         if not response_model.results:
             return response_model.model_dump(exclude_none=True)
@@ -762,7 +766,9 @@ async def batch_get_content(
         openWorldHint=True,
     )
 )
-async def gemini_search(query: str, structured_output: bool = False) -> dict:
+async def gemini_search(
+    query: str, structured_output: bool = False, research_goal: str | None = None
+) -> dict:
     """Search with Gemini Google Search grounding for quick, grounded answers.
 
     When to use:
@@ -778,6 +784,8 @@ async def gemini_search(query: str, structured_output: bool = False) -> dict:
     - query: Search query for grounded answer generation
     - structured_output: If True, returns structured JSON with executive_summary,
       key_findings, sources, confidence. Default is False (plain text answer).
+    - research_goal: Optional context/goal from client to guide the research.
+      Helps Gemini focus the answer toward the specific need.
 
     Returns:
     - Plain text mode: {"query": str, "answer": str, "web_search_queries": list,
@@ -789,7 +797,9 @@ async def gemini_search(query: str, structured_output: bool = False) -> dict:
     - Provides inline citations with [N] notation
     - Requires KINDLY_GEMINI_API_KEY environment variable
     """
-    result = await gemini_search_with_grounding(query, structured_output=structured_output)
+    result = await gemini_search_with_grounding(
+        query, structured_output=structured_output, research_goal=research_goal
+    )
     return result.model_dump(exclude_none=True)
 
 
@@ -801,7 +811,7 @@ async def gemini_search(query: str, structured_output: bool = False) -> dict:
         openWorldHint=True,
     )
 )
-async def perplexity_search(query: str, depth: str = "normal") -> dict:
+async def perplexity_search(query: str, depth: str = "normal", research_goal: str | None = None) -> dict:
     """AI-powered web search using Perplexity Sonar via Pollinations API.
 
     Returns SYNTHESIZED ANSWERS with source citations, NOT URL lists like web_search.
@@ -823,6 +833,8 @@ async def perplexity_search(query: str, depth: str = "normal") -> dict:
     - query: Search query string. Example: 'What are the latest React 19 features?'
     - depth: Search depth: 'normal' (Perplexity Sonar, balanced) or
       'deep' (Perplexity Sonar Reasoning, complex reasoning). Default: 'normal'.
+    - research_goal: Optional context/goal from client to guide the research.
+      Helps Perplexity focus the answer toward the specific need.
 
     Returns:
     - {"query": str, "answer": str, "sources": list[str], "model": str, "error": str|null}
@@ -837,7 +849,7 @@ async def perplexity_search(query: str, depth: str = "normal") -> dict:
     client = get_pollinations_client()
 
     try:
-        result = await client.web_search(query, depth)
+        result = await client.web_search(query, depth, research_goal=research_goal)
         return {
             "query": result["query"],
             "answer": result["answer"],

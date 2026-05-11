@@ -35,21 +35,27 @@ SYSTEM_PROMPT = (
 USER_PROMPT_TEMPLATE_NORMAL = """
 {query}
 
+Research context: {research_goal}
+
 Requirements:
 - Provide factual information with numbered citations [1], [2], etc.
 - If specific information cannot be found from reliable sources, state this clearly.
 - Focus on verifiable facts from authoritative sources.
+- Keep the research context in mind when prioritizing information.
 """
 
 # Template for Sonar Reasoning Pro (deep/analytical queries)
 USER_PROMPT_TEMPLATE_REASONING = """
 {query}
 
+Research context: {research_goal}
+
 Requirements:
 - Provide step-by-step analysis with reasoning for each conclusion.
 - Include numbered citations [1], [2], etc. for each factual claim.
 - If specific information cannot be found, state which aspects were unavailable.
 - Distinguish between verified facts and analytical interpretations.
+- Keep the research context in mind when prioritizing analysis depth.
 """
 
 
@@ -80,12 +86,14 @@ class PollinationsClient:
         self,
         query: str,
         depth: str = "normal",
+        research_goal: str | None = None,
     ) -> dict[str, Any]:
         """Perform web search using Pollinations AI (Perplexity Sonar).
 
         Args:
             query: Search query string
             depth: 'normal' (perplexity-fast) or 'deep' (perplexity-reasoning)
+            research_goal: Optional context/goal from client to guide research focus
 
         Returns:
             dict with 'answer', 'sources', 'model', 'query'
@@ -97,11 +105,14 @@ class PollinationsClient:
 
         model = self._resolve_model(depth)
 
+        # Default research_goal if not provided
+        goal = research_goal or "General information gathering"
+
         # Select appropriate user prompt template based on model type
         if depth == "deep":
-            user_content = USER_PROMPT_TEMPLATE_REASONING.format(query=query.strip())
+            user_content = USER_PROMPT_TEMPLATE_REASONING.format(query=query.strip(), research_goal=goal)
         else:
-            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(query=query.strip())
+            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(query=query.strip(), research_goal=goal)
 
         payload = {
             "model": model,
