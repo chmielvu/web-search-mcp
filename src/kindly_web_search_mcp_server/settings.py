@@ -130,10 +130,12 @@ class Settings:
     default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
 
     # Per-tool rate limiting
-    rate_limit_web_search_rps: float = float(
+    # Internal field names use "cheap" to reflect multi-tool scope
+    # Env vars retain "WEB_SEARCH" prefix for backward compatibility
+    rate_limit_cheap_rps: float = float(
         os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
     )
-    rate_limit_web_search_burst: int = int(
+    rate_limit_cheap_burst: int = int(
         os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_BURST", "12")
     )
     rate_limit_expensive_rps: float = float(
