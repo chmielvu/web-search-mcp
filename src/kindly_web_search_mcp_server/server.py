@@ -96,12 +96,18 @@ mcp = FastMCP(
     ),
 )
 
-# Add global rate limiting: 1 request per second, burst of 10 for parallel agent patterns
-from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
-mcp.add_middleware(RateLimitingMiddleware(
-    max_requests_per_second=1.0,  # 1 request per second
-    burst_capacity=10  # Allow burst for parallel agent workflows
-))
+# Add differentiated rate limiting:
+# - Higher throughput for lightweight tools (web_search/get_content/gemini_search)
+# - Stricter quota for expensive tool (perplexity_search)
+from .middleware import create_differentiated_rate_limit_middleware
+mcp.add_middleware(
+    create_differentiated_rate_limit_middleware(
+        cheap_rps=settings.rate_limit_web_search_rps,
+        cheap_burst=settings.rate_limit_web_search_burst,
+        expensive_rps=settings.rate_limit_expensive_rps,
+        expensive_burst=settings.rate_limit_expensive_burst,
+    )
+)
 
 # Add expensive tool protection middleware for perplexity_search
 # Implements "think first, then call expensive tool" pattern

@@ -216,6 +216,21 @@ Overall timeout limits for MCP tool execution:
 
 ---
 
+## Rate Limiting
+
+Differentiated middleware limits are applied per tool group:
+- Cheap tools: `web_search`, `get_content`, `gemini_search`
+- Expensive tool: `perplexity_search`
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDLY_RATE_LIMIT_WEB_SEARCH_RPS` | `4.0` | Requests/second budget shared by cheap tools (`web_search`, `get_content`, `gemini_search`) |
+| `KINDLY_RATE_LIMIT_WEB_SEARCH_BURST` | `12` | Burst token capacity for the cheap-tool rate limiter |
+| `KINDLY_RATE_LIMIT_EXPENSIVE_RPS` | `0.5` | Requests/second budget for `perplexity_search` only |
+| `KINDLY_RATE_LIMIT_EXPENSIVE_BURST` | `1` | Burst token capacity for `perplexity_search` |
+
+---
+
 ## Content Output Limits
 
 Maximum output sizes for various content resolvers:
