@@ -67,7 +67,7 @@ class DifferentiatedRateLimitMiddleware(Middleware):
         tool_name = context.message.name
         if tool_name in self.EXPENSIVE_TOOLS:
             await self._expensive_limiter.acquire()
-        elif tool_name in self.CHEAP_TOOLS:
+        else:
             await self._cheap_limiter.acquire()
         return await call_next(context)
 
