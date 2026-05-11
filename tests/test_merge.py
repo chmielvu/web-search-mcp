@@ -32,8 +32,6 @@ except ModuleNotFoundError:
     sys.modules["opentelemetry"] = otel_stub
 
 
-import types
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kindly_web_search_mcp_server.models import WebSearchResult
