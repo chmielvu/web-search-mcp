@@ -96,6 +96,11 @@ mcp = FastMCP(
     ),
 )
 
+# Add expensive tool protection middleware for perplexity_search
+# Implements "think first, then call expensive tool" pattern
+from .middleware import create_expensive_tool_middleware
+mcp.add_middleware(create_expensive_tool_middleware())
+
 # Add differentiated rate limiting:
 # - Higher throughput for lightweight tools (web_search/get_content/gemini_search)
 # - Stricter quota for expensive tool (perplexity_search)
@@ -108,11 +113,6 @@ mcp.add_middleware(
         expensive_burst=settings.rate_limit_expensive_burst,
     )
 )
-
-# Add expensive tool protection middleware for perplexity_search
-# Implements "think first, then call expensive tool" pattern
-from .middleware import create_expensive_tool_middleware
-mcp.add_middleware(create_expensive_tool_middleware())
 
 # Add Gemini advisory middleware (non-blocking, informational)
 from .middleware import create_gemini_advisory_middleware
