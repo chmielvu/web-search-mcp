@@ -111,7 +111,7 @@ flowchart TD
 | `query_policy_resolver.py` | Resolves routing policy (local vs HF Space) |
 | `query_rewrite.py` | Mistral-powered query expansion |
 | `normalize.py` | Query normalization and URL canonicalization |
-| `gemini_grounding.py` | Gemini with Google Search grounding |
+| `gemini_search_tool.py` | Gemini search MCP tool with Google Search grounding |
 | `pollinations.py` | Perplexity Sonar via Pollinations API |
 | `youtube.py` | YouTube search via SearXNG engine |
 
@@ -526,7 +526,7 @@ src/kindly_web_search_mcp_server/
 │   ├── query_policy_resolver.py  # Policy routing
 │   ├── query_rewrite.py     # Mistral query expansion
 │   ├── normalize.py         # Query/URL normalization
-│   ├── gemini_grounding.py  # Gemini search grounding
+│   ├── gemini_search_tool.py  # Gemini search MCP tool
 │   ├── pollinations.py      # Perplexity Sonar
 │   └── youtube.py           # YouTube search
 │

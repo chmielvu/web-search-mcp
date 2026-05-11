@@ -13,7 +13,8 @@ load_dotenv()  # Also try cwd as fallback
 
 # Initialize OpenTelemetry BEFORE any other imports
 # This ensures all HTTP calls (httpx, etc.) are auto-instrumented
-from .telemetry import init_telemetry
+from .telemetry import init_telemetry, SEARCH_QUERY, SEARCH_NUM_RESULTS_REQUESTED
+from opentelemetry import trace
 init_telemetry(service_name="web-search-mcp")
 
 import argparse
@@ -56,7 +57,7 @@ from .cache import (
     provider_cache_key,
     get_page_cache,
 )
-from .search.gemini_grounding import gemini_search_with_grounding
+from .search.gemini_search_tool import gemini_search_with_grounding
 from .search.normalize import normalize_query, canonicalize_url
 from .settings import settings
 from .utils.diagnostics import (
@@ -405,134 +406,155 @@ async def web_search(
     # Enforce bounds
     num_results = max(1, min(num_results, 10))
 
-    # Report progress
-    await ctx.info(f"Searching: {query[:80]}...")
+    # Create root span for entire web_search operation
+    tracer = trace.get_tracer("web-search-mcp")
+    with tracer.start_as_current_span(
+        "mcp.tool.web_search",
+        kind=trace.SpanKind.SERVER,
+        attributes={
+            SEARCH_QUERY: query[:500],
+            SEARCH_NUM_RESULTS_REQUESTED: num_results,
+            "search.rewrite_enabled": str(rewrite).lower(),
+            "search.providers_requested": str(providers or []),
+        },
+    ) as root_span:
+        # Report progress
+        await ctx.info(f"Searching: {query[:80]}...")
 
-    # 1. Exact query cache lookup (fastest, deterministic)
-    normalized_query = normalize_query(query)
-    providers_key = provider_cache_key(providers)
-    try:
-        exact_cache = get_query_cache()
-        exact_cached = exact_cache.lookup(
-            normalized_query=normalized_query,
-            num_results=num_results,
-            rewrite_enabled=rewrite,
-            search_mode="balanced",  # Current default mode
-            providers_key=providers_key,
-        )
-        if exact_cached:
-            LOGGER.debug(f"Exact query cache hit for: {query[:100]}")
-            return _normalize_lightweight_search_response(exact_cached, query=query)
-    except Exception as e:
-        LOGGER.warning(f"Exact query cache lookup failed: {e}")
-
-    # 2. Semantic cache lookup (if enabled, fallback for fuzzy matches)
-    if settings.semantic_cache_enabled:
-        try:
-            cache_store = _get_cache_store()
-            cached = await get_semantic_cache(
-                cache_store,
-                query,
-                min_score=settings.semantic_cache_min_score,
-                provider_key=providers_key,
-            )
-            if cached:
-                LOGGER.debug(f"Cache hit for query: {query[:100]}")
-                cached_response = cached.get("answer_json")
-                if cached_response:
-                    import json
-                    return _normalize_lightweight_search_response(
-                        json.loads(cached_response), query=query
-                    )
-        except Exception as e:
-            LOGGER.warning(f"Cache lookup failed: {e}")
-
-    diag_enabled = diagnostics_enabled()
-
-    # SingleFlight: coalesce identical concurrent searches into one execution
-    flight_key = SingleFlight.make_key(normalized_query, num_results, rewrite, providers_key)
-
-    async def _execute_search() -> dict:
-        parent_request_id = new_request_id() if diag_enabled else ""
-        parent_diag = Diagnostics(parent_request_id, diag_enabled, stream=sys.stderr)
-        if diag_enabled:
-            env_snapshot = {
-                "SEARXNG_BASE_URL": os.environ.get("SEARXNG_BASE_URL", ""),
-                "TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY", ""),
-                "BRAVE_API_KEY": os.environ.get("BRAVE_API_KEY", ""),
-                "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
-                "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
-                "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
-                "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""),
-                "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
-                ),
-                "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get("KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""),
-            }
-            parent_diag.emit(
-                "web_search.start",
-                "Starting web search",
-                {
-                    "query": query,
-                    "num_results": num_results,
-                    "env": mask_env_values(env_snapshot),
-                },
-            )
-        response_model = await run_web_search(
-            query,
-            num_results=num_results,
-            rewrite=rewrite,
-            diagnostics=parent_diag,
-            providers=providers,
-            research_goal=research_goal,
-        )
-        if not response_model.results:
-            return response_model.model_dump(exclude_none=True)
-
-        _response = _normalize_lightweight_search_response(
-            response_model.model_dump(exclude_none=True),
-            query=query,
-        )
-
-        # Cache write: exact query cache
+        # 1. Exact query cache lookup (fastest, deterministic)
+        normalized_query = normalize_query(query)
+        providers_key = provider_cache_key(providers)
         try:
             exact_cache = get_query_cache()
-            exact_cache.store(
+            exact_cached = exact_cache.lookup(
                 normalized_query=normalized_query,
                 num_results=num_results,
                 rewrite_enabled=rewrite,
-                response=_response,
-                search_mode="balanced",
+                search_mode="balanced",  # Current default mode
                 providers_key=providers_key,
             )
-            LOGGER.debug(f"Stored exact query cache for: {query[:100]}")
+            if exact_cached:
+                LOGGER.debug(f"Exact query cache hit for: {query[:100]}")
+                root_span.set_attribute("cache.hit", "exact")
+                root_span.set_attribute("search.num_results_returned", len(exact_cached.get("results", [])))
+                return _normalize_lightweight_search_response(exact_cached, query=query)
         except Exception as e:
-            LOGGER.warning(f"Exact query cache write failed: {e}")
+            LOGGER.warning(f"Exact query cache lookup failed: {e}")
 
-        # Cache write: semantic cache
+        # 2. Semantic cache lookup (if enabled, fallback for fuzzy matches)
         if settings.semantic_cache_enabled:
             try:
                 cache_store = _get_cache_store()
-                content_type = classify_content_type(query)
-                await set_semantic_cache(
+                cached = await get_semantic_cache(
                     cache_store,
                     query,
-                    _response,
-                    content_type,
+                    min_score=settings.semantic_cache_min_score,
                     provider_key=providers_key,
                 )
-                LOGGER.debug(f"Cached response for query: {query[:100]}")
+                if cached:
+                    LOGGER.debug(f"Cache hit for query: {query[:100]}")
+                    cached_response = cached.get("answer_json")
+                    if cached_response:
+                        import json
+                        parsed = json.loads(cached_response)
+                        root_span.set_attribute("cache.hit", "semantic")
+                        root_span.set_attribute("search.num_results_returned", len(parsed.get("results", [])))
+                        return _normalize_lightweight_search_response(parsed, query=query)
             except Exception as e:
-                LOGGER.warning(f"Cache write failed: {e}")
+                LOGGER.warning(f"Cache lookup failed: {e}")
 
-        return _response
+        root_span.set_attribute("cache.hit", "miss")
 
-    response = await _search_flight.do(flight_key, _execute_search)
+        diag_enabled = diagnostics_enabled()
 
-    # Report completion
-    await ctx.info(f"Found {len(response.get('results', []))} results")
+        # SingleFlight: coalesce identical concurrent searches into one execution
+        flight_key = SingleFlight.make_key(normalized_query, num_results, rewrite, providers_key)
 
-    return response
+        async def _execute_search() -> dict:
+            parent_request_id = new_request_id() if diag_enabled else ""
+            parent_diag = Diagnostics(parent_request_id, diag_enabled, stream=sys.stderr)
+            if diag_enabled:
+                env_snapshot = {
+                    "SEARXNG_BASE_URL": os.environ.get("SEARXNG_BASE_URL", ""),
+                    "TAVILY_API_KEY": os.environ.get("TAVILY_API_KEY", ""),
+                    "BRAVE_API_KEY": os.environ.get("BRAVE_API_KEY", ""),
+                    "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
+                    "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
+                    "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
+                    "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""),
+                    "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
+                        "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
+                    ),
+                    "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get("KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""),
+                }
+                parent_diag.emit(
+                    "web_search.start",
+                    "Starting web search",
+                    {
+                        "query": query,
+                        "num_results": num_results,
+                        "env": mask_env_values(env_snapshot),
+                    },
+                )
+            response_model = await run_web_search(
+                query,
+                num_results=num_results,
+                rewrite=rewrite,
+                diagnostics=parent_diag,
+                providers=providers,
+                research_goal=research_goal,
+            )
+            if not response_model.results:
+                return response_model.model_dump(exclude_none=True)
+
+            _response = _normalize_lightweight_search_response(
+                response_model.model_dump(exclude_none=True),
+                query=query,
+            )
+
+            # Cache write: exact query cache
+            try:
+                exact_cache = get_query_cache()
+                exact_cache.store(
+                    normalized_query=normalized_query,
+                    num_results=num_results,
+                    rewrite_enabled=rewrite,
+                    response=_response,
+                    search_mode="balanced",
+                    providers_key=providers_key,
+                )
+                LOGGER.debug(f"Stored exact query cache for: {query[:100]}")
+            except Exception as e:
+                LOGGER.warning(f"Exact query cache write failed: {e}")
+
+            # Cache write: semantic cache
+            if settings.semantic_cache_enabled:
+                try:
+                    cache_store = _get_cache_store()
+                    content_type = classify_content_type(query)
+                    await set_semantic_cache(
+                        cache_store,
+                        query,
+                        _response,
+                        content_type,
+                        provider_key=providers_key,
+                    )
+                    LOGGER.debug(f"Cached response for query: {query[:100]}")
+                except Exception as e:
+                    LOGGER.warning(f"Cache write failed: {e}")
+
+            return _response
+
+        response = await _search_flight.do(flight_key, _execute_search)
+
+        # Add final span attributes
+        root_span.set_attribute("search.num_results_returned", len(response.get("results", [])))
+        root_span.set_status(trace.StatusCode.OK)
+
+        # Report completion
+        await ctx.info(f"Found {len(response.get('results', []))} results")
+
+        return response
 
 
 @mcp.tool(

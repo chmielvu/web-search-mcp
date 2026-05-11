@@ -85,7 +85,7 @@ src/kindly_web_search_mcp_server/
 │   ├── brave.py           # Brave Search provider implementation
 │   ├── jina.py            # Jina AI provider implementation
 │   ├── pollinations.py    # Perplexity Sonar via Pollinations API
-│   ├── gemini_grounding.py # Gemini with Google Search grounding
+│   ├── gemini_search_tool.py # Gemini search MCP tool with Google Search grounding
 │   ├── youtube.py         # YouTube search via SearXNG engine
 │   ├── merge.py           # RRF merge implementation
 │   ├── normalize.py       # Query/URL normalization utilities
