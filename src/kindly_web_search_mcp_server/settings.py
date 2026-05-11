@@ -42,8 +42,9 @@ class Settings:
     query_rewrite_model: str = os.environ.get(
         "KINDLY_QUERY_REWRITE_MODEL", "mistral-small-2603"
     )
+    # temperature=0 for deterministic output (LangChain MultiQueryRetriever pattern)
     query_rewrite_temperature: float = float(
-        os.environ.get("KINDLY_QUERY_REWRITE_TEMPERATURE", "0.2")
+        os.environ.get("KINDLY_QUERY_REWRITE_TEMPERATURE", "0.0")
     )
     query_rewrite_timeout_seconds: float = float(
         os.environ.get("KINDLY_QUERY_REWRITE_TIMEOUT_SECONDS", "20")

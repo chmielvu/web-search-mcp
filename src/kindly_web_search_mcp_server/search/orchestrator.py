@@ -42,6 +42,7 @@ async def run_web_search(
     rewrite: bool = True,
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
+    research_goal: str | None = None,
 ) -> WebSearchResponse:
     """Execute web search with optional query rewriting.
 
@@ -57,6 +58,7 @@ async def run_web_search(
         rewrite: Whether to enable query rewriting
         diagnostics: Optional diagnostics emitter
         providers: Optional list of specific providers to use
+        research_goal: Optional context/goal from client to guide query optimization
 
     Returns:
         WebSearchResponse with merged and reranked results
@@ -66,7 +68,7 @@ async def run_web_search(
 
     if rewrite:
         rewrite_plan = await rewrite_search_query(
-            normalized_query, diagnostics=diagnostics
+            normalized_query, diagnostics=diagnostics, research_goal=research_goal
         )
         queries = rewrite_plan.final_queries
         rewrite_policy = rewrite_plan.policy
