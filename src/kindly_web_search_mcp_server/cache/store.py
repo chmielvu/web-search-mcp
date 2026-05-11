@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import re
+
 import lancedb
 from lancedb.rerankers import RRFReranker
 
-from .schema import SEMANTIC_CACHE_SCHEMA, SEMANTIC_CACHE_TABLE_NAME
+from .schema import get_semantic_cache_schema, get_semantic_cache_table_name
 
 if TYPE_CHECKING:
     pass
@@ -23,13 +25,25 @@ class SemanticCacheStore:
     optimal cache hit rates.
     """
 
-    def __init__(self, db_path: str = "./lancedb_data") -> None:
+    def __init__(
+        self,
+        db_path: str = "./lancedb_data",
+        *,
+        table_name: str | None = None,
+        embedding_dim: int | None = None,
+    ) -> None:
         """Initialize the cache store.
 
         Args:
             db_path: Path to LanceDB database directory.
+            table_name: Optional semantic cache table name override.
+            embedding_dim: Optional embedding dimension override.
         """
         self.db_path = db_path
+        self.table_name = table_name or get_semantic_cache_table_name(
+            embedding_dim=embedding_dim
+        )
+        self.schema = get_semantic_cache_schema(embedding_dim)
         self._db: lancedb.db.DBConnection | None = None
         self._cache_table: lancedb.table.Table | None = None
         self._fts_index_created = False
@@ -45,14 +59,14 @@ class SemanticCacheStore:
         if self._cache_table is None:
             db = self._get_db()
             try:
-                self._cache_table = db.open_table(SEMANTIC_CACHE_TABLE_NAME)
-                logger.debug("Opened existing %s table", SEMANTIC_CACHE_TABLE_NAME)
+                self._cache_table = db.open_table(self.table_name)
+                logger.debug("Opened existing %s table", self.table_name)
             except Exception:
                 self._cache_table = db.create_table(
-                    SEMANTIC_CACHE_TABLE_NAME,
-                    schema=SEMANTIC_CACHE_SCHEMA,
+                    self.table_name,
+                    schema=self.schema,
                 )
-                logger.info("Created new %s table", SEMANTIC_CACHE_TABLE_NAME)
+                logger.info("Created new %s table", self.table_name)
 
             # Ensure FTS index exists
             self._ensure_fts_index()
@@ -63,14 +77,20 @@ class SemanticCacheStore:
         """Create full-text search index on query_text if needed."""
         if self._fts_index_created:
             return
-
-        table = self._get_cache_table()
+        if self._cache_table is None:
+            return
+        table = self._cache_table
         try:
-            table.create_fts_index("query_text", replace=True)
+            table.create_fts_index("query_text", replace=False)
             self._fts_index_created = True
-            logger.info("FTS index created on query_text")
-        except Exception as exc:
-            logger.debug("FTS index creation skipped: %s", exc)
+            logger.info("FTS index ensured on query_text")
+        except Exception:
+            try:
+                table.create_fts_index("query_text", replace=True)
+                self._fts_index_created = True
+                logger.info("FTS index rebuilt on query_text")
+            except Exception as exc:
+                logger.debug("FTS index creation skipped: %s", exc)
 
     def hybrid_search(
         self,
@@ -94,11 +114,12 @@ class SemanticCacheStore:
         """
         table = self._get_cache_table()
         try:
+            safe_provider_key = re.sub(r'[^a-zA-Z0-9_\-]', '', provider_key)
             results = (
                 table.search(query_type="hybrid")
                 .vector(query_embedding)
                 .text(query_text)
-                .where(f"provider_key = '{provider_key}'")
+                .where(f"provider_key = '{safe_provider_key}'")
                 .rerank(RRFReranker(K=60))
                 .limit(limit)
                 .to_list()
@@ -127,9 +148,10 @@ class SemanticCacheStore:
         """
         table = self._get_cache_table()
         try:
+            safe_provider_key = re.sub(r'[^a-zA-Z0-9_\-]', '', provider_key)
             results = (
                 table.search(query_embedding, vector_column_name="embedding")
-                .where(f"provider_key = '{provider_key}'")
+                .where(f"provider_key = '{safe_provider_key}'")
                 .limit(limit)
                 .to_list()
             )
@@ -190,6 +212,21 @@ class SemanticCacheStore:
         except Exception as exc:
             logger.warning("Failed to count cache entries: %s", exc)
             return 0
+
+    async def compact(self) -> None:
+        """Compact LanceDB table to reclaim storage and prune old versions."""
+        from datetime import timedelta
+        table = self._get_cache_table()
+        try:
+            table.compact_files()
+            logger.info("LanceDB table compaction complete")
+        except Exception as exc:
+            logger.warning("LanceDB compaction failed: %s", exc)
+        try:
+            table.cleanup_old_versions(older_than=timedelta(hours=24))
+            logger.info("LanceDB old version cleanup complete")
+        except Exception as exc:
+            logger.warning("LanceDB old version cleanup failed: %s", exc)
 
     def close(self) -> None:
         """Close the LanceDB connection (cleanup resources)."""

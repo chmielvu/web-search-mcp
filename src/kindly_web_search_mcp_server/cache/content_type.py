@@ -35,9 +35,9 @@ ADAPTIVE_TTL_SECONDS: dict[ContentType, int] = {
 
 # Keywords for heuristic classification
 _NEWS_KEYWORDS = {
-    "breaking", "latest", "today", "yesterday", "news", "update",
+    "today", "yesterday", "news", "update",
     "announcement", "release", "published", "reported", "headline",
-    "stories", "coverage", "current", "recent", "happening", "now"
+    "stories", "coverage",
 }
 
 _TECHNICAL_KEYWORDS = {
@@ -67,17 +67,16 @@ def classify_content_type(query: str) -> ContentType:
     query_lower = query.lower()
     words = set(query_lower.split())
 
-    # Check for news keywords
-    if _NEWS_KEYWORDS.intersection(words):
-        return ContentType.NEWS
-
-    # Check for technical keywords
+    # Check technical first (highest specificity for dev queries)
     if _TECHNICAL_KEYWORDS.intersection(words):
         return ContentType.TECHNICAL
 
-    # Check for FAQ keywords
+    # Check FAQ next (question-oriented queries)
     if _FAQ_KEYWORDS.intersection(words):
         return ContentType.FAQ
 
-    # Default to general
+    # News only for queries with clearly time-sensitive signals
+    if _NEWS_KEYWORDS.intersection(words):
+        return ContentType.NEWS
+
     return ContentType.GENERAL

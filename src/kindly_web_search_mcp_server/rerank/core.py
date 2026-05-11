@@ -7,19 +7,18 @@ import time
 from typing import Any
 
 from ..embeddings import embed_query, embed_texts
-from ..embeddings.hf_inference import EmbeddingAPIError, EmbeddingTimeoutError
+from ..embeddings.hf_inference import EmbeddingAPIError, EmbeddingTimeoutError, CircuitOpenError
 from ..models import WebSearchResult
 from ..settings import settings
 from ..telemetry import (
     record_rerank_stage,
-    record_diversity_removal,
     RERANK_STAGE,
     RERANK_INPUT_COUNT,
     RERANK_OUTPUT_COUNT,
     SEARCH_QUERY,
 )
 from .bi_encoder import bi_encoder_filter
-from .diversity import compute_embedding_diversity, maximal_marginal_relevance_rank
+from .diversity import maximal_marginal_relevance_rank
 from .jina import jina_rerank
 from opentelemetry import trace
 
@@ -71,8 +70,9 @@ async def rerank_results(
     # If this fails, both embedding-dependent stages are skipped gracefully.
     query_embedding: list[float] | None = None
     try:
-        query_embedding = await embed_query(query, timeout=30.0)
-    except (EmbeddingTimeoutError, EmbeddingAPIError, Exception) as e:
+        # Use lower timeout (15s) for query embedding - critical path
+        query_embedding = await embed_query(query, timeout=15.0)
+    except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as e:
         logger.warning(
             f"Query embedding failed: {type(e).__name__}: {e}; "
             "Stage 1 (bi-encoder) and Stage 3 (diversity) will be skipped"
@@ -133,7 +133,7 @@ async def rerank_results(
         relevance_scores: list[float] = []
 
         documents = [
-            f"{candidate.title}\n{candidate.snippet}"
+            {"text": candidate.snippet, "title": candidate.title}
             for candidate in candidates
         ]
 
@@ -141,6 +141,8 @@ async def rerank_results(
         try:
             ranked_indices = await jina_rerank(query, documents, timeout=30.0)
             sorted_ranked = sorted(ranked_indices, key=lambda x: x[1], reverse=True)
+            for idx, score in sorted_ranked:
+                candidates[idx] = candidates[idx].model_copy(update={"score": score})
             candidates = [candidates[idx] for idx, _ in sorted_ranked]
             relevance_scores = [score for _, score in sorted_ranked[:min(10, len(sorted_ranked))]]
             stage2_output_count = len(candidates)
@@ -148,6 +150,11 @@ async def rerank_results(
             logger.warning(f"Jina rerank failed: {type(e).__name__}: {e}, skipping rerank stage")
             # Fall through to diversity pruning with current order
         stage2_duration = time.time() - stage2_start
+
+        # Capture max Jina score before MMR reorders candidates
+        max_jina_score: float = 0.0
+        if relevance_scores:
+            max_jina_score = max(relevance_scores)
 
         logger.debug(f"After Jina rerank: {len(candidates)} candidates")
 
@@ -183,9 +190,9 @@ async def rerank_results(
             ]
             stage3_start = time.time()
             try:
-                embeddings = await embed_texts(texts, timeout=60.0)
+                # Use lower timeout (10s) for diversity - non-critical stage
+                embeddings = await embed_texts(texts, timeout=10.0)
                 if embeddings and len(embeddings) == len(candidates[: top_k * 2]):
-                    scoped_count = len(candidates[: top_k * 2])
                     scoped_urls = [candidate.link for candidate in candidates[: top_k * 2]]
 
                     diversified_rank = maximal_marginal_relevance_rank(
@@ -196,31 +203,16 @@ async def rerank_results(
                         max_per_host=2,
                     )
 
-                    kept_indices, removed_scores = compute_embedding_diversity(
-                        embeddings, threshold=settings.diversity_threshold
-                    )
-                    duplicate_keep_set = set(kept_indices)
-                    kept_indices_final = [idx for idx in diversified_rank if idx in duplicate_keep_set]
-
-                    original_indices = list(range(scoped_count))
-
-                    # Track removed items for telemetry with actual similarity scores
-                    removed_indices = set(original_indices) - set(kept_indices_final)
-                    diversity_removed = len(removed_indices)
-
-                    for removed_idx in removed_indices:
-                        actual_score = removed_scores.get(removed_idx, settings.diversity_threshold)
-                        record_diversity_removal(similarity_score=actual_score, threshold=settings.diversity_threshold)
-
-                    candidates = [candidates[i] for i in kept_indices_final] + candidates[top_k * 2 :]
+                    candidates = [candidates[i] for i in diversified_rank[:top_k * 2]] + candidates[top_k * 2 :]
                     stage3_output_count = len(candidates)
+                    diversity_removed = len(diversified_rank) - len(diversified_rank[:top_k * 2])
                     logger.debug(f"After diversity pruning: {len(candidates)} candidates")
                 else:
                     logger.warning(
                         f"Diversity embedding mismatch: got {len(embeddings) if embeddings else 0}, "
                         f"expected {len(candidates[: top_k * 2])}, skipping diversity stage"
                     )
-            except (EmbeddingTimeoutError, EmbeddingAPIError, Exception) as e:
+            except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as e:
                 logger.warning(f"Diversity embedding failed: {type(e).__name__}: {e}, skipping diversity stage")
             stage3_duration = time.time() - stage3_start
 
@@ -239,8 +231,13 @@ async def rerank_results(
             "rerank.removed_count": diversity_removed,
         })
 
-        # Return final top_k results
-        final_results = candidates[:top_k]
+        # Return final top_k results with score waterfall cutoff
+        # Use pre-MMR max score as reference (MMR reorders by diversity, not score)
+        score_threshold = max_jina_score * 0.1 if max_jina_score > 0 else 0.0
+        final_results = [
+            r for r in candidates
+            if r.score is None or r.score >= score_threshold
+        ][:top_k]
 
         main_span.set_attribute("rerank.final_count", len(final_results))
 
