@@ -20,6 +20,10 @@ from .query_guidance import (
     create_query_quality_middleware,
     create_result_guidance_middleware,
 )
+from .rate_limits import (
+    DifferentiatedRateLimitMiddleware,
+    create_differentiated_rate_limit_middleware,
+)
 
 __all__ = [
     "EXPENSIVE_TOOLS",
@@ -36,4 +40,6 @@ __all__ = [
     "ResultGuidanceMiddleware",
     "create_query_quality_middleware",
     "create_result_guidance_middleware",
+    "DifferentiatedRateLimitMiddleware",
+    "create_differentiated_rate_limit_middleware",
 ]

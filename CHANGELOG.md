@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Documentation note for observed Composio Search toolkit caveats covering Composio Similarlinks, Composio Image Search, Composio LLM Search, and Composio Web Search.
+- Configurable differentiated rate-limit settings:
+  - `KINDLY_RATE_LIMIT_WEB_SEARCH_RPS` / `KINDLY_RATE_LIMIT_WEB_SEARCH_BURST` for cheap tools (`web_search`, `get_content`, `gemini_search`)
+  - `KINDLY_RATE_LIMIT_EXPENSIVE_RPS` / `KINDLY_RATE_LIMIT_EXPENSIVE_BURST` for expensive tool (`perplexity_search`)
 - Composio Search toolkit integration:
   - Added Composio LLM Search as a conditional `web_search` provider.
   - Added standalone `composio_similarlinks` and `composio_image_search` MCP tools.
@@ -57,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Replaced the HF Space reranker path with Jina API reranking in the core rerank pipeline.
+- Refactored server middleware setup to use differentiated per-tool token-bucket rate limiting instead of one global rate limit.
 - Replaced the HF Space embedding path with Hugging Face Inference Provider embeddings.
 - Semantic cache now uses a BGE-M3-specific 1024-dimension LanceDB table (`semantic_cache_hf_inference_BAAI_bge_m3_1024`) instead of the old 512-dimension table.
 - Exact query cache now uses `query_cache_v2` to avoid reusing stale rows produced by provider-unaware cache keys.
