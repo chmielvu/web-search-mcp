@@ -222,6 +222,8 @@ Differentiated middleware limits are applied per tool group:
 - Cheap tools: `web_search`, `get_content`, `gemini_search`
 - Expensive tool: `perplexity_search`
 
+**Note:** Environment variable names use `WEB_SEARCH` prefix for backward compatibility, but internally these settings apply to all cheap tools.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KINDLY_RATE_LIMIT_WEB_SEARCH_RPS` | `4.0` | Requests/second budget shared by cheap tools (`web_search`, `get_content`, `gemini_search`) |
