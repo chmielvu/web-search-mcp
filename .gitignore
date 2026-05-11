@@ -216,3 +216,40 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific: Serena MCP semantic coding
+.serena/
+
+# Claude Code project files
+.claude/
+
+# Development scratch/research files
+research/
+scratch/
+tmp/
+codex_session.txt
+
+# Additional virtual environments
+.venv-composio-test/
+.venv-*/
+
+# Project-specific additions
+
+# IDE settings - uncommented
+.vscode/
+.idea/
+
+# LanceDB vector database data
+lancedb_data/
+
+# Generated model/test files
+model_stats.json
+models.json
+
+# Development tracking directories
+.coderag_observability/
+.copilot-tracking/
+.agent/
+
+# Memory files (optional - uncomment if needed)
+# memory/

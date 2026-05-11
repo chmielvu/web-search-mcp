@@ -1,0 +1,96 @@
+# SearXNG for AI Coding Agents - Docker Compose
+# Optimized for: Docker Desktop on Windows + MCP servers
+# Fix: Uses named volumes to avoid Windows bind-mount permission issues
+
+name: searxng-agent
+
+services:
+  valkey:
+    container_name: searxng-valkey
+    image: docker.io/valkey/valkey:9-alpine
+    command: valkey-server --save 30 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    volumes:
+      - valkey-data:/data
+    networks:
+      - searxng-net
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  searxng:
+    container_name: searxng-core
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    # FIX: Use named volumes instead of bind mounts for Docker Desktop compatibility
+    volumes:
+      - searxng-config:/etc/searxng:rw
+      - searxng-data:/var/cache/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - UWSGI_WORKERS=4
+      - UWSGI_THREADS=4
+      # Pass settings via environment for fallback
+      - SEARXNG_SECRET_KEY=a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890
+      - SEARXNG_REDIS_URL=valkey://searxng-valkey:6379/0
+    networks:
+      - searxng-net
+    depends_on:
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/?q=test')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Security: minimal capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    # Resource limits for modest hardware
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+
+  # Init container to copy settings into volume on first run
+  searxng-init:
+    container_name: searxng-init
+    image: docker.io/alpine:3.20
+    volumes:
+      - searxng-config:/etc/searxng:rw
+      # Bind mount from local file (read-only, just for copying)
+      - ./searxng-config/settings.yml:/tmp/settings.yml:ro
+    command: >
+      sh -c "
+        if [ ! -f /etc/searxng/settings.yml ]; then
+          echo 'Copying settings.yml to volume...';
+          cp /tmp/settings.yml /etc/searxng/settings.yml;
+          chmod 644 /etc/searxng/settings.yml;
+          echo 'Settings copied successfully';
+        else
+          echo 'Settings already exist, skipping copy';
+        fi
+      "
+    networks:
+      - searxng-net
+    depends_on: []
+
+networks:
+  searxng-net:
+    driver: bridge
+
+volumes:
+  valkey-data:
+  searxng-data:
+  # Named volume for config - survives container restarts
+  searxng-config:
