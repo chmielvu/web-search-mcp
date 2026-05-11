@@ -1079,6 +1079,14 @@ pdf-advanced = [
     { name = "pymupdf4llm", marker = "python_full_version < '3.14'" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4" },
@@ -1116,6 +1124,14 @@ requires-dist = [
     { name = "youtube-transcript-api", specifier = ">=0.6.0" },
 ]
 provides-extras = ["dev", "pdf-advanced", "observability"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "opentelemetry-api", specifier = ">=1.39.1" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.39.1" },
+    { name = "opentelemetry-sdk", specifier = ">=1.39.1" },
+    { name = "pytest", specifier = ">=9.0.3" },
+]
 
 [[package]]
 name = "lance-namespace"
