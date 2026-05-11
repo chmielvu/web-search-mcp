@@ -73,6 +73,9 @@ class Settings:
     diversity_threshold: float = float(
         os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")
     )
+    mmr_lambda_param: float = float(
+        os.environ.get("KINDLY_MMR_LAMBDA", "0.7")
+    )
 
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
@@ -129,6 +132,22 @@ class Settings:
 
     # Default num_results for web_search
     default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
+
+    # Per-tool rate limiting
+    # Internal field names use "cheap" to reflect multi-tool scope
+    # Env vars retain "WEB_SEARCH" prefix for backward compatibility
+    rate_limit_cheap_rps: float = float(
+        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
+    )
+    rate_limit_cheap_burst: int = int(
+        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_BURST", "12")
+    )
+    rate_limit_expensive_rps: float = float(
+        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_RPS", "0.5")
+    )
+    rate_limit_expensive_burst: int = int(
+        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_BURST", "1")
+    )
 
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
