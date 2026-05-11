@@ -72,6 +72,9 @@ class Settings:
     diversity_threshold: float = float(
         os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")
     )
+    mmr_lambda_param: float = float(
+        os.environ.get("KINDLY_MMR_LAMBDA", "0.7")
+    )
 
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
