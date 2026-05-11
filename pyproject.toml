@@ -57,3 +57,11 @@ kindly-web-search-mcp-server = "kindly_web_search_mcp_server.cli:main"
 
 [tool.hatch.build.targets.wheel.sources]
 src = ""
+
+[dependency-groups]
+dev = [
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
+    "pytest>=9.0.3",
+]
