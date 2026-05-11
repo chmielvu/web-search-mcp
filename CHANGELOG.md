@@ -10,7 +10,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `KINDLY_MMR_LAMBDA` environment variable (default `0.7`) for configuring the
+  MMR relevance–diversity trade-off in the rerank diversity stage.
+- `compute_embedding_diversity` now returns a `tuple[list[int], dict[int, float]]`
+  containing the kept indices and a mapping of removed-index → actual cosine
+  similarity score, enabling accurate telemetry for diversity removals.
+
+### Changed
+
+- **Rerank pipeline**: query embedding is computed exactly once at the start of
+  `rerank_results` and passed directly to Stage 1 (`bi_encoder_filter`) and
+  Stage 3 (MMR diversity). Both stages require it as a mandatory argument —
+  there is no internal re-embedding or optional fallback path. If the embedding
+  call fails, both stages are skipped and the pipeline degrades to Jina-only.
+- **`bi_encoder_filter`**: signature changed to accept `query_embedding:
+  list[float]` as its first positional argument instead of `query: str`.
+  The function no longer calls `embed_query` internally; it only embeds the
+  candidate documents. Callers must always supply the pre-computed vector.
+- **Rerank pipeline**: bi-encoder stage now filters to `top_k * 2` candidates
+  (previously filtered straight to `top_k`), giving the Jina cross-encoder a
+  richer pool to reorder before the final `top_k` slice.
+- **Rerank pipeline**: diversity threshold now reads `settings.diversity_threshold`
+  (`KINDLY_DIVERSITY_THRESHOLD`, default `0.85`) instead of a hardcoded `0.9`.
+- **Rerank pipeline**: MMR `lambda_param` now reads `settings.mmr_lambda_param`
+  (`KINDLY_MMR_LAMBDA`, default `0.7`) instead of a hardcoded literal.
+- **Rerank pipeline**: diversity-removal telemetry now records the actual cosine
+  similarity score for each removed result instead of a hardcoded placeholder.
+- **Bi-encoder**: candidate text format changed from `"title snippet"` (space) to
+  `"title\nsnippet"` (newline) to match the format used by the Jina reranker and
+  diversity stages.
+- **Search merge**: single-provider result lists are now always passed through
+  `merge_search_results` so host-cap deduplication applies even when only one
+  provider returned results.
+
+### Added (previous work, carried forward)
+
 - Documentation note for observed Composio Search toolkit caveats covering Composio Similarlinks, Composio Image Search, Composio LLM Search, and Composio Web Search.
+- Configurable differentiated rate-limit settings:
+  - `KINDLY_RATE_LIMIT_WEB_SEARCH_RPS` / `KINDLY_RATE_LIMIT_WEB_SEARCH_BURST` for cheap tools (`web_search`, `get_content`, `gemini_search`)
+  - `KINDLY_RATE_LIMIT_EXPENSIVE_RPS` / `KINDLY_RATE_LIMIT_EXPENSIVE_BURST` for expensive tool (`perplexity_search`)
 - Composio Search toolkit integration:
   - Added Composio LLM Search as a conditional `web_search` provider.
   - Added standalone `composio_similarlinks` and `composio_image_search` MCP tools.
@@ -56,7 +94,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- RRF merge now applies deterministic host/domain caps in the top results to reduce domain clustering while preserving strong candidates and encounter-order tie breaks.
+- Rerank diversity is now always-on with true MMR host-aware diversification driven by HF embeddings (query-to-document and document-to-document cosine) (relevance + semantic novelty + host penalty) plus strict near-duplicate suppression to improve final result usability.
+
 - Replaced the HF Space reranker path with Jina API reranking in the core rerank pipeline.
+- Refactored server middleware setup to use differentiated per-tool token-bucket rate limiting instead of one global rate limit.
 - Replaced the HF Space embedding path with Hugging Face Inference Provider embeddings.
 - Semantic cache now uses a BGE-M3-specific 1024-dimension LanceDB table (`semantic_cache_hf_inference_BAAI_bge_m3_1024`) instead of the old 512-dimension table.
 - Exact query cache now uses `query_cache_v2` to avoid reusing stale rows produced by provider-unaware cache keys.
