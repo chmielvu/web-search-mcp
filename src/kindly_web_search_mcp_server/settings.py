@@ -58,8 +58,10 @@ class Settings:
     hf_inference_provider: str = os.environ.get(
         "KINDLY_HF_INFERENCE_PROVIDER", "hf-inference"
     )
-    hf_embedding_model: str = os.environ.get("KINDLY_HF_EMBEDDING_MODEL", "BAAI/bge-m3")
-    embedding_dim: int = int(os.environ.get("KINDLY_EMBEDDING_DIM", "1024"))
+    hf_embedding_model: str = os.environ.get(
+        "KINDLY_HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
+    )
+    embedding_dim: int = int(os.environ.get("KINDLY_EMBEDDING_DIM", "384"))
 
     # Reranking (Jina API)
     reranking_enabled: bool = (
@@ -68,13 +70,13 @@ class Settings:
     bi_encoder_top_k: int = int(os.environ.get("KINDLY_BI_ENCODER_TOP_K", "100"))
     rerank_top_k: int = int(os.environ.get("KINDLY_RERANK_TOP_K", "10"))
     jina_rerank_model: str = os.environ.get(
-        "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v3"
+        "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v2-base-multilingual"
     )
     diversity_threshold: float = float(
         os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")
     )
     mmr_lambda_param: float = float(
-        os.environ.get("KINDLY_MMR_LAMBDA", "0.7")
+        os.environ.get("KINDLY_MMR_LAMBDA", "0.5")
     )
 
     # Pollinations API (for gemini-search provider in web_search mix)
@@ -82,9 +84,7 @@ class Settings:
 
     # Gemini Grounding (for gemini_search MCP tool)
     gemini_api_key: str = os.environ.get("KINDLY_GEMINI_API_KEY", "")
-    gemini_grounding_model: str = os.environ.get(
-        "KINDLY_GEMINI_GROUNDING_MODEL", "gemma-4-31b-it"
-    )
+    # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
 
     # YouTube Transcript
     youtube_transcript_proxy_url: str = os.environ.get(
@@ -107,12 +107,13 @@ class Settings:
     # - always: Always fires (free providers like SearXNG, DDG)
     # - conditional: Only when explicitly requested via providers param
     # - never: Never fires, even if API key present
+    ddg_mode: str = os.environ.get("KINDLY_DDG_MODE", "always")
     tavily_mode: str = os.environ.get("KINDLY_TAVILY_MODE", "never")
     brave_mode: str = os.environ.get("KINDLY_BRAVE_MODE", "never")
     jina_mode: str = os.environ.get("KINDLY_JINA_MODE", "conditional")
     gemini_mode: str = os.environ.get("KINDLY_GEMINI_SEARCH_MODE", "always")
     composio_llm_search_mode: str = os.environ.get(
-        "KINDLY_COMPOSIO_LLM_SEARCH_MODE", "conditional"
+        "KINDLY_COMPOSIO_LLM_SEARCH_MODE", "always"
     )
 
     # Composio Search toolkit
@@ -127,7 +128,7 @@ class Settings:
     composio_max_retries: int = int(os.environ.get("KINDLY_COMPOSIO_MAX_RETRIES", "2"))
 
     # RRF tuning
-    rrf_k: int = int(os.environ.get("KINDLY_RRF_K", "20"))
+    rrf_k: int = int(os.environ.get("KINDLY_RRF_K", "60"))
     rrf_provider_weights: dict = None  # type: ignore[assignment]  # set in __post_init__
 
     # Default num_results for web_search
@@ -151,6 +152,15 @@ class Settings:
 
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
+            # Provider weights rationale (Bruch et al. 2022: per-list weighting is more impactful than k tuning):
+            # - tavily: 1.3 (optimized for AI assistants, structured extraction, freshness)
+            # - gemini: 1.2 (Google grounding, high recall for factual/research queries)
+            # - composio_llm_search: 1.15 (LLM-enhanced relevance ranking)
+            # - jina: 1.1 (semantic search expertise, deep understanding)
+            # - searxng: 1.0 (baseline, free/open-source aggregator with meta-search breadth)
+            # - brave: 1.0 (baseline, independent index, privacy-focused)
+            # - ddg: 0.7 (aggregator, less freshness for navigational queries, penalized for instant answers)
+            # Note: weights are query-type dependent. Future: adaptive weighting by intent classification.
             self.rrf_provider_weights = _parse_json_dict(
                 os.environ.get("KINDLY_RRF_PROVIDER_WEIGHTS", ""),
                 default={
@@ -162,6 +172,23 @@ class Settings:
                     "gemini": 1.2,
                     "composio_llm_search": 1.15,
                 },
+            )
+
+        # Validate numeric parameters
+        if not 0.0 <= self.mmr_lambda_param <= 1.0:
+            raise ValueError(
+                f"mmr_lambda_param must be in [0, 1], got {self.mmr_lambda_param!r}. "
+                "Set KINDLY_MMR_LAMBDA env var to a value between 0 and 1."
+            )
+        if not 0.0 < self.semantic_cache_min_score <= 1.0:
+            raise ValueError(
+                f"semantic_cache_min_score must be in (0, 1], got {self.semantic_cache_min_score!r}. "
+                "Set KINDLY_SEMANTIC_CACHE_MIN_SCORE env var."
+            )
+        if self.rrf_k <= 0:
+            raise ValueError(
+                f"rrf_k must be > 0, got {self.rrf_k!r}. "
+                "Set KINDLY_RRF_K env var to a positive integer."
             )
 
 

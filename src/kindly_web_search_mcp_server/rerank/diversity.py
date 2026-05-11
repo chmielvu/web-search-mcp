@@ -77,10 +77,10 @@ def maximal_marginal_relevance_rank(
     hosts = [_normalize_host(url) for url in urls]
     host_counts: dict[str, int] = {}
     selected: list[int] = []
-    remaining: list[int] = list(range(n))
+    remaining: set[int] = set(range(n))
 
     while remaining:
-        best_idx = remaining[0]
+        best_idx = next(iter(remaining))
         best_objective = float("-inf")
         for idx in remaining:
             host_count = host_counts.get(hosts[idx], 0)
@@ -97,77 +97,6 @@ def maximal_marginal_relevance_rank(
 
         selected.append(best_idx)
         host_counts[hosts[best_idx]] = host_counts.get(hosts[best_idx], 0) + 1
-        remaining.remove(best_idx)
+        remaining.discard(best_idx)
 
     return selected
-
-
-def compute_embedding_diversity(
-    embeddings: list[list[float] | object],
-    threshold: float = 0.85,
-) -> tuple[list[int], dict[int, float]]:
-    """
-    Remove near-duplicate embeddings based on cosine similarity threshold.
-
-    Iteratively removes embeddings that are too similar to already-kept ones.
-
-    Args:
-        embeddings: List of embedding vectors (lists or numpy arrays)
-        threshold: Cosine similarity threshold for deduplication
-                  (0.85 = remove if >85% similar)
-
-    Returns:
-        Tuple of:
-          - List of indices to keep, maintaining original order
-          - Dict mapping each removed index to its max cosine similarity score
-    """
-    if len(embeddings) <= 1:
-        return list(range(len(embeddings))), {}
-
-    # Convert to numpy array if needed
-    if np is None:
-        return list(range(len(embeddings))), {}
-
-    if isinstance(embeddings[0], list):
-        matrix = np.array(embeddings)
-    else:
-        matrix = np.array([list(e) if isinstance(e, np.ndarray) else e for e in embeddings])
-
-    # Compute L2 norms for normalization
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0] = 1
-
-    # Normalize vectors
-    normalized = matrix / norms
-
-    # Compute cosine similarity matrix
-    similarity_matrix = normalized @ normalized.T
-
-    # Iteratively remove duplicates
-    kept_indices: list[int] = []
-    suppressed: set[int] = set()
-    removed_scores: dict[int, float] = {}
-
-    for i in range(len(embeddings)):
-        if i in suppressed:
-            continue
-
-        # Keep this one
-        kept_indices.append(i)
-
-        # Suppress similar ones that come after
-        for j in range(i + 1, len(embeddings)):
-            if j not in suppressed and similarity_matrix[i, j] > threshold:
-                score = float(similarity_matrix[i, j])
-                suppressed.add(j)
-                removed_scores[j] = score
-                logger.debug(
-                    f"Suppressed duplicate: index {j} (similarity: {score:.3f})"
-                )
-
-    logger.info(
-        f"Diversity pruning: kept {len(kept_indices)}/{len(embeddings)} "
-        f"(removed {len(suppressed)} duplicates, threshold={threshold})"
-    )
-
-    return kept_indices, removed_scores

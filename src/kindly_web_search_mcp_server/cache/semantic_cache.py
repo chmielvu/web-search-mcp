@@ -60,7 +60,7 @@ async def get_semantic_cache(
     best_similarity = 0.0
     for row in results:
         distance = row.get("_distance", 1.0)
-        similarity = 1.0 - min(distance, 1.0)
+        similarity = max(0.0, 1.0 - distance / 2.0)
         if similarity > best_similarity:
             best_similarity = similarity
             best_row = row
