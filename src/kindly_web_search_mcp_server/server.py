@@ -107,8 +107,8 @@ mcp.add_middleware(create_expensive_tool_middleware())
 from .middleware import create_differentiated_rate_limit_middleware
 mcp.add_middleware(
     create_differentiated_rate_limit_middleware(
-        cheap_rps=settings.rate_limit_web_search_rps,
-        cheap_burst=settings.rate_limit_web_search_burst,
+        cheap_rps=settings.rate_limit_cheap_rps,
+        cheap_burst=settings.rate_limit_cheap_burst,
         expensive_rps=settings.rate_limit_expensive_rps,
         expensive_burst=settings.rate_limit_expensive_burst,
     )
