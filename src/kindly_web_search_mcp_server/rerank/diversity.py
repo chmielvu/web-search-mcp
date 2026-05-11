@@ -105,7 +105,7 @@ def maximal_marginal_relevance_rank(
 def compute_embedding_diversity(
     embeddings: list[list[float] | object],
     threshold: float = 0.85,
-) -> list[int]:
+) -> tuple[list[int], dict[int, float]]:
     """
     Remove near-duplicate embeddings based on cosine similarity threshold.
 
@@ -117,14 +117,16 @@ def compute_embedding_diversity(
                   (0.85 = remove if >85% similar)
 
     Returns:
-        List of indices to keep, maintaining original order
+        Tuple of:
+          - List of indices to keep, maintaining original order
+          - Dict mapping each removed index to its max cosine similarity score
     """
     if len(embeddings) <= 1:
-        return list(range(len(embeddings)))
+        return list(range(len(embeddings))), {}
 
     # Convert to numpy array if needed
     if np is None:
-        return list(range(len(embeddings)))
+        return list(range(len(embeddings))), {}
 
     if isinstance(embeddings[0], list):
         matrix = np.array(embeddings)
@@ -144,6 +146,7 @@ def compute_embedding_diversity(
     # Iteratively remove duplicates
     kept_indices: list[int] = []
     suppressed: set[int] = set()
+    removed_scores: dict[int, float] = {}
 
     for i in range(len(embeddings)):
         if i in suppressed:
@@ -155,9 +158,11 @@ def compute_embedding_diversity(
         # Suppress similar ones that come after
         for j in range(i + 1, len(embeddings)):
             if j not in suppressed and similarity_matrix[i, j] > threshold:
+                score = float(similarity_matrix[i, j])
                 suppressed.add(j)
+                removed_scores[j] = score
                 logger.debug(
-                    f"Suppressed duplicate: index {j} (similarity: {similarity_matrix[i, j]:.3f})"
+                    f"Suppressed duplicate: index {j} (similarity: {score:.3f})"
                 )
 
     logger.info(
@@ -165,4 +170,4 @@ def compute_embedding_diversity(
         f"(removed {len(suppressed)} duplicates, threshold={threshold})"
     )
 
-    return kept_indices
+    return kept_indices, removed_scores
