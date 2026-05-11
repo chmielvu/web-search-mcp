@@ -338,10 +338,9 @@ async def search_single_query(
                 if isinstance(r, list):
                     all_results.append(r)
 
-        # Weighted RRF merge (uses settings.rrf_k and settings.rrf_provider_weights)
-        merged = merge_search_results(all_results) if len(all_results) > 1 else (
-            all_results[0] if all_results else []
-        )
+        # Weighted RRF merge: always run through merge_search_results so that
+        # host-cap deduplication is applied even for a single-provider result set.
+        merged = merge_search_results(all_results) if all_results else []
 
         if diagnostics:
             diagnostics.emit(
