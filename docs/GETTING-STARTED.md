@@ -137,8 +137,21 @@ get_content(url="https://stackoverflow.com/questions/76546453/gcp-cloud-batch-gp
 **Expected output:**
 ```json
 {
+  "input_url": "https://stackoverflow.com/questions/76546453/gcp-cloud-batch-gpu-error",
+  "normalized_url": "https://stackoverflow.com/questions/76546453/gcp-cloud-batch-gpu-error",
+  "fetched_url": "https://stackoverflow.com/questions/76546453/gcp-cloud-batch-gpu-error",
+  "status": "success",
+  "source_type": "stackexchange",
+  "fetch_backend": "stackexchange_api",
   "page_content": "# GCP Cloud Batch fails with GPU instance template\n\n**Question:** I am trying to run a GCP Cloud Batch job...\n\n**Answer 1 (Accepted):** The issue is with the instance template...\n\n**Answer 2:** I had the same problem, here's what worked...\n\n**Comments:** This fixed it for me...",
-  "url": "https://stackoverflow.com/questions/76546453/..."
+  "window": {
+    "offset": 0,
+    "length": 20000,
+    "returned_chars": 20000,
+    "total_chars": 52000,
+    "has_more": true,
+    "next_offset": 20000
+  }
 }
 ```
 

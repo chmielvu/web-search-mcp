@@ -482,8 +482,24 @@ async def web_search(
         openWorldHint=True,
     )
 )
-async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
+async def get_content(
+    url: str,
+    char_offset: int = 0,
+    char_length: int = 20_000,
+    summary_mode: str = "none",
+    focus_query: str | None = None,
+    ctx: Context = CurrentContext(),
+) -> dict:
 ```
+
+Response fields use explicit fetch vocabulary:
+
+- `input_url`: exact caller-provided URL.
+- `normalized_url`: normalized URL used for cache lookup and batch deduplication.
+- `fetched_url`: actual URL reached after redirects, or `null` when no network fetch reached a URL.
+- `source_type`: detected source family, such as `html`, `pdf`, `github_issue`, or `wikipedia`.
+- `fetch_backend`: backend strategy used, such as `safe_http_extract`, `jina_reader`, or `browser_fallback`.
+- `window`: pagination metadata with `offset`, `length`, `total_chars`, `has_more`, and `next_offset`.
 
 ## Resources and Prompts
 

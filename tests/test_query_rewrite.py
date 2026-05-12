@@ -92,8 +92,8 @@ def test_resolve_query_routing_returns_policy_directly() -> None:
     asyncio.run(_run())
 
 
-def test_rewrite_falls_back_when_mistral_sdk_is_unavailable() -> None:
-    """When Mistral SDK fails to load, should fallback to original query."""
+def test_rewrite_falls_back_when_router_unavailable() -> None:
+    """When LiteLLM Router is unavailable, should fallback to original query."""
     from kindly_web_search_mcp_server.search.query_rewrite import rewrite_search_query
 
     async def _run() -> None:
@@ -102,13 +102,10 @@ def test_rewrite_falls_back_when_mistral_sdk_is_unavailable() -> None:
                 "kindly_web_search_mcp_server.search.query_rewrite.settings.query_rewrite_enabled",
                 True,
             ),
+            # Simulate router unavailable (no API keys or LiteLLM not installed)
             patch(
-                "kindly_web_search_mcp_server.search.query_rewrite.settings.mistral_api_key",
-                "test-key",
-            ),
-            patch(
-                "kindly_web_search_mcp_server.search.query_rewrite._load_mistral_client_class",
-                side_effect=ImportError("missing mistral sdk"),
+                "kindly_web_search_mcp_server.search.query_rewrite._get_router",
+                return_value=None,
             ),
         ):
             plan = await rewrite_search_query("fastmcp middleware docs")

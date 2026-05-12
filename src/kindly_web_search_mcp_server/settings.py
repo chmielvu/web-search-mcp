@@ -54,6 +54,14 @@ class Settings:
     )
     mistral_api_key: str = os.environ.get("MISTRAL_API_KEY", "")
 
+    # Query rewrite multi-provider (free-tier load distribution)
+    cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
+    groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
+    # Provider RPM estimates for free tier (used by LiteLLM Router for weighted selection)
+    query_rewrite_mistral_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_MISTRAL_RPM", "30"))
+    query_rewrite_cerebras_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_CEREBRAS_RPM", "30"))
+    query_rewrite_groq_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_GROQ_RPM", "30"))
+
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get(
         "KINDLY_HF_INFERENCE_PROVIDER", "hf-inference"
@@ -70,7 +78,7 @@ class Settings:
     bi_encoder_top_k: int = int(os.environ.get("KINDLY_BI_ENCODER_TOP_K", "100"))
     rerank_top_k: int = int(os.environ.get("KINDLY_RERANK_TOP_K", "10"))
     jina_rerank_model: str = os.environ.get(
-        "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v2-base-multilingual"
+        "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v3"
     )
     diversity_threshold: float = float(
         os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")

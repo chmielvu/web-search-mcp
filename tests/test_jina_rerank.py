@@ -29,6 +29,11 @@ class _FakeClient:
 
 
 class TestJinaRerank(unittest.IsolatedAsyncioTestCase):
+    def test_default_jina_reranker_model_is_v3(self) -> None:
+        from kindly_web_search_mcp_server.settings import Settings
+
+        self.assertEqual(Settings().jina_rerank_model, "jina-reranker-v3")
+
     async def test_jina_rerank_uses_returned_indexes_for_duplicate_documents(self) -> None:
         from kindly_web_search_mcp_server.rerank.jina import jina_rerank
 

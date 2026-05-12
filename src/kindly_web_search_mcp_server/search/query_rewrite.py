@@ -1,15 +1,20 @@
-"""Query rewrite: expand queries via Mistral LLM when no precision signals detected.
+"""Query rewrite: expand queries via LiteLLM Router with multi-provider load distribution.
 
-Simple flow:
-1. Detect precision signals → bypass (return original only)
-2. No signals → expand via Mistral with docs/issues angles
-3. Uses CoT prompting - model thinks through restructuring before generating
+Providers (free-tier load distribution):
+- Mistral: mistral-small-2603
+- Cerebras: llama3.1-8b
+- Groq: llama-3.1-8b-instant
+
+Router handles:
+- RPM-weighted load distribution (simple-shuffle strategy)
+- Automatic failover on rate limit errors
+- Cooldowns (30s after 3 consecutive failures)
+- Retries (2 attempts per request)
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 import logging
 import re
@@ -33,30 +38,100 @@ from .query_policy import RewritePolicy
 from .query_policy_resolver import resolve_query_routing
 from opentelemetry import trace
 
+# LiteLLM Router for multi-provider load distribution
+try:
+    from litellm.router import Router
+    LITELLM_AVAILABLE = True
+except ImportError:
+    Router = None  # type: ignore[misc,assignment]
+    LITELLM_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
 
+# Singleton router instance (lazy initialization)
+_ROUTER: Any = None  # Router | None
 
-def _load_mistral_client_class():
-    """Load the Mistral client lazily so import-time failures do not break search.
 
-    Some environments run tests or lightweight local tooling without the full
-    Mistral SDK installed, or with a namespace package that does not expose the
-    generated `mistralai.client` module. Query rewrite should degrade to the
-    original query in those cases rather than fail module import/collection.
+def _build_query_rewrite_router() -> Any:
+    """Build LiteLLM Router with multi-provider configuration for query rewrite.
+
+    Providers (free-tier load distribution):
+    - Mistral: mistral/mistral-small-2603
+    - Cerebras: cerebras/llama3.1-8b
+    - Groq: groq/llama-3.1-8b-instant
+
+    Router handles:
+    - RPM-weighted load distribution (simple-shuffle strategy)
+    - Automatic failover on rate limit errors
+    - Cooldowns (30s after 3 consecutive failures)
+    - Retries (2 attempts per request)
     """
-    candidate_modules = ("mistralai.client", "mistralai")
-    for module_name in candidate_modules:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError:
-            continue
-        client_cls = getattr(module, "Mistral", None)
-        if client_cls is not None:
-            return client_cls
-    raise ImportError(
-        "Could not import Mistral client from mistralai.client or mistralai"
+    if not LITELLM_AVAILABLE or Router is None:
+        logger.debug("LiteLLM not available, query rewrite disabled")
+        return None
+
+    model_list = []
+
+    # Mistral (existing provider)
+    if settings.mistral_api_key:
+        model_list.append({
+            "model_name": "query-rewrite",
+            "litellm_params": {
+                "model": f"mistral/{settings.query_rewrite_model}",  # mistral-small-2603
+                "api_key": settings.mistral_api_key,
+                "rpm": settings.query_rewrite_mistral_rpm,
+            }
+        })
+
+    # Cerebras (free tier, fast inference)
+    if settings.cerebras_api_key:
+        model_list.append({
+            "model_name": "query-rewrite",
+            "litellm_params": {
+                "model": "cerebras/llama3.1-8b",
+                "api_key": settings.cerebras_api_key,
+                "rpm": settings.query_rewrite_cerebras_rpm,
+            }
+        })
+
+    # Groq (free tier, fastest inference)
+    if settings.groq_api_key:
+        model_list.append({
+            "model_name": "query-rewrite",
+            "litellm_params": {
+                "model": "groq/llama-3.1-8b-instant",
+                "api_key": settings.groq_api_key,
+                "rpm": settings.query_rewrite_groq_rpm,
+            }
+        })
+
+    if not model_list:
+        logger.debug("No query rewrite API keys configured")
+        return None
+
+    logger.info(
+        "Query rewrite router initialized with %d providers: %s",
+        len(model_list),
+        [m["litellm_params"]["model"] for m in model_list]
     )
+
+    return Router(
+        model_list=model_list,
+        routing_strategy="simple-shuffle",  # RPM-weighted random selection
+        num_retries=2,
+        retry_after=1,  # seconds (int required)
+        allowed_fails=3,
+        cooldown_time=30,
+    )
+
+
+def _get_router() -> Any:
+    """Get or initialize the singleton router instance."""
+    global _ROUTER
+    if _ROUTER is None:
+        _ROUTER = _build_query_rewrite_router()
+    return _ROUTER
 
 
 class QueryVariant(BaseModel):
@@ -93,7 +168,7 @@ class QueryVariant(BaseModel):
 
 
 class QueryRewriteOutput(BaseModel):
-    """Output from Mistral query rewrite."""
+    """Output from LLM query rewrite."""
 
     variants: list[QueryVariant] = Field(
         description="Two or three complementary search queries."
@@ -109,114 +184,96 @@ class QueryRewritePlan(BaseModel):
     final_queries: list[str]
 
 
-MISTRAL_QUERY_REWRITE_SYSTEM_PROMPT = """
-You are a query optimizer for a coding assistant's web search tool.
+# System prompt: Role + Constraints + Output Schema (concise for smaller models)
+# Research: Llama 3.1 8B needs explicit schema + enum constraints (50% parsing improvement)
+QUERY_REWRITE_SYSTEM_PROMPT = """You are a query optimizer for web search.
 
-CORE TASK: Take an over-keyworded or messy query and produce 3 concise, diverse search queries.
+Your job: Transform keyword-dump queries into clean, diverse search variants.
 
-Return JSON only.
-Follow the schema exactly.
+OUTPUT FORMAT (JSON only, no other text):
+{"variants": [{"kind": "...", "query": "...", "why": "..."}]}
 
-CRITICAL INSTRUCTION FROM RESEARCH:
-"Strip out all information that is not relevant for the retrieval task"
-- Reduce keyword pile-on (agents dump 10+ keywords)
-- Keep only terms that meaningfully impact search results
-- Preserve exact technical literals verbatim: package names, versions, CLI flags, repo names, model names, function/class names, file paths, exact error fragments, quoted text.
+kind must be one of: original, docs, community, keywords
+- original: Cleaned version of input query (remove filler, keep core terms)
+- docs: Add documentation terms (API, guide, reference, documentation)
+- community: Add community terms (GitHub issue, Stack Overflow, solution)
+- keywords: Terse extraction (only entity names + noun/verb base forms)
 
-CHAIN-OF-THINK PROCESS (think before generating):
-1. Analyze: What is the core intent? Identify key technical terms vs filler keywords.
-2. Strip: Remove redundant keywords, fix typos, normalize library names.
-3. Generate: Produce 3 variants with different vocabulary/perspective/source focus.
+CONSTRAINTS:
+- Preserve exact literals: packages, versions, error codes, URLs, quoted text
+- Never invent facts not in input or research_goal
+- Remove filler words: what, how, does, can, should, the, a, for, with, to
+- Strip keyword pile-on: if 6+ words, reduce to 3-4 core terms
+- Each variant must target different source type"""
 
-Generate 3 diverse search queries focusing on:
-- Different vocabulary: Use synonyms, related technical terms
-- Different perspectives: User language vs expert/documentation language
-- Different sources: Target docs sites, GitHub issues, tutorials
 
-Query types (for intent="code"):
-- original: Strip irrelevant keywords, fix typos, restructure for clarity
-- official_docs: Target documentation sites (docs.*, API references)
-- community_issues: Target GitHub issues, Stack Overflow, discussions
+def _build_user_prompt(query: str, research_goal: str | None, intent: str) -> str:
+    """Build user prompt with few-shot examples for smaller models.
 
-IMPORTANT: For web search, keep queries CONCISE (under 60 characters ideal). Do NOT expand into paragraphs.
+    Research findings:
+    - Few-shot prompting CRITICAL for Llama 3.1 8B (FabWebStudio)
+    - Philipp Schmid: Enum constraints improve JSON parsing by 50%
+    - Llama docs: Examples in user prompt (model trained that way)
+    - Imperative instructions work better: "Now optimize" not "Can you optimize"
+    """
 
-Good examples (showing chain-of-think process):
+    # Few-shot examples block (critical for smaller model instruction following)
+    examples_block = """
+EXAMPLES:
 
-Input: "query reformulation web search LLM best practices 2025 2026 fanout expansion agentic"
-Chain-of-think: Core intent is "LLM query reformulation for web search", years 2025-2026 are relevant, "fanout expansion agentic" are filler keywords. Strip these, normalize to essential terms.
+Input query: "react 18.2.0 hooks changelog release notes documentation API"
+Research goal: "Find React 18.2.0 changelog to check hooks support"
 Output:
-{
-  "variants": [
-    {"kind": "original", "query": "LLM query reformulation web search 2025", "why": "Reduced from 10 keywords to 4 core terms"},
-    {"kind": "official_docs", "query": "LLM query reformulation documentation", "why": "Docs perspective, expert vocabulary"},
-    {"kind": "community_issues", "query": "LLM query reformulation GitHub discussion", "why": "Community sources, problem-focused"}
-  ]
-}
+{"variants": [
+  {"kind": "original", "query": "react 18.2.0 changelog hooks", "why": "Reduced keyword pile, kept version"},
+  {"kind": "docs", "query": "react 18.2.0 hooks documentation", "why": "Official docs target"},
+  {"kind": "community", "query": "react 18.2.0 hooks GitHub", "why": "Community discussions"}
+]}
 
-Input: "TypeError Cannot read property undefined JavaScript fix error"
-Chain-of-think: Exact error terms "TypeError Cannot read property undefined" are precision signals, "fix error" are redundant filler (already implied). Remove filler, keep exact error.
+Input query: "TypeError Cannot read property undefined JavaScript fix error solution"
+Research goal: "Debug TypeError in JavaScript code"
 Output:
-{
-  "variants": [
-    {"kind": "original", "query": "TypeError Cannot read property undefined JavaScript", "why": "Kept exact error terms, removed filler"},
-    {"kind": "official_docs", "query": "JavaScript TypeError property access docs", "why": "Docs vocabulary: property access instead of undefined"},
-    {"kind": "community_issues", "query": "TypeError Cannot read property undefined Stack Overflow", "why": "Community sources with exact error"}
-  ]
-}
+{"variants": [
+  {"kind": "original", "query": "TypeError Cannot read property undefined JavaScript", "why": "Kept exact error, removed filler"},
+  {"kind": "docs", "query": "JavaScript TypeError property access docs", "why": "MDN documentation"},
+  {"kind": "community", "query": "TypeError Cannot read property undefined Stack Overflow", "why": "Community solutions"}
+]}
 
-Input: "langchain agent memory sqlite chromadb tutorial guide"
-Chain-of-think: "langchain agent memory" is core intent, "sqlite chromadb" are specific backends, "tutorial guide" are redundant keywords. Remove tutorial/guide, normalize chromadb to chroma.
+Input query: "langchain agent memory sqlite chromadb tutorial guide how to"
+Research goal: "Implement LangChain agent with memory backend"
 Output:
-{
-  "variants": [
-    {"kind": "original", "query": "LangChain agent memory sqlite chroma", "why": "Normalized chromadb to chroma, removed tutorial/guide"},
-    {"kind": "official_docs", "query": "LangChain memory documentation sqlite integration", "why": "Docs perspective, official sources"},
-    {"kind": "community_issues", "query": "LangChain memory sqlite chroma GitHub issue", "why": "Community sources, implementation problems"}
-  ]
-}
+{"variants": [
+  {"kind": "original", "query": "langchain agent memory sqlite chroma", "why": "Normalized chromadb, removed tutorial/guide"},
+  {"kind": "docs", "query": "langchain memory sqlite documentation", "why": "Official integration docs"},
+  {"kind": "community", "query": "langchain memory sqlite chroma GitHub issue", "why": "Implementation problems"}
+]}
 
-Input: "pydantic undefined import error v2 fastapi"
-Chain-of-think: Error terms "pydantic undefined import error v2 fastapi" are all relevant. Version v2 is precision signal, FastAPI is context. Keep all, add docs/community angles.
+Input query: "best payment gateway for SaaS startups Europe pricing comparison"
+Research goal: "Compare payment gateway options for European SaaS"
 Output:
-{
-  "variants": [
-    {"kind": "original", "query": "Pydantic Undefined import error v2 FastAPI", "why": "Kept exact error terms and involved libraries"},
-    {"kind": "official_docs", "query": "Pydantic v2 migration Undefined import FastAPI", "why": "Targets migration or API-change documentation"},
-    {"kind": "community_issues", "query": "Pydantic Undefined import FastAPI GitHub issue workaround", "why": "Targets bug reports and fixes"}
-  ]
-}
+{"variants": [
+  {"kind": "original", "query": "best payment gateway SaaS Europe", "why": "Kept core intent, removed filler"},
+  {"kind": "docs", "query": "payment gateway comparison Stripe PayPal Europe SaaS", "why": "Added comparison entities"},
+  {"kind": "community", "query": "SaaS payment gateway Europe Reddit pricing", "why": "Community recommendations"}
+]}
 
-Non-code examples (intent="general_research"):
-Input: "best payment gateway for SaaS startups Europe"
-Chain-of-think: Core intent is payment gateway comparison for SaaS in Europe. Remove "for" (noise), keep geographic scope.
-Output:
-{
-  "variants": [
-    {"kind": "original", "query": "best payment gateway SaaS Europe", "why": "Kept core intent, minimal change"},
-    {"kind": "expanded", "query": "payment gateway comparison Stripe PayPal Europe SaaS", "why": "Broader context, added comparison entities"},
-    {"kind": "focused", "query": "SaaS payment gateway Europe pricing fees", "why": "Narrowed to practical considerations"}
-  ]
-}
+---
+"""
 
-Comparison examples (intent="comparison"):
-Input: "React vs Vue performance 2025"
-Chain-of-think: Comparison structure with two entities (React, Vue), topic (performance), time scope (2025). Already clean, generate entity-specific variants.
-Output:
-{
-  "variants": [
-    {"kind": "original", "query": "React vs Vue performance 2025", "why": "Kept comparison structure intact"},
-    {"kind": "entity_a", "query": "React performance benchmark 2025", "why": "Focus on React side for depth"},
-    {"kind": "entity_b", "query": "Vue performance benchmark 2025", "why": "Focus on Vue side for depth"}
-  ]
-}
+    # Task block with current input (imperative instruction for smaller models)
+    task_block = f"""Now optimize this query:
 
-Bad behavior:
-- turning a vague query into a highly specific claim
-- inventing a library version not present in the input
-- rewriting away exact literals (error codes, package names, versions)
-- returning paragraphs instead of concise search queries
-- adding more keywords instead of reducing keyword pile-on
-""".strip()
+Input query: {query}
+Intent: {intent}"""
+
+    if research_goal:
+        task_block += f"""
+Research goal: {research_goal}"""
+
+    task_block += """
+Output:"""
+
+    return examples_block + task_block
 
 
 def _normalize_ws(text: str) -> str:
@@ -253,7 +310,7 @@ def _fallback_plan(query: str, policy: RewritePolicy, reason: str) -> QueryRewri
 def _postprocess(
     query: str, raw: QueryRewriteOutput, policy: RewritePolicy, max_variants: int
 ) -> QueryRewritePlan:
-    """Postprocess Mistral output: dedupe, limit variants, build plan."""
+    """Postprocess LLM output: dedupe, limit variants, build plan."""
     cleaned_original = normalize_query(query)
     final_queries = _dedupe_keep_order(
         [cleaned_original, *(variant.query for variant in raw.variants)]
@@ -294,16 +351,16 @@ async def rewrite_search_query(
     diagnostics: Diagnostics | None = None,
     research_goal: str | None = None,
 ) -> QueryRewritePlan:
-    """Rewrite query via Mistral if no precision signals detected.
+    """Rewrite query via LiteLLM Router if no precision signals detected.
 
     Flow:
     1. Detect precision signals → bypass (return original only)
-    2. No signals → expand via Mistral with docs/issues angles
-    3. Mistral failure → fallback to original
+    2. No signals → expand via Router with docs/issues angles
+    3. Router failure → fallback to original
 
     Args:
         query: Raw query string
-        intent: Client-provided intent (NOT classified by Mistral).
+        intent: Client-provided intent (NOT classified by LLM).
             "code" → original, official_docs, community_issues variants
             "general_research" → original, expanded, focused variants
             "comparison" → original, entity_a, entity_b variants
@@ -377,8 +434,10 @@ async def rewrite_search_query(
             )
             return _fallback_plan(query, policy, policy.reason)
 
-        if not settings.mistral_api_key:
-            # Record telemetry for missing API key
+        # Get router (multi-provider load distribution)
+        router = _get_router()
+        if router is None:
+            # Record telemetry for missing router
             duration = time.time() - start_time
             record_query_rewrite(
                 policy="fallback",
@@ -387,73 +446,66 @@ async def rewrite_search_query(
                 duration_seconds=duration,
                 model="fallback",
             )
-            span.add_event("rewrite.fallback", attributes={"reason": "No Mistral API key"})
+            span.add_event("rewrite.fallback", attributes={"reason": "No router available"})
             emit_observability_event(
                 logger,
                 "query.rewrite.fallback",
                 query=query,
                 normalized_query=normalized_query,
                 policy=policy.mode,
-                reason="No Mistral API key configured.",
+                reason="LiteLLM Router not available or no API keys configured.",
                 final_queries=[normalized_query],
             )
-            return _fallback_plan(query, policy, "No Mistral API key configured.")
+            return _fallback_plan(query, policy, "LiteLLM Router not available or no API keys configured.")
 
         if diagnostics:
             diagnostics.emit(
                 "query_rewrite.start",
-                "Starting Mistral query rewrite",
+                "Starting LiteLLM Router query rewrite",
                 {
                     "query": query,
                     "policy": policy.mode,
                     "intent": intent,
                     "must_keep_terms": policy.must_keep_terms,
-                    "model": settings.query_rewrite_model,
                     "max_variants": max_variants,
                 },
             )
 
-        # Include intent in user prompt so Mistral knows which variant types to generate
-        intent_context = ""
-        if intent == "general_research":
-            intent_context = " (intent: general_research - use original, expanded, focused variants)"
-        elif intent == "comparison":
-            intent_context = " (intent: comparison - use original, entity_a, entity_b variants)"
-        # Default "code" intent uses original, official_docs, community_issues variants
-
-        # Include research_goal if provided by client
-        goal_context = ""
-        if research_goal:
-            goal_context = f"\n\nResearch goal from user: {research_goal}"
-
-        user_prompt = f"Raw query: {normalize_query(query)}{intent_context}{goal_context}"
+        # Build user prompt with few-shot examples (research: critical for smaller models)
+        user_prompt = _build_user_prompt(
+            query=normalized_query,
+            research_goal=research_goal,
+            intent=intent
+        )
 
         try:
-            mistral_client_cls = _load_mistral_client_class()
-            async with mistral_client_cls(api_key=settings.mistral_api_key) as client:
-                response = await asyncio.wait_for(
-                    client.chat.complete_async(
-                        model=settings.query_rewrite_model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": MISTRAL_QUERY_REWRITE_SYSTEM_PROMPT,
-                            },
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        stream=False,
-                        response_format={"type": "json_object"},
-                        temperature=settings.query_rewrite_temperature,
-                    ),
-                    timeout=settings.query_rewrite_timeout_seconds,
-                )
+            # LiteLLM Router handles provider selection, retries, and failover
+            # Temperature 0.8 per QueryGym research for keyword extraction
+            response = await asyncio.wait_for(
+                router.acompletion(
+                    model="query-rewrite",  # Router selects provider based on RPM weights
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": QUERY_REWRITE_SYSTEM_PROMPT,
+                        },
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=settings.query_rewrite_temperature,
+                    response_format={"type": "json_object"},  # Force JSON output
+                ),
+                timeout=settings.query_rewrite_timeout_seconds,
+            )
 
             content = response.choices[0].message.content
             if not isinstance(content, str):
-                raise ValueError("Expected string JSON content from Mistral")
+                raise ValueError("Expected string JSON content from LLM")
 
             parsed = QueryRewriteOutput.model_validate(json.loads(content))
             plan = _postprocess(query, parsed, policy, max_variants=max_variants)
+
+            # Get the actual model used from response
+            used_model = response.model or "unknown"
 
             # Record telemetry for successful expand
             duration = time.time() - start_time
@@ -462,7 +514,7 @@ async def rewrite_search_query(
                 variant_count=len(plan.final_queries),
                 has_precision_signals=False,
                 duration_seconds=duration,
-                model=settings.query_rewrite_model,
+                model=used_model,
             )
 
             # Add variants as span events
@@ -484,19 +536,18 @@ async def rewrite_search_query(
                 final_queries=plan.final_queries,
                 variants=[variant.model_dump() for variant in plan.variants],
                 duration_ms=round(duration * 1000, 3),
-                model=settings.query_rewrite_model,
+                model=used_model,
             )
 
             if diagnostics:
                 diagnostics.emit(
                     "query_rewrite.result",
-                    "Mistral query rewrite completed",
-                    {"queries": plan.final_queries, "policy": plan.policy.mode},
+                    "LiteLLM Router query rewrite completed",
+                    {"queries": plan.final_queries, "policy": plan.policy.mode, "model": used_model},
                 )
 
             return plan
         except (
-            ImportError,
             TimeoutError,
             ValidationError,
             ValueError,
@@ -536,7 +587,7 @@ async def rewrite_search_query(
             if diagnostics:
                 diagnostics.emit(
                     "query_rewrite.fallback",
-                    "Mistral query rewrite failed; using original query",
+                    "LiteLLM Router query rewrite failed; using original query",
                     {"error": type(exc).__name__, "detail": str(exc)},
                 )
             return _fallback_plan(

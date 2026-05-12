@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Comparative architecture PRD refresh for `get_content` / `batch_get_content` in
+  `plans/get-content-batch-content-state-of-art-fastmcp-plan-2026-05-12.md`,
+  incorporating live MCP validation plus external fetch/summarizer MCP research
+  (Pulse Fetch, fetch-mcp, web-forager, mcp-fetch variants, and summary tools).
+- New content retrieval modules for the fetch re-architecture:
+  `content/artifact.py`, `content/safe_fetch.py`, `content/status_classifier.py`,
+  `content/windowing.py`, `content/fetch_pipeline.py`, `content/batch_orchestrator.py`,
+  `content/summary.py`, and `content/jina_reader.py`.
+- Focused tests for the new fetch path:
+  `tests/test_jina_reader.py`, `tests/test_content_windowing.py`,
+  `tests/test_content_status_classifier.py`, `tests/test_batch_orchestrator.py`,
+  and `tests/test_summary_chutes.py`.
 - `KINDLY_MMR_LAMBDA` environment variable (default `0.5`, was `0.7`) for configuring the
   MMR relevance–diversity trade-off in the rerank diversity stage. Default lowered to `0.5`
   for balanced relevance/diversity per Carbonell & Goldstein (1998).
@@ -24,6 +36,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Server-level MCP `instructions`, `docs://workflow`, and workflow prompts now
+  describe agent routing policy instead of provider implementation details,
+  including the standard `rewrite=true` path, `rewrite=false` exact-literal
+  exception, `batch_get_content` boundary, YouTube chain, and expensive
+  `perplexity_search` boundary.
+- Agent-facing tool descriptions now expose `web_search` rewrite guidance,
+  `provider_count` as an agreement signal, `batch_get_content` budget/cursor
+  behavior, and the `youtube_search` -> `youtube_transcript` workflow.
+- Default `KINDLY_JINA_RERANK_MODEL` is now `jina-reranker-v3`.
+- `get_content` now uses a structured artifact pipeline with bounded windowing
+  (`char_offset`, `char_length`), typed status/error fields, clearer URL naming
+  (`input_url`, `normalized_url`, `fetched_url`), clear source/backend naming
+  (`source_type`, `fetch_backend`), and Chutes-backed optional summary
+  output modes (`none`, `brief`, `detailed`).
+- `batch_get_content` was rebuilt around the new orchestrator contract with
+  per-item structured status, global output budget enforcement, and continuation
+  cursor support.
+- Jina Reader fallback behavior now attempts unauthenticated fetch first and
+  retries with `JINA_API_KEY` only on HTTP 429 rate limits.
 - **Jina reranker model**: upgraded from `jina-reranker-v1-base-en` to
   `jina-reranker-v2-base-multilingual`. Documents now sent as structured
   `{"text": snippet, "title": title}` dicts for better title/body separation.
@@ -43,6 +74,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Query/result/Gemini steering middleware now injects concise `agent_guidance`
+  into structured tool results instead of only writing guidance to server logs.
+- `ExpensiveToolProtectionMiddleware` no longer collapses calls without a
+  request id into one global `default_session`; it uses FastMCP session/client
+  context when available and a non-shared local fallback otherwise.
 - **SQL injection via `provider_key`**: LanceDB FTS and vector search queries
   interpolated `provider_key` directly into SQL WHERE clauses. Fixed by sanitizing
   with `re.sub(r"[^a-zA-Z0-9_\\-]", "", provider_key)` before interpolation.
