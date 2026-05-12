@@ -1,7 +1,7 @@
 """Standalone MCP tools backed by Composio Search toolkit actions."""
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -226,7 +226,7 @@ def register_composio_tools(mcp: Any) -> None:
     async def composio_similarlinks(
         url: str,
         num_results: int = 5,
-        search_type: Literal["keyword", "neural", "magic"] = "neural",
+        search_type: str = "neural",
         category: str | None = None,
         include_domains: list[str] | None = None,
         exclude_domains: list[str] | None = None,

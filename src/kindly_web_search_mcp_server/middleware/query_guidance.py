@@ -11,26 +11,34 @@ import logging
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.tools.base import ToolResult
 
 logger = logging.getLogger(__name__)
 
 # Concise query quality tips (shown on every invocation)
 QUERY_QUALITY_TIPS = """
-📋 QUICK QUERY CHECK:
-1. Specific > vague ("React 19 hooks" not "React")
-2. One topic per call — split multi-part questions
-3. Use exact terms: error codes, API names, versions
-4. Add context: domain + timeframe + need
-5. Quote exact errors for debugging
+QUICK QUERY CHECK:
+1. Keep rewrite=true for normal web discovery.
+2. Use rewrite=false for exact errors, URLs, versions, hashes, UUIDs, or quoted strings.
+3. Prefer one topic per call with domain, timeframe, and intended use.
 """
 
 # Result extraction guidance (shown with results)
 RESULT_EXTRACTION_GUIDANCE = """
-📌 RESULTS: Selected sources above.
-→ Extract key facts, compare across sources.
-→ Need more? Refine query and call again.
-→ Missing info? State gap explicitly.
+RESULTS: Use provider_count as an agreement signal. Read selected URLs with get_content, or use batch_get_content for 3+ URLs. State gaps explicitly when results do not answer the goal.
 """
+
+
+def _append_agent_guidance(result: Any, source: str, message: str) -> Any:
+    """Attach visible guidance to structured MCP tool results."""
+    if not isinstance(result, ToolResult) or not isinstance(result.structured_content, dict):
+        return result
+
+    structured = dict(result.structured_content)
+    guidance = list(structured.get("agent_guidance") or [])
+    guidance.append({"source": source, "message": message.strip()})
+    structured["agent_guidance"] = guidance
+    return ToolResult(structured_content=structured, meta=result.meta)
 
 
 class QueryQualityMiddleware(Middleware):
@@ -56,13 +64,14 @@ class QueryQualityMiddleware(Middleware):
         if tool_name != "web_search":
             return await call_next(context)
 
-        # Show tips on EVERY call (non-blocking, informational)
+        # Keep a server-side breadcrumb for operators, but return the actual
+        # steering in the MCP result so the calling agent can see it.
         logger.info(
             f"[QUERY TIPS] {tool_name}\n{QUERY_QUALITY_TIPS.strip()}"
         )
 
-        # Call proceeds normally
-        return await call_next(context)
+        result = await call_next(context)
+        return _append_agent_guidance(result, "query_quality", QUERY_QUALITY_TIPS)
 
 
 class ResultGuidanceMiddleware(Middleware):
@@ -95,7 +104,7 @@ class ResultGuidanceMiddleware(Middleware):
             f"[RESULT GUIDE] {tool_name} returned\n{RESULT_EXTRACTION_GUIDANCE.strip()}"
         )
 
-        return result
+        return _append_agent_guidance(result, "result_guidance", RESULT_EXTRACTION_GUIDANCE)
 
 
 def create_query_quality_middleware() -> QueryQualityMiddleware:

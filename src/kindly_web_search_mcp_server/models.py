@@ -83,16 +83,54 @@ class WebSearchResponse(BaseModel):
 
 class GetContentResponse(BaseModel):
     """Response from get_content tool."""
-    url: str = Field(description="The requested URL.")
-    page_content: str = Field(description="LLM-ready Markdown extracted from the URL (best-effort).")
+    input_url: str = Field(description="Exact URL supplied by the caller.")
+    normalized_url: str = Field(description="Normalized URL used for cache lookup and deduplication.")
+    fetched_url: str | None = Field(default=None, description="Actual URL reached after redirects, if known.")
+    status: str = Field(description="Fetch status: success, partial, blocked, unsupported, or error.")
+    source_type: str = Field(description="Detected source type, e.g. html, pdf, github_issue.")
+    fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
+    page_content: str = Field(description="Bounded content slice for the requested window.")
+    window: dict[str, Any] = Field(description="Window metadata for pagination/continuation.")
     content_type: str | None = Field(
         default=None,
-        description="Detected content type (e.g., 'stackexchange', 'github_issue', 'wikipedia').",
+        description="Detected HTTP content type if available.",
+    )
+    error: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured error payload for non-success statuses.",
+    )
+    summary: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional derived summary when summary_mode is requested.",
     )
     diagnostics: list[dict[str, Any]] | None = Field(
         default=None,
         description="Optional diagnostics metadata when KINDLY_DIAGNOSTICS is enabled.",
     )
+
+
+class BatchContentResult(BaseModel):
+    """Single item in batch_get_content output."""
+    input_url: str
+    normalized_url: str
+    fetched_url: str | None = None
+    status: str
+    source_type: str
+    fetch_backend: str
+    page_content: str
+    window: dict[str, Any]
+    content_type: str | None = None
+    error: dict[str, Any] | None = None
+
+
+class BatchGetContentResponse(BaseModel):
+    """Response from batch_get_content tool."""
+    results: list[BatchContentResult] = Field(default_factory=list)
+    total_requested: int = 0
+    total_returned: int = 0
+    total_chars_returned: int = 0
+    has_more: bool = False
+    cursor: str | None = None
 
 
 class GeminiSearchResponse(BaseModel):

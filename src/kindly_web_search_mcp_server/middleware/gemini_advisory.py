@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.tools.base import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +19,20 @@ GEMINI_TOOLS = frozenset({"gemini_search"})
 
 # Advisory message for Gemini query best practices - informative, not blocking
 GEMINI_QUERY_ADVISORY = """
-💡 GEMINI SEARCH: QUERY QUALITY TIPS
-
-Gemini with Google Search grounding provides quick, grounded answers. For best results:
-
-**BEST PRACTICES:**
-1. **Be specific** — "React 19 concurrent rendering changes" beats "React 19"
-2. **Single focus** — one clear question per call
-3. **Use exact terms** — error messages, API names, version numbers
-4. **Add recency hints** — "2024", "latest", "recent" when needed
-5. **State information need** — what exactly are you looking for?
-
-**EXAMPLES:**
-✅ "How does React 19's use() hook differ from useEffect for data fetching?"
-✅ "Python 3.12 type parameter syntax changes from 3.11"
-❌ "Tell me about React" (too broad)
-❌ "What's new in Python and Rust and Go?" (multiple topics)
-
-**Note:** This is informational only — your call proceeds normally.
+GEMINI SEARCH: Best for quick grounded synthesis. Use a single focused question, include exact API/error/version terms, and add recency hints when freshness matters. Use web_search plus get_content when you need to compare source pages yourself.
 """
+
+
+def _append_agent_guidance(result: Any, message: str) -> Any:
+    """Attach Gemini advisory to structured MCP tool results."""
+    if not isinstance(result, ToolResult) or not isinstance(result.structured_content, dict):
+        return result
+
+    structured = dict(result.structured_content)
+    guidance = list(structured.get("agent_guidance") or [])
+    guidance.append({"source": "gemini_advisory", "message": message.strip()})
+    structured["agent_guidance"] = guidance
+    return ToolResult(structured_content=structured, meta=result.meta)
 
 
 class GeminiAdvisoryMiddleware(Middleware):
@@ -78,8 +74,7 @@ class GeminiAdvisoryMiddleware(Middleware):
         if tool_name not in self.advisory_tools:
             return await call_next(context)
 
-        # Log advisory message (non-blocking, informational)
-        session_id = getattr(context.message, 'request_id', 'default')
+        session_id = self._get_session_id(context)
         call_count = self._call_counts.get(session_id, 0) + 1
         self._call_counts[session_id] = call_count
 
@@ -90,8 +85,24 @@ class GeminiAdvisoryMiddleware(Middleware):
                 f"query tips available but call proceeds"
             )
 
-        # Call proceeds normally - advisory is informational only
-        return await call_next(context)
+        result = await call_next(context)
+        if call_count <= 2:
+            return _append_agent_guidance(result, GEMINI_QUERY_ADVISORY)
+        return result
+
+    def _get_session_id(self, context: MiddlewareContext) -> str:
+        fastmcp_context = context.fastmcp_context
+        if fastmcp_context is not None:
+            try:
+                return fastmcp_context.session_id
+            except RuntimeError:
+                client_id = fastmcp_context.client_id
+                if client_id:
+                    return client_id
+        request_id = getattr(context.message, "request_id", None)
+        if request_id:
+            return str(request_id)
+        return f"local_context:{id(fastmcp_context)}"
 
 
 def create_gemini_advisory_middleware(

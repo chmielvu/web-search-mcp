@@ -156,7 +156,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", num_results=1, ctx=mock_ctx)
+            out = await tool_fn("hello", "Find information about hello", num_results=1, ctx=mock_ctx)
 
         self.assertIsInstance(out, dict)
         self.assertEqual(out["query"], "hello")
@@ -168,86 +168,109 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("page_content", out["results"][0])
 
     async def test_get_content_returns_markdown(self) -> None:
+        from kindly_web_search_mcp_server.content.artifact import ContentArtifact
         from kindly_web_search_mcp_server.server import get_content
 
-        # Create mock context with .info() method
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.server.resolve_page_content_markdown",
+            "kindly_web_search_mcp_server.server.fetch_content_artifact",
             new_callable=AsyncMock,
-        ) as mock_resolve, patch(
+        ) as mock_fetch, patch(
             "kindly_web_search_mcp_server.server.get_page_cache"
         ) as mock_get_page_cache:
-            # Mock page cache to return no cached results (test isolation)
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
-            mock_resolve.return_value = "# Title\n\nHello"
-            # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
+            mock_fetch.return_value = ContentArtifact(
+                input_url="https://example.com",
+                normalized_url="https://example.com",
+                fetched_url="https://example.com/",
+                status="success",
+                source_type="html",
+                fetch_backend="test",
+                content_type="text/markdown",
+                markdown="# Title\n\nHello",
+            )
             tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
-        self.assertEqual(out["url"], "https://example.com")
+        self.assertEqual(out["input_url"], "https://example.com")
+        self.assertEqual(out["normalized_url"], "https://example.com")
+        self.assertEqual(out["fetched_url"], "https://example.com/")
+        self.assertEqual(out["source_type"], "html")
+        self.assertEqual(out["fetch_backend"], "test")
         self.assertIn("page_content", out)
         self.assertIn("Hello", out["page_content"])
+        self.assertEqual(out["window"]["total_chars"], len("# Title\n\nHello"))
 
-    async def test_get_content_handles_none(self) -> None:
+    async def test_get_content_returns_structured_error_artifact(self) -> None:
+        from kindly_web_search_mcp_server.content.artifact import ContentArtifact, ContentError
         from kindly_web_search_mcp_server.server import get_content
 
-        # Create mock context with .info() method
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.server.resolve_page_content_markdown",
+            "kindly_web_search_mcp_server.server.fetch_content_artifact",
             new_callable=AsyncMock,
-        ) as mock_resolve, patch(
+        ) as mock_fetch, patch(
             "kindly_web_search_mcp_server.server.get_page_cache"
         ) as mock_get_page_cache:
-            # Mock page cache to return no cached results (test isolation)
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
-            mock_resolve.return_value = None
-            # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
+            mock_fetch.return_value = ContentArtifact(
+                input_url="https://example.com/file.pdf",
+                normalized_url="https://example.com/file.pdf",
+                fetched_url=None,
+                status="unsupported",
+                source_type="pdf",
+                fetch_backend="pdf_extract",
+                content_type="application/pdf",
+                markdown="",
+                error=ContentError(code="pdf_extract_failed", message="bad pdf"),
+            )
             tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
             out = await tool_fn("https://example.com/file.pdf", ctx=mock_ctx)
 
-        self.assertEqual(out["url"], "https://example.com/file.pdf")
-        self.assertIn("Could not retrieve content", out["page_content"])
+        self.assertEqual(out["input_url"], "https://example.com/file.pdf")
+        self.assertEqual(out["status"], "unsupported")
+        self.assertEqual(out["error"]["code"], "pdf_extract_failed")
+        self.assertEqual(out["window"]["total_chars"], 0)
 
-    async def test_get_content_returns_timeout_note_on_timeout(self) -> None:
+    async def test_get_content_returns_structured_timeout_error(self) -> None:
         from kindly_web_search_mcp_server.server import get_content
 
-        # Create mock context with .info() method
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.server.resolve_page_content_markdown",
+            "kindly_web_search_mcp_server.server.fetch_content_artifact",
             new_callable=AsyncMock,
-        ) as mock_resolve, patch(
+        ) as mock_fetch, patch(
             "kindly_web_search_mcp_server.server.get_page_cache"
-        ) as mock_get_page_cache:
-            # Mock page cache to return no cached results (test isolation)
+        ) as mock_get_page_cache, patch(
+            "kindly_web_search_mcp_server.server._resolve_tool_total_timeout_seconds",
+            return_value=0.01,
+        ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
-            mock_resolve.side_effect = asyncio.TimeoutError()
-            # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
+            mock_fetch.side_effect = asyncio.TimeoutError()
             tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
-        self.assertIn("TimeoutError", out["page_content"])
-        self.assertIn("Source: https://example.com", out["page_content"])
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(out["fetched_url"], None)
+        self.assertEqual(out["error"]["code"], "timeout")
 
     async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -266,7 +289,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", num_results=1, ctx=mock_ctx)
+            out = await tool_fn("hello", "Find information about hello", num_results=1, ctx=mock_ctx)
 
         self.assertNotIn("page_content", out["results"][0])
 

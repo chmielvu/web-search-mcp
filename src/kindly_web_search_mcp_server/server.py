@@ -37,12 +37,16 @@ from fastmcp.server.context import Context  # Context type
 from mcp.types import ToolAnnotations  # For tool annotations
 
 from .models import (
+    BatchGetContentResponse,
     GetContentResponse,
     YouTubeTranscriptResponse,
     YouTubeSearchResponse,
 )
 from .errors import classify_error, format_tool_error
-from .content.resolver import resolve_page_content_markdown
+from .content.batch_orchestrator import BatchParams, run_batch_fetch
+from .content.fetch_pipeline import fetch_content_artifact
+from .content.summary import create_summary
+from .content.windowing import slice_content
 from .composio_tools import register_composio_tools
 from .content.youtube import (
     YouTubeError,
@@ -68,11 +72,9 @@ from .search.normalize import normalize_query, canonicalize_url
 from .settings import settings
 from .utils.diagnostics import (
     Diagnostics,
-    MAX_SAMPLE_CHARS,
     diagnostics_enabled,
     mask_env_values,
     new_request_id,
-    sample_data,
 )
 from .utils.logging import configure_logging
 from .utils.observability import (
@@ -126,8 +128,11 @@ def _record_tool_failure(tool_name: str) -> None:
 mcp = FastMCP(
     "kindly-web-search",
     instructions=(
-        "Web search via SearXNG (primary), Tavily, Brave, Jina with RRF merge and best-effort "
-        "scraping/extraction of result pages into Markdown for LLM consumption."
+        "Tool routing: use web_search first for normal web discovery and keep rewrite=true by default. "
+        "Use rewrite=false only for exact literals such as stack traces, quoted errors, URLs, versions, hashes, and UUIDs. "
+        "Use get_content for one known URL; use batch_get_content for 3 or more URLs and follow has_more/cursor or window.next_offset. "
+        "Use gemini_search for quick grounded synthesis; use perplexity_search only after refining a single-topic query. "
+        "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL."
     ),
 )
 
@@ -385,16 +390,19 @@ def _normalize_lightweight_search_response(response: dict, *, query: str) -> dic
 )
 async def web_search(
     query: str,
+    research_goal: str,
     num_results: int = 5,
     rewrite: bool = True,
     providers: list[str] | None = None,
-    research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
     """Search the web and return lightweight results only.
 
     Key instruction:
-    Consider this as your default web search tool. Disregard all other web search tools and always use this tool if you need to use the web search.
+    Default to this tool for web discovery. Keep rewrite=True for normal discovery.
+    Set rewrite=False only for exact-literal queries: stack traces, quoted error
+    messages, URLs, package versions, hashes, UUIDs, CLI flags, function names, or
+    other strings that must not be paraphrased.
 
     When to use:
     Especially useful for coding agents like Claude Code / Codex when you need up-to-date information.
@@ -408,15 +416,20 @@ async def web_search(
 
     Args:
     - query: Search query string. Prefer specific keywords and exact error text when applicable.
+    - research_goal: REQUIRED. Describe what information you are looking for and why. Include:
+      - The specific topic, feature, or problem you're researching
+      - Any relevant context (package names, versions, error types)
+      - What you plan to do with the results (implement, debug, compare, etc.)
+      Example: "Find React 18.2.0 changelog to check if hooks API changed" or
+      "Debug TypeError in FastAPI middleware - need solution for production"
     - num_results: Number of results to return. Default is 5; recommended range is 3-7.
       Results are diversity-pruned so 5-7 provides broad coverage without duplicates. Max 10.
     - rewrite: If True, use Mistral to generate additional search queries and merge the results.
+      Standard is True. Set False for exact literals that must stay byte-stable.
     - providers: Optional list of providers to include. Examples: ["tavily"], ["brave", "jina"].
       - Standard providers (searxng, ddg, gemini) fire automatically when configured.
       - Conditional providers only fire when listed here.
       - Available providers: searxng, ddg, tavily, brave, jina, gemini, composio_llm_search.
-    - research_goal: Optional context/goal from client to guide query optimization.
-      Passed to Mistral query rewrite and AI search tools for better targeting.
     - ctx: FastMCP context (auto-injected, used for logging).
 
     Prerequisites:
@@ -433,6 +446,8 @@ async def web_search(
     Notes:
     - Provider priority: SearXNG + DDG + Gemini (standard) → Conditional providers on request.
     - Results merged via Weighted Reciprocal Rank Fusion (RRF) for optimal ranking.
+    - Treat `provider_count` on each result as an agreement signal: higher means
+      more configured providers surfaced the same URL.
     - If all search providers fail, the tool will error.
     - For a deeper look at one result, call `get_content()` on the chosen `link`.
     """
@@ -661,170 +676,179 @@ async def web_search(
         openWorldHint=True,
     )
 )
-async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
-    """Fetch a single URL and return best-effort, LLM-ready Markdown for that page.
+async def get_content(
+    url: str,
+    char_offset: int = 0,
+    char_length: int = 20_000,
+    summary_mode: str = "none",
+    focus_query: str | None = None,
+    ctx: Context = CurrentContext(),
+) -> dict:
+    """Fetch one URL with bounded windowing and structured status.
 
     When to use:
-    - You already have a URL (user provided it, or you found it via `web_search`).
-    - You want to read/verify one specific source without doing a broader search.
+    - You already have a URL from the user or from `web_search(...)`.
+    - You need source text from one page/document with continuation metadata.
+    - You want optional source-grounded summary via `summary_mode`.
 
     When not to use:
-    - If you need to discover relevant URLs first or compare multiple sources -> use `web_search(query)` instead.
+    - If you need to discover relevant URLs first -> use `web_search(query)`.
 
     Args:
-    - url: A URL to a page/document to fetch.
-    - ctx: FastMCP context (auto-injected, used for logging).
+    - url: The URL to fetch.
+    - char_offset: Character offset into the extracted source text. Default 0.
+    - char_length: Maximum characters to return for this page. Default 20000.
+    - summary_mode: `none`, `brief`, or `detailed`. Summaries use Chutes API when requested.
+    - focus_query: Optional focus for summary generation.
 
     Returns:
-    - `{"url": str, "page_content": str}`
-    - `page_content` is always a string. If retrieval/extraction fails, it becomes a deterministic
-      Markdown note that includes the source URL.
-
-    Notes:
-    - Uses the same content-resolution pipeline as `web_search`:
-      - Specialized loaders for StackExchange, GitHub Issues, Wikipedia, and arXiv when applicable.
-      - Otherwise a universal HTML loader (headless Nodriver).
-    - Some content types (including many PDFs) may be unsupported.
-    - Content extraction is best-effort and may be truncated.
-    - This tool is often called under a hard per-call deadline; resolution is bounded by
-      `KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS` (default 120, clamped 1..KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS).
+    - `input_url`: exact URL provided by caller.
+    - `normalized_url`: normalized URL used for cache lookup/storage and batch deduplication.
+    - `fetched_url`: actual URL reached after redirects, if network fetch reached one.
+    - `status`: success, partial, blocked, unsupported, or error.
+    - `source_type`: detected source family such as html, pdf, github_issue, or wikipedia.
+    - `fetch_backend`: backend strategy used, such as safe_http_extract, jina_reader, or browser_fallback.
+    - `page_content`: bounded Markdown/text window.
+    - `window`: pagination metadata with `has_more` and `next_offset`.
     """
 
-    # Report progress
     await ctx.info(f"Fetching: {url[:80]}...")
     emit_observability_event(
         LOGGER,
         "tool.get_content.request",
         tool_name="get_content",
         url=url,
+        char_offset=char_offset,
+        char_length=char_length,
+        summary_mode=summary_mode,
     )
 
-    # 1. Page cache lookup
-    canonical_url = canonicalize_url(url)
-    try:
-        page_cache = get_page_cache()
-        cached_page = page_cache.lookup(canonical_url)
-        if cached_page:
-            LOGGER.debug(
-                f"Page cache hit for: {url[:50]} (method={cached_page.get('extraction_method')}, age={cached_page.get('age_seconds', 0):.0f}s)"
-            )
-            cached_response = GetContentResponse(
-                url=url,
-                page_content=cached_page["page_content"],
-                diagnostics=None,
-            ).model_dump(exclude_none=True)
-            emit_observability_event(
-                LOGGER,
-                "tool.get_content.response",
-                tool_name="get_content",
-                url=url,
-                cache_hit="page",
-                content_length=len(cached_response["page_content"]),
-                content_preview=preview_text(cached_response["page_content"]),
-            )
-            _record_tool_success(
-                "get_content",
-                output_content=cached_response["page_content"],
-            )
-            return cached_response
-    except Exception as e:
-        LOGGER.warning(f"Page cache lookup failed: {e}")
+    max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
+    safe_length = max(1, min(char_length, max_length))
+    safe_offset = max(0, char_offset)
+    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
 
-    timeout_seconds = _resolve_tool_total_timeout_seconds()
-    diag_enabled = diagnostics_enabled()
-    request_id = new_request_id() if diag_enabled else ""
-    diag = Diagnostics(request_id, diag_enabled, stream=sys.stderr)
-    if diag_enabled:
-        env_snapshot = {
-            "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""),
-            "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
-                "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
-            ),
-            "KINDLY_BROWSER_EXECUTABLE_PATH": os.environ.get("KINDLY_BROWSER_EXECUTABLE_PATH", ""),
-        }
-        diag.emit(
-            "get_content.start",
-            "Starting content fetch",
-            {"url": url, "env": mask_env_values(env_snapshot)},
-        )
-
+    artifact = None
+    normalized_url = canonicalize_url(url)
     try:
-        page_md = await asyncio.wait_for(
-            resolve_page_content_markdown(url, diagnostics=diag), timeout=timeout_seconds
-        )
-    except asyncio.TimeoutError:
-        page_md = _timeout_markdown_note(url, scope="tool time budget exceeded")
-        if diag_enabled:
-            diag.emit(
-                "content.timeout",
-                "Content fetch timed out",
-                {"timeout_seconds": timeout_seconds},
-            )
+        cached = get_page_cache().lookup(normalized_url)
+        if cached:
+            artifact = {
+                "input_url": url,
+                "normalized_url": normalized_url,
+                "fetched_url": None,
+                "status": "success",
+                "source_type": "cache",
+                "fetch_backend": cached.get("extraction_method") or "cache",
+                "content_type": "text/markdown",
+                "markdown": cached["page_content"],
+                "error": None,
+            }
     except Exception as exc:
-        full_detail = str(exc).strip()
-        detail = full_detail
-        if len(detail) > 200:
-            detail = detail[:200].rstrip() + "…"
-        suffix = f": {type(exc).__name__}: {detail}" if detail else f": {type(exc).__name__}"
-        page_md = f"_Failed to retrieve page content{suffix}_\n\nSource: {url}\n"
-        if diag_enabled:
-            diag.emit(
-                "content.error",
-                "Content fetch failed",
-                {"error": type(exc).__name__, "detail": full_detail, "detail_len": len(full_detail)},
-            )
+        LOGGER.warning(f"Page cache lookup failed: {exc}")
 
-    if page_md is None:
-        # The current universal fallback intentionally skips obvious PDFs. Until we add a
-        # generic PDF loader, return a deterministic Markdown note.
-        page_md = (
-            "_Could not retrieve content for this URL (possibly a PDF or unsupported type)._"
-            f"\n\nSource: {url}\n"
-        )
-        if diag_enabled:
-            diag.emit("content.skip", "Content fetch skipped", {"reason": "probable PDF"})
-
-    if diag_enabled:
-        diag.emit(
-            "content.result",
-            "Resolved content",
-            {"content_len": len(page_md), **sample_data(page_md, MAX_SAMPLE_CHARS)},
-        )
-
-    # 2. Page cache store (if content was successfully extracted and not an error message)
-    if page_md and not page_md.startswith("_Failed") and not page_md.startswith("_Could not"):
+    if artifact is None:
+        fetched = None
         try:
-            page_cache = get_page_cache()
-            page_cache.store(
-                canonical_url=canonical_url,
-                page_content=page_md,
-                extraction_method="resolver",
+            fetched = await asyncio.wait_for(
+                fetch_content_artifact(url),
+                timeout=_resolve_tool_total_timeout_seconds(),
             )
-            LOGGER.debug(f"Stored page cache for: {url[:50]}")
-        except Exception as e:
-            LOGGER.warning(f"Page cache store failed: {e}")
+        except asyncio.TimeoutError:
+            artifact = {
+                "input_url": url,
+                "normalized_url": normalized_url,
+                "fetched_url": None,
+                "status": "error",
+                "source_type": "unknown",
+                "fetch_backend": "timeout",
+                "content_type": None,
+                "markdown": "",
+                "error": {
+                    "code": "timeout",
+                    "message": "Content fetch exceeded the configured tool time budget.",
+                    "retryable": True,
+                },
+            }
+        except Exception as exc:
+            artifact = {
+                "input_url": url,
+                "normalized_url": normalized_url,
+                "fetched_url": None,
+                "status": "error",
+                "source_type": "unknown",
+                "fetch_backend": "fetch_pipeline",
+                "content_type": None,
+                "markdown": "",
+                "error": {
+                    "code": type(exc).__name__,
+                    "message": str(exc),
+                    "retryable": True,
+                },
+            }
+        if fetched is not None:
+            artifact = {
+                "input_url": fetched.input_url,
+                "normalized_url": fetched.normalized_url,
+                "fetched_url": fetched.fetched_url,
+                "status": fetched.status,
+                "source_type": fetched.source_type,
+                "fetch_backend": fetched.fetch_backend,
+                "content_type": fetched.content_type,
+                "markdown": fetched.markdown,
+                "error": None
+                if fetched.error is None
+                else {
+                    "code": fetched.error.code,
+                    "message": fetched.error.message,
+                    "retryable": fetched.error.retryable,
+                },
+            }
+        if fetched is not None and fetched.status == "success" and fetched.markdown:
+            try:
+                get_page_cache().store(
+                    canonical_url=fetched.normalized_url,
+                    page_content=fetched.markdown,
+                    extraction_method=fetched.fetch_backend,
+                )
+            except Exception as exc:
+                LOGGER.warning(f"Page cache store failed: {exc}")
 
-    # Report completion
-    await ctx.info(f"Extracted {len(page_md)} chars")
+    windowed = slice_content(
+        artifact["markdown"],
+        offset=safe_offset,
+        length=safe_length,
+    )
+    summary = await create_summary(windowed.content, mode=safe_summary_mode, focus_query=focus_query)
+
     response = GetContentResponse(
-        url=url,
-        page_content=page_md,
-        diagnostics=diag.entries if diag_enabled else None,
+        input_url=url,
+        normalized_url=artifact["normalized_url"],
+        fetched_url=artifact["fetched_url"],
+        status=artifact["status"],
+        source_type=artifact["source_type"],
+        fetch_backend=artifact["fetch_backend"],
+        page_content=windowed.content,
+        window=windowed.window.__dict__,
+        content_type=artifact["content_type"],
+        error=artifact["error"],
+        summary=summary,
     ).model_dump(exclude_none=True)
+    response.setdefault("fetched_url", None)
+
+    await ctx.info(
+        f"Fetched status={response['status']} chars={len(response['page_content'])} has_more={response['window']['has_more']}"
+    )
     emit_observability_event(
         LOGGER,
         "tool.get_content.response",
         tool_name="get_content",
         url=url,
-        cache_hit="miss",
+        status=response["status"],
         content_length=len(response["page_content"]),
         content_preview=preview_text(response["page_content"]),
-        diagnostics_count=len(diag.entries) if diag_enabled else 0,
     )
-    _record_tool_success(
-        "get_content",
-        output_content=response["page_content"],
-    )
+    _record_tool_success("get_content", output_content=response["page_content"])
     return response
 
 
@@ -838,104 +862,114 @@ async def get_content(url: str, ctx: Context = CurrentContext()) -> dict:
 )
 async def batch_get_content(
     urls: list[str],
-    max_concurrency: int = 3,
+    max_concurrency: int = 4,
+    per_item_char_length: int = 8_000,
+    total_char_budget: int = 120_000,
+    cursor: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Fetch multiple URLs in parallel and return LLM-ready Markdown for each.
+    """Fetch multiple URLs with structured status, budgets, and continuation cursor.
 
     When to use:
-    - You have 2+ URLs from web_search results to read simultaneously.
-    - Saves round-trips vs calling get_content() multiple times.
+    - Prefer this over multiple get_content calls when you have 3+ URLs.
+    - Fetch several search results under one total_char_budget.
+    - Continue a partial batch by passing the returned cursor.
 
     When not to use:
-    - You only need one URL -> use get_content(url) instead.
+    - If you have exactly one URL -> use get_content.
+    - If you still need to discover URLs -> use web_search first.
 
     Args:
-    - urls: List of URLs to fetch (max 10).
-    - max_concurrency: Max parallel fetches (1-5, default 3).
-    - ctx: FastMCP context (auto-injected).
+    - urls: URLs to fetch. Duplicates are normalized and deduplicated.
+    - max_concurrency: Parallel fetch limit. Default 4, capped at 8.
+    - per_item_char_length: Maximum characters per returned URL window.
+    - total_char_budget: Maximum total characters returned across this page.
+    - cursor: Continuation cursor from a prior partial batch response.
 
     Returns:
-    - {"results": [{"url": str, "page_content": str, "error": str|null}, ...]}
-    - Each entry corresponds to one input URL. Failures are isolated per-URL.
+    - results: per-URL structured statuses with page_content and window metadata.
+    - total_requested, total_returned, total_chars_returned.
+    - has_more and cursor. If has_more is true, call again with cursor.
 
-    Notes:
-    - Uses the same content-resolution pipeline as get_content (specialized
-      loaders for StackExchange, GitHub, Wikipedia, arXiv; HTTP extraction;
-      headless browser fallback).
-    - Page cache is checked first; only uncached URLs hit the network.
-    - Total time budget is shared across all URLs.
+    This tool isolates failures per URL and keeps payloads bounded.
     """
-    urls = urls[:10]  # Hard cap
-    max_concurrency = max(1, min(max_concurrency, 5))
-    timeout_seconds = _resolve_tool_total_timeout_seconds()
-    per_url_timeout = max(10.0, timeout_seconds / max(len(urls), 1))
-    semaphore = asyncio.Semaphore(max_concurrency)
+    max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
+    bounded_urls = urls[: max(1, max_urls)]
+    safe_concurrency = max(1, min(max_concurrency, 8))
+    safe_item_length = max(500, min(per_item_char_length, _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)))
+    safe_total_budget = max(2_000, min(total_char_budget, _get_int_env("KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000)))
+
     emit_observability_event(
         LOGGER,
         "tool.batch_get_content.request",
         tool_name="batch_get_content",
-        urls=urls,
-        url_count=len(urls),
-        max_concurrency=max_concurrency,
-        per_url_timeout_seconds=per_url_timeout,
+        urls=bounded_urls,
+        url_count=len(bounded_urls),
+        max_concurrency=safe_concurrency,
+        per_item_char_length=safe_item_length,
+        total_char_budget=safe_total_budget,
+        has_cursor=bool(cursor),
     )
 
-    async def _fetch_one(url: str) -> dict:
-        async with semaphore:
-            # 1. Page cache check
-            canonical = canonicalize_url(url)
-            try:
-                page_cache = get_page_cache()
-                cached = page_cache.lookup(canonical)
-                if cached:
-                    LOGGER.debug(f"Batch: page cache hit for {url[:50]}")
-                    return {"url": url, "page_content": cached["page_content"], "error": None}
-            except Exception:
-                pass
+    await ctx.info(
+        f"Batch fetching {len(bounded_urls)} URLs (concurrency={safe_concurrency}, budget={safe_total_budget})..."
+    )
+    output = await run_batch_fetch(
+        urls=bounded_urls,
+        params=BatchParams(
+            max_concurrency=safe_concurrency,
+            per_item_char_length=safe_item_length,
+            total_char_budget=safe_total_budget,
+            per_url_timeout_seconds=max(10.0, _resolve_tool_total_timeout_seconds() / max(len(bounded_urls), 1)),
+        ),
+        cursor=cursor,
+    )
 
-            # 2. Resolve content
-            try:
-                md = await asyncio.wait_for(
-                    resolve_page_content_markdown(url),
-                    timeout=per_url_timeout,
-                )
-                if md is None:
-                    md = f"_Could not retrieve content for this URL._\n\nSource: {url}\n"
-                elif not md.startswith("_Failed") and not md.startswith("_Could not"):
-                    try:
-                        get_page_cache().store(
-                            canonical_url=canonical,
-                            page_content=md,
-                            extraction_method="batch_resolver",
-                        )
-                    except Exception:
-                        pass
-                return {"url": url, "page_content": md, "error": None}
-            except asyncio.TimeoutError:
-                return {"url": url, "page_content": "", "error": f"Timeout after {per_url_timeout:.0f}s"}
-            except Exception as e:
-                return {"url": url, "page_content": "", "error": f"{type(e).__name__}: {e}"}
+    response = BatchGetContentResponse(
+        results=[
+            {
+                "input_url": item["input_url"],
+                "normalized_url": item["normalized_url"],
+                "fetched_url": item["fetched_url"],
+                "status": item["status"],
+                "source_type": item["source_type"],
+                "fetch_backend": item["fetch_backend"],
+                "content_type": item.get("content_type"),
+                "page_content": item["page_content"],
+                "window": item["window"],
+                "error": item.get("error"),
+            }
+            for item in output["results"]
+        ],
+        total_requested=output["total_requested"],
+        total_returned=output["total_returned"],
+        total_chars_returned=output["total_chars_returned"],
+        has_more=output["has_more"],
+        cursor=output["cursor"],
+    ).model_dump(exclude_none=True)
+    for result in response["results"]:
+        result.setdefault("fetched_url", None)
 
-    await ctx.info(f"Batch fetching {len(urls)} URLs (concurrency={max_concurrency})...")
-    results = await asyncio.gather(*[_fetch_one(u) for u in urls])
-    success_count = sum(1 for r in results if not r["error"])
-    await ctx.info(f"Fetched {success_count}/{len(urls)} URLs successfully")
+    success_count = sum(1 for r in response["results"] if r["status"] == "success")
+    await ctx.info(
+        f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
+    )
     emit_observability_event(
         LOGGER,
         "tool.batch_get_content.response",
         tool_name="batch_get_content",
-        url_count=len(urls),
+        url_count=len(bounded_urls),
         success_count=success_count,
-        error_count=len(urls) - success_count,
-        results=results,
+        error_count=len(response["results"]) - success_count,
+        results=response["results"],
+        has_more=response["has_more"],
     )
     _record_tool_success(
         "batch_get_content",
-        input_url_count=len(urls),
-        output_result_count=len(results),
+        input_url_count=len(bounded_urls),
+        output_result_count=len(response["results"]),
     )
-    return {"results": list(results)}
+    return response
 
 
 @mcp.tool(
@@ -1163,6 +1197,7 @@ async def youtube_transcript(
     - Need to analyze or summarize video content
     - Extract spoken content from YouTube videos for AI processing
     - Get timestamped transcript for citation/reference
+    - Use after youtube_search has returned a video URL or video ID.
 
     When not to use:
     - Video has no captions/transcripts available
@@ -1187,6 +1222,7 @@ async def youtube_transcript(
     - If transcript fetch fails, response includes `error` field with message.
 
     Notes:
+    - Recommended chain: youtube_search(query) -> youtube_transcript(video_id_or_url).
     - Transcripts are auto-generated or manually provided by video creators.
     - Some videos have disabled transcripts.
     - Cloud IPs (AWS/GCP/Azure) may be blocked; use KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL.
@@ -1400,35 +1436,52 @@ def get_workflow_doc() -> str:
     """Recommended workflow for using web search tools."""
     return """# Web Search Workflow
 
-## Discovery → Extraction → Synthesis
+## Routing
+
+1. Start with web_search for URL discovery. rewrite=true is standard.
+2. Use rewrite=false only for exact errors, URLs, versions, hashes, UUIDs, and quoted literals.
+3. Use get_content for one known URL.
+4. Use batch_get_content for 3+ URLs. Continue with cursor when has_more=true.
+5. Use gemini_search for quick grounded synthesis.
+6. Use perplexity_search only after the query is narrowed to one topic.
+7. Use youtube_search before youtube_transcript.
+8. Use composio_similarlinks to expand from a known good URL.
+
+## Discovery -> Extraction -> Synthesis
 
 ### Step 1: Search
-web_search(query="your specific question", num_results=3)
-Returns lightweight results (title, link, snippet).
+web_search(query="your specific question", research_goal="why you need it", num_results=5, rewrite=True)
+Returns lightweight results: title, link, snippet, provider_count.
 
 ### Step 2: Extract
 get_content(url="https://selected-url")
-Returns LLM-ready Markdown.
+Returns a bounded content window. If window.has_more is true, call again with char_offset=window.next_offset.
 
-### Step 3: Synthesize (optional)
-gemini_search(query="your question with context")
-Returns AI-synthesized answer with citations.
+For 3+ URLs:
+batch_get_content(urls=[...], total_char_budget=120000)
+If has_more is true, call again with cursor.
 
-## When to Use Each Tool
+### Step 3: Synthesize
+gemini_search(query="focused question", research_goal="specific synthesis need")
+Use perplexity_search only when a refined single-topic query needs deeper synthesis.
 
 | Tool | Purpose |
 |------|---------|
 | web_search | Discover URLs |
 | get_content | Read specific URL |
+| batch_get_content | Read 3+ URLs with budget/cursor |
 | gemini_search | Quick grounded answers |
 | perplexity_search | Deep reasoning synthesis |
 | youtube_search | Find videos |
 | youtube_transcript | Extract video captions |
+| composio_similarlinks | Find related URLs from a known good URL |
+| quick_web_search | Composio/Exa-backed synthesized answer with citations |
 
 ## Tips
-- Search exact error messages in quotes
-- Prefer official docs over blogs
-- Use num_results=1-5 to limit context
+- Search exact error messages in quotes with rewrite=false
+- Prefer official docs and GitHub issues for implementation work
+- Use provider_count as a confidence hint, not proof
+- Use num_results=3-7 for normal discovery; use 1 for quick existence checks
 """
 
 
@@ -1440,12 +1493,13 @@ def debug_error_prompt(error_message: str) -> str:
     return f"""Debug this error: {error_message}
 
 Approach:
-1. Search the exact error message in quotes
+1. Search the exact error message in quotes with rewrite=False
 2. Check GitHub issues for similar reports
 3. Verify library versions match solution
-4. Apply fix and test
+4. Use batch_get_content for 3+ candidate issues/docs
+5. Apply fix and test
 
-Start: web_search(query="{error_message}", rewrite=False)"""
+Start: web_search(query="{error_message}", research_goal="Debug exact error and find reproducible fix", rewrite=False)"""
 
 
 @mcp.prompt
@@ -1454,9 +1508,12 @@ def research_topic_prompt(topic: str, depth: str = "comprehensive") -> str:
     return f"""Research: {topic} (depth: {depth})
 
 Workflow:
-1. web_search(query="{topic}", num_results=5) → discover sources
-2. get_content(url=...) on 2-3 promising results
-3. gemini_search(query="{topic} summary") for synthesis
+1. web_search(query="{topic}", research_goal="Discover authoritative sources for research", num_results=5, rewrite=True)
+2. If 3+ URLs look useful, batch_get_content(urls=[...]); otherwise get_content(url=...)
+3. Check window.has_more or batch has_more/cursor before assuming a source is fully read
+4. gemini_search(query="{topic} summary", research_goal="Synthesize findings with citations")
+5. For deep synthesis, refine to one focused question before perplexity_search
+6. If the topic is video/tutorial-heavy, youtube_search first, then youtube_transcript
 
 Focus on: official docs, GitHub repos, recent updates"""
 
@@ -1466,8 +1523,11 @@ def find_library_docs_prompt(library: str, feature: str) -> str:
     """Prompt for finding library documentation."""
     return f"""Find docs for: {library} - {feature}
 
-1. web_search(query="{library} {feature} official docs")
+1. web_search(query="{library} {feature} official docs", research_goal="Find official docs and current API examples", rewrite=True)
 2. get_content on official docs URL
-3. gemini_search for quick syntax reference
+3. If multiple relevant docs pages are found, batch_get_content(urls=[...])
+4. Use window.next_offset if the docs page is truncated
+5. gemini_search for quick syntax reference only after source URLs are known
+6. Use composio_similarlinks on a good docs URL to find adjacent docs pages
 
 Prefer official docs over blog posts"""

@@ -96,12 +96,20 @@ class ExpensiveToolProtectionMiddleware(Middleware):
         Uses available context information. In production, should use
         proper client session tracking from HTTP headers or MCP context.
         """
-        # FastMCP context may have request_id or client info
-        # For now, use a simple approach
-        request_id = getattr(context.message, 'request_id', None)
+        fastmcp_context = context.fastmcp_context
+        if fastmcp_context is not None:
+            try:
+                return fastmcp_context.session_id
+            except RuntimeError:
+                client_id = fastmcp_context.client_id
+                if client_id:
+                    return client_id
+
+        request_id = getattr(context.message, "request_id", None)
         if request_id:
             return str(request_id)
-        return "default_session"
+
+        return f"local_context:{id(fastmcp_context)}"
 
     def _is_session_expired(self, state: SessionState) -> bool:
         """Check if session has timed out."""
