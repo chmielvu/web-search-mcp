@@ -171,7 +171,7 @@ async def gemini_search_with_grounding(
 
     if structured_output:
         base_config["response_mime_type"] = "application/json"
-        base_config["response_json_schema"] = GeminiResearchOutput.model_json_schema()
+        base_config["response_schema"] = GeminiResearchOutput  # Pydantic class directly, not model_json_schema()
 
     fallback_chain: list[str] = []
     fallback_reason: str | None = None
@@ -216,11 +216,17 @@ async def gemini_search_with_grounding(
             thoughts = "\n".join(thought_parts) if thought_parts else None
 
             # Parse structured output if requested
+            # When response_schema is used, response.parsed contains validated Pydantic instance
             structured_result = None
-            if structured_output and answer:
+            if structured_output:
                 try:
-                    parsed = GeminiResearchOutput.model_validate_json(answer)
-                    structured_result = parsed.model_dump()
+                    # Use response.parsed for SDK-validated Pydantic model
+                    if response.parsed:
+                        structured_result = response.parsed.model_dump()
+                    elif answer:
+                        # Fallback: parse text manually if response.parsed unavailable
+                        parsed = GeminiResearchOutput.model_validate_json(answer)
+                        structured_result = parsed.model_dump()
                 except Exception as exc:
                     logger.warning("Structured Gemini grounding output failed to parse: %s", exc)
 

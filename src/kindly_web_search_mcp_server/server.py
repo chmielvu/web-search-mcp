@@ -19,6 +19,10 @@ from .telemetry import (
     SEARCH_NUM_RESULTS_REQUESTED,
     record_mcp_tool_call,
     record_tool_details,
+    record_gemini_search,
+    record_perplexity_search,
+    record_youtube_transcript,
+    record_youtube_search,
 )
 from opentelemetry import trace
 init_telemetry(service_name="web-search-mcp")
@@ -622,21 +626,24 @@ async def web_search(
             except Exception as e:
                 LOGGER.warning(f"Exact query cache write failed: {e}")
 
-            # Cache write: semantic cache
+            # Cache write: semantic cache (non-blocking to avoid delaying response)
             if settings.semantic_cache_enabled:
                 try:
                     cache_store = _get_cache_store()
                     content_type = classify_content_type(query)
-                    await set_semantic_cache(
-                        cache_store,
-                        query,
-                        _response,
-                        content_type,
-                        provider_key=providers_key,
+                    # Fire-and-forget: cache write runs in background
+                    asyncio.create_task(
+                        set_semantic_cache(
+                            cache_store,
+                            query,
+                            _response,
+                            content_type,
+                            provider_key=providers_key,
+                        )
                     )
-                    LOGGER.debug(f"Cached response for query: {query[:100]}")
+                    LOGGER.debug(f"Scheduled semantic cache write for: {query[:100]}")
                 except Exception as e:
-                    LOGGER.warning(f"Cache write failed: {e}")
+                    LOGGER.warning(f"Semantic cache write scheduling failed: {e}")
 
             return _response
 
@@ -1019,11 +1026,25 @@ async def gemini_search(
         structured_output=structured_output,
         research_goal=research_goal,
     )
+    import time
+    start_time = time.time()
     try:
         result = await gemini_search_with_grounding(
             query, structured_output=structured_output, research_goal=research_goal
         )
         response = result.model_dump(exclude_none=True)
+        duration_seconds = time.time() - start_time
+
+        # Record Gemini search telemetry
+        grounding_queries = len(response.get("web_search_queries", []))
+        grounding_chunks = len(response.get("grounding_chunks", []))
+        record_gemini_search(
+            grounding_queries=grounding_queries,
+            grounding_chunks=grounding_chunks,
+            structured_output=structured_output,
+            duration_seconds=duration_seconds,
+        )
+
         emit_observability_event(
             LOGGER,
             "tool.gemini_search.response",
@@ -1044,6 +1065,13 @@ async def gemini_search(
         )
         return response
     except Exception as exc:
+        duration_seconds = time.time() - start_time
+        record_gemini_search(
+            grounding_queries=0,
+            grounding_chunks=0,
+            structured_output=structured_output,
+            duration_seconds=duration_seconds,
+        )
         emit_observability_event(
             LOGGER,
             "tool.gemini_search.error",
@@ -1111,6 +1139,8 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
         depth=depth,
         research_goal=research_goal,
     )
+    import time
+    start_time = time.time()
 
     try:
         result = await client.web_search(query, depth, research_goal=research_goal)
@@ -1121,6 +1151,18 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
             "model": result["model"],
             "error": None,
         }
+        duration_seconds = time.time() - start_time
+
+        # Record Perplexity search telemetry
+        source_count = len(response["sources"])
+        model = response["model"] or "sonar"
+        record_perplexity_search(
+            depth=depth,
+            source_count=source_count,
+            model=model,
+            duration_seconds=duration_seconds,
+        )
+
         emit_observability_event(
             LOGGER,
             "tool.perplexity_search.response",
@@ -1140,9 +1182,23 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
         )
         return response
     except ValueError as e:
+        duration_seconds = time.time() - start_time
+        record_perplexity_search(
+            depth=depth,
+            source_count=0,
+            model="sonar",
+            duration_seconds=duration_seconds,
+        )
         _record_tool_failure("perplexity_search")
         return format_tool_error(e, provider="perplexity")
     except httpx.HTTPError as e:
+        duration_seconds = time.time() - start_time
+        record_perplexity_search(
+            depth=depth,
+            source_count=0,
+            model="sonar",
+            duration_seconds=duration_seconds,
+        )
         LOGGER.warning(f"Perplexity search failed: {e}")
         emit_observability_event(
             LOGGER,
@@ -1230,6 +1286,8 @@ async def youtube_transcript(
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
+    import time
+    start_time = time.time()
 
     try:
         # Parse URL/ID
@@ -1266,6 +1324,15 @@ async def youtube_transcript(
             LOGGER.info(f"Truncated transcript to {max_chars} chars for video {video_id}")
 
         duration_seconds = calculate_total_duration(segments)
+        elapsed_time = time.time() - start_time
+
+        # Record YouTube transcript telemetry
+        record_youtube_transcript(
+            format=format,
+            language=actual_language,
+            is_translated=is_translated,
+            duration_seconds=int(duration_seconds),
+        )
 
         return YouTubeTranscriptResponse(
             video_id=video_id,
@@ -1280,6 +1347,12 @@ async def youtube_transcript(
         ).model_dump(exclude_none=True)
 
     except asyncio.TimeoutError:
+        record_youtube_transcript(
+            format=format,
+            language=language or "en",
+            is_translated=bool(translate_to),
+            duration_seconds=None,
+        )
         error_msg = f"Transcript fetch timed out after {timeout_seconds}s"
         return {
             "video_id": "",
@@ -1293,6 +1366,12 @@ async def youtube_transcript(
         }
 
     except YouTubeError as e:
+        record_youtube_transcript(
+            format=format,
+            language=language or "en",
+            is_translated=bool(translate_to),
+            duration_seconds=None,
+        )
         return {
             "video_id": "",
             "video_url": video_id_or_url,
@@ -1305,6 +1384,12 @@ async def youtube_transcript(
         }
 
     except Exception as e:
+        record_youtube_transcript(
+            format=format,
+            language=language or "en",
+            is_translated=bool(translate_to),
+            duration_seconds=None,
+        )
         LOGGER.warning(f"YouTube transcript unexpected error: {e}")
         structured = classify_error(e, provider="youtube")
         return {
@@ -1363,16 +1448,31 @@ async def youtube_search(
     if num_results < 1:
         num_results = 5
     num_results = min(num_results, 20)
+    import time
+    start_time = time.time()
 
     try:
         results = await search_youtube_videos(query, num_results=num_results)
+        duration_seconds = time.time() - start_time
+
+        # Record YouTube search telemetry
+        record_youtube_search(
+            num_results=len(results),
+            duration_seconds=duration_seconds,
+        )
 
         return YouTubeSearchResponse(
             query=query,
             results=results,
+            total_results=len(results),
         ).model_dump(exclude_none=True)
 
     except YouTubeSearchError as e:
+        duration_seconds = time.time() - start_time
+        record_youtube_search(
+            num_results=0,
+            duration_seconds=duration_seconds,
+        )
         return {
             "query": query,
             "results": [],
@@ -1383,6 +1483,11 @@ async def youtube_search(
         }
 
     except Exception as e:
+        duration_seconds = time.time() - start_time
+        record_youtube_search(
+            num_results=0,
+            duration_seconds=duration_seconds,
+        )
         LOGGER.warning(f"YouTube search unexpected error: {e}")
         return format_tool_error(e, provider="youtube")
 

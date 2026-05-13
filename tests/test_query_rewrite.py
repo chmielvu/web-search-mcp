@@ -27,6 +27,7 @@ def test_rewrite_falls_back_to_original_query_when_disabled() -> None:
     assert plan.original_query == "  langchain   react  "
     assert plan.final_queries == ["langchain react"]
     assert plan.variants[0].kind == "original"
+    assert plan.variants[0].target == "all"
     assert plan.policy.mode in ("bypass", "expand")
 
 
@@ -104,7 +105,7 @@ def test_rewrite_falls_back_when_router_unavailable() -> None:
             ),
             # Simulate router unavailable (no API keys or LiteLLM not installed)
             patch(
-                "kindly_web_search_mcp_server.search.query_rewrite._get_router",
+                "kindly_web_search_mcp_server.search.query_rewrite.get_query_rewrite_router",
                 return_value=None,
             ),
         ):
@@ -112,6 +113,7 @@ def test_rewrite_falls_back_when_router_unavailable() -> None:
 
         assert plan.final_queries == ["fastmcp middleware docs"]
         assert plan.variants[0].kind == "original"
+        assert plan.variants[0].target == "all"
 
     asyncio.run(_run())
 
@@ -202,3 +204,51 @@ def test_classify_search_query_bypasses_multiple_operators() -> None:
 
     policy = classify_search_query("site:github.com language:python")
     assert policy.mode == "bypass"
+
+
+def test_keyword_code_prompt_uses_valid_enum_values_only() -> None:
+    from kindly_web_search_mcp_server.search.query_rewrite_prompts import (
+        KEYWORD_CODE_SYSTEM_PROMPT,
+    )
+
+    assert '"docs"' not in KEYWORD_CODE_SYSTEM_PROMPT
+    assert '"community"' not in KEYWORD_CODE_SYSTEM_PROMPT
+    assert "official_docs" in KEYWORD_CODE_SYSTEM_PROMPT
+    assert "community_issues" in KEYWORD_CODE_SYSTEM_PROMPT
+
+
+def test_neural_prompt_returns_single_neural_task() -> None:
+    from kindly_web_search_mcp_server.search.query_rewrite_validate import (
+        validate_neural_variants,
+    )
+    from kindly_web_search_mcp_server.search.query_rewrite_models import QueryVariant
+
+    valid = validate_neural_variants(
+        [
+            QueryVariant(
+                kind="neural_task",
+                target="neural",
+                query="Find current Gemini API documentation for Google Search grounding metadata, especially webSearchQueries.",
+                why="Clear grounded provider task.",
+                weight=1.0,
+            )
+        ],
+        must_keep_terms=["Gemini", "webSearchQueries"],
+    )
+    assert len(valid) == 1
+
+
+def test_keyword_validator_rejects_neural_target() -> None:
+    from kindly_web_search_mcp_server.search.query_rewrite_models import QueryVariant
+    from kindly_web_search_mcp_server.search.query_rewrite_validate import (
+        validate_keyword_variants,
+    )
+
+    variant = QueryVariant(
+        kind="neural_task",
+        target="neural",
+        query="Find docs for FastMCP ResourcesAsTools.",
+        why="wrong target",
+        weight=1.0,
+    )
+    assert validate_keyword_variants([variant], intent="code", must_keep_terms=[]) == []

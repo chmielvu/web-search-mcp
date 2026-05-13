@@ -39,7 +39,7 @@ def _pick_better(
     cand_w = max((weights.get(p, 1.0) for p in candidate.providers or []), default=1.0)
     if cand_w > base_w:
         return candidate
-    if cand_w == base_w and len(candidate.snippet or "") < len(base.snippet or ""):
+    if cand_w == base_w and len(candidate.snippet or "") > len(base.snippet or ""):
         return candidate
     return base
 

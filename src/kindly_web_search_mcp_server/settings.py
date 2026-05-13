@@ -32,7 +32,7 @@ class Settings:
         os.environ.get("KINDLY_SEMANTIC_CACHE_ENABLED", "true").lower() == "true"
     )
     semantic_cache_min_score: float = float(
-        os.environ.get("KINDLY_SEMANTIC_CACHE_MIN_SCORE", "0.82")
+        os.environ.get("KINDLY_SEMANTIC_CACHE_MIN_SCORE", "0.92")
     )
 
     # Query rewrite (Mistral)

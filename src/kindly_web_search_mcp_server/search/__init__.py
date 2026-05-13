@@ -21,6 +21,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
+from ..telemetry import record_circuit_breaker_event, record_circuit_breaker_state
 from ..utils.diagnostics import Diagnostics
 from .brave import search_brave
 from .composio_llm_search import search_composio_llm_search
@@ -55,22 +56,45 @@ class CircuitBreaker:
 
     def is_open(self, provider: str) -> bool:
         if provider not in self._opened_at:
+            # Record closed state
+            record_circuit_breaker_state(provider, "closed", self._failures.get(provider, 0))
             return False
         if time.time() - self._opened_at[provider] > self.reset_timeout_seconds:
+            # Circuit is transitioning from open to half-open (resetting)
             del self._opened_at[provider]
             self._failures[provider] = 0
+            record_circuit_breaker_state(provider, "half_open", 0)
+            record_circuit_breaker_event(provider, "half_open", self.failure_threshold)
+            LOGGER.info(f"Circuit breaker HALF_OPEN for {provider} after reset timeout")
             return False
+        # Circuit is open
+        record_circuit_breaker_state(provider, "open", self._failures.get(provider, 0))
         return True
 
     def record_success(self, provider: str) -> None:
+        prev_failures = self._failures.get(provider, 0)
+        was_open = provider in self._opened_at
         self._failures[provider] = 0
         self._opened_at.pop(provider, None)
+        # Record reset event if circuit was previously open
+        if was_open:
+            record_circuit_breaker_event(provider, "reset", self.failure_threshold)
+            LOGGER.info(f"Circuit breaker RESET for {provider} after success")
+        record_circuit_breaker_state(provider, "closed", 0)
 
     def record_failure(self, provider: str) -> None:
         self._failures[provider] = self._failures.get(provider, 0) + 1
-        if self._failures[provider] >= self.failure_threshold:
+        failure_count = self._failures[provider]
+
+        if failure_count >= self.failure_threshold:
+            # Circuit trips from closed to open
             self._opened_at[provider] = time.time()
-            LOGGER.warning(f"Circuit breaker OPEN for {provider} after {self._failures[provider]} failures")
+            record_circuit_breaker_state(provider, "open", failure_count)
+            record_circuit_breaker_event(provider, "trip", self.failure_threshold)
+            LOGGER.warning(f"Circuit breaker OPEN for {provider} after {failure_count} failures")
+        else:
+            # Still closed but accumulating failures
+            record_circuit_breaker_state(provider, "closed", failure_count)
 
 
 # =============================================================================

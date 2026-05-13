@@ -52,7 +52,7 @@ _PRECISION_PATTERNS = (
     re.compile(r"[A-Z][a-z]+\.[a-z_]+"),  # Function calls (Foo.bar, np.array)
     re.compile(r"[A-Z_][A-Z0-9_]{3,}"),  # Constants (MAX_SIZE, DEFAULT_TIMEOUT)
     re.compile(r"--[A-Za-z0-9_-]+"),  # Long CLI flags (--verbose, --no-cache)
-    re.compile(r"-[A-Za-z]+"),  # Short CLI flags (-v, -f, -it)
+    re.compile(r"(?<!\w)-[A-Za-z]{1,2}\b"),  # Short CLI flags (-v, -f, -it)
     re.compile(
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     ),  # UUIDs

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from .stackexchange import (
     StackExchangeError,
@@ -30,6 +31,7 @@ from .arxiv import (
 from ..scrape.universal_html import load_url_as_markdown
 from ..scrape.http_extract import http_extract
 from ..utils.diagnostics import Diagnostics
+from ..telemetry import record_content_resolution
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +51,8 @@ async def resolve_page_content_markdown(
     Stage 6: HTTP extraction (trafilatura primary, no browser).
     Stage 7: Universal HTML loader fallback (headless Nodriver for JS sites).
     """
+    start_time = time.time()
+
     if diagnostics:
         diagnostics.emit("resolver.start", "Resolving URL", {"url": url})
 
@@ -60,9 +64,26 @@ async def resolve_page_content_markdown(
     else:
         if diagnostics:
             diagnostics.emit("resolver.route", "Matched StackExchange URL", {"handler": "stackexchange"})
+        handler_start = time.time()
         try:
-            return await fetch_stackexchange_thread_markdown(url)
+            result = await fetch_stackexchange_thread_markdown(url)
+            word_count = len(result.split()) if result else 0
+            record_content_resolution(
+                stage="stackexchange",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=word_count,
+                extraction_method="api",
+            )
+            return result
         except Exception as e:
+            record_content_resolution(
+                stage="stackexchange",
+                url=url,
+                success=False,
+                duration_seconds=time.time() - handler_start,
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.error",
@@ -79,9 +100,26 @@ async def resolve_page_content_markdown(
     else:
         if diagnostics:
             diagnostics.emit("resolver.route", "Matched GitHub Issue URL", {"handler": "github_issue"})
+        handler_start = time.time()
         try:
-            return await fetch_github_issue_thread_markdown(url)
+            result = await fetch_github_issue_thread_markdown(url)
+            word_count = len(result.split()) if result else 0
+            record_content_resolution(
+                stage="github_issue",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=word_count,
+                extraction_method="graphql",
+            )
+            return result
         except Exception:
+            record_content_resolution(
+                stage="github_issue",
+                url=url,
+                success=False,
+                duration_seconds=time.time() - handler_start,
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.fallback",
@@ -91,6 +129,15 @@ async def resolve_page_content_markdown(
             # Prefer falling back to HTML loader for resilience (e.g., missing token, rate-limit).
             fallback = await load_url_as_markdown(url, diagnostics=diagnostics)
             if fallback is not None:
+                word_count = len(fallback.split())
+                record_content_resolution(
+                    stage="universal_html",
+                    url=url,
+                    success=True,
+                    duration_seconds=time.time() - start_time,
+                    word_count=word_count,
+                    extraction_method="browser",
+                )
                 return fallback
             return f"_Failed to retrieve GitHub Issue content._\n\nSource: {url}\n"
 
@@ -101,9 +148,26 @@ async def resolve_page_content_markdown(
     else:
         if diagnostics:
             diagnostics.emit("resolver.route", "Matched GitHub Discussion URL", {"handler": "github_discussion"})
+        handler_start = time.time()
         try:
-            return await fetch_github_discussion_thread_markdown(url)
+            result = await fetch_github_discussion_thread_markdown(url)
+            word_count = len(result.split()) if result else 0
+            record_content_resolution(
+                stage="github_discussion",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=word_count,
+                extraction_method="graphql",
+            )
+            return result
         except Exception:
+            record_content_resolution(
+                stage="github_discussion",
+                url=url,
+                success=False,
+                duration_seconds=time.time() - handler_start,
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.fallback",
@@ -112,6 +176,15 @@ async def resolve_page_content_markdown(
                 )
             fallback = await load_url_as_markdown(url, diagnostics=diagnostics)
             if fallback is not None:
+                word_count = len(fallback.split())
+                record_content_resolution(
+                    stage="universal_html",
+                    url=url,
+                    success=True,
+                    duration_seconds=time.time() - start_time,
+                    word_count=word_count,
+                    extraction_method="browser",
+                )
                 return fallback
             return f"_Failed to retrieve GitHub Discussion content._\n\nSource: {url}\n"
 
@@ -122,9 +195,26 @@ async def resolve_page_content_markdown(
     else:
         if diagnostics:
             diagnostics.emit("resolver.route", "Matched Wikipedia URL", {"handler": "wikipedia"})
+        handler_start = time.time()
         try:
-            return await fetch_wikipedia_article_markdown(url)
+            result = await fetch_wikipedia_article_markdown(url)
+            word_count = len(result.split()) if result else 0
+            record_content_resolution(
+                stage="wikipedia",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=word_count,
+                extraction_method="api",
+            )
+            return result
         except Exception:
+            record_content_resolution(
+                stage="wikipedia",
+                url=url,
+                success=False,
+                duration_seconds=time.time() - handler_start,
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.fallback",
@@ -133,6 +223,15 @@ async def resolve_page_content_markdown(
                 )
             fallback = await load_url_as_markdown(url, diagnostics=diagnostics)
             if fallback is not None:
+                word_count = len(fallback.split())
+                record_content_resolution(
+                    stage="universal_html",
+                    url=url,
+                    success=True,
+                    duration_seconds=time.time() - start_time,
+                    word_count=word_count,
+                    extraction_method="browser",
+                )
                 return fallback
             return f"_Failed to retrieve Wikipedia content._\n\nSource: {url}\n"
 
@@ -143,9 +242,26 @@ async def resolve_page_content_markdown(
     else:
         if diagnostics:
             diagnostics.emit("resolver.route", "Matched arXiv URL", {"handler": "arxiv"})
+        handler_start = time.time()
         try:
-            return await fetch_arxiv_paper_markdown(url)
+            result = await fetch_arxiv_paper_markdown(url)
+            word_count = len(result.split()) if result else 0
+            record_content_resolution(
+                stage="arxiv",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=word_count,
+                extraction_method="pdf",
+            )
+            return result
         except Exception as e:
+            record_content_resolution(
+                stage="arxiv",
+                url=url,
+                success=False,
+                duration_seconds=time.time() - handler_start,
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.error",
@@ -159,10 +275,19 @@ async def resolve_page_content_markdown(
     # Stage 6: HTTP extraction (trafilatura primary, no browser needed)
     if diagnostics:
         diagnostics.emit("resolver.route", "Trying HTTP extraction (trafilatura)", {"handler": "http_extract"})
+    handler_start = time.time()
     try:
         result = await http_extract(url, timeout=15.0)
         if result.text and result.word_count >= 50:
             LOGGER.info(f"HTTP extraction succeeded for {url}: {result.word_count} words via {result.method}")
+            record_content_resolution(
+                stage="http_extract",
+                url=url,
+                success=True,
+                duration_seconds=time.time() - handler_start,
+                word_count=result.word_count,
+                extraction_method=result.method or "trafilatura",
+            )
             if diagnostics:
                 diagnostics.emit(
                     "resolver.http_success",
@@ -178,6 +303,12 @@ async def resolve_page_content_markdown(
             )
     except Exception as e:
         LOGGER.warning(f"HTTP extraction failed for {url}: {e}")
+        record_content_resolution(
+            stage="http_extract",
+            url=url,
+            success=False,
+            duration_seconds=time.time() - handler_start,
+        )
         if diagnostics:
             diagnostics.emit(
                 "resolver.http_error",
@@ -188,4 +319,23 @@ async def resolve_page_content_markdown(
     # Stage 7: Universal HTML loader (nodriver/Chromium for JS-heavy sites)
     if diagnostics:
         diagnostics.emit("resolver.route", "Falling back to universal HTML (browser)", {"handler": "universal_html"})
-    return await load_url_as_markdown(url, diagnostics=diagnostics)
+    handler_start = time.time()
+    result = await load_url_as_markdown(url, diagnostics=diagnostics)
+    if result:
+        word_count = len(result.split())
+        record_content_resolution(
+            stage="universal_html",
+            url=url,
+            success=True,
+            duration_seconds=time.time() - handler_start,
+            word_count=word_count,
+            extraction_method="browser",
+        )
+    else:
+        record_content_resolution(
+            stage="universal_html",
+            url=url,
+            success=False,
+            duration_seconds=time.time() - handler_start,
+        )
+    return result
