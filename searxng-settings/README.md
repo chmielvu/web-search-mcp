@@ -35,7 +35,7 @@ Excluded after live tests:
 ### Key Settings
 
 - `keep_only:` pattern for clean whitelist
-- `limiter: false` for agent workloads
+- `limiter: true` with reverse proxy + forwarded client IP headers
 - `request_timeout: 3.0s` for responsiveness
 - Valkey 9-alpine with LRU cache (256MB)
 - `SEARXNG_VALKEY_URL` / `valkey.url`, not deprecated `redis.url`

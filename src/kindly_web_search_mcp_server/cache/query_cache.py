@@ -10,11 +10,14 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 import lancedb
+
+from ..telemetry import record_cache_lookup, CACHE_TYPE, CACHE_HIT
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,7 @@ class ExactQueryCache:
         Returns:
             Cached response dict if found and not expired, else None.
         """
+        start_time = time.time()
         cache_key = _compute_cache_key(
             normalized_query, num_results, rewrite_enabled, search_mode, providers_key
         )
@@ -139,10 +143,15 @@ class ExactQueryCache:
             )
         except Exception as exc:
             logger.warning("Exact query cache lookup failed: %s", exc)
+            # Record cache miss on lookup failure
+            record_cache_lookup(cache_type="exact", hit=False)
             return None
 
         if not results:
             logger.debug("No exact cache hit for key: %s", cache_key[:16])
+            # Record cache miss
+            duration = time.time() - start_time
+            record_cache_lookup(cache_type="exact", hit=False, duration_seconds=duration)
             return None
 
         row = results[0]
@@ -158,7 +167,14 @@ class ExactQueryCache:
                 age_seconds,
                 ttl_seconds,
             )
+            # Record expired as cache miss
+            duration = time.time() - start_time
+            record_cache_lookup(cache_type="exact", hit=False, duration_seconds=duration)
             return None
+
+        # Record cache hit
+        duration = time.time() - start_time
+        record_cache_lookup(cache_type="exact", hit=True, duration_seconds=duration)
 
         logger.debug(
             "Exact cache hit (key=%s, age=%.0fs)",
@@ -170,6 +186,8 @@ class ExactQueryCache:
             return json.loads(row["response_json"])
         except json.JSONDecodeError:
             logger.warning("Failed to decode cached response JSON")
+            # Record decode failure as miss
+            record_cache_lookup(cache_type="exact", hit=False)
             return None
 
     def store(

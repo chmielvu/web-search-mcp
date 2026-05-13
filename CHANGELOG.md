@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Provider-aware query rewrite implementation plan in
+  `plans/query-rewrite-agentic-provider-aware-plan-2026-05-13.md`,
+  now focused on concrete prompt constants, JSON schema, validators, and
+  provider-targeted keyword versus neural query generation.
 - Comparative architecture PRD refresh for `get_content` / `batch_get_content` in
   `plans/get-content-batch-content-state-of-art-fastmcp-plan-2026-05-12.md`,
   incorporating live MCP validation plus external fetch/summarizer MCP research
@@ -36,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Query rewrite is now provider-aware at runtime: keyword engines and neural/grounded
+  providers get different prompt templates, validated variant schemas
+  (`target`, `weight`, `neural_task`), and orchestrator routing so keyword
+  variants only hit keyword providers while neural-task variants only hit neural
+  providers.
+- **SearXNG hardening path**: local `searxng-settings` deployment now runs behind
+  an NGINX reverse proxy that forwards `X-Real-IP` / `X-Forwarded-For`, keeps
+  `server.limiter: true`, and ships a local `searxng-config/limiter.toml` with
+  trusted proxy ranges. Config sync now updates both `settings.yml` and
+  `limiter.toml` into the named Docker config volume on startup.
 - Server-level MCP `instructions`, `docs://workflow`, and workflow prompts now
   describe agent routing policy instead of provider implementation details,
   including the standard `rewrite=true` path, `rewrite=false` exact-literal

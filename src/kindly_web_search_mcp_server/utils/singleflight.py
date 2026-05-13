@@ -13,6 +13,9 @@ from typing import Any, Callable, Coroutine
 
 logger = logging.getLogger(__name__)
 
+# Default timeout for waiters (matches tool-level budget)
+DEFAULT_WAITER_TIMEOUT_SECONDS = 30.0
+
 
 class SingleFlight:
     """Coalesce identical concurrent async operations."""
@@ -31,16 +34,38 @@ class SingleFlight:
         key: str,
         fn: Callable[..., Coroutine[Any, Any, Any]],
         *args: Any,
+        timeout_seconds: float = DEFAULT_WAITER_TIMEOUT_SECONDS,
         **kwargs: Any,
     ) -> Any:
         """Execute *fn* once for a given *key*, sharing the result with waiters.
 
         If another coroutine is already executing under the same key, this
         call awaits the existing future instead of starting a new execution.
+
+        Args:
+            key: Unique identifier for the operation.
+            fn: Async function to execute.
+            *args: Arguments passed to fn.
+            timeout_seconds: Max time to wait for result (default 30s).
+            **kwargs: Keyword arguments passed to fn.
+
+        Raises:
+            asyncio.TimeoutError: If wait exceeds timeout_seconds.
         """
         if key in self._in_flight:
             logger.debug("SingleFlight: coalescing request for key=%s", key[:16])
-            return await asyncio.shield(self._in_flight[key])
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(self._in_flight[key]),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "SingleFlight: waiter timeout for key=%s after %.1fs",
+                    key[:16],
+                    timeout_seconds,
+                )
+                raise
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Any] = loop.create_future()

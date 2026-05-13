@@ -24,8 +24,6 @@ services:
     container_name: searxng-core
     image: docker.io/searxng/searxng:latest
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:8080"
     # FIX: Use named volumes instead of bind mounts for Docker Desktop compatibility
     volumes:
       - searxng-config:/etc/searxng:rw
@@ -42,12 +40,6 @@ services:
     depends_on:
       valkey:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/?q=test')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
     # Security: minimal capabilities
     cap_drop:
       - ALL
@@ -70,20 +62,32 @@ services:
       - searxng-config:/etc/searxng:rw
       # Bind mount from local file (read-only, just for copying)
       - ./searxng-config/settings.yml:/tmp/settings.yml:ro
+      - ./searxng-config/limiter.toml:/tmp/limiter.toml:ro
     command: >
       sh -c "
-        if [ ! -f /etc/searxng/settings.yml ]; then
-          echo 'Copying settings.yml to volume...';
-          cp /tmp/settings.yml /etc/searxng/settings.yml;
-          chmod 644 /etc/searxng/settings.yml;
-          echo 'Settings copied successfully';
-        else
-          echo 'Settings already exist, skipping copy';
-        fi
+        echo 'Syncing settings.yml and limiter.toml to config volume...';
+        cp /tmp/settings.yml /etc/searxng/settings.yml;
+        cp /tmp/limiter.toml /etc/searxng/limiter.toml;
+        chmod 644 /etc/searxng/settings.yml /etc/searxng/limiter.toml;
+        echo 'Config sync complete';
       "
     networks:
       - searxng-net
     depends_on: []
+
+  nginx:
+    container_name: searxng-nginx
+    image: docker.io/nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      searxng:
+        condition: service_started
+    networks:
+      - searxng-net
 
 networks:
   searxng-net:

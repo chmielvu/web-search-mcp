@@ -702,9 +702,10 @@ def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
     if _rerank_score_histogram is None:
         _rerank_score_histogram = meter.create_histogram(
             name="web_search_rerank_scores",
-            description="Relevance score distribution from Jina reranker",
+            description="Relevance score distribution from Jina reranker (shifted +1.0 to handle negative scores)",
             unit="1",
-            explicit_bucket_boundaries_advisory=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            # Buckets for shifted range: raw scores -1.0 to 1.0 become 0.0 to 2.0
+            explicit_bucket_boundaries_advisory=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
         )
 
     if _rerank_diversity_counter is None:
@@ -1091,10 +1092,18 @@ def record_rerank_stage(
         })
 
     # Record individual relevance scores for distribution
+    # IMPORTANT: Jina reranker can return negative scores (valid for relevance ranking)
+    # To track score distribution properly, we use a two-pronged approach:
+    # 1. Shift all scores to be positive (add 1.0 offset) for histogram recording
+    # 2. Record raw scores as span events for accurate visibility in Grafana
     if relevance_scores and stage == "jina":
         for score in relevance_scores[:20]:  # Limit to top 20
-            score_histogram.record(score, {
+            # Shift score by +1.0 to ensure histogram receives positive values
+            # Jina scores typically range from -1.0 to 1.0, so shifted range is 0.0 to 2.0
+            shifted_score = score + 1.0
+            score_histogram.record(shifted_score, {
                 RERANK_STAGE: stage,
+                "rerank.score_shifted": "true",  # Indicate transformation for query interpretation
             })
 
 

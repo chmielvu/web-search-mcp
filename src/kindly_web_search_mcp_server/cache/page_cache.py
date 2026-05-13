@@ -10,11 +10,14 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 import lancedb
+
+from ..telemetry import record_cache_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,7 @@ class PageCache:
             Dict with page_content, extraction_method, word_count, age_seconds
             if found and not expired. None otherwise.
         """
+        start_time = time.time()
         url_hash = self._compute_url_hash(canonical_url)
         table = self._get_table()
 
@@ -105,10 +109,16 @@ class PageCache:
             )
         except Exception as exc:
             logger.warning("Page cache lookup failed: %s", exc)
+            # Record cache miss on lookup failure
+            duration = time.time() - start_time
+            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
             return None
 
         if not results:
             logger.debug("No page cache hit for URL hash: %s", url_hash[:16])
+            # Record cache miss
+            duration = time.time() - start_time
+            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
             return None
 
         row = results[0]
@@ -125,6 +135,9 @@ class PageCache:
                 ttl_seconds,
                 canonical_url[:50],
             )
+            # Record expired as cache miss
+            duration = time.time() - start_time
+            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
             return None
 
         logger.debug(
@@ -134,6 +147,10 @@ class PageCache:
             age_seconds,
             row.get("word_count", 0),
         )
+
+        # Record cache hit with word count context
+        duration = time.time() - start_time
+        record_cache_lookup(cache_type="page", hit=True, duration_seconds=duration)
 
         result = {
             "page_content": row["page_content"],

@@ -1,11 +1,42 @@
-# SearXNG Settings for AI Coding Agents - Research-backed configuration
-# Source: SearXNG Practitioner's Guide (May 2026)
-# Optimized for: smolagents, LangChain tools, MCP servers
+# SearXNG Settings - Minimal Clean Config for AI Agents
+# Source: Research May 2026 + GitHub #2750 fixes
+# IMPORTANT: ALL engines have explicit shortcuts to avoid "-" conflicts
 
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only:
+      - wikipedia
+      - mojeek
+      - mwmbl
+      - yandex
+      - qwant
+      - brave
+      - duckduckgo
+      - google
+      - bing
+      - arxiv
+      - semantic scholar
+      - pubmed
+      - github
+      - gitlab
+      - stackoverflow
+      - askubuntu
+      - superuser
+      - serverfault
+      - hackernews
+      - huggingface
+      - ollama
+      - pypi
+      - npm
+      - crates
+      - dockerhub
+      - reuters
+      - unsplash
+      - pixabay
 
 general:
   instance_name: "SearXNG-Agent"
+  debug: false
   enable_metrics: false
 
 search:
@@ -13,23 +44,24 @@ search:
   autocomplete: ""
   formats:
     - html
-    - json                     # Required for LLM agent integration
-  ban_time_on_fail: 5
-  max_ban_time_on_fail: 120
-  # Shorter suspension times for faster recovery on private instance
+    - json
+  ban_time_on_fail: 1
+  max_ban_time_on_fail: 10
   suspended_times:
-    SearxEngineAccessDenied: 3600       # 1h (private instance: faster recovery)
-    SearxEngineCaptcha: 3600            # 1h (private instance: faster recovery)
-    SearxEngineTooManyRequests: 1800    # 30min (private instance: faster recovery)
-    cf_SearxEngineCaptcha: 3600         # 1h (reduced from 15 days)
-    recaptcha_SearxEngineCaptcha: 3600  # 1h (reduced from 7 days)
+    SearxEngineAccessDenied: 60
+    SearxEngineCaptcha: 60
+    SearxEngineTooManyRequests: 30
+    cf_SearxEngineCaptcha: 60
+    recaptcha_SearxEngineCaptcha: 60
 
 server:
   secret_key: "a1b2c3d4e5f67890abcdef1234567890abcdef1234567890abcdef1234567890"
-  limiter: false               # Required for LLM agent tool calls
+  limiter: true
   public_instance: false
   image_proxy: false
   method: "GET"
+  port: 8080
+  bind_address: "0.0.0.0"
 
 valkey:
   url: valkey://searxng-valkey:6379/0
@@ -48,163 +80,188 @@ ui:
   default_theme: simple
 
 engines:
-  # === TIER 1: Core web search (weight 2) ===
-  - name: brave
-    engine: brave
-    weight: 2
-    disabled: false
-
-  - name: duckduckgo
-    engine: duckduckgo
-    weight: 2
-    disabled: false
-
+  # === WEB / GENERAL - Reliable independent indexes ===
   - name: wikipedia
     engine: wikipedia
+    shortcut: wp
     weight: 2
     disabled: false
 
-  # === TIER 2: Independent indexes ===
   - name: mojeek
     engine: mojeek
-    weight: 1
-    disabled: false            # Enable it (disabled by default upstream)
+    shortcut: mj
+    weight: 2
+    disabled: false
 
-  - name: qwant
-    engine: qwant
-    weight: 1
+  - name: mwmbl
+    engine: mwmbl
+    shortcut: mw
+    weight: 1.5
     disabled: false
 
   - name: yandex
     engine: yandex
-    weight: 1.4
+    shortcut: yd
+    weight: 1.5
     disabled: false
-    yandex_category: web       # Own massive index, good for technical queries
 
-  # === DISABLED: Known broken (May 2026) ===
-  - name: yahoo
-    engine: yahoo
-    inactive: true             # HTTP protocol error + first-word-only bug
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    weight: 1
+    disabled: false
 
-  - name: wikidata
-    engine: wikidata
-    inactive: true             # HTTP 403 init failure
+  # === BLOCKED ENGINES ===
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: true
 
-  - name: startpage
-    engine: startpage
-    inactive: true             # JSON parse errors since Sep 2025
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: true
 
-  - name: google news
-    engine: google_news
-    inactive: true             # Broken since March 2026 (protobuf URL change)
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: true
 
-  - name: karmasearch
-    engine: karma
-    inactive: true             # HTTP 403 universal
-
-  # Bing disabled per user request - known relevance issues on long queries
   - name: bing
     engine: bing
-    inactive: true
+    shortcut: bi
+    disabled: true
 
-  # === Science / Academic ===
+  # === SCIENCE / ACADEMIC ===
   - name: arxiv
     engine: arxiv
-    categories: science
-    disabled: false
-
-  - name: google scholar
-    engine: google_scholar
-    categories: science
+    shortcut: arx
+    weight: 2.5
     disabled: false
 
   - name: semantic scholar
     engine: semantic_scholar
-    categories: science
+    shortcut: ss
+    weight: 2.5
     disabled: false
 
   - name: pubmed
     engine: pubmed
-    categories: science
+    shortcut: pmed
+    weight: 2
     disabled: false
 
-  # === IT / Developer tools ===
+  # === IT / DEVELOPER ===
   - name: github
     engine: github
-    categories: it
+    shortcut: gh
+    weight: 3
     disabled: false
-    weight: 2
 
-  - name: github code
-    engine: github
-    categories: it
+  - name: gitlab
+    engine: gitlab
+    shortcut: gl
+    weight: 2
     disabled: false
-    weight: 2.5
 
   - name: stackoverflow
     engine: stackexchange
-    shortcut: st
+    shortcut: stof
     api_site: 'stackoverflow'
-    categories: [it, q&a]
+    weight: 3
     disabled: false
-    weight: 2
 
   - name: askubuntu
     engine: stackexchange
     shortcut: asku
     api_site: 'askubuntu'
-    categories: [it, q&a]
+    weight: 2
     disabled: false
 
   - name: superuser
     engine: stackexchange
-    shortcut: su
+    shortcut: suusr
     api_site: 'superuser'
-    categories: [it, q&a]
+    weight: 2
+    disabled: false
+
+  - name: serverfault
+    engine: stackexchange
+    shortcut: sfault
+    api_site: 'serverfault'
+    weight: 2
     disabled: false
 
   - name: hackernews
     engine: hackernews
-    categories: it
-    disabled: false            # Enable it (disabled by default)
+    shortcut: hn
+    weight: 2.5
+    disabled: false
 
   - name: huggingface
     engine: huggingface
-    categories: it
-    disabled: false            # Enable it (disabled by default)
+    shortcut: hf
+    weight: 3
+    disabled: false
 
+  - name: ollama
+    engine: ollama
+    shortcut: ollm
+    weight: 2
+    disabled: false
+
+  # === PACKAGES ===
   - name: pypi
     engine: pypi
-    categories: it
+    shortcut: pypipkg
+    weight: 2.5
     disabled: false
 
   - name: npm
     engine: npm
-    categories: it
+    shortcut: npmpkg
+    weight: 2.5
     disabled: false
 
-  # === News (working sources) ===
+  - name: crates
+    engine: crates
+    shortcut: rustpkg
+    weight: 2
+    disabled: false
+
+  - name: dockerhub
+    engine: docker_hub
+    shortcut: dockerimg
+    weight: 2
+    disabled: false
+
+  # === NEWS ===
   - name: reuters
     engine: reuters
-    categories: news
+    shortcut: reut
+    weight: 2
     disabled: false
 
-  # === SPECIALTY: Indie/non-commercial web (custom json_engine) ===
-  # Marginalia - focuses on non-commercial, personal, indie web content
-  # Excellent complement to mainstream engines for niche technical queries
-  - name: marginalia
-    engine: json_engine
-    categories: general
-    url: "https://marginalia.nu/search?query={query}&js=true"
+  # === IMAGES ===
+  - name: unsplash
+    engine: unsplash
+    shortcut: unspl
+    weight: 2
     disabled: false
-    weight: 1
-    timeout: 5.0
+
+  - name: pixabay
+    engine: pixabay
+    shortcut: pixb
+    weight: 2
+    disabled: false
 
 plugins:
   searx.plugins.tracker_url_remover.SXNGPlugin:
     active: true
 
 categories_as_tabs:
-  general:
-  it:
-  science:
+  general: {}
+  it: {}
+  science: {}
+  news: {}
+  images: {}

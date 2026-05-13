@@ -19,8 +19,10 @@ from ..utils.observability import emit_observability_event, serialize_search_res
 from ..search_instrumented import search_single_query
 from .merge import merge_search_results
 from .normalize import normalize_query
+from .provider_config import resolve_providers_for_search
 from .query_policy import RewriteMode, RewritePolicy
 from .query_rewrite import rewrite_search_query
+from .query_rewrite_models import KEYWORD_PROVIDER_NAMES, NEURAL_PROVIDER_NAMES, QueryVariant
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,19 @@ def _resolve_per_query_k(num_results: int, mode: RewriteMode) -> int:
         return max(num_results * 2, 6)
     # expand mode
     return max(num_results * 3, 9)
+
+
+def _select_providers_for_variant(
+    variant: QueryVariant,
+    active_provider_names: list[str],
+) -> list[str] | None:
+    if variant.target == "all":
+        return active_provider_names or None
+    if variant.target == "keyword":
+        selected = [name for name in active_provider_names if name in KEYWORD_PROVIDER_NAMES]
+        return selected or None
+    selected = [name for name in active_provider_names if name in NEURAL_PROVIDER_NAMES]
+    return selected or None
 
 
 async def run_web_search(
@@ -67,15 +82,20 @@ async def run_web_search(
     """
     normalized_query = normalize_query(query)
     rewrite_policy = RewritePolicy(mode="bypass", reason="Rewrite disabled by caller.")
+    active_provider_names = [config.name for config in resolve_providers_for_search(providers)]
 
     if rewrite:
         rewrite_plan = await rewrite_search_query(
-            normalized_query, diagnostics=diagnostics, research_goal=research_goal
+            normalized_query,
+            diagnostics=diagnostics,
+            research_goal=research_goal,
+            providers=providers,
         )
         queries = rewrite_plan.final_queries
         rewrite_policy = rewrite_plan.policy
     else:
         queries = [normalized_query]
+        rewrite_plan = None
 
     per_query_k = _resolve_per_query_k(num_results, rewrite_policy.mode)
 
@@ -112,13 +132,19 @@ async def run_web_search(
         result_lists = await asyncio.gather(
             *[
                 search_single_query(
-                    q,
+                    variant.query if rewrite_plan else q,
                     num_results=per_query_k,
                     http_client=client,
                     diagnostics=diagnostics,
-                    providers=providers,
+                    providers=_select_providers_for_variant(variant, active_provider_names)
+                    if rewrite_plan
+                    else providers,
                 )
-                for q in queries
+                for q, variant in (
+                    [(normalized_query, QueryVariant(kind="original", target="all", query=normalized_query, why="Rewrite disabled by caller.", weight=1.0))]
+                    if rewrite_plan is None
+                    else [(variant.query, variant) for variant in rewrite_plan.variants]
+                )
             ]
         )
 

@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
 from .content_type import ADAPTIVE_TTL, ADAPTIVE_TTL_SECONDS, ContentType, classify_content_type
 from .store import SemanticCacheStore
 from ..embeddings import embed_query
+from ..telemetry import record_semantic_cache_lookup, record_cache_lookup
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 async def get_semantic_cache(
     store: SemanticCacheStore,
     query: str,
-    min_score: float = 0.82,
+    min_score: float = 0.92,
     use_hybrid: bool = True,
     provider_key: str = "default",
 ) -> dict | None:
@@ -38,11 +40,14 @@ async def get_semantic_cache(
         cached_at, content_type, ttl_seconds, needs_validation.
         Returns None if no valid cache hit found.
     """
+    start_time = time.time()
     try:
         # Generate query embedding
         query_embedding = await embed_query(query)
     except Exception as e:
         logger.warning("Embedding generation failed: %s, skipping cache lookup", e)
+        # Record cache miss on embedding failure
+        record_cache_lookup(cache_type="semantic", hit=False)
         return None
 
     # Perform search
@@ -53,6 +58,9 @@ async def get_semantic_cache(
 
     if not results:
         logger.debug("No cache results found for query: %s", query[:100])
+        # Record cache miss
+        duration = time.time() - start_time
+        record_cache_lookup(cache_type="semantic", hit=False, duration_seconds=duration)
         return None
 
     # Find best result by similarity score
@@ -71,6 +79,14 @@ async def get_semantic_cache(
             best_similarity,
             min_score,
         )
+        # Record cache miss with similarity score (below threshold)
+        duration = time.time() - start_time
+        record_cache_lookup(cache_type="semantic", hit=False, duration_seconds=duration)
+        record_semantic_cache_lookup(
+            similarity_score=best_similarity,
+            hit=False,
+            search_type="hybrid" if use_hybrid else "vector",
+        )
         return None
 
     # Check TTL based on content type
@@ -86,9 +102,23 @@ async def get_semantic_cache(
             ttl_seconds,
             content_type,
         )
+        # Record expired as cache miss
+        duration = time.time() - start_time
+        record_cache_lookup(cache_type="semantic", hit=False, duration_seconds=duration)
         return None
 
-    # Valid cache hit
+    # Valid cache hit - record telemetry
+    duration = time.time() - start_time
+    record_cache_lookup(cache_type="semantic", hit=True, duration_seconds=duration)
+    record_semantic_cache_lookup(
+        similarity_score=best_similarity,
+        hit=True,
+        content_type=content_type.value,
+        ttl_seconds=ttl_seconds,
+        search_type="hybrid" if use_hybrid else "vector",
+        vector_distance=best_row.get("_distance", 0.0),
+    )
+
     needs_validation = age_seconds > 24 * 3600  # Flag entries older than 24h
     logger.debug(
         "Cache hit (similarity=%.2f, age=%.0fs, content_type=%s)",
