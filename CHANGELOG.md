@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Query rewrite now uses intent-specific temperatures: `code` queries use 0.15
+  (deterministic for precise technical queries), `general_research` uses 0.5
+  (balanced creativity for exploratory queries), and `comparison` uses 0.3
+  (structured output for entity comparisons). Previously all intents used
+  the same temperature from settings.
+
 ### Added
 
 - Provider-aware query rewrite implementation plan in
