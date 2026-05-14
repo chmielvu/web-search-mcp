@@ -45,6 +45,13 @@ from .query_rewrite_validate import (
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
 
+# Intent-specific temperatures: code needs precision, research benefits from creativity
+TEMPERATURE_BY_INTENT: dict[RewriteIntent, float] = {
+    "code": 0.15,  # Deterministic for precise technical queries
+    "general_research": 0.5,  # Balanced creativity for exploratory queries
+    "comparison": 0.3,  # Structured output for entity comparisons
+}
+
 
 def _fallback_plan(query: str, policy: RewritePolicy, reason: str) -> QueryRewritePlan:
     cleaned = normalize_query(query)
@@ -91,7 +98,7 @@ async def _request_variants(
         router.acompletion(
             model="query-rewrite",
             messages=messages,
-            temperature=settings.query_rewrite_temperature,
+            temperature=TEMPERATURE_BY_INTENT.get(intent, settings.query_rewrite_temperature),
             response_format={"type": "json_object"},
         ),
         timeout=settings.query_rewrite_timeout_seconds,

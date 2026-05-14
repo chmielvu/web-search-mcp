@@ -253,3 +253,16 @@ models.json
 
 # Memory files (optional - uncomment if needed)
 # memory/
+
+# Dev tool directories
+.hermes/
+.kilo/
+
+# Local SearXNG instance
+searxng/
+
+# Repomix output files
+repomix-output*.xml
+
+# Cloned research repositories
+research_repos/
