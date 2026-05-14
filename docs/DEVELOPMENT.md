@@ -13,6 +13,8 @@ This guide covers local development setup, project structure, code patterns, and
 - At least one search provider configured for testing:
   - `SEARXNG_BASE_URL` (self-hosted, primary)
   - `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `JINA_API_KEY` (paid providers)
+  - `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID` (Composio LLM Search)
+  - `POLLINATIONS_API_KEY` (Gemini/Perplexity via Pollinations)
 
 ### Clone and Install
 
@@ -40,14 +42,18 @@ SEARXNG_BASE_URL=http://localhost:8080
 TAVILY_API_KEY=tvly-...
 BRAVE_API_KEY=...
 JINA_API_KEY=...
+COMPOSIO_API_KEY=...
+KINDLY_COMPOSIO_USER_ID=...
+POLLINATIONS_API_KEY=...
 
 # Recommended: GitHub token for better Issue extraction
 GITHUB_TOKEN=ghp_...
 
 # Optional: advanced features
-MISTRAL_API_KEY=...          # Query rewrite
+MISTRAL_API_KEY=...          # Query rewrite (Mistral backend)
+CEREBRAS_API_KEY=...         # Query rewrite (Cerebras backend - free tier)
+GROQ_API_KEY=...             # Query rewrite (Groq backend - free tier)
 KINDLY_GEMINI_API_KEY=...    # Gemini grounding
-POLLINATIONS_API_KEY=...     # Perplexity Sonar
 
 # Optional: browser path (auto-detected if unset)
 KINDLY_BROWSER_EXECUTABLE_PATH=/path/to/chrome
@@ -76,32 +82,54 @@ src/kindly_web_search_mcp_server/
 ├── cli.py                 # CLI wrapper with start-mcp-server subcommand
 ├── models.py              # Pydantic response models
 ├── settings.py            # Environment-based configuration (dataclass)
+├── errors.py              # Error classification and formatting
+├── retry.py               # Retry utilities
+├── telemetry.py           # OpenTelemetry instrumentation
+├── search_instrumented.py # Instrumented search wrapper (tracing)
+├── composio_client.py     # Composio API client
+├── composio_tools.py      # Composio tool registration
 │
 ├── search/                # Multi-provider web search pipeline
-│   ├── __init__.py        # Provider registry, RRF merge, circuit breaker
+│   ├── __init__.py        # Provider registry, RRF merge, circuit breaker, budget
 │   ├── orchestrator.py    # Query rewrite → search → merge → rerank
+│   ├── provider_config.py # Provider mode configuration (ALWAYS/CONDITIONAL/NEVER)
 │   ├── searxng.py         # SearXNG provider implementation
 │   ├── tavily.py          # Tavily provider implementation
 │   ├── brave.py           # Brave Search provider implementation
 │   ├── jina.py            # Jina AI provider implementation
-│   ├── pollinations.py    # Perplexity Sonar via Pollinations API
+│   ├── ddg.py             # DuckDuckGo provider (free tier)
+│   ├── pollinations.py    # Pollinations API client (Perplexity Sonar)
+│   ├── gemini_pollinations.py # Gemini search via Pollinations
+│   ├── composio_llm_search.py # Composio LLM Search provider
 │   ├── gemini_search_tool.py # Gemini search MCP tool with Google Search grounding
 │   ├── youtube.py         # YouTube search via SearXNG engine
-│   ├── merge.py           # RRF merge implementation
+│   ├── merge.py           # Weighted RRF merge implementation
 │   ├── normalize.py       # Query/URL normalization utilities
-│   ├── query_rewrite.py   # Mistral-backed query expansion
+│   ├── query_rewrite.py   # Query rewrite orchestration
+│   ├── query_rewrite_router.py # LiteLLM multi-provider routing for rewrite
+│   ├── query_rewrite_models.py # Query variant data structures
+│   ├── query_rewrite_prompts.py # Production prompts for rewrite
+│   ├── query_rewrite_validate.py # Rewrite output validation
 │   ├── query_policy.py    # Intent classification (bypass/light_rewrite/decompose)
-│   └── query_policy_resolver.py # Policy resolution backend selection
+│   ├── query_policy_resolver.py # Policy resolution backend selection
 │   └── query_policy_hf.py # HF Space query policy backend
 │
 ├── content/               # URL → Markdown resolution pipeline
 │   ├── resolver.py        # Staged fallback dispatcher
-│   ├── stackexchange.py   # StackOverflow/API Q&A extraction
+│   ├── stackexchange.py   # StackOverflow/Q&A API extraction
 │   ├── github_issues.py   # GitHub Issues (GraphQL)
 │   ├── github_discussions.py # GitHub Discussions (GraphQL)
 │   ├── wikipedia.py       # Wikipedia MediaWiki API
 │   ├── arxiv.py           # arXiv papers (PDF → Markdown)
 │   ├── youtube.py         # YouTube transcript extraction
+│   ├── windowing.py       # Content window slicing (pagination)
+│   ├── status_classifier.py # Fetch status classification
+│   ├── jina_reader.py     # Jina Reader API extraction
+│   ├── summary.py         # Summary generation (Chutes API)
+│   ├── artifact.py        # Content artifact data structure
+│   ├── safe_fetch.py      # Safe HTTP fetch wrapper
+│   ├── fetch_pipeline.py  # Unified fetch pipeline
+│   └── batch_orchestrator.py # Batch URL fetching with budgets
 │
 ├── scrape/                # Universal HTML extraction
 │   ├── universal_html.py  # Nodriver headless browser extraction
@@ -110,34 +138,43 @@ src/kindly_web_search_mcp_server/
 │   ├── nodriver_worker.py # Nodriver worker utilities
 │   ├── extract.py         # Content extraction helpers
 │   ├── fetch.py           # HTTP fetch utilities
-│   ├── sanitize.py        # HTML sanitization
+│   └── sanitize.py        # HTML sanitization
 │
 ├── cache/                 # Caching layers
+│   ├── __init__.py        # Cache exports and store access
 │   ├── query_cache.py     # Exact query cache (SQLite-backed)
 │   ├── semantic_cache.py  # LanceDB semantic similarity cache
 │   ├── page_cache.py      # URL → page_content cache
-│   ├── store.py           # Cache store implementation
+│   ├── store.py           # LanceDB store implementation
 │   ├── schema.py          # LanceDB schema definitions
 │   └── content_type.py    # Content type classification
 │
 ├── embeddings/            # Embedding services
-│   ├── hf_space.py        # HuggingFace Space embedding client
+│   ├── __init__.py        # Embedding exports
+│   ├── hf_inference.py    # HuggingFace Inference Provider embeddings
 │   └── rate_limiter.py    # Rate limiting for embedding calls
 │
 ├── rerank/                # Result reranking
+│   ├── __init__.py        # Rerank exports
 │   ├── core.py            # Rerank orchestration
 │   ├── bi_encoder.py      # Bi-encoder similarity
-│   ├── hf_space_rerank.py # HF Space cross-encoder reranking
-│   └── diversity.py       # Diversity filtering
+│   ├── jina.py            # Jina API cross-encoder reranking
+│   └── diversity.py       # MMR diversity filtering
 │
 ├── middleware/            # FastMCP middleware
-│   ├── expensive_tool_protection.py # Rate-limit expensive tools
+│   ├── __init__.py        # Middleware exports
+│   ├── expensive_tool_protection.py # Rate-limit expensive tools (perplexity_search)
 │   ├── gemini_advisory.py # Gemini usage tips
 │   ├── query_guidance.py  # Query quality tips
+│   └── rate_limits.py     # Differentiated rate limiting (cheap vs expensive)
 │
 └── utils/
+    ├── __init__.py        # Utility exports
     ├── diagnostics.py     # JSON-line diagnostics system
-    └── logging.py         # Logging configuration
+    ├── logging.py         # Logging configuration
+    ├── observability.py   # Observability event helpers
+    ├── structured_logging.py # Structured logging utilities
+    └── singleflight.py    # Request coalescing (SingleFlight pattern)
 ```
 
 ---
@@ -146,13 +183,18 @@ src/kindly_web_search_mcp_server/
 
 | File | Purpose |
 |------|---------|
-| `server.py` | FastMCP server definition, tool handlers (`web_search`, `get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`) |
+| `server.py` | FastMCP server definition, tool handlers (`web_search`, `get_content`, `batch_get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`) |
 | `settings.py` | All `KINDLY_*` environment variables, defaults in `Settings` dataclass |
 | `search/__init__.py` | Provider detection, RRF merge, circuit breaker, budget tracking |
 | `search/orchestrator.py` | Coordinates rewrite → multi-provider search → merge → rerank |
+| `search/provider_config.py` | Provider mode enum (ALWAYS/CONDITIONAL/NEVER), registry |
 | `content/resolver.py` | 7-stage fallback: StackExchange → GitHub Issues → GitHub Discussions → Wikipedia → arXiv → HTTP extract → Universal HTML |
+| `content/fetch_pipeline.py` | Unified fetch pipeline with status classification |
+| `content/batch_orchestrator.py` | Batch URL fetching with concurrency and budgets |
 | `scrape/universal_html.py` | Nodriver-based browser extraction for JS-heavy sites |
 | `middleware/expensive_tool_protection.py` | "Think first, then call" pattern for rate-limited tools |
+| `middleware/rate_limits.py` | Differentiated rate limiting (cheap vs expensive tools) |
+| `telemetry.py` | OpenTelemetry metrics and spans for observability |
 
 ---
 
@@ -167,6 +209,18 @@ async with httpx.AsyncClient(timeout=30) as client:
     resp = await client.get(url, params=params)
 ```
 
+Provider functions accept an optional `http_client` parameter for connection reuse:
+
+```python
+async def search_provider(
+    query: str,
+    num_results: int,
+    http_client: httpx.AsyncClient | None = None,
+) -> list[WebSearchResult]:
+    client = http_client or httpx.AsyncClient(timeout=30)
+    ...
+```
+
 ### Settings Access
 
 Import the singleton `settings` from `settings.py`:
@@ -177,6 +231,8 @@ from .settings import settings
 if settings.semantic_cache_enabled:
     # ...
 ```
+
+All settings are environment-driven with defaults documented in the dataclass.
 
 ### Diagnostics
 
@@ -214,6 +270,14 @@ Return graceful error messages in Markdown format for content resolution:
 return f"_Failed to retrieve content: {type(e).__name__}_\n\nSource: {url}\n"
 ```
 
+Use the centralized error classifier for MCP tool errors:
+
+```python
+from ..errors import classify_error, format_tool_error
+structured = classify_error(exc, provider="perplexity")
+return format_tool_error(exc, provider="perplexity")
+```
+
 ### Pydantic Models
 
 All tool responses use Pydantic models from `models.py`:
@@ -222,6 +286,66 @@ All tool responses use Pydantic models from `models.py`:
 from ..models import WebSearchResponse, WebSearchResult
 
 return WebSearchResponse(query=query, results=results)
+```
+
+### Provider Configuration Pattern
+
+Providers use the `ProviderConfig` class with mode-based selection:
+
+```python
+from .provider_config import ProviderConfig, ProviderMode
+
+register_provider(ProviderConfig(
+    name="searxng",
+    mode=ProviderMode.ALWAYS,       # Always fires (free provider)
+    env_key="SEARXNG_BASE_URL",
+    search_fn=search_searxng,
+    is_free=True,
+    requires_key=False,
+))
+
+register_provider(ProviderConfig(
+    name="tavily",
+    mode=ProviderMode.NEVER,        # Disabled by default
+    env_key="TAVILY_API_KEY",
+    search_fn=search_tavily,
+    is_free=False,
+    requires_key=True,
+))
+```
+
+Modes:
+- `ALWAYS`: Fires automatically (free providers like SearXNG, DDG)
+- `CONDITIONAL`: Only fires when caller requests via `providers` param
+- `NEVER`: Never fires, even if API key present
+
+### Circuit Breaker Pattern
+
+Providers are wrapped with a circuit breaker to prevent cascading failures:
+
+```python
+# Circuit opens after 3 consecutive failures, resets after 60 seconds
+_circuit_breaker = CircuitBreaker(failure_threshold=3, reset_timeout_seconds=60.0)
+
+if _circuit_breaker.is_open(provider_name):
+    return []  # Skip provider
+
+# After success/failure:
+_circuit_breaker.record_success(provider_name)
+_circuit_breaker.record_failure(provider_name)
+```
+
+### SingleFlight Pattern
+
+Request coalescing prevents duplicate concurrent searches:
+
+```python
+from ..utils.singleflight import SingleFlight
+
+_search_flight = SingleFlight()
+flight_key = SingleFlight.make_key(normalized_query, num_results, rewrite, providers_key)
+
+response = await _search_flight.do(flight_key, _execute_search)
 ```
 
 ### Mocking in Tests
@@ -272,28 +396,43 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
 
 2. **Register the provider** in `search/__init__.py`:
 
-   - Add import: `from .my_provider import search_my_provider`
-   - Add detection function: `_has_my_provider_key()`
-   - Add to `_search_single_provider()` calls in `search_single_query()`
+   Add to `_init_provider_registry()`:
+
+   ```python
+   register_provider(ProviderConfig(
+       name="my_provider",
+       mode=ProviderMode.CONDITIONAL,  # or ALWAYS/NEVER
+       env_key="MY_PROVIDER_API_KEY",
+       search_fn=search_my_provider,
+       is_free=False,
+       requires_key=True,
+   ))
+   ```
 
 3. **Add environment variable** to `settings.py` if needed:
 
    ```python
    my_provider_api_key: str = os.environ.get("MY_PROVIDER_API_KEY", "")
+   my_provider_mode: str = os.environ.get("KINDLY_MY_PROVIDER_MODE", "conditional")
    ```
 
 4. **Write unit tests** in `tests/test_my_provider.py`:
 
    ```python
    import pytest
+   import httpx
    from unittest.mock import patch, AsyncMock
    from kindly_web_search_mcp_server.search.my_provider import search_my_provider
 
+   def handler(request: httpx.Request) -> httpx.Response:
+       assert request.method == "GET"
+       return httpx.Response(200, json={"results": [...]})
+
    @pytest.mark.asyncio
    async def test_search_my_provider_success():
-       with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-           mock_get.return_value.json.return_value = {"results": [...]}
-           results = await search_my_provider("test query", num_results=5)
+       transport = httpx.MockTransport(handler)
+       async with httpx.AsyncClient(transport=transport) as client:
+           results = await search_my_provider("test query", num_results=5, http_client=client)
            assert len(results) > 0
    ```
 
@@ -343,6 +482,8 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
        except MySourceError:
            pass
        else:
+           if diagnostics:
+               diagnostics.emit("resolver.route", "Matched MySource URL", {"handler": "my_source"})
            try:
                return await fetch_my_source_markdown(url)
            except Exception as e:
@@ -435,6 +576,20 @@ python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/
 python -m pytest tests/test_searxng_unit.py -v
 ```
 
+### Live Integration Tests
+
+Live tests require environment setup:
+
+```bash
+# Set environment variables for live testing
+export KINDLY_RUN_LIVE_TESTS=1
+export KINDLY_BROWSER_EXECUTABLE_PATH="/path/to/chrome"
+export KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS=180
+export KINDLY_HTML_TOTAL_TIMEOUT_SECONDS=90
+
+python -m pytest tests/test_live_fetch_urls.py -v
+```
+
 ### Test Configuration
 
 Tests patch environment variables in `conftest.py`:
@@ -442,7 +597,10 @@ Tests patch environment variables in `conftest.py`:
 ```python
 os.environ.setdefault("SEARXNG_BASE_URL", "https://searx.example.org")
 os.environ.setdefault("TAVILY_API_KEY", "test_api_key")
+os.environ.setdefault("KINDLY_GEMINI_SEARCH_MODE", "never")
 ```
+
+See [TESTING.md](./TESTING.md) for detailed test patterns and mock conventions.
 
 ---
 
@@ -484,18 +642,6 @@ This emits JSON-line diagnostics to stderr for each request:
 KINDLY_DIAG {"request_id":"uuid","stage":"resolver.start","msg":"Resolving URL","elapsed_ms":12,"data":{"url":"..."}}
 ```
 
-### Diagnostics in Tool Responses
-
-When enabled, tool responses include `diagnostics` field:
-
-```json
-{
-  "url": "...",
-  "page_content": "...",
-  "diagnostics": [{"stage": "resolver.route", "msg": "Matched StackExchange URL", ...}]
-}
-```
-
 ### Key Diagnostic Stages
 
 | Stage | Description |
@@ -509,13 +655,23 @@ When enabled, tool responses include `diagnostics` field:
 | `web_search.rewrite_plan` | Query rewrite policy resolved |
 | `content.timeout` | Content fetch timed out |
 
+### OpenTelemetry Tracing
+
+The server uses OpenTelemetry for distributed tracing. Enable via the `observability` extras:
+
+```bash
+uv pip install -e ".[observability]"
+```
+
+Traces are exported to OTLP endpoint (default: `http://localhost:4318/v1/traces`).
+
 ---
 
 ## Git Workflow
 
 ### Branch Naming
 
-No documented convention. Follow common patterns:
+Follow common patterns:
 
 - `feat/feature-name` for new features
 - `fix/bug-name` for bug fixes
@@ -533,7 +689,7 @@ docs(readme): clarify browser path setup
 
 ### Pull Request Process
 
-(No documented PR template exists.)
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed PR guidelines.
 
 Recommended checklist:
 
@@ -584,7 +740,8 @@ Set at least one:
 
 ```bash
 SEARXNG_BASE_URL=http://localhost:8080
-# Or: TAVILY_API_KEY, BRAVE_API_KEY, JINA_API_KEY
+# Or: TAVILY_API_KEY, BRAVE_API_KEY, JINA_API_KEY, POLLINATIONS_API_KEY
+# Or: COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID
 ```
 
 ### Semantic Cache Errors
@@ -595,10 +752,20 @@ LanceDB issues can occur on first run. Ensure `lancedb_data/` directory is writa
 KINDLY_LANCEDB_DIR=./lancedb_data
 ```
 
+### Circuit Breaker Open
+
+If providers are being skipped due to circuit breaker:
+
+1. Check provider health: `GET {SEARXNG_BASE_URL}/health`
+2. Wait for reset timeout (default 60 seconds)
+3. Or restart the server to reset circuit breaker state
+
 ---
 
 ## Next Steps
 
-- See README.md for installation and usage
-- See ARCHITECTURE.md for system design details
-- See CONFIGURATION.md for environment variable reference
+- See [README.md](../README.md) for installation and usage
+- See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details
+- See [CONFIGURATION.md](./CONFIGURATION.md) for environment variable reference
+- See [TESTING.md](./TESTING.md) for detailed test patterns
+- See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines
