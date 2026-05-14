@@ -1,3 +1,4 @@
+<!-- generated-by: gsd-doc-writer -->
 # Improve AI-generated code quality by 20%
 
 **Web search + robust content retrieval for AI coding tools.**
@@ -78,7 +79,7 @@ We built Kindly Web Search because we needed our AI assistants to work the way *
 
 Now, when Claude Code or Codex searches for that GPU batch error, it gets the question *and* the answers. The code snippets. The "this fixed it for me" comments. Everything it needs to help you solve the problem - **in one call**.
 
-If you give Kindly a try or like the idea, please drop us a star on GitHub - it’s always huge motivation for us to keep improving it! ⭐️
+If you give Kindly a try or like the idea, please drop us a star on GitHub - it's always huge motivation for us to keep improving it! ⭐️
 
 ## One MCP Server to Rule Them All
 
@@ -105,7 +106,7 @@ Search uses a standard mix of **SearXNG + DDG + Gemini** when configured, with *
 - A Chromium-based browser (optional, for JS-heavy page content extraction fallback)
   - Without a browser: specialized sources (StackExchange, GitHub Issues/Discussions, Wikipedia, arXiv) still work well, but universal HTML `page_content` extraction may fail for other sites.
 - Highly recommended: `GITHUB_TOKEN` (renders GitHub Issues in a much more LLM-friendly format: question + answers/comments + reactions/metadata; fewer rate limits)
-- Python 3.13+ is supported (Python 3.14 supported; optional “advanced PDF layout” extras are disabled on 3.14 because `onnxruntime` wheels may be unavailable).
+- Python 3.13+ is supported (Python 3.14 supported; optional "advanced PDF layout" extras are disabled on 3.14 because `onnxruntime` wheels may be unavailable).
 
 `GITHUB_TOKEN` can be read-only and limited to public repositories to avoid security/privacy concerns.
 
@@ -140,7 +141,7 @@ brew install --cask chromium
 
 Windows:
 - Install Chrome or Edge.
-- If browser auto-detection fails later, you’ll need the path:
+- If browser auto-detection fails later, you'll need the path:
 ```powershell
 Get-Command chrome | Select-Object -ExpandProperty Source
 # Common path:
@@ -211,7 +212,7 @@ uvx --from git+https://github.com/Shelpuk-AI-Technology-Consulting/kindly-web-se
   kindly-web-search-mcp-server start-mcp-server
 ```
 
-First-run note: the first `uvx` invocation may take 30–60 seconds while it builds the tool environment. If your MCP client times out on first start, run the command once in a terminal to “prewarm” it, then retry in your client.
+First-run note: the first `uvx` invocation may take 30–60 seconds while it builds the tool environment. If your MCP client times out on first start, run the command once in a terminal to "prewarm" it, then retry in your client.
 
 Now configure your MCP client to run that command.
 Make sure your API keys are set in the same shell/OS environment that launches the MCP client (unless you paste them directly into the client config).
@@ -451,7 +452,7 @@ Edit mcporter config (`~/.mcporter/mcporter.json`, or `config/mcporter.json` if 
 
 Do **not** add root-level `mcpServers` to `~/.openclaw/openclaw.json` (OpenClaw config uses strict schema validation and unknown keys are rejected).
 
-If OpenClaw is already running and doesn’t pick up the new server, restart/reload the gateway:
+If OpenClaw is already running and doesn't pick up the new server, restart/reload the gateway:
 ```bash
 openclaw gateway restart
 ```
@@ -464,7 +465,7 @@ In Antigravity, open the MCP store, then:
 2. Click **View raw config** (this opens `mcp_config.json`)
 3. Add the server config under `mcpServers`, save, then go back and click **Refresh**
 
-Paste this into your `mcpServers` object (don’t overwrite other servers):
+Paste this into your `mcpServers` object (don't overwrite other servers):
 ```json
 {
   "kindly-web-search": {
@@ -486,10 +487,10 @@ Paste this into your `mcpServers` object (don’t overwrite other servers):
 }
 ```
 
-If Antigravity can’t find `uvx`, replace `"uvx"` with the absolute path (`which uvx` on macOS/Linux, `where uvx` on Windows).
+If Antigravity can't find `uvx`, replace `"uvx"` with the absolute path (`which uvx` on macOS/Linux, `where uvx` on Windows).
 Make sure at least one of `SEARXNG_BASE_URL` / `TAVILY_API_KEY` / `BRAVE_API_KEY` / `JINA_API_KEY` is non-empty.
 If the first start is slow, run the `uvx` command from Quickstart once in a terminal to prebuild the environment, then click **Refresh**.
-Don’t commit/share `mcp_config.json` if it contains API keys.
+Don't commit/share `mcp_config.json` if it contains API keys.
 
 ### Cursor
 Set one or more of `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`.
@@ -522,9 +523,9 @@ Create `.cursor/mcp.json`:
 ### Claude Desktop
 Edit `claude_desktop_config.json`:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\\Claude\\claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Note: values in this file are literal strings. Don’t commit this file or share it.
+Note: values in this file are literal strings. Don't commit this file or share it.
 Startup timeout: Claude Desktop does not expose a per-server startup timeout setting. If the first run is slow, run the `uvx` command from Quickstart once in a terminal to prebuild the tool environment, then restart Claude Desktop.
 
 ```json
@@ -551,7 +552,7 @@ Startup timeout: Claude Desktop does not expose a per-server startup timeout set
 ```
 
 ### GitHub Copilot / Microsoft Copilot (VS Code)
-Most secure option: uses interactive prompts, so secrets don’t need to be stored in the file.
+Most secure option: uses interactive prompts, so secrets don't need to be stored in the file.
 Startup timeout: VS Code currently does not expose a per-server startup timeout setting for MCP servers. If the first run is slow, run the `uvx` command from Quickstart once in a terminal to prebuild the tool environment, then restart VS Code.
 Create `.vscode/mcp.json`:
 ```json
@@ -600,7 +601,7 @@ export KINDLY_BROWSER_EXECUTABLE_PATH="$(command -v chromium || command -v chrom
 
 Windows (PowerShell):
 ```powershell
-$env:KINDLY_BROWSER_EXECUTABLE_PATH="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+$env:KINDLY_BROWSER_EXECUTABLE_PATH="C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
 ## Remote / Docker deployment (separate machine)
@@ -637,16 +638,16 @@ docker run --rm -p 8000:8000 \
 - MCP endpoint: `http://<server-host>:8000/mcp`
 - Make sure at least one of `SEARXNG_BASE_URL` / `TAVILY_API_KEY` / `BRAVE_API_KEY` / `JINA_API_KEY` is set.
 - content extraction runs on the server machine/container (this Docker image includes Chromium).
-- Remote HTTP is typically **unauthenticated** and **unencrypted** by default; don’t expose this port publicly. Use VPN/firewall rules or a reverse proxy with TLS + auth.
-- Don’t bake API keys into the image; pass them via env vars at runtime.
+- Remote HTTP is typically **unauthenticated** and **unencrypted** by default; don't expose this port publicly. Use VPN/firewall rules or a reverse proxy with TLS + auth.
+- Don't bake API keys into the image; pass them via env vars at runtime.
 
 ## Troubleshooting
 
-- “No Chromium-based browser executable found”: install Chrome/Chromium/Edge and set `KINDLY_BROWSER_EXECUTABLE_PATH` if needed.
-- “Failed to connect to browser”: increase retries/timeouts:
+- "No Chromium-based browser executable found": install Chrome/Chromium/Edge and set `KINDLY_BROWSER_EXECUTABLE_PATH` if needed.
+- "Failed to connect to browser": increase retries/timeouts:
   - `KINDLY_NODRIVER_RETRY_ATTEMPTS=5`
   - `KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS=20`
-  - Ensure proxy/VPN env vars don’t hijack localhost (set `NO_PROXY=localhost,127.0.0.1` if you use `HTTP_PROXY`/`HTTPS_PROXY`)
+  - Ensure proxy/VPN env vars don't hijack localhost (set `NO_PROXY=localhost,127.0.0.1` if you use `HTTP_PROXY`/`HTTPS_PROXY`)
   - `KINDLY_HTML_TOTAL_TIMEOUT_SECONDS=45`
 - `get_content(url)` shows `_Failed to retrieve page content: TimeoutError_` (can happen on any OS, especially **Windows**): the MCP tool time budget was exceeded (often due to slower headless browser cold starts).
   - How to spot it: `get_content(url)` returns `_Failed to retrieve page content: TimeoutError_`.
@@ -670,8 +671,160 @@ docker run --rm -p 8000:8000 \
   - Set `KINDLY_DIAGNOSTICS=1` to emit JSON-line diagnostics to stderr and include `diagnostics` in tool responses.
   - `get_content` returns top-level `diagnostics`; `web_search` attaches `diagnostics` per result.
 - `OSError: [Errno 39] Directory not empty: '/tmp/kindly-nodriver-.../Default'`: update to the latest server revision (uv may cache tool envs; `uv cache clean` can help).
-- “web_search fails: no provider key”: set `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `JINA_API_KEY`.
+- "web_search fails: no provider key": set `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `JINA_API_KEY`.
 
 ## Security
-- Don’t commit API keys.
+- Don't commit API keys.
 - Prefer env-var expansion (Codex `env_vars`, Cursor `${env:...}`, Gemini `$VAR`, Claude Code `${VAR}`) instead of hardcoding secrets.
+
+---
+
+## Additional Tools
+
+Beyond `web_search` and `get_content`, Kindly Web Search MCP Server provides these additional tools:
+
+### gemini_search
+
+Search with Gemini Google Search grounding for quick, grounded answers with inline citations.
+
+**When to use:**
+- Need a quick, factual answer with Google Search grounding
+- Want citations directly from search results
+- Researching current events, facts, or technical documentation
+
+**When not to use:**
+- Need multiple web pages to compare -> use `web_search` instead
+- Need full page content extraction -> use `web_search` + `get_content`
+
+**Example:**
+```json
+gemini_search(
+  query="What are the latest React 19 features?",
+  research_goal="Find current React 19 documentation for migration planning"
+)
+```
+
+**Returns:**
+- `{"query": str, "answer": str, "web_search_queries": list, "grounding_chunks": list, "error": str|null}`
+- Provides inline citations with `[N]` notation
+
+**Prerequisites:** `KINDLY_GEMINI_API_KEY` environment variable.
+
+### perplexity_search
+
+AI-powered web search using Perplexity Sonar via Pollinations API. Returns synthesized answers with source citations, NOT URL lists.
+
+**When to use:**
+- Need an AI-synthesized answer with citations, not just a list of URLs
+- Questions requiring reasoning or synthesis across multiple sources
+- Research questions where you want the AI to analyze and summarize findings
+
+**When not to use:**
+- Need to browse specific URLs yourself -> use `web_search` instead
+- Need full page content extraction -> use `web_search` + `get_content`
+
+**Example:**
+```json
+perplexity_search(
+  query="What are the trade-offs between SSR and SSG in Next.js 14?",
+  depth="normal",
+  research_goal="Compare SSR vs SSG for a new Next.js project"
+)
+```
+
+**Returns:**
+- `{"query": str, "answer": str, "sources": list[str], "model": str, "error": str|null}`
+
+**Prerequisites:** `POLLINATIONS_API_KEY` environment variable.
+
+**Note:** This tool is rate-limited as an expensive resource. First call returns steering guidance.
+
+### youtube_search
+
+Search YouTube videos via SearXNG YouTube engine.
+
+**When to use:**
+- Find relevant YouTube videos on a topic
+- Discover video content before extracting transcripts
+- Search for tutorials, lectures, or presentations
+
+**When not to use:**
+- Need to read full video content -> use `youtube_transcript` after
+- Need general web search -> use `web_search` instead
+
+**Example:**
+```json
+youtube_search(
+  query="FastAPI async middleware tutorial",
+  num_results=5
+)
+```
+
+**Returns:**
+- `{"query": str, "results": [{"title": str, "link": str, "snippet": str}], "total_results": int}`
+- Each result has `resource_type="youtube"`
+
+**Prerequisites:** `SEARXNG_BASE_URL` must be configured.
+
+### youtube_transcript
+
+Retrieve transcript/captions from a YouTube video.
+
+**When to use:**
+- Need to analyze or summarize video content
+- Extract spoken content from YouTube videos for AI processing
+- Get timestamped transcript for citation/reference
+
+**When not to use:**
+- Video has no captions/transcripts available
+- Video is private, deleted, or age-restricted
+
+**Example:**
+```json
+youtube_transcript(
+  video_id_or_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  language="en",
+  format="text"
+)
+```
+
+**Returns:**
+- `{"video_id": str, "video_url": str, "transcript_text": str, "language": str, "duration_seconds": int, "error": str|null}`
+
+**Supported URL formats:**
+- `https://www.youtube.com/watch?v=VIDEO_ID`
+- `https://youtu.be/VIDEO_ID`
+- `https://www.youtube.com/embed/VIDEO_ID`
+- `https://www.youtube.com/shorts/VIDEO_ID`
+- Bare `VIDEO_ID` (11 chars)
+
+**Recommended chain:** `youtube_search(query)` -> `youtube_transcript(video_id)`.
+
+**Note:** Cloud IPs (AWS/GCP/Azure) may be blocked by YouTube; use `KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL` if running on cloud infrastructure.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines, code style, and PR process.
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for version history and changes.
+
+## Documentation Index
+
+| Document | Description |
+|----------|-------------|
+| [CHANGELOG.md](./CHANGELOG.md) | Version history and changes |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Development guidelines |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | System architecture and data flows |
+| [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) | Environment variables and settings |
+| [docs/GETTING-STARTED.md](./docs/GETTING-STARTED.md) | Prerequisites and first-run instructions |
+| [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) | Development patterns and workflows |
+| [docs/TESTING.md](./docs/TESTING.md) | Testing guide and mock patterns |
+
+## License
+
+<!-- VERIFY: License type not specified in pyproject.toml or LICENSE file -->
+License information pending. See repository for licensing details.
