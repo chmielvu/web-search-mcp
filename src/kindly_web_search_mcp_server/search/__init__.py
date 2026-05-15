@@ -27,7 +27,11 @@ from .brave import search_brave
 from .composio_llm_search import search_composio_llm_search
 from .ddg import search_ddg
 from .gemini_pollinations import search_gemini_pollinations
+from .github_graphql import search_github_graphql
+from .hackernews import search_hackernews
 from .jina import search_jina
+from .reddit import search_reddit
+from .stackexchange import search_stackexchange
 from .merge import merge_search_results
 from .provider_config import ProviderConfig, ProviderMode, parse_provider_mode, register_provider, resolve_providers_for_search
 from .searxng import search_searxng
@@ -205,6 +209,40 @@ def _init_provider_registry() -> None:
         is_free=False,
         requires_key=True,
         extra_env_keys=("KINDLY_COMPOSIO_USER_ID",),
+    ))
+
+    # Tier 3: Community providers (CONDITIONAL — only fire when explicitly requested)
+    register_provider(ProviderConfig(
+        name="hackernews",
+        mode=ProviderMode.CONDITIONAL,
+        env_key="",
+        search_fn=search_hackernews,
+        is_free=True,
+        requires_key=False,
+    ))
+    register_provider(ProviderConfig(
+        name="reddit",
+        mode=ProviderMode.CONDITIONAL,
+        env_key="",
+        search_fn=search_reddit,
+        is_free=True,
+        requires_key=False,
+    ))
+    register_provider(ProviderConfig(
+        name="github_graphql",
+        mode=ProviderMode.CONDITIONAL,
+        env_key="GITHUB_TOKEN",
+        search_fn=search_github_graphql,
+        is_free=True,
+        requires_key=True,
+    ))
+    register_provider(ProviderConfig(
+        name="stackexchange",
+        mode=ProviderMode.CONDITIONAL,
+        env_key="STACKEXCHANGE_APP_KEY",
+        search_fn=search_stackexchange,
+        is_free=True,
+        requires_key=False,
     ))
 
 
