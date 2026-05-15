@@ -110,6 +110,31 @@ class Settings:
         "KINDLY_YOUTUBE_SEARCH_ENGINE", "youtube"
     )
 
+    # Academic Search Providers
+    # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
+    s2_api_key: str = os.environ.get("KINDLY_S2_API_KEY", "")
+    s2_timeout: int = int(os.environ.get("KINDLY_S2_TIMEOUT", "30"))
+    s2_max_retries: int = int(os.environ.get("KINDLY_S2_MAX_RETRIES", "0"))  # 0 = fail fast
+
+    # OpenAlex (optional, polite pool with email)
+    openalex_email: str = os.environ.get("KINDLY_OPENALEX_EMAIL", "")
+    openalex_api_key: str = os.environ.get("KINDLY_OPENALEX_API_KEY", "")
+
+    # CrossRef (optional, polite pool with mailto)
+    crossref_mailto: str = os.environ.get("CROSSREF_MAILTO", "")
+
+    # PubMed (optional, higher rate limit with key)
+    pubmed_api_key: str = os.environ.get("PUBMED_API_KEY", "")
+
+    # CORE (optional, required for full-text search)
+    core_api_key: str = os.environ.get("CORE_API_KEY", "")
+
+    # Academic search defaults
+    academic_default_sources: str = os.environ.get(
+        "KINDLY_ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"
+    )
+    academic_max_results: int = int(os.environ.get("KINDLY_ACADEMIC_MAX_RESULTS", "10"))
+
     # Provider modes (default: paid providers disabled/conditional)
     # Modes: always, conditional, never
     # - always: Always fires (free providers like SearXNG, DDG)
