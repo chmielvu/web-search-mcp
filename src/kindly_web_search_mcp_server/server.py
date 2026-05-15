@@ -25,10 +25,12 @@ from .telemetry import (
     record_youtube_search,
 )
 from opentelemetry import trace
+
 init_telemetry(service_name="web-search-mcp")
 
 import argparse
 import asyncio
+import json
 import httpx
 import logging
 import os
@@ -38,9 +40,11 @@ from typing import Literal
 from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentContext  # For context injection
 from fastmcp.server.context import Context  # Context type
+from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 from mcp.types import ToolAnnotations  # For tool annotations
 
 from .models import (
+    AcademicSearchResponse,
     BatchGetContentResponse,
     GetContentResponse,
     YouTubeTranscriptResponse,
@@ -62,6 +66,7 @@ from .content.youtube import (
 )
 from .search.youtube import search_youtube_videos, YouTubeSearchError
 from .search.orchestrator import run_web_search
+from .search.academic_search_orchestrator import run_academic_search
 from .cache import (
     SemanticCacheStore,
     get_semantic_cache,
@@ -95,6 +100,7 @@ _CACHE_STORE: SemanticCacheStore | None = None
 
 # SingleFlight for request coalescing
 _search_flight = SingleFlight()
+_academic_search_flight = SingleFlight()
 
 
 def _get_cache_store() -> SemanticCacheStore:
@@ -121,13 +127,18 @@ def _record_tool_success(
         input_query_length=len(input_query) if input_query is not None else None,
         input_url_count=input_url_count,
         output_result_count=output_result_count,
-        output_content_length=len(output_content) if output_content is not None else None,
-        output_transcript_length=len(output_transcript) if output_transcript is not None else None,
+        output_content_length=len(output_content)
+        if output_content is not None
+        else None,
+        output_transcript_length=len(output_transcript)
+        if output_transcript is not None
+        else None,
     )
 
 
 def _record_tool_failure(tool_name: str) -> None:
     record_mcp_tool_call(tool_name, success=False)
+
 
 mcp = FastMCP(
     "kindly-web-search",
@@ -136,6 +147,7 @@ mcp = FastMCP(
         "Use rewrite=false only for exact literals such as stack traces, quoted errors, URLs, versions, hashes, and UUIDs. "
         "Use get_content for one known URL; use batch_get_content for 3 or more URLs and follow has_more/cursor or window.next_offset. "
         "Use gemini_search for quick grounded synthesis; use perplexity_search only after refining a single-topic query. "
+        "Use academic_search for scholarly papers (Semantic Scholar + ArXiv) with filters for year, venue, field of study, and open access. "
         "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL."
     ),
 )
@@ -143,12 +155,14 @@ mcp = FastMCP(
 # Add expensive tool protection middleware for perplexity_search
 # Implements "think first, then call expensive tool" pattern
 from .middleware import create_expensive_tool_middleware
+
 mcp.add_middleware(create_expensive_tool_middleware())
 
 # Add differentiated rate limiting:
 # - Higher throughput for lightweight tools (web_search/get_content/gemini_search)
 # - Stricter quota for expensive tool (perplexity_search)
 from .middleware import create_differentiated_rate_limit_middleware
+
 mcp.add_middleware(
     create_differentiated_rate_limit_middleware(
         cheap_rps=settings.rate_limit_cheap_rps,
@@ -160,13 +174,23 @@ mcp.add_middleware(
 
 # Add Gemini advisory middleware (non-blocking, informational)
 from .middleware import create_gemini_advisory_middleware
+
 mcp.add_middleware(create_gemini_advisory_middleware())
 
 # Add query quality middleware for web_search (non-blocking, tips on every call)
-from .middleware import create_query_quality_middleware, create_result_guidance_middleware
+from .middleware import (
+    create_query_quality_middleware,
+    create_result_guidance_middleware,
+)
+
 mcp.add_middleware(create_query_quality_middleware())
 mcp.add_middleware(create_result_guidance_middleware())
 register_composio_tools(mcp)
+
+# Expose prompts and resources as tools for tool-only MCP clients
+# (Claude Code, Codex, Cursor — they can't use prompt/resource protocols directly)
+mcp.add_transform(PromptsAsTools(mcp))
+mcp.add_transform(ResourcesAsTools(mcp))
 
 Transport = Literal["stdio", "sse", "streamable-http"]
 
@@ -233,7 +257,9 @@ def _resolve_transport(raw: str | None) -> Transport:
 
 def _resolve_host_port(host: str | None, port: int | None) -> tuple[str, int]:
     resolved_host = host or os.environ.get("FASTMCP_HOST", "127.0.0.1")
-    resolved_port_raw = str(port) if port is not None else os.environ.get("FASTMCP_PORT", "8000")
+    resolved_port_raw = (
+        str(port) if port is not None else os.environ.get("FASTMCP_PORT", "8000")
+    )
     try:
         resolved_port = int(resolved_port_raw)
     except ValueError:
@@ -258,7 +284,8 @@ def main(argv: list[str] | None = None) -> None:
     if (
         transport == "stdio"
         and sys.stdin.isatty()
-        and os.environ.get("MCP_ALLOW_TTY_STDIO", "").strip().lower() not in ("1", "true", "yes")
+        and os.environ.get("MCP_ALLOW_TTY_STDIO", "").strip().lower()
+        not in ("1", "true", "yes")
     ):
         print(
             "Error: `--stdio` transport is intended to be launched by an MCP client (stdin/stdout JSON-RPC).",
@@ -308,8 +335,6 @@ def main(argv: list[str] | None = None) -> None:
     except TypeError:
         # Backward-compat: older MCP SDKs may not accept `mount_path`.
         mcp.run(transport=transport)
-
-
 
 
 def _get_int_env(key: str, default: int) -> int:
@@ -471,7 +496,8 @@ async def web_search(
             "search.providers_requested": str(providers or []),
         },
     ) as root_span:
-        # Report progress
+        # Report progress: starting
+        await ctx.report_progress(progress=5, total=100, message="Checking cache...")
         await ctx.info(f"Searching: {query[:80]}...")
 
         # 1. Exact query cache lookup (fastest, deterministic)
@@ -501,8 +527,12 @@ async def web_search(
             if exact_cached:
                 LOGGER.debug(f"Exact query cache hit for: {query[:100]}")
                 root_span.set_attribute("cache.hit", "exact")
-                root_span.set_attribute("search.num_results_returned", len(exact_cached.get("results", [])))
-                exact_response = _normalize_lightweight_search_response(exact_cached, query=query)
+                root_span.set_attribute(
+                    "search.num_results_returned", len(exact_cached.get("results", []))
+                )
+                exact_response = _normalize_lightweight_search_response(
+                    exact_cached, query=query
+                )
                 emit_observability_event(
                     LOGGER,
                     "tool.web_search.response",
@@ -537,11 +567,15 @@ async def web_search(
                     LOGGER.debug(f"Cache hit for query: {query[:100]}")
                     cached_response = cached.get("answer_json")
                     if cached_response:
-                        import json
                         parsed = json.loads(cached_response)
                         root_span.set_attribute("cache.hit", "semantic")
-                        root_span.set_attribute("search.num_results_returned", len(parsed.get("results", [])))
-                        semantic_response = _normalize_lightweight_search_response(parsed, query=query)
+                        root_span.set_attribute(
+                            "search.num_results_returned",
+                            len(parsed.get("results", [])),
+                        )
+                        semantic_response = _normalize_lightweight_search_response(
+                            parsed, query=query
+                        )
                         emit_observability_event(
                             LOGGER,
                             "tool.web_search.response",
@@ -556,7 +590,9 @@ async def web_search(
                         _record_tool_success(
                             "web_search",
                             input_query=query,
-                            output_result_count=len(semantic_response.get("results", [])),
+                            output_result_count=len(
+                                semantic_response.get("results", [])
+                            ),
                         )
                         return semantic_response
             except Exception as e:
@@ -564,14 +600,33 @@ async def web_search(
 
         root_span.set_attribute("cache.hit", "miss")
 
+        # Report progress: rewriting and searching
+        if rewrite:
+            await ctx.report_progress(
+                progress=20, total=100, message="Rewriting query..."
+            )
+        else:
+            await ctx.report_progress(
+                progress=20, total=100, message="Querying providers..."
+            )
+
         diag_enabled = diagnostics_enabled()
 
+        # Report progress: executing search
+        await ctx.report_progress(
+            progress=35, total=100, message="Querying providers..."
+        )
+
         # SingleFlight: coalesce identical concurrent searches into one execution
-        flight_key = SingleFlight.make_key(normalized_query, num_results, rewrite, providers_key)
+        flight_key = SingleFlight.make_key(
+            normalized_query, num_results, rewrite, providers_key
+        )
 
         async def _execute_search() -> dict:
             parent_request_id = new_request_id() if diag_enabled else ""
-            parent_diag = Diagnostics(parent_request_id, diag_enabled, stream=sys.stderr)
+            parent_diag = Diagnostics(
+                parent_request_id, diag_enabled, stream=sys.stderr
+            )
             if diag_enabled:
                 env_snapshot = {
                     "SEARXNG_BASE_URL": os.environ.get("SEARXNG_BASE_URL", ""),
@@ -580,11 +635,15 @@ async def web_search(
                     "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
                     "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
                     "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""),
+                    "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
+                        "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""
+                    ),
                     "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
                         "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
                     ),
-                    "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get("KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""),
+                    "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get(
+                        "KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""
+                    ),
                 }
                 parent_diag.emit(
                     "web_search.start",
@@ -650,7 +709,9 @@ async def web_search(
         response = await _search_flight.do(flight_key, _execute_search)
 
         # Add final span attributes
-        root_span.set_attribute("search.num_results_returned", len(response.get("results", [])))
+        root_span.set_attribute(
+            "search.num_results_returned", len(response.get("results", []))
+        )
         root_span.set_status(trace.StatusCode.OK)
         emit_observability_event(
             LOGGER,
@@ -670,6 +731,7 @@ async def web_search(
         )
 
         # Report completion
+        await ctx.report_progress(progress=100, total=100, message="Done")
         await ctx.info(f"Found {len(response.get('results', []))} results")
 
         return response
@@ -719,6 +781,7 @@ async def get_content(
     - `window`: pagination metadata with `has_more` and `next_offset`.
     """
 
+    await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
     await ctx.info(f"Fetching: {url[:80]}...")
     emit_observability_event(
         LOGGER,
@@ -733,7 +796,9 @@ async def get_content(
     max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    safe_summary_mode = (
+        summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    )
 
     artifact = None
     normalized_url = canonicalize_url(url)
@@ -755,6 +820,9 @@ async def get_content(
         LOGGER.warning(f"Page cache lookup failed: {exc}")
 
     if artifact is None:
+        await ctx.report_progress(
+            progress=30, total=100, message="Resolving content..."
+        )
         fetched = None
         try:
             fetched = await asyncio.wait_for(
@@ -826,7 +894,9 @@ async def get_content(
         offset=safe_offset,
         length=safe_length,
     )
-    summary = await create_summary(windowed.content, mode=safe_summary_mode, focus_query=focus_query)
+    summary = await create_summary(
+        windowed.content, mode=safe_summary_mode, focus_query=focus_query
+    )
 
     response = GetContentResponse(
         input_url=url,
@@ -843,6 +913,7 @@ async def get_content(
     ).model_dump(exclude_none=True)
     response.setdefault("fetched_url", None)
 
+    await ctx.report_progress(progress=100, total=100, message="Done")
     await ctx.info(
         f"Fetched status={response['status']} chars={len(response['page_content'])} has_more={response['window']['has_more']}"
     )
@@ -903,8 +974,17 @@ async def batch_get_content(
     max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
     bounded_urls = urls[: max(1, max_urls)]
     safe_concurrency = max(1, min(max_concurrency, 8))
-    safe_item_length = max(500, min(per_item_char_length, _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)))
-    safe_total_budget = max(2_000, min(total_char_budget, _get_int_env("KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000)))
+    safe_item_length = max(
+        500,
+        min(per_item_char_length, _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)),
+    )
+    safe_total_budget = max(
+        2_000,
+        min(
+            total_char_budget,
+            _get_int_env("KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
+        ),
+    )
 
     emit_observability_event(
         LOGGER,
@@ -921,13 +1001,18 @@ async def batch_get_content(
     await ctx.info(
         f"Batch fetching {len(bounded_urls)} URLs (concurrency={safe_concurrency}, budget={safe_total_budget})..."
     )
+    await ctx.report_progress(
+        progress=10, total=100, message=f"Fetching {len(bounded_urls)} URLs..."
+    )
     output = await run_batch_fetch(
         urls=bounded_urls,
         params=BatchParams(
             max_concurrency=safe_concurrency,
             per_item_char_length=safe_item_length,
             total_char_budget=safe_total_budget,
-            per_url_timeout_seconds=max(10.0, _resolve_tool_total_timeout_seconds() / max(len(bounded_urls), 1)),
+            per_url_timeout_seconds=max(
+                10.0, _resolve_tool_total_timeout_seconds() / max(len(bounded_urls), 1)
+            ),
         ),
         cursor=cursor,
     )
@@ -958,6 +1043,11 @@ async def batch_get_content(
         result.setdefault("fetched_url", None)
 
     success_count = sum(1 for r in response["results"] if r["status"] == "success")
+    await ctx.report_progress(
+        progress=100,
+        total=100,
+        message=f"Done: {success_count}/{len(response['results'])} fetched",
+    )
     await ctx.info(
         f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
     )
@@ -988,7 +1078,10 @@ async def batch_get_content(
     )
 )
 async def gemini_search(
-    query: str, structured_output: bool = False, research_goal: str | None = None
+    query: str,
+    structured_output: bool = False,
+    research_goal: str | None = None,
+    ctx: Context = CurrentContext(),
 ) -> dict:
     """Search with Gemini Google Search grounding for quick, grounded answers.
 
@@ -1027,7 +1120,11 @@ async def gemini_search(
         research_goal=research_goal,
     )
     import time
+
     start_time = time.time()
+    await ctx.report_progress(
+        progress=10, total=100, message="Querying Gemini with grounding..."
+    )
     try:
         result = await gemini_search_with_grounding(
             query, structured_output=structured_output, research_goal=research_goal
@@ -1061,8 +1158,11 @@ async def gemini_search(
         _record_tool_success(
             "gemini_search",
             input_query=query,
-            output_content=response.get("answer") if isinstance(response.get("answer"), str) else None,
+            output_content=response.get("answer")
+            if isinstance(response.get("answer"), str)
+            else None,
         )
+        await ctx.report_progress(progress=100, total=100, message="Done")
         return response
     except Exception as exc:
         duration_seconds = time.time() - start_time
@@ -1095,7 +1195,12 @@ async def gemini_search(
         openWorldHint=True,
     )
 )
-async def perplexity_search(query: str, depth: str = "normal", research_goal: str | None = None) -> dict:
+async def perplexity_search(
+    query: str,
+    depth: str = "normal",
+    research_goal: str | None = None,
+    ctx: Context = CurrentContext(),
+) -> dict:
     """AI-powered web search using Perplexity Sonar via Pollinations API.
 
     Returns SYNTHESIZED ANSWERS with source citations, NOT URL lists like web_search.
@@ -1140,7 +1245,12 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
         research_goal=research_goal,
     )
     import time
+
     start_time = time.time()
+
+    await ctx.report_progress(
+        progress=10, total=100, message="Querying Perplexity Sonar..."
+    )
 
     try:
         result = await client.web_search(query, depth, research_goal=research_goal)
@@ -1180,6 +1290,7 @@ async def perplexity_search(query: str, depth: str = "normal", research_goal: st
             input_query=query,
             output_content=response["answer"],
         )
+        await ctx.report_progress(progress=100, total=100, message="Done")
         return response
     except ValueError as e:
         duration_seconds = time.time() - start_time
@@ -1287,6 +1398,7 @@ async def youtube_transcript(
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
     import time
+
     start_time = time.time()
 
     try:
@@ -1321,7 +1433,9 @@ async def youtube_transcript(
         # Truncate if needed
         if len(transcript_text) > max_chars:
             transcript_text = transcript_text[:max_chars].rstrip() + "…"
-            LOGGER.info(f"Truncated transcript to {max_chars} chars for video {video_id}")
+            LOGGER.info(
+                f"Truncated transcript to {max_chars} chars for video {video_id}"
+            )
 
         duration_seconds = calculate_total_duration(segments)
         elapsed_time = time.time() - start_time
@@ -1449,6 +1563,7 @@ async def youtube_search(
         num_results = 5
     num_results = min(num_results, 20)
     import time
+
     start_time = time.time()
 
     try:
@@ -1492,11 +1607,273 @@ async def youtube_search(
         return format_tool_error(e, provider="youtube")
 
 
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Academic Search",
+        readOnlyHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+async def academic_search(
+    query: str,
+    limit: int = 5,
+    sources: list[str] | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    fields_of_study: list[str] | None = None,
+    venue: str | None = None,
+    open_access_only: bool = False,
+    sort: str = "relevance",
+    ctx: Context = CurrentContext(),
+) -> dict:
+    """Search academic papers across 6 scholarly sources.
+
+    Finds research papers, preprints, and citations across major academic
+    sources. Results are deduplicated across providers and normalized to a
+    common schema.
+
+    When to use:
+    - Find research papers on a topic (machine learning, physics, medicine, etc.)
+    - Check citation counts and find influential papers
+    - Discover open-access PDFs for a research area
+    - Filter papers by year, venue, or field of study
+    - Biomedical/clinical literature search (PubMed)
+
+    When not to use:
+    - Need general web search -> use web_search instead
+    - Need full page content extraction -> use get_content on paper URLs
+
+    Args:
+    - query: Search query for academic papers. Prefer specific keywords and
+      paper titles. Example: "attention is all you need" or
+      "transformer neural network architecture"
+    - limit: Maximum results to return. Default 5; range 1-20.
+    - sources: Optional list of sources to search. Available: "semanticscholar",
+      "arxiv", "openalex", "crossref", "pubmed", "core".
+      Default: arxiv + semanticscholar (both free-ish).
+    - year_from: Filter to papers published in or after this year. Example: 2020
+    - year_to: Filter to papers published in or before this year. Example: 2024
+    - fields_of_study: Filter by field. Semantic Scholar values:
+      Computer Science, Medicine, Physics, Mathematics, Statistics, etc.
+      ArXiv/OpenAlex also support field categories.
+    - venue: Filter by publication venue (conference/journal name).
+      Example: "NeurIPS", "ICML", "Nature". Only Semantic Scholar supports this.
+    - open_access_only: If True, only return papers with available open-access PDFs.
+    - sort: Result ordering: "relevance" (default), "citations", or "date".
+
+    Returns:
+    - AcademicSearchResponse with query, results list, total_results,
+      sources_used, and optional warnings.
+
+    Notes:
+    - Semantic Scholar: 214M+ papers, rich metadata (citations, abstracts).
+      Optional KINDLY_S2_API_KEY for 100 RPS vs shared 1 RPS.
+    - ArXiv: 2.5M+ CS/Physics/Math preprints. No auth required.
+    - OpenAlex: 250M+ works, comprehensive coverage. Polite pool with email.
+    - CrossRef: DOI enrichment, citation counts, bibliographic metadata.
+    - PubMed: 35M+ biomedical citations (MEDLINE). Optional API key for 10 RPS.
+    - CORE: Open access full-text aggregation. Requires CORE_API_KEY.
+    - Results deduplicated by DOI, ArXiv ID, PubMed ID, or title match.
+    """
+    limit = max(1, min(limit, 20))
+    if sort not in ("relevance", "citations", "date"):
+        sort = "relevance"
+
+    await ctx.report_progress(progress=5, total=100, message="Checking cache...")
+    await ctx.info(f"Academic search: {query[:80]}...")
+
+    normalized_query = normalize_query(query)
+    sources_key = provider_cache_key(sources)
+
+    emit_observability_event(
+        LOGGER,
+        "tool.academic_search.request",
+        tool_name="academic_search",
+        query=query,
+        normalized_query=normalized_query,
+        limit=limit,
+        sources=sources,
+        sources_key=sources_key,
+        year_from=year_from,
+        year_to=year_to,
+        fields_of_study=fields_of_study,
+        venue=venue,
+        open_access_only=open_access_only,
+        sort=sort,
+    )
+
+    filter_params = {
+        "year_from": year_from,
+        "year_to": year_to,
+        "fields_of_study": sorted(fields_of_study) if fields_of_study else None,
+        "venue": venue,
+        "open_access_only": open_access_only,
+        "sort": sort,
+    }
+
+    filter_key = json.dumps(filter_params, sort_keys=True, default=str)
+    cache_providers_key = f"academic:{sources_key}:{filter_key[:24]}"
+
+    try:
+        exact_cache = get_query_cache()
+        exact_cached = exact_cache.lookup(
+            normalized_query=normalized_query,
+            num_results=limit,
+            rewrite_enabled=True,
+            search_mode="academic",
+            providers_key=cache_providers_key,
+        )
+        if exact_cached:
+            LOGGER.debug(f"Exact query cache hit for academic search: {query[:100]}")
+            exact_cached["query"] = query
+            emit_observability_event(
+                LOGGER,
+                "tool.academic_search.response",
+                tool_name="academic_search",
+                cache_hit="exact",
+                query=query,
+                result_count=len(exact_cached.get("results", [])),
+                sources_used=exact_cached.get("sources_used", []),
+            )
+            _record_tool_success(
+                "academic_search",
+                input_query=query,
+                output_result_count=len(exact_cached.get("results", [])),
+            )
+            return exact_cached
+    except Exception as e:
+        LOGGER.warning(f"Exact query cache lookup failed for academic search: {e}")
+
+    if settings.semantic_cache_enabled:
+        try:
+            cache_store = _get_cache_store()
+            cached = await get_semantic_cache(
+                cache_store,
+                query,
+                min_score=settings.semantic_cache_min_score,
+                provider_key=cache_providers_key,
+            )
+            if cached:
+                LOGGER.debug(f"Semantic cache hit for academic search: {query[:100]}")
+
+                answer_json = cached.get("answer_json") or "{}"
+                parsed = json.loads(answer_json)
+                parsed["query"] = query
+                emit_observability_event(
+                    LOGGER,
+                    "tool.academic_search.response",
+                    tool_name="academic_search",
+                    cache_hit="semantic",
+                    query=query,
+                    result_count=len(parsed.get("results", [])),
+                    sources_used=parsed.get("sources_used", []),
+                )
+                _record_tool_success(
+                    "academic_search",
+                    input_query=query,
+                    output_result_count=len(parsed.get("results", [])),
+                )
+                return parsed
+        except Exception as e:
+            LOGGER.warning(f"Semantic cache lookup failed for academic search: {e}")
+
+    await ctx.report_progress(
+        progress=20, total=100, message="Searching academic sources..."
+    )
+
+    async def _execute_academic_search() -> dict:
+        result = await run_academic_search(
+            query,
+            limit=limit,
+            sources=sources,
+            year_from=year_from,
+            year_to=year_to,
+            fields_of_study=fields_of_study,
+            venue=venue,
+            open_access_only=open_access_only,
+            sort=sort,
+        )
+        response = result.model_dump(exclude_none=True)
+
+        try:
+            exact_cache = get_query_cache()
+            exact_cache.store(
+                normalized_query=normalized_query,
+                num_results=limit,
+                rewrite_enabled=True,
+                response=response,
+                search_mode="academic",
+                providers_key=cache_providers_key,
+            )
+            LOGGER.debug(f"Stored exact query cache for academic search: {query[:100]}")
+        except Exception as e:
+            LOGGER.warning(f"Exact query cache write failed for academic search: {e}")
+
+        if settings.semantic_cache_enabled:
+            try:
+                cache_store = _get_cache_store()
+                content_type = classify_content_type(query)
+                asyncio.create_task(
+                    set_semantic_cache(
+                        cache_store,
+                        query,
+                        response,
+                        content_type,
+                        provider_key=cache_providers_key,
+                    )
+                )
+                LOGGER.debug(
+                    f"Scheduled semantic cache write for academic search: {query[:100]}"
+                )
+            except Exception as e:
+                LOGGER.warning(
+                    f"Semantic cache write scheduling failed for academic search: {e}"
+                )
+
+        return response
+
+    try:
+        flight_key = SingleFlight.make_key(
+            normalized_query, limit, sources_key, filter_key
+        )
+        response = await _academic_search_flight.do(
+            flight_key, _execute_academic_search
+        )
+
+        _record_tool_success(
+            "academic_search",
+            input_query=query,
+            output_result_count=len(response.get("results", [])),
+        )
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        await ctx.info(
+            f"Found {len(response.get('results', []))} academic results from {response.get('sources_used', [])}"
+        )
+        return response
+    except Exception as e:
+        LOGGER.warning(f"Academic search failed: {e}")
+        _record_tool_failure("academic_search")
+        emit_observability_event(
+            LOGGER,
+            "tool.academic_search.error",
+            level=30,
+            tool_name="academic_search",
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e)[:200],
+        )
+        return format_tool_error(e, provider="academic_search")
+
+
 # ============ RESOURCES ============
+
 
 @mcp.resource("status://providers")
 def get_providers_status() -> str:
-    """Which search providers are configured."""
+    """Which search providers are configured and their health state."""
+    from .search.provider_health import get_provider_health
+
     lines = [
         "# Search Provider Status",
         "",
@@ -1510,9 +1887,32 @@ def get_providers_status() -> str:
         f"**Gemini**: {'✓ Configured' if settings.gemini_api_key else '✗ Not configured'}",
         f"**Perplexity (Pollinations)**: {'✓ Configured' if os.environ.get('POLLINATIONS_API_KEY') else '✗ Not configured'}",
         "",
+        "## Academic Search",
+        f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('KINDLY_S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
+        f"**ArXiv**: ✓ Always available (no auth required)",
+        "",
         "## Other",
         f"**GitHub Token**: {'✓ Configured' if os.environ.get('GITHUB_TOKEN') else '✗ Not configured'}",
+        "",
+        "## Provider Health",
     ]
+
+    tracker = get_provider_health()
+    for state in tracker.all_states():
+        if state["cooldown_remaining_s"] > 0:
+            lines.append(
+                f"- **{state['provider']}**: ⚠️ IN COOLDOWN ({state['cooldown_remaining_s']}s remaining) — "
+                f"{state['consecutive_failures']} consecutive failures"
+            )
+        elif state["total_failures"] > 0:
+            lines.append(
+                f"- **{state['provider']}**: ✓ healthy — "
+                f"{state['total_successes']} successes, {state['total_failures']} failures"
+            )
+
+    if not tracker.all_states():
+        lines.append("- No providers have been called yet.")
+
     return "\n".join(lines)
 
 
@@ -1549,8 +1949,9 @@ def get_workflow_doc() -> str:
 4. Use batch_get_content for 3+ URLs. Continue with cursor when has_more=true.
 5. Use gemini_search for quick grounded synthesis.
 6. Use perplexity_search only after the query is narrowed to one topic.
-7. Use youtube_search before youtube_transcript.
-8. Use composio_similarlinks to expand from a known good URL.
+7. Use academic_search for scholarly papers with year/venue/field filters.
+8. Use youtube_search before youtube_transcript.
+9. Use composio_similarlinks to expand from a known good URL.
 
 ## Discovery -> Extraction -> Synthesis
 
@@ -1577,6 +1978,7 @@ Use perplexity_search only when a refined single-topic query needs deeper synthe
 | batch_get_content | Read 3+ URLs with budget/cursor |
 | gemini_search | Quick grounded answers |
 | perplexity_search | Deep reasoning synthesis |
+| academic_search | Find scholarly papers (S2 + ArXiv) |
 | youtube_search | Find videos |
 | youtube_transcript | Extract video captions |
 | composio_similarlinks | Find related URLs from a known good URL |
@@ -1591,6 +1993,7 @@ Use perplexity_search only when a refined single-topic query needs deeper synthe
 
 
 # ============ PROMPTS ============
+
 
 @mcp.prompt
 def debug_error_prompt(error_message: str) -> str:
