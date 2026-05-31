@@ -94,6 +94,31 @@ def validate_neural_variants(
     return valid[:1]
 
 
+COMMUNITY_ALLOWED_KINDS = frozenset({"original", "practitioner_opinion", "bug_report", "how_to"})
+
+
+def validate_community_variants(
+    variants: Iterable[QueryVariant],
+    *,
+    must_keep_terms: list[str],
+) -> list[QueryVariant]:
+    valid: list[QueryVariant] = []
+    seen: set[str] = set()
+    for variant in variants:
+        if variant.target != "community" or variant.kind not in COMMUNITY_ALLOWED_KINDS:
+            continue
+        if not _keeps_required_terms(variant.query, must_keep_terms):
+            continue
+        if _looks_like_keyword_pile(variant.query):
+            continue
+        key = normalize_query(variant.query).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        valid.append(variant)
+    return valid
+
+
 def _keeps_required_terms(query: str, must_keep_terms: list[str]) -> bool:
     normalized = normalize_query(query).casefold()
     return all(normalize_query(term).casefold() in normalized for term in must_keep_terms)

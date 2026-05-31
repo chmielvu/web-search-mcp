@@ -53,6 +53,8 @@ def configure_structlog(json_output: bool = True) -> None:
     """
     # Determine log level from environment
     log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") and log_level > logging.INFO:
+        log_level = logging.INFO
 
     # Shared processors for both modes
     shared_processors: list[Any] = [

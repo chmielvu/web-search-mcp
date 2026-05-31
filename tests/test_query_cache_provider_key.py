@@ -36,6 +36,20 @@ class TestQueryCacheProviderKey(unittest.TestCase):
 
         self.assertNotEqual(default_key, jina_key)
 
+    def test_search_identity_key_differs_by_options(self) -> None:
+        from kindly_web_search_mcp_server.search.options import (
+            SearchOptions,
+            build_search_identity_key,
+        )
+
+        base = build_search_identity_key(["searxng"], SearchOptions())
+        filtered = build_search_identity_key(
+            ["searxng"],
+            SearchOptions(site_filters=("docs.example.com",)),
+        )
+
+        self.assertNotEqual(base, filtered)
+
 
 if __name__ == "__main__":
     unittest.main()

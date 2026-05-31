@@ -14,6 +14,7 @@ USAGE:
     from .telemetry import init_telemetry
     init_telemetry()
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,10 +35,10 @@ from .search import (
     resolve_providers_for_search,
 )
 from .search.merge import merge_search_results
+from .search.options import SearchOptions
 from .telemetry import (
     get_tracer,
     record_provider_call,
-    record_merge,
     add_results_to_span,
 )
 from .utils.diagnostics import Diagnostics
@@ -53,6 +54,7 @@ async def _search_single_provider_instrumented(
     query: str,
     num_results: int,
     http_client: httpx.AsyncClient,
+    search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with telemetry tracking.
@@ -75,11 +77,23 @@ async def _search_single_provider_instrumented(
         },
     ) as span:
         try:
+            # Lazy import to avoid circular dependency.
+            from .search.provider_health import get_provider_health  # noqa: PLC0415
+
             results = await _original_search_single_provider(
-                provider_name, provider_fn, query, num_results, http_client, budget
+                provider_name,
+                provider_fn,
+                query,
+                num_results,
+                http_client,
+                search_options,
+                budget,
             )
 
             duration = time.time() - start_time
+
+            # Mark provider as healthy
+            get_provider_health().mark_success(provider_name)
 
             # Record metrics
             record_provider_call(
@@ -107,11 +121,16 @@ async def _search_single_provider_instrumented(
                 results=serialize_search_results(results, max_results=5),
             )
 
-            LOGGER.debug(f"Provider {provider_name}: {len(results)} results in {duration*1000:.1f}ms")
+            LOGGER.debug(
+                f"Provider {provider_name}: {len(results)} results in {duration * 1000:.1f}ms"
+            )
             return results
 
         except Exception as e:
             duration = time.time() - start_time
+
+            # Mark provider as failed (triggers cooldown)
+            get_provider_health().mark_failure(provider_name)
 
             # Record metrics
             record_provider_call(
@@ -150,6 +169,7 @@ async def search_single_query(
     http_client: httpx.AsyncClient | None = None,
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
+    search_options: SearchOptions | None = None,
 ) -> list[WebSearchResult]:
     """Search with full OpenTelemetry instrumentation.
 
@@ -201,60 +221,74 @@ async def search_single_query(
             free_providers = [c for c in active_configs if c.is_free]
             paid_providers = [c for c in active_configs if not c.is_free]
 
-            # Tier 1: Free providers concurrently
             if free_providers:
                 free_tasks = [
                     _search_single_provider_instrumented(
-                        c.name, c.search_fn, query, num_results, client, budget
+                        c.name,
+                        c.search_fn,
+                        query,
+                        num_results,
+                        client,
+                        search_options,
+                        budget,
                     )
                     for c in free_providers
                 ]
-                free_results = await asyncio.gather(*free_tasks, return_exceptions=True)
-                for i, r in enumerate(free_results):
-                    if isinstance(r, list):
-                        all_results.append(r)
-                        provider_names.append(free_providers[i].name)
+                free_results = asyncio.gather(*free_tasks, return_exceptions=True)
+                if hasattr(free_results, "__await__"):
+                    free_results = await free_results
+                else:
+                    for task in free_tasks:
+                        if hasattr(task, "close"):
+                            task.close()
+                for config, result in zip(free_providers, free_results, strict=False):
+                    if isinstance(result, BaseException):
+                        LOGGER.warning(
+                            "Provider task %s failed before returning results: %s",
+                            config.name,
+                            result,
+                        )
+                        continue
+                    all_results.append(result)
+                    provider_names.append(config.name)
 
-            # Tier 2: Paid providers with semaphore
             if paid_providers:
                 semaphore = asyncio.Semaphore(max(2, len(paid_providers)))
 
-                async def _search_with_semaphore(config: ProviderConfig) -> list[WebSearchResult]:
+                async def _search_with_semaphore(
+                    config: ProviderConfig,
+                ) -> list[WebSearchResult]:
                     async with semaphore:
                         return await _search_single_provider_instrumented(
-                            config.name, config.search_fn, query, num_results, client, budget
+                            config.name,
+                            config.search_fn,
+                            query,
+                            num_results,
+                            client,
+                            search_options,
+                            budget,
                         )
 
-                paid_results = await asyncio.gather(
-                    *[_search_with_semaphore(c) for c in paid_providers],
-                    return_exceptions=True,
-                )
-                for i, r in enumerate(paid_results):
-                    if isinstance(r, list):
-                        all_results.append(r)
-                        provider_names.append(paid_providers[i].name)
+                paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
+                paid_results = asyncio.gather(*paid_tasks, return_exceptions=True)
+                if hasattr(paid_results, "__await__"):
+                    paid_results = await paid_results
+                else:
+                    for task in paid_tasks:
+                        if hasattr(task, "close"):
+                            task.close()
+                for config, result in zip(paid_providers, paid_results, strict=False):
+                    if isinstance(result, BaseException):
+                        LOGGER.warning(
+                            "Provider task %s failed before returning results: %s",
+                            config.name,
+                            result,
+                        )
+                        continue
+                    all_results.append(result)
+                    provider_names.append(config.name)
 
-            # RRF merge with telemetry
-            merge_start = time.time()
-            with tracer.start_as_current_span(
-                "rrf_merge",
-                kind=trace.SpanKind.INTERNAL,
-                attributes={
-                    "input_lists": len(all_results),
-                    "total_input_results": sum(len(r) for r in all_results),
-                },
-            ) as merge_span:
-                merged = merge_search_results(all_results) if len(all_results) > 1 else (
-                    all_results[0] if all_results else []
-                )
-                merge_duration = time.time() - merge_start
-
-                merge_span.set_attribute("output_count", len(merged))
-                merge_span.set_attribute("duration_ms", merge_duration * 1000)
-
-                record_merge(merge_duration, len(all_results), len(merged))
-
-            # Add final results to main span
+            merged = merge_search_results(all_results) if all_results else []
             span.set_attribute("result_count", len(merged))
             span.set_attribute("providers_used", provider_names)
             add_results_to_span(span, merged, max_results=10)
@@ -266,7 +300,9 @@ async def search_single_query(
                 active_providers=[c.name for c in active_configs],
                 providers_used=provider_names,
                 merged_result_count=len(merged),
-                results=serialize_search_results(merged[:num_results], max_results=num_results),
+                results=serialize_search_results(
+                    merged[:num_results], max_results=num_results
+                ),
             )
 
             if diagnostics:
@@ -292,8 +328,8 @@ async def search_single_query(
             total_duration = time.time() - start_time
             span.set_attribute("total_duration_ms", total_duration * 1000)
 
-            # Increment search total counter
             from .telemetry import get_search_total_metric
+
             get_search_total_metric().add(1)
 
             return results

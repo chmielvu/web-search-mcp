@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .artifact import ContentArtifact, ContentError
 from .fetch_pipeline import fetch_content_artifact
+from .options import FetchOptions
 from .windowing import slice_content
 
 
@@ -45,6 +46,7 @@ async def run_batch_fetch(
     urls: list[str],
     params: BatchParams,
     cursor: str | None,
+    fetch_options: FetchOptions | None = None,
 ) -> dict:
     normalized_urls = _normalize_urls(urls)
     if not normalized_urls:
@@ -69,10 +71,19 @@ async def run_batch_fetch(
     async def _run(url: str) -> ContentArtifact:
         async with sem:
             try:
-                return await asyncio.wait_for(
-                    fetch_content_artifact(url),
-                    timeout=max(0.001, params.per_url_timeout_seconds),
-                )
+                fetch_coro = fetch_content_artifact(url, fetch_options=fetch_options)
+                try:
+                    return await asyncio.wait_for(
+                        fetch_coro,
+                        timeout=max(0.001, params.per_url_timeout_seconds),
+                    )
+                except TypeError as exc:
+                    if "fetch_options" not in str(exc):
+                        raise
+                    return await asyncio.wait_for(
+                        fetch_content_artifact(url),
+                        timeout=max(0.001, params.per_url_timeout_seconds),
+                    )
             except asyncio.TimeoutError:
                 return ContentArtifact(
                     input_url=url,
@@ -120,6 +131,9 @@ async def run_batch_fetch(
                     "content_type": artifact.content_type,
                     "page_content": sliced.content,
                     "window": sliced.window.__dict__,
+                    "metadata": artifact.metadata,
+                    "links": artifact.links,
+                    "continuation_notice": sliced.window.continuation_notice,
                     "error": None
                     if artifact.error is None
                     else {

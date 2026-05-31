@@ -49,36 +49,45 @@ def _extract_html_title(html: str) -> str | None:
     return title or None
 
 
-async def _resolve_redirect_url(url: str) -> str:
+async def _resolve_redirect_url(
+    url: str, *, http_client: httpx.AsyncClient | None = None
+) -> str:
     """Resolve vertexaisearch.cloud.google.com redirect URLs to canonical URLs."""
     parsed = urlparse(url)
     if parsed.netloc != "vertexaisearch.cloud.google.com":
         return url
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
-            response = await client.get(url)
+        if http_client is not None:
+            response = await http_client.get(url)
+        else:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+                response = await client.get(url)
         return str(response.url)
     except Exception:
         return url
 
 
-async def _resolve_redirect_result(result: WebSearchResult) -> WebSearchResult:
+async def _resolve_redirect_result(
+    result: WebSearchResult, http_client: httpx.AsyncClient | None = None
+) -> WebSearchResult:
     """Resolve redirect URL and optionally extract title from HTML."""
-    resolved_url = await _resolve_redirect_url(result.link)
+    resolved_url = await _resolve_redirect_url(result.link, http_client=http_client)
     if resolved_url == result.link:
         return result
 
     updated: dict[str, str] = {"link": resolved_url}
 
-    # Try to extract a better title from the resolved page
     if _is_generic_title(result.title):
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(resolved_url)
-                html_title = _extract_html_title(response.text)
-                if html_title:
-                    updated["title"] = html_title
+            if http_client is not None:
+                response = await http_client.get(resolved_url)
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(resolved_url)
+            html_title = _extract_html_title(response.text)
+            if html_title:
+                updated["title"] = html_title
         except Exception:
             pass
 
@@ -150,7 +159,9 @@ async def search_gemini_pollinations(
         return []
 
     # Build snippets from groundingSupports
-    support_snippets = _build_snippets_from_supports(grounding_chunks, grounding_supports)
+    support_snippets = _build_snippets_from_supports(
+        grounding_chunks, grounding_supports
+    )
 
     results: list[WebSearchResult] = []
     for idx, chunk in enumerate(grounding_chunks):
@@ -179,6 +190,7 @@ async def search_gemini_pollinations(
                         "chunk_index": idx,
                     },
                     "web_search_queries": web_search_queries,
+                    "web_search_queries_source": "gemini_grounding",
                     "provider": response.get("provider", "vertex-ai"),
                 }
             ],

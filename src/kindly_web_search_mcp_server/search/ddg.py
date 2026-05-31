@@ -2,6 +2,7 @@
 
 Free, reliable fallback provider. Uses asyncio.to_thread for blocking ddgs calls.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class DDGError(RuntimeError):
     """DuckDuckGo search error."""
+
     pass
 
 
@@ -49,6 +51,11 @@ async def search_ddg(
             num_results,
         )
         return results
+    except ImportError:
+        logger.warning(
+            "ddgs library not installed; DDG provider disabled. Install with: pip install ddgs"
+        )
+        raise
     except Exception as e:
         logger.warning(f"DDG search failed: {e}")
         return []
@@ -81,7 +88,9 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
 
                 title = item.get("title")
                 link = item.get("href") or item.get("link") or item.get("url")
-                snippet = item.get("body") or item.get("description") or item.get("snippet")
+                snippet = (
+                    item.get("body") or item.get("description") or item.get("snippet")
+                )
 
                 if not isinstance(title, str) or not title.strip():
                     continue
@@ -102,10 +111,9 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
                 if len(results) >= num_results:
                     break
 
-    except ImportError:
-        logger.warning("ddgs library not installed. Install with: pip install ddgs")
-        return []
     except Exception as e:
+        if isinstance(e, ImportError):
+            raise
         logger.warning(f"DDG sync search error: {e}")
         return []
 

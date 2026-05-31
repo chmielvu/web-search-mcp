@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -11,6 +12,12 @@ from ..settings import settings
 
 
 LOGGER = logging.getLogger(__name__)
+
+# YouTube URL patterns for domain validation
+_YOUTUBE_DOMAIN_RE = re.compile(
+    r"^https?://(?:www\.)?(?:youtube\.com|youtu\.be)/",
+    re.IGNORECASE,
+)
 
 
 class YouTubeSearchError(RuntimeError):
@@ -139,11 +146,19 @@ async def search_youtube_videos(
         link = item.get("url")
         snippet = item.get("content")
 
-        # Skip non-video results (SearXNG YouTube engine should only return videos)
+        # Validate required fields
         if not isinstance(title, str) or not title.strip():
             continue
         if not isinstance(link, str) or not link.strip():
             continue
+
+        # Domain validation: only accept youtube.com / youtu.be URLs
+        if not _YOUTUBE_DOMAIN_RE.match(link.strip()):
+            LOGGER.debug(
+                "Skipping non-YouTube URL in YouTube search results: %s", link
+            )
+            continue
+
         if not isinstance(snippet, str):
             snippet = ""  # Allow empty snippets for video results
 
@@ -159,5 +174,13 @@ async def search_youtube_videos(
 
         if len(results) >= num_results:
             break
+
+    # Log warning if all results were filtered out
+    if raw_results and not results:
+        LOGGER.warning(
+            "All %d SearXNG YouTube results were non-YouTube URLs — "
+            "SearXNG YouTube engine may be misconfigured",
+            len(raw_results),
+        )
 
     return results

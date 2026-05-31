@@ -10,6 +10,8 @@ import httpx
 
 from ..models import WebSearchResult
 from ..retry import retry_with_backoff
+from .normalize import canonicalize_url
+from .options import SearchOptions
 
 
 class SearxngError(RuntimeError):
@@ -51,17 +53,29 @@ def _build_headers() -> dict[str, str]:
         try:
             parsed = json.loads(raw_extra)
         except json.JSONDecodeError as exc:
-            raise SearxngConfigError("SEARXNG_HEADERS_JSON must be a JSON object string.") from exc
+            raise SearxngConfigError(
+                "SEARXNG_HEADERS_JSON must be a JSON object string."
+            ) from exc
 
         if not isinstance(parsed, dict):
-            raise SearxngConfigError("SEARXNG_HEADERS_JSON must be a JSON object string.")
+            raise SearxngConfigError(
+                "SEARXNG_HEADERS_JSON must be a JSON object string."
+            )
 
         for key, value in parsed.items():
-            if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+            if (
+                isinstance(key, str)
+                and isinstance(value, str)
+                and key.strip()
+                and value.strip()
+            ):
                 headers[key] = value
 
     if "user-agent" not in {key.lower() for key in headers.keys()}:
-        headers["User-Agent"] = os.environ.get("SEARXNG_USER_AGENT", "").strip() or DEFAULT_SEARXNG_USER_AGENT
+        headers["User-Agent"] = (
+            os.environ.get("SEARXNG_USER_AGENT", "").strip()
+            or DEFAULT_SEARXNG_USER_AGENT
+        )
 
     return headers
 
@@ -73,7 +87,9 @@ def _get_request_timeout_seconds() -> float | None:
     try:
         return float(raw)
     except ValueError as exc:
-        raise SearxngConfigError("SEARXNG_TIMEOUT_SECONDS must be a number (seconds).") from exc
+        raise SearxngConfigError(
+            "SEARXNG_TIMEOUT_SECONDS must be a number (seconds)."
+        ) from exc
 
 
 def _looks_like_url(url: str) -> bool:
@@ -84,10 +100,76 @@ def _looks_like_url(url: str) -> bool:
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
+def _reciprocal_rank_fusion_by_engine(
+    results: list[WebSearchResult],
+    k: int = 60,
+) -> dict[str, float]:
+    """Apply RRF fusion grouped by SearXNG internal engines.
+
+    Args:
+        results: List of SearXNG results (each has source_engines field).
+        k: RRF constant (default 60).
+
+    Returns:
+        Dict mapping canonical URL to RRF score.
+    """
+    scores: dict[str, float] = {}
+
+    results_by_engine: dict[str, list[WebSearchResult]] = {}
+    for result in results:
+        for engine in result.source_engines or []:
+            results_by_engine.setdefault(engine, []).append(result)
+
+    for engine, engine_results in results_by_engine.items():
+        for rank, result in enumerate(engine_results, start=1):
+            canonical = canonicalize_url(result.link)
+            scores[canonical] = scores.get(canonical, 0) + 1.0 / (k + rank)
+
+    LOGGER.debug(
+        "Engine-level RRF: %d engines, %d unique URLs scored",
+        len(results_by_engine),
+        len(scores),
+    )
+    return scores
+
+
+def _apply_engine_consensus_bonus(
+    results: list[WebSearchResult],
+    bonus_per_engine: float = 0.05,
+) -> list[WebSearchResult]:
+    """Apply consensus bonus based on number of engines that returned each result.
+
+    Args:
+        results: List of SearXNG results.
+        bonus_per_engine: Bonus per additional engine (default 0.05).
+
+    Returns:
+        Results with updated raw_score including consensus bonus.
+    """
+    boosted: list[WebSearchResult] = []
+    for result in results:
+        engine_count = len(result.source_engines or [])
+        if engine_count > 1:
+            consensus_bonus = bonus_per_engine * (engine_count - 1)
+            current_score = result.raw_score or 0.0
+            result = result.model_copy(
+                update={"raw_score": current_score + consensus_bonus}
+            )
+            LOGGER.debug(
+                "Consensus bonus: %s engines=%d bonus=%.3f",
+                result.link,
+                engine_count,
+                consensus_bonus,
+            )
+        boosted.append(result)
+    return boosted
+
+
 async def search_searxng(
     query: str,
     *,
     num_results: int,
+    search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[WebSearchResult]:
     """
@@ -109,22 +191,63 @@ async def search_searxng(
     url = f"{base_url}/search"
 
     params: dict[str, Any] = {"q": query, "format": "json"}
-    for env_key, param_key in (
-        ("SEARXNG_LANGUAGE", "language"),
-        ("SEARXNG_CATEGORIES", "categories"),
-        ("SEARXNG_ENGINES", "engines"),
-        ("SEARXNG_TIME_RANGE", "time_range"),
-        ("SEARXNG_SAFESEARCH", "safesearch"),
-    ):
-        value = (os.environ.get(env_key) or "").strip()
-        if value:
-            params[param_key] = value
+    if search_options is not None:
+        if search_options.searxng_language:
+            params["language"] = search_options.searxng_language
+        else:
+            env_language = (os.environ.get("SEARXNG_LANGUAGE") or "").strip()
+            if env_language:
+                params["language"] = env_language
+
+        if search_options.searxng_categories:
+            params["categories"] = ",".join(search_options.searxng_categories)
+        else:
+            env_categories = (os.environ.get("SEARXNG_CATEGORIES") or "").strip()
+            if env_categories:
+                params["categories"] = env_categories
+
+        if search_options.searxng_engines:
+            params["engines"] = ",".join(search_options.searxng_engines)
+        else:
+            env_engines = (os.environ.get("SEARXNG_ENGINES") or "").strip()
+            if env_engines:
+                params["engines"] = env_engines
+
+        if search_options.searxng_time_range:
+            params["time_range"] = search_options.searxng_time_range
+        else:
+            env_time_range = (os.environ.get("SEARXNG_TIME_RANGE") or "").strip()
+            if env_time_range:
+                params["time_range"] = env_time_range
+
+        if search_options.searxng_safesearch is not None:
+            params["safesearch"] = search_options.searxng_safesearch
+        else:
+            env_safesearch = (os.environ.get("SEARXNG_SAFESEARCH") or "").strip()
+            if env_safesearch:
+                params["safesearch"] = env_safesearch
+
+        if search_options.searxng_pageno > 1:
+            params["pageno"] = search_options.searxng_pageno
+    else:
+        for env_key, param_key in (
+            ("SEARXNG_LANGUAGE", "language"),
+            ("SEARXNG_CATEGORIES", "categories"),
+            ("SEARXNG_ENGINES", "engines"),
+            ("SEARXNG_TIME_RANGE", "time_range"),
+            ("SEARXNG_SAFESEARCH", "safesearch"),
+        ):
+            value = (os.environ.get(env_key) or "").strip()
+            if value:
+                params[param_key] = value
 
     headers = _build_headers()
     timeout_seconds = _get_request_timeout_seconds()
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.get(url, params=params, headers=headers, timeout=timeout_seconds)
+        resp = await client.get(
+            url, params=params, headers=headers, timeout=timeout_seconds
+        )
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -136,7 +259,9 @@ async def search_searxng(
                     "Fix: enable the 'json' format in the SearXNG instance configuration."
                 ) from exc
             if status == 429:
-                raise SearxngError("SearXNG returned 429 Too Many Requests (rate limited).") from exc
+                raise SearxngError(
+                    "SearXNG returned 429 Too Many Requests (rate limited)."
+                ) from exc
             raise SearxngError(f"SearXNG returned HTTP {status}.") from exc
 
         try:
@@ -150,16 +275,20 @@ async def search_searxng(
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30) as client:
+
             async def _request() -> dict[str, Any]:
                 return await _do_request(client)
+
             data = await retry_with_backoff(
                 _request,
                 provider_name="searxng",
                 max_retries=2,
             )
     else:
+
         async def _request_with_client() -> dict[str, Any]:
             return await _do_request(http_client)
+
         data = await retry_with_backoff(
             _request_with_client,
             provider_name="searxng",
@@ -189,8 +318,54 @@ async def search_searxng(
         if not isinstance(snippet, str) or not snippet.strip():
             continue
 
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+        source_engines = item.get("engines")
+        if isinstance(source_engines, list):
+            engines = [
+                str(engine).strip()
+                for engine in source_engines
+                if isinstance(engine, str) and engine.strip()
+            ]
+        else:
+            engines = []
+
+        raw_score = item.get("score")
+        score = None
+        if isinstance(raw_score, (int, float)):
+            score = float(raw_score)
+
+        published_date = item.get("publishedDate") or item.get("published_date")
+        category = item.get("category")
+        if not isinstance(published_date, str) or not published_date.strip():
+            published_date = None
+        if not isinstance(category, str) or not category.strip():
+            category = None
+
+        results.append(
+            WebSearchResult(
+                title=title,
+                link=link,
+                snippet=snippet,
+                published_date=published_date,
+                source_engines=engines or None,
+                category=category,
+                raw_score=score,
+                providers=["searxng"],
+            )
+        )
         if len(results) >= num_results:
             break
+
+    if results:
+        engine_rrf_scores = _reciprocal_rank_fusion_by_engine(results, k=60)
+        results = _apply_engine_consensus_bonus(results, bonus_per_engine=0.05)
+
+        for idx, result in enumerate(results):
+            canonical = canonicalize_url(result.link)
+            rrf_score = engine_rrf_scores.get(canonical, 0.0)
+            current_score = result.raw_score or 0.0
+            combined_score = 0.7 * rrf_score + 0.3 * current_score
+            results[idx] = result.model_copy(update={"raw_score": combined_score})
+
+        results = sorted(results, key=lambda r: r.raw_score or 0.0, reverse=True)
 
     return results

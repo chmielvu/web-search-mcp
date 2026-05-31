@@ -39,7 +39,7 @@ flowchart TD
         QR[Query Rewrite<br>Mistral/Cerebras/Groq Router]
         PROVIDERS[Search Providers<br>SearXNG/DDG/Gemini/Tavily/Brave/Jina/Composio]
         RRF[Weighted RRF Merge<br>k=60 + provider weights]
-        RERANK[Reranking Pipeline<br>Bi-encoder + Jina v3 + MMR Diversity]
+        RERANK[Reranking Pipeline<br>Bi-encoder + Voyage 2.5 + MMR Diversity]
     end
 
     subgraph ContentPipeline
@@ -193,8 +193,8 @@ Returns `has_more` and `cursor` for pagination across multiple calls.
 4. Query Policy classification (precision signal detection)
    ├─ bypass: Preserve original query (error codes, URLs, versions)
    └─ expand: Generate complementary queries via LLM
-5. Query Rewrite (multi-provider LLM router)
-   └─ Mistral/Cerebras/Groq with intent-specific temperature
+5. Query Rewrite (multi-provider LLM router + FunctionGemma classifier)
+   └─ FunctionGemma intent/decomposition + Mistral/Cerebras/Groq rewrite
    └─ Provider-aware: keyword-targeted vs neural-targeted variants
 6. Multi-provider search (tiered, circuit-breaker protected)
    ├─ Tier 1: SearXNG + DDG + Gemini + Composio (ALWAYS mode, free/paid)
@@ -205,7 +205,8 @@ Returns `has_more` and `cursor` for pagination across multiple calls.
    └─ Host-cap deduplication (max 2 per host in top-k)
 8. Reranking pipeline (optional, when candidates > top_k)
    ├─ Bi-encoder filtering (HF Inference embeddings)
-   ├─ Jina reranker v3 (cross-encoder)
+   ├─ Voyage reranker 2.5 (primary cross-encoder)
+   ├─ Jina reranker v3 (fallback cross-encoder)
    └─ MMR diversity pruning (threshold 0.85)
 9. Cache write (L1 exact + L2 semantic, fire-and-forget)
 10. Return lightweight results (title, link, snippet, provider_count)
@@ -431,7 +432,7 @@ async def rerank_results(
 ```
 
 1. **Bi-encoder filtering**: Embedding similarity filter when candidates > top_k × 2
-2. **Jina reranker v3**: Cross-encoder relevance scoring
+2. **Voyage rerank-2.5**: Primary cross-encoder relevance scoring, with Jina fallback when configured
 3. **MMR diversity**: Maximal Marginal Relevance with host diversity
 
 ### MMR Diversity Pruning
@@ -586,8 +587,8 @@ src/kindly_web_search_mcp_server/
 │   ├── youtube.py           # YouTube search
 │   ├── merge.py             # Weighted RRF implementation
 │   ├── query_policy.py      # Precision signal detection
-│   ├── query_policy_resolver.py  # Policy routing (local vs HF)
-│   ├── query_policy_hf.py   # HF Space policy classifier
+│   ├── query_policy_resolver.py  # Policy routing (local vs heuristic)
+│   ├── query_classifier_client.py # FunctionGemma classifier/decomposition client
 │   ├── query_rewrite.py     # Multi-provider LLM rewrite
 │   ├── query_rewrite_router.py  # LiteLLM Router for query rewrite
 │   ├── query_rewrite_models.py  # Query variant models
@@ -633,7 +634,8 @@ src/kindly_web_search_mcp_server/
 ├── rerank/                  # Reranking pipeline
 │   ├── core.py              # Pipeline orchestration
 │   ├── bi_encoder.py        # Bi-encoder filtering
-│   ├── jina.py              # Jina reranker v3
+│   ├── voyage.py            # Voyage reranker 2.5
+│   ├── jina.py              # Jina fallback reranker
 │   └── diversity.py         # MMR diversity pruning
 │
 ├── middleware/              # FastMCP middleware
@@ -671,6 +673,9 @@ All configuration is environment-first via `settings.py`. See [CONFIGURATION.md]
 | `KINDLY_SEMANTIC_CACHE_ENABLED` | Semantic cache toggle | `true` |
 | `KINDLY_SEMANTIC_CACHE_MIN_SCORE` | Similarity threshold | `0.92` |
 | `KINDLY_RERANKING_ENABLED` | Reranking toggle | `true` |
+| `KINDLY_RERANK_PROVIDER` | Primary reranker provider | `voyage` |
+| `KINDLY_VOYAGE_RERANK_MODEL` | Voyage reranker model | `rerank-2.5` |
+| `KINDLY_ANALYTICS_ENABLED` | DuckDB analytics event capture | `true` |
 | `KINDLY_QUERY_REWRITE_ENABLED` | Query rewrite toggle | `true` |
 | `KINDLY_LANCEDB_DIR` | LanceDB storage path | `./lancedb_data` |
 

@@ -50,7 +50,20 @@ class _TokenBucketLimiter:
 class DifferentiatedRateLimitMiddleware(Middleware):
     """Apply distinct token buckets to cheap and expensive tool groups."""
 
-    CHEAP_TOOLS = frozenset({"web_search", "get_content", "gemini_search"})
+    CHEAP_TOOLS = frozenset(
+        {
+            "web_search",
+            "get_content",
+            "batch_get_content",
+            "discover_links",
+            "gemini_search",
+            "youtube_search",
+            "youtube_transcript",
+            "academic_search",
+            "composio_similarlinks",
+            "quick_web_search",
+        }
+    )
     EXPENSIVE_TOOLS = frozenset({"perplexity_search"})
 
     def __init__(

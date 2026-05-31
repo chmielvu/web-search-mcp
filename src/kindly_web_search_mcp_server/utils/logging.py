@@ -13,11 +13,15 @@ def configure_logging() -> None:
     - Keep configuration idempotent so hosts can override it safely.
     """
     root = logging.getLogger()
+    level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") and level > logging.INFO:
+        level = logging.INFO
 
     # Only set up basicConfig if nothing configured yet (common for scripts).
     if not root.handlers:
-        level = os.environ.get("LOG_LEVEL", "WARNING").upper()
-        logging.basicConfig(level=getattr(logging, level, logging.WARNING))
+        logging.basicConfig(level=level)
+    root.setLevel(level)
 
     # Silence common noisy libraries unless the host explicitly configures them.
     noisy_loggers = (

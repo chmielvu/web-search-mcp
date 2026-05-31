@@ -52,7 +52,7 @@ ruff format src/
 - `searxng.py`, `tavily.py`, `brave.py`, `jina.py`, `pollinations.py` — provider implementations
 - `merge.py` — RRF (k=60) merge across providers
 - `query_rewrite.py` — Mistral-backed query expansion/variant generation
-- `query_policy.py` + `query_policy_resolver.py` + `query_policy_hf.py` — intent classification and rewrite mode selection (bypass/light_rewrite/decompose)
+- `query_policy.py` + `query_policy_resolver.py` + `query_classifier_client.py` — precision-policy detection plus FunctionGemma intent/decomposition classification
 
 ### Content resolution (`content/resolver.py`)
 Staged fallback pipeline:

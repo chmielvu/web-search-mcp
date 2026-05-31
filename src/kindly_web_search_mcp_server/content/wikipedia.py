@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from functools import partial
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -292,7 +293,9 @@ async def fetch_wikipedia_article_markdown(
         cleaned_html = _strip_wikipedia_html_noise(html)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
-        md = extract_content_as_markdown(cleaned_html)
+        md = await anyio.to_thread.run_sync(
+            partial(extract_content_as_markdown, cleaned_html)
+        )
         cleaned_html = ""
         md = sanitize_markdown(md)
 

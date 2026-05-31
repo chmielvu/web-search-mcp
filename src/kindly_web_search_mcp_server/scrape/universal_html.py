@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .chromium_pool import get_chromium_pool, reuse_enabled
+from .chromium_pool import ChromiumSlot
 from .extract import extract_content_as_markdown
 from .sanitize import sanitize_markdown
 from ..utils.diagnostics import (
@@ -1003,7 +1004,9 @@ async def load_url_as_markdown(
             sample_data(html, MAX_SAMPLE_CHARS),
         )
 
-    markdown = html_to_markdown(html, source_url=url, config=config)
+    markdown = await asyncio.to_thread(
+        html_to_markdown, html, source_url=url, config=config
+    )
     # Release the HTML buffer promptly (best-effort).
     html = ""
     return markdown

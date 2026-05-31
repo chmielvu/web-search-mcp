@@ -14,7 +14,8 @@ At least one search provider must be configured for the server to function. The 
 | `SEARXNG_BASE_URL` | Recommended | - | Primary search provider (self-hosted, unlimited queries). Example: `http://localhost:8080` |
 | `TAVILY_API_KEY` | Optional | - | Tavily search API key (paid provider) |
 | `BRAVE_API_KEY` | Optional | - | Brave Search API key (paid provider) |
-| `JINA_API_KEY` | Optional | - | Jina AI search API key (conditional provider; also used for reranking) |
+| `JINA_API_KEY` | Optional | - | Jina AI search API key (conditional search provider; fallback reranker) |
+| `VOYAGE_API_KEY` | Optional | - | Voyage AI API key for the primary reranker |
 | `COMPOSIO_API_KEY` | Optional | - | Composio API key used by Composio LLM Search, Composio Similarlinks, and Composio Image Search |
 | `KINDLY_GEMINI_API_KEY` | Optional | - | Gemini API key used both by the standalone `gemini_search` tool and by the Gemini provider inside `web_search` |
 
@@ -74,7 +75,7 @@ Control advanced features with these boolean flags (set to `true` or `false`):
 |----------|---------|-------------|
 | `KINDLY_SEMANTIC_CACHE_ENABLED` | `true` | Enable LanceDB-backed semantic similarity cache for queries |
 | `KINDLY_QUERY_REWRITE_ENABLED` | `true` | Enable query expansion and variant generation |
-| `KINDLY_RERANKING_ENABLED` | `true` | Enable Jina cross-encoder reranking for search results |
+| `KINDLY_RERANKING_ENABLED` | `true` | Enable provider reranking for search results |
 
 ---
 
@@ -126,17 +127,31 @@ Query expansion and variant generation via multiple LLM providers for free-tier 
 
 ---
 
-## Reranking (Jina)
+## Reranking (Voyage primary, Jina fallback)
 
-Jina API-based cross-encoder reranking:
+Voyage API-based reranking with Jina fallback when configured:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `KINDLY_RERANK_PROVIDER` | `voyage` | Primary reranking provider (`voyage` or `jina`) |
+| `KINDLY_VOYAGE_RERANK_MODEL` | `rerank-2.5` | Voyage reranker model |
 | `KINDLY_JINA_RERANK_MODEL` | `jina-reranker-v3` | Jina reranker model |
+| `KINDLY_RERANK_SCORE_THRESHOLD` | `0.0` | Final score floor applied only to provider rerank scores |
 | `KINDLY_BI_ENCODER_TOP_K` | `100` | Top-K results before cross-encoder reranking |
 | `KINDLY_RERANK_TOP_K` | `10` | Final top-K results after reranking |
 | `KINDLY_DIVERSITY_THRESHOLD` | `0.85` | Similarity threshold for diversity filtering |
 | `KINDLY_MMR_LAMBDA` | `0.5` | MMR lambda parameter (0.0-1.0) for relevance/diversity balance |
+
+---
+
+## Analytics
+
+DuckDB-backed event capture for offline search tuning:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDLY_ANALYTICS_ENABLED` | `true` | Persist rewrite/rerank/search observability events to DuckDB |
+| `KINDLY_ANALYTICS_DUCKDB_PATH` | `.kindly/analytics/search_events.duckdb` | DuckDB file used for event storage |
 
 ---
 

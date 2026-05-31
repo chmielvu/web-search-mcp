@@ -60,10 +60,10 @@ def test_classify_search_query_bypasses_error_codes() -> None:
 
 
 def test_classify_search_query_bypasses_versions() -> None:
-    """Version numbers should trigger bypass mode."""
+    """Version numbers (3+ segments) should trigger bypass mode."""
     from kindly_web_search_mcp_server.search.query_policy import classify_search_query
 
-    policy = classify_search_query("python 3.11 asyncio tutorial")
+    policy = classify_search_query("python 3.11.0 asyncio tutorial")
 
     assert policy.mode == "bypass"
 
@@ -252,3 +252,88 @@ def test_keyword_validator_rejects_neural_target() -> None:
         weight=1.0,
     )
     assert validate_keyword_variants([variant], intent="code", must_keep_terms=[]) == []
+
+
+def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() -> (
+    None
+):
+    from kindly_web_search_mcp_server.search.query_rewrite import rewrite_search_query
+    from kindly_web_search_mcp_server.search.query_rewrite_models import (
+        ClassifierOutput,
+        ProviderRouting,
+        QueryDecompositionOutput,
+        QueryVariant,
+        SubQuestion,
+    )
+
+    class _StubClient:
+        async def classify_query(self, query: str, **kwargs):
+            return ClassifierOutput(
+                intent="comparison",
+                should_decompose=True,
+                confidence=0.99,
+                routing=ProviderRouting(keyword=True, neural=True, community=True),
+            )
+
+        async def decompose_query(self, query: str, **kwargs):
+            return QueryDecompositionOutput(
+                should_decompose=True,
+                sub_questions=[
+                    SubQuestion(
+                        question="React 19 SSR performance",
+                        target="keyword",
+                        why="framework docs",
+                        weight=1.1,
+                    ),
+                    SubQuestion(
+                        question="Vue 4 developer experience",
+                        target="community",
+                        why="community feedback",
+                        weight=0.9,
+                    ),
+                ],
+            )
+
+    async def _run() -> None:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.settings.query_rewrite_enabled",
+                True,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.get_query_rewrite_router",
+                return_value=object(),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.get_functiongemma_client",
+                return_value=_StubClient(),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.active_target_flags",
+                return_value=(True, True, True, ["searxng", "gemini", "stackexchange"]),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.request_variants",
+                side_effect=[
+                    ([QueryVariant(kind="original", target="keyword", query="React 19 vs Vue 4", why="original", weight=1.0)], "mistral"),
+                    ([QueryVariant(kind="neural_task", target="neural", query="Compare React 19 and Vue 4 developer experience.", why="neural", weight=1.0)], "mistral"),
+                    ([QueryVariant(kind="practitioner_opinion", target="community", query="React 19 Vue 4 developer experience", why="community", weight=1.0)], "mistral"),
+                ],
+            ),
+        ):
+            plan = await rewrite_search_query(
+                "React 19 vs Vue 4 SSR performance and developer experience",
+                intent="comparison",
+                research_goal="compare frameworks",
+            )
+
+        assert plan.classifier is not None
+        assert plan.classifier.intent == "comparison"
+        assert plan.decomposition is not None
+        assert plan.decomposition.should_decompose is True
+        assert any(variant.kind == "subquestion" for variant in plan.variants)
+        assert any(
+            "React 19 SSR performance" in query for query in plan.final_queries
+        )
+
+    asyncio.run(_run())

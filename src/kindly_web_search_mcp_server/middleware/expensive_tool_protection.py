@@ -11,13 +11,12 @@ Uses FastMCP's Middleware class and ToolError for blocking.
 from __future__ import annotations
 
 import logging
-import time
-from collections import defaultdict
-from dataclasses import dataclass, field
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.exceptions import ToolError
+
+from .session_tracking import SessionTracker, get_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +52,6 @@ Then call `perplexity_search` again. Low-quality queries waste expensive resourc
 """
 
 
-@dataclass
-class SessionState:
-    """Tracks attempt state for a client session."""
-    attempts: dict[str, int] = field(default_factory=dict)  # tool_name -> count
-    last_activity: float = field(default_factory=time.time)
-
-
 class ExpensiveToolProtectionMiddleware(Middleware):
     """Middleware that enforces query quality for expensive tools.
 
@@ -87,52 +79,15 @@ class ExpensiveToolProtectionMiddleware(Middleware):
         self.protected_tools = protected_tools
         self.block_first_attempt = block_first_attempt
         self.session_timeout_seconds = session_timeout_seconds
-        # In-memory session tracking (use Redis/database in production)
-        self._sessions: dict[str, SessionState] = defaultdict(SessionState)
-
-    def _get_session_id(self, context: MiddlewareContext) -> str:
-        """Extract session identifier from context.
-
-        Uses available context information. In production, should use
-        proper client session tracking from HTTP headers or MCP context.
-        """
-        fastmcp_context = context.fastmcp_context
-        if fastmcp_context is not None:
-            try:
-                return fastmcp_context.session_id
-            except RuntimeError:
-                client_id = fastmcp_context.client_id
-                if client_id:
-                    return client_id
-
-        request_id = getattr(context.message, "request_id", None)
-        if request_id:
-            return str(request_id)
-
-        return f"local_context:{id(fastmcp_context)}"
-
-    def _is_session_expired(self, state: SessionState) -> bool:
-        """Check if session has timed out."""
-        return time.time() - state.last_activity > self.session_timeout_seconds
+        self._sessions = SessionTracker(session_timeout_seconds)
 
     def _get_attempt_count(self, session_id: str, tool_name: str) -> int:
         """Get current attempt count for a tool in a session."""
-        state = self._sessions[session_id]
-
-        if self._is_session_expired(state):
-            state.attempts.clear()
-            state.last_activity = time.time()
-            return 0
-
-        return state.attempts.get(tool_name, 0)
+        return self._sessions.get_count(session_id, tool_name)
 
     def _increment_attempt(self, session_id: str, tool_name: str) -> int:
         """Increment and return new attempt count."""
-        state = self._sessions[session_id]
-        state.last_activity = time.time()
-        current = state.attempts.get(tool_name, 0)
-        state.attempts[tool_name] = current + 1
-        return current + 1
+        return self._sessions.increment(session_id, tool_name)
 
     async def on_call_tool(
         self,
@@ -157,7 +112,7 @@ class ExpensiveToolProtectionMiddleware(Middleware):
         if tool_name not in self.protected_tools:
             return await call_next(context)
 
-        session_id = self._get_session_id(context)
+        session_id = get_session_id(context)
         attempt_count = self._get_attempt_count(session_id, tool_name)
 
         # Block first attempt if configured

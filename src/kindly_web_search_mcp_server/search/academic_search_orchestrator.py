@@ -228,7 +228,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("semanticscholar")
             else:
-                logger.info("Semantic Scholar returned empty (may be rate limited or no matches)")
+                msg = "Semantic Scholar returned empty (may be rate limited or no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="semanticscholar", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"Semantic Scholar search failed: {e}")
             warnings.append(
@@ -252,7 +254,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("arxiv")
             else:
-                logger.info("ArXiv returned empty (no matches)")
+                msg = "ArXiv returned empty (no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="arxiv", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"ArXiv search failed: {e}")
             warnings.append(
@@ -277,7 +281,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("openalex")
             else:
-                logger.info("OpenAlex returned empty (no matches)")
+                msg = "OpenAlex returned empty (no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="openalex", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"OpenAlex search failed: {e}")
             warnings.append(
@@ -300,7 +306,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("crossref")
             else:
-                logger.info("CrossRef returned empty (no matches)")
+                msg = "CrossRef returned empty (no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="crossref", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"CrossRef search failed: {e}")
             warnings.append(
@@ -323,7 +331,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("pubmed")
             else:
-                logger.info("PubMed returned empty (no matches)")
+                msg = "PubMed returned empty (no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="pubmed", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"PubMed search failed: {e}")
             warnings.append(
@@ -347,7 +357,9 @@ async def run_academic_search(
                 result_lists.append(results)
                 sources_used.append("core")
             else:
-                logger.info("CORE returned empty (no API key or no matches)")
+                msg = "CORE returned empty (no API key or no matches)"
+                logger.info(msg)
+                warnings.append(ProviderWarning(provider="core", error=msg, error_type="empty_results"))
         except Exception as e:
             logger.warning(f"CORE search failed: {e}")
             warnings.append(
