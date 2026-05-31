@@ -13,7 +13,8 @@ class TestContentStatusClassifier(unittest.TestCase):
 
         result = classify_markdown("This site can't be reached. ERR_UNSAFE_PORT")
         self.assertEqual(result.status, "error")
-        self.assertEqual(result.reason, "browser_error_page")
+        self.assertIn("err_unsafe_port", result.reason or "")
+        self.assertFalse(result.cacheable)
 
     def test_classifies_blocked_page(self) -> None:
         from kindly_web_search_mcp_server.content.status_classifier import classify_markdown

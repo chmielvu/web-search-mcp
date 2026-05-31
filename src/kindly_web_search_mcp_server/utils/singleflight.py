@@ -4,6 +4,7 @@ When multiple callers request the same operation concurrently, only one
 execution runs. All other callers receive the same result (or exception).
 This is the asyncio equivalent of Go's singleflight.Group.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -75,6 +76,9 @@ class SingleFlight:
             result = await fn(*args, **kwargs)
             future.set_result(result)
             return result
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
         except Exception as exc:
             future.set_exception(exc)
             raise

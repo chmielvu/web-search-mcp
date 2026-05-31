@@ -40,6 +40,8 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output["total_returned"], 1)
         self.assertTrue(output["has_more"])
         self.assertIsNotNone(output["cursor"])
+        self.assertIn("continuation_notice", output["results"][0]["window"])
+        self.assertIn("Continue at offset", output["results"][0]["window"]["continuation_notice"])
 
         with patch(
             "kindly_web_search_mcp_server.content.batch_orchestrator.fetch_content_artifact",

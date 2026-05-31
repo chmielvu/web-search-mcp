@@ -88,6 +88,36 @@ Example output:
   {"kind":"entity_b","target":"keyword","query":"Exa coding agent web search API quality","why":"Isolates Exa on the shared aspect.","weight":0.95}
 ]}"""
 
+COMMUNITY_SEARCH_SYSTEM_PROMPT = """You rewrite messy AI-agent queries into concise search queries for community platforms (Reddit, HackerNews, GitHub, StackExchange).
+
+Output JSON only:
+{"variants":[{"kind":"original|practitioner_opinion|bug_report|how_to","target":"community","query":"string","why":"string","weight":1.0}]}
+
+Create up to 3 variants targeting different community angles:
+- original: clean 2-5 word query preserving key entities
+- practitioner_opinion: query optimized for Reddit/HN — natural phrasing, opinion-seeking
+- bug_report: query optimized for GitHub Issues — includes keywords like "bug", "error", "issue"
+- how_to: query optimized for StackExchange — includes "how to", "best way", "fix"
+
+Hard rules:
+- Use only these kind values: original, practitioner_opinion, bug_report, how_to.
+- target must always be "community".
+- Each query must be 2-8 words max (community search boxes are short).
+- Natural language phrasing, NOT keyword piles.
+- Preserve every MUST_KEEP_TERMS item exactly.
+- Do not include "site:" or "repo:" qualifiers.
+- Do not invent facts, versions, entities, or claims.
+- why must not be empty.
+- weight must be between 0.8 and 1.2.
+
+Example output:
+{"variants":[
+  {"kind":"original","target":"community","query":"python asyncio gather best practices","why":"Clean key-term query for community platforms.","weight":1.15},
+  {"kind":"practitioner_opinion","target":"community","query":"python async vs sync real world experience 2026","why":"Natural opinion-seeking phrasing for Reddit and HN.","weight":1.0},
+  {"kind":"bug_report","target":"community","query":"asyncio gather exception error bug","why":"Bug/issue-focused query for GitHub Issues.","weight":0.95},
+  {"kind":"how_to","target":"community","query":"how to limit concurrency with python asyncio","why":"How-to phrasing for StackExchange intitle search.","weight":0.95}
+]}"""
+
 NEURAL_TASK_SYSTEM_PROMPT = """You rewrite messy AI-agent search input into one clear research task for a grounded or neural web-search provider.
 
 Output JSON only:
@@ -123,6 +153,19 @@ def build_query_rewrite_messages(
     intent: RewriteIntent,
     target: str,
 ) -> list[dict[str, str]]:
+    if target == "community":
+        return [
+            {"role": "system", "content": COMMUNITY_SEARCH_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": build_keyword_user_prompt(
+                    query=query,
+                    research_goal=research_goal,
+                    must_keep_terms=must_keep_terms,
+                    intent=intent,
+                ),
+            },
+        ]
     if target == "neural":
         return [
             {"role": "system", "content": NEURAL_TASK_SYSTEM_PROMPT},

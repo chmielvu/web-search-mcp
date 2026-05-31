@@ -1,4 +1,5 @@
 """Brave Search API provider."""
+
 from __future__ import annotations
 
 import os
@@ -65,16 +66,20 @@ async def search_brave(
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30) as client:
+
             async def _request() -> dict[str, Any]:
                 return await _do_request(client)
+
             data = await retry_with_backoff(
                 _request,
                 provider_name="brave",
                 max_retries=2,
             )
     else:
+
         async def _request_with_client() -> dict[str, Any]:
             return await _do_request(http_client)
+
         data = await retry_with_backoff(
             _request_with_client,
             provider_name="brave",
@@ -97,7 +102,12 @@ async def search_brave(
         title = item.get("title")
         link = item.get("url")
         snippet = item.get("description")
-        if not isinstance(title, str) or not isinstance(link, str):
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(link, str)
+            or not link.strip()
+        ):
             continue
         if not isinstance(snippet, str):
             snippet = ""

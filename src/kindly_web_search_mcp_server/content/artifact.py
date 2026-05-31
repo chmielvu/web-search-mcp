@@ -25,6 +25,9 @@ class ContentArtifact:
     content_type: str | None
     markdown: str
     title: str | None = None
+    metadata: dict[str, Any] | None = None
+    links: list[dict[str, Any]] | None = None
+    continuation_notice: str | None = None
     word_count: int = 0
     quality_score: float = 0.0
     error: ContentError | None = None

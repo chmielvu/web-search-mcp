@@ -20,13 +20,14 @@ dependencies = [
     "nodriver",
     "PyMuPDF",
     "lancedb>=0.25.0",
+    "duckdb>=1.1.0",
     "pyarrow>=18.0.0",
     "numpy>=1.26.0",
     "google-genai>=0.3.0",
     "python-dotenv>=1.0.0",
     "mistralai>=1.8.0",
     "litellm>=1.60.0",  # Multi-provider router for query rewrite load distribution
-    "gradio_client>=1.10.1",
+    "pybreaker>=1.4.1",
     "huggingface_hub>=1.0.0",
     "youtube-transcript-api>=0.6.0",
     "ddgs>=7.0.0",
@@ -35,6 +36,14 @@ dependencies = [
     "arxiv>=3.0.0",
     "pyalex>=0.13",  # OpenAlex SDK (250M+ works)
     "habanero>=1.0.0",  # CrossRef SDK
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+    "opentelemetry-exporter-prometheus>=0.40.0",
+    "opentelemetry-instrumentation-httpx>=0.40b0",
+    "opentelemetry-instrumentation-logging>=0.40b0",
+    "prometheus-client>=0.20.0",
+    "structlog>=24.0.0",
 ]
 
 [project.optional-dependencies]
@@ -42,17 +51,6 @@ dev = ["pytest", "ruff"]
 pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
     "pymupdf4llm>=0.2.7; python_version < '3.14'",
-]
-observability = [
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
-    "opentelemetry-distro[otlp]>=0.40.0",
-    "opentelemetry-exporter-prometheus>=0.40.0",
-    "prometheus-client>=0.20.0",
-    "opentelemetry-instrumentation-httpx>=0.40b0",
-    "opentelemetry-instrumentation-logging>=0.40b0",
-    "structlog>=24.0.0",
 ]
 
 [project.scripts]

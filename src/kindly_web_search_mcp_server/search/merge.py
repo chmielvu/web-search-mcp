@@ -17,6 +17,7 @@ from ..telemetry import (
     RRF_INPUT_TOTAL,
 )
 from .normalize import canonicalize_url
+from .merge_observability import emit_merge_summary
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -114,28 +115,28 @@ def merge_search_results(
     *,
     k: int | None = None,
     provider_weights: dict[str, float] | None = None,
+    list_weights: list[float] | None = None,
     max_per_host: int = 2,
     host_cap_top_k: int | None = None,
-    enable_telemetry: bool = True,
+    enable_telemetry: bool = False,
 ) -> list[WebSearchResult]:
     """Merge multiple ranked lists using Weighted Reciprocal Rank Fusion.
-
-    Formula: score += w_provider × 1/(k + rank)
 
     Args:
         result_lists: Lists of results from different providers/queries.
         k: RRF constant. Lower = more rank-sensitive. Default from settings.
         provider_weights: Per-provider weight multipliers. Default from settings.
+        list_weights: Per-list weight multipliers matching result_lists order.
         max_per_host: Maximum results per host in the top-k diversification window.
         host_cap_top_k: Size of the diversification window. Defaults to all ranked results.
         enable_telemetry: If True, record RRF metrics (default True).
     """
     tracer = trace.get_tracer("web-search-mcp") if enable_telemetry else None
 
-    # Count total input results
     total_input = sum(len(results) for results in result_lists)
+    if list_weights is not None and len(list_weights) != len(result_lists):
+        raise ValueError("list_weights must match result_lists length")
 
-    # Track overlap: URLs appearing in multiple lists
     url_occurrences: Counter = Counter()
     for results in result_lists:
         for result in results:
@@ -143,7 +144,9 @@ def merge_search_results(
             url_occurrences[key] += 1
 
     overlapping_urls = [url for url, count in url_occurrences.items() if count > 1]
-    overlap_rate = len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
+    overlap_rate = (
+        len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
+    )
 
     if k is None:
         k = settings.rrf_k
@@ -155,7 +158,8 @@ def merge_search_results(
     encounter_order: dict[str, int] = {}
     order_counter = 0
 
-    for results in result_lists:
+    for list_index, results in enumerate(result_lists):
+        list_weight = list_weights[list_index] if list_weights is not None else 1.0
         for rank, result in enumerate(results, start=1):
             key = canonicalize_url(result.link)
             if key not in merged:
@@ -166,7 +170,7 @@ def merge_search_results(
             # Weighted RRF: use max weight among result's provider tags
             result_providers = result.providers or []
             w = max((weights.get(p, 1.0) for p in result_providers), default=1.0)
-            merged[key].score += w * (1.0 / (k + rank))
+            merged[key].score += list_weight * w * (1.0 / (k + rank))
 
             if result_providers:
                 merged[key].providers.update(p for p in result_providers if p)
@@ -196,16 +200,27 @@ def merge_search_results(
         )
         output.append(result)
 
-    # Calculate discarded count and provider contribution
     discarded_count = total_input - len(output)
 
-    # Count provider contribution in final output
     provider_contributions: Counter = Counter()
     for result in output:
-        for provider in (result.providers or []):
+        for provider in result.providers or []:
             provider_contributions[provider] += 1
 
     duration_seconds = time.time() - start_time
+    emit_merge_summary(
+        logger,
+        result_lists=result_lists,
+        output=output,
+        provider_contributions=provider_contributions,
+        list_weights=list_weights,
+        k=k,
+        discarded_count=discarded_count,
+        overlap_rate=overlap_rate,
+        duration_seconds=duration_seconds,
+        max_per_host=max_per_host,
+        host_cap_top_k=host_cap_top_k,
+    )
 
     # Record telemetry metrics
     if enable_telemetry:
@@ -243,26 +258,39 @@ def merge_search_results(
         ) as span:
             # Add provider contribution events
             for provider, count in provider_contributions.items():
-                span.add_event(f"rrf.provider.{provider}", attributes={
-                    "provider.name": provider,
-                    "rrf.provider_contribution": count,
-                })
+                span.add_event(
+                    f"rrf.provider.{provider}",
+                    attributes={
+                        "provider.name": provider,
+                        "rrf.provider_contribution": count,
+                    },
+                )
 
             # Add discarded sample
             if discarded_count > 0:
-                span.add_event("rrf.discards", attributes={
-                    "rrf.discarded_count": discarded_count,
-                })
+                span.add_event(
+                    "rrf.discards",
+                    attributes={
+                        "rrf.discarded_count": discarded_count,
+                    },
+                )
 
             # Add overlap sample
             if overlapping_urls:
-                span.add_event("rrf.overlap", attributes={
-                    "rrf.overlapping_count": len(overlapping_urls),
-                })
+                span.add_event(
+                    "rrf.overlap",
+                    attributes={
+                        "rrf.overlapping_count": len(overlapping_urls),
+                    },
+                )
 
     logger.debug(
         "RRF merge: k=%d, %d lists → %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
-        k, len(result_lists), len(output), discarded_count, overlap_rate,
+        k,
+        len(result_lists),
+        len(output),
+        discarded_count,
+        overlap_rate,
         [(r.link[:50], f"{r.score:.5f}") for r in output[:5]],
     )
 

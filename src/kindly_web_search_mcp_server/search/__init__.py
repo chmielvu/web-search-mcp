@@ -33,6 +33,7 @@ from .jina import search_jina
 from .reddit import search_reddit
 from .stackexchange import search_stackexchange
 from .merge import merge_search_results
+from .options import SearchOptions, build_search_query
 from .provider_config import ProviderConfig, ProviderMode, parse_provider_mode, register_provider, resolve_providers_for_search
 from .searxng import search_searxng
 from .tavily import search_tavily
@@ -76,7 +77,6 @@ class CircuitBreaker:
         return True
 
     def record_success(self, provider: str) -> None:
-        prev_failures = self._failures.get(provider, 0)
         was_open = provider in self._opened_at
         self._failures[provider] = 0
         self._opened_at.pop(provider, None)
@@ -283,6 +283,7 @@ async def _search_single_provider(
     query: str,
     num_results: int,
     http_client: httpx.AsyncClient,
+    search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with circuit breaker and budget tracking."""
@@ -295,7 +296,29 @@ async def _search_single_provider(
         return []
 
     try:
-        results = await provider_fn(query, num_results=num_results, http_client=http_client)
+        provider_query = build_search_query(query, search_options)
+        if provider_name == "searxng" and search_options is not None:
+            try:
+                results = await provider_fn(
+                    provider_query,
+                    num_results=num_results,
+                    http_client=http_client,
+                    search_options=search_options,
+                )
+            except TypeError as exc:
+                if "search_options" not in str(exc):
+                    raise
+                results = await provider_fn(
+                    provider_query,
+                    num_results=num_results,
+                    http_client=http_client,
+                )
+        else:
+            results = await provider_fn(
+                provider_query,
+                num_results=num_results,
+                http_client=http_client,
+            )
         results = [
             result.model_copy(
                 update={
@@ -323,6 +346,7 @@ async def search_single_query(
     http_client: httpx.AsyncClient | None = None,
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
+    search_options: SearchOptions | None = None,
 ) -> list[WebSearchResult]:
     """
     Search using multi-provider RRF merge with mode-based selection.
@@ -373,11 +397,23 @@ async def search_single_query(
         if free_providers:
             free_tasks = [
                 _search_single_provider(
-                    c.name, c.search_fn, query, num_results, client, budget
+                    c.name,
+                    c.search_fn,
+                    query,
+                    num_results,
+                    client,
+                    search_options,
+                    budget,
                 )
                 for c in free_providers
             ]
-            free_results = await asyncio.gather(*free_tasks, return_exceptions=True)
+            free_results = asyncio.gather(*free_tasks, return_exceptions=True)
+            if hasattr(free_results, "__await__"):
+                free_results = await free_results
+            else:
+                for task in free_tasks:
+                    if hasattr(task, "close"):
+                        task.close()
             for r in free_results:
                 if isinstance(r, list):
                     all_results.append(r)
@@ -389,13 +425,23 @@ async def search_single_query(
             async def _search_with_semaphore(config: ProviderConfig) -> list[WebSearchResult]:
                 async with semaphore:
                     return await _search_single_provider(
-                        config.name, config.search_fn, query, num_results, client, budget
+                        config.name,
+                        config.search_fn,
+                        query,
+                        num_results,
+                        client,
+                        search_options,
+                        budget,
                     )
 
-            paid_results = await asyncio.gather(
-                *[_search_with_semaphore(c) for c in paid_providers],
-                return_exceptions=True,
-            )
+            paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
+            paid_results = asyncio.gather(*paid_tasks, return_exceptions=True)
+            if hasattr(paid_results, "__await__"):
+                paid_results = await paid_results
+            else:
+                for task in paid_tasks:
+                    if hasattr(task, "close"):
+                        task.close()
             for r in paid_results:
                 if isinstance(r, list):
                     all_results.append(r)
@@ -430,6 +476,7 @@ async def search_web(
     http_client: httpx.AsyncClient | None = None,
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
+    search_options: SearchOptions | None = None,
 ) -> list[WebSearchResult]:
     """Backward-compatible alias for the single-query executor."""
     return await search_single_query(
@@ -438,4 +485,5 @@ async def search_web(
         http_client=http_client,
         diagnostics=diagnostics,
         providers=providers,
+        search_options=search_options,
     )

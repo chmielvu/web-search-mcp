@@ -115,6 +115,19 @@ class TestMergeHostCap(unittest.TestCase):
         self.assertEqual(top_hosts[:2], ["same.com", "other.com"])
         self.assertEqual(len(merged), 5)
 
+    def test_list_weights_bias_rrf_ordering(self) -> None:
+        list_a = [self._r("a.com", 1)]
+        list_b = [self._r("b.com", 1)]
+
+        merged = merge_search_results(
+            [list_a, list_b],
+            list_weights=[0.5, 2.0],
+            max_per_host=2,
+            enable_telemetry=False,
+        )
+
+        self.assertEqual([item.link.split("/")[2] for item in merged[:2]], ["b.com", "a.com"])
+
 
 if __name__ == "__main__":
     unittest.main()

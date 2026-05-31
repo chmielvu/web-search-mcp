@@ -57,6 +57,12 @@ class ProviderConfig:
         if self.mode == ProviderMode.NEVER:
             return False
 
+        # Health check: skip providers that are in cooldown
+        # (lazy import to avoid circular dependency)
+        from .provider_health import get_provider_health  # noqa: PLC0415
+        if not get_provider_health().is_healthy(self.name):
+            return False
+
         # When caller specifies explicit providers (including empty), treat as allow-list.
         # Only fire if this provider is in the caller's list AND is available.
         # Empty list [] -> allow-list with nothing allowed -> nothing fires.
@@ -104,6 +110,71 @@ def resolve_providers_for_search(
         if config.should_fire(caller_providers):
             active.append(config)
     return active
+
+
+@dataclass
+class ProviderDiagnosis:
+    """Why a requested provider could not fire."""
+    name: str
+    available: bool
+    reason: str  # e.g., "missing API key", "provider health cooldown", "mode set to never"
+
+
+def diagnose_providers(
+    caller_providers: list[str] | None = None,
+) -> list[ProviderDiagnosis]:
+    """Check all requested providers and explain why each cannot fire.
+
+    Only reports on providers explicitly requested by the caller (not the full registry).
+    Returns empty list when no providers were explicitly requested.
+
+    Args:
+        caller_providers: Optional list of provider names requested by caller
+
+    Returns:
+        List of ProviderDiagnosis objects
+    """
+    if not caller_providers:
+        return []
+
+    from .provider_health import get_provider_health  # noqa: PLC0415
+
+    diagnoses: list[ProviderDiagnosis] = []
+    for name in caller_providers:
+        config = PROVIDER_REGISTRY.get(name)
+        if config is None:
+            diagnoses.append(ProviderDiagnosis(
+                name=name, available=False,
+                reason=f"Unknown provider '{name}'. Available: {sorted(PROVIDER_REGISTRY.keys())}",
+            ))
+            continue
+
+        if config.mode == ProviderMode.NEVER:
+            diagnoses.append(ProviderDiagnosis(
+                name=name, available=False,
+                reason=f"Provider '{name}' is disabled (mode=never).",
+            ))
+            continue
+
+        if not get_provider_health().is_healthy(name):
+            diagnoses.append(ProviderDiagnosis(
+                name=name, available=False,
+                reason=f"Provider '{name}' is in health cooldown after repeated failures.",
+            ))
+            continue
+
+        if not config.is_available():
+            env_hint = f" Set {config.env_key} environment variable." if config.env_key else ""
+            diagnoses.append(ProviderDiagnosis(
+                name=name, available=False,
+                reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+            ))
+            continue
+
+        # Provider is available and can fire — no diagnosis needed
+        diagnoses.append(ProviderDiagnosis(name=name, available=True, reason="ok"))
+
+    return diagnoses
 
 
 def parse_provider_mode(env_val: str) -> ProviderMode | None:

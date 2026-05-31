@@ -3,6 +3,7 @@ from __future__ import annotations
 import json as _json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _parse_json_dict(raw: str, default: dict) -> dict:
@@ -54,13 +55,43 @@ class Settings:
     )
     mistral_api_key: str = os.environ.get("MISTRAL_API_KEY", "")
 
+    # FunctionGemma classifier / decomposition
+    query_classifier_enabled: bool = (
+        os.environ.get("KINDLY_CLASSIFIER_ENABLED", "true").lower() == "true"
+    )
+    query_classifier_url: str = os.environ.get(
+        "KINDLY_CLASSIFIER_URL",
+        "https://functiongemma-classifier-373347358125.us-central1.run.app",
+    )
+    query_classifier_timeout_seconds: float = float(
+        os.environ.get("KINDLY_CLASSIFIER_TIMEOUT_SECONDS", "10")
+    )
+    query_classifier_max_tokens: int = int(
+        os.environ.get("KINDLY_CLASSIFIER_MAX_TOKENS", "500")
+    )
+    query_decomposition_enabled: bool = (
+        os.environ.get("KINDLY_QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
+    )
+    query_decomposition_timeout_seconds: float = float(
+        os.environ.get("KINDLY_QUERY_DECOMPOSITION_TIMEOUT_SECONDS", "10")
+    )
+    query_decomposition_max_subquestions: int = int(
+        os.environ.get("KINDLY_QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
+    )
+
     # Query rewrite multi-provider (free-tier load distribution)
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     # Provider RPM estimates for free tier (used by LiteLLM Router for weighted selection)
-    query_rewrite_mistral_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_MISTRAL_RPM", "30"))
-    query_rewrite_cerebras_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_CEREBRAS_RPM", "30"))
-    query_rewrite_groq_rpm: int = int(os.environ.get("KINDLY_QUERY_REWRITE_GROQ_RPM", "30"))
+    query_rewrite_mistral_rpm: int = int(
+        os.environ.get("KINDLY_QUERY_REWRITE_MISTRAL_RPM", "30")
+    )
+    query_rewrite_cerebras_rpm: int = int(
+        os.environ.get("KINDLY_QUERY_REWRITE_CEREBRAS_RPM", "30")
+    )
+    query_rewrite_groq_rpm: int = int(
+        os.environ.get("KINDLY_QUERY_REWRITE_GROQ_RPM", "30")
+    )
 
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get(
@@ -71,20 +102,40 @@ class Settings:
     )
     embedding_dim: int = int(os.environ.get("KINDLY_EMBEDDING_DIM", "384"))
 
-    # Reranking (Jina API)
+    # Reranking (Voyage primary, Jina fallback)
     reranking_enabled: bool = (
         os.environ.get("KINDLY_RERANKING_ENABLED", "true").lower() == "true"
     )
+    rerank_provider: str = os.environ.get("KINDLY_RERANK_PROVIDER", "voyage").lower()
     bi_encoder_top_k: int = int(os.environ.get("KINDLY_BI_ENCODER_TOP_K", "100"))
     rerank_top_k: int = int(os.environ.get("KINDLY_RERANK_TOP_K", "10"))
+    voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
+    voyage_rerank_model: str = os.environ.get(
+        "KINDLY_VOYAGE_RERANK_MODEL", "rerank-2.5"
+    )
     jina_rerank_model: str = os.environ.get(
         "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v3"
+    )
+    rerank_score_threshold: float = float(
+        os.environ.get("KINDLY_RERANK_SCORE_THRESHOLD", "0.0")
     )
     diversity_threshold: float = float(
         os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")
     )
-    mmr_lambda_param: float = float(
-        os.environ.get("KINDLY_MMR_LAMBDA", "0.5")
+    mmr_lambda_param: float = float(os.environ.get("KINDLY_MMR_LAMBDA", "0.5"))
+    rerank_recency_weight: float = float(
+        os.environ.get("RERANK_RECENCY_WEIGHT", "0.15")
+    )
+    rerank_recency_half_life_days: int = int(
+        os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90")
+    )
+
+    analytics_enabled: bool = (
+        os.environ.get("KINDLY_ANALYTICS_ENABLED", "true").lower() == "true"
+    )
+    analytics_duckdb_path: str = os.environ.get(
+        "KINDLY_ANALYTICS_DUCKDB_PATH",
+        str(Path(".kindly") / "analytics" / "search_events.duckdb"),
     )
 
     # Pollinations API (for gemini-search provider in web_search mix)
@@ -114,7 +165,9 @@ class Settings:
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
     s2_api_key: str = os.environ.get("KINDLY_S2_API_KEY", "")
     s2_timeout: int = int(os.environ.get("KINDLY_S2_TIMEOUT", "30"))
-    s2_max_retries: int = int(os.environ.get("KINDLY_S2_MAX_RETRIES", "0"))  # 0 = fail fast
+    s2_max_retries: int = int(
+        os.environ.get("KINDLY_S2_MAX_RETRIES", "0")
+    )  # 0 = fail fast
 
     # OpenAlex (optional, polite pool with email)
     openalex_email: str = os.environ.get("KINDLY_OPENALEX_EMAIL", "")

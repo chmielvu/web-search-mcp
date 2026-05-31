@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from kindly_web_search_mcp_server.search.gemini_search_tool import (
     GEMINI_GROUNDING_TIER,
     GeminiGroundingResult,
+    GeminiResearchOutput,
     _classify_gemini_error,
     _is_gemini_model,
     get_system_prompt,
@@ -83,6 +84,13 @@ class TestGeminiFallbackTier(unittest.TestCase):
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[0]))
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[1]))
         self.assertFalse(_is_gemini_model(GEMINI_GROUNDING_TIER[2]))
+
+
+class TestGeminiStructuredSchema(unittest.TestCase):
+    def test_structured_output_schema_has_no_additional_properties(self) -> None:
+        """Gemini rejects structured schemas containing additionalProperties."""
+        schema = GeminiResearchOutput.model_json_schema()
+        self.assertNotIn("additionalProperties", str(schema))
 
 
 class TestGeminiSystemInstructionHandling(unittest.TestCase):

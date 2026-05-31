@@ -36,15 +36,24 @@ _SEARCH_OPERATORS = (
     "user:",
 )
 
+# Compiled patterns for operator detection (word-boundary to avoid substring matches)
+_OPERATOR_PATTERNS = tuple(
+    re.compile(rf"(?:^|\s){re.escape(op)}", re.IGNORECASE) for op in _SEARCH_OPERATORS
+)
+
 # Patterns that signal precision-sensitive content (should bypass rewrite)
 _PRECISION_PATTERNS = (
     re.compile(r"https?://", re.IGNORECASE),  # URLs
     re.compile(r"\bwww\.", re.IGNORECASE),
     re.compile(r'["`][^"`]{4,}["`]'),  # Quoted strings (4+ chars, double/backtick)
     re.compile(r"'[^']{4,}'"),  # Single-quoted strings (4+ chars)
-    re.compile(r"\b[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\b"),  # Repo names (owner/repo)
+    re.compile(
+        r"\b[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?\b"
+    ),  # Repo names (owner/repo or owner/repo/path)
     re.compile(r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+"),  # File paths
-    re.compile(r"\b\d+(?:\.\d+){1,3}\b"),  # Version numbers (1.2.3) and decimals
+    re.compile(
+        r"\b\d+(?:\.\d+){2,3}\b"
+    ),  # Version numbers (1.2.3) — at least 3 segments
     re.compile(r"0x[0-9A-Fa-f]{4,8}"),  # Hex error codes
     re.compile(r"E[A-Z]+[0-9]+"),  # Error codes (E001, EINVAL, EBADF)
     re.compile(r"ERR_[A-Z_]+"),  # Named error constants (ERR_INVALID_DATA)
@@ -131,7 +140,7 @@ def _has_precision_signals(query: str, must_keep_terms: list[str]) -> bool:
     - Extracted must_keep terms (quoted strings, etc.)
     """
     # Multiple search operators = precision query
-    operator_count = sum(1 for op in _SEARCH_OPERATORS if op in query)
+    operator_count = sum(1 for p in _OPERATOR_PATTERNS if p.search(query))
     if operator_count >= 2:
         return True
 

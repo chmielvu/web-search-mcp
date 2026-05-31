@@ -7,10 +7,9 @@ import logging
 import time
 from typing import Any
 
-from pydantic import ValidationError
-
 from opentelemetry import trace
 
+from .query_classifier_client import get_functiongemma_client
 from ..settings import settings
 from ..telemetry import (
     REWRITE_MODEL,
@@ -22,148 +21,27 @@ from ..telemetry import (
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from .normalize import normalize_query
-from .provider_config import resolve_providers_for_search
-from .query_policy import RewritePolicy
 from .query_policy_resolver import resolve_query_routing
 from .query_rewrite_models import (
-    KEYWORD_PROVIDER_NAMES,
-    NEURAL_PROVIDER_NAMES,
     QueryRewritePlan,
     QueryVariant,
     RewriteIntent,
 )
-from .query_rewrite_prompts import build_query_rewrite_messages
 from .query_rewrite_router import get_query_rewrite_router
 from .query_rewrite_validate import (
-    dedupe_keep_order,
-    inject_missing_terms,
-    parse_query_rewrite_output,
+    validate_community_variants,
     validate_keyword_variants,
     validate_neural_variants,
 )
+from .query_rewrite_plan import (
+    active_target_flags,
+    build_fallback_plan,
+    build_rewrite_plan,
+)
+from .query_rewrite_requests import request_variants
 
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
-
-# Intent-specific temperatures: code needs precision, research benefits from creativity
-TEMPERATURE_BY_INTENT: dict[RewriteIntent, float] = {
-    "code": 0.15,  # Deterministic for precise technical queries
-    "general_research": 0.5,  # Balanced creativity for exploratory queries
-    "comparison": 0.3,  # Structured output for entity comparisons
-}
-
-
-def _fallback_plan(query: str, policy: RewritePolicy, reason: str) -> QueryRewritePlan:
-    cleaned = normalize_query(query)
-    original = QueryVariant(
-        kind="original",
-        target="all",
-        query=cleaned,
-        why=reason,
-        weight=1.0,
-    )
-    return QueryRewritePlan(
-        original_query=query,
-        policy=policy,
-        variants=[original],
-        final_queries=[cleaned],
-    )
-
-
-def _active_target_flags(providers: list[str] | None) -> tuple[bool, bool, list[str]]:
-    active_provider_names = [config.name for config in resolve_providers_for_search(providers)]
-    has_keyword = any(name in KEYWORD_PROVIDER_NAMES for name in active_provider_names)
-    has_neural = any(name in NEURAL_PROVIDER_NAMES for name in active_provider_names)
-    return has_keyword, has_neural, active_provider_names
-
-
-async def _request_variants(
-    *,
-    router: Any,
-    query: str,
-    intent: RewriteIntent,
-    target: str,
-    policy: RewritePolicy,
-    diagnostics: Diagnostics | None,
-    research_goal: str | None,
-) -> tuple[list[QueryVariant], str]:
-    messages = build_query_rewrite_messages(
-        query=query,
-        research_goal=research_goal,
-        must_keep_terms=policy.must_keep_terms,
-        intent=intent,
-        target=target,
-    )
-    response = await asyncio.wait_for(
-        router.acompletion(
-            model="query-rewrite",
-            messages=messages,
-            temperature=TEMPERATURE_BY_INTENT.get(intent, settings.query_rewrite_temperature),
-            response_format={"type": "json_object"},
-        ),
-        timeout=settings.query_rewrite_timeout_seconds,
-    )
-    content = response.choices[0].message.content
-    if not isinstance(content, str):
-        raise ValueError("Expected string JSON content from LLM")
-    parsed = parse_query_rewrite_output(content)
-    if diagnostics:
-        diagnostics.emit(
-            "query_rewrite.raw_result",
-            "Query rewrite call completed",
-            {"target": target, "variant_count": len(parsed.variants)},
-        )
-    return parsed.variants, response.model or "unknown"
-
-
-def _build_plan(
-    *,
-    query: str,
-    policy: RewritePolicy,
-    intent: RewriteIntent,
-    keyword_variants: list[QueryVariant],
-    neural_variants: list[QueryVariant],
-    include_keyword: bool,
-    include_neural: bool,
-    max_variants: int,
-) -> QueryRewritePlan:
-    cleaned = normalize_query(query)
-    variants: list[QueryVariant] = []
-    if include_keyword:
-        variants.append(
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query=cleaned,
-                why="Original query preserved as a keyword search candidate.",
-                weight=1.15 if intent == "code" else 1.0,
-            )
-        )
-        keyword_limit = max_variants if not include_neural else max(1, min(2, max_variants - 1))
-        for variant in keyword_variants:
-            if len(variants) >= keyword_limit:
-                break
-            variants.append(
-                variant.model_copy(
-                    update={"query": inject_missing_terms(variant.query, policy.must_keep_terms)}
-                )
-            )
-    if include_neural and len(variants) < max_variants:
-        variants.extend(
-            variant.model_copy(
-                update={"query": inject_missing_terms(variant.query, policy.must_keep_terms)}
-            )
-            for variant in neural_variants[:1]
-        )
-    if not variants:
-        return _fallback_plan(query, policy, "Rewrite produced no usable variants.")
-    final_queries = dedupe_keep_order([variant.query for variant in variants])
-    return QueryRewritePlan(
-        original_query=query,
-        policy=policy,
-        variants=variants,
-        final_queries=final_queries,
-    )
 
 
 async def rewrite_search_query(
@@ -192,21 +70,27 @@ async def rewrite_search_query(
         if not settings.query_rewrite_enabled:
             duration = time.time() - start_time
             record_query_rewrite("bypass", 1, False, duration, "disabled")
-            return _fallback_plan(query, policy, "Query rewriting disabled.")
+            return build_fallback_plan(query, policy, "Query rewriting disabled.")
         if policy.mode == "bypass":
             duration = time.time() - start_time
             record_query_rewrite("bypass", 1, True, duration, "bypass")
-            return _fallback_plan(query, policy, policy.reason)
+            return build_fallback_plan(query, policy, policy.reason)
 
         router = get_query_rewrite_router()
         if router is None:
             duration = time.time() - start_time
             record_query_rewrite("fallback", 1, False, duration, "fallback")
-            return _fallback_plan(query, policy, "LiteLLM Router not available or no API keys configured.")
+            return build_fallback_plan(
+                query, policy, "LiteLLM Router not available or no API keys configured."
+            )
 
-        include_keyword, include_neural, active_provider_names = _active_target_flags(providers)
-        if not include_keyword and not include_neural:
-            return _fallback_plan(query, policy, "No active providers resolved for query rewrite.")
+        include_keyword, include_neural, include_community, active_provider_names = (
+            active_target_flags(providers)
+        )
+        if not include_keyword and not include_neural and not include_community:
+            return build_fallback_plan(
+                query, policy, "No active providers resolved for query rewrite."
+            )
 
         if diagnostics:
             diagnostics.emit(
@@ -222,42 +106,114 @@ async def rewrite_search_query(
             )
 
         try:
+            classifier_client = get_functiongemma_client()
+            classifier = await classifier_client.classify_query(
+                normalized_query,
+                research_goal=research_goal,
+                must_keep_terms=policy.must_keep_terms,
+            )
+            if diagnostics:
+                diagnostics.emit(
+                    "query_rewrite.classifier",
+                    "FunctionGemma classified query",
+                    {
+                        "intent": classifier.intent,
+                        "should_decompose": classifier.should_decompose,
+                        "confidence": classifier.confidence,
+                        "routing": classifier.routing.model_dump(),
+                    },
+                )
+
+            filtered_include_keyword = include_keyword and classifier.routing.keyword
+            filtered_include_neural = include_neural and classifier.routing.neural
+            filtered_include_community = (
+                include_community and classifier.routing.community
+            )
+            if not any(
+                [filtered_include_keyword, filtered_include_neural, filtered_include_community]
+            ):
+                filtered_include_keyword = include_keyword
+                filtered_include_neural = include_neural
+                filtered_include_community = include_community
+
+            decomposition = None
+            subquestion_variants: list[QueryVariant] | None = None
+            if settings.query_decomposition_enabled and classifier.should_decompose:
+                decomposition = await classifier_client.decompose_query(
+                    normalized_query,
+                    research_goal=research_goal,
+                    classifier=classifier,
+                    must_keep_terms=policy.must_keep_terms,
+                    max_subquestions=settings.query_decomposition_max_subquestions,
+                )
+                if decomposition.should_decompose and decomposition.sub_questions:
+                    subquestion_variants = [
+                        QueryVariant(
+                            kind="subquestion",
+                            target=sub_question.target,
+                            query=sub_question.question,
+                            why=sub_question.why,
+                            weight=sub_question.weight,
+                        )
+                        for sub_question in decomposition.sub_questions
+                    ]
+                    if diagnostics:
+                        diagnostics.emit(
+                            "query_rewrite.decomposition",
+                            "FunctionGemma decomposed query",
+                            {
+                                "should_decompose": decomposition.should_decompose,
+                                "sub_questions": [sq.model_dump() for sq in decomposition.sub_questions],
+                            },
+                        )
+
+            async def _safe_variants(
+                target: str,
+            ) -> tuple[list[QueryVariant], str | None] | None:
+                try:
+                    variants, model = await request_variants(
+                        router=router,
+                        query=normalized_query,
+                        intent=intent,
+                        target=target,
+                        policy=policy,
+                        diagnostics=diagnostics,
+                        research_goal=research_goal,
+                    )
+                    return variants, model
+                except Exception as exc:
+                    logger.warning("%s rewrite target failed: %s", target, exc)
+                    return None
+
             tasks = []
-            if include_keyword:
-                tasks.append(
-                    _request_variants(
-                        router=router,
-                        query=normalized_query,
-                        intent=intent,
-                        target="keyword",
-                        policy=policy,
-                        diagnostics=diagnostics,
-                        research_goal=research_goal,
-                    )
-                )
-            if include_neural:
-                tasks.append(
-                    _request_variants(
-                        router=router,
-                        query=normalized_query,
-                        intent=intent,
-                        target="neural",
-                        policy=policy,
-                        diagnostics=diagnostics,
-                        research_goal=research_goal,
-                    )
-                )
-            results = await asyncio.gather(*tasks)
+            task_names: list[str] = []
+            if filtered_include_keyword:
+                tasks.append(_safe_variants("keyword"))
+                task_names.append("keyword")
+            if filtered_include_neural:
+                tasks.append(_safe_variants("neural"))
+                task_names.append("neural")
+            if filtered_include_community:
+                tasks.append(_safe_variants("community"))
+                task_names.append("community")
+            results = await asyncio.gather(*tasks)  # type: ignore[var-annotated]
+
             keyword_raw: list[QueryVariant] = []
             neural_raw: list[QueryVariant] = []
+            community_raw: list[QueryVariant] = []
             models_used: list[str] = []
-            if include_keyword:
-                keyword_raw, model_name = results[0]
-                models_used.append(model_name)
-            if include_neural:
-                neural_result, model_name = results[-1]
-                neural_raw = neural_result
-                models_used.append(model_name)
+            for target_name, raw in zip(task_names, results, strict=False):
+                if raw is None:
+                    continue
+                variants, model = raw
+                if model:
+                    models_used.append(model)
+                if target_name == "keyword":
+                    keyword_raw = variants
+                elif target_name == "neural":
+                    neural_raw = variants
+                elif target_name == "community":
+                    community_raw = variants
 
             keyword_valid = validate_keyword_variants(
                 keyword_raw,
@@ -267,25 +223,49 @@ async def rewrite_search_query(
             keyword_valid = [
                 variant
                 for variant in keyword_valid
-                if normalize_query(variant.query).casefold() != normalized_query.casefold()
+                if normalize_query(variant.query).casefold()
+                != normalized_query.casefold()
             ]
             neural_valid = validate_neural_variants(
                 neural_raw,
                 must_keep_terms=policy.must_keep_terms,
             )
-            plan = _build_plan(
+            community_valid = validate_community_variants(
+                community_raw,
+                must_keep_terms=policy.must_keep_terms,
+            )
+            community_valid = [
+                variant
+                for variant in community_valid
+                if normalize_query(variant.query).casefold()
+                != normalized_query.casefold()
+            ]
+            plan = build_rewrite_plan(
                 query=query,
                 policy=policy,
                 intent=intent,
                 keyword_variants=keyword_valid,
                 neural_variants=neural_valid,
-                include_keyword=include_keyword,
-                include_neural=include_neural,
+                community_variants=community_valid,
+                subquestion_variants=subquestion_variants,
+                include_keyword=filtered_include_keyword,
+                include_neural=filtered_include_neural,
+                include_community=filtered_include_community,
+                classifier=classifier,
+                decomposition=decomposition,
                 max_variants=max_variants,
             )
             duration = time.time() - start_time
-            record_query_rewrite("expand", len(plan.variants), False, duration, ",".join(models_used) or "unknown")
-            span.set_attribute("rewrite.active_provider_names", ",".join(active_provider_names))
+            record_query_rewrite(
+                "expand",
+                len(plan.variants),
+                False,
+                duration,
+                ",".join(models_used) or "unknown",
+            )
+            span.set_attribute(
+                "rewrite.active_provider_names", ",".join(active_provider_names)
+            )
             emit_observability_event(
                 logger,
                 "query.rewrite.completed",
@@ -302,7 +282,7 @@ async def rewrite_search_query(
                 models_used=models_used,
             )
             return plan
-        except (TimeoutError, ValidationError, ValueError, IndexError) as exc:
+        except Exception as exc:
             logger.warning("Query rewrite failed, using original query: %s", exc)
             duration = time.time() - start_time
             record_query_rewrite("fallback", 1, False, duration, "error")
@@ -319,4 +299,6 @@ async def rewrite_search_query(
                 error_message=str(exc),
                 final_queries=[normalized_query],
             )
-            return _fallback_plan(query, policy, "Rewrite failed; original query preserved.")
+            return build_fallback_plan(
+                query, policy, "Rewrite failed; original query preserved."
+            )

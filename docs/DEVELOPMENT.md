@@ -110,9 +110,9 @@ src/kindly_web_search_mcp_server/
 │   ├── query_rewrite_models.py # Query variant data structures
 │   ├── query_rewrite_prompts.py # Production prompts for rewrite
 │   ├── query_rewrite_validate.py # Rewrite output validation
-│   ├── query_policy.py    # Intent classification (bypass/light_rewrite/decompose)
+│   ├── query_policy.py    # Precision-signal classification (bypass vs expand)
 │   ├── query_policy_resolver.py # Policy resolution backend selection
-│   └── query_policy_hf.py # HF Space query policy backend
+│   └── query_classifier_client.py # FunctionGemma intent/decomposition client
 │
 ├── content/               # URL → Markdown resolution pipeline
 │   ├── resolver.py        # Staged fallback dispatcher
@@ -158,7 +158,8 @@ src/kindly_web_search_mcp_server/
 │   ├── __init__.py        # Rerank exports
 │   ├── core.py            # Rerank orchestration
 │   ├── bi_encoder.py      # Bi-encoder similarity
-│   ├── jina.py            # Jina API cross-encoder reranking
+│   ├── voyage.py          # Voyage API primary reranking
+│   ├── jina.py            # Jina fallback cross-encoder reranking
 │   └── diversity.py       # MMR diversity filtering
 │
 ├── middleware/            # FastMCP middleware
@@ -657,10 +658,12 @@ KINDLY_DIAG {"request_id":"uuid","stage":"resolver.start","msg":"Resolving URL",
 
 ### OpenTelemetry Tracing
 
-The server uses OpenTelemetry for distributed tracing. Enable via the `observability` extras:
+The server uses OpenTelemetry for distributed tracing. Install the default dependencies and set the OTLP endpoint:
 
 ```bash
-uv pip install -e ".[observability]"
+uv sync
+# or
+uv pip install -e .
 ```
 
 Traces are exported to OTLP endpoint (default: `http://localhost:4318/v1/traces`).

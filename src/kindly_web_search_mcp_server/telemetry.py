@@ -27,30 +27,50 @@ SEMANTIC CONVENTIONS:
     Provider: provider.name, provider.status, provider.result_count
     Content: content.stage, content.status, content.size_bytes
 """
+
 from __future__ import annotations
 
 import os
 import logging
+import json
 import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from opentelemetry import trace, metrics
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION, SERVICE_NAMESPACE
 
-# HTTP exporter (Grafana Cloud uses HTTP/protobuf)
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-
-# Prometheus exporter for Alloy scraping (optional)
+# SDK imports are part of the default runtime dependencies.
 try:
-    from opentelemetry.exporter.prometheus import PrometheusMetricReader
-    PROMETHEUS_AVAILABLE = True
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    from opentelemetry.sdk.resources import (
+        Resource,
+        SERVICE_NAME,
+        SERVICE_VERSION,
+        SERVICE_NAMESPACE,
+    )
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter,
+    )
+
+    _OTEL_SDK_AVAILABLE = True
 except ImportError:
-    PROMETHEUS_AVAILABLE = False
+    _OTEL_SDK_AVAILABLE = False
+
+
+# Prometheus exporter for Alloy scraping (optional). Keep this import lazy:
+# importing prometheus_client at MCP startup can block in Windows WMI platform
+# detection before the stdio handshake starts.
+def _get_prometheus_metric_reader() -> Any | None:
+    try:
+        from opentelemetry.exporter.prometheus import PrometheusMetricReader
+    except ImportError:
+        return None
+    return PrometheusMetricReader
+
 
 # Logging bridge (experimental but useful)
 try:
@@ -59,6 +79,7 @@ try:
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
     from opentelemetry.instrumentation.logging.handler import LoggingHandler
+
     LOGS_AVAILABLE = True
 except ImportError:
     LOGS_AVAILABLE = False
@@ -287,6 +308,7 @@ _domain_diversity_histogram: metrics.Histogram | None = None
 # INITIALIZATION
 # ============================================================================
 
+
 def init_telemetry(
     service_name: str = "web-search-mcp",
     service_version: str = "1.0.8",
@@ -319,18 +341,29 @@ def init_telemetry(
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
 
+    if not endpoint:
+        if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
+            logging.info(
+                "OpenTelemetry runtime packages are unavailable, but no OTLP endpoint is configured; "
+                "telemetry remains disabled."
+            )
+        else:
+            logging.info(
+                "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
+                "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry"
+            )
+        return
+
+    if not _OTEL_SDK_AVAILABLE:
+        logging.warning(
+            "OpenTelemetry SDK not installed; telemetry export disabled and MCP startup will continue."
+        )
+        return
+
     # Allow port override from env
     if prometheus_port is None:
         port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
         prometheus_port = int(port_env) if port_env else None
-
-    if not endpoint:
-        # Telemetry disabled - informational, not error
-        logging.info(
-            "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
-            "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry"
-        )
-        return
 
     # Parse headers (format: "Authorization=Basic%20<token>" or "Authorization: Basic <token>")
     headers: dict[str, str] = {}
@@ -354,21 +387,17 @@ def init_telemetry(
         SERVICE_NAMESPACE: "kindly-mcp",
         SERVICE_VERSION: service_version,
         "service.instance.id": f"{hostname}-{pid}",
-
         # Deployment context
         "deployment.environment": os.environ.get("DEPLOYMENT_ENV", "development"),
-
         # Host context
         "host.name": hostname,
         "host.arch": "amd64",
         "host.os.type": os.environ.get("HOST_OS_TYPE", "windows"),
-
         # Process context
         "process.pid": pid,
         "process.executable.name": "python",
         "process.runtime.name": "cpython",
         "process.runtime.version": os.environ.get("PYTHON_VERSION", "3.12"),
-
         # OTEL SDK info
         "telemetry.sdk.language": "python",
         "telemetry.sdk.name": "opentelemetry",
@@ -398,6 +427,7 @@ def init_telemetry(
     # Instrument httpx for automatic HTTP client spans (HTTP semantic conventions)
     try:
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
         HTTPXClientInstrumentor().instrument()
         logging.info("HTTPX auto-instrumentation enabled - all HTTP calls traced")
     except ImportError:
@@ -409,9 +439,12 @@ def init_telemetry(
     # === METRICS ===
     metric_readers: list[Any] = []
 
-    if prometheus_port and PROMETHEUS_AVAILABLE:
+    prometheus_metric_reader = (
+        _get_prometheus_metric_reader() if prometheus_port else None
+    )
+    if prometheus_port and prometheus_metric_reader is not None:
         # Prometheus endpoint for Alloy scraping
-        prometheus_reader = PrometheusMetricReader(port=prometheus_port)
+        prometheus_reader = prometheus_metric_reader(port=prometheus_port)
         metric_readers.append(prometheus_reader)
         logging.info(f"Prometheus metrics endpoint started on port {prometheus_port}")
     else:
@@ -440,7 +473,9 @@ def init_telemetry(
                 headers=headers,
             )
             logger_provider = LoggerProvider(resource=resource)
-            logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+            logger_provider.add_log_record_processor(
+                BatchLogRecordProcessor(log_exporter)
+            )
             set_logger_provider(logger_provider)
 
             global _otel_logging_handler
@@ -452,29 +487,68 @@ def init_telemetry(
                 setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
                 logging.getLogger().addHandler(_otel_logging_handler)
 
-            logging.info("OTLP log export enabled - standard logging bridged to OpenTelemetry")
+            logging.info(
+                "OTLP log export enabled - standard logging bridged to OpenTelemetry"
+            )
         except Exception as e:
             logging.warning(f"Failed to initialize log export: {e}")
 
-    # Configure structlog for Loki JSON format with trace context injection
-    # Set KINDLY_STRUCTURED_LOGGING=true to enable JSON output (recommended for Grafana Loki)
-    # Default: plain text logs (easier for local development)
+    # Configure structlog for Loki JSON format with trace context injection.
+    # Default: plain text logs for local development unless telemetry export is enabled.
     try:
         from .utils.structured_logging import configure_structlog
-        json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in ("true", "1", "yes")
+
+        json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        if endpoint and not json_logs:
+            json_logs = True
         configure_structlog(json_output=json_logs)
         if json_logs:
             logging.info("Structured logging enabled - JSON format for Grafana Loki")
     except ImportError:
-        logging.info("structlog not installed - using standard Python logging. Install: pip install structlog")
+        logging.info(
+            "structlog not installed - using standard Python logging. Install: pip install structlog"
+        )
 
     _initialized = True
-    logging.info(f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}")
+    logging.info(
+        f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}"
+    )
+    endpoint_url = urlparse(endpoint)
+    logging.info(
+        json.dumps(
+            {
+                "event": "telemetry.startup",
+                "service_name": service_name,
+                "service_namespace": "kindly-mcp",
+                "service_version": service_version,
+                "deployment_environment": os.environ.get(
+                    "DEPLOYMENT_ENV", "development"
+                ),
+                "host_name": hostname,
+                "process_pid": pid,
+                "otlp_endpoint_host": endpoint_url.hostname,
+                "otlp_endpoint_path": endpoint_url.path,
+                "signals": {
+                    "traces": True,
+                    "metrics": True,
+                    "logs": LOGS_AVAILABLE,
+                    "httpx_instrumentation": True,
+                },
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+        )
+    )
 
 
 # ============================================================================
 # TRACER / METER ACCESSORS
 # ============================================================================
+
 
 def get_tracer(name: str = "web-search-mcp") -> trace.Tracer:
     """Get tracer for manual span creation."""
@@ -490,10 +564,16 @@ def get_meter(name: str = "web-search-mcp") -> metrics.Meter:
 # METRIC GETTERS (Lazy initialization)
 # ============================================================================
 
-def get_provider_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Counter]:
+
+def get_provider_metrics() -> tuple[
+    metrics.Counter, metrics.Histogram, metrics.Counter
+]:
     """Get provider metrics (call counter, duration histogram, results counter)."""
     meter = get_meter()
-    global _provider_call_counter, _provider_duration_histogram, _provider_results_counter
+    global \
+        _provider_call_counter, \
+        _provider_duration_histogram, \
+        _provider_results_counter
 
     if _provider_call_counter is None:
         _provider_call_counter = meter.create_counter(
@@ -508,7 +588,18 @@ def get_provider_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.
             description="Provider call latency distribution",
             unit="s",
             # Bucket boundaries: 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s
-            explicit_bucket_boundaries_advisory=[0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0],
+            explicit_bucket_boundaries_advisory=[
+                0.01,
+                0.02,
+                0.05,
+                0.1,
+                0.2,
+                0.5,
+                1.0,
+                2.0,
+                5.0,
+                10.0,
+            ],
         )
 
     if _provider_results_counter is None:
@@ -518,10 +609,16 @@ def get_provider_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.
             unit="1",
         )
 
-    return _provider_call_counter, _provider_duration_histogram, _provider_results_counter
+    return (
+        _provider_call_counter,
+        _provider_duration_histogram,
+        _provider_results_counter,
+    )
 
 
-def get_search_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Histogram]:
+def get_search_metrics() -> tuple[
+    metrics.Counter, metrics.Histogram, metrics.Histogram
+]:
     """Get search metrics (total counter, duration histogram, merge histogram)."""
     meter = get_meter()
     global _search_total_counter, _search_duration_histogram, _search_merge_histogram
@@ -538,7 +635,17 @@ def get_search_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
             name="web_search_duration_seconds",
             description="Complete search pipeline latency",
             unit="s",
-            explicit_bucket_boundaries_advisory=[0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+            explicit_bucket_boundaries_advisory=[
+                0.1,
+                0.2,
+                0.5,
+                1.0,
+                2.0,
+                5.0,
+                10.0,
+                30.0,
+                60.0,
+            ],
         )
 
     if _search_merge_histogram is None:
@@ -620,7 +727,16 @@ def get_content_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
             name="web_search_content_duration_seconds",
             description="Content extraction latency per stage",
             unit="s",
-            explicit_bucket_boundaries_advisory=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0],
+            explicit_bucket_boundaries_advisory=[
+                0.1,
+                0.5,
+                1.0,
+                2.0,
+                5.0,
+                10.0,
+                20.0,
+                30.0,
+            ],
         )
 
     return _content_resolution_counter, _content_duration_histogram
@@ -679,10 +795,16 @@ def get_rewrite_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     return _rewrite_counter, _rewrite_duration_histogram
 
 
-def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Histogram, metrics.Counter]:
+def get_rerank_metrics() -> tuple[
+    metrics.Counter, metrics.Histogram, metrics.Histogram, metrics.Counter
+]:
     """Get reranking metrics."""
     meter = get_meter()
-    global _rerank_counter, _rerank_duration_histogram, _rerank_score_histogram, _rerank_diversity_counter
+    global \
+        _rerank_counter, \
+        _rerank_duration_histogram, \
+        _rerank_score_histogram, \
+        _rerank_diversity_counter
 
     if _rerank_counter is None:
         _rerank_counter = meter.create_counter(
@@ -705,7 +827,19 @@ def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
             description="Relevance score distribution from Jina reranker (shifted +1.0 to handle negative scores)",
             unit="1",
             # Buckets for shifted range: raw scores -1.0 to 1.0 become 0.0 to 2.0
-            explicit_bucket_boundaries_advisory=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0],
+            explicit_bucket_boundaries_advisory=[
+                0.0,
+                0.2,
+                0.4,
+                0.6,
+                0.8,
+                1.0,
+                1.2,
+                1.4,
+                1.6,
+                1.8,
+                2.0,
+            ],
         )
 
     if _rerank_diversity_counter is None:
@@ -715,10 +849,17 @@ def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
             unit="1",
         )
 
-    return _rerank_counter, _rerank_duration_histogram, _rerank_score_histogram, _rerank_diversity_counter
+    return (
+        _rerank_counter,
+        _rerank_duration_histogram,
+        _rerank_score_histogram,
+        _rerank_diversity_counter,
+    )
 
 
-def get_semantic_cache_metrics() -> tuple[metrics.Histogram, metrics.Counter, metrics.Counter]:
+def get_semantic_cache_metrics() -> tuple[
+    metrics.Histogram, metrics.Counter, metrics.Counter
+]:
     """Get semantic cache detailed metrics."""
     meter = get_meter()
     global _cache_score_histogram, _cache_ttl_counter, _cache_hybrid_counter
@@ -728,7 +869,16 @@ def get_semantic_cache_metrics() -> tuple[metrics.Histogram, metrics.Counter, me
             name="web_search_semantic_cache_score_distribution",
             description="Similarity scores for semantic cache lookups",
             unit="1",
-            explicit_bucket_boundaries_advisory=[0.7, 0.75, 0.8, 0.82, 0.85, 0.9, 0.95, 1.0],
+            explicit_bucket_boundaries_advisory=[
+                0.7,
+                0.75,
+                0.8,
+                0.82,
+                0.85,
+                0.9,
+                0.95,
+                1.0,
+            ],
         )
 
     if _cache_ttl_counter is None:
@@ -856,6 +1006,7 @@ def get_query_quality_metrics() -> tuple[metrics.Histogram, metrics.Histogram]:
 # RECORDING FUNCTIONS (Metrics)
 # ============================================================================
 
+
 def record_provider_call(
     provider: str,
     duration_seconds: float,
@@ -878,25 +1029,33 @@ def record_provider_call(
     status = STATUS_SUCCESS if status_code < 400 else STATUS_ERROR
 
     # Record call count with full attributes
-    call_counter.add(1, {
-        PROVIDER_NAME: provider,
-        HTTP_RESPONSE_STATUS_CODE: status_code,
-        PROVIDER_STATUS: status,
-        PROVIDER_ERROR_TYPE: error_type or "",
-    })
+    call_counter.add(
+        1,
+        {
+            PROVIDER_NAME: provider,
+            HTTP_RESPONSE_STATUS_CODE: status_code,
+            PROVIDER_STATUS: status,
+            PROVIDER_ERROR_TYPE: error_type or "",
+        },
+    )
 
     # Record duration
-    duration_histogram.record(duration_seconds, {
-        PROVIDER_NAME: provider,
-        HTTP_RESPONSE_STATUS_CODE: status_code,
-    })
+    duration_histogram.record(
+        duration_seconds,
+        {
+            PROVIDER_NAME: provider,
+            HTTP_RESPONSE_STATUS_CODE: status_code,
+        },
+    )
 
     # Record results (only meaningful on success)
     if status == STATUS_SUCCESS and result_count > 0:
         results_counter.add(result_count, {PROVIDER_NAME: provider})
 
 
-def record_cache_lookup(cache_type: str, hit: bool, duration_seconds: float | None = None) -> None:
+def record_cache_lookup(
+    cache_type: str, hit: bool, duration_seconds: float | None = None
+) -> None:
     """Record cache hit/miss and optional latency.
 
     Args:
@@ -906,16 +1065,22 @@ def record_cache_lookup(cache_type: str, hit: bool, duration_seconds: float | No
     """
     request_counter, duration_histogram = get_cache_metrics()
 
-    request_counter.add(1, {
-        CACHE_TYPE: cache_type,
-        CACHE_HIT: str(hit).lower(),
-    })
-
-    if duration_seconds is not None:
-        duration_histogram.record(duration_seconds, {
+    request_counter.add(
+        1,
+        {
             CACHE_TYPE: cache_type,
             CACHE_HIT: str(hit).lower(),
-        })
+        },
+    )
+
+    if duration_seconds is not None:
+        duration_histogram.record(
+            duration_seconds,
+            {
+                CACHE_TYPE: cache_type,
+                CACHE_HIT: str(hit).lower(),
+            },
+        )
 
 
 def record_search_request(
@@ -935,10 +1100,13 @@ def record_search_request(
 def record_merge(duration_seconds: float, input_lists: int, output_count: int) -> None:
     """Record RRF merge metrics."""
     _, _, merge_histogram = get_search_metrics()
-    merge_histogram.record(duration_seconds, {
-        "merge.input_lists": input_lists,
-        "merge.output_count": output_count,
-    })
+    merge_histogram.record(
+        duration_seconds,
+        {
+            "merge.input_lists": input_lists,
+            "merge.output_count": output_count,
+        },
+    )
 
 
 def record_mcp_tool_call(tool_name: str, success: bool) -> None:
@@ -946,16 +1114,22 @@ def record_mcp_tool_call(tool_name: str, success: bool) -> None:
     tool_counter, error_counter = get_mcp_metrics()
 
     status = STATUS_SUCCESS if success else STATUS_ERROR
-    tool_counter.add(1, {
-        GEN_AI_TOOL_NAME: tool_name,
-        PROVIDER_STATUS: status,
-    })
+    tool_counter.add(
+        1,
+        {
+            GEN_AI_TOOL_NAME: tool_name,
+            PROVIDER_STATUS: status,
+        },
+    )
 
     if not success:
-        error_counter.add(1, {
-            GEN_AI_TOOL_NAME: tool_name,
-            ERROR_TYPE: "tool_execution_error",
-        })
+        error_counter.add(
+            1,
+            {
+                GEN_AI_TOOL_NAME: tool_name,
+                ERROR_TYPE: "tool_execution_error",
+            },
+        )
 
 
 def record_content_resolution(
@@ -971,17 +1145,23 @@ def record_content_resolution(
     resolution_counter, duration_histogram = get_content_metrics()
 
     status = STATUS_SUCCESS if success else "fallback"
-    resolution_counter.add(1, {
-        CONTENT_STAGE: stage,
-        CONTENT_STATUS: status,
-        CONTENT_EXTRACTION_METHOD: extraction_method or "",
-    })
-
-    if duration_seconds is not None:
-        duration_histogram.record(duration_seconds, {
+    resolution_counter.add(
+        1,
+        {
             CONTENT_STAGE: stage,
             CONTENT_STATUS: status,
-        })
+            CONTENT_EXTRACTION_METHOD: extraction_method or "",
+        },
+    )
+
+    if duration_seconds is not None:
+        duration_histogram.record(
+            duration_seconds,
+            {
+                CONTENT_STAGE: stage,
+                CONTENT_STATUS: status,
+            },
+        )
 
 
 def record_rrf_merge(
@@ -1005,27 +1185,36 @@ def record_rrf_merge(
     merge_counter, contribution_counter, score_histogram = get_rrf_metrics()
 
     # Record merge operation
-    merge_counter.add(1, {
-        RRF_INPUT_LISTS: input_lists,
-        RRF_INPUT_TOTAL: input_total,
-        RRF_OUTPUT_TOTAL: output_total,
-        RRF_DISCARDED_COUNT: discarded_count,
-        RRF_OVERLAP_RATE: round(overlap_rate, 3),
-    })
+    merge_counter.add(
+        1,
+        {
+            RRF_INPUT_LISTS: input_lists,
+            RRF_INPUT_TOTAL: input_total,
+            RRF_OUTPUT_TOTAL: output_total,
+            RRF_DISCARDED_COUNT: discarded_count,
+            RRF_OVERLAP_RATE: round(overlap_rate, 3),
+        },
+    )
 
     # Record per-provider contribution
     for provider, count in provider_contributions.items():
-        contribution_counter.add(count, {
-            PROVIDER_NAME: provider,
-        })
+        contribution_counter.add(
+            count,
+            {
+                PROVIDER_NAME: provider,
+            },
+        )
 
 
 def record_rrf_score(score: float, position: int) -> None:
     """Record individual RRF score for distribution analysis."""
     _, _, score_histogram = get_rrf_metrics()
-    score_histogram.record(score, {
-        RESULT_POSITION: position,
-    })
+    score_histogram.record(
+        score,
+        {
+            RESULT_POSITION: position,
+        },
+    )
 
 
 def record_query_rewrite(
@@ -1046,17 +1235,23 @@ def record_query_rewrite(
     """
     rewrite_counter, rewrite_histogram = get_rewrite_metrics()
 
-    rewrite_counter.add(1, {
-        REWRITE_POLICY: policy,
-        REWRITE_VARIANT_COUNT: variant_count,
-        REWRITE_HAS_PRECISION_SIGNALS: str(has_precision_signals).lower(),
-        REWRITE_MODEL: model,
-    })
+    rewrite_counter.add(
+        1,
+        {
+            REWRITE_POLICY: policy,
+            REWRITE_VARIANT_COUNT: variant_count,
+            REWRITE_HAS_PRECISION_SIGNALS: str(has_precision_signals).lower(),
+            REWRITE_MODEL: model,
+        },
+    )
 
     if duration_seconds is not None:
-        rewrite_histogram.record(duration_seconds, {
-            REWRITE_POLICY: policy,
-        })
+        rewrite_histogram.record(
+            duration_seconds,
+            {
+                REWRITE_POLICY: policy,
+            },
+        )
 
 
 def record_rerank_stage(
@@ -1065,6 +1260,7 @@ def record_rerank_stage(
     output_count: int,
     duration_seconds: float | None = None,
     relevance_scores: list[float] | None = None,
+    model: str | None = None,
 ) -> None:
     """Record reranking pipeline stage.
 
@@ -1078,18 +1274,25 @@ def record_rerank_stage(
     rerank_counter, duration_histogram, score_histogram, _ = get_rerank_metrics()
 
     removed_count = input_count - output_count
-    rerank_counter.add(1, {
-        RERANK_STAGE: stage,
-        RERANK_INPUT_COUNT: input_count,
-        RERANK_OUTPUT_COUNT: output_count,
-        RERANK_REMOVED_COUNT: removed_count,
-        RERANK_MODEL: "jina-reranker-v3" if stage == "jina" else "",
-    })
+    rerank_counter.add(
+        1,
+        {
+            RERANK_STAGE: stage,
+            RERANK_INPUT_COUNT: input_count,
+            RERANK_OUTPUT_COUNT: output_count,
+            RERANK_REMOVED_COUNT: removed_count,
+            RERANK_MODEL: model or "",
+        },
+    )
 
     if duration_seconds is not None:
-        duration_histogram.record(duration_seconds, {
-            RERANK_STAGE: stage,
-        })
+        duration_histogram.record(
+            duration_seconds,
+            {
+                RERANK_STAGE: stage,
+                RERANK_MODEL: model or "",
+            },
+        )
 
     # Record individual relevance scores for distribution
     # IMPORTANT: Jina reranker can return negative scores (valid for relevance ranking)
@@ -1101,10 +1304,13 @@ def record_rerank_stage(
             # Shift score by +1.0 to ensure histogram receives positive values
             # Jina scores typically range from -1.0 to 1.0, so shifted range is 0.0 to 2.0
             shifted_score = score + 1.0
-            score_histogram.record(shifted_score, {
-                RERANK_STAGE: stage,
-                "rerank.score_shifted": "true",  # Indicate transformation for query interpretation
-            })
+            score_histogram.record(
+                shifted_score,
+                {
+                    RERANK_STAGE: stage,
+                    "rerank.score_shifted": "true",  # Indicate transformation for query interpretation
+                },
+            )
 
 
 def record_diversity_removal(
@@ -1113,10 +1319,13 @@ def record_diversity_removal(
 ) -> None:
     """Record a result removed by diversity pruning."""
     _, _, _, diversity_counter = get_rerank_metrics()
-    diversity_counter.add(1, {
-        RERANK_DIVERSITY_THRESHOLD: threshold,
-        RERANK_SIMILARITY_SCORE: round(similarity_score, 3),
-    })
+    diversity_counter.add(
+        1,
+        {
+            RERANK_DIVERSITY_THRESHOLD: threshold,
+            RERANK_SIMILARITY_SCORE: round(similarity_score, 3),
+        },
+    )
 
 
 def record_semantic_cache_lookup(
@@ -1140,24 +1349,33 @@ def record_semantic_cache_lookup(
     score_histogram, ttl_counter, hybrid_counter = get_semantic_cache_metrics()
 
     # Record similarity score distribution
-    score_histogram.record(similarity_score, {
-        CACHE_HIT: str(hit).lower(),
-        CACHE_CONTENT_TYPE: content_type or "general",
-    })
+    score_histogram.record(
+        similarity_score,
+        {
+            CACHE_HIT: str(hit).lower(),
+            CACHE_CONTENT_TYPE: content_type or "general",
+        },
+    )
 
     # Record TTL used (for cache writes)
     if ttl_seconds is not None:
-        ttl_counter.add(1, {
-            CACHE_CONTENT_TYPE: content_type or "general",
-            CACHE_TTL_SECONDS: ttl_seconds,
-        })
+        ttl_counter.add(
+            1,
+            {
+                CACHE_CONTENT_TYPE: content_type or "general",
+                CACHE_TTL_SECONDS: ttl_seconds,
+            },
+        )
 
     # Record hybrid search method
     if search_type is not None:
-        hybrid_counter.add(1, {
-            CACHE_SEARCH_TYPE: search_type,
-            CACHE_VECTOR_DISTANCE: round(vector_distance or 0.0, 4),
-        })
+        hybrid_counter.add(
+            1,
+            {
+                CACHE_SEARCH_TYPE: search_type,
+                CACHE_VECTOR_DISTANCE: round(vector_distance or 0.0, 4),
+            },
+        )
 
 
 def record_circuit_breaker_state(
@@ -1176,11 +1394,14 @@ def record_circuit_breaker_state(
 
     # Map state to numeric value for gauge
     state_value = 0.0 if state == "closed" else (1.0 if state == "open" else 0.5)
-    state_gauge.add(state_value, {
-        PROVIDER_NAME: provider,
-        CIRCUIT_STATE: state,
-        CIRCUIT_FAILURE_COUNT: failure_count,
-    })
+    state_gauge.add(
+        state_value,
+        {
+            PROVIDER_NAME: provider,
+            CIRCUIT_STATE: state,
+            CIRCUIT_FAILURE_COUNT: failure_count,
+        },
+    )
 
 
 def record_circuit_breaker_event(
@@ -1196,11 +1417,14 @@ def record_circuit_breaker_event(
         failure_threshold: Threshold that triggered the event
     """
     _, event_counter = get_circuit_metrics()
-    event_counter.add(1, {
-        PROVIDER_NAME: provider,
-        CIRCUIT_EVENT: event,
-        CIRCUIT_FAILURE_THRESHOLD: failure_threshold,
-    })
+    event_counter.add(
+        1,
+        {
+            PROVIDER_NAME: provider,
+            CIRCUIT_EVENT: event,
+            CIRCUIT_FAILURE_THRESHOLD: failure_threshold,
+        },
+    )
 
 
 def record_gemini_search(
@@ -1211,11 +1435,14 @@ def record_gemini_search(
 ) -> None:
     """Record Gemini search specifics."""
     gemini_counter = get_gemini_metrics()
-    gemini_counter.add(1, {
-        GEMINI_GROUNDING_QUERIES: grounding_queries,
-        GEMINI_GROUNDING_CHUNKS: grounding_chunks,
-        GEMINI_STRUCTURED_OUTPUT: str(structured_output).lower(),
-    })
+    gemini_counter.add(
+        1,
+        {
+            GEMINI_GROUNDING_QUERIES: grounding_queries,
+            GEMINI_GROUNDING_CHUNKS: grounding_chunks,
+            GEMINI_STRUCTURED_OUTPUT: str(structured_output).lower(),
+        },
+    )
 
 
 def record_perplexity_search(
@@ -1226,11 +1453,14 @@ def record_perplexity_search(
 ) -> None:
     """Record Perplexity search specifics."""
     perplexity_counter = get_perplexity_metrics()
-    perplexity_counter.add(1, {
-        PERPLEXITY_DEPTH: depth,
-        PERPLEXITY_SOURCE_COUNT: source_count,
-        PERPLEXITY_MODEL: model,
-    })
+    perplexity_counter.add(
+        1,
+        {
+            PERPLEXITY_DEPTH: depth,
+            PERPLEXITY_SOURCE_COUNT: source_count,
+            PERPLEXITY_MODEL: model,
+        },
+    )
 
 
 def record_youtube_transcript(
@@ -1241,12 +1471,15 @@ def record_youtube_transcript(
 ) -> None:
     """Record YouTube transcript specifics."""
     transcript_counter, _ = get_youtube_metrics()
-    transcript_counter.add(1, {
-        YOUTUBE_FORMAT: format,
-        YOUTUBE_LANGUAGE: language,
-        YOUTUBE_IS_TRANSLATED: str(is_translated).lower(),
-        YOUTUBE_DURATION_SECONDS: duration_seconds or 0,
-    })
+    transcript_counter.add(
+        1,
+        {
+            YOUTUBE_FORMAT: format,
+            YOUTUBE_LANGUAGE: language,
+            YOUTUBE_IS_TRANSLATED: str(is_translated).lower(),
+            YOUTUBE_DURATION_SECONDS: duration_seconds or 0,
+        },
+    )
 
 
 def record_youtube_search(
@@ -1255,9 +1488,12 @@ def record_youtube_search(
 ) -> None:
     """Record YouTube search specifics."""
     _, search_counter = get_youtube_metrics()
-    search_counter.add(1, {
-        SEARCH_NUM_RESULTS_RETURNED: num_results,
-    })
+    search_counter.add(
+        1,
+        {
+            SEARCH_NUM_RESULTS_RETURNED: num_results,
+        },
+    )
 
 
 def record_query_length(
@@ -1271,9 +1507,12 @@ def record_query_length(
         policy: Rewrite policy mode (bypass, light_rewrite, expand)
     """
     query_length_histogram, _ = get_query_quality_metrics()
-    query_length_histogram.record(query_length, {
-        REWRITE_POLICY: policy,
-    })
+    query_length_histogram.record(
+        query_length,
+        {
+            REWRITE_POLICY: policy,
+        },
+    )
 
 
 def record_domain_diversity(
@@ -1289,10 +1528,13 @@ def record_domain_diversity(
         providers_used: List of providers that contributed results
     """
     _, domain_diversity_histogram = get_query_quality_metrics()
-    domain_diversity_histogram.record(unique_domains, {
-        SEARCH_NUM_RESULTS_RETURNED: total_results,
-        SEARCH_PROVIDERS_USED: str(providers_used),
-    })
+    domain_diversity_histogram.record(
+        unique_domains,
+        {
+            SEARCH_NUM_RESULTS_RETURNED: total_results,
+            SEARCH_PROVIDERS_USED: str(providers_used),
+        },
+    )
 
 
 def record_tool_details(
@@ -1328,6 +1570,7 @@ def record_tool_details(
 # ============================================================================
 # SPAN HELPER FUNCTIONS
 # ============================================================================
+
 
 def create_search_span(
     query: str,
@@ -1373,6 +1616,7 @@ def create_provider_span(
 
     # Parse URL for server.address and server.port
     from urllib.parse import urlparse
+
     parsed = urlparse(url)
 
     return tracer.start_as_current_span(
@@ -1427,6 +1671,7 @@ def create_content_span(
     tracer = get_tracer()
 
     from urllib.parse import urlparse
+
     parsed = urlparse(url)
 
     return tracer.start_as_current_span(
@@ -1540,6 +1785,7 @@ def create_cache_span(
 # SPAN ENHANCEMENT FUNCTIONS
 # ============================================================================
 
+
 def add_results_to_span(
     span: trace.Span,
     results: list[Any],
@@ -1562,9 +1808,11 @@ def add_results_to_span(
     span.set_attribute(SEARCH_NUM_RESULTS_RETURNED, len(results))
 
     for i, r in enumerate(results[:max_results]):
-        title = getattr(r, 'title', str(r))[:200] if hasattr(r, 'title') else str(r)[:200]
-        link = getattr(r, 'link', '') if hasattr(r, 'link') else ''
-        snippet_len = len(getattr(r, 'snippet', '')) if hasattr(r, 'snippet') else 0
+        title = (
+            getattr(r, "title", str(r))[:200] if hasattr(r, "title") else str(r)[:200]
+        )
+        link = getattr(r, "link", "") if hasattr(r, "link") else ""
+        snippet_len = len(getattr(r, "snippet", "")) if hasattr(r, "snippet") else 0
 
         # Extract domain
         domain = ""
@@ -1587,8 +1835,8 @@ def add_results_to_span(
 
         # RRF details if available
         if include_rrf_details:
-            rrf_score = getattr(r, 'score', None)
-            providers = getattr(r, 'providers', None)
+            rrf_score = getattr(r, "score", None)
+            providers = getattr(r, "providers", None)
             provider_count = len(providers) if providers else 0
 
             if rrf_score is not None:
@@ -1622,13 +1870,16 @@ def add_query_rewrite_variants_to_span(
         variants: List of variant objects with type and text attributes
     """
     for i, v in enumerate(variants[:5]):  # Limit to 5 variants
-        variant_type = getattr(v, 'type', 'unknown')
-        variant_text = getattr(v, 'text', getattr(v, 'query', str(v)))
+        variant_type = getattr(v, "type", "unknown")
+        variant_text = getattr(v, "text", getattr(v, "query", str(v)))
 
-        span.add_event(f"rewrite.variant.{i}", attributes={
-            REWRITE_VARIANT_TYPE: variant_type,
-            REWRITE_VARIANT_TEXT: variant_text[:200],
-        })
+        span.add_event(
+            f"rewrite.variant.{i}",
+            attributes={
+                REWRITE_VARIANT_TYPE: variant_type,
+                REWRITE_VARIANT_TEXT: variant_text[:200],
+            },
+        )
 
 
 def add_rrf_merge_details_to_span(
@@ -1647,22 +1898,35 @@ def add_rrf_merge_details_to_span(
     """
     # Provider contribution summary
     for provider, count in provider_counts.items():
-        span.add_event(f"rrf.provider.{provider}", attributes={
-            PROVIDER_NAME: provider,
-            RRF_PROVIDER_CONTRIBUTION: count,
-        })
+        span.add_event(
+            f"rrf.provider.{provider}",
+            attributes={
+                PROVIDER_NAME: provider,
+                RRF_PROVIDER_CONTRIBUTION: count,
+            },
+        )
 
     # Discard summary
-    span.add_event("rrf.discards", attributes={
-        RRF_DISCARDED_COUNT: len(discarded_urls),
-        "rrf.discarded_urls_sample": str(discarded_urls[:3]) if discarded_urls else "",
-    })
+    span.add_event(
+        "rrf.discards",
+        attributes={
+            RRF_DISCARDED_COUNT: len(discarded_urls),
+            "rrf.discarded_urls_sample": str(discarded_urls[:3])
+            if discarded_urls
+            else "",
+        },
+    )
 
     # Overlap summary
-    span.add_event("rrf.overlap", attributes={
-        "rrf.overlapping_count": len(overlapping_urls),
-        "rrf.overlap_urls_sample": str(overlapping_urls[:3]) if overlapping_urls else "",
-    })
+    span.add_event(
+        "rrf.overlap",
+        attributes={
+            "rrf.overlapping_count": len(overlapping_urls),
+            "rrf.overlap_urls_sample": str(overlapping_urls[:3])
+            if overlapping_urls
+            else "",
+        },
+    )
 
 
 def add_rerank_scores_to_span(
@@ -1679,24 +1943,32 @@ def add_rerank_scores_to_span(
     """
     # Add top scores as individual events
     for i, score in enumerate(scores[:10]):
-        span.add_event(f"rerank.score.{i}", attributes={
-            RERANK_STAGE: stage,
-            RERANK_RELEVANCE_SCORE: round(score, 4),
-            RESULT_POSITION: i + 1,
-        })
+        span.add_event(
+            f"rerank.score.{i}",
+            attributes={
+                RERANK_STAGE: stage,
+                RERANK_RELEVANCE_SCORE: round(score, 4),
+                RESULT_POSITION: i + 1,
+            },
+        )
 
     # Summary event
     if scores:
-        span.add_event(f"rerank.{stage}.summary", attributes={
-            RERANK_STAGE: stage,
-            "rerank.min_score": round(min(scores), 4),
-            "rerank.max_score": round(max(scores), 4),
-            "rerank.avg_score": round(sum(scores) / len(scores), 4),
-            RERANK_INPUT_COUNT: len(scores),
-        })
+        span.add_event(
+            f"rerank.{stage}.summary",
+            attributes={
+                RERANK_STAGE: stage,
+                "rerank.min_score": round(min(scores), 4),
+                "rerank.max_score": round(max(scores), 4),
+                "rerank.avg_score": round(sum(scores) / len(scores), 4),
+                RERANK_INPUT_COUNT: len(scores),
+            },
+        )
 
 
-def set_span_error(span: trace.Span, error: Exception, error_type: str | None = None) -> None:
+def set_span_error(
+    span: trace.Span, error: Exception, error_type: str | None = None
+) -> None:
     """Record exception on span with proper error attributes."""
     span.record_exception(error)
     span.set_attribute(ERROR_TYPE, error_type or type(error).__name__)
@@ -1720,7 +1992,6 @@ __all__ = [
     "get_tracer",
     "get_meter",
     "get_search_total_metric",
-
     # Basic metrics recording
     "record_provider_call",
     "record_search_request",
@@ -1728,36 +1999,28 @@ __all__ = [
     "record_cache_lookup",
     "record_mcp_tool_call",
     "record_content_resolution",
-
     # RRF merge metrics (NEW)
     "record_rrf_merge",
     "record_rrf_score",
-
     # Query rewrite metrics (NEW)
     "record_query_rewrite",
-
     # Reranking metrics (NEW)
     "record_rerank_stage",
     "record_diversity_removal",
-
     # Semantic cache metrics (NEW)
     "record_semantic_cache_lookup",
-
     # Circuit breaker metrics (NEW)
     "record_circuit_breaker_state",
     "record_circuit_breaker_event",
-
     # Tool-specific metrics (NEW)
     "record_gemini_search",
     "record_perplexity_search",
     "record_youtube_transcript",
     "record_youtube_search",
     "record_tool_details",
-
     # Query quality metrics (Phase 2)
     "record_query_length",
     "record_domain_diversity",
-
     # Span creation
     "create_search_span",
     "create_provider_span",
@@ -1768,7 +2031,6 @@ __all__ = [
     "create_rerank_span",
     "create_circuit_breaker_span",
     "create_cache_span",
-
     # Span enhancement
     "add_results_to_span",
     "add_query_rewrite_variants_to_span",
@@ -1776,7 +2038,6 @@ __all__ = [
     "add_rerank_scores_to_span",
     "set_span_error",
     "set_span_success",
-
     # Semantic convention constants
     "HTTP_REQUEST_METHOD",
     "URL_FULL",
@@ -1786,7 +2047,6 @@ __all__ = [
     "HTTP_RESPONSE_BODY_SIZE",
     "ERROR_TYPE",
     "NETWORK_PROTOCOL_VERSION",
-
     "MCP_METHOD_NAME",
     "MCP_SERVER_NAME",
     "MCP_SESSION_ID",
@@ -1796,20 +2056,17 @@ __all__ = [
     "GEN_AI_SYSTEM",
     "RPC_SYSTEM",
     "RPC_JSONRPC_VERSION",
-
     "PROVIDER_NAME",
     "PROVIDER_STATUS",
     "PROVIDER_RESULT_COUNT",
     "PROVIDER_DURATION_MS",
     "PROVIDER_ERROR_TYPE",
-
     "SEARCH_QUERY",
     "SEARCH_NUM_RESULTS_REQUESTED",
     "SEARCH_NUM_RESULTS_RETURNED",
     "SEARCH_PROVIDERS_REQUESTED",
     "SEARCH_PROVIDERS_USED",
     "SEARCH_MERGE_ALGORITHM",
-
     "CACHE_TYPE",
     "CACHE_HIT",
     "CACHE_LOOKUP_DURATION_MS",
@@ -1818,7 +2075,6 @@ __all__ = [
     "CACHE_TTL_SECONDS",
     "CACHE_SEARCH_TYPE",
     "CACHE_VECTOR_DISTANCE",
-
     "CONTENT_STAGE",
     "CONTENT_STATUS",
     "CONTENT_SIZE_BYTES",
@@ -1827,7 +2083,6 @@ __all__ = [
     "CONTENT_EXTRACTION_METHOD",
     "CONTENT_FINAL_STAGE",
     "CONTENT_FALLBACK_COUNT",
-
     "RRF_INPUT_LISTS",
     "RRF_INPUT_TOTAL",
     "RRF_OUTPUT_TOTAL",
@@ -1838,14 +2093,12 @@ __all__ = [
     "RRF_SCORE",
     "RRF_BEST_RANK",
     "RRF_PROVIDERS",
-
     "REWRITE_POLICY",
     "REWRITE_VARIANT_COUNT",
     "REWRITE_HAS_PRECISION_SIGNALS",
     "REWRITE_MODEL",
     "REWRITE_VARIANT_TYPE",
     "REWRITE_VARIANT_TEXT",
-
     "RERANK_STAGE",
     "RERANK_INPUT_COUNT",
     "RERANK_OUTPUT_COUNT",
@@ -1855,13 +2108,11 @@ __all__ = [
     "RERANK_DIVERSITY_THRESHOLD",
     "RERANK_SIMILARITY_SCORE",
     "RERANK_BI_ENCODER_SCORE",
-
     "CIRCUIT_STATE",
     "CIRCUIT_FAILURE_COUNT",
     "CIRCUIT_LAST_FAILURE_TIME",
     "CIRCUIT_EVENT",
     "CIRCUIT_FAILURE_THRESHOLD",
-
     "RESULT_POSITION",
     "RESULT_PROVIDER_COUNT",
     "RESULT_RRF_SCORE",
@@ -1870,7 +2121,6 @@ __all__ = [
     "RESULT_DOMAIN",
     "RESULT_TITLE",
     "RESULT_URL",
-
     "GEMINI_GROUNDING_QUERIES",
     "GEMINI_GROUNDING_CHUNKS",
     "GEMINI_STRUCTURED_OUTPUT",
@@ -1881,18 +2131,15 @@ __all__ = [
     "YOUTUBE_LANGUAGE",
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_DURATION_SECONDS",
-
     "STATUS_SUCCESS",
     "STATUS_ERROR",
     "STATUS_TIMEOUT",
-
     "PROVIDER_SEARXNG",
     "PROVIDER_DDG",
     "PROVIDER_GEMINI",
     "PROVIDER_TAVILY",
     "PROVIDER_BRAVE",
     "PROVIDER_JINA",
-
     "CONTENT_STAGE_STACKEXCHANGE",
     "CONTENT_STAGE_GITHUB",
     "CONTENT_STAGE_WIKIPEDIA",

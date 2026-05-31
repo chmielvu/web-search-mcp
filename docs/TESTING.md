@@ -89,7 +89,9 @@ Without these environment variables, live tests are skipped automatically via `p
 | `test_merge.py` | RRF merge: host cap, deduplication, tie-breaking |
 | `test_diversity_ranking.py` | MMR diversity ranking: host diversity, deterministic ordering |
 | `test_jina_reader.py` | Jina Reader: URL parsing, API response handling |
-| `test_jina_rerank.py` | Jina reranking: API integration, result ordering |
+| `test_voyage_rerank.py` | Voyage reranking: API integration, request payload, result ordering |
+| `test_jina_rerank.py` | Jina reranking: fallback API integration, result ordering |
+| `test_duckdb_analytics.py` | DuckDB analytics sink: table creation and event persistence |
 | `test_gemini_unit.py` | Gemini provider: API response parsing |
 | `test_gemini_search_tool.py` | `gemini_search` tool: grounding, citations |
 | `test_semantic_cache_schema.py` | LanceDB semantic cache: schema, embedding storage |

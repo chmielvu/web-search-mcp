@@ -20,10 +20,13 @@ from pydantic import BaseModel, Field
 
 class WebSearchResult(BaseModel):
     """Single search result from web search."""
+
     title: str = Field(description="Human-readable result title.")
     link: str = Field(description="Canonical URL for the result.")
     snippet: str = Field(description="Search engine snippet/preview text.")
-    domain: str | None = Field(default=None, description="Domain associated with the result.")
+    domain: str | None = Field(
+        default=None, description="Domain associated with the result."
+    )
     resource_type: str | None = Field(
         default=None,
         description="High-level resource type such as web, pdf, youtube, github, or other.",
@@ -31,6 +34,22 @@ class WebSearchResult(BaseModel):
     mime_hint: str | None = Field(
         default=None,
         description="Best-effort MIME hint when known.",
+    )
+    published_date: str | None = Field(
+        default=None,
+        description="Best-effort publication date if the provider exposes one.",
+    )
+    source_engines: list[str] | None = Field(
+        default=None,
+        description="Provider engine names that surfaced the result, when known.",
+    )
+    category: str | None = Field(
+        default=None,
+        description="Provider category or result bucket, when known.",
+    )
+    raw_score: float | None = Field(
+        default=None,
+        description="Unnormalized score returned by the provider before merge/rerank.",
     )
     providers: list[str] | None = Field(
         default=None,
@@ -52,9 +71,40 @@ class WebSearchResult(BaseModel):
 
 class ProviderWarning(BaseModel):
     """Warning about a partial failure from a provider."""
+
     provider: str = Field(description="Provider that encountered the issue.")
     error: str = Field(description="Error message from the provider.")
-    error_type: str | None = Field(default=None, description="Error classification if known.")
+    error_type: str | None = Field(
+        default=None, description="Error classification if known."
+    )
+
+
+class SearchResultWindow(BaseModel):
+    """Pagination metadata for a search result window."""
+
+    offset: int = Field(description="Zero-based result offset requested by the caller.")
+    returned: int = Field(description="Number of results returned in this page.")
+    candidate_count: int = Field(
+        description="Number of candidates available before window slicing."
+    )
+    has_more: bool = Field(description="Whether another page is available.")
+    next_offset: int | None = Field(
+        default=None,
+        description="Offset to request the next page, if has_more is true.",
+    )
+
+
+class ContentLink(BaseModel):
+    """Single discovered link from a page or sitemap."""
+
+    url: str = Field(description="Absolute URL for the discovered link.")
+    text: str = Field(description="Visible link text or URL fallback.")
+    domain: str | None = Field(
+        default=None, description="Destination domain when it can be determined."
+    )
+    internal: bool = Field(
+        default=False, description="Whether the link stays within the source domain."
+    )
 
 
 # ============================================================================
@@ -64,9 +114,18 @@ class ProviderWarning(BaseModel):
 
 class WebSearchResponse(BaseModel):
     """Response from web_search tool."""
+
     query: str = Field(description="Original raw query.")
-    results: list[WebSearchResult] = Field(default_factory=list, description="Search results.")
-    total_results: int = Field(default=0, description="Total number of results returned.")
+    results: list[WebSearchResult] = Field(
+        default_factory=list, description="Search results."
+    )
+    total_results: int = Field(
+        default=0, description="Total number of results returned."
+    )
+    result_window: SearchResultWindow | None = Field(
+        default=None,
+        description="Pagination metadata for the returned result window.",
+    )
     providers_used: list[str] = Field(
         default_factory=list,
         description="Providers that successfully returned results.",
@@ -83,14 +142,39 @@ class WebSearchResponse(BaseModel):
 
 class GetContentResponse(BaseModel):
     """Response from get_content tool."""
+
     input_url: str = Field(description="Exact URL supplied by the caller.")
-    normalized_url: str = Field(description="Normalized URL used for cache lookup and deduplication.")
-    fetched_url: str | None = Field(default=None, description="Actual URL reached after redirects, if known.")
-    status: str = Field(description="Fetch status: success, partial, blocked, unsupported, or error.")
-    source_type: str = Field(description="Detected source type, e.g. html, pdf, github_issue.")
+    normalized_url: str = Field(
+        description="Normalized URL used for cache lookup and deduplication."
+    )
+    fetched_url: str | None = Field(
+        default=None, description="Actual URL reached after redirects, if known."
+    )
+    status: str = Field(
+        description="Fetch status: success, partial, blocked, unsupported, or error."
+    )
+    source_type: str = Field(
+        description="Detected source type, e.g. html, pdf, github_issue."
+    )
     fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
-    page_content: str = Field(description="Bounded content slice for the requested window.")
-    window: dict[str, Any] = Field(description="Window metadata for pagination/continuation.")
+    page_content: str = Field(
+        description="Bounded content slice for the requested window."
+    )
+    window: dict[str, Any] = Field(
+        description="Window metadata for pagination/continuation."
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional source metadata extracted from the fetched page.",
+    )
+    links: list[ContentLink] | None = Field(
+        default=None,
+        description="Optional discovered links extracted from the fetched page.",
+    )
+    continuation_notice: str | None = Field(
+        default=None,
+        description="Human-readable truncation notice for the returned window.",
+    )
     content_type: str | None = Field(
         default=None,
         description="Detected HTTP content type if available.",
@@ -111,6 +195,7 @@ class GetContentResponse(BaseModel):
 
 class BatchContentResult(BaseModel):
     """Single item in batch_get_content output."""
+
     input_url: str
     normalized_url: str
     fetched_url: str | None = None
@@ -120,11 +205,45 @@ class BatchContentResult(BaseModel):
     page_content: str
     window: dict[str, Any]
     content_type: str | None = None
+    metadata: dict[str, Any] | None = None
+    links: list[ContentLink] | None = None
+    continuation_notice: str | None = None
     error: dict[str, Any] | None = None
+
+
+class DiscoverLinksResponse(BaseModel):
+    """Response from discover_links tool."""
+
+    input_url: str = Field(description="Exact URL supplied by the caller.")
+    normalized_url: str = Field(
+        description="Normalized URL used for fetch and deduplication."
+    )
+    fetched_url: str | None = Field(
+        default=None, description="Actual URL reached after redirects, if known."
+    )
+    source_type: str = Field(
+        description="Detected link source type, such as html or sitemap."
+    )
+    links: list[ContentLink] = Field(
+        default_factory=list, description="Discovered links returned in this page."
+    )
+    returned_links: int = Field(
+        default=0, description="Number of links returned in this page."
+    )
+    has_more: bool = Field(
+        default=False, description="Whether more links exist beyond the current page."
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None, description="Optional metadata extracted from the source page."
+    )
+    error: dict[str, Any] | None = Field(
+        default=None, description="Structured error payload for failures."
+    )
 
 
 class BatchGetContentResponse(BaseModel):
     """Response from batch_get_content tool."""
+
     results: list[BatchContentResult] = Field(default_factory=list)
     total_requested: int = 0
     total_returned: int = 0
@@ -135,6 +254,7 @@ class BatchGetContentResponse(BaseModel):
 
 class GeminiSearchResponse(BaseModel):
     """Response from gemini_search tool (AI-grounded search)."""
+
     query: str = Field(description="Original search query.")
     answer: str = Field(description="AI-synthesized answer with inline citations [N].")
     web_search_queries: list[str] | None = Field(
@@ -149,13 +269,18 @@ class GeminiSearchResponse(BaseModel):
         default=None,
         description="Structured output when structured_output=True.",
     )
-    error: str | None = Field(default=None, description="Error message if search failed.")
+    error: str | None = Field(
+        default=None, description="Error message if search failed."
+    )
 
 
 class PerplexitySearchResponse(BaseModel):
     """Response from perplexity_search tool (AI-synthesized search)."""
+
     query: str = Field(description="Original search query.")
-    answer: str | None = Field(default=None, description="AI-synthesized answer with citations.")
+    answer: str | None = Field(
+        default=None, description="AI-synthesized answer with citations."
+    )
     sources: list[str] | None = Field(
         default=None,
         description="Source URLs cited in the answer.",
@@ -165,27 +290,37 @@ class PerplexitySearchResponse(BaseModel):
         default=None,
         description="Query guidance message on first call (rate-limited resource).",
     )
-    error: str | None = Field(default=None, description="Error message if search failed.")
+    error: str | None = Field(
+        default=None, description="Error message if search failed."
+    )
 
 
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
+
     video_id: str = Field(description="YouTube video identifier.")
     video_url: str = Field(description="Canonical YouTube URL.")
     title: str | None = Field(default=None, description="Video title if available.")
     transcript_text: str = Field(description="Transcript content in requested format.")
     language: str = Field(description="Language code of transcript.")
-    is_translated: bool = Field(default=False, description="Whether transcript was translated.")
-    duration_seconds: float | None = Field(default=None, description="Total video duration.")
+    is_translated: bool = Field(
+        default=False, description="Whether transcript was translated."
+    )
+    duration_seconds: float | None = Field(
+        default=None, description="Total video duration."
+    )
     transcript_segments: list[dict[str, Any]] | None = Field(
         default=None,
         description="Raw transcript segments if format='json'.",
     )
-    error: str | None = Field(default=None, description="Error message if transcript fetch failed.")
+    error: str | None = Field(
+        default=None, description="Error message if transcript fetch failed."
+    )
 
 
 class YouTubeSearchResponse(BaseModel):
     """Response from youtube_search tool."""
+
     query: str = Field(description="Original search query.")
     results: list[WebSearchResult] = Field(
         default_factory=list,
@@ -196,6 +331,7 @@ class YouTubeSearchResponse(BaseModel):
 
 class SimilarLinkResult(BaseModel):
     """Single related URL returned by Composio Similarlinks."""
+
     title: str = Field(description="Human-readable result title.")
     link: str = Field(description="Canonical URL for the related page.")
     score: float | None = Field(default=None, description="Provider similarity score.")
@@ -203,6 +339,7 @@ class SimilarLinkResult(BaseModel):
 
 class SimilarLinksResponse(BaseModel):
     """Response from Composio Similarlinks."""
+
     url: str = Field(description="Source URL used to find similar links.")
     results: list[SimilarLinkResult] = Field(default_factory=list)
     total_results: int = Field(default=0, description="Total related links returned.")
@@ -210,6 +347,7 @@ class SimilarLinksResponse(BaseModel):
 
 class ImageSearchResult(BaseModel):
     """Single image metadata result from Composio Image Search."""
+
     title: str = Field(description="Image result title.")
     source: str | None = Field(default=None, description="Source site label.")
     page_link: str = Field(description="Page URL where the image appears.")
@@ -219,6 +357,7 @@ class ImageSearchResult(BaseModel):
 
 class ImageSearchResponse(BaseModel):
     """Response from Composio Image Search."""
+
     query: str = Field(description="Original image search query.")
     results: list[ImageSearchResult] = Field(default_factory=list)
     total_results: int = Field(default=0, description="Total image results returned.")
@@ -227,15 +366,23 @@ class ImageSearchResponse(BaseModel):
 
 class QuickWebSearchCitation(BaseModel):
     """Single citation/source from Composio Quick Web Search."""
-    title: str | None = Field(default=None, description="Citation title from the source.")
+
+    title: str | None = Field(
+        default=None, description="Citation title from the source."
+    )
     url: str | None = Field(default=None, description="URL of the cited source.")
-    snippet: str | None = Field(default=None, description="Text snippet from the source.")
+    snippet: str | None = Field(
+        default=None, description="Text snippet from the source."
+    )
 
 
 class QuickWebSearchResponse(BaseModel):
     """Response from Composio Quick Web Search (COMPOSIO_SEARCH_WEB)."""
+
     query: str = Field(description="Original search query.")
-    answer: str | None = Field(default=None, description="AI-synthesized narrative summary.")
+    answer: str | None = Field(
+        default=None, description="AI-synthesized narrative summary."
+    )
     citations: list[QuickWebSearchCitation] = Field(
         default_factory=list,
         description="Source citations (prioritize these over answer for evidence).",
@@ -254,12 +401,15 @@ class ToolErrorResponse(BaseModel):
     MCP spec requires isError: true for tool execution failures.
     This model ensures consistent error responses across all tools.
     """
+
     error: str = Field(description="Human-readable error message.")
     error_type: str = Field(
         default="unknown",
         description="Error classification: rate_limit, auth, network, content, config, unknown.",
     )
-    isError: bool = Field(default=True, description="MCP protocol: must be True for errors.")
+    isError: bool = Field(
+        default=True, description="MCP protocol: must be True for errors."
+    )
     action: str | None = Field(
         default=None,
         description="Actionable guidance for the agent.",
@@ -299,3 +449,64 @@ YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse
 SimilarLinksResultType = SimilarLinksResponse | ToolErrorResponse
 ImageSearchResultType = ImageSearchResponse | ToolErrorResponse
 QuickWebSearchResultType = QuickWebSearchResponse | ToolErrorResponse
+
+
+# ============================================================================
+# Academic Search Result Types
+# ============================================================================
+
+
+class AcademicPaper(BaseModel):
+    """A single academic paper from scholarly search."""
+
+    title: str = Field(description="Paper title.")
+    authors: list[str] = Field(default_factory=list, description="Author names.")
+    abstract: str | None = Field(default=None, description="Paper abstract or summary.")
+    year: int | None = Field(default=None, description="Publication year.")
+    venue: str | None = Field(
+        default=None, description="Publication venue (conference/journal)."
+    )
+    citations: int | None = Field(
+        default=None, description="Citation count if available."
+    )
+    url: str = Field(description="Canonical URL (DOI or abstract page).")
+    pdf_url: str | None = Field(
+        default=None, description="Direct PDF link if available."
+    )
+    source: str = Field(
+        description="Provider that found this paper: semanticscholar or arxiv."
+    )
+    source_id: str = Field(description="Provider-specific paper identifier.")
+    external_ids: dict[str, str] | None = Field(
+        default=None, description="External IDs: DOI, ArXiv, PubMed, etc."
+    )
+    fields_of_study: list[str] | None = Field(
+        default=None, description="Fields of study (e.g. Computer Science)."
+    )
+    is_open_access: bool | None = Field(
+        default=None, description="Whether an open-access PDF is available."
+    )
+    score: float | None = Field(
+        default=None, description="Relevance score from provider."
+    )
+
+
+class AcademicSearchResponse(BaseModel):
+    """Response from academic_search tool."""
+
+    query: str = Field(description="Original search query.")
+    results: list[AcademicPaper] = Field(
+        default_factory=list, description="Deduplicated academic papers."
+    )
+    total_results: int = Field(
+        default=0, description="Total results after deduplication."
+    )
+    sources_used: list[str] = Field(
+        default_factory=list, description="Providers that returned results."
+    )
+    warnings: list[ProviderWarning] | None = Field(
+        default=None, description="Partial failures from providers."
+    )
+
+
+AcademicSearchResultType = AcademicSearchResponse | ToolErrorResponse

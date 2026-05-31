@@ -1,4 +1,5 @@
 """Tests for DuckDuckGo search provider."""
+
 from __future__ import annotations
 
 import asyncio
@@ -167,7 +168,11 @@ class TestDDGSyncSearch(unittest.TestCase):
         mock_ddgs_instance = MagicMock()
         mock_ddgs_instance.__enter__.return_value = mock_ddgs_instance
         mock_ddgs_instance.text.return_value = [
-            {"title": f"Result {i}", "href": f"https://example.com/{i}", "body": f"Snippet {i}"}
+            {
+                "title": f"Result {i}",
+                "href": f"https://example.com/{i}",
+                "body": f"Snippet {i}",
+            }
             for i in range(10)
         ]
         mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
@@ -195,10 +200,8 @@ class TestDDGSyncSearch(unittest.TestCase):
             "ddgs.DDGS",
             side_effect=ImportError("No module"),
         ):
-            results = _search_ddg_sync("test query", num_results=5)
-
-        # Should return empty list on ImportError
-        self.assertEqual(results, [])
+            with self.assertRaises(ImportError):
+                _search_ddg_sync("test query", num_results=5)
 
 
 if __name__ == "__main__":

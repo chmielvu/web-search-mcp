@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import os
+from functools import partial
 from typing import Callable, Awaitable
 
+from ..errors import classify_error
 from ..scrape.extract import extract_content_as_markdown
+from ..scrape.html_tools import (
+    extract_html_links,
+    extract_html_metadata,
+    strip_html_selectors,
+)
 from ..scrape.universal_html import load_url_as_markdown
 from ..search.normalize import canonicalize_url
 from .arxiv import (
@@ -13,6 +21,7 @@ from .arxiv import (
     parse_arxiv_url,
 )
 from .artifact import ContentArtifact, ContentError
+from .options import FetchOptions
 from .github_discussions import (
     fetch_github_discussion_thread_markdown,
     parse_github_discussion_url,
@@ -32,6 +41,24 @@ from .wikipedia import (
     fetch_wikipedia_article_markdown,
     parse_wikipedia_url,
 )
+
+
+def _to_content_error(
+    exc: Exception, code: str, provider: str | None = None
+) -> ContentError:
+    """Convert any exception to a ContentError with proper error_type and retryable flag.
+
+    Delegates to errors.classify_error() for HTTP/network-aware classification,
+    falling back to generic ContentError for unknown exceptions.
+    """
+    structured = classify_error(exc, provider=provider)
+    # Determine retryability: rate_limit and server errors (5xx) are retryable
+    retryable = structured.error_type in ("rate_limit", "network")
+    return ContentError(
+        code=code,
+        message=structured.error or str(exc),
+        retryable=retryable,
+    )
 
 
 async def _maybe_specialized(
@@ -60,7 +87,9 @@ async def _maybe_specialized(
             markdown="",
             word_count=0,
             quality_score=0.0,
-            error=ContentError(code=f"{source_type}_fetch_failed", message=str(exc), retryable=True),
+            error=_to_content_error(
+                exc, code=f"{source_type}_fetch_failed", provider=source_type
+            ),
         )
 
     cls = classify_markdown(markdown)
@@ -75,7 +104,11 @@ async def _maybe_specialized(
         markdown=markdown,
         word_count=len(markdown.split()),
         quality_score=1.0 if cls.status == "success" else 0.4,
-        error=None if cls.status == "success" else ContentError(code=cls.reason or "partial", message=cls.reason or "partial"),
+        error=None
+        if cls.status == "success"
+        else ContentError(
+            code=cls.reason or "partial", message=cls.reason or "partial"
+        ),
     )
 
 
@@ -90,8 +123,14 @@ def _render_generic_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str:
     )
 
 
-async def fetch_content_artifact(url: str) -> ContentArtifact:
+async def fetch_content_artifact(
+    url: str,
+    *,
+    fetch_options: FetchOptions | None = None,
+) -> ContentArtifact:
     canonical = canonicalize_url(url)
+    options = fetch_options or FetchOptions()
+    options.validate()
 
     specialized = await _maybe_specialized(
         url,
@@ -160,7 +199,9 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
                 markdown="",
                 word_count=0,
                 quality_score=0.0,
-                error=ContentError(code="arxiv_fetch_failed", message=str(exc), retryable=True),
+                error=_to_content_error(
+                    exc, code="arxiv_fetch_failed", provider="arxiv"
+                ),
             )
 
     try:
@@ -196,7 +237,10 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
                 quality_score=0.9 if jina_cls.status == "success" else 0.3,
                 error=None
                 if jina_cls.status == "success"
-                else ContentError(code=jina_cls.reason or "jina_low_quality", message=jina_cls.reason or "jina_low_quality"),
+                else ContentError(
+                    code=jina_cls.reason or "jina_low_quality",
+                    message=jina_cls.reason or "jina_low_quality",
+                ),
             )
         except Exception:
             pass
@@ -211,40 +255,56 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
             markdown="",
             word_count=0,
             quality_score=0.0,
-            error=ContentError(code="http_fetch_failed", message=str(exc), retryable=True),
+            error=_to_content_error(exc, code="http_fetch_failed"),
         )
 
     if fetched.is_pdf:
         try:
             markdown = _render_generic_pdf_markdown(fetched.body, fetched.fetched_url)
-        except Exception as exc:
+        except Exception:
+            markdown = None
+        if markdown:
             return ContentArtifact(
                 input_url=url,
                 normalized_url=canonical,
                 fetched_url=fetched.fetched_url,
-                status="unsupported",
+                status="success",
                 source_type="pdf",
                 fetch_backend="pdf_extract",
                 content_type=fetched.content_type,
-                markdown="",
-                word_count=0,
-                quality_score=0.0,
-                error=ContentError(code="pdf_extract_failed", message=str(exc), retryable=False),
+                markdown=markdown,
+                word_count=len(markdown.split()),
+                quality_score=1.0,
             )
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=fetched.fetched_url,
-            status="success",
-            source_type="pdf",
-            fetch_backend="pdf_extract",
-            content_type=fetched.content_type,
-            markdown=markdown,
-            word_count=len(markdown.split()),
-            quality_score=1.0,
-        )
+        # PDF extraction failed — fall through to Jina/browser stages
+        # which may handle the PDF URL directly
 
-    direct_markdown = extract_content_as_markdown(fetched.text)
+    html = fetched.text
+    if options.strip_selectors:
+        html = strip_html_selectors(html, options.strip_selectors)
+
+    metadata = (
+        extract_html_metadata(
+            html, page_url=url, fetched_url=fetched.fetched_url
+        )
+        if options.include_metadata
+        else None
+    )
+    links = (
+        extract_html_links(
+            html,
+            base_url=fetched.fetched_url or url,
+            max_links=options.max_links,
+            include_external=True,
+            same_domain_only=False,
+        )
+        if options.include_links
+        else None
+    )
+
+    direct_markdown = await asyncio.to_thread(
+        partial(extract_content_as_markdown, html, url=fetched.fetched_url)
+    )
     direct_cls = classify_markdown(direct_markdown)
     if direct_cls.status == "success":
         return ContentArtifact(
@@ -256,6 +316,8 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
             fetch_backend="safe_http_extract",
             content_type=fetched.content_type,
             markdown=direct_markdown,
+            metadata=metadata,
+            links=links,
             word_count=len(direct_markdown.split()),
             quality_score=0.85,
         )
@@ -273,6 +335,8 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
                 fetch_backend="jina_reader",
                 content_type="text/markdown",
                 markdown=jina_markdown,
+                metadata=metadata,
+                links=links,
                 word_count=len(jina_markdown.split()),
                 quality_score=0.9,
             )
@@ -291,11 +355,16 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
             fetch_backend="browser_fallback",
             content_type="text/markdown",
             markdown=browser_markdown,
+            metadata=metadata,
+            links=links,
             word_count=len(browser_markdown.split()),
             quality_score=0.6 if browser_cls.status == "success" else 0.2,
             error=None
             if browser_cls.status == "success"
-            else ContentError(code=browser_cls.reason or "browser_low_quality", message=browser_cls.reason or "browser_low_quality"),
+            else ContentError(
+                code=browser_cls.reason or "browser_low_quality",
+                message=browser_cls.reason or "browser_low_quality",
+            ),
         )
 
     return ContentArtifact(
@@ -307,6 +376,8 @@ async def fetch_content_artifact(url: str) -> ContentArtifact:
         fetch_backend="safe_http_extract",
         content_type=fetched.content_type,
         markdown=direct_markdown,
+        metadata=metadata,
+        links=links,
         word_count=len(direct_markdown.split()),
         quality_score=0.25,
         error=ContentError(

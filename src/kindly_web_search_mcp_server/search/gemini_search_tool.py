@@ -15,14 +15,14 @@ import asyncio
 import logging
 from typing import Any
 
-from google import genai
-from google.genai import types
 from pydantic import BaseModel, Field
 
 from ..settings import settings
 
 logger = logging.getLogger(__name__)
-_gemini_client: genai.Client | None = None
+_gemini_client: Any | None = None
+_genai_module: Any | None = None
+_genai_types: Any | None = None
 
 # Hardcoded fallback tier - NO env var override
 GEMINI_GROUNDING_TIER = [
@@ -57,12 +57,23 @@ Format:
 Do not add a sources section — the tool provides grounding metadata separately."""
 
 
+class GeminiSource(BaseModel):
+    """Structured source item for Gemini JSON output.
+
+    Free-form dict fields emit JSON Schema `additionalProperties`, which the
+    Gemini API rejects for structured output schemas.
+    """
+
+    url: str = Field(description="Source URL")
+    title: str | None = Field(default=None, description="Source title")
+
+
 class GeminiResearchOutput(BaseModel):
     """Structured research output schema for Gemini grounding."""
 
     executive_summary: str = Field(description="Brief 1-2 sentence summary")
     key_findings: list[str] = Field(description="Main findings with citations")
-    sources: list[dict[str, str]] = Field(description="Source URLs and titles")
+    sources: list[GeminiSource] = Field(description="Source URLs and titles")
     confidence: str = Field(description="high/medium/low")
     uncertainties: list[str] | None = Field(default=None)
 
@@ -89,10 +100,29 @@ class GeminiGroundingResult(BaseModel):
     error: str | None = Field(default=None, description="Error message if failed")
 
 
-def get_gemini_client() -> genai.Client | None:
+def _get_genai_module() -> Any:
+    global _genai_module
+    if _genai_module is None:
+        from google import genai
+
+        _genai_module = genai
+    return _genai_module
+
+
+def _get_genai_types() -> Any:
+    global _genai_types
+    if _genai_types is None:
+        from google.genai import types
+
+        _genai_types = types
+    return _genai_types
+
+
+def get_gemini_client() -> Any | None:
     """Lazy-init Gemini client."""
     global _gemini_client
     if _gemini_client is None and settings.gemini_api_key:
+        genai = _get_genai_module()
         _gemini_client = genai.Client(api_key=settings.gemini_api_key)
     return _gemini_client
 
@@ -162,6 +192,7 @@ async def gemini_search_with_grounding(
     formatted_system_prompt = get_system_prompt(research_goal)
 
     # Practitioner-tested config values
+    types = _get_genai_types()
     base_config: dict[str, Any] = {
         "tools": [types.Tool(google_search=types.GoogleSearch())],
         "temperature": 0.7,
@@ -169,9 +200,26 @@ async def gemini_search_with_grounding(
         "max_output_tokens": 8192,
     }
 
+    # Structured output via response_schema / response_mime_type is NOT
+    # compatible with Google Search grounding on Gemini 2.5 models.
+    # Both trigger controlled generation, which the API rejects with:
+    #   400 INVALID_ARGUMENT: "Tool use with a response mime type:
+    #       'application/json' is unsupported"
+    # See: googleapis/python-genai issue #665, Google AI Developer Forum
+    #
+    # Gemini 3 Pro supports grounding + structured output, but we target 2.5.
+    # Workaround: append a formatting instruction to the prompt and parse
+    # the text response as JSON afterward (lines 252-263).
     if structured_output:
-        base_config["response_mime_type"] = "application/json"
-        base_config["response_schema"] = GeminiResearchOutput  # Pydantic class directly, not model_json_schema()
+        query = (
+            f"{query}\n\n"
+            f"Respond in valid JSON with this exact structure (no markdown fences):\n"
+            f'{{"executive_summary": "brief summary", '
+            f'"key_findings": ["finding with [N] citation", ...], '
+            f'"sources": [{{"url": "https://...", "title": "Source Title"}}], '
+            f'"confidence": "high|medium|low", '
+            f'"uncertainties": null or ["gap description"]}}'
+        )
 
     fallback_chain: list[str] = []
     fallback_reason: str | None = None
@@ -221,8 +269,9 @@ async def gemini_search_with_grounding(
             if structured_output:
                 try:
                     # Use response.parsed for SDK-validated Pydantic model
-                    if response.parsed:
-                        structured_result = response.parsed.model_dump()
+                    parsed_response = getattr(response, "parsed", None)
+                    if parsed_response:
+                        structured_result = parsed_response.model_dump()
                     elif answer:
                         # Fallback: parse text manually if response.parsed unavailable
                         parsed = GeminiResearchOutput.model_validate_json(answer)
@@ -279,11 +328,11 @@ async def gemini_search_with_grounding(
                 model_id, exc, error_type, should_fallback, should_retry
             )
 
-            fallback_reason = f"{error_type}: {str(exc)[:100]}"
+            fallback_reason = f"{error_type}: {str(exc)}"
 
             # Rate limit: retry once with backoff, then continue to next tier
             if should_retry:
-                logger.info("Rate limit hit, retrying once with 1s backoff before fallback")
+                logger.info("Rate limit hit for %s, retrying once with 1s backoff", model_id)
                 await asyncio.sleep(1)
 
                 try:
@@ -293,9 +342,55 @@ async def gemini_search_with_grounding(
                         contents=contents,
                         config=config,
                     )
-                    # Success on retry - process response as above
-                    # ... (same processing logic)
-                    # For simplicity, we'll just continue to fallback on retry failure
+                    # Process the successful retry response
+                    answer_parts, thought_parts = [], []
+                    if response.candidates and response.candidates[0].content.parts:
+                        for part in response.candidates[0].content.parts:
+                            if part.thought:
+                                thought_parts.append(part.text or "")
+                            else:
+                                answer_parts.append(part.text or "")
+                    answer = "\n".join(answer_parts)
+                    # Build result from retry success
+                    web_search_queries, grounding_chunks, grounding_supports = [], [], []
+                    search_widget_html = None
+                    if response.candidates and response.candidates[0].grounding_metadata:
+                        md = response.candidates[0].grounding_metadata
+                        web_search_queries = list(md.web_search_queries or [])
+                        grounding_chunks = [
+                            {"url": chunk.web.uri, "title": chunk.web.title}
+                            for chunk in md.grounding_chunks or [] if chunk.web
+                        ]
+                        grounding_supports = [
+                            {"segment_text": s.segment.text, "start_index": s.segment.start_index,
+                             "end_index": s.segment.end_index, "source_indices": list(s.grounding_chunk_indices)}
+                            for s in md.grounding_supports or []
+                        ]
+                        if md.search_entry_point and md.search_entry_point.rendered_content:
+                            search_widget_html = md.search_entry_point.rendered_content
+
+                    # Parse structured output if requested
+                    structured_result = None
+                    if structured_output and answer:
+                        try:
+                            parsed = GeminiResearchOutput.model_validate_json(answer)
+                            structured_result = parsed.model_dump()
+                        except Exception:
+                            pass
+
+                    return GeminiGroundingResult(
+                        query=query, answer=answer,
+                        thoughts="\n".join(thought_parts) if thought_parts else None,
+                        structured_result=structured_result,
+                        model_used=model_id,
+                        structured_output=structured_output,
+                        web_search_queries=web_search_queries,
+                        grounding_chunks=grounding_chunks,
+                        grounding_supports=grounding_supports,
+                        search_widget_html=search_widget_html,
+                        fallback_chain=fallback_chain,
+                        fallback_reason=f"Retry after rate limit succeeded for {model_id}",
+                    )
                 except Exception as retry_exc:
                     logger.warning("Retry also failed for %s: %s", model_id, retry_exc)
 

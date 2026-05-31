@@ -8,16 +8,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Voyage AI `rerank-2.5` is now the primary reranker, with Jina retained as a fallback provider.
+- Provider rerank failures now preserve the merged candidate order instead of collapsing to zero results, and the absolute score threshold is no longer applied to raw RRF fallback scores.
+- Recency exponential decay bonus (`RERANK_RECENCY_WEIGHT`, `RERANK_RECENCY_HALF_LIFE_DAYS`) still boosts recent results after provider reranking and is automatically disabled when `searxng_time_range` is set.
+- Query, rewrite, rerank, and `web_search` observability events are now also persisted to DuckDB for offline analysis and tuning.
+
+### Fixed
+
+- Middleware steering now uses shared session tracking for expensive-tool protection and Gemini guidance, replacing the deleted standalone Gemini advisory module.
+- `web_search` now serializes its public response through an allowlisted output boundary, so cached and live results both omit internal fields like `score`, `raw_score`, `mime_hint`, `source_engines`, `category`, and `diagnostics`.
+- Search and fetch tool logging now flows through a centralized observability
+  envelope with bounded request/response serialization, request fingerprints,
+  and compact metadata/link/page previews for `web_search`, `get_content`,
+  `batch_get_content`, `discover_links`, `gemini_search`, `perplexity_search`,
+  and `academic_search`.
+- OpenTelemetry observability is now part of the default runtime install, so
+  `uvx --from git+... kindly-web-search-mcp-server start-mcp-server` no longer
+  starts without tracing/logging packages. When `OTEL_EXPORTER_OTLP_ENDPOINT`
+  is configured but the environment is missing telemetry packages, startup now
+  skips export gracefully instead of aborting initialization.
+- `configure_logging()` now keeps application INFO records enabled even when
+  handlers already exist, so the hard-value observability events emitted by
+  search, rerank, and content resolution are no longer filtered out by a
+  WARNING-level root logger.
+- OTLP-enabled runs now keep application logging at INFO even when `LOG_LEVEL`
+  is set to `WARNING`, preventing configured Grafana/Loki export from silently
+  dropping `tool.web_search.*`, provider, merge, and rerank hard-value events.
+- `kindly-web-search start-mcp-server` now works correctly — `server.py`'s
+  argument parser accepts `start-mcp-server` as a no-op positional argument
+  for compatibility with MCP client configs that append the subcommand from
+  the CLI-wrapper entry point.
+- MCP stdio startup now defers heavyweight optional provider imports until the
+  relevant feature is used, avoiding initialization hangs in LiteLLM/OpenAI,
+  Hugging Face reranking, and Google GenAI import paths while preserving the
+  existing tools, prompt wrappers, and resource wrappers.
+- Instrumented `web_search` provider calls now import provider health from the
+  correct package path and log provider task crashes instead of dropping them
+  without visibility.
+- `gemini_search(structured_output=True)` now uses an explicit source schema
+  without free-form dict fields that generate unsupported Gemini
+  `additionalProperties`.
+- FastMCP workflow prompts now use valid `Message` roles (`user`) instead of
+  unsupported `system` roles.
+
 ### Changed
 
+- Observability logs now include explicit trace/span correlation when available,
+  bounded result hashes/lengths, `research_goal` on `web_search` responses,
+  warning lists, startup telemetry self-reporting, and structured branch/merge/
+  rerank summaries for easier end-to-end MCP information-flow investigation.
+- `web_search` now accepts explicit tool-side pagination and SearXNG controls:
+  `result_offset`, category/engine/language/page/time-range/safesearch
+  overrides, and site/domain filters. Search identity keys now include those
+  controls, and the response includes a `result_window` summary so callers can
+  page through merged results without guessing whether more results remain.
 - Query rewrite now uses intent-specific temperatures: `code` queries use 0.15
   (deterministic for precise technical queries), `general_research` uses 0.5
   (balanced creativity for exploratory queries), and `comparison` uses 0.3
   (structured output for entity comparisons). Previously all intents used
   the same temperature from settings.
+- Query rewrite now integrates the FunctionGemma classifier/decomposition
+  service, stores classifier/decomposition metadata on rewrite plans, and
+  propagates per-variant weights into RRF merge scoring.
+- Search middleware rate limiting now classifies the current tool set more
+  explicitly, and repo docs no longer refer to the deleted HF query-policy
+  backend.
 
 ### Added
 
+- Live MCP `web_search` load/observability probe scripts:
+  `scripts/live_web_search_load_test.py` and
+  `scripts/live_web_search_probe_lib.py`. The probe drives the stdio MCP client
+  path at a configurable cadence, writes raw JSONL call records, captures server
+  logs, and emits aggregate latency/provider/domain/warning summaries.
+- The live MCP `web_search` probe now supports `--linger-seconds` to keep the
+  stdio MCP process alive long enough for OTLP batch exporters to flush, and
+  `--query` to force unique cache-miss probes when verifying provider spans,
+  logs, and metrics in Grafana.
+- `discover_links` as a structured fetch tool for known URLs and sitemaps, with
+  optional external-link filtering and same-domain restriction.
+- Optional metadata and link extraction on `get_content` and `batch_get_content`,
+  including selector stripping, `continuation_notice`, and paragraph-aware
+  windowing for cleaner pagination through long pages.
 - Provider-aware query rewrite implementation plan in
   `plans/query-rewrite-agentic-provider-aware-plan-2026-05-13.md`,
   now focused on concrete prompt constants, JSON schema, validators, and
