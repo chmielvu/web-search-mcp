@@ -64,17 +64,20 @@ class PageCache:
                 logger.debug("Opened existing page_cache table")
             except Exception:
                 import pyarrow as pa
-                arrow_schema = pa.schema([
-                    pa.field("id", pa.string()),
-                    pa.field("url_canonical", pa.string()),
-                    pa.field("url_hash", pa.string()),
-                    pa.field("page_content", pa.string()),
-                    pa.field("extraction_method", pa.string()),
-                    pa.field("word_count", pa.int64()),
-                    pa.field("created_at", pa.string()),
-                    pa.field("ttl_seconds", pa.int64()),
-                    pa.field("metadata_json", pa.string()),
-                ])
+
+                arrow_schema = pa.schema(
+                    [
+                        pa.field("id", pa.string()),
+                        pa.field("url_canonical", pa.string()),
+                        pa.field("url_hash", pa.string()),
+                        pa.field("page_content", pa.string()),
+                        pa.field("extraction_method", pa.string()),
+                        pa.field("word_count", pa.int64()),
+                        pa.field("created_at", pa.string()),
+                        pa.field("ttl_seconds", pa.int64()),
+                        pa.field("metadata_json", pa.string()),
+                    ]
+                )
                 self._table = db.create_table("page_cache", schema=arrow_schema)
                 logger.info("Created new page_cache table")
         return self._table
@@ -102,10 +105,7 @@ class PageCache:
 
         try:
             results = (
-                table.search()
-                .where(f"url_hash = '{url_hash}'")
-                .limit(1)
-                .to_list()
+                table.search().where(f"url_hash = '{url_hash}'").limit(1).to_list()
             )
         except Exception as exc:
             logger.warning("Page cache lookup failed: %s", exc)
@@ -230,6 +230,7 @@ def get_page_cache(db_path: str | None = None) -> PageCache:
     global _PAGE_CACHE
     if _PAGE_CACHE is None:
         from ..settings import settings
+
         actual_path = db_path or settings.lancedb_dir
         _PAGE_CACHE = PageCache(db_path=actual_path)
         logger.info("Initialized page cache at %s", actual_path)

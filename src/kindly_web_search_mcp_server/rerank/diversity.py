@@ -42,8 +42,16 @@ def maximal_marginal_relevance_rank(
         return list(range(n))
 
     if np is not None:
-        matrix = np.array([list(e) if isinstance(e, np.ndarray) else e for e in candidate_embeddings], dtype=float)
-        query = np.array(list(query_embedding) if isinstance(query_embedding, np.ndarray) else query_embedding, dtype=float)
+        matrix = np.array(
+            [list(e) if isinstance(e, np.ndarray) else e for e in candidate_embeddings],
+            dtype=float,
+        )
+        query = np.array(
+            list(query_embedding)
+            if isinstance(query_embedding, np.ndarray)
+            else query_embedding,
+            dtype=float,
+        )
         if matrix.ndim != 2 or matrix.shape[0] != n:
             return list(range(n))
         if query.ndim != 1 or query.shape[0] != matrix.shape[1]:
@@ -71,7 +79,9 @@ def maximal_marginal_relevance_rank(
                 return 0.0
             return dot / (na * nb)
 
-        similarity_matrix = [[cosine(vectors[i], vectors[j]) for j in range(n)] for i in range(n)]
+        similarity_matrix = [
+            [cosine(vectors[i], vectors[j]) for j in range(n)] for i in range(n)
+        ]
         query_similarities = [cosine(query, vectors[i]) for i in range(n)]
 
     hosts = [_normalize_host(url) for url in urls]
@@ -86,11 +96,27 @@ def maximal_marginal_relevance_rank(
             host_count = host_counts.get(hosts[idx], 0)
             host_penalty = host_saturation_penalty * host_count
             if host_count >= max_per_host:
-                host_penalty += 1.0  # hard push-away after cap, still allows backfill if needed.
+                host_penalty += (
+                    1.0  # hard push-away after cap, still allows backfill if needed.
+                )
 
-            redundancy = max((float(similarity_matrix[idx][s] if np is None else similarity_matrix[idx, s]) for s in selected), default=0.0)
+            redundancy = max(
+                (
+                    float(
+                        similarity_matrix[idx][s]
+                        if np is None
+                        else similarity_matrix[idx, s]
+                    )
+                    for s in selected
+                ),
+                default=0.0,
+            )
             relevance = float(query_similarities[idx])
-            objective = lambda_param * relevance - (1.0 - lambda_param) * redundancy - host_penalty
+            objective = (
+                lambda_param * relevance
+                - (1.0 - lambda_param) * redundancy
+                - host_penalty
+            )
             if objective > best_objective:
                 best_objective = objective
                 best_idx = idx

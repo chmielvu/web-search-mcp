@@ -1,0 +1,18 @@
+{
+  "run_id": "0496bfc244bf",
+  "raw_path": "outputs\\review-probe\\web_search_live_0496bfc244bf.jsonl",
+  "call_count": 2,
+  "success_count": 2,
+  "error_count": 0,
+  "empty_result_count": 2,
+  "duration_ms": {
+    "min": 2187.371,
+    "max": 8755.444,
+    "avg": 5471.407,
+    "p50": 2187.371,
+    "p95": 8755.444
+  },
+  "providers_used": {},
+  "top_domains": {},
+  "warning_types": {}
+}

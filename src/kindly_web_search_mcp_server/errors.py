@@ -26,6 +26,7 @@ class StructuredToolError:
         status_code: Optional HTTP status code
         retry_after: Optional seconds to wait before retrying (for rate limits)
     """
+
     error: str
     error_type: str = "unknown"
     action: str | None = None
@@ -119,7 +120,11 @@ def classify_error(
 
     # YouTube-specific errors (IP blocking)
     if "YouTube" in str(error) or "transcript" in str(error).lower():
-        if "IP" in str(error) or "blocked" in str(error).lower() or "Cloud" in str(error):
+        if (
+            "IP" in str(error)
+            or "blocked" in str(error).lower()
+            or "Cloud" in str(error)
+        ):
             return StructuredToolError(
                 error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
                 error_type="network",

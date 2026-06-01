@@ -155,7 +155,9 @@ def render_issue_thread_markdown(
         if total_comments is None:
             lines.append(f"_Thread truncated: showing {shown} comments._")
         else:
-            lines.append(f"_Thread truncated: showing {shown} of {total_comments} comments._")
+            lines.append(
+                f"_Thread truncated: showing {shown} of {total_comments} comments._"
+            )
         if url:
             lines.append(f"_View full thread: {url}_")
         lines.append("")
@@ -174,7 +176,9 @@ class GitHubGraphqlClient:
             "Content-Type": "application/json",
         }
         resp = await self._http.post(
-            GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers
+            GITHUB_GRAPHQL_URL,
+            json={"query": query, "variables": variables},
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -305,7 +309,9 @@ async def fetch_github_issue_thread_markdown(
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = GitHubGraphqlClient(http_client=client, token=token)
-        issue, comments, total = await api.fetch_issue_with_comments(target, max_comments=max_comments)
+        issue, comments, total = await api.fetch_issue_with_comments(
+            target, max_comments=max_comments
+        )
         truncated = total > len(comments)
         md = render_issue_thread_markdown(
             issue=issue, comments=comments, total_comments=total, truncated=truncated

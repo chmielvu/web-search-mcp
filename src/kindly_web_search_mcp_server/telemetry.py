@@ -33,6 +33,7 @@ from __future__ import annotations
 import os
 import logging
 import json
+import platform
 import socket
 from typing import Any
 from urllib.parse import urlparse
@@ -43,6 +44,10 @@ from opentelemetry import trace, metrics
 try:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.sampling import (
+        ParentBased,
+        TraceIdRatioBased,
+    )
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import (
@@ -70,6 +75,34 @@ def _get_prometheus_metric_reader() -> Any | None:
     except ImportError:
         return None
     return PrometheusMetricReader
+
+
+def build_grafana_cloud_headers(
+    instance_id: str = "", api_key: str = "", endpoint: str = ""
+) -> dict[str, str]:
+    """Build OTLP headers for Grafana Cloud from convenience variables.
+
+    Windows/pwsh users often prefer setting three simple vars instead of
+    constructing a Base64 Authorization header manually.
+
+    Returns a dict suitable for OTLPSpanExporter / OTLPMetricExporter headers=.
+    Falls back to empty dict (standard OTEL_* handling) if insufficient data.
+    """
+    if not instance_id or not api_key:
+        return {}
+
+    # Basic auth: username = instance ID (numeric), password = API key (glc_...)
+    import base64
+
+    token = base64.b64encode(f"{instance_id}:{api_key}".encode("utf-8")).decode("ascii")
+    auth = f"Basic {token}"
+
+    headers = {"Authorization": auth}
+
+    # If a custom endpoint was provided via the convenience var, the caller
+    # (init_telemetry) is responsible for using it instead of OTEL_EXPORTER_OTLP_ENDPOINT.
+    # We only return the auth header here.
+    return headers
 
 
 # Logging bridge (experimental but useful)
@@ -266,6 +299,8 @@ _mcp_error_counter: metrics.Counter | None = None
 # Content resolution metrics
 _content_resolution_counter: metrics.Counter | None = None
 _content_duration_histogram: metrics.Histogram | None = None
+_content_fallback_counter: metrics.Counter | None = None
+_content_error_counter: metrics.Counter | None = None
 
 # RRF merge metrics
 _rrf_merge_counter: metrics.Counter | None = None
@@ -319,14 +354,20 @@ def init_telemetry(
     This MUST be called at server startup before any HTTP operations.
     Auto-instruments httpx for automatic HTTP span creation.
 
-    Environment variables (required):
-        OTEL_EXPORTER_OTLP_ENDPOINT: Grafana Cloud OTLP gateway URL
-        OTEL_EXPORTER_OTLP_HEADERS: Authorization header (Base64 token)
+    Preferred configuration (standard OTEL):
+        OTEL_EXPORTER_OTLP_ENDPOINT + OTEL_EXPORTER_OTLP_HEADERS (Basic auth)
+
+    Windows / convenience path (recommended in this repo):
+        GRAFANA_CLOUD_INSTANCE_ID + GRAFANA_CLOUD_API_KEY + GRAFANA_CLOUD_OTLP_ENDPOINT
+        (or the KINDLY_* equivalents). These are automatically turned into the
+        correct Authorization header.
+
+    Sampling is controlled via KINDLY_OTEL_SAMPLING_RATIO (default 0.15 in Settings).
 
     Optional:
-        KINDLY_PROMETHEUS_PORT: Port for Prometheus metrics endpoint
-        OTEL_SERVICE_NAME: Override service name
-        DEPLOYMENT_ENV: Deployment environment (development, staging, production)
+        KINDLY_PROMETHEUS_PORT / KINDLY_PROMETHEUS_ENABLED
+        OTEL_SERVICE_NAME / OTEL_SERVICE_NAMESPACE
+        DEPLOYMENT_ENV
     """
     global _initialized
     if _initialized:
@@ -337,9 +378,39 @@ def init_telemetry(
     service_name = os.environ.get("OTEL_SERVICE_NAME", service_name)
     service_version = os.environ.get("OTEL_SERVICE_VERSION", service_version)
 
-    # Get Grafana Cloud endpoint and auth
+    # ------------------------------------------------------------------
+    # Endpoint + Header resolution (supports both standard OTEL_* and
+    # the Grafana Cloud convenience variables exposed via Settings)
+    # ------------------------------------------------------------------
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+    headers: dict[str, str] = {}
+
+    # 1. Try Grafana Cloud convenience path first (Windows-friendly)
+    gcloud_instance = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
+    gcloud_key = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
+    gcloud_endpoint = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
+
+    if gcloud_instance and gcloud_key:
+        headers = build_grafana_cloud_headers(gcloud_instance, gcloud_key)
+        if not endpoint:
+            endpoint = (
+                gcloud_endpoint
+                or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+            )
+        logging.info("Using Grafana Cloud convenience variables for OTLP auth")
+
+    # 2. Fall back to classic OTEL_* raw header
+    if not headers:
+        headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+        if headers_raw:
+            for part in headers_raw.split(","):
+                part = part.strip()
+                if "=" in part:
+                    key, val = part.split("=", 1)
+                    headers[key.strip()] = val.strip().replace("%20", " ")
+                elif ":" in part:
+                    key, val = part.split(":", 1)
+                    headers[key.strip()] = val.strip()
 
     if not endpoint:
         if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
@@ -350,7 +421,8 @@ def init_telemetry(
         else:
             logging.info(
                 "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
-                "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry"
+                "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry "
+                "or use GRAFANA_CLOUD_* convenience variables."
             )
         return
 
@@ -365,18 +437,6 @@ def init_telemetry(
         port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
         prometheus_port = int(port_env) if port_env else None
 
-    # Parse headers (format: "Authorization=Basic%20<token>" or "Authorization: Basic <token>")
-    headers: dict[str, str] = {}
-    if headers_raw:
-        for part in headers_raw.split(","):
-            part = part.strip()
-            if "=" in part:
-                key, val = part.split("=", 1)
-                headers[key.strip()] = val.strip().replace("%20", " ")
-            elif ":" in part:
-                key, val = part.split(":", 1)
-                headers[key.strip()] = val.strip()
-
     # === RESOURCE (Grafana Cloud Application Observability) ===
     hostname = socket.gethostname()
     pid = os.getpid()
@@ -384,11 +444,13 @@ def init_telemetry(
     resource_attrs = {
         # Service identity (required for Grafana Cloud)
         SERVICE_NAME: service_name,
-        SERVICE_NAMESPACE: "kindly-mcp",
+        SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
         SERVICE_VERSION: service_version,
         "service.instance.id": f"{hostname}-{pid}",
-        # Deployment context
-        "deployment.environment": os.environ.get("DEPLOYMENT_ENV", "development"),
+        # Deployment context (respect both DEPLOYMENT_ENV and our KINDLY setting)
+        "deployment.environment": os.environ.get(
+            "DEPLOYMENT_ENV", os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development")
+        ),
         # Host context
         "host.name": hostname,
         "host.arch": "amd64",
@@ -397,7 +459,9 @@ def init_telemetry(
         "process.pid": pid,
         "process.executable.name": "python",
         "process.runtime.name": "cpython",
-        "process.runtime.version": os.environ.get("PYTHON_VERSION", "3.12"),
+        "process.runtime.version": os.environ.get(
+            "PYTHON_VERSION", platform.python_version()
+        ),
         # OTEL SDK info
         "telemetry.sdk.language": "python",
         "telemetry.sdk.name": "opentelemetry",
@@ -405,8 +469,18 @@ def init_telemetry(
     }
     resource = Resource.create(resource_attrs)
 
+    # === SAMPLING (head-based, configurable) ===
+    # Read from KINDLY_OTEL_SAMPLING_RATIO (preferred) or OTEL_TRACES_SAMPLER_ARG
+    sampling_ratio = float(
+        os.environ.get(
+            "KINDLY_OTEL_SAMPLING_RATIO",
+            os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
+        )
+    )
+    sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
+
     # === TRACES ===
-    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider = TracerProvider(resource=resource, sampler=sampler)
 
     # BatchSpanProcessor: batches spans, exports every 5s or 512 spans
     trace_exporter = OTLPSpanExporter(
@@ -713,7 +787,11 @@ def get_mcp_metrics() -> tuple[metrics.Counter, metrics.Counter]:
 def get_content_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     """Get content resolution metrics."""
     meter = get_meter()
-    global _content_resolution_counter, _content_duration_histogram
+    global \
+        _content_resolution_counter, \
+        _content_duration_histogram, \
+        _content_fallback_counter, \
+        _content_error_counter
 
     if _content_resolution_counter is None:
         _content_resolution_counter = meter.create_counter(
@@ -737,6 +815,20 @@ def get_content_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
                 20.0,
                 30.0,
             ],
+        )
+
+    if _content_fallback_counter is None:
+        _content_fallback_counter = meter.create_counter(
+            name="web_search_content_fallback_total",
+            description="Content resolution fallbacks to later stages (trafilatura, jina, browser)",
+            unit="1",
+        )
+
+    if _content_error_counter is None:
+        _content_error_counter = meter.create_counter(
+            name="web_search_content_errors_total",
+            description="Content resolution errors by stage",
+            unit="1",
         )
 
     return _content_resolution_counter, _content_duration_histogram
@@ -1149,6 +1241,7 @@ def record_content_resolution(
         1,
         {
             CONTENT_STAGE: stage,
+            CONTENT_FINAL_STAGE: stage,
             CONTENT_STATUS: status,
             CONTENT_EXTRACTION_METHOD: extraction_method or "",
         },
@@ -1160,6 +1253,43 @@ def record_content_resolution(
             {
                 CONTENT_STAGE: stage,
                 CONTENT_STATUS: status,
+            },
+        )
+
+
+def record_content_fallback(
+    stage: str, url: str, from_stage: str | None = None
+) -> None:
+    """Record a fallback to a later extraction stage."""
+    counter = _content_fallback_counter
+    if counter is None:
+        # Ensure initialized
+        get_content_metrics()
+        counter = _content_fallback_counter
+    if counter:
+        counter.add(
+            1,
+            {
+                CONTENT_STAGE: stage,
+                "content.from_stage": from_stage or "",
+                CONTENT_URL: url[:200] if url else "",
+            },
+        )
+
+
+def record_content_error(stage: str, url: str, error_type: str) -> None:
+    """Record a hard error during content resolution."""
+    counter = _content_error_counter
+    if counter is None:
+        get_content_metrics()
+        counter = _content_error_counter
+    if counter:
+        counter.add(
+            1,
+            {
+                CONTENT_STAGE: stage,
+                ERROR_TYPE: error_type,
+                CONTENT_URL: url[:200] if url else "",
             },
         )
 
@@ -1713,7 +1843,7 @@ def create_query_rewrite_span(
         attributes={
             SEARCH_QUERY: query[:500],
             REWRITE_POLICY: policy,
-            REWRITE_MODEL: "mistral-small-2603",
+            REWRITE_MODEL: "cascade",
             MCP_SERVER_NAME: "web-search-mcp",
         },
     )
@@ -1999,6 +2129,8 @@ __all__ = [
     "record_cache_lookup",
     "record_mcp_tool_call",
     "record_content_resolution",
+    "record_content_fallback",
+    "record_content_error",
     # RRF merge metrics (NEW)
     "record_rrf_merge",
     "record_rrf_score",

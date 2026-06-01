@@ -34,6 +34,8 @@ def emit_merge_summary(
         input_list_count=len(result_lists),
         input_result_count=sum(len(results) for results in result_lists),
         output_result_count=len(output),
+        input_results=result_lists,
+        output_results=output,
         discarded_count=discarded_count,
         overlap_rate=round(overlap_rate, 4),
         duration_ms=round(duration_seconds * 1000, 3),

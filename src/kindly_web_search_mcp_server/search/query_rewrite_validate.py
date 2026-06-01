@@ -67,7 +67,9 @@ def validate_keyword_variants(
             continue
         if _looks_like_prose_answer(variant.query):
             continue
-        if variant.kind == "community_issues" and not _has_community_signal(variant.query):
+        if variant.kind == "community_issues" and not _has_community_signal(
+            variant.query
+        ):
             continue
         key = normalize_query(variant.query).casefold()
         if key in seen:
@@ -94,7 +96,9 @@ def validate_neural_variants(
     return valid[:1]
 
 
-COMMUNITY_ALLOWED_KINDS = frozenset({"original", "practitioner_opinion", "bug_report", "how_to"})
+COMMUNITY_ALLOWED_KINDS = frozenset(
+    {"original", "practitioner_opinion", "bug_report", "how_to"}
+)
 
 
 def validate_community_variants(
@@ -121,7 +125,9 @@ def validate_community_variants(
 
 def _keeps_required_terms(query: str, must_keep_terms: list[str]) -> bool:
     normalized = normalize_query(query).casefold()
-    return all(normalize_query(term).casefold() in normalized for term in must_keep_terms)
+    return all(
+        normalize_query(term).casefold() in normalized for term in must_keep_terms
+    )
 
 
 def _looks_like_prose_answer(query: str) -> bool:
@@ -142,4 +148,6 @@ def _looks_like_keyword_pile(query: str) -> bool:
     if punctuation > 0:
         return False
     lowered = query.casefold()
-    return not any(token in lowered for token in ("find ", "compare ", "identify ", "verify "))
+    return not any(
+        token in lowered for token in ("find ", "compare ", "identify ", "verify ")
+    )

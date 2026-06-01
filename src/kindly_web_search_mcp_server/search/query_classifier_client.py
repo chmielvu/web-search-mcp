@@ -66,16 +66,27 @@ def _default_routing_for_intent(intent: RewriteIntent, query: str) -> ProviderRo
         return ProviderRouting(keyword=True, neural=True, community=True)
     if intent == "general_research":
         return ProviderRouting(keyword=True, neural=True, community=False)
-    community = any(token in lowered for token in ("github", "reddit", "hackernews", "forum", "issue", "bug"))
+    community = any(
+        token in lowered
+        for token in ("github", "reddit", "hackernews", "forum", "issue", "bug")
+    )
     return ProviderRouting(keyword=True, neural=True, community=community)
 
 
-def _fallback_classifier_output(query: str, research_goal: str | None) -> ClassifierOutput:
+def _fallback_classifier_output(
+    query: str, research_goal: str | None
+) -> ClassifierOutput:
     lowered = normalize_query(research_goal or query).casefold()
-    if any(token in lowered for token in (" vs ", " compare ", "comparison", "difference", "versus")):
+    if any(
+        token in lowered
+        for token in (" vs ", " compare ", "comparison", "difference", "versus")
+    ):
         intent: RewriteIntent = "comparison"
         should_decompose = True
-    elif any(token in lowered for token in ("docs", "api", "error", "bug", "install", "how to", "debug")):
+    elif any(
+        token in lowered
+        for token in ("docs", "api", "error", "bug", "install", "how to", "debug")
+    ):
         intent = "code"
         should_decompose = False
     else:
@@ -98,7 +109,9 @@ def _fallback_decomposition_output(
     normalized = normalize_query(query)
     candidate_segments = [
         segment.strip(" ,.;:()[]{}")
-        for segment in normalized.replace(" vs ", " and ").replace(" versus ", " and ").split(" and ")
+        for segment in normalized.replace(" vs ", " and ")
+        .replace(" versus ", " and ")
+        .split(" and ")
         if segment.strip()
     ]
     if len(candidate_segments) < 2:
@@ -107,9 +120,14 @@ def _fallback_decomposition_output(
     sub_questions: list[SubQuestion] = []
     for segment in candidate_segments[:max_subquestions]:
         lowered = segment.casefold()
-        if any(token in lowered for token in ("reddit", "hackernews", "forum", "opinion")):
+        if any(
+            token in lowered for token in ("reddit", "hackernews", "forum", "opinion")
+        ):
             target = "community"
-        elif any(token in lowered for token in ("docs", "api", "error", "bug", "install", "debug")):
+        elif any(
+            token in lowered
+            for token in ("docs", "api", "error", "bug", "install", "debug")
+        ):
             target = "keyword"
         elif classifier.routing.neural:
             target = "neural"
@@ -238,7 +256,8 @@ class FunctionGemmaClient:
             result = _fallback_decomposition_output(
                 query,
                 classifier or _fallback_classifier_output(query, research_goal),
-                max_subquestions=max_subquestions or settings.query_decomposition_max_subquestions,
+                max_subquestions=max_subquestions
+                or settings.query_decomposition_max_subquestions,
             )
             _store_cache(_DECOMPOSITION_CACHE, cache_key, result)
             return result

@@ -44,7 +44,9 @@ def provider_cache_key(providers: list[str] | None) -> str:
     """Normalize the caller-specified provider set for cache identity."""
     if not providers:
         return "default"
-    normalized = sorted({provider.strip().lower() for provider in providers if provider.strip()})
+    normalized = sorted(
+        {provider.strip().lower() for provider in providers if provider.strip()}
+    )
     return ",".join(normalized) if normalized else "default"
 
 
@@ -93,18 +95,21 @@ class ExactQueryCache:
             except Exception:
                 # Create with arrow schema
                 import pyarrow as pa
-                arrow_schema = pa.schema([
-                    pa.field("id", pa.string()),
-                    pa.field("cache_key", pa.string()),
-                    pa.field("normalized_query", pa.string()),
-                    pa.field("num_results", pa.int64()),
-                    pa.field("rewrite_enabled", pa.bool_()),
-                    pa.field("search_mode", pa.string()),
-                    pa.field("providers_key", pa.string()),
-                    pa.field("response_json", pa.string()),
-                    pa.field("created_at", pa.string()),
-                    pa.field("ttl_seconds", pa.int64()),
-                ])
+
+                arrow_schema = pa.schema(
+                    [
+                        pa.field("id", pa.string()),
+                        pa.field("cache_key", pa.string()),
+                        pa.field("normalized_query", pa.string()),
+                        pa.field("num_results", pa.int64()),
+                        pa.field("rewrite_enabled", pa.bool_()),
+                        pa.field("search_mode", pa.string()),
+                        pa.field("providers_key", pa.string()),
+                        pa.field("response_json", pa.string()),
+                        pa.field("created_at", pa.string()),
+                        pa.field("ttl_seconds", pa.int64()),
+                    ]
+                )
                 self._table = db.create_table("query_cache_v2", schema=arrow_schema)
                 logger.info("Created new query_cache_v2 table")
         return self._table
@@ -136,10 +141,7 @@ class ExactQueryCache:
         table = self._get_table()
         try:
             results = (
-                table.search()
-                .where(f"cache_key = '{cache_key}'")
-                .limit(1)
-                .to_list()
+                table.search().where(f"cache_key = '{cache_key}'").limit(1).to_list()
             )
         except Exception as exc:
             logger.warning("Exact query cache lookup failed: %s", exc)
@@ -151,7 +153,9 @@ class ExactQueryCache:
             logger.debug("No exact cache hit for key: %s", cache_key[:16])
             # Record cache miss
             duration = time.time() - start_time
-            record_cache_lookup(cache_type="exact", hit=False, duration_seconds=duration)
+            record_cache_lookup(
+                cache_type="exact", hit=False, duration_seconds=duration
+            )
             return None
 
         row = results[0]
@@ -169,7 +173,9 @@ class ExactQueryCache:
             )
             # Record expired as cache miss
             duration = time.time() - start_time
-            record_cache_lookup(cache_type="exact", hit=False, duration_seconds=duration)
+            record_cache_lookup(
+                cache_type="exact", hit=False, duration_seconds=duration
+            )
             return None
 
         # Record cache hit
@@ -251,6 +257,7 @@ def get_query_cache(db_path: str | None = None) -> ExactQueryCache:
     global _QUERY_CACHE
     if _QUERY_CACHE is None:
         from ..settings import settings
+
         actual_path = db_path or settings.lancedb_dir
         _QUERY_CACHE = ExactQueryCache(db_path=actual_path)
         logger.info("Initialized exact query cache at %s", actual_path)

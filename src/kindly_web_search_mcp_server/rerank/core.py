@@ -266,7 +266,9 @@ async def rerank_results(
                     f"Recency scoring disabled: searxng_time_range={searxng_time_range!r}"
                 )
 
-            for (idx, _raw_score), norm_score in zip(sorted_ranked, normalized_scores, strict=False):
+            for (idx, _raw_score), norm_score in zip(
+                sorted_ranked, normalized_scores, strict=False
+            ):
                 final_score = norm_score
                 if apply_recency:
                     recency_score = _compute_recency_score(

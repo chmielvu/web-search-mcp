@@ -1,0 +1,22 @@
+{
+  "run_id": "cf309862a1e9",
+  "raw_path": "outputs\\live-voyage-rerank-check\\web_search_live_cf309862a1e9.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 13692.629,
+    "max": 13692.629,
+    "avg": 13692.629,
+    "p50": 13692.629,
+    "p95": 13692.629
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

@@ -26,17 +26,22 @@ _genai_types: Any | None = None
 
 # Hardcoded fallback tier - NO env var override
 GEMINI_GROUNDING_TIER = [
-    "gemini-2.5-flash",       # PRIMARY - best grounding quality
+    "gemini-2.5-flash",  # PRIMARY - best grounding quality
     "gemini-2.5-flash-lite",  # FAST FALLBACK - low latency
-    "gemma-4-31b-it",         # COST FALLBACK - current default
+    "gemma-4-31b-it",  # COST FALLBACK - current default
 ]
+
 
 # Practitioner-tested system prompt (adapted from callsphere.ai, inventivehq.com)
 def get_system_prompt(research_goal: str | None = None) -> str:
     """System prompt for Gemini grounding - adapted for general-purpose MCP tool."""
     from datetime import date
+
     today = date.today().strftime("%B %d, %Y")
-    goal = research_goal or "Provide thorough, factual answers based on current information"
+    goal = (
+        research_goal
+        or "Provide thorough, factual answers based on current information"
+    )
 
     return f"""You are a research assistant. Today is {today}.
 
@@ -83,20 +88,34 @@ class GeminiGroundingResult(BaseModel):
 
     query: str = Field(description="Original search query")
     answer: str = Field(description="Generated answer text")
-    thoughts: str | None = Field(default=None, description="Internal reasoning if available")
-    structured_result: dict[str, Any] | None = Field(default=None, description="Parsed structured output")
+    thoughts: str | None = Field(
+        default=None, description="Internal reasoning if available"
+    )
+    structured_result: dict[str, Any] | None = Field(
+        default=None, description="Parsed structured output"
+    )
     model_used: str = Field(description="Model ID used for generation")
-    structured_output: bool = Field(description="Whether structured output was requested")
-    web_search_queries: list[str] = Field(default_factory=list, description="Queries sent to Google Search")
+    structured_output: bool = Field(
+        description="Whether structured output was requested"
+    )
+    web_search_queries: list[str] = Field(
+        default_factory=list, description="Queries sent to Google Search"
+    )
     grounding_chunks: list[dict[str, str]] = Field(
         default_factory=list, description="Source chunks with URL and title"
     )
     grounding_supports: list[dict[str, Any]] = Field(
         default_factory=list, description="Segment-to-source mappings"
     )
-    search_widget_html: str | None = Field(default=None, description="Search widget HTML for display")
-    fallback_chain: list[str] = Field(default_factory=list, description="Models tried during fallback")
-    fallback_reason: str | None = Field(default=None, description="Reason for fallback if occurred")
+    search_widget_html: str | None = Field(
+        default=None, description="Search widget HTML for display (opt-in)"
+    )
+    fallback_chain: list[str] = Field(
+        default_factory=list, description="Models tried during fallback"
+    )
+    fallback_reason: str | None = Field(
+        default=None, description="Reason for fallback if occurred"
+    )
     error: str | None = Field(default=None, description="Error message if failed")
 
 
@@ -134,7 +153,7 @@ def _classify_gemini_error(exc: Exception) -> tuple[str, bool, bool]:
         (error_type, should_fallback, should_retry)
     """
     # Check for status_code attribute (Google API errors)
-    status_code = getattr(exc, 'status_code', getattr(exc, 'code', None))
+    status_code = getattr(exc, "status_code", getattr(exc, "code", None))
 
     if status_code:
         if status_code == 429:
@@ -277,7 +296,9 @@ async def gemini_search_with_grounding(
                         parsed = GeminiResearchOutput.model_validate_json(answer)
                         structured_result = parsed.model_dump()
                 except Exception as exc:
-                    logger.warning("Structured Gemini grounding output failed to parse: %s", exc)
+                    logger.warning(
+                        "Structured Gemini grounding output failed to parse: %s", exc
+                    )
 
             # Extract grounding metadata
             web_search_queries: list[str] = []
@@ -302,7 +323,10 @@ async def gemini_search_with_grounding(
                     }
                     for support in metadata.grounding_supports or []
                 ]
-                if metadata.search_entry_point and metadata.search_entry_point.rendered_content:
+                if (
+                    metadata.search_entry_point
+                    and metadata.search_entry_point.rendered_content
+                ):
                     search_widget_html = metadata.search_entry_point.rendered_content
 
             return GeminiGroundingResult(
@@ -325,14 +349,20 @@ async def gemini_search_with_grounding(
 
             logger.warning(
                 "Gemini grounding attempt failed for %s: %s (type=%s, fallback=%s, retry=%s)",
-                model_id, exc, error_type, should_fallback, should_retry
+                model_id,
+                exc,
+                error_type,
+                should_fallback,
+                should_retry,
             )
 
             fallback_reason = f"{error_type}: {str(exc)}"
 
             # Rate limit: retry once with backoff, then continue to next tier
             if should_retry:
-                logger.info("Rate limit hit for %s, retrying once with 1s backoff", model_id)
+                logger.info(
+                    "Rate limit hit for %s, retrying once with 1s backoff", model_id
+                )
                 await asyncio.sleep(1)
 
                 try:
@@ -352,21 +382,36 @@ async def gemini_search_with_grounding(
                                 answer_parts.append(part.text or "")
                     answer = "\n".join(answer_parts)
                     # Build result from retry success
-                    web_search_queries, grounding_chunks, grounding_supports = [], [], []
+                    web_search_queries, grounding_chunks, grounding_supports = (
+                        [],
+                        [],
+                        [],
+                    )
                     search_widget_html = None
-                    if response.candidates and response.candidates[0].grounding_metadata:
+                    if (
+                        response.candidates
+                        and response.candidates[0].grounding_metadata
+                    ):
                         md = response.candidates[0].grounding_metadata
                         web_search_queries = list(md.web_search_queries or [])
                         grounding_chunks = [
                             {"url": chunk.web.uri, "title": chunk.web.title}
-                            for chunk in md.grounding_chunks or [] if chunk.web
+                            for chunk in md.grounding_chunks or []
+                            if chunk.web
                         ]
                         grounding_supports = [
-                            {"segment_text": s.segment.text, "start_index": s.segment.start_index,
-                             "end_index": s.segment.end_index, "source_indices": list(s.grounding_chunk_indices)}
+                            {
+                                "segment_text": s.segment.text,
+                                "start_index": s.segment.start_index,
+                                "end_index": s.segment.end_index,
+                                "source_indices": list(s.grounding_chunk_indices),
+                            }
                             for s in md.grounding_supports or []
                         ]
-                        if md.search_entry_point and md.search_entry_point.rendered_content:
+                        if (
+                            md.search_entry_point
+                            and md.search_entry_point.rendered_content
+                        ):
                             search_widget_html = md.search_entry_point.rendered_content
 
                     # Parse structured output if requested
@@ -379,7 +424,8 @@ async def gemini_search_with_grounding(
                             pass
 
                     return GeminiGroundingResult(
-                        query=query, answer=answer,
+                        query=query,
+                        answer=answer,
                         thoughts="\n".join(thought_parts) if thought_parts else None,
                         structured_result=structured_result,
                         model_used=model_id,

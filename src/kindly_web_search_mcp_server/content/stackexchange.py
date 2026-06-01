@@ -71,13 +71,19 @@ def parse_stackexchange_url(url: str) -> StackExchangeTarget:
 
     m_q = _QUESTION_RE.search(path)
     if m_q:
-        return StackExchangeTarget(site=site, question_id=int(m_q.group(1)), answer_id=None)
+        return StackExchangeTarget(
+            site=site, question_id=int(m_q.group(1)), answer_id=None
+        )
 
     m_a = _ANSWER_RE.search(path)
     if m_a:
-        return StackExchangeTarget(site=site, question_id=None, answer_id=int(m_a.group(1)))
+        return StackExchangeTarget(
+            site=site, question_id=None, answer_id=int(m_a.group(1))
+        )
 
-    raise StackExchangeError("URL is not a recognized StackExchange question/answer URL.")
+    raise StackExchangeError(
+        "URL is not a recognized StackExchange question/answer URL."
+    )
 
 
 def _stackexchange_params(site: str, *, filter_id: str) -> dict[str, str]:
@@ -102,8 +108,11 @@ def _epoch_to_iso(ts: Any) -> str:
         return ""
 
 
-def render_thread_markdown(question: dict[str, Any], answers: list[dict[str, Any]]) -> str:
+def render_thread_markdown(
+    question: dict[str, Any], answers: list[dict[str, Any]]
+) -> str:
     """Render a StackExchange Q&A thread to deterministic Markdown."""
+
     def post_body_markdown(post: dict[str, Any]) -> str:
         # Prefer `body_markdown` (raw Markdown); fall back to `body` (HTML) and convert.
         body_md = post.get("body_markdown")
@@ -225,7 +234,9 @@ class StackExchangeApiClient:
             raise StackExchangeError("Invalid question payload.")
         return q
 
-    async def fetch_all_answers(self, target: StackExchangeTarget) -> list[dict[str, Any]]:
+    async def fetch_all_answers(
+        self, target: StackExchangeTarget
+    ) -> list[dict[str, Any]]:
         qid = target.question_id
         if qid is None and target.answer_id is not None:
             qid = await self.resolve_question_id_from_answer(target)
@@ -235,7 +246,9 @@ class StackExchangeApiClient:
         page = 1
         answers: list[dict[str, Any]] = []
         while True:
-            params: dict[str, Any] = _stackexchange_params(target.site, filter_id=self._filter)
+            params: dict[str, Any] = _stackexchange_params(
+                target.site, filter_id=self._filter
+            )
             params.update(
                 {
                     "page": page,

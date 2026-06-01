@@ -13,6 +13,7 @@ USAGE:
 GRAFANA LOGQL CORRELATION:
     {job="web-search-mcp"} | json | trace_id="<TRACE_ID>"
 """
+
 from __future__ import annotations
 
 import logging
@@ -52,7 +53,9 @@ def configure_structlog(json_output: bool = True) -> None:
         json_output: True for JSON (Loki), False for plain text (local dev)
     """
     # Determine log level from environment
-    log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    log_level = getattr(
+        logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO
+    )
     if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") and log_level > logging.INFO:
         log_level = logging.INFO
 

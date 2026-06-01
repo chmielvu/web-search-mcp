@@ -1,0 +1,175 @@
+{
+  "title": "Kindly MCP - Overview (Golden Signals)",
+  "uid": "kindly-mcp-overview-v1",
+  "version": 1,
+  "tags": ["kindly", "mcp", "web-search", "otel", "grafana-cloud"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "web-search-mcp",
+        "label": "Service",
+        "hide": 0
+      },
+      {
+        "name": "environment",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(deployment_environment)",
+        "label": "Environment",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "pluginId": "prometheus",
+        "label": "Prometheus (OTel)",
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Request Rate (last 5m)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(mcp_tool_invocations_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "RPS"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["mean"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 2 },
+              { "color": "red", "value": 8 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error Rate (last 5m)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(mcp_errors_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])) / sum(rate(mcp_tool_invocations_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "Error %"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["mean"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 0.2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.02 },
+              { "color": "red", "value": 0.08 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "MCP Tool Calls by Tool",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_tool_name) (rate(mcp_tool_invocations_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[2m]))",
+          "refId": "A",
+          "legendFormat": "{{gen_ai_tool_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "showPoints": "never"
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "last"] }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Tool Success Rate by Tool",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_tool_name) (rate(mcp_tool_invocations_total{service_name=\"$service\", deployment_environment=~\"$environment\", provider_status=\"success\"}[5m])) / sum by (gen_ai_tool_name) (rate(mcp_tool_invocations_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{gen_ai_tool_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "drawStyle": "line" }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Top Errors (last 1h)",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (error_type, gen_ai_tool_name) (increase(mcp_errors_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[1h])))",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "renameByName": { "Value": "Count", "error_type": "Error Type", "gen_ai_tool_name": "Tool" } } }
+      ]
+    }
+  ]
+}

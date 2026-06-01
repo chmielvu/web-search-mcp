@@ -8,6 +8,7 @@ Provider modes control when providers fire:
 - CONDITIONAL: Paid providers only fire when caller requests via providers param
 - NEVER: Disabled providers never fire
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,13 @@ from .reddit import search_reddit
 from .stackexchange import search_stackexchange
 from .merge import merge_search_results
 from .options import SearchOptions, build_search_query
-from .provider_config import ProviderConfig, ProviderMode, parse_provider_mode, register_provider, resolve_providers_for_search
+from .provider_config import (
+    ProviderConfig,
+    ProviderMode,
+    parse_provider_mode,
+    register_provider,
+    resolve_providers_for_search,
+)
 from .searxng import search_searxng
 from .tavily import search_tavily
 
@@ -45,15 +52,15 @@ class WebSearchProviderError(RuntimeError):
     pass
 
 
-
-
 # =============================================================================
 # Circuit Breaker
 # =============================================================================
 
+
 @dataclass
 class CircuitBreaker:
     """Per-provider circuit breaker. Opens after N consecutive failures."""
+
     failure_threshold: int = 3
     reset_timeout_seconds: float = 60.0
     _failures: dict[str, int] = field(default_factory=dict)
@@ -62,7 +69,9 @@ class CircuitBreaker:
     def is_open(self, provider: str) -> bool:
         if provider not in self._opened_at:
             # Record closed state
-            record_circuit_breaker_state(provider, "closed", self._failures.get(provider, 0))
+            record_circuit_breaker_state(
+                provider, "closed", self._failures.get(provider, 0)
+            )
             return False
         if time.time() - self._opened_at[provider] > self.reset_timeout_seconds:
             # Circuit is transitioning from open to half-open (resetting)
@@ -95,7 +104,9 @@ class CircuitBreaker:
             self._opened_at[provider] = time.time()
             record_circuit_breaker_state(provider, "open", failure_count)
             record_circuit_breaker_event(provider, "trip", self.failure_threshold)
-            LOGGER.warning(f"Circuit breaker OPEN for {provider} after {failure_count} failures")
+            LOGGER.warning(
+                f"Circuit breaker OPEN for {provider} after {failure_count} failures"
+            )
         else:
             # Still closed but accumulating failures
             record_circuit_breaker_state(provider, "closed", failure_count)
@@ -105,9 +116,11 @@ class CircuitBreaker:
 # Provider Budget
 # =============================================================================
 
+
 @dataclass
 class ProviderBudget:
     """Tracks per-provider calls and auto-demotion on poor performance."""
+
     max_calls_per_query: int = 3
     stats: dict[str, dict[str, Any]] = field(default_factory=dict)
     _demoted: set[str] = field(default_factory=set)
@@ -142,6 +155,7 @@ class ProviderBudget:
 # Provider Registry
 # =============================================================================
 
+
 def _parse_mode(mode_str: str) -> ProviderMode:
     """Parse mode string to ProviderMode. Defaults to ALWAYS if invalid."""
     parsed = parse_provider_mode(mode_str)
@@ -151,99 +165,125 @@ def _parse_mode(mode_str: str) -> ProviderMode:
 def _init_provider_registry() -> None:
     """Initialize provider registry with configured modes."""
     # Tier 1: Free providers (default always, configurable via env)
-    register_provider(ProviderConfig(
-        name="searxng",
-        mode=ProviderMode.ALWAYS,
-        env_key="SEARXNG_BASE_URL",
-        search_fn=search_searxng,
-        is_free=True,
-        requires_key=False,
-    ))
-    register_provider(ProviderConfig(
-        name="ddg",
-        mode=_parse_mode(settings.ddg_mode),  # default "always" in settings.py
-        env_key="",  # No env key needed
-        search_fn=search_ddg,
-        is_free=True,
-        requires_key=False,
-    ))
+    register_provider(
+        ProviderConfig(
+            name="searxng",
+            mode=ProviderMode.ALWAYS,
+            env_key="SEARXNG_BASE_URL",
+            search_fn=search_searxng,
+            is_free=True,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="ddg",
+            mode=_parse_mode(settings.ddg_mode),  # default "always" in settings.py
+            env_key="",  # No env key needed
+            search_fn=search_ddg,
+            is_free=True,
+            requires_key=False,
+        )
+    )
 
     # Tier 2: Paid providers (mode from settings.py defaults)
-    register_provider(ProviderConfig(
-        name="tavily",
-        mode=_parse_mode(settings.tavily_mode),  # default "never" in settings.py
-        env_key="TAVILY_API_KEY",
-        search_fn=search_tavily,
-        is_free=False,
-        requires_key=True,
-    ))
-    register_provider(ProviderConfig(
-        name="brave",
-        mode=_parse_mode(settings.brave_mode),  # default "never" in settings.py
-        env_key="BRAVE_API_KEY",
-        search_fn=search_brave,
-        is_free=False,
-        requires_key=True,
-    ))
-    register_provider(ProviderConfig(
-        name="jina",
-        mode=_parse_mode(settings.jina_mode),  # default "conditional" in settings.py
-        env_key="JINA_API_KEY",
-        search_fn=search_jina,
-        is_free=False,
-        requires_key=True,
-    ))
-    register_provider(ProviderConfig(
-        name="gemini",
-        mode=_parse_mode(settings.gemini_mode),  # default "always" in settings.py
-        env_key="POLLINATIONS_API_KEY",
-        search_fn=search_gemini_pollinations,
-        is_free=False,
-        requires_key=True,
-    ))
-    register_provider(ProviderConfig(
-        name="composio_llm_search",
-        mode=_parse_mode(settings.composio_llm_search_mode),  # default "always" in settings.py
-        env_key="COMPOSIO_API_KEY",
-        search_fn=search_composio_llm_search,
-        is_free=False,
-        requires_key=True,
-        extra_env_keys=("KINDLY_COMPOSIO_USER_ID",),
-    ))
+    register_provider(
+        ProviderConfig(
+            name="tavily",
+            mode=_parse_mode(settings.tavily_mode),  # default "never" in settings.py
+            env_key="TAVILY_API_KEY",
+            search_fn=search_tavily,
+            is_free=False,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="brave",
+            mode=_parse_mode(settings.brave_mode),  # default "never" in settings.py
+            env_key="BRAVE_API_KEY",
+            search_fn=search_brave,
+            is_free=False,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="jina",
+            mode=_parse_mode(
+                settings.jina_mode
+            ),  # default "conditional" in settings.py
+            env_key="JINA_API_KEY",
+            search_fn=search_jina,
+            is_free=False,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="gemini",
+            mode=_parse_mode(settings.gemini_mode),  # default "always" in settings.py
+            env_key="POLLINATIONS_API_KEY",
+            search_fn=search_gemini_pollinations,
+            is_free=False,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="composio_llm_search",
+            mode=_parse_mode(
+                settings.composio_llm_search_mode
+            ),  # default "always" in settings.py
+            env_key="COMPOSIO_API_KEY",
+            search_fn=search_composio_llm_search,
+            is_free=False,
+            requires_key=True,
+            extra_env_keys=("KINDLY_COMPOSIO_USER_ID",),
+        )
+    )
 
     # Tier 3: Community providers (CONDITIONAL — only fire when explicitly requested)
-    register_provider(ProviderConfig(
-        name="hackernews",
-        mode=ProviderMode.CONDITIONAL,
-        env_key="",
-        search_fn=search_hackernews,
-        is_free=True,
-        requires_key=False,
-    ))
-    register_provider(ProviderConfig(
-        name="reddit",
-        mode=ProviderMode.CONDITIONAL,
-        env_key="",
-        search_fn=search_reddit,
-        is_free=True,
-        requires_key=False,
-    ))
-    register_provider(ProviderConfig(
-        name="github_graphql",
-        mode=ProviderMode.CONDITIONAL,
-        env_key="GITHUB_TOKEN",
-        search_fn=search_github_graphql,
-        is_free=True,
-        requires_key=True,
-    ))
-    register_provider(ProviderConfig(
-        name="stackexchange",
-        mode=ProviderMode.CONDITIONAL,
-        env_key="STACKEXCHANGE_APP_KEY",
-        search_fn=search_stackexchange,
-        is_free=True,
-        requires_key=False,
-    ))
+    register_provider(
+        ProviderConfig(
+            name="hackernews",
+            mode=ProviderMode.CONDITIONAL,
+            env_key="",
+            search_fn=search_hackernews,
+            is_free=True,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="reddit",
+            mode=ProviderMode.CONDITIONAL,
+            env_key="",
+            search_fn=search_reddit,
+            is_free=True,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="github_graphql",
+            mode=ProviderMode.CONDITIONAL,
+            env_key="GITHUB_TOKEN",
+            search_fn=search_github_graphql,
+            is_free=True,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="stackexchange",
+            mode=ProviderMode.CONDITIONAL,
+            env_key="STACKEXCHANGE_APP_KEY",
+            search_fn=search_stackexchange,
+            is_free=True,
+            requires_key=False,
+        )
+    )
 
 
 # Initialize registry at module load
@@ -253,6 +293,7 @@ _init_provider_registry()
 # =============================================================================
 # Provider Detection (kept for backwards compat with existing detection)
 # =============================================================================
+
 
 def _has_searxng_config() -> bool:
     return bool(os.environ.get("SEARXNG_BASE_URL", "").strip())
@@ -422,7 +463,9 @@ async def search_single_query(
         if paid_providers:
             semaphore = asyncio.Semaphore(max(2, len(paid_providers)))
 
-            async def _search_with_semaphore(config: ProviderConfig) -> list[WebSearchResult]:
+            async def _search_with_semaphore(
+                config: ProviderConfig,
+            ) -> list[WebSearchResult]:
                 async with semaphore:
                     return await _search_single_provider(
                         config.name,

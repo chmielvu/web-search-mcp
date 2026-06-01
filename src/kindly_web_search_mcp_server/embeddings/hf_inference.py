@@ -62,7 +62,9 @@ class HFCircuitBreaker:
             # Check if recovery timeout elapsed
             elapsed = time.time() - self._last_failure_time
             if elapsed >= self.RECOVERY_TIMEOUT_SECONDS:
-                LOGGER.info("Circuit breaker entering HALF_OPEN state after recovery timeout")
+                LOGGER.info(
+                    "Circuit breaker entering HALF_OPEN state after recovery timeout"
+                )
                 self._state = "half_open"
                 self._half_open_success = False
                 return False  # Allow one test call
@@ -120,12 +122,16 @@ def _coerce_vectors(raw: Any, expected_count: int) -> list[list[float]]:
         data = [data]
     if not isinstance(data, list) or len(data) != expected_count:
         count = len(data) if isinstance(data, list) else "non-list"
-        raise ValueError(f"HF Inference returned {count} vectors for {expected_count} inputs")
+        raise ValueError(
+            f"HF Inference returned {count} vectors for {expected_count} inputs"
+        )
 
     vectors: list[list[float]] = []
     for index, item in enumerate(data):
         item = _as_list(item)
-        if not isinstance(item, list) or not all(isinstance(v, int | float) for v in item):
+        if not isinstance(item, list) or not all(
+            isinstance(v, int | float) for v in item
+        ):
             raise ValueError(f"HF Inference embedding at index {index} is not numeric")
         vectors.append([float(v) for v in item])
     return vectors
@@ -205,10 +211,14 @@ async def embed_texts(
     )
 
     try:
-        raw = await client.feature_extraction(texts, model=resolved_model, normalize=True)  # type: ignore[arg-type]
+        raw = await client.feature_extraction(
+            texts, model=resolved_model, normalize=True
+        )  # type: ignore[arg-type]
         HF_CIRCUIT_BREAKER.record_success()
     except InferenceTimeoutError as e:
-        LOGGER.error(f"Embedding request timed out after {resolved_timeout}s for {len(texts)} texts")
+        LOGGER.error(
+            f"Embedding request timed out after {resolved_timeout}s for {len(texts)} texts"
+        )
         HF_CIRCUIT_BREAKER.record_failure()
         raise EmbeddingTimeoutError(
             f"Embedding request timed out after {resolved_timeout}s"
@@ -216,7 +226,9 @@ async def embed_texts(
     except Exception as e:
         LOGGER.error(f"Embedding API request failed: {type(e).__name__}: {e}")
         HF_CIRCUIT_BREAKER.record_failure()
-        raise EmbeddingAPIError(f"Embedding API request failed: {type(e).__name__}: {e}") from e
+        raise EmbeddingAPIError(
+            f"Embedding API request failed: {type(e).__name__}: {e}"
+        ) from e
 
     vectors = _coerce_vectors(raw, len(texts))
     _validate_dimensions(vectors, resolved_dim)

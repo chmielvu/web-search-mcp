@@ -1,0 +1,18 @@
+{
+  "run_id": "76686b2d3996",
+  "raw_path": "outputs\\review-rerank-on-more\\web_search_live_76686b2d3996.jsonl",
+  "call_count": 3,
+  "success_count": 3,
+  "error_count": 0,
+  "empty_result_count": 3,
+  "duration_ms": {
+    "min": 3961.311,
+    "max": 45928.18,
+    "avg": 24976.743,
+    "p50": 25040.737,
+    "p95": 45928.18
+  },
+  "providers_used": {},
+  "top_domains": {},
+  "warning_types": {}
+}

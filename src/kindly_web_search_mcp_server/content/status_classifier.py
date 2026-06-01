@@ -148,7 +148,9 @@ def _cookie_boilerplate_ratio(normalized: str) -> float:
     if not words:
         return 0.0
     cookie_count = sum(
-        1 for w in words if any(indicator in w for indicator in _COOKIE_CONSENT_INDICATORS)
+        1
+        for w in words
+        if any(indicator in w for indicator in _COOKIE_CONSENT_INDICATORS)
     )
     return cookie_count / len(words)
 
@@ -167,27 +169,37 @@ def classify_markdown(markdown: str) -> ClassificationResult:
     """
     normalized = _normalize(markdown)
     if not normalized:
-        return ClassificationResult(status="error", reason="empty_content", cacheable=False)
+        return ClassificationResult(
+            status="error", reason="empty_content", cacheable=False
+        )
 
     # 1. Browser/network error pages (strongest signal)
     match = _pattern_match(normalized, _ERROR_PATTERNS)
     if match:
-        return ClassificationResult(status="error", reason=f"error_page:{match}", cacheable=False)
+        return ClassificationResult(
+            status="error", reason=f"error_page:{match}", cacheable=False
+        )
 
     # 2. Access blocks (Cloudflare, captcha, IP ban)
     match = _pattern_match(normalized, _BLOCK_PATTERNS)
     if match:
-        return ClassificationResult(status="blocked", reason=f"access_blocked:{match}", cacheable=False)
+        return ClassificationResult(
+            status="blocked", reason=f"access_blocked:{match}", cacheable=False
+        )
 
     # 3. Login walls (content gated behind authentication)
     match = _pattern_match(normalized, _LOGIN_WALL_PATTERNS)
     if match:
-        return ClassificationResult(status="blocked", reason=f"login_wall:{match}", cacheable=False)
+        return ClassificationResult(
+            status="blocked", reason=f"login_wall:{match}", cacheable=False
+        )
 
     # 4. Paywalls
     match = _pattern_match(normalized, _PAYWALL_PATTERNS)
     if match:
-        return ClassificationResult(status="blocked", reason=f"paywall:{match}", cacheable=False)
+        return ClassificationResult(
+            status="blocked", reason=f"paywall:{match}", cacheable=False
+        )
 
     # 5. Redirect URLs (page content is just a URL or redirect notice)
     for regex in _REDIRECT_URL_PATTERNS:
@@ -213,7 +225,9 @@ def classify_markdown(markdown: str) -> ClassificationResult:
     # 8. Too short to be useful
     words = len(normalized.split())
     if words < 30:
-        return ClassificationResult(status="partial", reason="too_short", cacheable=False)
+        return ClassificationResult(
+            status="partial", reason="too_short", cacheable=False
+        )
 
     return ClassificationResult(status="success", reason=None, cacheable=True)
 

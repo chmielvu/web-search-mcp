@@ -1,0 +1,22 @@
+{
+  "run_id": "fresh-otel-fix",
+  "raw_path": "outputs\\live-web-search\\web_search_live_fresh-otel-fix.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 292.972,
+    "max": 292.972,
+    "avg": 292.972,
+    "p50": 292.972,
+    "p95": 292.972
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

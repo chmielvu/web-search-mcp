@@ -199,7 +199,9 @@ def _append_tail_text(existing: str, addition: str, *, limit: int) -> str:
     return combined[-limit:]
 
 
-def _consume_stderr_line(state: _StderrAccumulator, line: str, *, tail_limit: int) -> None:
+def _consume_stderr_line(
+    state: _StderrAccumulator, line: str, *, tail_limit: int
+) -> None:
     if line == "":
         return
     if line.startswith("KINDLY_DIAG "):
@@ -391,10 +393,14 @@ async def _run_pipe_probe(
             "stderr_truncated": stderr_truncated,
             "exit_code": proc.returncode,
             "time_to_first_stdout_ms": (
-                None if stdout_first is None else int((stdout_first - probe_started) * 1000)
+                None
+                if stdout_first is None
+                else int((stdout_first - probe_started) * 1000)
             ),
             "time_to_first_stderr_ms": (
-                None if stderr_first is None else int((stderr_first - probe_started) * 1000)
+                None
+                if stderr_first is None
+                else int((stderr_first - probe_started) * 1000)
             ),
             "elapsed_ms": int((time.monotonic() - probe_started) * 1000),
             "event_loop": loop.__class__.__name__,
@@ -484,6 +490,7 @@ async def _emit_worker_heartbeat(
         )
         await asyncio.sleep(STREAM_HEARTBEAT_INTERVAL_SECONDS)
 
+
 async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
     if proc.returncode is not None:
         return
@@ -561,7 +568,9 @@ async def fetch_html_via_nodriver(
     if use_pool:
         try:
             pool = await get_chromium_pool(diagnostics=diagnostics)
-            slot = await pool.acquire(user_agent=config.user_agent, diagnostics=diagnostics)
+            slot = await pool.acquire(
+                user_agent=config.user_agent, diagnostics=diagnostics
+            )
         except Exception as exc:
             if diagnostics:
                 diagnostics.emit(
@@ -572,6 +581,7 @@ async def fetch_html_via_nodriver(
             slot = None
     if slot is None:
         use_pool = False
+
     def _compose_cmd(active_slot: ChromiumSlot | None) -> list[str]:
         cmd = list(base_cmd)
         if active_slot is not None:
@@ -594,14 +604,14 @@ async def fetch_html_via_nodriver(
     cmd = _compose_cmd(slot)
 
     env = _maybe_add_src_to_pythonpath(dict(os.environ))
-    
+
     # Ensure nodriver can find the browser: if we have a resolved browser path,
     # propagate it via environment variables that nodriver recognizes.
     if browser_executable_path:
         env["KINDLY_BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["CHROME_BIN"] = browser_executable_path
-    
+
     if diagnostics and diagnostics.enabled:
         env["KINDLY_DIAGNOSTICS"] = "1"
         env["KINDLY_REQUEST_ID"] = diagnostics.request_id
@@ -628,10 +638,18 @@ async def fetch_html_via_nodriver(
         if diagnostics is None:
             return
         env_snapshot = {
-            "KINDLY_BROWSER_EXECUTABLE_PATH": env.get("KINDLY_BROWSER_EXECUTABLE_PATH", ""),
-            "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": env.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""),
-            "KINDLY_NODRIVER_RETRY_ATTEMPTS": env.get("KINDLY_NODRIVER_RETRY_ATTEMPTS", ""),
-            "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": env.get("KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""),
+            "KINDLY_BROWSER_EXECUTABLE_PATH": env.get(
+                "KINDLY_BROWSER_EXECUTABLE_PATH", ""
+            ),
+            "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": env.get(
+                "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""
+            ),
+            "KINDLY_NODRIVER_RETRY_ATTEMPTS": env.get(
+                "KINDLY_NODRIVER_RETRY_ATTEMPTS", ""
+            ),
+            "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
+                "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""
+            ),
             "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
                 "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
             ),
@@ -691,7 +709,9 @@ async def fetch_html_via_nodriver(
             )
 
         try:
-            raw_timeout = (os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
+            raw_timeout = (
+                os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or ""
+            ).strip()
             used_default = False
             invalid = False
             parsed_value = config.total_timeout_seconds
@@ -964,6 +984,7 @@ async def load_url_as_markdown(
 
     # Check browser availability before attempting nodriver
     from .nodriver_worker import _resolve_browser_executable_path as resolve_browser
+
     browser_path = resolve_browser(None)
     if browser_path is None:
         if diagnostics:

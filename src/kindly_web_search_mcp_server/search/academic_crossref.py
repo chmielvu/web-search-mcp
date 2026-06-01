@@ -51,7 +51,11 @@ def _normalize_crossref(item: dict) -> AcademicPaper | None:
     abstract = None
 
     year = None
-    published = item.get("published") or item.get("published-print") or item.get("published-online")
+    published = (
+        item.get("published")
+        or item.get("published-print")
+        or item.get("published-online")
+    )
     if published:
         date_parts = published.get("date-parts", [])
         if date_parts and date_parts[0]:
@@ -128,7 +132,11 @@ async def search_crossref(
 
     def _sync_search() -> list[AcademicPaper]:
         try:
-            result = cr.works(query=query, limit=min(limit * 2, 100), filter=filters if filters else None)
+            result = cr.works(
+                query=query,
+                limit=min(limit * 2, 100),
+                filter=filters if filters else None,
+            )
 
             items = result.get("message", {}).get("items", [])
             papers: list[AcademicPaper] = []

@@ -155,6 +155,18 @@ async def search_semanticscholar(
         return papers
 
     except Exception as e:
-        logger.warning(f"Semantic Scholar search failed: {e}")
+        msg = str(e)
+        if "429" in msg or "rate" in msg.lower():
+            logger.warning(
+                "Semantic Scholar search rate-limited: %s. Set KINDLY_S2_API_KEY for higher limits.",
+                e,
+            )
+        elif "timeout" in msg.lower() or "timed out" in msg.lower():
+            logger.warning(
+                "Semantic Scholar search timed out (configurable via KINDLY_S2_TIMEOUT): %s",
+                e,
+            )
+        else:
+            logger.warning("Semantic Scholar search failed: %s", e)
         # Return empty, not raise - let orchestrator return partial results
         return []

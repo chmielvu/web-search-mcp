@@ -1094,8 +1094,12 @@ async def get_content(
         LOGGER,
         "get_content",
         "response",
-        url=url,
+        input_url=response["input_url"],
+        normalized_url=response["normalized_url"],
+        fetched_url=response.get("fetched_url"),
         status=response["status"],
+        source_type=response["source_type"],
+        fetch_backend=response["fetch_backend"],
         content_length=len(response["page_content"]),
         page_content=response["page_content"],
         window=response["window"],
@@ -1104,6 +1108,7 @@ async def get_content(
         continuation_notice=response.get("continuation_notice"),
         content_type=response.get("content_type"),
         error=response.get("error"),
+        summary=response.get("summary"),
     )
     _record_tool_success("get_content", output_content=response["page_content"])
     return response
@@ -1118,7 +1123,7 @@ async def get_content(
     )
 )
 async def batch_get_content(
-    urls: list[str],
+    urls: list[str] | None = None,
     max_concurrency: int = 4,
     per_item_char_length: int = 8_000,
     total_char_budget: int = 120_000,
@@ -1142,6 +1147,7 @@ async def batch_get_content(
 
     Args:
     - urls: URLs to fetch. Duplicates are normalized and deduplicated.
+      Optional on continuation calls when cursor contains URLs.
     - max_concurrency: Parallel fetch limit. Default 4, capped at 8.
     - per_item_char_length: Maximum characters per returned URL window.
     - total_char_budget: Maximum total characters returned across this page.
@@ -1159,7 +1165,8 @@ async def batch_get_content(
     This tool isolates failures per URL and keeps payloads bounded.
     """
     max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
-    bounded_urls = urls[: max(1, max_urls)]
+    _urls = urls or []
+    bounded_urls: list[str] = _urls[: max(1, max_urls)]
     safe_concurrency = max(1, min(max_concurrency, 8))
     safe_item_length = max(
         500,
@@ -1425,6 +1432,7 @@ async def gemini_search(
             query, structured_output=structured_output, research_goal=research_goal
         )
         response = result.model_dump(exclude_none=True)
+        response.pop("search_widget_html", None)
         duration_seconds = time.time() - start_time
 
         # Record Gemini search telemetry
@@ -2145,6 +2153,18 @@ async def academic_search(
             "academic_search",
             input_query=query,
             output_result_count=len(response.get("results", [])),
+        )
+        emit_tool_observability_event(
+            LOGGER,
+            "academic_search",
+            "response",
+            cache_hit="miss",
+            query=query,
+            normalized_query=normalized_query,
+            result_count=len(response.get("results", [])),
+            sources_used=response.get("sources_used", []),
+            warnings=response.get("warnings", []),
+            results=response.get("results", []),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
         await ctx.info(

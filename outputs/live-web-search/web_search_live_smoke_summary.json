@@ -1,0 +1,22 @@
+{
+  "run_id": "smoke",
+  "raw_path": "outputs\\live-web-search\\web_search_live_smoke.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 11804.267,
+    "max": 11804.267,
+    "avg": 11804.267,
+    "p50": 11804.267,
+    "p95": 11804.267
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

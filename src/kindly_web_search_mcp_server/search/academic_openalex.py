@@ -72,7 +72,11 @@ def _normalize_openalex(work: dict) -> AcademicPaper | None:
     venue = None
     primary_source = work.get("primary_location") or work.get("primary_source")
     if primary_source:
-        source_info = primary_source.get("source") if isinstance(primary_source, dict) else primary_source
+        source_info = (
+            primary_source.get("source")
+            if isinstance(primary_source, dict)
+            else primary_source
+        )
         if isinstance(source_info, dict):
             venue = source_info.get("display_name")
 
@@ -94,10 +98,16 @@ def _normalize_openalex(work: dict) -> AcademicPaper | None:
     is_oa = oa_info.get("is_oa", False)
 
     topics = work.get("topics", [])
-    fos = [t.get("display_name") for t in topics if t.get("display_name")] if topics else None
+    fos = (
+        [t.get("display_name") for t in topics if t.get("display_name")]
+        if topics
+        else None
+    )
 
     return AcademicPaper(
-        title=work["title"].strip() if isinstance(work["title"], str) else str(work["title"]).strip(),
+        title=work["title"].strip()
+        if isinstance(work["title"], str)
+        else str(work["title"]).strip(),
         authors=authors,
         abstract=abstract.strip() if abstract else None,
         year=year,

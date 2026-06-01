@@ -5,7 +5,11 @@ from collections import Counter
 from typing import Any
 
 from ..models import WebSearchResult
-from ..utils.observability import emit_observability_event, preview_text, serialize_search_results
+from ..utils.observability import (
+    emit_observability_event,
+    preview_text,
+    serialize_search_results,
+)
 
 
 def _domain_counts(results: list[WebSearchResult]) -> dict[str, int]:
@@ -56,6 +60,7 @@ def summarize_result_list(
         "result_count": len(results),
         "provider_counts": _provider_counts(results),
         "domain_counts": _domain_counts(results),
+        "results": results,
         "top_results": serialize_search_results(results, max_results=3),
     }
 
@@ -74,7 +79,9 @@ def emit_result_lists_summary(
         summarize_result_list(
             index=index,
             query=branch_queries[index] if index < len(branch_queries) else query,
-            providers=branch_providers[index] if index < len(branch_providers) else None,
+            providers=branch_providers[index]
+            if index < len(branch_providers)
+            else None,
             weight=list_weights[index] if index < len(list_weights) else 1.0,
             results=results,
         )

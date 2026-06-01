@@ -1,0 +1,18 @@
+{
+  "run_id": "bfb46ed660ec",
+  "raw_path": "outputs\\review-probe3\\web_search_live_bfb46ed660ec.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 1,
+  "duration_ms": {
+    "min": 14361.398,
+    "max": 14361.398,
+    "avg": 14361.398,
+    "p50": 14361.398,
+    "p95": 14361.398
+  },
+  "providers_used": {},
+  "top_domains": {},
+  "warning_types": {}
+}

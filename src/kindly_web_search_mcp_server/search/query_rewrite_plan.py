@@ -16,7 +16,9 @@ from .query_rewrite_models import (
 from .query_rewrite_validate import dedupe_keep_order, inject_missing_terms
 
 
-def build_fallback_plan(query: str, policy: RewritePolicy, reason: str) -> QueryRewritePlan:
+def build_fallback_plan(
+    query: str, policy: RewritePolicy, reason: str
+) -> QueryRewritePlan:
     cleaned = normalize_query(query)
     original = QueryVariant(
         kind="original",
@@ -114,7 +116,9 @@ def build_rewrite_plan(
                     }
                 )
             )
-    if subquestion_variants and len(variants) < max_variants + len(subquestion_variants):
+    if subquestion_variants and len(variants) < max_variants + len(
+        subquestion_variants
+    ):
         for variant in subquestion_variants:
             variants.append(
                 variant.model_copy(
@@ -127,7 +131,9 @@ def build_rewrite_plan(
             )
 
     if not variants:
-        return build_fallback_plan(query, policy, "Rewrite produced no usable variants.")
+        return build_fallback_plan(
+            query, policy, "Rewrite produced no usable variants."
+        )
 
     final_queries = dedupe_keep_order([variant.query for variant in variants])
     return QueryRewritePlan(

@@ -138,7 +138,10 @@ def _emit_diag(stage: str, msg: str, data: dict[str, object] | None = None) -> N
                 "msg": msg,
                 "elapsed_ms": elapsed_ms,
                 "line_truncated": True,
-                "data": {"note": "diagnostic payload truncated", "original_len": len(payload)},
+                "data": {
+                    "note": "diagnostic payload truncated",
+                    "original_len": len(payload),
+                },
             }
             payload = json.dumps(entry, ensure_ascii=True, separators=(",", ":"))
         _safe_write_text(stream, f"KINDLY_DIAG {payload}")
@@ -232,7 +235,9 @@ def _patch_nodriver_network_encoding(exc: SyntaxError) -> bool:
     except FileNotFoundError as file_exc:
         raise RuntimeError(f"nodriver network.py not found at {path}") from file_exc
     except PermissionError as file_exc:
-        raise RuntimeError(f"nodriver network.py is not writable at {path}") from file_exc
+        raise RuntimeError(
+            f"nodriver network.py is not writable at {path}"
+        ) from file_exc
 
     lines = content.splitlines(keepends=True)
     if _has_encoding_cookie(lines):
@@ -249,7 +254,9 @@ def _patch_nodriver_network_encoding(exc: SyntaxError) -> bool:
         try:
             os.replace(tmp_path, path)
         except OSError as replace_exc:
-            raise RuntimeError(f"Failed to replace nodriver network.py at {path}") from replace_exc
+            raise RuntimeError(
+                f"Failed to replace nodriver network.py at {path}"
+            ) from replace_exc
     finally:
         try:
             if os.path.exists(tmp_path):
@@ -280,7 +287,10 @@ def _suppress_unraisable_exceptions() -> None:
 
         if isinstance(exc, ValueError) and "I/O operation on closed pipe" in msg:
             return
-        if "BaseSubprocessTransport.__del__" in err_msg or "ProactorBasePipeTransport.__del__" in err_msg:
+        if (
+            "BaseSubprocessTransport.__del__" in err_msg
+            or "ProactorBasePipeTransport.__del__" in err_msg
+        ):
             return
 
         return original(unraisable)
@@ -302,7 +312,13 @@ def _resolve_browser_executable_path(explicit_path: str | None) -> str | None:
         if value:
             return value
 
-    for name in ("chromium", "google-chrome", "google-chrome-stable", "chrome", "chromium-browser"):
+    for name in (
+        "chromium",
+        "google-chrome",
+        "google-chrome-stable",
+        "chrome",
+        "chromium-browser",
+    ):
         resolved = shutil.which(name)
         if resolved:
             return resolved
@@ -314,7 +330,9 @@ def _resolve_browser_executable_path(explicit_path: str | None) -> str | None:
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(
+                r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"
+            ),
         ]
         for path in windows_chrome_paths:
             if os.path.isfile(path):
@@ -391,7 +409,9 @@ def _resolve_devtools_ready_timeout_seconds() -> float:
     - The universal loader runs this worker in a subprocess with its own overall timeout.
       Keep defaults conservative and allow env overrides for slow cold starts (e.g., Snap).
     """
-    raw = (os.environ.get("KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or "").strip()
+    raw = (
+        os.environ.get("KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or ""
+    ).strip()
     try:
         # Windows cold starts (first run + antivirus scans of fresh user-data-dir) can
         # easily exceed a 6s budget. Keep this bounded, but more forgiving by default.
@@ -406,7 +426,9 @@ def _resolve_worker_timeout_seconds() -> float:
     return effective
 
 
-def _resolve_worker_timeout_details() -> tuple[float, float, float, bool, bool, bool, str]:
+def _resolve_worker_timeout_details() -> tuple[
+    float, float, float, bool, bool, bool, str
+]:
     raw = (os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
     used_default = False
     invalid = False
@@ -455,7 +477,11 @@ def _ensure_no_proxy_localhost() -> None:
     - External navigation uses Chromium's network stack, not urllib.
     - We only need to guarantee loopback bypass for the local DevTools endpoint.
     """
-    raw = (os.environ.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1").strip().lower()
+    raw = (
+        (os.environ.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1")
+        .strip()
+        .lower()
+    )
     if raw in ("0", "false", "no", "off"):
         return
 
@@ -534,7 +560,9 @@ async def _launch_chromium(
     )
 
 
-async def _terminate_process(proc: asyncio.subprocess.Process, *, grace_seconds: float = 1.5) -> None:
+async def _terminate_process(
+    proc: asyncio.subprocess.Process, *, grace_seconds: float = 1.5
+) -> None:
     try:
         if proc.returncode is not None:
             return
@@ -650,11 +678,15 @@ async def _fetch_html(
     chrome_proc: asyncio.subprocess.Process | None = None
     reuse_requested = reuse_browser
     if reuse_requested and (not remote_host or not remote_port):
-        raise RuntimeError("reuse_browser requested but remote host/port was not provided.")
+        raise RuntimeError(
+            "reuse_browser requested but remote host/port was not provided."
+        )
 
     sandbox_enabled = _resolve_sandbox_enabled()
     # Always resolve the browser executable path so we can pass it to uc.start()
-    resolved_browser_executable_path = _resolve_browser_executable_path(browser_executable_path)
+    resolved_browser_executable_path = _resolve_browser_executable_path(
+        browser_executable_path
+    )
     is_snap = False
     attempts = 1
     base_backoff_seconds = 0.0
@@ -672,7 +704,9 @@ async def _fetch_html(
         attempts = _resolve_start_retry_attempts()
         base_backoff_seconds = _resolve_retry_backoff_seconds()
         snap_multiplier = _resolve_snap_backoff_multiplier() if is_snap else 1.0
-        devtools_ready_timeout_seconds = _resolve_devtools_ready_timeout_seconds() * snap_multiplier
+        devtools_ready_timeout_seconds = (
+            _resolve_devtools_ready_timeout_seconds() * snap_multiplier
+        )
         _emit_diag(
             "worker.config",
             "Resolved browser configuration",
@@ -798,7 +832,11 @@ async def _fetch_html(
             _emit_diag(
                 "worker.navigate_cdp_failed",
                 "CDP navigation failed",
-                {"target_id": target_id, "url": target_url, "error": type(exc).__name__},
+                {
+                    "target_id": target_id,
+                    "url": target_url,
+                    "error": type(exc).__name__,
+                },
             )
             raise
         if frame_id:
@@ -942,7 +980,10 @@ async def _fetch_html(
             return await _run_navigation()
         except Exception as exc:
             msg = str(exc).lower()
-            if "failed to connect to browser" in msg or "devtools endpoint did not become ready" in msg:
+            if (
+                "failed to connect to browser" in msg
+                or "devtools endpoint did not become ready" in msg
+            ):
                 raise RuntimeError(
                     f"Failed to connect to pooled browser at {remote_host}:{remote_port}."
                 ) from exc
@@ -993,7 +1034,9 @@ async def _fetch_html(
                             "args": chromium_args,
                         },
                     )
-                    chrome_proc = await _launch_chromium(resolved_browser_executable_path, chromium_args)
+                    chrome_proc = await _launch_chromium(
+                        resolved_browser_executable_path, chromium_args
+                    )
                     devtools_started = time.monotonic()
                     _emit_diag(
                         "worker.devtools_wait_start",
@@ -1016,7 +1059,9 @@ async def _fetch_html(
                         {
                             "host": host,
                             "port": port,
-                            "wait_ms": int((time.monotonic() - devtools_started) * 1000),
+                            "wait_ms": int(
+                                (time.monotonic() - devtools_started) * 1000
+                            ),
                         },
                     )
 
@@ -1043,7 +1088,10 @@ async def _fetch_html(
                     if chrome_proc is not None:
                         await _terminate_process(chrome_proc)
                         chrome_proc = None
-                    if attempt >= attempts - 1 or not _is_retryable_browser_connect_error(exc):
+                    if (
+                        attempt >= attempts - 1
+                        or not _is_retryable_browser_connect_error(exc)
+                    ):
                         raise
                     backoff = base_backoff_seconds * (2**attempt) * snap_multiplier
                     await asyncio.sleep(backoff)
@@ -1056,7 +1104,10 @@ async def _fetch_html(
             return await _run_navigation()
         except Exception as exc:
             msg = str(exc).lower()
-            if "failed to connect to browser" in msg or "devtools endpoint did not become ready" in msg:
+            if (
+                "failed to connect to browser" in msg
+                or "devtools endpoint did not become ready" in msg
+            ):
                 is_root = False
                 try:
                     is_root = hasattr(os, "geteuid") and os.geteuid() == 0
@@ -1086,7 +1137,9 @@ async def _main_async(args: argparse.Namespace) -> int:
     original_stderr = sys.stderr
     global _DIAG_ENABLED, _DIAG_REQUEST_ID, _DIAG_STREAM, _DIAG_STARTED
     _DIAG_ENABLED = _diagnostics_enabled()
-    _DIAG_REQUEST_ID = (os.environ.get("KINDLY_REQUEST_ID") or "unknown").strip() or "unknown"
+    _DIAG_REQUEST_ID = (
+        os.environ.get("KINDLY_REQUEST_ID") or "unknown"
+    ).strip() or "unknown"
     _DIAG_STREAM = original_stderr
     _DIAG_STARTED = time.monotonic()
     if _DIAG_ENABLED:
@@ -1194,7 +1247,9 @@ async def _main_async(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Fetch rendered HTML via headless nodriver.")
+    parser = argparse.ArgumentParser(
+        description="Fetch rendered HTML via headless nodriver."
+    )
     parser.add_argument("--url", required=True)
     parser.add_argument("--referer", required=False, default=None)
     parser.add_argument("--user-agent", required=True)

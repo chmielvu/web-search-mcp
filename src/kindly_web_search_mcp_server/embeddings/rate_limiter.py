@@ -97,7 +97,9 @@ class BatchLimitedEmbeddings:
 
         async with self._semaphore:
             await self._wait_for_rate_limit()
-            results = await _embed_texts([query], timeout=self.timeout, http_client=http_client)
+            results = await _embed_texts(
+                [query], timeout=self.timeout, http_client=http_client
+            )
             return results[0]
 
     async def embed_texts(
@@ -126,11 +128,13 @@ class BatchLimitedEmbeddings:
         if len(texts) <= self.max_batch_size:
             async with self._semaphore:
                 await self._wait_for_rate_limit()
-                return await _embed_texts(texts, timeout=self.timeout, http_client=http_client)
+                return await _embed_texts(
+                    texts, timeout=self.timeout, http_client=http_client
+                )
 
         # Split into batches
         batches = [
-            texts[i:i + self.max_batch_size]
+            texts[i : i + self.max_batch_size]
             for i in range(0, len(texts), self.max_batch_size)
         ]
 
@@ -142,12 +146,16 @@ class BatchLimitedEmbeddings:
         # Process batches concurrently with semaphore
         tasks: list[asyncio.Task[list[list[float]]]] = []
         for i, batch in enumerate(batches):
+
             async def process_batch(b: list[str], idx: int) -> list[list[float]]:
                 async with self._semaphore:
                     await self._wait_for_rate_limit()
-                    logger.debug(f"Processing batch {idx + 1}/{len(batches)} "
-                               f"({len(b)} texts)")
-                    result = await _embed_texts(b, timeout=self.timeout, http_client=http_client)
+                    logger.debug(
+                        f"Processing batch {idx + 1}/{len(batches)} ({len(b)} texts)"
+                    )
+                    result = await _embed_texts(
+                        b, timeout=self.timeout, http_client=http_client
+                    )
                     logger.debug(f"Completed batch {idx + 1}/{len(batches)}")
                     return result
 
@@ -179,7 +187,9 @@ class BatchLimitedEmbeddings:
                 f"Embedding result count mismatch: expected {len(texts)}, got {len(final_results)}"
             )
 
-        logger.info(f"Successfully embedded {len(final_results)} texts in {len(batches)} batches")
+        logger.info(
+            f"Successfully embedded {len(final_results)} texts in {len(batches)} batches"
+        )
         return final_results
 
     async def close(self) -> None:

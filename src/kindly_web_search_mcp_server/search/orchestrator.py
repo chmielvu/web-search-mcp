@@ -15,7 +15,7 @@ from ..models import ProviderWarning, WebSearchResponse
 from ..settings import settings
 from ..telemetry import record_domain_diversity
 from ..utils.diagnostics import Diagnostics
-from ..utils.observability import emit_observability_event, serialize_search_results
+from ..utils.observability import emit_observability_event
 from ..search_instrumented import search_single_query
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .options import SearchOptions
@@ -110,14 +110,29 @@ async def run_web_search(
     ]
 
     if rewrite:
-        rewrite_plan = await rewrite_search_query(
-            normalized_query,
-            diagnostics=diagnostics,
-            research_goal=research_goal,
-            providers=providers,
-        )
-        queries = rewrite_plan.final_queries
-        rewrite_policy = rewrite_plan.policy
+        try:
+            rewrite_plan = await asyncio.wait_for(
+                rewrite_search_query(
+                    normalized_query,
+                    diagnostics=diagnostics,
+                    research_goal=research_goal,
+                    providers=providers,
+                ),
+                timeout=15.0,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning(
+                "Query rewrite failed (will proceed with original query): %s", exc
+            )
+            rewrite_plan = None
+            rewrite_policy = RewritePolicy(
+                mode="bypass",
+                reason=f"Rewrite fallback: {type(exc).__name__}",
+            )
+            queries = [normalized_query]
+        else:
+            queries = rewrite_plan.final_queries
+            rewrite_policy = rewrite_plan.policy
     else:
         queries = [normalized_query]
         rewrite_plan = None
@@ -273,7 +288,8 @@ async def run_web_search(
         providers_requested=providers or [],
         providers_used=providers_used,
         warnings=[warning.model_dump() for warning in provider_warnings],
-        results=serialize_search_results(final_results, max_results=num_results),
+        results=final_results,
+        merged_results=merged,
         result_window={
             "offset": result_offset,
             "returned": len(final_results),

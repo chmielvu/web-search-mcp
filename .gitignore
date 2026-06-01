@@ -223,6 +223,9 @@ __marimo__/
 # Claude Code project files
 .claude/
 
+# Local Grok config
+.grok/
+
 # Development scratch/research files
 research/
 scratch/

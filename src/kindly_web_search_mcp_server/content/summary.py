@@ -133,4 +133,3 @@ async def create_summary(
     summary["mode"] = mode
     summary["model"] = model
     return summary
-

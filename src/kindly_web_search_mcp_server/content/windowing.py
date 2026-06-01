@@ -27,7 +27,9 @@ def _find_boundary_index(content: str, start: int, end: int) -> tuple[int, str |
     if paragraph_matches:
         return start + paragraph_matches[-1], "paragraph"
 
-    sentence_matches = [match.start() for match in re.finditer(r"(?<=[.!?])\s+", segment)]
+    sentence_matches = [
+        match.start() for match in re.finditer(r"(?<=[.!?])\s+", segment)
+    ]
     if sentence_matches:
         return start + sentence_matches[-1], "sentence"
 

@@ -27,7 +27,6 @@ from .query_rewrite_models import (
     QueryVariant,
     RewriteIntent,
 )
-from .query_rewrite_router import get_query_rewrite_router
 from .query_rewrite_validate import (
     validate_community_variants,
     validate_keyword_variants,
@@ -64,7 +63,7 @@ async def rewrite_search_query(
         attributes={
             SEARCH_QUERY: normalized_query[:500],
             REWRITE_POLICY: policy.mode,
-            REWRITE_MODEL: settings.query_rewrite_model,
+            REWRITE_MODEL: "cascade",
         },
     ) as span:
         if not settings.query_rewrite_enabled:
@@ -76,12 +75,16 @@ async def rewrite_search_query(
             record_query_rewrite("bypass", 1, True, duration, "bypass")
             return build_fallback_plan(query, policy, policy.reason)
 
-        router = get_query_rewrite_router()
-        if router is None:
+        # Check that at least one rewrite provider API key is configured
+        if (
+            not settings.cerebras_api_key
+            and not settings.groq_api_key
+            and not settings.hf_token
+        ):
             duration = time.time() - start_time
             record_query_rewrite("fallback", 1, False, duration, "fallback")
             return build_fallback_plan(
-                query, policy, "LiteLLM Router not available or no API keys configured."
+                query, policy, "No query rewrite provider API keys configured."
             )
 
         include_keyword, include_neural, include_community, active_provider_names = (
@@ -130,7 +133,11 @@ async def rewrite_search_query(
                 include_community and classifier.routing.community
             )
             if not any(
-                [filtered_include_keyword, filtered_include_neural, filtered_include_community]
+                [
+                    filtered_include_keyword,
+                    filtered_include_neural,
+                    filtered_include_community,
+                ]
             ):
                 filtered_include_keyword = include_keyword
                 filtered_include_neural = include_neural
@@ -163,7 +170,10 @@ async def rewrite_search_query(
                             "FunctionGemma decomposed query",
                             {
                                 "should_decompose": decomposition.should_decompose,
-                                "sub_questions": [sq.model_dump() for sq in decomposition.sub_questions],
+                                "sub_questions": [
+                                    sq.model_dump()
+                                    for sq in decomposition.sub_questions
+                                ],
                             },
                         )
 
@@ -172,7 +182,6 @@ async def rewrite_search_query(
             ) -> tuple[list[QueryVariant], str | None] | None:
                 try:
                     variants, model = await request_variants(
-                        router=router,
                         query=normalized_query,
                         intent=intent,
                         target=target,

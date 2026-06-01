@@ -1,0 +1,25 @@
+{
+  "run_id": "fe036c53f68f",
+  "raw_path": "outputs\\review-rerank-off-more\\web_search_live_fe036c53f68f.jsonl",
+  "call_count": 3,
+  "success_count": 3,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 2098.361,
+    "max": 45030.262,
+    "avg": 21206.084,
+    "p50": 16489.63,
+    "p95": 45030.262
+  },
+  "providers_used": {
+    "searxng": 3,
+    "ddg": 1
+  },
+  "top_domains": {
+    "github.com": 1,
+    "en.wikipedia.org": 1,
+    "www.traceloop.com": 1
+  },
+  "warning_types": {}
+}

@@ -46,7 +46,9 @@ async def bi_encoder_filter(
     try:
         candidate_vectors = await embed_texts(candidate_texts, timeout=60.0)
     except (EmbeddingTimeoutError, EmbeddingAPIError, Exception) as e:
-        LOGGER.warning(f"Bi-encoder candidate embedding failed: {type(e).__name__}: {e}, falling back to top_k slice")
+        LOGGER.warning(
+            f"Bi-encoder candidate embedding failed: {type(e).__name__}: {e}, falling back to top_k slice"
+        )
         return candidates[:top_k]
 
     if not candidate_vectors or len(candidate_vectors) != len(candidates):
@@ -57,7 +59,9 @@ async def bi_encoder_filter(
         return candidates[:top_k]
 
     # Compute cosine similarity
-    query_normalized = np.array(query_embedding) / max(np.linalg.norm(query_embedding), 1e-12)
+    query_normalized = np.array(query_embedding) / max(
+        np.linalg.norm(query_embedding), 1e-12
+    )
     matrix = np.array(candidate_vectors)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms[norms == 0] = 1

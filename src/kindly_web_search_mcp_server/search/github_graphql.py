@@ -87,9 +87,7 @@ async def _search_graphql(
     }
 
     try:
-        resp = await client.post(
-            _GITHUB_GRAPHQL_URL, json=payload, headers=headers
-        )
+        resp = await client.post(_GITHUB_GRAPHQL_URL, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
@@ -147,9 +145,7 @@ async def _search_graphql(
             snippet = f"{repo} | {total_comments} comments"
 
         full_title = f"{repo}#{number}: {title}"
-        results.append(
-            WebSearchResult(title=full_title, link=url, snippet=snippet)
-        )
+        results.append(WebSearchResult(title=full_title, link=url, snippet=snippet))
 
     return results
 
@@ -185,16 +181,12 @@ async def search_github_graphql(
             _search_graphql(
                 client, query, num_results, _DISCUSSION_QUERY, token, "discussion"
             ),
-            _search_graphql(
-                client, query, num_results, _ISSUE_QUERY, token, "issue"
-            ),
+            _search_graphql(client, query, num_results, _ISSUE_QUERY, token, "issue"),
             return_exceptions=True,
         )
 
         discussion_list: list[WebSearchResult] = (
-            discussion_results
-            if isinstance(discussion_results, list)
-            else []
+            discussion_results if isinstance(discussion_results, list) else []
         )
         issue_list: list[WebSearchResult] = (
             issue_results if isinstance(issue_results, list) else []

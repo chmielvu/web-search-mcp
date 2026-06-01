@@ -137,10 +137,12 @@ def retry_decorator(
         async def search_searxng(...):
             ...
     """
+
     def decorator(fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             async def execute() -> T:
                 return await fn(*args, **kwargs)
+
             return await retry_with_backoff(
                 execute,
                 max_retries=max_retries,
@@ -149,5 +151,7 @@ def retry_decorator(
                 backoff_factor=backoff_factor,
                 provider_name=provider_name or fn.__name__,
             )
+
         return wrapper
+
     return decorator

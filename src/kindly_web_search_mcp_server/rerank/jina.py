@@ -21,7 +21,9 @@ def _get_jina_client(timeout: float = 30.0) -> httpx.AsyncClient:
     return _JINA_CLIENT
 
 
-def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
+def _parse_rerank_results(
+    data: dict[str, Any], document_count: int
+) -> list[tuple[int, float]]:
     results = data.get("results")
     if not isinstance(results, list):
         raise ValueError("Jina rerank response missing results list")
@@ -75,7 +77,9 @@ async def jina_rerank(
     headers = {"Authorization": f"Bearer {resolved_api_key}"}
 
     if http_client is not None:
-        response = await http_client.post(JINA_RERANK_ENDPOINT, json=payload, headers=headers)
+        response = await http_client.post(
+            JINA_RERANK_ENDPOINT, json=payload, headers=headers
+        )
         response.raise_for_status()
         return _parse_rerank_results(response.json(), len(documents))
 

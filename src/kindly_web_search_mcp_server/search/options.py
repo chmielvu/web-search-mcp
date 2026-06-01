@@ -59,11 +59,18 @@ class SearchOptions:
             raise ValueError("result_offset must be >= 0.")
         if self.searxng_pageno < 1:
             raise ValueError("searxng_pageno must be >= 1.")
-        if self.searxng_time_range and self.searxng_time_range not in SEARCH_TIME_RANGES:
+        if (
+            self.searxng_time_range
+            and self.searxng_time_range not in SEARCH_TIME_RANGES
+        ):
             raise ValueError(
                 f"searxng_time_range must be one of {sorted(SEARCH_TIME_RANGES)}."
             )
-        if self.searxng_safesearch is not None and self.searxng_safesearch not in {0, 1, 2}:
+        if self.searxng_safesearch is not None and self.searxng_safesearch not in {
+            0,
+            1,
+            2,
+        }:
             raise ValueError("searxng_safesearch must be 0, 1, 2, or None.")
         return self
 

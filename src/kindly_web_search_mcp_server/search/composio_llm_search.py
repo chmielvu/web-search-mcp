@@ -1,4 +1,5 @@
 """Composio LLM Search provider for the shared web_search mix."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,7 +25,11 @@ def _resolve_timeout_seconds(http_client: Any) -> float | None:
     read = getattr(timeout_obj, "read", None)
     write = getattr(timeout_obj, "write", None)
     pool = getattr(timeout_obj, "pool", None)
-    candidates = [value for value in (connect, read, write, pool) if isinstance(value, (int, float))]
+    candidates = [
+        value
+        for value in (connect, read, write, pool)
+        if isinstance(value, (int, float))
+    ]
     if not candidates:
         return None
     return float(max(candidates))
@@ -55,7 +60,9 @@ async def search_composio_llm_search(
 
     raw_results = data.get("results", [])
     if not isinstance(raw_results, list):
-        raise ComposioLLMSearchError("Composio LLM Search response missing `results` list.")
+        raise ComposioLLMSearchError(
+            "Composio LLM Search response missing `results` list."
+        )
 
     results: list[WebSearchResult] = []
     for item in raw_results:
