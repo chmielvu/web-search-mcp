@@ -94,7 +94,7 @@ def test_resolve_query_routing_returns_policy_directly() -> None:
 
 
 def test_rewrite_falls_back_when_router_unavailable() -> None:
-    """When LiteLLM Router is unavailable, should fallback to original query."""
+    """When no provider API keys are configured, should fallback to original query."""
     from kindly_web_search_mcp_server.search.query_rewrite import rewrite_search_query
 
     async def _run() -> None:
@@ -103,10 +103,17 @@ def test_rewrite_falls_back_when_router_unavailable() -> None:
                 "kindly_web_search_mcp_server.search.query_rewrite.settings.query_rewrite_enabled",
                 True,
             ),
-            # Simulate router unavailable (no API keys or LiteLLM not installed)
             patch(
-                "kindly_web_search_mcp_server.search.query_rewrite.get_query_rewrite_router",
-                return_value=None,
+                "kindly_web_search_mcp_server.search.query_rewrite.settings.cerebras_api_key",
+                "",
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.settings.groq_api_key",
+                "",
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.settings.hf_token",
+                "",
             ),
         ):
             plan = await rewrite_search_query("fastmcp middleware docs")
@@ -254,9 +261,7 @@ def test_keyword_validator_rejects_neural_target() -> None:
     assert validate_keyword_variants([variant], intent="code", must_keep_terms=[]) == []
 
 
-def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() -> (
-    None
-):
+def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() -> None:
     from kindly_web_search_mcp_server.search.query_rewrite import rewrite_search_query
     from kindly_web_search_mcp_server.search.query_rewrite_models import (
         ClassifierOutput,
@@ -301,10 +306,6 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
                 True,
             ),
             patch(
-                "kindly_web_search_mcp_server.search.query_rewrite.get_query_rewrite_router",
-                return_value=object(),
-            ),
-            patch(
                 "kindly_web_search_mcp_server.search.query_rewrite.get_functiongemma_client",
                 return_value=_StubClient(),
             ),
@@ -315,9 +316,42 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
             patch(
                 "kindly_web_search_mcp_server.search.query_rewrite.request_variants",
                 side_effect=[
-                    ([QueryVariant(kind="original", target="keyword", query="React 19 vs Vue 4", why="original", weight=1.0)], "mistral"),
-                    ([QueryVariant(kind="neural_task", target="neural", query="Compare React 19 and Vue 4 developer experience.", why="neural", weight=1.0)], "mistral"),
-                    ([QueryVariant(kind="practitioner_opinion", target="community", query="React 19 Vue 4 developer experience", why="community", weight=1.0)], "mistral"),
+                    (
+                        [
+                            QueryVariant(
+                                kind="original",
+                                target="keyword",
+                                query="React 19 vs Vue 4",
+                                why="original",
+                                weight=1.0,
+                            )
+                        ],
+                        "mistral",
+                    ),
+                    (
+                        [
+                            QueryVariant(
+                                kind="neural_task",
+                                target="neural",
+                                query="Compare React 19 and Vue 4 developer experience.",
+                                why="neural",
+                                weight=1.0,
+                            )
+                        ],
+                        "mistral",
+                    ),
+                    (
+                        [
+                            QueryVariant(
+                                kind="practitioner_opinion",
+                                target="community",
+                                query="React 19 Vue 4 developer experience",
+                                why="community",
+                                weight=1.0,
+                            )
+                        ],
+                        "mistral",
+                    ),
                 ],
             ),
         ):
@@ -332,8 +366,6 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
         assert plan.decomposition is not None
         assert plan.decomposition.should_decompose is True
         assert any(variant.kind == "subquestion" for variant in plan.variants)
-        assert any(
-            "React 19 SSR performance" in query for query in plan.final_queries
-        )
+        assert any("React 19 SSR performance" in query for query in plan.final_queries)
 
     asyncio.run(_run())

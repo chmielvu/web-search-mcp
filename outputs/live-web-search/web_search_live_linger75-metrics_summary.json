@@ -1,0 +1,22 @@
+{
+  "run_id": "linger75-metrics",
+  "raw_path": "outputs\\live-web-search\\web_search_live_linger75-metrics.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 424.101,
+    "max": 424.101,
+    "avg": 424.101,
+    "p50": 424.101,
+    "p95": 424.101
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

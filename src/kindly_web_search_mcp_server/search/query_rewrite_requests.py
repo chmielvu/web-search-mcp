@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
 from ..settings import settings
+from .query_rewrite_cascade import cascade_query_rewrite
 from .query_rewrite_models import QueryVariant, RewriteIntent
 from .query_rewrite_prompts import build_query_rewrite_messages
 from .query_rewrite_validate import parse_query_rewrite_output
@@ -20,7 +18,6 @@ TEMPERATURE_BY_INTENT: dict[RewriteIntent, float] = {
 
 async def request_variants(
     *,
-    router: Any,
     query: str,
     intent: RewriteIntent,
     target: str,
@@ -35,25 +32,22 @@ async def request_variants(
         intent=intent,
         target=target,
     )
-    response = await asyncio.wait_for(
-        router.acompletion(
-            model="query-rewrite",
-            messages=messages,
-            temperature=TEMPERATURE_BY_INTENT.get(
-                intent, settings.query_rewrite_temperature
-            ),
-            response_format={"type": "json_object"},
+    raw_content, model_used = await cascade_query_rewrite(
+        messages=messages,
+        temperature=TEMPERATURE_BY_INTENT.get(
+            intent, settings.query_rewrite_temperature
         ),
-        timeout=settings.query_rewrite_timeout_seconds,
+        timeout=settings.query_rewrite_cascade_timeout_seconds,
     )
-    content = response.choices[0].message.content
-    if not isinstance(content, str):
-        raise ValueError("Expected string JSON content from LLM")
-    parsed = parse_query_rewrite_output(content)
+    parsed = parse_query_rewrite_output(raw_content)
     if diagnostics:
         diagnostics.emit(
             "query_rewrite.raw_result",
             "Query rewrite call completed",
-            {"target": target, "variant_count": len(parsed.variants)},
+            {
+                "target": target,
+                "variant_count": len(parsed.variants),
+                "model": model_used,
+            },
         )
-    return parsed.variants, response.model or "unknown"
+    return parsed.variants, model_used

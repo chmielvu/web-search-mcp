@@ -116,7 +116,11 @@ def render_discussion_thread_markdown(
     if category_name:
         meta_parts.append(f"Category: {category_name}")
     if author_login:
-        meta_parts.append(f"Author: @{author_login}" if author_login != "(deleted)" else "Author: (deleted)")
+        meta_parts.append(
+            f"Author: @{author_login}"
+            if author_login != "(deleted)"
+            else "Author: (deleted)"
+        )
     if created_at:
         meta_parts.append(f"Created: {created_at}")
     if updated_at and updated_at != created_at:
@@ -156,7 +160,11 @@ def render_discussion_thread_markdown(
         lines.append(f"### Message {idx}")
         meta: list[str] = []
         if c_author_login:
-            meta.append(f"Author: @{c_author_login}" if c_author_login != "(deleted)" else "Author: (deleted)")
+            meta.append(
+                f"Author: @{c_author_login}"
+                if c_author_login != "(deleted)"
+                else "Author: (deleted)"
+            )
         if c_created:
             meta.append(f"Created: {c_created}")
         if c_updated and c_updated != c_created:
@@ -178,7 +186,9 @@ def render_discussion_thread_markdown(
                 r_author_login = "(deleted)"
                 r_author = r.get("author")
                 if isinstance(r_author, dict):
-                    r_author_login = str(r_author.get("login") or "").strip() or "(deleted)"
+                    r_author_login = (
+                        str(r_author.get("login") or "").strip() or "(deleted)"
+                    )
                 r_created = _iso(r.get("createdAt"))
                 r_updated = _iso(r.get("updatedAt"))
                 r_url = str(r.get("url") or "").strip()
@@ -216,12 +226,16 @@ def render_discussion_thread_markdown(
                 lines.append("")
 
     if truncated:
-        shown = total_messages_shown if total_messages_shown is not None else message_count
+        shown = (
+            total_messages_shown if total_messages_shown is not None else message_count
+        )
         total = total_top_level_comments
         if total is None:
             lines.append(f"_Thread truncated: showing {shown} messages._")
         else:
-            lines.append(f"_Thread truncated: showing {shown} messages (top-level total: {total})._")
+            lines.append(
+                f"_Thread truncated: showing {shown} messages (top-level total: {total})._"
+            )
         if url:
             lines.append(f"_View full thread: {url}_")
         lines.append("")
@@ -240,12 +254,16 @@ class GitHubGraphqlClient:
             "Content-Type": "application/json",
         }
         resp = await self._http.post(
-            GITHUB_GRAPHQL_URL, json={"query": query, "variables": variables}, headers=headers
+            GITHUB_GRAPHQL_URL,
+            json={"query": query, "variables": variables},
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
-            raise GitHubDiscussionError("GitHub GraphQL response was not a JSON object.")
+            raise GitHubDiscussionError(
+                "GitHub GraphQL response was not a JSON object."
+            )
         if "errors" in data and data["errors"]:
             err0 = data["errors"][0] if isinstance(data["errors"], list) else None
             msg = ""
@@ -388,7 +406,9 @@ class GitHubGraphqlClient:
                                 replies_nodes.append(r)
                                 messages_used += 1
                                 reply_budget -= 1
-                        if replies_total_count and replies_total_count > len(replies_nodes):
+                        if replies_total_count and replies_total_count > len(
+                            replies_nodes
+                        ):
                             replies_truncated = True
                             replies_truncated_seen = True
 
@@ -411,7 +431,9 @@ class GitHubGraphqlClient:
 
         if discussion is None:
             raise GitHubDiscussionError("Discussion not found or not accessible.")
-        if messages_used >= max_messages and (has_next_page_seen or replies_truncated_seen):
+        if messages_used >= max_messages and (
+            has_next_page_seen or replies_truncated_seen
+        ):
             truncated = True
         if total_top_level_comments and total_top_level_comments > len(comments):
             truncated = True
@@ -431,7 +453,9 @@ async def fetch_github_discussion_thread_markdown(
 
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
-        raise GitHubDiscussionError("GITHUB_TOKEN is required for GitHub Discussion retrieval.")
+        raise GitHubDiscussionError(
+            "GITHUB_TOKEN is required for GitHub Discussion retrieval."
+        )
 
     if max_comments is None:
         try:
@@ -451,9 +475,13 @@ async def fetch_github_discussion_thread_markdown(
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = GitHubGraphqlClient(http_client=client, token=token)
-        discussion, comments, total, truncated, messages_used = await api.fetch_discussion_with_comments(
-            target, max_messages=max_comments
-        )
+        (
+            discussion,
+            comments,
+            total,
+            truncated,
+            messages_used,
+        ) = await api.fetch_discussion_with_comments(target, max_messages=max_comments)
 
         md = render_discussion_thread_markdown(
             discussion=discussion,

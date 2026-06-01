@@ -27,13 +27,18 @@ class SafeFetchResult:
 
 def _host_is_local(host: str) -> bool:
     lowered = host.lower()
-    return lowered in {"localhost", "127.0.0.1", "::1"} or lowered.endswith(".localhost")
+    return lowered in {"localhost", "127.0.0.1", "::1"} or lowered.endswith(
+        ".localhost"
+    )
 
 
 def _validate_scheme(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
-        raise SafeFetchError("unsupported_scheme", f"Unsupported URL scheme: {parsed.scheme or 'missing'}")
+        raise SafeFetchError(
+            "unsupported_scheme",
+            f"Unsupported URL scheme: {parsed.scheme or 'missing'}",
+        )
 
 
 def _validate_host_public(host: str) -> None:
@@ -43,8 +48,16 @@ def _validate_host_public(host: str) -> None:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-        raise SafeFetchError("private_host", "Private or local network targets are not allowed")
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+    ):
+        raise SafeFetchError(
+            "private_host", "Private or local network targets are not allowed"
+        )
 
 
 def _iter_resolved_ips(hostname: str) -> Iterable[ipaddress._BaseAddress]:
@@ -62,8 +75,16 @@ def _iter_resolved_ips(hostname: str) -> Iterable[ipaddress._BaseAddress]:
 
 def _validate_resolved_ips(hostname: str) -> None:
     for ip in _iter_resolved_ips(hostname):
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            raise SafeFetchError("private_ip_resolved", f"Resolved IP is not public: {ip}")
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        ):
+            raise SafeFetchError(
+                "private_ip_resolved", f"Resolved IP is not public: {ip}"
+            )
 
 
 def validate_public_url(url: str) -> None:

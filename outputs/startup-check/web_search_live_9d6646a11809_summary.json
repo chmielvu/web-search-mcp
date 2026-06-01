@@ -1,0 +1,18 @@
+{
+  "run_id": "9d6646a11809",
+  "raw_path": "outputs\\startup-check\\web_search_live_9d6646a11809.jsonl",
+  "call_count": 0,
+  "success_count": 0,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": null,
+    "max": null,
+    "avg": null,
+    "p50": null,
+    "p95": null
+  },
+  "providers_used": {},
+  "top_domains": {},
+  "warning_types": {}
+}

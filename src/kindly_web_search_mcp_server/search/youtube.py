@@ -22,6 +22,7 @@ _YOUTUBE_DOMAIN_RE = re.compile(
 
 class YouTubeSearchError(RuntimeError):
     """Custom error for YouTube search failures."""
+
     pass
 
 
@@ -89,7 +90,7 @@ async def search_youtube_videos(
     headers = {
         "User-Agent": os.environ.get(
             "SEARXNG_USER_AGENT",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         ).strip(),
         "Accept": "application/json",
     }
@@ -103,7 +104,9 @@ async def search_youtube_videos(
             pass
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.get(url, params=params, headers=headers, timeout=timeout_seconds)
+        resp = await client.get(
+            url, params=params, headers=headers, timeout=timeout_seconds
+        )
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
@@ -123,19 +126,25 @@ async def search_youtube_videos(
                 "SearXNG returned 403 Forbidden. JSON output may be disabled."
             ) from exc
         if status == 429:
-            raise YouTubeSearchError("SearXNG rate limited (429 Too Many Requests).") from exc
+            raise YouTubeSearchError(
+                "SearXNG rate limited (429 Too Many Requests)."
+            ) from exc
         raise YouTubeSearchError(f"SearXNG returned HTTP {status}.") from exc
     except httpx.TimeoutException:
         raise YouTubeSearchError(f"SearXNG request timed out after {timeout_seconds}s.")
     except Exception as exc:
-        raise YouTubeSearchError(f"SearXNG request failed: {type(exc).__name__}: {exc}") from exc
+        raise YouTubeSearchError(
+            f"SearXNG request failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
     raw_results = data.get("results", [])
     if not isinstance(raw_results, list):
         raise YouTubeSearchError("SearXNG response missing `results` list.")
 
     if not raw_results:
-        LOGGER.debug("SearXNG YouTube search returned empty results for query=%r", query)
+        LOGGER.debug(
+            "SearXNG YouTube search returned empty results for query=%r", query
+        )
 
     results: list[WebSearchResult] = []
     for item in raw_results:
@@ -154,9 +163,7 @@ async def search_youtube_videos(
 
         # Domain validation: only accept youtube.com / youtu.be URLs
         if not _YOUTUBE_DOMAIN_RE.match(link.strip()):
-            LOGGER.debug(
-                "Skipping non-YouTube URL in YouTube search results: %s", link
-            )
+            LOGGER.debug("Skipping non-YouTube URL in YouTube search results: %s", link)
             continue
 
         if not isinstance(snippet, str):

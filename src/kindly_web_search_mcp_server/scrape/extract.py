@@ -51,6 +51,7 @@ def _simple_html_to_markdown(raw_html: str) -> str:
     h = raw_html or ""
     for level in range(1, 7):
         pattern = rf"(?is)<h{level}[^>]*>(.*?)</h{level}>"
+
         def repl(m: re.Match[str], lvl: int = level) -> str:
             return "\n" + ("#" * lvl) + " " + _strip_tags_keep_text(m.group(1)) + "\n\n"
 

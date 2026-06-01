@@ -10,6 +10,7 @@ from ..settings import settings
 
 class YouTubeError(RuntimeError):
     """Custom error for YouTube parsing/transcript failures."""
+
     pass
 
 
@@ -45,7 +46,10 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
     stripped = url.strip()
     if re.match(r"^[\w-]{11}$", stripped) and not stripped.startswith(("http", "www.")):
         video_id = stripped
-        return YouTubeTarget(video_id=video_id, canonical_url=f"https://www.youtube.com/watch?v={video_id}")
+        return YouTubeTarget(
+            video_id=video_id,
+            canonical_url=f"https://www.youtube.com/watch?v={video_id}",
+        )
 
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -152,6 +156,7 @@ def fetch_transcript_data(
     if proxy_url:
         try:
             from youtube_transcript_api.proxies import GenericProxyConfig
+
             api = YouTubeTranscriptApi(
                 proxy_config=GenericProxyConfig(
                     http_url=proxy_url,
@@ -192,11 +197,13 @@ def fetch_transcript_data(
         # Convert to list of dicts
         segments = []
         for snippet in fetched:
-            segments.append({
-                "text": snippet.text,
-                "start": snippet.start,
-                "duration": snippet.duration,
-            })
+            segments.append(
+                {
+                    "text": snippet.text,
+                    "start": snippet.start,
+                    "duration": snippet.duration,
+                }
+            )
 
         return segments
 
@@ -205,7 +212,9 @@ def fetch_transcript_data(
     except NoTranscriptFound:
         raise YouTubeError(f"No transcript found for language(s): {languages}")
     except VideoUnavailable:
-        raise YouTubeError("Video is unavailable (may be private, deleted, or age-restricted)")
+        raise YouTubeError(
+            "Video is unavailable (may be private, deleted, or age-restricted)"
+        )
     except CouldNotRetrieveTranscript as e:
         error_msg = str(e)
         if "RequestBlocked" in error_msg or "IpBlocked" in error_msg:

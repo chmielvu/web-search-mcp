@@ -5,6 +5,7 @@ ProviderMode controls when a provider fires:
 - CONDITIONAL: Paid providers that only fire when explicitly requested by caller
 - NEVER: Disabled providers that never fire even if configured
 """
+
 from __future__ import annotations
 
 import os
@@ -15,14 +16,16 @@ from typing import Any, Callable
 
 class ProviderMode(Enum):
     """Provider availability mode."""
-    ALWAYS = "always"           # Always included in search (free providers)
+
+    ALWAYS = "always"  # Always included in search (free providers)
     CONDITIONAL = "conditional"  # Only when explicitly requested by caller
-    NEVER = "never"             # Disabled, never included
+    NEVER = "never"  # Disabled, never included
 
 
 @dataclass
 class ProviderConfig:
     """Configuration for a single search provider."""
+
     name: str
     mode: ProviderMode
     env_key: str  # Environment variable for API key/base URL
@@ -60,6 +63,7 @@ class ProviderConfig:
         # Health check: skip providers that are in cooldown
         # (lazy import to avoid circular dependency)
         from .provider_health import get_provider_health  # noqa: PLC0415
+
         if not get_provider_health().is_healthy(self.name):
             return False
 
@@ -115,9 +119,12 @@ def resolve_providers_for_search(
 @dataclass
 class ProviderDiagnosis:
     """Why a requested provider could not fire."""
+
     name: str
     available: bool
-    reason: str  # e.g., "missing API key", "provider health cooldown", "mode set to never"
+    reason: (
+        str  # e.g., "missing API key", "provider health cooldown", "mode set to never"
+    )
 
 
 def diagnose_providers(
@@ -143,32 +150,46 @@ def diagnose_providers(
     for name in caller_providers:
         config = PROVIDER_REGISTRY.get(name)
         if config is None:
-            diagnoses.append(ProviderDiagnosis(
-                name=name, available=False,
-                reason=f"Unknown provider '{name}'. Available: {sorted(PROVIDER_REGISTRY.keys())}",
-            ))
+            diagnoses.append(
+                ProviderDiagnosis(
+                    name=name,
+                    available=False,
+                    reason=f"Unknown provider '{name}'. Available: {sorted(PROVIDER_REGISTRY.keys())}",
+                )
+            )
             continue
 
         if config.mode == ProviderMode.NEVER:
-            diagnoses.append(ProviderDiagnosis(
-                name=name, available=False,
-                reason=f"Provider '{name}' is disabled (mode=never).",
-            ))
+            diagnoses.append(
+                ProviderDiagnosis(
+                    name=name,
+                    available=False,
+                    reason=f"Provider '{name}' is disabled (mode=never).",
+                )
+            )
             continue
 
         if not get_provider_health().is_healthy(name):
-            diagnoses.append(ProviderDiagnosis(
-                name=name, available=False,
-                reason=f"Provider '{name}' is in health cooldown after repeated failures.",
-            ))
+            diagnoses.append(
+                ProviderDiagnosis(
+                    name=name,
+                    available=False,
+                    reason=f"Provider '{name}' is in health cooldown after repeated failures.",
+                )
+            )
             continue
 
         if not config.is_available():
-            env_hint = f" Set {config.env_key} environment variable." if config.env_key else ""
-            diagnoses.append(ProviderDiagnosis(
-                name=name, available=False,
-                reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
-            ))
+            env_hint = (
+                f" Set {config.env_key} environment variable." if config.env_key else ""
+            )
+            diagnoses.append(
+                ProviderDiagnosis(
+                    name=name,
+                    available=False,
+                    reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+                )
+            )
             continue
 
         # Provider is available and can fire — no diagnosis needed

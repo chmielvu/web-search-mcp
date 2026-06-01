@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Expanded `plans/content-extraction-entity-schema-oss-patterns-2026-06-01.md` into a cross-validated report covering GLiNER uses across query steering, provider routing, result annotation, cache/rerank guardrails, content extraction, batch workflows, observability, and PII/safety.
+- Research note `plans/content-extraction-entity-schema-oss-patterns-2026-06-01.md` evaluating GLiNER2/entity extraction and schema-driven structured extraction patterns from OSS code, Hugging Face Spaces/models, and user issue reports.
+- Full OpenTelemetry instrumentation (traces + metrics) for the search orchestrator, content resolution pipeline (all specialized resolvers + safe_http + jina + browser fallbacks), caches (exact/semantic/page), reranking, and MCP tool layer.
+- `set_span_error` / `set_span_success` helpers and consistent use of `record_exception` + `StatusCode.ERROR`.
+- Dedicated `web_search_content_fallback_total` and `web_search_content_errors_total` counters.
+- Six production-ready Grafana dashboards under `grafana/dashboards/` (Overview, Providers, Content Extraction, Cache Effectiveness, Pipeline, Quality Assessment).
+- Quality-assessment Grafana dashboard for continuous search improvement across provider result yield, query length, domain diversity, RRF/rerank score distributions, rewrite policy mix, diversity removals, and semantic-cache freshness.
+- Full-fidelity DuckDB analytics capture for all `search.*` and `tool.*` quality events, including query rewrites, fetched URL/content payloads, reranked results, and AI answer/citation payloads.
+- `sync-analytics` CLI command to mirror local DuckDB analytics into MotherDuck tables/views for Grafana drill-down dashboards.
+- Provider-level raw candidate events now persist into DuckDB so MotherDuck and Grafana can inspect provider attribution, candidate survival, and SearXNG engine metadata.
+- MotherDuck sync now includes provider, branch, merged, reranked, final, and candidate-survival views for stage-by-stage URL analysis.
+- Quality-assessment Grafana dashboard now includes MotherDuck-backed panels for candidate survival by stage, provider yield over time, and SearXNG engine quality.
+- `GRAFANA_CLOUD_*` convenience environment variables for easy Windows/pwsh setup.
+- Configurable head-based sampling (`KINDLY_OTEL_SAMPLING_RATIO`) and attribute truncation.
+- Comprehensive `docs/OBSERVABILITY.md` covering setup, dashboards, sampling, and troubleshooting.
+
+### Changed
+- `settings.py` now exposes a full observability configuration section.
+- DuckDB is pinned below `1.5.3` because the MotherDuck extension rejected DuckDB `1.5.3` during live sync validation.
+- Early telemetry initialization is more robust with better Grafana Cloud header handling.
+- `provider.*` analytics events are now persisted to DuckDB so provider-level result payloads can be queried in MotherDuck.
+- Quality dashboard now carries a MotherDuck datasource variable using the `motherduck-duckdb-datasource` plugin ID for DuckDB/MotherDuck SQL panels.
+
+### Added
 
 - Voyage AI `rerank-2.5` is now the primary reranker, with Jina retained as a fallback provider.
 - Provider rerank failures now preserve the merged candidate order instead of collapsing to zero results, and the absolute score threshold is no longer applied to raw RRF fallback scores.
@@ -16,6 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Query, rewrite, rerank, and `web_search` observability events are now also persisted to DuckDB for offline analysis and tuning.
 
 ### Fixed
+- Grafana Cloud OTLP convenience variables now resolve correctly during telemetry startup, and content fallback/error counters initialize without crashing when content metrics are first recorded.
+- Grafana dashboards under `grafana/dashboards/` now target the live `web_search_*` and `mcp_*` telemetry vocabulary, with normalized label keys and explicit dashboard versions for import.
+- Grafana dashboard selectors now use the exported `service_name` resource label and current counter names, so imported panels match live Grafana Cloud/Mimir series.
 
 - Middleware steering now uses shared session tracking for expensive-tool protection and Gemini guidance, replacing the deleted standalone Gemini advisory module.
 - `web_search` now serializes its public response through an allowlisted output boundary, so cached and live results both omit internal fields like `score`, `raw_score`, `mime_hint`, `source_engines`, `category`, and `diagnostics`.
@@ -52,6 +79,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `additionalProperties`.
 - FastMCP workflow prompts now use valid `Message` roles (`user`) instead of
   unsupported `system` roles.
+- `batch_get_content`: Cursor continuation no longer requires re-passing the
+  original `urls` list — the cursor now encodes the URL list, and `urls` is
+  optional on continuation calls. Also fixed a bug where the `has_more` early-exit
+  dropped already-fetched artifacts from concurrent windows, wasting I/O and
+  silently skipping results.
+- `get_content` / `batch_get_content`: `safe_fetch_url` success paths no longer
+  crash with `object of type 'SafeFetchResult' has no len()` on
+  `record_content_resolution`.
+- `get_content`: HTTP error codes (401, 403, 404, 500, etc.) are now classified
+  with distinct codes (`http_401`, `http_404`, etc.) and accurate retryable flags
+  instead of the generic `http_fetch_failed`.
+- `web_search`: Query rewrite now has a 15-second timeout guard; when the rewrite
+  step times out or fails, the search falls back to the original query instead of
+  failing the entire tool call.
+- `gemini_search`: The ~4KB `search_widget_html` field (CSS/HTML for web rendering)
+  is now stripped from responses to avoid wasting AI context tokens.
+- `academic_search`: Semantic Scholar rate-limit and timeout errors now produce
+  more specific log warnings with actionable guidance.
 
 ### Changed
 

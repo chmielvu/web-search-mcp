@@ -176,7 +176,9 @@ async def search_pubmed(
             fetch_params["api_key"] = _pubmed_api_key
 
         try:
-            fetch_resp = await client.get(PUBMED_FETCH_URL, params=fetch_params, timeout=60)
+            fetch_resp = await client.get(
+                PUBMED_FETCH_URL, params=fetch_params, timeout=60
+            )
             fetch_resp.raise_for_status()
         except Exception as e:
             logger.warning(f"PubMed fetch failed: {e}")

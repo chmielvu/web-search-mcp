@@ -1,0 +1,151 @@
+{
+  "title": "Kindly MCP - Content Extraction & Scraping",
+  "uid": "kindly-mcp-content-v1",
+  "version": 1,
+  "tags": ["kindly", "mcp", "content", "scrape", "otel"],
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "web-search-mcp"
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "pluginId": "prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Content Resolutions (5m)",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Browser (nodriver) Usage %",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_final_stage=\"browser_nodriver\", content_status=\"success\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_status=\"success\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.15 },
+              { "color": "red", "value": 0.35 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Fallback Rate (5m)",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_content_fallback_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.08 },
+              { "color": "red", "value": 0.2 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Content Resolution by Final Stage",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (content_final_stage) (rate(web_search_content_resolutions_total{service_name=\"$service\"}[2m]))",
+          "legendFormat": "{{content_final_stage}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 5,
+      "type": "heatmap",
+      "title": "Extraction Duration by Stage (heatmap)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (le, content_stage) (rate(web_search_content_duration_seconds_bucket{service_name=\"$service\"}[5m]))",
+          "format": "heatmap",
+          "legendFormat": "{{content_stage}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "yAxis": { "unit": "s" }
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Extraction Errors by Stage (last 3h)",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(15, sum by (content_stage, error_type) (increase(web_search_content_errors_total{service_name=\"$service\"}[3h])))",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "content_stage": "Stage",
+              "error_type": "Error Type",
+              "Value": "Count"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

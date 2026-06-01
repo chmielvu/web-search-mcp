@@ -1,0 +1,22 @@
+{
+  "run_id": "linger75-miss",
+  "raw_path": "outputs\\live-web-search\\web_search_live_linger75-miss.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 10233.759,
+    "max": 10233.759,
+    "avg": 10233.759,
+    "p50": 10233.759,
+    "p95": 10233.759
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

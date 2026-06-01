@@ -20,7 +20,7 @@ dependencies = [
     "nodriver",
     "PyMuPDF",
     "lancedb>=0.25.0",
-    "duckdb>=1.1.0",
+    "duckdb>=1.1.0,<1.5.3",
     "pyarrow>=18.0.0",
     "numpy>=1.26.0",
     "google-genai>=0.3.0",

@@ -1,0 +1,18 @@
+{
+  "run_id": "15f275ed2cdb",
+  "raw_path": "outputs\\review-probe2\\web_search_live_15f275ed2cdb.jsonl",
+  "call_count": 2,
+  "success_count": 2,
+  "error_count": 0,
+  "empty_result_count": 2,
+  "duration_ms": {
+    "min": 1897.528,
+    "max": 4573.921,
+    "avg": 3235.725,
+    "p50": 1897.528,
+    "p95": 4573.921
+  },
+  "providers_used": {},
+  "top_domains": {},
+  "warning_types": {}
+}

@@ -1,0 +1,22 @@
+{
+  "run_id": "fresh-loglevel-fix",
+  "raw_path": "outputs\\live-web-search\\web_search_live_fresh-loglevel-fix.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 433.034,
+    "max": 433.034,
+    "avg": 433.034,
+    "p50": 433.034,
+    "p95": 433.034
+  },
+  "providers_used": {
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

@@ -5,6 +5,8 @@ import os
 from functools import partial
 from typing import Callable, Awaitable
 
+import httpx
+
 from ..errors import classify_error
 from ..scrape.extract import extract_content_as_markdown
 from ..scrape.html_tools import (
@@ -42,6 +44,17 @@ from .wikipedia import (
     parse_wikipedia_url,
 )
 
+from ..telemetry import (
+    record_content_resolution,
+    record_content_fallback,
+    record_content_error,
+)
+from opentelemetry import trace
+
+_content_tracer = trace.get_tracer(
+    "kindly_web_search_mcp_server.content.fetch_pipeline"
+)
+
 
 def _to_content_error(
     exc: Exception, code: str, provider: str | None = None
@@ -76,6 +89,12 @@ async def _maybe_specialized(
     try:
         markdown = await fetcher(url)
     except Exception as exc:
+        record_content_resolution(
+            stage=source_type,
+            url=url,
+            success=False,
+            duration_seconds=None,
+        )
         return ContentArtifact(
             input_url=url,
             normalized_url=canonicalize_url(url),
@@ -93,6 +112,14 @@ async def _maybe_specialized(
         )
 
     cls = classify_markdown(markdown)
+    record_content_resolution(
+        stage=source_type,
+        url=url,
+        success=cls.status == "success",
+        size_bytes=len(markdown.encode("utf-8")),
+        word_count=len(markdown.split()),
+        extraction_method=f"{source_type}_api",
+    )
     return ContentArtifact(
         input_url=url,
         normalized_url=canonicalize_url(url),
@@ -128,16 +155,19 @@ async def fetch_content_artifact(
     *,
     fetch_options: FetchOptions | None = None,
 ) -> ContentArtifact:
-    canonical = canonicalize_url(url)
-    options = fetch_options or FetchOptions()
-    options.validate()
+    with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
+        span.set_attribute("content.url", url)
 
-    specialized = await _maybe_specialized(
-        url,
-        parser=parse_stackexchange_url,
-        fetcher=fetch_stackexchange_thread_markdown,
-        source_type="stackexchange",
-    )
+        canonical = canonicalize_url(url)
+        options = fetch_options or FetchOptions()
+        options.validate()
+
+        specialized = await _maybe_specialized(
+            url,
+            parser=parse_stackexchange_url,
+            fetcher=fetch_stackexchange_thread_markdown,
+            source_type="stackexchange",
+        )
     if specialized is not None:
         return specialized
 
@@ -188,6 +218,9 @@ async def fetch_content_artifact(
                 quality_score=1.0,
             )
         except Exception as exc:
+            record_content_error(
+                stage="arxiv", url=url, error_type="arxiv_fetch_failed"
+            )
             return ContentArtifact(
                 input_url=url,
                 normalized_url=canonical,
@@ -206,6 +239,13 @@ async def fetch_content_artifact(
 
     try:
         fetched = await safe_fetch_url(url)
+        record_content_resolution(
+            stage="safe_http",
+            url=url,
+            success=True,
+            size_bytes=len(fetched.body) if fetched else 0,
+            extraction_method="trafilatura_safe",
+        )
     except SafeFetchError as exc:
         return ContentArtifact(
             input_url=url,
@@ -220,7 +260,29 @@ async def fetch_content_artifact(
             quality_score=0.0,
             error=ContentError(code=exc.code, message=str(exc), retryable=False),
         )
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        error_code = f"http_{status_code}"
+        retryable = status_code >= 500 or status_code == 429
+        return ContentArtifact(
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=None,
+            status="error",
+            source_type="web",
+            fetch_backend="safe_http",
+            content_type=None,
+            markdown="",
+            word_count=0,
+            quality_score=0.0,
+            error=ContentError(
+                code=error_code,
+                message=f"HTTP {status_code}: {str(exc)[:100]}",
+                retryable=retryable,
+            ),
+        )
     except Exception as exc:
+        record_content_fallback(stage="jina_reader", url=url, from_stage="safe_http")
         try:
             jina_markdown = await fetch_with_jina_reader(url)
             jina_cls = classify_markdown(jina_markdown)
@@ -284,9 +346,7 @@ async def fetch_content_artifact(
         html = strip_html_selectors(html, options.strip_selectors)
 
     metadata = (
-        extract_html_metadata(
-            html, page_url=url, fetched_url=fetched.fetched_url
-        )
+        extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
         if options.include_metadata
         else None
     )
@@ -346,6 +406,14 @@ async def fetch_content_artifact(
     browser_markdown = await load_url_as_markdown(fetched.fetched_url)
     if browser_markdown:
         browser_cls = classify_markdown(browser_markdown)
+        record_content_resolution(
+            stage="browser_nodriver",
+            url=url,
+            success=browser_cls.status == "success",
+            size_bytes=len(browser_markdown.encode("utf-8")),
+            word_count=len(browser_markdown.split()),
+            extraction_method="nodriver",
+        )
         return ContentArtifact(
             input_url=url,
             normalized_url=canonical,

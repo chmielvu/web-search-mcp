@@ -9,7 +9,12 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from .content_type import ADAPTIVE_TTL, ADAPTIVE_TTL_SECONDS, ContentType, classify_content_type
+from .content_type import (
+    ADAPTIVE_TTL,
+    ADAPTIVE_TTL_SECONDS,
+    ContentType,
+    classify_content_type,
+)
 from .store import SemanticCacheStore
 from ..embeddings import embed_query
 from ..telemetry import record_semantic_cache_lookup, record_cache_lookup
@@ -52,9 +57,13 @@ async def get_semantic_cache(
 
     # Perform search
     if use_hybrid and query:
-        results = store.hybrid_search(query_embedding, query, provider_key=provider_key, limit=5)
+        results = store.hybrid_search(
+            query_embedding, query, provider_key=provider_key, limit=5
+        )
     else:
-        results = store.vector_search(query_embedding, provider_key=provider_key, limit=5)
+        results = store.vector_search(
+            query_embedding, provider_key=provider_key, limit=5
+        )
 
     if not results:
         logger.debug("No cache results found for query: %s", query[:100])

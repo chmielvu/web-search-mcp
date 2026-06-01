@@ -1,5 +1,6 @@
 import httpx
 
+
 async def fetch_url(url: str) -> str:
     """
     Fetches the HTML content of a URL.

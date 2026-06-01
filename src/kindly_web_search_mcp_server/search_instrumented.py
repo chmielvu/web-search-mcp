@@ -42,7 +42,7 @@ from .telemetry import (
     add_results_to_span,
 )
 from .utils.diagnostics import Diagnostics
-from .utils.observability import emit_observability_event, serialize_search_results
+from .utils.observability import emit_observability_event
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
@@ -118,7 +118,7 @@ async def _search_single_provider_instrumented(
                 num_results_requested=num_results,
                 duration_ms=round(duration * 1000, 3),
                 result_count=len(results),
-                results=serialize_search_results(results, max_results=5),
+                results=results,
             )
 
             LOGGER.debug(
@@ -300,9 +300,7 @@ async def search_single_query(
                 active_providers=[c.name for c in active_configs],
                 providers_used=provider_names,
                 merged_result_count=len(merged),
-                results=serialize_search_results(
-                    merged[:num_results], max_results=num_results
-                ),
+                results=merged[:num_results],
             )
 
             if diagnostics:

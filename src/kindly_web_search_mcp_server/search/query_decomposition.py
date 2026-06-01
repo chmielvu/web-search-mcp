@@ -157,7 +157,7 @@ INTENT:
 {intent}
 
 ROUTING:
-{routing_lines or '- none'}
+{routing_lines or "- none"}
 
 MUST_KEEP_TERMS:
 {must_keep}
@@ -183,7 +183,9 @@ def normalize_sub_questions(
             continue
         seen.add(key)
         cleaned.append(
-            item.model_copy(update={"question": normalized, "why": normalize_query(item.why)})
+            item.model_copy(
+                update={"question": normalized, "why": normalize_query(item.why)}
+            )
         )
         if len(cleaned) >= max_subquestions:
             break

@@ -1,0 +1,314 @@
+{
+  "title": "Kindly MCP - Quality Assessment",
+  "uid": "kindly-mcp-quality-v1",
+  "version": 2,
+  "tags": [
+    "kindly",
+    "mcp",
+    "quality",
+    "search",
+    "rerank",
+    "cache",
+    "otel",
+    "motherduck"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "web-search-mcp",
+        "label": "Service"
+      },
+      {
+        "name": "environment",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(deployment_environment)",
+        "label": "Environment",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": { "text": "All", "value": ".*" }
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "pluginId": "prometheus",
+        "label": "Prometheus (OTel)"
+      },
+      {
+        "name": "motherduck_datasource",
+        "type": "datasource",
+        "pluginId": "motherduck-duckdb-datasource",
+        "label": "MotherDuck (DuckDB)"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Search p95 Latency",
+      "description": "Developer quality loop guardrail: large quality improvements are not useful if every search becomes too slow for agent use.",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(web_search_duration_seconds_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Domain Diversity p50",
+      "description": "Median unique domains in returned search results. Low diversity can indicate provider collapse or duplicate-heavy ranking.",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(web_search_domain_diversity_domains_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Semantic Cache Hit Score p50",
+      "description": "Median similarity for accepted semantic cache hits. Watch this when tuning semantic-cache thresholds and TTLs.",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(web_search_semantic_cache_score_distribution_bucket{service_name=\"$service\", deployment_environment=~\"$environment\", cache_hit=\"true\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1 } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Diversity Removals / sec",
+      "description": "How often reranking removes near-duplicate domains/results. Spikes can reveal noisy provider overlap or overly broad rewrites.",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_rerank_diversity_removals_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Provider Result Yield",
+      "description": "Average returned results per successful provider call. Useful for spotting providers that are fast but not useful.",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (provider_name) (rate(web_search_provider_results_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])) / clamp_min(sum by (provider_name) (rate(web_search_provider_calls_total{service_name=\"$service\", deployment_environment=~\"$environment\", provider_status=\"success\"}[5m])), 0.001)",
+          "legendFormat": "{{provider_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "last"] } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Query Length Distribution",
+      "description": "p50/p95 query length entering the search pipeline. Long agent queries often correlate with worse keyword-search quality unless rewrite works well.",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(web_search_query_length_chars_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "legendFormat": "p50 chars",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(web_search_query_length_chars_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "legendFormat": "p95 chars",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Domain Diversity Distribution",
+      "description": "p50/p95 unique domains in returned results. Use with provider yield to diagnose duplicate-heavy or single-domain-heavy searches.",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(web_search_domain_diversity_domains_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "legendFormat": "p50 domains",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(web_search_domain_diversity_domains_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m])))",
+          "legendFormat": "p95 domains",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 8,
+      "type": "heatmap",
+      "title": "Rerank Score Distribution",
+      "description": "Distribution of reranker scores by result position. Low or flat score bands suggest the candidate pool is weak or the reranker is not discriminating.",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (le) (rate(web_search_rerank_scores_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "heatmap",
+      "title": "RRF Score Distribution",
+      "description": "Merged candidate score distribution before final rerank. Helps identify whether RRF is producing a meaningful candidate ordering.",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (le) (rate(web_search_rrf_score_distribution_bucket{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Rewrite Policy Mix",
+      "description": "Quality lens for rewrite routing. Sudden fallback/bypass shifts usually explain provider coverage and relevance changes.",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (rewrite_policy) (rate(web_search_query_rewrite_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[5m]))",
+          "legendFormat": "{{rewrite_policy}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "last"] } }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Provider Contribution Matrix",
+      "description": "Last 6h provider volume, output, and health. This is the first stop when a provider is expensive/noisy or stops contributing useful candidates.",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (provider_name) (increase(web_search_provider_results_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[6h]))",
+          "format": "table",
+          "legendFormat": "results {{provider_name}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (provider_name, provider_status) (increase(web_search_provider_calls_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[6h]))",
+          "format": "table",
+          "legendFormat": "calls {{provider_name}} {{provider_status}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Semantic Cache TTL and Hybrid Search",
+      "description": "Accepted cache TTLs and hybrid-search outcomes. Use this to tune freshness rules and catch stale semantic hits.",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (cache_content_type, cache_ttl_seconds, cache_hit) (increase(web_search_semantic_cache_ttl_used_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[6h]))",
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (cache_search_type, cache_hit) (increase(web_search_semantic_cache_hybrid_search_total{service_name=\"$service\", deployment_environment=~\"$environment\"}[6h]))",
+          "format": "table",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Candidate Survival by Stage",
+      "description": "Raw stage-by-stage survival for candidate URLs. Use this to see where results disappear between provider search, merge, rerank, and final answer windows.",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
+      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "targets": [
+        {
+          "rawSql": "WITH stage_counts AS ( SELECT stage, count(*) AS candidates, count(DISTINCT run_key) AS runs FROM kindly_analytics.vw_candidate_survival WHERE $__timeFilter(recorded_at) GROUP BY stage ), provider_base AS ( SELECT candidates AS provider_candidates FROM stage_counts WHERE stage = 'provider' ) SELECT stage, candidates, runs, round(100.0 * candidates / nullif((SELECT provider_candidates FROM provider_base), 0), 2) AS provider_retention_pct FROM stage_counts ORDER BY CASE stage WHEN 'provider' THEN 1 WHEN 'branch' THEN 2 WHEN 'merged' THEN 3 WHEN 'reranked' THEN 4 WHEN 'final' THEN 5 ELSE 99 END",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Provider Yield Over Time",
+      "description": "Average number of raw results returned by each provider call, based on persisted provider search events. This exposes providers that are low-yield even when they succeed.",
+      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "targets": [
+        {
+          "rawSql": "SELECT date_trunc('minute', recorded_at) AS time, provider_name AS metric, avg(result_count) AS value FROM ( SELECT recorded_at, json_extract_string(payload_json, '$.provider_name') AS provider_name, CAST(json_extract_string(payload_json, '$.result_count') AS DOUBLE) AS result_count FROM kindly_analytics.analytics_event_raw WHERE event_name = 'provider.search.result' AND $__timeFilter(recorded_at) ) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "SearXNG Engine Quality",
+      "description": "Engine-level contribution and score quality for SearXNG results. This is the panel to inspect when SearXNG turns noisy or one engine dominates the candidate pool.",
+      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 8 },
+      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "targets": [
+        {
+          "rawSql": "WITH searxng_engine_rows AS ( SELECT recorded_at, run_key, provider_name, json_extract_string(engine.value, '$') AS engine_name, raw_score, score, category, published_date FROM kindly_analytics.vw_provider_results CROSS JOIN json_each(source_engines_json) AS engine WHERE $__timeFilter(recorded_at) AND provider_name = 'searxng' ) SELECT engine_name, count(*) AS results, count(DISTINCT run_key) AS runs, round(avg(raw_score), 4) AS avg_raw_score, round(avg(score), 4) AS avg_merged_score, count(*) FILTER (WHERE category IS NOT NULL) AS categorized_results FROM searxng_engine_rows GROUP BY engine_name ORDER BY results DESC, engine_name",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

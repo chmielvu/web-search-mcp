@@ -60,5 +60,6 @@ def emit_rerank_summary(
         duration_ms=round(duration_seconds * 1000, 3),
         score_threshold=round(score_threshold, 6),
         max_score=round(max_score, 6),
+        results=output,
         top_results=serialize_search_results(output, max_results=min(top_k, 5)),
     )

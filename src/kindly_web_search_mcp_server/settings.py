@@ -36,19 +36,16 @@ class Settings:
         os.environ.get("KINDLY_SEMANTIC_CACHE_MIN_SCORE", "0.92")
     )
 
-    # Query rewrite (Mistral)
+    # Query rewrite (Cerebras → Groq → HF Inference cascade)
     query_rewrite_enabled: bool = (
         os.environ.get("KINDLY_QUERY_REWRITE_ENABLED", "true").lower() == "true"
     )
-    query_rewrite_model: str = os.environ.get(
-        "KINDLY_QUERY_REWRITE_MODEL", "mistral-small-2603"
-    )
-    # temperature=0 for deterministic output (LangChain MultiQueryRetriever pattern)
+    # fallback temperature for query rewrite when intent-specific temp is not set
     query_rewrite_temperature: float = float(
         os.environ.get("KINDLY_QUERY_REWRITE_TEMPERATURE", "0.0")
     )
-    query_rewrite_timeout_seconds: float = float(
-        os.environ.get("KINDLY_QUERY_REWRITE_TIMEOUT_SECONDS", "20")
+    query_rewrite_cascade_timeout_seconds: float = float(
+        os.environ.get("KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
     query_rewrite_max_variants: int = int(
         os.environ.get("KINDLY_QUERY_REWRITE_MAX_VARIANTS", "3")
@@ -79,19 +76,10 @@ class Settings:
         os.environ.get("KINDLY_QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
     )
 
-    # Query rewrite multi-provider (free-tier load distribution)
+    # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
-    # Provider RPM estimates for free tier (used by LiteLLM Router for weighted selection)
-    query_rewrite_mistral_rpm: int = int(
-        os.environ.get("KINDLY_QUERY_REWRITE_MISTRAL_RPM", "30")
-    )
-    query_rewrite_cerebras_rpm: int = int(
-        os.environ.get("KINDLY_QUERY_REWRITE_CEREBRAS_RPM", "30")
-    )
-    query_rewrite_groq_rpm: int = int(
-        os.environ.get("KINDLY_QUERY_REWRITE_GROQ_RPM", "30")
-    )
+    hf_token: str = os.environ.get("HF_TOKEN", "")
 
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get(
@@ -236,6 +224,50 @@ class Settings:
         os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_BURST", "1")
     )
 
+    # =====================================================================
+    # OpenTelemetry / Grafana Observability (Phase 1 of observability work)
+    # =====================================================================
+    # These enable first-class traces + metrics export to Grafana Cloud
+    # (or local collector / Alloy). We prefer standard OTEL_* env vars
+    # for compatibility with the broader ecosystem, but provide
+    # KINDLY_ + GRAFANA_CLOUD_* convenience vars for Windows/pwsh ergonomics.
+
+    otel_enabled: bool = os.environ.get("KINDLY_OTEL_ENABLED", "true").lower() == "true"
+
+    # Sampling (head-based). 1.0 = all traces (expensive). 0.1 = 10% typical for dev/prod.
+    otel_sampling_ratio: float = float(
+        os.environ.get("KINDLY_OTEL_SAMPLING_RATIO", "0.15")
+    )
+
+    # Service identity overrides (fall back to telemetry.py defaults + package version)
+    otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
+    otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp")
+    otel_deployment_environment: str = os.environ.get(
+        "DEPLOYMENT_ENV", os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development")
+    )
+
+    # Grafana Cloud convenience (recommended for Windows users who dislike manual Base64)
+    # When these are set, telemetry.py can auto-construct the Authorization header.
+    grafana_cloud_instance_id: str = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
+    grafana_cloud_api_key: str = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
+    grafana_cloud_otlp_endpoint: str = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
+
+    # Prometheus sidecar / Alloy scrape support
+    prometheus_enabled: bool = (
+        os.environ.get("KINDLY_PROMETHEUS_ENABLED", "false").lower() == "true"
+    )
+    prometheus_port: int = int(
+        os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
+    )  # 0 = disabled / dynamic
+
+    # Attribute safety (used by utils/observability.py and telemetry)
+    observability_max_text_chars: int = int(
+        os.environ.get("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", "20000")
+    )
+    observability_max_items: int = int(
+        os.environ.get("KINDLY_OBSERVABILITY_MAX_ITEMS", "10")
+    )
+
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
             # Provider weights rationale (Bruch et al. 2022: per-list weighting is more impactful than k tuning):
@@ -276,6 +308,19 @@ class Settings:
                 f"rrf_k must be > 0, got {self.rrf_k!r}. "
                 "Set KINDLY_RRF_K env var to a positive integer."
             )
+
+        # OTel / Observability validation
+        if not (0.0 < self.otel_sampling_ratio <= 1.0):
+            raise ValueError(
+                f"otel_sampling_ratio must be in (0.0, 1.0], got {self.otel_sampling_ratio!r}. "
+                "Set KINDLY_OTEL_SAMPLING_RATIO (e.g. 0.1 for 10% head sampling)."
+            )
+        if self.observability_max_text_chars < 1024:
+            raise ValueError(
+                "observability_max_text_chars must be >= 1024 to avoid truncating useful debug info."
+            )
+        if self.observability_max_items < 1:
+            raise ValueError("observability_max_items must be >= 1.")
 
 
 settings = Settings()

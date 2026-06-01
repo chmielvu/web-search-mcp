@@ -60,8 +60,8 @@ async def voyage_rerank(
     if not documents:
         return []
 
-    resolved_api_key = api_key or settings.voyage_api_key or os.environ.get(
-        "VOYAGE_API_KEY", ""
+    resolved_api_key = (
+        api_key or settings.voyage_api_key or os.environ.get("VOYAGE_API_KEY", "")
     )
     if not resolved_api_key.strip():
         raise ValueError("VOYAGE_API_KEY is required for Voyage reranking")
@@ -77,8 +77,6 @@ async def voyage_rerank(
     headers = {"Authorization": f"Bearer {resolved_api_key}"}
 
     client = http_client or _get_voyage_client(timeout)
-    response = await client.post(
-        VOYAGE_RERANK_ENDPOINT, json=payload, headers=headers
-    )
+    response = await client.post(VOYAGE_RERANK_ENDPOINT, json=payload, headers=headers)
     response.raise_for_status()
     return _parse_rerank_results(response.json(), len(documents))

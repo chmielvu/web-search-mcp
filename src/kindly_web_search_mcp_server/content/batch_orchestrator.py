@@ -43,13 +43,16 @@ def _normalize_urls(urls: list[str]) -> list[str]:
 
 async def run_batch_fetch(
     *,
-    urls: list[str],
+    urls: list[str] | None,
     params: BatchParams,
     cursor: str | None,
     fetch_options: FetchOptions | None = None,
 ) -> dict:
-    normalized_urls = _normalize_urls(urls)
-    if not normalized_urls:
+    if cursor and (not urls or len(urls) == 0):
+        decoded = _decode_cursor(cursor)
+        urls = decoded.get("urls", []) or []
+
+    if not urls:
         return {
             "results": [],
             "total_requested": 0,
@@ -58,6 +61,8 @@ async def run_batch_fetch(
             "has_more": False,
             "cursor": None,
         }
+
+    normalized_urls = _normalize_urls(urls)
 
     offsets: dict[str, int] = {u: 0 for u in normalized_urls}
     start_index = 0
@@ -104,16 +109,16 @@ async def run_batch_fetch(
     remaining_budget = max(1, params.total_char_budget)
     results: list[dict] = []
     next_index = start_index
+    processed_urls: set[str] = set()
     while next_index < len(normalized_urls) and remaining_budget > 0:
         window_urls = normalized_urls[next_index : next_index + params.max_concurrency]
         artifacts = await asyncio.gather(*[_run(url) for url in window_urls])
-        stop_for_continuation = False
+
         for artifact in artifacts:
             if remaining_budget <= 0:
-                stop_for_continuation = True
                 break
 
-            current_index = normalized_urls.index(artifact.input_url)
+            processed_urls.add(artifact.input_url)
             length = min(params.per_item_char_length, remaining_budget)
             offset = int(offsets.get(artifact.input_url, 0))
             sliced = slice_content(artifact.markdown, offset=offset, length=length)
@@ -144,20 +149,28 @@ async def run_batch_fetch(
                 }
             )
 
-            if sliced.window.has_more:
-                next_index = current_index
-                stop_for_continuation = True
-                break
+            if not sliced.window.has_more:
+                offsets.pop(artifact.input_url, None)
 
-            next_index = current_index + 1
-        if stop_for_continuation:
-            break
+        # Advance past fully-consumed URLs; stop at first pending or unprocessed URL
+        while next_index < len(normalized_urls):
+            url = normalized_urls[next_index]
+            if url in processed_urls and offsets.get(url, 0) == 0:
+                next_index += 1
+            else:
+                break
 
     total_chars = sum(len(item["page_content"]) for item in results)
     has_more = next_index < len(normalized_urls)
     next_cursor = None
     if has_more:
-        next_cursor = _encode_cursor({"index": next_index, "offsets": offsets})
+        next_cursor = _encode_cursor(
+            {
+                "index": next_index,
+                "offsets": offsets,
+                "urls": normalized_urls,
+            }
+        )
 
     return {
         "results": results,

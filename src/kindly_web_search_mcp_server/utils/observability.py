@@ -61,6 +61,18 @@ def _normalize_for_body(value: Any) -> Any:
     return preview_text(str(value), limit=_max_text_chars())
 
 
+def _normalize_for_analytics(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if hasattr(value, "model_dump"):
+        return _normalize_for_analytics(value.model_dump())
+    if isinstance(value, dict):
+        return {str(k): _normalize_for_analytics(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_normalize_for_analytics(item) for item in value]
+    return str(value)
+
+
 def _normalize_for_extra(value: Any) -> str | bool | int | float | None:
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -195,9 +207,7 @@ def serialize_tool_metadata(metadata: Any) -> dict[str, Any] | None:
     if not keys:
         keys = list(metadata.keys())[: _max_items()]
     return {
-        str(key): _normalize_for_body(metadata[key])
-        for key in keys
-        if key in metadata
+        str(key): _normalize_for_body(metadata[key]) for key in keys if key in metadata
     }
 
 
@@ -243,8 +253,12 @@ def serialize_tool_event_fields(
     return normalized
 
 
-def _persist_analytics_event(event: str, payload: dict[str, Any], logger: logging.Logger) -> None:
-    if not event.startswith(("query.rewrite.", "search.rerank.", "tool.web_search.")):
+def _persist_analytics_event(
+    event: str,
+    payload: dict[str, Any],
+    logger: logging.Logger,
+) -> None:
+    if not event.startswith(("query.rewrite.", "search.", "provider.", "tool.")):
         return
 
     try:
@@ -268,9 +282,21 @@ def emit_tool_observability_event(
     **fields: Any,
 ) -> None:
     event = f"tool.{tool_name}.{phase}"
+    trace_context = current_trace_context()
     payload = {"event": event, "tool_name": tool_name}
-    payload.update(current_trace_context())
+    payload.update(trace_context)
     payload.update(serialize_tool_event_fields(phase, fields, tool_name=tool_name))
+
+    analytics_payload = {"event": event, "tool_name": tool_name}
+    analytics_payload.update(trace_context)
+    analytics_payload.update(
+        {name: _normalize_for_analytics(value) for name, value in fields.items()}
+    )
+    if phase == "request":
+        analytics_payload["request_fingerprint"] = _tool_request_fingerprint(
+            tool_name,
+            fields,
+        )
 
     extra = {"kindly_event": event}
     for name, value in payload.items():
@@ -278,8 +304,10 @@ def emit_tool_observability_event(
             continue
         extra[_record_key(name)] = _normalize_for_extra(value)
 
-    logger.log(level, json.dumps(payload, ensure_ascii=True, sort_keys=True), extra=extra)
-    _persist_analytics_event(event, payload, logger)
+    logger.log(
+        level, json.dumps(payload, ensure_ascii=True, sort_keys=True), extra=extra
+    )
+    _persist_analytics_event(event, analytics_payload, logger)
 
 
 def emit_observability_event(
@@ -289,9 +317,16 @@ def emit_observability_event(
     level: int = logging.INFO,
     **fields: Any,
 ) -> None:
+    trace_context = current_trace_context()
     payload = {"event": event}
-    payload.update(current_trace_context())
+    payload.update(trace_context)
     payload.update({name: _normalize_for_body(value) for name, value in fields.items()})
+
+    analytics_payload = {"event": event}
+    analytics_payload.update(trace_context)
+    analytics_payload.update(
+        {name: _normalize_for_analytics(value) for name, value in fields.items()}
+    )
 
     extra = {"kindly_event": event}
     for name, value in payload.items():
@@ -304,4 +339,4 @@ def emit_observability_event(
         json.dumps(payload, ensure_ascii=True, sort_keys=True),
         extra=extra,
     )
-    _persist_analytics_event(event, payload, logger)
+    _persist_analytics_event(event, analytics_payload, logger)

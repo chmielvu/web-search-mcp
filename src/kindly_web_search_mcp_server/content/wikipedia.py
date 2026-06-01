@@ -105,7 +105,9 @@ def parse_wikipedia_url(url: str) -> WikipediaTarget:
 
     api_base_url = f"https://{host}/w/api.php"
     canonical_url = f"https://{host}/wiki/{title}"
-    return WikipediaTarget(api_base_url=api_base_url, canonical_url=canonical_url, host=host, title=title)
+    return WikipediaTarget(
+        api_base_url=api_base_url, canonical_url=canonical_url, host=host, title=title
+    )
 
 
 def _default_user_agent() -> str:
@@ -134,21 +136,27 @@ def _strip_wikipedia_html_noise(html: str) -> str:
         return str(soup)
     except Exception:
         # Regex fallback (not perfect, but avoids extra deps).
-        html = re.sub(r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL)
-        html = re.sub(r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL)
+        html = re.sub(
+            r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL
+        )
+        html = re.sub(
+            r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL
+        )
         return html
 
 
 def _looks_like_disambiguation(html: str) -> bool:
     lowered = html.lower()
     return (
-        "id=\"disambigbox\"" in lowered
+        'id="disambigbox"' in lowered
         or "dmbox-disambig" in lowered
         or "mw-disambig" in lowered
     )
 
 
-def _extract_disambiguation_links(html: str, *, max_links: int = 25) -> list[tuple[str, str]]:
+def _extract_disambiguation_links(
+    html: str, *, max_links: int = 25
+) -> list[tuple[str, str]]:
     """
     Best-effort extraction of options from a disambiguation page.
     Returns list of (text, href).
@@ -221,7 +229,9 @@ class WikipediaApiClient:
             except Exception:
                 delay = 2
             await anyio.sleep(min(max(delay, 1), 30))
-            resp = await self._http.get(target.api_base_url, params=params, headers=headers)
+            resp = await self._http.get(
+                target.api_base_url, params=params, headers=headers
+            )
 
         resp.raise_for_status()
         data = resp.json()
@@ -277,7 +287,9 @@ async def fetch_wikipedia_article_markdown(
             options = _extract_disambiguation_links(html)
             lines: list[str] = []
             lines.append("# Wikipedia Disambiguation")
-            lines.append(f"Title: {title} Link: {target.canonical_url} Source: {target.host}".strip())
+            lines.append(
+                f"Title: {title} Link: {target.canonical_url} Source: {target.host}".strip()
+            )
             lines.append("")
             if options:
                 lines.append("Possible meanings / pages:")

@@ -6,7 +6,12 @@ adaptive TTL based on content type, and embedding-based lookup.
 Also provides exact query cache and page cache for deterministic caching.
 """
 
-from .content_type import ADAPTIVE_TTL, ADAPTIVE_TTL_SECONDS, ContentType, classify_content_type
+from .content_type import (
+    ADAPTIVE_TTL,
+    ADAPTIVE_TTL_SECONDS,
+    ContentType,
+    classify_content_type,
+)
 from .schema import (
     SEMANTIC_CACHE_SCHEMA,
     SEMANTIC_CACHE_TABLE_NAME,

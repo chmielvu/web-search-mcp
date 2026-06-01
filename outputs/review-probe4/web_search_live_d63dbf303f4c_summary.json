@@ -1,0 +1,23 @@
+{
+  "run_id": "d63dbf303f4c",
+  "raw_path": "outputs\\review-probe4\\web_search_live_d63dbf303f4c.jsonl",
+  "call_count": 1,
+  "success_count": 1,
+  "error_count": 0,
+  "empty_result_count": 0,
+  "duration_ms": {
+    "min": 15954.805,
+    "max": 15954.805,
+    "avg": 15954.805,
+    "p50": 15954.805,
+    "p95": 15954.805
+  },
+  "providers_used": {
+    "ddg": 1,
+    "searxng": 1
+  },
+  "top_domains": {
+    "gofastmcp.com": 1
+  },
+  "warning_types": {}
+}

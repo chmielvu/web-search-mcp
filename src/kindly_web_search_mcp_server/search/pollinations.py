@@ -110,9 +110,13 @@ class PollinationsClient:
 
         # Select appropriate user prompt template based on model type
         if depth == "deep":
-            user_content = USER_PROMPT_TEMPLATE_REASONING.format(query=query.strip(), research_goal=goal)
+            user_content = USER_PROMPT_TEMPLATE_REASONING.format(
+                query=query.strip(), research_goal=goal
+            )
         else:
-            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(query=query.strip(), research_goal=goal)
+            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(
+                query=query.strip(), research_goal=goal
+            )
 
         payload = {
             "model": model,
@@ -126,13 +130,19 @@ class PollinationsClient:
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                response = await client.post(url, json=payload, headers=self._get_headers())
+                response = await client.post(
+                    url, json=payload, headers=self._get_headers()
+                )
                 response.raise_for_status()
             except httpx.TimeoutException as exc:
-                raise httpx.HTTPError(f"Request timed out after {self.timeout}s") from exc
+                raise httpx.HTTPError(
+                    f"Request timed out after {self.timeout}s"
+                ) from exc
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 429:
-                    raise httpx.HTTPError("Rate limited. Please try again later.") from exc
+                    raise httpx.HTTPError(
+                        "Rate limited. Please try again later."
+                    ) from exc
                 raise
 
         data = response.json()
@@ -201,7 +211,9 @@ async def gemini_grounding_search(
             response = await http.post(url, json=payload, headers=client._get_headers())
             response.raise_for_status()
         except httpx.TimeoutException as exc:
-            raise httpx.HTTPError(f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s") from exc
+            raise httpx.HTTPError(
+                f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s"
+            ) from exc
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 429:
                 raise httpx.HTTPError("Rate limited. Please try again later.") from exc
@@ -223,23 +235,27 @@ async def gemini_grounding_search(
     for chunk in grounding_chunks:
         web = chunk.get("web", {})
         if web.get("uri") and web.get("title"):
-            normalized_chunks.append({
-                "uri": web.get("uri"),
-                "title": web.get("title"),
-                "domain": web.get("domain"),
-            })
+            normalized_chunks.append(
+                {
+                    "uri": web.get("uri"),
+                    "title": web.get("title"),
+                    "domain": web.get("domain"),
+                }
+            )
 
     # Normalize groundingSupports for snippet extraction
     grounding_supports = grounding_metadata.get("groundingSupports", [])
     normalized_supports = []
     for support in grounding_supports:
         segment = support.get("segment", {})
-        normalized_supports.append({
-            "text": segment.get("text", ""),
-            "start_index": segment.get("startIndex"),
-            "end_index": segment.get("endIndex"),
-            "chunk_indices": support.get("groundingChunkIndices", []),
-        })
+        normalized_supports.append(
+            {
+                "text": segment.get("text", ""),
+                "start_index": segment.get("startIndex"),
+                "end_index": segment.get("endIndex"),
+                "chunk_indices": support.get("groundingChunkIndices", []),
+            }
+        )
 
     return {
         "groundingMetadata": {

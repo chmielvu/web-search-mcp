@@ -1,0 +1,136 @@
+{
+  "title": "Kindly MCP - Search Pipeline (Rewrite / Merge / Rerank)",
+  "uid": "kindly-mcp-pipeline-v1",
+  "version": 1,
+  "tags": ["kindly", "mcp", "pipeline", "rewrite", "rerank", "otel"],
+  "schemaVersion": 41,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "constant",
+        "query": "web-search-mcp"
+      },
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "pluginId": "prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Rewrite Rate (5m)",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_query_rewrite_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 0.4 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Rerank Rate (5m)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_rerank_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Providers per Search",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(rate(web_search_rrf_provider_contribution_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Query Rewrite Policy Distribution",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (rewrite_policy) (rate(web_search_query_rewrite_total{service_name=\"$service\"}[2m]))",
+          "legendFormat": "{{rewrite_policy}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Rerank Latency Breakdown (bi-encoder vs cross-encoder)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, rerank_stage) (rate(web_search_rerank_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
+          "legendFormat": "p95 {{rerank_stage}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Merge (RRF) Duration p95",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(web_search_merge_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
+          "legendFormat": "p95 merge",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Top Rewrite Models & Variant Counts",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (rewrite_model, rewrite_variant_count) (increase(web_search_query_rewrite_total{service_name=\"$service\"}[3h])))",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

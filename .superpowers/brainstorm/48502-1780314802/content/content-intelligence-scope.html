@@ -1,0 +1,46 @@
+<h2>Content Intelligence Pipeline: Scope Choice</h2>
+<p class="subtitle">Current evidence: the repo already has explicit fetch/search contracts, ContentArtifact.quality_score, classify_markdown gates, LanceDB semantic cache with hybrid/RRF, and weighted RRF merge for web results.</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Validated Current Surface</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="placeholder"><strong>Fetch</strong><br>get_content / batch_get_content<br>bounded markdown, metadata, links</div>
+        <div class="placeholder"><strong>Quality</strong><br>classify_markdown<br>quality_score exists but is shallow</div>
+        <div class="placeholder"><strong>Search</strong><br>weighted RRF + rerank<br>public lightweight results</div>
+      </div>
+      <div style="text-align:center;margin:18px 0;font-weight:700">New intelligence layer must not hide decisions from the calling agent</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="placeholder"><strong>Entities</strong><br>GLiNER / spaCy / relations optional</div>
+        <div class="placeholder"><strong>Extraction</strong><br>schema-driven JSON output</div>
+        <div class="placeholder"><strong>KB</strong><br>persistent saved-page retrieval + metadata</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>What should be the first design center of gravity?</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Fetch-First Enrichment</h3>
+      <p>Make get_content the primary intelligence entrypoint: quality, entities, schema extraction, and optional KB save happen only when explicitly requested per fetch.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>KB-First Memory</h3>
+      <p>Design persistent saved-page storage and retrieval first, then attach quality/entities/extraction as metadata that makes KB search better.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Search-Fusion First</h3>
+      <p>Start from web_search + search_kb fusion, using quality-weighted RRF to blend fresh web hits and saved KB hits in one result flow.</p>
+    </div>
+  </div>
+</div>

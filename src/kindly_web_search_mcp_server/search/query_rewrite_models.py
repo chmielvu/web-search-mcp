@@ -25,7 +25,9 @@ QueryVariantKind = Literal[
 QueryTarget = Literal["keyword", "neural", "community", "all"]
 
 KEYWORD_PROVIDER_NAMES = frozenset({"searxng", "ddg", "brave", "tavily"})
-COMMUNITY_PROVIDER_NAMES = frozenset({"hackernews", "reddit", "github_graphql", "stackexchange"})
+COMMUNITY_PROVIDER_NAMES = frozenset(
+    {"hackernews", "reddit", "github_graphql", "stackexchange"}
+)
 NEURAL_PROVIDER_NAMES = frozenset({"gemini", "composio_llm_search", "jina"})
 
 

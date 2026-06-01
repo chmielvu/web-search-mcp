@@ -169,7 +169,9 @@ class ChromiumSlot:
                             },
                         )
                     await self.terminate()
-        await self._start(user_agent=user_agent, port_range=port_range, diagnostics=diagnostics)
+        await self._start(
+            user_agent=user_agent, port_range=port_range, diagnostics=diagnostics
+        )
 
     async def _start(
         self,
@@ -185,7 +187,9 @@ class ChromiumSlot:
                 "Install Chromium/Chrome or set KINDLY_BROWSER_EXECUTABLE_PATH."
             )
         sandbox_enabled = worker._resolve_sandbox_enabled()
-        devtools_ready_timeout_seconds = worker._resolve_devtools_ready_timeout_seconds()
+        devtools_ready_timeout_seconds = (
+            worker._resolve_devtools_ready_timeout_seconds()
+        )
         is_snap = worker._is_snap_browser(self.browser_executable_path)
         if is_snap:
             devtools_ready_timeout_seconds *= worker._resolve_snap_backoff_multiplier()
@@ -289,7 +293,9 @@ class ChromiumPool:
 
         try:
             await slot.ensure_started(
-                user_agent=user_agent, port_range=self.port_range, diagnostics=diagnostics
+                user_agent=user_agent,
+                port_range=self.port_range,
+                diagnostics=diagnostics,
             )
         except Exception as exc:
             if diagnostics:
@@ -311,7 +317,9 @@ class ChromiumPool:
             )
         return slot
 
-    async def release(self, slot: ChromiumSlot, *, diagnostics: Diagnostics | None) -> None:
+    async def release(
+        self, slot: ChromiumSlot, *, diagnostics: Diagnostics | None
+    ) -> None:
         if diagnostics:
             diagnostics.emit(
                 "pool.release",

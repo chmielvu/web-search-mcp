@@ -32,7 +32,9 @@ def strip_html_selectors(html: str, selectors: str | None) -> str:
     return str(soup)
 
 
-def extract_html_metadata(html: str, *, page_url: str, fetched_url: str | None = None) -> dict[str, str]:
+def extract_html_metadata(
+    html: str, *, page_url: str, fetched_url: str | None = None
+) -> dict[str, str]:
     soup = _soup(html)
     metadata: dict[str, str] = {
         "fetched_url": fetched_url or page_url,
@@ -63,7 +65,9 @@ def extract_html_metadata(html: str, *, page_url: str, fetched_url: str | None =
             metadata[key] = value
 
     canonical = ""
-    link = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})
+    link = soup.find(
+        "link", attrs={"rel": lambda value: value and "canonical" in value}
+    )
     if link:
         href = link.get("href")
         canonical = href.strip() if isinstance(href, str) and href.strip() else ""
@@ -141,7 +145,9 @@ def extract_sitemap_links(
     base_domain = _safe_domain(base_url)
     links: list[dict[str, str | bool]] = []
     seen: set[str] = set()
-    for raw_url in re.findall(r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S):
+    for raw_url in re.findall(
+        r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S
+    ):
         candidate = raw_url.strip()
         if not candidate:
             continue

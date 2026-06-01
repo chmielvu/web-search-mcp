@@ -114,7 +114,7 @@ class SemanticCacheStore:
         """
         table = self._get_cache_table()
         try:
-            safe_provider_key = re.sub(r'[^a-zA-Z0-9_\-]', '', provider_key)
+            safe_provider_key = re.sub(r"[^a-zA-Z0-9_\-]", "", provider_key)
             results = (
                 table.search(query_type="hybrid")
                 .vector(query_embedding)
@@ -129,7 +129,9 @@ class SemanticCacheStore:
         except Exception as exc:
             logger.warning("Hybrid search failed: %s", exc)
             # Fallback to vector-only search
-            return self.vector_search(query_embedding, provider_key=provider_key, limit=limit)
+            return self.vector_search(
+                query_embedding, provider_key=provider_key, limit=limit
+            )
 
     def vector_search(
         self,
@@ -148,7 +150,7 @@ class SemanticCacheStore:
         """
         table = self._get_cache_table()
         try:
-            safe_provider_key = re.sub(r'[^a-zA-Z0-9_\-]', '', provider_key)
+            safe_provider_key = re.sub(r"[^a-zA-Z0-9_\-]", "", provider_key)
             results = (
                 table.search(query_embedding, vector_column_name="embedding")
                 .where(f"provider_key = '{safe_provider_key}'")
@@ -216,6 +218,7 @@ class SemanticCacheStore:
     async def compact(self) -> None:
         """Compact LanceDB table to reclaim storage and prune old versions."""
         from datetime import timedelta
+
         table = self._get_cache_table()
         try:
             table.compact_files()

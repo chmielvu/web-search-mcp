@@ -84,6 +84,7 @@ class TestObservabilityFlow(unittest.TestCase):
         self.assertEqual(variants[0]["weight"], 1.2)
         self.assertEqual(summary["provider_counts"], {"searxng": 1, "ddg": 1})
         self.assertEqual(summary["domain_counts"], {"gofastmcp.com": 1})
+        self.assertEqual(summary["results"][0].providers, ["searxng", "ddg"])
         self.assertEqual(summary["top_results"][0]["domain"], "gofastmcp.com")
 
     def test_emit_observability_event_exposes_trace_fields_as_extra_keys(self) -> None:
@@ -125,6 +126,7 @@ class TestObservabilityFlow(unittest.TestCase):
         self.assertEqual(payload["event"], "search.merge.summary")
         self.assertEqual(payload["input_result_count"], 1)
         self.assertEqual(payload["provider_contributions"], {"searxng": 1})
+        self.assertEqual(payload["output_results"][0]["domain"], "gofastmcp.com")
         self.assertEqual(len(payload["top_results"][0]["link_hash"]), 16)
 
 

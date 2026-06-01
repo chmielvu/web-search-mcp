@@ -1,4 +1,5 @@
 """Standalone MCP tools backed by Composio Search toolkit actions."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -25,7 +26,9 @@ WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_WEB"
 def _string_list(values: list[str] | None) -> list[str] | None:
     if not values:
         return None
-    cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+    cleaned = [
+        value.strip() for value in values if isinstance(value, str) and value.strip()
+    ]
     return cleaned or None
 
 
@@ -44,7 +47,9 @@ def _parse_float(value: Any) -> float | None:
     return None
 
 
-def _extract_web_search_results(data: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
+def _extract_web_search_results(
+    data: dict[str, Any],
+) -> tuple[str | None, list[dict[str, Any]]]:
     """Extract answer and citations from COMPOSIO_SEARCH_WEB response.
 
     The Composio SEARCH_WEB tool returns a nested structure:
@@ -174,7 +179,9 @@ async def _composio_image_search_impl(
                 source=source.strip() if isinstance(source, str) else None,
                 page_link=page_link.strip(),
                 original_url=original_url.strip(),
-                thumbnail_url=thumbnail_url.strip() if isinstance(thumbnail_url, str) else None,
+                thumbnail_url=thumbnail_url.strip()
+                if isinstance(thumbnail_url, str)
+                else None,
             )
         )
     return ImageSearchResponse(

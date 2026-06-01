@@ -144,7 +144,9 @@ def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
         next_tools.append("academic_search")
 
     if fetch_backend == "browser_fallback":
-        parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
+        parts.append(
+            "Used browser fallback (JS-heavy page). Content may be less complete."
+        )
 
     if content_len < 300 and not window.get("has_more") and status != "error":
         parts.append(
@@ -214,9 +216,7 @@ class DynamicGuidanceMiddleware(Middleware):
     def __init__(self) -> None:
         self._gemini_sessions = SessionTracker(_GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS)
 
-    async def on_call_tool(
-        self, context: MiddlewareContext, call_next
-    ) -> Any:
+    async def on_call_tool(self, context: MiddlewareContext, call_next) -> Any:
         tool_name = context.message.name
         result = await call_next(context)
 
