@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from .analytics.formatting import json_safe_rows
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -65,6 +67,73 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Loop interval in seconds. Default 300.",
     )
 
+    report = subparsers.add_parser(
+        "analytics-report",
+        help="Run a deterministic read-only analytics report against local DuckDB.",
+    )
+    report.add_argument(
+        "--report",
+        required=True,
+        choices=(
+            "provider-performance",
+            "cache-hit-rates",
+            "rewrite-variant-quality",
+            "fetch-quality",
+            "error-taxonomy",
+            "candidate-survival",
+            "eval-quality-summary",
+        ),
+        help="Report name to execute.",
+    )
+    report.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Window size in days for time-based reports.",
+    )
+    report.add_argument(
+        "--duckdb-path",
+        default=None,
+        help="Local analytics DuckDB path. Defaults to KINDLY_ANALYTICS_DUCKDB_PATH.",
+    )
+    report.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output.",
+    )
+
+    query = subparsers.add_parser(
+        "analytics-query",
+        help="Run a guarded read-only analytics query against local DuckDB or MotherDuck.",
+    )
+    query.add_argument(
+        "--question",
+        required=True,
+        help="Natural-language analytics question to classify into an allowlisted query.",
+    )
+    query.add_argument(
+        "--scope",
+        choices=("local", "motherduck"),
+        default="local",
+        help="Query scope: local DuckDB or attached MotherDuck schema.",
+    )
+    query.add_argument(
+        "--max-rows",
+        type=int,
+        default=100,
+        help="Maximum rows to return.",
+    )
+    query.add_argument(
+        "--duckdb-path",
+        default=None,
+        help="Local analytics DuckDB path. Defaults to KINDLY_ANALYTICS_DUCKDB_PATH.",
+    )
+    query.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print JSON output.",
+    )
+
     return parser
 
 
@@ -109,6 +178,38 @@ def main(argv: list[str] | None = None) -> None:
             f"MotherDuck {result.database}.{result.schema} "
             f"({result.source_rows} local rows)."
         )
+        return
+
+    if args.command == "analytics-report":
+        from .analytics import ensure_local_views, run_report
+
+        ensure_local_views(db_path=args.duckdb_path)
+        table = run_report(
+            args.report,
+            days=args.days,
+            db_path=args.duckdb_path,
+        )
+        payload = {
+            "report": args.report,
+            "days": args.days,
+            "row_count": table.num_rows,
+            "rows": json_safe_rows(table.to_pylist()),
+        }
+        indent = 2 if args.pretty else None
+        print(json.dumps(payload, indent=indent, ensure_ascii=False))
+        return
+
+    if args.command == "analytics-query":
+        from .analytics.queries import run_analytics_query
+
+        result = run_analytics_query(
+            args.question,
+            scope=args.scope,
+            max_rows=args.max_rows,
+            db_path=args.duckdb_path,
+        )
+        indent = 2 if args.pretty else None
+        print(json.dumps(result, indent=indent, ensure_ascii=False))
         return
 
     from .server import main as server_main

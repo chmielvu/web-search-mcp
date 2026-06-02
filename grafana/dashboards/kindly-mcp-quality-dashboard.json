@@ -45,8 +45,8 @@
       {
         "name": "motherduck_datasource",
         "type": "datasource",
-        "pluginId": "motherduck-duckdb-datasource",
-        "label": "MotherDuck (DuckDB)"
+        "pluginId": "grafana-postgresql-datasource",
+        "label": "MotherDuck (Postgres endpoint)"
       }
     ]
   },
@@ -267,7 +267,7 @@
       "title": "Candidate Survival by Stage",
       "description": "Raw stage-by-stage survival for candidate URLs. Use this to see where results disappear between provider search, merge, rerank, and final answer windows.",
       "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
-      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${motherduck_datasource}" },
       "targets": [
         {
           "rawSql": "WITH stage_counts AS ( SELECT stage, count(*) AS candidates, count(DISTINCT run_key) AS runs FROM kindly_analytics.vw_candidate_survival WHERE $__timeFilter(recorded_at) GROUP BY stage ), provider_base AS ( SELECT candidates AS provider_candidates FROM stage_counts WHERE stage = 'provider' ) SELECT stage, candidates, runs, round(100.0 * candidates / nullif((SELECT provider_candidates FROM provider_base), 0), 2) AS provider_retention_pct FROM stage_counts ORDER BY CASE stage WHEN 'provider' THEN 1 WHEN 'branch' THEN 2 WHEN 'merged' THEN 3 WHEN 'reranked' THEN 4 WHEN 'final' THEN 5 ELSE 99 END",
@@ -282,7 +282,7 @@
       "title": "Provider Yield Over Time",
       "description": "Average number of raw results returned by each provider call, based on persisted provider search events. This exposes providers that are low-yield even when they succeed.",
       "gridPos": { "x": 0, "y": 44, "w": 12, "h": 8 },
-      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${motherduck_datasource}" },
       "targets": [
         {
           "rawSql": "SELECT date_trunc('minute', recorded_at) AS time, provider_name AS metric, avg(result_count) AS value FROM ( SELECT recorded_at, json_extract_string(payload_json, '$.provider_name') AS provider_name, CAST(json_extract_string(payload_json, '$.result_count') AS DOUBLE) AS result_count FROM kindly_analytics.analytics_event_raw WHERE event_name = 'provider.search.result' AND $__timeFilter(recorded_at) ) GROUP BY 1, 2 ORDER BY 1",
@@ -301,7 +301,7 @@
       "title": "SearXNG Engine Quality",
       "description": "Engine-level contribution and score quality for SearXNG results. This is the panel to inspect when SearXNG turns noisy or one engine dominates the candidate pool.",
       "gridPos": { "x": 12, "y": 44, "w": 12, "h": 8 },
-      "datasource": { "type": "motherduck-duckdb-datasource", "uid": "${motherduck_datasource}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${motherduck_datasource}" },
       "targets": [
         {
           "rawSql": "WITH searxng_engine_rows AS ( SELECT recorded_at, run_key, provider_name, json_extract_string(engine.value, '$') AS engine_name, raw_score, score, category, published_date FROM kindly_analytics.vw_provider_results CROSS JOIN json_each(source_engines_json) AS engine WHERE $__timeFilter(recorded_at) AND provider_name = 'searxng' ) SELECT engine_name, count(*) AS results, count(DISTINCT run_key) AS runs, round(avg(raw_score), 4) AS avg_raw_score, round(avg(score), 4) AS avg_merged_score, count(*) FILTER (WHERE category IS NOT NULL) AS categorized_results FROM searxng_engine_rows GROUP BY engine_name ORDER BY results DESC, engine_name",

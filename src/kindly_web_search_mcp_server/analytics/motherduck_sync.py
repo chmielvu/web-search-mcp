@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import duckdb
 
 from ..settings import settings
 from .duckdb_store import ensure_store_schema
+from .evals import build_eval_table_sql, ensure_eval_tables
+from .views import build_analytics_view_sql
 
 
 DEFAULT_SCHEMA = "kindly_analytics"
@@ -55,9 +58,7 @@ def _load_motherduck(connection: duckdb.DuckDBPyConnection) -> None:
 def _duckdb_config() -> dict[str, str]:
     token = os.environ.get("MOTHERDUCK_TOKEN", "").strip()
     if not token:
-        raise ValueError(
-            "MOTHERDUCK_TOKEN is required to sync analytics to MotherDuck."
-        )
+        raise ValueError("MOTHERDUCK_TOKEN is required to sync analytics to MotherDuck.")
     extension_dir = os.environ.get("DUCKDB_EXTENSION_DIRECTORY", "").strip() or str(
         DEFAULT_EXTENSION_DIR
     )
@@ -69,378 +70,34 @@ def _duckdb_config() -> dict[str, str]:
             pass
         else:
             os.environ["GRPC_DEFAULT_SSL_ROOTS_FILE_PATH"] = certifi.where()
-    return {
-        "extension_directory": extension_dir,
-    }
+    return {"extension_directory": extension_dir}
 
 
-def build_analytics_view_sql(target: str) -> list[str]:
-    return [
+def _sync_append_only(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    source_table: str,
+    target_table: str,
+    key_columns: list[str],
+) -> int:
+    before = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]
+    predicate = " AND ".join(
+        f"remote.{column} = local.{column}" for column in key_columns
+    )
+    connection.execute(
         f"""
-        CREATE OR REPLACE VIEW {target}.vw_quality_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            run_key,
-            event_name,
-            tool_name,
-            phase,
-            query,
-            normalized_query,
-            research_goal,
-            provider,
-            model,
-            duration_ms,
-            input_count,
-            output_count,
-            trace_id,
-            span_id,
-            cache_hit,
-            json_extract(payload_json, '$.final_queries') AS final_queries_json,
-            json_extract(payload_json, '$.variants') AS rewrite_variants_json,
-            json_extract(payload_json, '$.results') AS results_json,
-            json_extract(payload_json, '$.merged_results') AS merged_results_json,
-            json_extract(payload_json, '$.input_results') AS input_results_json,
-            json_extract(payload_json, '$.top_results') AS top_results_json,
-            json_extract(payload_json, '$.branches') AS branches_json,
-            json_extract(payload_json, '$.answer') AS answer_json,
-            json_extract(payload_json, '$.sources') AS sources_json,
-            json_extract(payload_json, '$.grounding_chunks') AS grounding_chunks_json,
-            json_extract(payload_json, '$.page_content') AS page_content_json,
-            json_extract(payload_json, '$.summary') AS summary_json,
-            json_extract(payload_json, '$.metadata') AS metadata_json,
-            json_extract(payload_json, '$.links') AS links_json,
-            payload_json
-        FROM {target}.analytics_event_raw
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_run_timeline AS
-        SELECT
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            min(recorded_at) AS first_seen_at,
-            max(recorded_at) AS last_seen_at,
-            count(*) AS event_count,
-            any_value(query) FILTER (WHERE query IS NOT NULL) AS query,
-            any_value(research_goal) FILTER (WHERE research_goal IS NOT NULL) AS research_goal,
-            sum(CASE WHEN event_name LIKE 'query.rewrite.%' THEN 1 ELSE 0 END) AS rewrite_events,
-            sum(CASE WHEN event_name LIKE 'search.rerank.%' THEN 1 ELSE 0 END) AS rerank_events,
-            sum(CASE WHEN event_name LIKE 'tool.get_content.%' THEN 1 ELSE 0 END) AS fetch_events,
-            sum(CASE WHEN event_name IN (
-                'tool.gemini_search.response',
-                'tool.perplexity_search.response',
-                'tool.quick_web_search.response'
-            ) THEN 1 ELSE 0 END) AS answer_events
-        FROM {target}.analytics_event_raw
-        GROUP BY coalesce(run_key, trace_id, event_id)
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_provider_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            json_extract_string(e.payload_json, '$.provider_name') AS provider_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.results')) AS r
-        WHERE e.event_name = 'provider.search.result'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_branch_candidates AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            CAST(json_extract_string(b.value, '$.index') AS INTEGER) AS branch_index,
-            json_extract_string(b.value, '$.query') AS branch_query,
-            json_extract(b.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(b.value, '$.weight') AS DOUBLE) AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS result_providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.branches')) AS b,
-             json_each(json_extract(b.value, '$.results')) AS r
-        WHERE e.event_name = 'search.orchestrator.branches'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_merged_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.merged_results')) AS r
-        WHERE e.event_name = 'search.orchestrator.response'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_rewrite_variants AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.query,
-            CAST(v.key AS INTEGER) AS variant_rank,
-            json_extract_string(v.value, '$.kind') AS kind,
-            json_extract_string(v.value, '$.target') AS target,
-            json_extract_string(v.value, '$.query') AS rewritten_query,
-            json_extract_string(v.value, '$.why') AS why,
-            CAST(json_extract_string(v.value, '$.weight') AS DOUBLE) AS weight
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.variants')) AS v
-        WHERE e.event_name = 'query.rewrite.completed'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_search_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            e.query,
-            CAST(r.key AS INTEGER) AS result_rank,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.results')) AS r
-        WHERE e.event_name IN (
-            'search.orchestrator.response',
-            'search.single_query.response',
-            'tool.web_search.response'
+        INSERT INTO {target_table} BY NAME
+        SELECT local.*
+        FROM {source_table} AS local
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM {target_table} AS remote
+            WHERE {predicate}
         )
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_rerank_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.query,
-            e.provider,
-            e.model,
-            CAST(r.key AS INTEGER) AS rerank_rank,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.results')) AS r
-        WHERE json_extract(e.payload_json, '$.results') IS NOT NULL
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_fetch_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            event_name,
-            json_extract_string(payload_json, '$.input_url') AS input_url,
-            json_extract_string(payload_json, '$.normalized_url') AS normalized_url,
-            json_extract_string(payload_json, '$.fetched_url') AS fetched_url,
-            json_extract_string(payload_json, '$.status') AS status,
-            json_extract_string(payload_json, '$.source_type') AS source_type,
-            json_extract_string(payload_json, '$.fetch_backend') AS fetch_backend,
-            json_extract_string(payload_json, '$.content_type') AS content_type,
-            json_extract_string(payload_json, '$.page_content') AS page_content,
-            json_extract(payload_json, '$.metadata') AS metadata_json,
-            json_extract(payload_json, '$.links') AS links_json,
-            json_extract(payload_json, '$.summary') AS summary_json,
-            payload_json
-        FROM {target}.analytics_event_raw
-        WHERE event_name IN ('tool.get_content.response', 'tool.batch_get_content.response')
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_answer_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            event_name,
-            tool_name,
-            query,
-            research_goal,
-            model,
-            json_extract_string(payload_json, '$.answer') AS answer,
-            json_extract(payload_json, '$.sources') AS sources_json,
-            json_extract(payload_json, '$.grounding_chunks') AS grounding_chunks_json,
-            json_extract(payload_json, '$.structured_result') AS structured_result_json,
-            json_extract(payload_json, '$.citations') AS citations_json,
-            payload_json
-        FROM {target}.analytics_event_raw
-        WHERE event_name IN (
-            'tool.gemini_search.response',
-            'tool.perplexity_search.response',
-            'tool.quick_web_search.response'
-        )
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_candidate_survival AS
-        SELECT
-            run_key,
-            recorded_at,
-            'provider' AS stage,
-            event_name,
-            provider_name AS source_provider,
-            query,
-            url,
-            title,
-            snippet,
-            domain,
-            providers_json,
-            provider_count,
-            score,
-            raw_score,
-            source_engines_json,
-            category,
-            published_date,
-            branch_index,
-            branch_query,
-            branch_weight,
-            result_index
-        FROM {target}.vw_provider_results
-        UNION ALL
-        SELECT
-            run_key,
-            recorded_at,
-            'branch' AS stage,
-            event_name,
-            NULL AS source_provider,
-            query,
-            url,
-            title,
-            snippet,
-            domain,
-            result_providers_json AS providers_json,
-            provider_count,
-            score,
-            raw_score,
-            source_engines_json,
-            category,
-            published_date,
-            branch_index,
-            branch_query,
-            branch_weight,
-            result_index
-        FROM {target}.vw_branch_candidates
-        UNION ALL
-        SELECT
-            run_key,
-            recorded_at,
-            'merged' AS stage,
-            event_name,
-            NULL AS source_provider,
-            query,
-            url,
-            title,
-            snippet,
-            domain,
-            providers_json,
-            provider_count,
-            score,
-            NULL AS raw_score,
-            NULL AS source_engines_json,
-            NULL AS category,
-            NULL AS published_date,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            result_index
-        FROM {target}.vw_merged_results
-        UNION ALL
-        SELECT
-            run_key,
-            recorded_at,
-            'reranked' AS stage,
-            event_name,
-            provider AS source_provider,
-            query,
-            url,
-            title,
-            snippet,
-            domain,
-            providers_json,
-            provider_count,
-            score,
-            NULL AS raw_score,
-            NULL AS source_engines_json,
-            NULL AS category,
-            NULL AS published_date,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            rerank_rank AS result_index
-        FROM {target}.vw_rerank_results
-        UNION ALL
-        SELECT
-            run_key,
-            recorded_at,
-            'final' AS stage,
-            event_name,
-            NULL AS source_provider,
-            query,
-            url,
-            title,
-            snippet,
-            domain,
-            providers_json,
-            provider_count,
-            score,
-            NULL AS raw_score,
-            NULL AS source_engines_json,
-            NULL AS category,
-            NULL AS published_date,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            result_rank AS result_index
-        FROM {target}.vw_search_results
-        """,
-    ]
+        """
+    )
+    after = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]
+    return int(after - before)
 
 
 def build_summary_sql(target: str) -> list[str]:
@@ -461,6 +118,45 @@ def build_summary_sql(target: str) -> list[str]:
         FROM {target}.analytics_event_raw
         GROUP BY 1, 2, 3, 4, 5
         """,
+        f"""
+        CREATE OR REPLACE TABLE {target}.eval_quality_daily AS
+        WITH llm_scores AS (
+            SELECT
+                eval_case_id,
+                AVG(score_value) AS avg_llm_score,
+                COUNT(*) AS score_rows
+            FROM {target}.llm_quality_scores
+            GROUP BY 1
+        ),
+        case_scores AS (
+            SELECT
+                eval_case_id,
+                AVG(score) AS avg_observation_score,
+                COUNT(*) FILTER (WHERE verdict = 'pass') AS passes,
+                COUNT(*) FILTER (WHERE verdict = 'fail') AS fails
+            FROM {target}.eval_observations
+            GROUP BY 1
+        )
+        SELECT
+            date_trunc('day', r.created_at) AS day,
+            r.suite_name,
+            c.target_tool,
+            COUNT(DISTINCT c.eval_case_id) AS cases,
+            COUNT(DISTINCT r.eval_run_id) AS runs,
+            SUM(COALESCE(o.passes, 0)) AS passes,
+            SUM(COALESCE(o.fails, 0)) AS fails,
+            AVG(o.avg_observation_score) AS avg_score,
+            SUM(COALESCE(q.score_rows, 0)) AS llm_score_rows,
+            AVG(q.avg_llm_score) AS avg_llm_score
+        FROM {target}.eval_runs AS r
+        LEFT JOIN {target}.eval_cases AS c
+          ON c.eval_run_id = r.eval_run_id
+        LEFT JOIN case_scores AS o
+          ON o.eval_case_id = c.eval_case_id
+        LEFT JOIN llm_scores AS q
+          ON q.eval_case_id = c.eval_case_id
+        GROUP BY 1, 2, 3
+        """,
     ]
 
 
@@ -474,7 +170,9 @@ def sync_once(
     source = Path(source_path or settings.analytics_duckdb_path)
     if not source.exists():
         raise FileNotFoundError(f"Analytics DuckDB file does not exist: {source}")
+
     ensure_store_schema(db_path=str(source))
+    ensure_eval_tables(db_path=str(source))
 
     database = _motherduck_database(motherduck_database)
     attach = _attach_name(database)
@@ -488,13 +186,16 @@ def sync_once(
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")
         connection.execute(f"CREATE SCHEMA IF NOT EXISTS {target}")
         connection.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {target}.analytics_event_raw AS
-            SELECT * FROM search_events WHERE false
-            """
+            f"CREATE TABLE IF NOT EXISTS {target}.analytics_event_raw AS SELECT * FROM search_events WHERE false"
         )
+        for statement in build_eval_table_sql(target):
+            connection.execute(statement)
+
         source_rows = connection.execute(
             "SELECT count(*) FROM search_events"
+        ).fetchone()[0]
+        last_event_id = connection.execute(
+            "SELECT max(event_id) FROM search_events"
         ).fetchone()[0]
         before = connection.execute(
             f"SELECT count(*) FROM {target}.analytics_event_raw"
@@ -516,6 +217,39 @@ def sync_once(
         after = connection.execute(
             f"SELECT count(*) FROM {target}.analytics_event_raw"
         ).fetchone()[0]
+
+        for source_table, key_columns in (
+            ("eval_runs", ["eval_run_id"]),
+            ("eval_cases", ["eval_case_id"]),
+            ("eval_observations", ["eval_observation_id"]),
+            ("llm_quality_scores", ["score_id"]),
+        ):
+            _sync_append_only(
+                connection,
+                source_table=source_table,
+                target_table=f"{target}.{source_table}",
+                key_columns=key_columns,
+            )
+
+        sync_payload = json.dumps(
+            {
+                "database": database,
+                "schema": schema,
+                "source_rows": int(source_rows),
+                "target_rows": int(after),
+                "inserted_rows": int(after - before),
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+        )
+        connection.execute(f"DELETE FROM {target}.analytics_sync_state WHERE target_name = ?", [schema])
+        connection.execute(
+            f"""
+            INSERT INTO {target}.analytics_sync_state
+            VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+            """,
+            [schema, int(source_rows), int(after), last_event_id, sync_payload],
+        )
     finally:
         connection.close()
 

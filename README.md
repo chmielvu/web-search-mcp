@@ -98,11 +98,13 @@ Kindly has been our daily companion in production work for months, saving us cou
 **Tools**
 - `web_search(query, num_results=3)` → lightweight top results with `title`, `link`, and `snippet`.
 - `get_content(url)` → `page_content` (Markdown, best-effort).
+- `agentic_web_research(query, research_goal=None, depth="normal")` → LangChain/LangGraph ReAct research agent using direct search, fetch, rerank, and expansion tools. See [`docs/AGENTIC-RESEARCH.md`](docs/AGENTIC-RESEARCH.md).
 
 Search uses a standard mix of **SearXNG + DDG + Gemini** when configured, with **Tavily/Brave/Jina** available as optional additions, merged via RRF. Page extraction is handled separately by `get_content()` using trafilatura (primary) with nodriver fallback for JS-heavy sites.
 
 ## Requirements
 - A search provider: `SEARXNG_BASE_URL` (primary, self-hosted), `KINDLY_GEMINI_API_KEY`, or `TAVILY_API_KEY` / `BRAVE_API_KEY` / `JINA_API_KEY`
+- For `agentic_web_research`: `NANOGPT_API_KEY` plus `KINDLY_AGENTIC_RESEARCH_MODEL` / `KINDLY_AGENTIC_RESEARCH_BASE_URL` if you need to override the NanoGPT defaults.
 - A Chromium-based browser (optional, for JS-heavy page content extraction fallback)
   - Without a browser: specialized sources (StackExchange, GitHub Issues/Discussions, Wikipedia, arXiv) still work well, but universal HTML `page_content` extraction may fail for other sites.
 - Highly recommended: `GITHUB_TOKEN` (renders GitHub Issues in a much more LLM-friendly format: question + answers/comments + reactions/metadata; fewer rate limits)

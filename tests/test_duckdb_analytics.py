@@ -68,6 +68,38 @@ class TestDuckDBAnalytics(unittest.TestCase):
         if db_path.exists():
             db_path.unlink()
 
+    def test_append_event_normalizes_provider_name_and_count_aliases(self) -> None:
+        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+
+        import duckdb
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        if db_path.exists():
+            db_path.unlink()
+
+        append_event(
+            "provider.search.result",
+            {
+                "provider_name": "searxng",
+                "query": "duckdb json_each",
+                "num_results_requested": 9,
+                "result_count": 7,
+                "results": [],
+            },
+            db_path=str(db_path),
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute(
+            "SELECT provider, input_count, output_count FROM search_events"
+        ).fetchone()
+        con.close()
+
+        self.assertEqual(row, ("searxng", 9, 7))
+
+        if db_path.exists():
+            db_path.unlink()
+
     def test_tool_events_persist_full_text_payload(self) -> None:
         from kindly_web_search_mcp_server.utils.observability import (
             emit_tool_observability_event,
@@ -167,31 +199,107 @@ class TestDuckDBAnalytics(unittest.TestCase):
         if db_path.exists():
             db_path.unlink()
 
+    def test_schema_migration_backfills_provider_and_count_aliases(self) -> None:
+        import duckdb
+
+        from kindly_web_search_mcp_server.analytics.duckdb_store import (
+            ensure_store_schema,
+        )
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        if db_path.exists():
+            db_path.unlink()
+
+        con = duckdb.connect(str(db_path))
+        con.execute(
+            """
+            CREATE TABLE search_events (
+                event_name VARCHAR,
+                recorded_at TIMESTAMP,
+                query VARCHAR,
+                normalized_query VARCHAR,
+                research_goal VARCHAR,
+                provider VARCHAR,
+                model VARCHAR,
+                duration_ms DOUBLE,
+                input_count INTEGER,
+                output_count INTEGER,
+                trace_id VARCHAR,
+                span_id VARCHAR,
+                payload_json VARCHAR
+            )
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO search_events
+            VALUES (
+                'provider.search.result',
+                CURRENT_TIMESTAMP,
+                'query',
+                'query',
+                'goal',
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                NULL,
+                '{"provider_name":"brave","num_results_requested":5,"result_count":3}'
+            )
+            """
+        )
+        con.close()
+
+        ensure_store_schema(db_path=str(db_path))
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute(
+            "SELECT provider, input_count, output_count FROM search_events"
+        ).fetchone()
+        con.close()
+
+        self.assertEqual(row, ("brave", 5, 3))
+
+        if db_path.exists():
+            db_path.unlink()
+
     def test_motherduck_sql_uses_views_and_summary_tables(self) -> None:
         from kindly_web_search_mcp_server.analytics.motherduck_sync import (
             build_analytics_view_sql,
+            build_eval_table_sql,
             build_summary_sql,
         )
 
-        sql = "\n".join(
+        view_sql = "\n".join(
             [
                 *build_analytics_view_sql('"md"."kindly_analytics"'),
                 *build_summary_sql('"md"."kindly_analytics"'),
             ]
         ).lower()
+        table_sql = "\n".join(
+            build_eval_table_sql('"md"."kindly_analytics"')
+        ).lower()
 
-        self.assertIn("create or replace view", sql)
-        self.assertIn("vw_provider_results", sql)
-        self.assertIn("vw_branch_candidates", sql)
-        self.assertIn("vw_merged_results", sql)
-        self.assertIn("vw_search_results", sql)
-        self.assertIn("vw_rerank_results", sql)
-        self.assertIn("vw_rewrite_variants", sql)
-        self.assertIn("vw_fetch_events", sql)
-        self.assertIn("vw_answer_events", sql)
-        self.assertIn("vw_candidate_survival", sql)
-        self.assertIn("create or replace table", sql)
-        self.assertNotIn("materialized view", sql)
+        self.assertIn("create or replace view", view_sql)
+        self.assertIn("vw_events", view_sql)
+        self.assertIn("$.provider_name", view_sql)
+        self.assertIn("vw_provider_results", view_sql)
+        self.assertIn("vw_branch_candidates", view_sql)
+        self.assertIn("vw_merged_results", view_sql)
+        self.assertIn("vw_search_results", view_sql)
+        self.assertIn("vw_rerank_results", view_sql)
+        self.assertIn("vw_rewrite_variants", view_sql)
+        self.assertIn("vw_fetch_events", view_sql)
+        self.assertIn("vw_answer_events", view_sql)
+        self.assertIn("vw_candidate_survival", view_sql)
+        self.assertIn("vw_eval_provider_quality", view_sql)
+        self.assertIn("vw_eval_fetch_quality", view_sql)
+        self.assertIn("eval_quality_daily", view_sql)
+        self.assertIn("create table if not exists", table_sql)
+        self.assertIn("analytics_sync_state", table_sql)
+        self.assertNotIn("materialized view", view_sql)
 
     def test_quality_dashboard_includes_motherduck_survival_panels(self) -> None:
         dashboard_path = (
@@ -210,18 +318,26 @@ class TestDuckDBAnalytics(unittest.TestCase):
         self.assertEqual(dashboard["version"], 2)
         self.assertIn("motherduck", dashboard["tags"])
         self.assertIn("motherduck_datasource", templating_names)
+        datasource_variable = next(
+            variable
+            for variable in dashboard["templating"]["list"]
+            if variable["name"] == "motherduck_datasource"
+        )
         self.assertEqual(
-            panels_by_id[13]["datasource"]["type"], "motherduck-duckdb-datasource"
+            datasource_variable["pluginId"], "grafana-postgresql-datasource"
+        )
+        self.assertEqual(
+            panels_by_id[13]["datasource"]["type"], "grafana-postgresql-datasource"
         )
         self.assertIn("vw_candidate_survival", panels_by_id[13]["targets"][0]["rawSql"])
         self.assertEqual(
-            panels_by_id[14]["datasource"]["type"], "motherduck-duckdb-datasource"
+            panels_by_id[14]["datasource"]["type"], "grafana-postgresql-datasource"
         )
         self.assertIn(
             "provider.search.result", panels_by_id[14]["targets"][0]["rawSql"]
         )
         self.assertEqual(
-            panels_by_id[15]["datasource"]["type"], "motherduck-duckdb-datasource"
+            panels_by_id[15]["datasource"]["type"], "grafana-postgresql-datasource"
         )
         self.assertIn("vw_provider_results", panels_by_id[15]["targets"][0]["rawSql"])
         self.assertIn("source_engines_json", panels_by_id[15]["targets"][0]["rawSql"])

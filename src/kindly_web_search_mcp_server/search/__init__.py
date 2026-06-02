@@ -28,6 +28,7 @@ from .brave import search_brave
 from .composio_llm_search import search_composio_llm_search
 from .ddg import search_ddg
 from .gemini_pollinations import search_gemini_pollinations
+from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
 from .jina import search_jina
@@ -225,6 +226,18 @@ def _init_provider_registry() -> None:
             mode=_parse_mode(settings.gemini_mode),  # default "always" in settings.py
             env_key="POLLINATIONS_API_KEY",
             search_fn=search_gemini_pollinations,
+            is_free=False,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="grok_openrouter",
+            mode=_parse_mode(
+                settings.grok_web_search_mode
+            ),  # default "conditional" in settings.py
+            env_key="OPENROUTER_API_KEY",
+            search_fn=search_grok_openrouter,
             is_free=False,
             requires_key=True,
         )

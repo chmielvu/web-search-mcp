@@ -295,6 +295,37 @@ class PerplexitySearchResponse(BaseModel):
     )
 
 
+class GrokCitation(BaseModel):
+    """Single citation from grok_search result (OpenRouter url_citation)."""
+
+    url: str = Field(description="Source URL.")
+    title: str | None = Field(default=None, description="Source page title.")
+    snippet: str | None = Field(
+        default=None, description="Extracted highlight or excerpt."
+    )
+
+
+class GrokSearchResponse(BaseModel):
+    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search.
+
+    Returns AI-synthesized answers with source citations, like gemini_search
+    and perplexity_search, NOT a raw URL list like web_search.
+    """
+
+    query: str = Field(description="Original search query.")
+    answer: str = Field(description="Grok's synthesized answer with inline citations.")
+    citations: list[GrokCitation] = Field(
+        default_factory=list, description="Extracted source URLs with titles."
+    )
+    model: str = Field(description="Model ID used for generation.")
+    search_queries_used: int = Field(
+        default=0, description="Number of web search tool invocations."
+    )
+    error: str | None = Field(
+        default=None, description="Error message if search failed."
+    )
+
+
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
 
@@ -443,6 +474,7 @@ class ToolErrorResponse(BaseModel):
 WebSearchResultType = WebSearchResponse | ToolErrorResponse
 GetContentResultType = GetContentResponse | ToolErrorResponse
 GeminiSearchResultType = GeminiSearchResponse | ToolErrorResponse
+GrokSearchResultType = GrokSearchResponse | ToolErrorResponse
 PerplexitySearchResultType = PerplexitySearchResponse | ToolErrorResponse
 YouTubeTranscriptResultType = YouTubeTranscriptResponse | ToolErrorResponse
 YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse

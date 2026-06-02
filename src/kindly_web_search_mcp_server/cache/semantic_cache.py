@@ -18,6 +18,7 @@ from .content_type import (
 from .store import SemanticCacheStore
 from ..embeddings import embed_query
 from ..telemetry import record_semantic_cache_lookup, record_cache_lookup
+from ..utils.observability import emit_observability_event
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,18 @@ async def get_semantic_cache(
         logger.warning("Embedding generation failed: %s, skipping cache lookup", e)
         # Record cache miss on embedding failure
         record_cache_lookup(cache_type="semantic", hit=False)
+        emit_observability_event(
+            logger,
+            "search.cache.lookup",
+            level=logging.DEBUG,
+            cache_type="semantic",
+            hit=False,
+            lookup_status="embedding_error",
+            error_type=type(e).__name__,
+            query=query,
+            provider_key=provider_key,
+            use_hybrid=use_hybrid,
+        )
         return None
 
     # Perform search
@@ -70,6 +83,18 @@ async def get_semantic_cache(
         # Record cache miss
         duration = time.time() - start_time
         record_cache_lookup(cache_type="semantic", hit=False, duration_seconds=duration)
+        emit_observability_event(
+            logger,
+            "search.cache.lookup",
+            level=logging.DEBUG,
+            cache_type="semantic",
+            hit=False,
+            lookup_status="miss",
+            duration_ms=round(duration * 1000, 3),
+            query=query,
+            provider_key=provider_key,
+            use_hybrid=use_hybrid,
+        )
         return None
 
     # Find best result by similarity score
@@ -96,6 +121,20 @@ async def get_semantic_cache(
             hit=False,
             search_type="hybrid" if use_hybrid else "vector",
         )
+        emit_observability_event(
+            logger,
+            "search.cache.lookup",
+            level=logging.DEBUG,
+            cache_type="semantic",
+            hit=False,
+            lookup_status="similarity_below_threshold",
+            duration_ms=round(duration * 1000, 3),
+            similarity_score=round(best_similarity, 4),
+            min_score=min_score,
+            query=query,
+            provider_key=provider_key,
+            use_hybrid=use_hybrid,
+        )
         return None
 
     # Check TTL based on content type
@@ -114,6 +153,21 @@ async def get_semantic_cache(
         # Record expired as cache miss
         duration = time.time() - start_time
         record_cache_lookup(cache_type="semantic", hit=False, duration_seconds=duration)
+        emit_observability_event(
+            logger,
+            "search.cache.lookup",
+            level=logging.DEBUG,
+            cache_type="semantic",
+            hit=False,
+            lookup_status="expired",
+            duration_ms=round(duration * 1000, 3),
+            age_seconds=round(age_seconds, 3),
+            ttl_seconds=ttl_seconds,
+            content_type=content_type.value,
+            query=query,
+            provider_key=provider_key,
+            use_hybrid=use_hybrid,
+        )
         return None
 
     # Valid cache hit - record telemetry
@@ -126,6 +180,23 @@ async def get_semantic_cache(
         ttl_seconds=ttl_seconds,
         search_type="hybrid" if use_hybrid else "vector",
         vector_distance=best_row.get("_distance", 0.0),
+    )
+    emit_observability_event(
+        logger,
+        "search.cache.lookup",
+        level=logging.DEBUG,
+        cache_type="semantic",
+        hit=True,
+        lookup_status="hit",
+        duration_ms=round(duration * 1000, 3),
+        age_seconds=round(age_seconds, 3),
+        ttl_seconds=ttl_seconds,
+        similarity_score=round(best_similarity, 4),
+        vector_distance=best_row.get("_distance", 0.0),
+        content_type=content_type.value,
+        query=query,
+        provider_key=provider_key,
+        use_hybrid=use_hybrid,
     )
 
     needs_validation = age_seconds > 24 * 3600  # Flag entries older than 24h
@@ -190,6 +261,17 @@ async def set_semantic_cache(
         content_type=content_type.value,
         created_at=datetime.now(UTC).isoformat(),
         embedding=query_embedding,
+    )
+    emit_observability_event(
+        logger,
+        "search.cache.store",
+        level=logging.DEBUG,
+        cache_type="semantic",
+        store_status="ok",
+        query_hash=query_hash,
+        content_type=content_type.value,
+        provider_key=provider_key,
+        answer_size=len(answer_json),
     )
 
     logger.debug(

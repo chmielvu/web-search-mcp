@@ -8,10 +8,15 @@ P1 Critical Pattern: formatToolError from Exa MCP
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+from .utils.observability import emit_observability_event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -293,6 +298,15 @@ def format_tool_error(
         Dict with error details and isError: True (MCP compliance)
     """
     structured = classify_error(error, provider=provider)
+    emit_observability_event(
+        logger,
+        "tool.error.classified",
+        provider=provider,
+        error_type=structured.error_type,
+        status_code=structured.status_code,
+        retry_after=structured.retry_after,
+        action=structured.action,
+    )
     return structured.to_dict()
 
 

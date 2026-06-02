@@ -83,12 +83,45 @@ Captured raw payloads now include:
 
 - original query, normalized query, research goal, rewrite variants, and final rewritten queries
 - provider branch summaries, merged results, result URLs, snippets, domains, scores, and warnings
+- exact/semantic/page cache lookup and store events, including hit/miss/expiry status and TTL context
+- provider health transitions such as success, cooldown entry, and reset state
+- content-stage resolution, fallback, error, and markdown classification events with status/reason context
 - rerank stage summaries and top reranked results
 - fetched URLs, normalized URLs, fetched URLs after redirect, fetch backend, metadata, links, full returned page content, and summaries
+- fetch window offsets, lengths, returned character counts, total character counts, page character counts, and word counts
 - `gemini_search` / `perplexity_search` answers, source URLs, grounding chunks, and structured results
+- eval run/case/observation payloads plus LLM quality scores for offline assessment
 
 Local analytics can be disabled with `KINDLY_ANALYTICS_ENABLED=false` or redirected
 with `KINDLY_ANALYTICS_DUCKDB_PATH`.
+
+Run a deterministic local report against the DuckDB file:
+
+```powershell
+.\.venv\Scripts\kindly-web-search-mcp-server.exe analytics-report --report provider-performance --duckdb-path .kindly/analytics/search_events.duckdb
+```
+
+The report command installs the local shared analytics views before executing the
+named report. Available report names include:
+
+- `provider-performance`
+- `cache-hit-rates`
+- `rewrite-variant-quality`
+- `fetch-quality`
+- `error-taxonomy`
+- `candidate-survival`
+- `eval-quality-summary`
+
+For an allowlisted, read-only analytics query interface, use:
+
+```powershell
+.\.venv\Scripts\kindly-web-search-mcp-server.exe analytics-query --question "fetch quality" --duckdb-path .kindly/analytics/search_events.duckdb
+```
+
+`analytics-query` routes natural-language questions into a bounded SQL shape over
+local DuckDB or the attached MotherDuck schema. It only accepts recognized topics
+(`cache`, `provider`, `middleware/session`, `error`, `eval`, `fetch`, `content`,
+`recent events`) and returns the generated SQL plus JSON-safe rows.
 
 ### Sync to MotherDuck
 
@@ -98,6 +131,13 @@ Run a one-shot sync:
 $env:MOTHERDUCK_TOKEN="..."
 $env:KINDLY_MOTHERDUCK_DATABASE="my_db"
 .\.venv\Scripts\kindly-web-search-mcp-server.exe sync-analytics
+```
+
+If the local venv was created before the wrapper console script existed, call the
+CLI function directly:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from kindly_web_search_mcp_server.cli import main; main(['sync-analytics'])"
 ```
 
 Run it as a 5-minute loop:
@@ -118,13 +158,28 @@ The sync creates:
 - `kindly_analytics.analytics_event_raw` - append-only raw event mirror
 - `kindly_analytics.vw_quality_events` - Grafana-friendly drill-down view
 - `kindly_analytics.vw_run_timeline` - per-run timeline view
+- `kindly_analytics.vw_events` - normalized base event view for local and cloud analytics
+- `kindly_analytics.vw_candidate_survival` - candidate stage survival analysis
 - `kindly_analytics.analytics_event_daily` - refreshed daily summary table
+- `kindly_analytics.vw_eval_provider_quality` - eval quality summary by suite and tool
+- `kindly_analytics.vw_eval_fetch_quality` - eval fetch quality by backend/status
+- `kindly_analytics.eval_quality_daily` - refreshed eval summary table
+- `kindly_analytics.analytics_sync_state` - sync heartbeat and source/target row counts
 
-MotherDuck's current Grafana documentation presents the DuckDB datasource plugin
-as the direct Grafana integration path. MotherDuck also exposes a PostgreSQL
-endpoint, but it is preview and should not be treated as a materialized-view host.
-This repo therefore syncs data into normal MotherDuck tables/views and leaves the
-Grafana connection choice to the deployed Cloud plugin/datasource availability.
+Grafana Cloud cannot install the unsigned MotherDuck DuckDB datasource plugin
+through the public plugin catalog. For Grafana Cloud, use the built-in
+PostgreSQL datasource against MotherDuck's Postgres endpoint instead:
+
+- type: `grafana-postgresql-datasource`
+- host: `pg.us-east-1-aws.motherduck.com:5432`
+- database: `my_db`
+- user: `postgres`
+- password: `MOTHERDUCK_TOKEN`
+- SSL mode: `require`
+
+The quality dashboard's MotherDuck panels are written against the synced
+`kindly_analytics` schema and are datasource-variable driven, so they work with
+this Postgres endpoint path while keeping the same cloud tables/views.
 
 ## Sampling & Cost Control
 

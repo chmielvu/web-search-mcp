@@ -1,0 +1,153 @@
+from __future__ import annotations
+
+from typing import Any
+
+from langchain.tools import tool
+
+from kindly_web_search_mcp_server.content.batch_orchestrator import (
+    BatchParams,
+    run_batch_fetch,
+)
+from kindly_web_search_mcp_server.content.fetch_pipeline import fetch_content_artifact
+from kindly_web_search_mcp_server.content.link_discovery import discover_links as discover_page_links
+from kindly_web_search_mcp_server.content.options import build_fetch_options
+from kindly_web_search_mcp_server.content.windowing import slice_content
+
+from .models import (
+    BatchGetContentInput,
+    DiscoverLinksInput,
+    GetContentInput,
+)
+
+
+def _artifact_payload(artifact: Any, *, page_content: str, window: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "input_url": artifact.input_url,
+        "normalized_url": artifact.normalized_url,
+        "fetched_url": artifact.fetched_url,
+        "status": artifact.status,
+        "source_type": artifact.source_type,
+        "fetch_backend": artifact.fetch_backend,
+        "page_content": page_content,
+        "window": window,
+        "content_type": artifact.content_type,
+        "continuation_notice": artifact.continuation_notice,
+        "metadata": artifact.metadata,
+        "links": artifact.links,
+        "diagnostics": artifact.diagnostics,
+    }
+    if artifact.error is not None:
+        payload["error"] = {
+            "code": artifact.error.code,
+            "message": artifact.error.message,
+            "retryable": artifact.error.retryable,
+        }
+    return payload
+
+
+async def _get_content(
+    url: str,
+    char_offset: int,
+    char_length: int,
+    include_metadata: bool,
+    include_links: bool,
+    max_links: int,
+    strip_selectors: str | None,
+) -> dict[str, Any]:
+    options = build_fetch_options(
+        include_metadata=include_metadata,
+        include_links=include_links,
+        max_links=max_links,
+        strip_selectors=strip_selectors,
+    )
+    artifact = await fetch_content_artifact(url, fetch_options=options)
+    sliced = slice_content(artifact.markdown, offset=char_offset, length=char_length)
+    payload = _artifact_payload(
+        artifact,
+        page_content=sliced.content,
+        window=sliced.window.__dict__,
+    )
+    if not include_metadata:
+        payload["metadata"] = None
+    if not include_links:
+        payload["links"] = None
+    return payload
+
+
+async def _batch_get_content(
+    urls: list[str] | None,
+    cursor: str | None,
+    max_concurrency: int,
+    per_item_char_length: int,
+    total_char_budget: int,
+    per_url_timeout_seconds: float,
+    include_metadata: bool,
+    include_links: bool,
+    max_links: int,
+    strip_selectors: str | None,
+) -> dict[str, Any]:
+    options = build_fetch_options(
+        include_metadata=include_metadata,
+        include_links=include_links,
+        max_links=max_links,
+        strip_selectors=strip_selectors,
+    )
+    return await run_batch_fetch(
+        urls=urls,
+        params=BatchParams(
+            max_concurrency=max_concurrency,
+            per_item_char_length=per_item_char_length,
+            total_char_budget=total_char_budget,
+            per_url_timeout_seconds=per_url_timeout_seconds,
+        ),
+        cursor=cursor,
+        fetch_options=options,
+    )
+
+
+async def _discover_links(
+    url: str,
+    max_links: int,
+    include_external: bool,
+    same_domain_only: bool,
+    strip_selectors: str | None,
+) -> dict[str, Any]:
+    return await discover_page_links(
+        url,
+        max_links=max_links,
+        include_external=include_external,
+        same_domain_only=same_domain_only,
+        strip_selectors=strip_selectors,
+    )
+
+
+get_content = tool(
+    "get_content",
+    args_schema=GetContentInput,
+    description=(
+        "Fetch and slice one known URL. Use when a search result already identified a "
+        "source and you need bounded page content, metadata, or links."
+    ),
+)(_get_content)
+
+batch_get_content = tool(
+    "batch_get_content",
+    args_schema=BatchGetContentInput,
+    description=(
+        "Fetch multiple URLs with a total character budget. Use for a shortlist of "
+        "sources when you need cross-source evidence."
+    ),
+)(_batch_get_content)
+
+discover_links = tool(
+    "discover_links",
+    args_schema=DiscoverLinksInput,
+    description=(
+        "Extract outbound links or sitemap links from a known URL. Use for site "
+        "exploration and URL expansion."
+    ),
+)(_discover_links)
+
+
+def get_content_tools() -> list[Any]:
+    return [get_content, batch_get_content, discover_links]

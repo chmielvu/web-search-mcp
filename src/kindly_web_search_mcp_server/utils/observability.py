@@ -258,7 +258,17 @@ def _persist_analytics_event(
     payload: dict[str, Any],
     logger: logging.Logger,
 ) -> None:
-    if not event.startswith(("query.rewrite.", "search.", "provider.", "tool.")):
+    if not event.startswith(
+        (
+            "query.rewrite.",
+            "search.",
+            "provider.",
+            "tool.",
+            "content.",
+            "middleware.",
+            "session.",
+        )
+    ):
         return
 
     try:

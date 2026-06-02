@@ -129,6 +129,19 @@ class Settings:
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
 
+    # OpenRouter API (shared by all OpenRouter integrations)
+    openrouter_api_key: str = os.environ.get("OPENROUTER_API_KEY", "")
+
+    # Grok Search via OpenRouter (native web_search + x_search for xAI models)
+    grok_model: str = os.environ.get("KINDLY_GROK_MODEL", "x-ai/grok-4.3")
+    grok_timeout_seconds: float = float(
+        os.environ.get("KINDLY_GROK_TIMEOUT_SECONDS", "60.0")
+    )
+    # Light provider mode for web_search RRF pipeline
+    grok_web_search_mode: str = os.environ.get(
+        "KINDLY_GROK_WEB_SEARCH_MODE", "conditional"
+    )
+
     # Gemini Grounding (for gemini_search MCP tool)
     gemini_api_key: str = os.environ.get("KINDLY_GEMINI_API_KEY", "")
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
@@ -274,6 +287,7 @@ class Settings:
             # - tavily: 1.3 (optimized for AI assistants, structured extraction, freshness)
             # - gemini: 1.2 (Google grounding, high recall for factual/research queries)
             # - composio_llm_search: 1.15 (LLM-enhanced relevance ranking)
+            # - grok_openrouter: 1.5 (Grok native web+X search on OpenRouter, high relevance)
             # - jina: 1.1 (semantic search expertise, deep understanding)
             # - searxng: 1.0 (baseline, free/open-source aggregator with meta-search breadth)
             # - brave: 1.0 (baseline, independent index, privacy-focused)
@@ -289,6 +303,7 @@ class Settings:
                     "jina": 1.1,
                     "gemini": 1.2,
                     "composio_llm_search": 1.15,
+                    "grok_openrouter": 1.5,
                 },
             )
 

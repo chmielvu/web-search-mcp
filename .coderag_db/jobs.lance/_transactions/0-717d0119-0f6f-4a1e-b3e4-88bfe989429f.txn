@@ -1,7 +1,0 @@
-$717d0119-0f6f-4a1e-b3e4-88bfe989429f²ôjob_id ÿÿÿÿÿÿÿÿÿ*string08#job_type ÿÿÿÿÿÿÿÿÿ*string08!status ÿÿÿÿÿÿÿÿÿ*string08"progress ÿÿÿÿÿÿÿÿÿ*float08%items_total ÿÿÿÿÿÿÿÿÿ*int3208)items_processed ÿÿÿÿÿÿÿÿÿ*int3208%
-source_url ÿÿÿÿÿÿÿÿÿ*string08(manifest_path ÿÿÿÿÿÿÿÿÿ*string08(error_message ÿÿÿÿÿÿÿÿÿ*string08%
-created_at	 ÿÿÿÿÿÿÿÿÿ*string08%
-updated_at
- ÿÿÿÿÿÿÿÿÿ*string08"!
-lance.auto_cleanup.interval20"'
-lance.auto_cleanup.older_than14days

@@ -1,7 +1,5 @@
 """Exact query cache for deterministic search result caching.
-
-Unlike the semantic cache which uses embeddings for fuzzy matching,
-this cache provides exact key-based lookup for identical query parameters.
+This cache provides exact key-based lookup for identical query parameters.
 """
 
 from __future__ import annotations
@@ -17,18 +15,18 @@ from typing import Any
 
 import lancedb
 
-from ..telemetry import record_cache_lookup, CACHE_TYPE, CACHE_HIT
+from ..telemetry import record_cache_lookup
+from .observability import emit_cache_lookup_event, emit_cache_store_event
 
 logger = logging.getLogger(__name__)
 
-# Default TTL for exact query cache (24 hours)
 QUERY_CACHE_DEFAULT_TTL_SECONDS = int(
     os.environ.get("KINDLY_QUERY_CACHE_TTL_SECONDS", "86400")
 )
 
 QUERY_CACHE_SCHEMA = [
     ("id", "string"),
-    ("cache_key", "string"),  # Composite key hash
+    ("cache_key", "string"),
     ("normalized_query", "string"),
     ("num_results", "int64"),
     ("rewrite_enabled", "bool"),
@@ -145,22 +143,41 @@ class ExactQueryCache:
             )
         except Exception as exc:
             logger.warning("Exact query cache lookup failed: %s", exc)
-            # Record cache miss on lookup failure
             record_cache_lookup(cache_type="exact", hit=False)
+            emit_cache_lookup_event(
+                logger,
+                "exact",
+                "error",
+                error_type=type(exc).__name__,
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
+            )
             return None
 
         if not results:
             logger.debug("No exact cache hit for key: %s", cache_key[:16])
-            # Record cache miss
             duration = time.time() - start_time
             record_cache_lookup(
                 cache_type="exact", hit=False, duration_seconds=duration
+            )
+            emit_cache_lookup_event(
+                logger,
+                "exact",
+                "miss",
+                duration_ms=round(duration * 1000, 3),
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
             )
             return None
 
         row = results[0]
 
-        # Check TTL
         created_at = datetime.fromisoformat(row["created_at"])
         age_seconds = (datetime.now(UTC) - created_at).total_seconds()
         ttl_seconds = row.get("ttl_seconds", QUERY_CACHE_DEFAULT_TTL_SECONDS)
@@ -171,16 +188,41 @@ class ExactQueryCache:
                 age_seconds,
                 ttl_seconds,
             )
-            # Record expired as cache miss
             duration = time.time() - start_time
             record_cache_lookup(
                 cache_type="exact", hit=False, duration_seconds=duration
             )
+            emit_cache_lookup_event(
+                logger,
+                "exact",
+                "expired",
+                duration_ms=round(duration * 1000, 3),
+                age_seconds=round(age_seconds, 3),
+                ttl_seconds=ttl_seconds,
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
+            )
             return None
 
-        # Record cache hit
         duration = time.time() - start_time
         record_cache_lookup(cache_type="exact", hit=True, duration_seconds=duration)
+        emit_cache_lookup_event(
+            logger,
+            "exact",
+            "hit",
+            duration_ms=round(duration * 1000, 3),
+            age_seconds=round(age_seconds, 3),
+            ttl_seconds=ttl_seconds,
+            response_size=len(row.get("response_json", "")),
+            normalized_query=normalized_query,
+            num_results=num_results,
+            rewrite_enabled=rewrite_enabled,
+            search_mode=search_mode,
+            providers_key=providers_key,
+        )
 
         logger.debug(
             "Exact cache hit (key=%s, age=%.0fs)",
@@ -192,8 +234,17 @@ class ExactQueryCache:
             return json.loads(row["response_json"])
         except json.JSONDecodeError:
             logger.warning("Failed to decode cached response JSON")
-            # Record decode failure as miss
             record_cache_lookup(cache_type="exact", hit=False)
+            emit_cache_lookup_event(
+                logger,
+                "exact",
+                "decode_error",
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
+            )
             return None
 
     def store(
@@ -244,8 +295,31 @@ class ExactQueryCache:
                 cache_key[:16],
                 ttl_seconds,
             )
+            emit_cache_store_event(
+                logger,
+                "exact",
+                "ok",
+                ttl_seconds=ttl_seconds,
+                response_size=len(entry["response_json"]),
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
+            )
         except Exception as exc:
             logger.warning("Failed to store exact cache entry: %s", exc)
+            emit_cache_store_event(
+                logger,
+                "exact",
+                "error",
+                error_type=type(exc).__name__,
+                normalized_query=normalized_query,
+                num_results=num_results,
+                rewrite_enabled=rewrite_enabled,
+                search_mode=search_mode,
+                providers_key=providers_key,
+            )
 
 
 # Singleton instance (lazy init)

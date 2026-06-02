@@ -5,10 +5,14 @@ Detects junk/blocked/error pages before they reach the LLM.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 
 from .artifact import ContentStatus
+from ..utils.observability import emit_observability_event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -155,6 +159,24 @@ def _cookie_boilerplate_ratio(normalized: str) -> float:
     return cookie_count / len(words)
 
 
+def _emit_classification_event(
+    result: ClassificationResult,
+    markdown: str,
+    normalized: str,
+    **extra: float | int | str | bool | None,
+) -> None:
+    emit_observability_event(
+        logger,
+        "content.status.classified",
+        status=result.status,
+        reason=result.reason,
+        cacheable=result.cacheable,
+        markdown_chars=len(markdown),
+        word_count=len(normalized.split()),
+        **extra,
+    )
+
+
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
@@ -169,67 +191,79 @@ def classify_markdown(markdown: str) -> ClassificationResult:
     """
     normalized = _normalize(markdown)
     if not normalized:
-        return ClassificationResult(
-            status="error", reason="empty_content", cacheable=False
-        )
+        result = ClassificationResult(status="error", reason="empty_content", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
     # 1. Browser/network error pages (strongest signal)
     match = _pattern_match(normalized, _ERROR_PATTERNS)
     if match:
-        return ClassificationResult(
-            status="error", reason=f"error_page:{match}", cacheable=False
-        )
+        result = ClassificationResult(status="error", reason=f"error_page:{match}", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
     # 2. Access blocks (Cloudflare, captcha, IP ban)
     match = _pattern_match(normalized, _BLOCK_PATTERNS)
     if match:
-        return ClassificationResult(
-            status="blocked", reason=f"access_blocked:{match}", cacheable=False
-        )
+        result = ClassificationResult(status="blocked", reason=f"access_blocked:{match}", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
     # 3. Login walls (content gated behind authentication)
     match = _pattern_match(normalized, _LOGIN_WALL_PATTERNS)
     if match:
-        return ClassificationResult(
-            status="blocked", reason=f"login_wall:{match}", cacheable=False
-        )
+        result = ClassificationResult(status="blocked", reason=f"login_wall:{match}", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
     # 4. Paywalls
     match = _pattern_match(normalized, _PAYWALL_PATTERNS)
     if match:
-        return ClassificationResult(
-            status="blocked", reason=f"paywall:{match}", cacheable=False
-        )
+        result = ClassificationResult(status="blocked", reason=f"paywall:{match}", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
     # 5. Redirect URLs (page content is just a URL or redirect notice)
     for regex in _REDIRECT_URL_PATTERNS:
         if regex.search(normalized):
-            return ClassificationResult(
-                status="partial", reason="redirect_only", cacheable=False
-            )
+            result = ClassificationResult(status="partial", reason="redirect_only", cacheable=False)
+            _emit_classification_event(result, markdown, normalized)
+            return result
 
     # 6. Non-printable character spam
     bad_char_ratio = _non_printable_ratio(markdown)
     if bad_char_ratio > 0.15:
-        return ClassificationResult(
-            status="error", reason="garbled_content", cacheable=False
+        result = ClassificationResult(status="error", reason="garbled_content", cacheable=False)
+        _emit_classification_event(
+            result,
+            markdown,
+            normalized,
+            bad_char_ratio=round(bad_char_ratio, 4),
         )
+        return result
 
     # 7. Cookie consent boilerplate (entire page is just cookie banner)
     cookie_ratio = _cookie_boilerplate_ratio(normalized)
     if cookie_ratio > 0.4:
-        return ClassificationResult(
-            status="partial", reason="cookie_boilerplate", cacheable=False
+        result = ClassificationResult(status="partial", reason="cookie_boilerplate", cacheable=False)
+        _emit_classification_event(
+            result,
+            markdown,
+            normalized,
+            cookie_ratio=round(cookie_ratio, 4),
         )
+        return result
 
     # 8. Too short to be useful
     words = len(normalized.split())
     if words < 30:
-        return ClassificationResult(
-            status="partial", reason="too_short", cacheable=False
-        )
+        result = ClassificationResult(status="partial", reason="too_short", cacheable=False)
+        _emit_classification_event(result, markdown, normalized)
+        return result
 
-    return ClassificationResult(status="success", reason=None, cacheable=True)
+    result = ClassificationResult(status="success", reason=None, cacheable=True)
+    _emit_classification_event(result, markdown, normalized)
+    return result
 
 
 def classify_quality(markdown: str) -> float:

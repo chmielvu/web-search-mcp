@@ -17,11 +17,12 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.exceptions import ToolError
 
 from .session_tracking import SessionTracker, get_session_id
+from ..utils.observability import emit_observability_event
 
 logger = logging.getLogger(__name__)
 
 # Tools considered expensive (require query quality check)
-EXPENSIVE_TOOLS = frozenset({"perplexity_search"})
+EXPENSIVE_TOOLS = frozenset({"perplexity_search", "grok_search"})
 
 # Session timeout in seconds (reset attempt count after this)
 SESSION_TIMEOUT_SECONDS = 300  # 5 minutes
@@ -127,12 +128,26 @@ class ExpensiveToolProtectionMiddleware(Middleware):
 
             # Raise ToolError - this returns error to client
             # The message becomes tool-call failure context for the agent
+            emit_observability_event(
+                logger,
+                "middleware.expensive_tool.blocked",
+                tool_name=tool_name,
+                session_id=session_id,
+                attempt_count=attempt_count + 1,
+            )
             raise ToolError(QUERY_QUALITY_STEERING_MESSAGE)
 
         # Allow through - record this successful attempt
         self._increment_attempt(session_id, tool_name)
         logger.debug(
             f"Allowing call through for {tool_name} (attempt {attempt_count + 1})"
+        )
+        emit_observability_event(
+            logger,
+            "middleware.expensive_tool.allowed",
+            tool_name=tool_name,
+            session_id=session_id,
+            attempt_count=attempt_count + 1,
         )
 
         return await call_next(context)

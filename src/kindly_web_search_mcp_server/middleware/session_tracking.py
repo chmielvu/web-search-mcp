@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 
 from fastmcp.server.middleware import MiddlewareContext
+
+from ..utils.observability import emit_observability_event
+
+logger = logging.getLogger(__name__)
 
 
 def get_session_id(context: MiddlewareContext) -> str:
@@ -47,6 +52,12 @@ class SessionTracker:
         ]
         for session_id in expired:
             self._sessions.pop(session_id, None)
+            emit_observability_event(
+                logger,
+                "session.expired",
+                session_id=session_id,
+                session_timeout_seconds=self.timeout_seconds,
+            )
         return len(expired)
 
     def get_count(self, session_id: str, key: str) -> int:
@@ -60,12 +71,21 @@ class SessionTracker:
 
     def increment(self, session_id: str, key: str) -> int:
         state = self._sessions.get(session_id)
-        if state is None or self._is_expired(state):
+        is_new_session = state is None or self._is_expired(state)
+        if is_new_session:
             state = SessionState()
             self._sessions[session_id] = state
 
         state.last_activity = time.time()
         current = state.counters.get(key, 0) + 1
         state.counters[key] = current
+        emit_observability_event(
+            logger,
+            "session.started" if is_new_session else "session.activity",
+            session_id=session_id,
+            tool_name=key,
+            tool_count=current,
+            session_timeout_seconds=self.timeout_seconds,
+        )
         self.cleanup_expired_sessions()
         return current

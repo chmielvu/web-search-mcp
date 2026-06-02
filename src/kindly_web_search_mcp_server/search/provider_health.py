@@ -20,9 +20,31 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+import threading
+from dataclasses import dataclass
+
+from ..utils.observability import emit_observability_event
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_provider_health_event(event: str, **fields: object) -> None:
+    emit_observability_event(
+        logger,
+        event,
+        level=logging.DEBUG,
+        **fields,
+    )
+
+
+def _emit_provider_health_event_async(event: str, **fields: object) -> None:
+    thread = threading.Thread(
+        target=_emit_provider_health_event,
+        args=(event,),
+        kwargs=fields,
+        daemon=True,
+    )
+    thread.start()
 
 
 @dataclass
@@ -61,6 +83,14 @@ class ProviderHealthTracker:
             state.total_successes,
             state.total_failures,
         )
+        _emit_provider_health_event_async(
+            "provider.health.success",
+            provider=provider_name,
+            consecutive_failures=state.consecutive_failures,
+            total_successes=state.total_successes,
+            total_failures=state.total_failures,
+            cooldown_remaining_s=0.0,
+        )
 
     def mark_failure(self, provider_name: str) -> None:
         """Record a failed provider call and compute cooldown."""
@@ -78,6 +108,15 @@ class ProviderHealthTracker:
             state.consecutive_failures,
             cooldown_s,
             time.strftime("%H:%M:%S", time.localtime(time.time() + cooldown_s)),
+        )
+        _emit_provider_health_event_async(
+            "provider.health.cooldown",
+            provider=provider_name,
+            consecutive_failures=state.consecutive_failures,
+            cooldown_seconds=round(cooldown_s, 3),
+            cooldown_until=state.cooldown_until,
+            total_failures=state.total_failures,
+            total_successes=state.total_successes,
         )
 
     def is_healthy(self, provider_name: str) -> bool:
@@ -134,9 +173,19 @@ class ProviderHealthTracker:
         if provider_name is not None:
             self._states.pop(provider_name, None)
             logger.info("provider_health: reset %s", provider_name)
+            _emit_provider_health_event_async(
+                "provider.health.reset",
+                provider=provider_name,
+                scope="single",
+            )
         else:
             self._states.clear()
             logger.info("provider_health: reset all providers")
+            _emit_provider_health_event_async(
+                "provider.health.reset",
+                provider="all",
+                scope="all",
+            )
 
     # ------------------------------------------------------------------
     # Internal

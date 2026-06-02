@@ -27,6 +27,23 @@ def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
+def _provider_value(payload: dict[str, Any]) -> str | None:
+    value = payload.get("provider")
+    if value is None:
+        value = payload.get("provider_name")
+    return value if isinstance(value, str) else None
+
+
+def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+    return None
+
+
 def _run_key(payload: dict[str, Any]) -> str | None:
     trace_id = payload.get("trace_id")
     if isinstance(trace_id, str) and trace_id:
@@ -107,6 +124,47 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         WHERE phase IS NULL
         """
     )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET provider = coalesce(
+            provider,
+            json_extract_string(payload_json, '$.provider'),
+            json_extract_string(payload_json, '$.provider_name')
+        )
+        WHERE provider IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET input_count = coalesce(
+            input_count,
+            CAST(json_extract_string(payload_json, '$.input_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.input_result_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.input_list_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.num_results_requested') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.num_results') AS INTEGER)
+        )
+        WHERE input_count IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET output_count = coalesce(
+            output_count,
+            CAST(json_extract_string(payload_json, '$.output_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.result_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.merged_result_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.final_result_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.output_result_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.total_returned') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.success_count') AS INTEGER)
+        )
+        WHERE output_count IS NULL
+        """
+    )
 
 
 def ensure_store_schema(*, db_path: str | None = None) -> None:
@@ -148,11 +206,31 @@ def append_event(
         _event_value(payload, "query"),
         _event_value(payload, "normalized_query"),
         _event_value(payload, "research_goal"),
-        _event_value(payload, "provider"),
+        _provider_value(payload),
         _event_value(payload, "model"),
         _event_value(payload, "duration_ms"),
-        _event_value(payload, "input_count"),
-        _event_value(payload, "output_count"),
+        _int_value(
+            payload,
+            (
+                "input_count",
+                "input_result_count",
+                "input_list_count",
+                "num_results_requested",
+                "num_results",
+            ),
+        ),
+        _int_value(
+            payload,
+            (
+                "output_count",
+                "result_count",
+                "merged_result_count",
+                "final_result_count",
+                "output_result_count",
+                "total_returned",
+                "success_count",
+            ),
+        ),
         _event_value(payload, "trace_id"),
         _event_value(payload, "span_id"),
         _event_value(payload, "cache_hit"),

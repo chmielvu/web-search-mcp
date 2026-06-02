@@ -40,6 +40,8 @@ from urllib.parse import urlparse
 
 from opentelemetry import trace, metrics
 
+from .utils.observability import emit_observability_event
+
 # SDK imports are part of the default runtime dependencies.
 try:
     from opentelemetry.sdk.trace import TracerProvider
@@ -1256,6 +1258,19 @@ def record_content_resolution(
             },
         )
 
+    emit_observability_event(
+        logging.getLogger(__name__),
+        "content.stage.resolution",
+        stage=stage,
+        url=url,
+        success=success,
+        size_bytes=size_bytes,
+        duration_seconds=duration_seconds,
+        word_count=word_count,
+        extraction_method=extraction_method,
+        content_status=status,
+    )
+
 
 def record_content_fallback(
     stage: str, url: str, from_stage: str | None = None
@@ -1276,6 +1291,14 @@ def record_content_fallback(
             },
         )
 
+    emit_observability_event(
+        logging.getLogger(__name__),
+        "content.stage.fallback",
+        stage=stage,
+        url=url,
+        from_stage=from_stage,
+    )
+
 
 def record_content_error(stage: str, url: str, error_type: str) -> None:
     """Record a hard error during content resolution."""
@@ -1292,6 +1315,15 @@ def record_content_error(stage: str, url: str, error_type: str) -> None:
                 CONTENT_URL: url[:200] if url else "",
             },
         )
+
+    emit_observability_event(
+        logging.getLogger(__name__),
+        "content.stage.error",
+        level=logging.WARNING,
+        stage=stage,
+        url=url,
+        error_type=error_type,
+    )
 
 
 def record_rrf_merge(

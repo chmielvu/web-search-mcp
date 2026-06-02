@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `agentic_web_research`: a new LangChain/LangGraph ReAct MCP tool that uses `Alibaba-NLP/Tongyi-DeepResearch-30B-A3B` through NanoGPT, with distinct direct search, fetch, rerank, and expansion tools plus an ephemeral NetworkX reasoning graph.
+- Guarded analytics query surface and eval-ready MotherDuck sync: new `analytics-query` CLI/tool route, `eval-quality-summary` report, JSON-safe analytics row serialization, eval tables/views in local and MotherDuck bootstrapping, content fetch window word-count/window metadata in DuckDB, and MotherDuck sync-state/daily eval summary tables.
+- **Grok 4.3 search via OpenRouter**: new `grok_search` MCP tool and `grok_openrouter` light provider giving agents access to Grok 4.3's native web + X/Twitter search through OpenRouter's `openrouter:web_search` server tool with `engine: "native"`.
+  - `grok_search` standalone tool: returns AI-synthesized answers with source citations, like `gemini_search`/`perplexity_search`. Both `web_search` and `x_search` tools are available; `x_search` fires when the prompt references X/Twitter or social data.
+  - `grok_openrouter` light provider: extracts structured `WebSearchResult[]` from `url_citation` annotations for RRF merge pipeline participation with 1.5× boost weight.
+  - New settings: `OPENROUTER_API_KEY`, `KINDLY_GROK_MODEL` (default `x-ai/grok-4.3`), `KINDLY_GROK_TIMEOUT_SECONDS`, `KINDLY_GROK_WEB_SEARCH_MODE` (default `conditional`).
+  - Prompts engineered from Grok 4.3 beta system prompt analysis, community best practices (XML tags, date anchoring, concise instructions), and real API testing confirming x_search behavior.
+  - Added to expensive tools bucket for rate limiting alongside `perplexity_search`.
+- Final DuckDB/MotherDuck analytics design plan covering local event normalization, MotherDuck sync/views, missing cache/session/provider/content-stage data, MCP eval tables, local-only Flock analytics, and guarded NL2SQL.
+- Deterministic DuckDB analytics report command (`analytics-report`) plus local view installation for `vw_events` and candidate-survival analysis.
+- Cache lookup/store and provider-health lifecycle events now persist to DuckDB for offline analytics across exact, semantic, and page caches.
+- Content-stage resolution, fallback, error, and markdown-classification events now persist to DuckDB for offline analysis of blocked, partial, and error pages.
 - Expanded `plans/content-extraction-entity-schema-oss-patterns-2026-06-01.md` into a cross-validated report covering GLiNER uses across query steering, provider routing, result annotation, cache/rerank guardrails, content extraction, batch workflows, observability, and PII/safety.
 - Research note `plans/content-extraction-entity-schema-oss-patterns-2026-06-01.md` evaluating GLiNER2/entity extraction and schema-driven structured extraction patterns from OSS code, Hugging Face Spaces/models, and user issue reports.
 - Full OpenTelemetry instrumentation (traces + metrics) for the search orchestrator, content resolution pipeline (all specialized resolvers + safe_http + jina + browser fallbacks), caches (exact/semantic/page), reranking, and MCP tool layer.
@@ -28,9 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `settings.py` now exposes a full observability configuration section.
 - DuckDB is pinned below `1.5.3` because the MotherDuck extension rejected DuckDB `1.5.3` during live sync validation.
+- MotherDuck analytics view SQL now lives in focused analytics modules instead of the sync command module, keeping touched code files under the project line-count limit.
+- Local DuckDB analytics views are now installed via a shared helper before deterministic reports run.
 - Early telemetry initialization is more robust with better Grafana Cloud header handling.
 - `provider.*` analytics events are now persisted to DuckDB so provider-level result payloads can be queried in MotherDuck.
-- Quality dashboard now carries a MotherDuck datasource variable using the `motherduck-duckdb-datasource` plugin ID for DuckDB/MotherDuck SQL panels.
+- Quality dashboard MotherDuck panels now target Grafana's built-in PostgreSQL datasource for MotherDuck's Postgres endpoint because Grafana Cloud cannot install the unsigned DuckDB datasource plugin from the public catalog.
 
 ### Added
 
@@ -40,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Query, rewrite, rerank, and `web_search` observability events are now also persisted to DuckDB for offline analysis and tuning.
 
 ### Fixed
+- `analytics-query --scope motherduck` now uses an in-memory DuckDB connection before attaching MotherDuck, avoiding local DuckDB file locks during cloud-only analytics reads.
+- DuckDB analytics rows now normalize `provider_name` into the fixed `provider` column and map common result-count aliases into `input_count` / `output_count`, including migration backfills for existing rows.
 - Grafana Cloud OTLP convenience variables now resolve correctly during telemetry startup, and content fallback/error counters initialize without crashing when content metrics are first recorded.
 - Grafana dashboards under `grafana/dashboards/` now target the live `web_search_*` and `mcp_*` telemetry vocabulary, with normalized label keys and explicit dashboard versions for import.
 - Grafana dashboard selectors now use the exported `service_name` resource label and current counter names, so imported panels match live Grafana Cloud/Mimir series.

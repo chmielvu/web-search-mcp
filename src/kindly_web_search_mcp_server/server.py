@@ -50,14 +50,16 @@ from .models import (
     YouTubeTranscriptResponse,
     YouTubeSearchResponse,
 )
-from .errors import classify_error, format_tool_error
+from .errors import format_tool_error
 from .content.batch_orchestrator import BatchParams, run_batch_fetch
 from .content.fetch_pipeline import fetch_content_artifact
 from .content.link_discovery import discover_links as discover_page_links
 from .content.options import build_fetch_options
 from .content.summary import create_summary
 from .content.windowing import slice_content
+from .analytics.tools import register_analytics_tools
 from .composio_tools import register_composio_tools
+from .agent.mcp import register_agentic_web_research_tools
 from .content.youtube import (
     YouTubeError,
     parse_youtube_url,
@@ -78,6 +80,7 @@ from .cache import (
     get_page_cache,
 )
 from .search.gemini_search_tool import gemini_search_with_grounding
+from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
@@ -149,9 +152,11 @@ mcp = FastMCP(
         "Use rewrite=false only for exact literals such as stack traces, quoted errors, URLs, versions, hashes, and UUIDs. "
         "Use get_content for one known URL; use batch_get_content for 3 or more URLs and follow has_more/cursor or window.next_offset. "
         "Use discover_links when you already have a URL and want outgoing links or sitemap targets. "
-        "Use gemini_search for quick grounded synthesis; use perplexity_search only after refining a single-topic query. "
+        "Use gemini_search for quick grounded synthesis; use grok_search when you need web + X (Twitter) search together; "
+        "use perplexity_search only after refining a single-topic query. "
         "Use academic_search for scholarly papers (Semantic Scholar + ArXiv) with filters for year, venue, field of study, and open access. "
-        "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL."
+        "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL. "
+        "Use agentic_web_research when you want the LangChain/LangGraph ReAct agent to choose among direct search, fetch, rerank, and expansion tools itself."
     ),
 )
 
@@ -180,6 +185,8 @@ from .middleware import create_dynamic_guidance_middleware
 
 mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
+register_agentic_web_research_tools(mcp)
+register_analytics_tools(mcp)
 
 Transport = Literal["stdio", "sse", "streamable-http"]
 
@@ -1101,6 +1108,14 @@ async def get_content(
         source_type=response["source_type"],
         fetch_backend=response["fetch_backend"],
         content_length=len(response["page_content"]),
+        page_char_count=len(response["page_content"]),
+        word_count=len(response["page_content"].split()),
+        window_offset=response["window"].get("offset"),
+        window_length=response["window"].get("length"),
+        window_returned_chars=response["window"].get("returned_chars"),
+        window_total_chars=response["window"].get("total_chars"),
+        window_has_more=response["window"].get("has_more"),
+        window_next_offset=response["window"].get("next_offset"),
         page_content=response["page_content"],
         window=response["window"],
         metadata=response.get("metadata"),
@@ -1258,6 +1273,14 @@ async def batch_get_content(
     await ctx.info(
         f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
     )
+    analytics_results = [
+        {
+            **result,
+            "page_char_count": len(result["page_content"]),
+            "word_count": len(result["page_content"].split()),
+        }
+        for result in response["results"]
+    ]
     emit_tool_observability_event(
         LOGGER,
         "batch_get_content",
@@ -1265,12 +1288,14 @@ async def batch_get_content(
         url_count=len(bounded_urls),
         success_count=success_count,
         error_count=len(response["results"]) - success_count,
-        results=response["results"],
+        results=analytics_results,
         has_more=response["has_more"],
         cursor=response.get("cursor"),
         total_requested=response.get("total_requested"),
         total_returned=response.get("total_returned"),
         total_chars_returned=response.get("total_chars_returned"),
+        total_page_char_count=sum(item["page_char_count"] for item in analytics_results),
+        total_word_count=sum(item["word_count"] for item in analytics_results),
     )
     _record_tool_success(
         "batch_get_content",
@@ -1644,6 +1669,162 @@ async def perplexity_search(
         return format_tool_error(e, provider="perplexity")
 
 
+# ============================================================================
+# grok_search — Grok 4.3 via OpenRouter (web + X/Twitter native search)
+# ============================================================================
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        title="Grok Search",
+        readOnlyHint=True,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+)
+async def grok_search(
+    query: str,
+    research_goal: str,
+    num_results: int = 5,
+    model: str | None = None,
+    allowed_domains: list[str] | None = None,
+    excluded_domains: list[str] | None = None,
+    ctx: Context = CurrentContext(),
+) -> dict:
+    """Search web and X (Twitter) using Grok 4.3 via OpenRouter.
+
+    Returns AI-SYNTHESIZED ANSWERS with source citations, NOT raw URL lists.
+    Grok autonomously searches web and X, then synthesizes a grounded answer.
+    When the query or research goal mentions X/Twitter or social data,
+    x_search fires alongside web_search.
+
+    When to use:
+    - Need current information from both web AND X (Twitter) simultaneously
+    - Researching real-time events, breaking news, or social sentiment
+    - Questions where Grok's native search quality adds value
+    - Need AI synthesis of multiple sources with attribution
+
+    When not to use:
+    - Need raw, unfiltered URL lists -> use web_search instead
+    - Need full page content extraction -> use web_search + get_content
+    - Already have specific URLs to read -> use get_content(url)
+
+    Args:
+    - query: Search query string. Be specific with keywords and context.
+    - research_goal: REQUIRED. What you need the results for.
+      Example: "Check latest FastAPI release for breaking changes."
+    - num_results: Approximate citations to surface (1-10, default 5).
+    - model: Optional model override (default: x-ai/grok-4.3).
+    - allowed_domains: Optional domain allowlist for web search.
+    - excluded_domains: Optional domain blocklist for web search.
+
+    Returns:
+    - {"query": str, "answer": str,
+       "citations": [{"url", "title", "snippet"}],
+       "model": str, "search_queries_used": int, "error": str|null}
+
+    Notes:
+    - Uses OpenRouter with engine: "native" on xAI Grok 4.3
+    - Both web_search and x_search tools are available
+    - Costs: Grok 4.3 tokens ($1.25/$2.50 per 1M) + search tool usage
+    - Requires OPENROUTER_API_KEY environment variable
+    """
+    import time
+
+    emit_tool_observability_event(
+        LOGGER,
+        "grok_search",
+        "request",
+        query=query,
+        research_goal=research_goal,
+        model=model,
+    )
+    start_time = time.time()
+
+    await ctx.report_progress(
+        progress=10, total=100, message="Searching web and X via Grok 4.3..."
+    )
+
+    try:
+        result = await _grok_search_core(
+            query=query,
+            research_goal=research_goal,
+            model=model,
+            num_results=num_results,
+            allowed_domains=allowed_domains,
+            excluded_domains=excluded_domains,
+        )
+
+        response = {
+            "query": result.query,
+            "answer": result.answer,
+            "citations": result.citations,
+            "model": result.model,
+            "search_queries_used": result.search_queries_used,
+            "error": result.error,
+        }
+
+        duration_seconds = time.time() - start_time
+        emit_tool_observability_event(
+            LOGGER,
+            "grok_search",
+            "response",
+            query=query,
+            answer_preview=result.answer[:200],
+            citations_count=len(result.citations),
+            model=result.model,
+            duration_seconds=duration_seconds,
+        )
+        _record_tool_success(
+            "grok_search",
+            input_query=query,
+            output_content=result.answer,
+        )
+
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        return response
+
+    except ValueError as e:
+        LOGGER.warning(f"Grok search config error: {e}")
+        emit_tool_observability_event(
+            LOGGER,
+            "grok_search",
+            "error",
+            level=logging.WARNING,
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
+        _record_tool_failure("grok_search")
+        return format_tool_error(e, provider="grok_openrouter")
+    except httpx.HTTPError as e:
+        LOGGER.warning(f"Grok search HTTP error: {e}")
+        emit_tool_observability_event(
+            LOGGER,
+            "grok_search",
+            "error",
+            level=logging.WARNING,
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
+        _record_tool_failure("grok_search")
+        return format_tool_error(e, provider="grok_openrouter")
+    except Exception as e:
+        LOGGER.warning(f"Grok search unexpected error: {e}")
+        emit_tool_observability_event(
+            LOGGER,
+            "grok_search",
+            "error",
+            level=logging.WARNING,
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
+        _record_tool_failure("grok_search")
+        return format_tool_error(e, provider="grok_openrouter")
+
+
 @mcp.tool(
     annotations=ToolAnnotations(
         title="YouTube Transcript",
@@ -1804,16 +1985,16 @@ async def youtube_transcript(
             duration_seconds=None,
         )
         LOGGER.warning(f"YouTube transcript unexpected error: {e}")
-        structured = classify_error(e, provider="youtube")
+        structured = format_tool_error(e, provider="youtube")
         return {
             "video_id": "",
             "video_url": video_id_or_url,
             "transcript_text": "",
             "language": language or "en",
-            "error": structured.error,
+            "error": structured["error"],
             "isError": True,
-            "error_type": structured.error_type,
-            "action": structured.action,
+            "error_type": structured["error_type"],
+            "action": structured.get("action"),
         }
 
 
@@ -2300,6 +2481,7 @@ Use perplexity_search only when a refined single-topic query needs deeper synthe
 | batch_get_content | Read 3+ URLs with budget/cursor |
 | discover_links | Expand a known URL into outbound links |
 | gemini_search | Quick grounded answers |
+| grok_search | Web + X/Twitter search with synthesis |
 | perplexity_search | Deep reasoning synthesis |
 | academic_search | Find scholarly papers (S2 + ArXiv) |
 | youtube_search | Find videos |
@@ -2323,6 +2505,7 @@ _SEARCH_TOOL_ROUTING = """Tool selection rules for this server:
 |---|---|---|
 | Find URLs about a topic | `web_search` | Lightweight results, multi-provider merge, provider_count signal |
 | Quick factual answer with citations | `gemini_search` | Google-grounding, [N] citations, fast |
+| Web + X/Twitter search with synthesis | `grok_search` | AI-synthesized, real-time web and social data |
 | Deep reasoning across many sources | `perplexity_search` | AI-synthesized, expensive, refine query first |
 | Scholarly papers with filters | `academic_search` | 6 sources (S2, ArXiv, PubMed...), field/venue/year filters |
 | Read one known URL | `get_content` | 7-stage resolution (GitHub→StackExchange→Wikipedia→arXiv→HTTP→browser) |

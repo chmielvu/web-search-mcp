@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+
+from ..utils.observability import emit_observability_event
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -25,10 +30,11 @@ class _TokenBucketLimiter:
         self._state = _BucketState(tokens=float(self._capacity))
         self._lock = asyncio.Lock()
 
-    async def acquire(self) -> None:
+    async def acquire(self) -> float:
         if self._rps <= 0:
-            return
+            return 0.0
 
+        total_wait = 0.0
         while True:
             async with self._lock:
                 now = time.monotonic()
@@ -39,11 +45,12 @@ class _TokenBucketLimiter:
 
                 if self._state.tokens >= 1.0:
                     self._state.tokens -= 1.0
-                    return
+                    return total_wait
 
                 deficit = 1.0 - self._state.tokens
                 wait_seconds = deficit / self._rps if self._rps > 0 else 0.0
 
+            total_wait += wait_seconds
             await asyncio.sleep(wait_seconds)
 
 
@@ -64,7 +71,7 @@ class DifferentiatedRateLimitMiddleware(Middleware):
             "quick_web_search",
         }
     )
-    EXPENSIVE_TOOLS = frozenset({"perplexity_search"})
+    EXPENSIVE_TOOLS = frozenset({"perplexity_search", "grok_search"})
 
     def __init__(
         self,
@@ -79,9 +86,33 @@ class DifferentiatedRateLimitMiddleware(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
         tool_name = context.message.name
         if tool_name in self.EXPENSIVE_TOOLS:
-            await self._expensive_limiter.acquire()
+            waited = await self._expensive_limiter.acquire()
+            emit_observability_event(
+                logger,
+                "middleware.rate_limit.acquired",
+                tool_name=tool_name,
+                bucket="expensive",
+                waited_seconds=round(waited, 3),
+            )
         else:
-            await self._cheap_limiter.acquire()
+            waited = await self._cheap_limiter.acquire()
+            emit_observability_event(
+                logger,
+                "middleware.rate_limit.acquired",
+                tool_name=tool_name,
+                bucket="cheap",
+                waited_seconds=round(waited, 3),
+            )
+        if waited > 0:
+            emit_observability_event(
+                logger,
+                "middleware.rate_limit.throttled",
+                tool_name=tool_name,
+                bucket="expensive"
+                if tool_name in self.EXPENSIVE_TOOLS
+                else "cheap",
+                waited_seconds=round(waited, 3),
+            )
         return await call_next(context)
 
 

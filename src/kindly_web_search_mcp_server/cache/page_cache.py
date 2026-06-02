@@ -18,6 +18,7 @@ from typing import Any
 import lancedb
 
 from ..telemetry import record_cache_lookup
+from ..utils.observability import emit_observability_event
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,17 @@ class PageCache:
             # Record cache miss on lookup failure
             duration = time.time() - start_time
             record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
+            emit_observability_event(
+                logger,
+                "search.cache.lookup",
+                level=logging.DEBUG,
+                cache_type="page",
+                hit=False,
+                lookup_status="error",
+                error_type=type(exc).__name__,
+                canonical_url=canonical_url,
+                url_hash=url_hash,
+            )
             return None
 
         if not results:
@@ -119,6 +131,17 @@ class PageCache:
             # Record cache miss
             duration = time.time() - start_time
             record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
+            emit_observability_event(
+                logger,
+                "search.cache.lookup",
+                level=logging.DEBUG,
+                cache_type="page",
+                hit=False,
+                lookup_status="miss",
+                duration_ms=round(duration * 1000, 3),
+                canonical_url=canonical_url,
+                url_hash=url_hash,
+            )
             return None
 
         row = results[0]
@@ -138,6 +161,19 @@ class PageCache:
             # Record expired as cache miss
             duration = time.time() - start_time
             record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
+            emit_observability_event(
+                logger,
+                "search.cache.lookup",
+                level=logging.DEBUG,
+                cache_type="page",
+                hit=False,
+                lookup_status="expired",
+                duration_ms=round(duration * 1000, 3),
+                age_seconds=round(age_seconds, 3),
+                ttl_seconds=ttl_seconds,
+                canonical_url=canonical_url,
+                url_hash=url_hash,
+            )
             return None
 
         logger.debug(
@@ -151,6 +187,21 @@ class PageCache:
         # Record cache hit with word count context
         duration = time.time() - start_time
         record_cache_lookup(cache_type="page", hit=True, duration_seconds=duration)
+        emit_observability_event(
+            logger,
+            "search.cache.lookup",
+            level=logging.DEBUG,
+            cache_type="page",
+            hit=True,
+            lookup_status="hit",
+            duration_ms=round(duration * 1000, 3),
+            age_seconds=round(age_seconds, 3),
+            ttl_seconds=ttl_seconds,
+            word_count=row.get("word_count", 0),
+            extraction_method=row.get("extraction_method", "unknown"),
+            canonical_url=canonical_url,
+            url_hash=url_hash,
+        )
 
         result = {
             "page_content": row["page_content"],
@@ -217,8 +268,31 @@ class PageCache:
                 word_count,
                 ttl_seconds,
             )
+            emit_observability_event(
+                logger,
+                "search.cache.store",
+                level=logging.DEBUG,
+                cache_type="page",
+                store_status="ok",
+                ttl_seconds=ttl_seconds,
+                word_count=word_count,
+                extraction_method=extraction_method,
+                metadata_present=bool(metadata),
+                canonical_url=canonical_url,
+                url_hash=url_hash,
+            )
         except Exception as exc:
             logger.warning("Failed to store page cache entry: %s", exc)
+            emit_observability_event(
+                logger,
+                "search.cache.store",
+                level=logging.DEBUG,
+                cache_type="page",
+                store_status="error",
+                error_type=type(exc).__name__,
+                canonical_url=canonical_url,
+                url_hash=url_hash,
+            )
 
 
 # Singleton instance (lazy init)
