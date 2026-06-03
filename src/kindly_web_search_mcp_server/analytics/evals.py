@@ -207,6 +207,22 @@ def build_eval_view_sql(target: str) -> list[str]:
           ON f.run_key = c.run_key
         GROUP BY 1, 2, 3, 4
         """,
+        f"""
+        CREATE OR REPLACE VIEW {target}.vw_eval_pass_rate AS
+        SELECT
+            r.eval_run_id,
+            r.suite_name,
+            COUNT(DISTINCT c.eval_case_id) AS cases,
+            COUNT(*) FILTER (WHERE o.verdict = 'pass' OR o.verdict IS NULL) AS observed_passes,  -- fallback when verdict not set
+            AVG(o.score) AS avg_observation_score,
+            COUNT(*) FILTER (WHERE j.score_value >= 0.7) AS judge_passes_07,
+            COUNT(DISTINCT j.judge_call_id) AS judge_calls
+        FROM {target}.eval_runs AS r
+        LEFT JOIN {target}.eval_cases AS c ON c.eval_run_id = r.eval_run_id
+        LEFT JOIN {target}.eval_observations AS o ON o.eval_case_id = c.eval_case_id
+        LEFT JOIN {target}.eval_judge_calls AS j ON j.eval_case_id = c.eval_case_id
+        GROUP BY 1, 2
+        """,
     ]
 
 
