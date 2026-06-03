@@ -14,7 +14,6 @@ PubMed is best for:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import xml.etree.ElementTree as ET

@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from ..models import CandidateResult, ProviderWarning, WebSearchResponse, WebSearchResult
+from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..telemetry import record_domain_diversity
 from ..utils.diagnostics import Diagnostics

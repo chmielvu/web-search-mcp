@@ -160,7 +160,7 @@ class ResultMemoryStore:
             )
             return []
 
-        now = time.time()
+        time.time()
         scored: list[tuple[float, int, dict[str, Any]]] = []
         for rank, hit in enumerate(hits):
             payload: dict[str, Any] = hit.payload or {}

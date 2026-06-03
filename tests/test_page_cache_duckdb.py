@@ -125,7 +125,6 @@ class TestPageCacheDuckDB(unittest.TestCase):
 
     def test_uses_separate_duckdb_not_analytics(self) -> None:
         from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
-        from kindly_web_search_mcp_server.settings import settings
 
         with tempfile.TemporaryDirectory() as tmp:
             page_path = str(Path(tmp) / "page_cache.duckdb")

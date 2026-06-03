@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 from kindly_web_search_mcp_server.content.youtube import (
     YouTubeError,
-    YouTubeTarget,
     parse_youtube_url,
     extract_video_id,
     fetch_transcript_data,

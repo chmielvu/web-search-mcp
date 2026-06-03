@@ -6,7 +6,6 @@ Penalties for version/repo mismatch; boost for exact package etc.
 
 from __future__ import annotations
 
-import pytest
 
 from kindly_web_search_mcp_server.entity.models import EntitySpan
 from kindly_web_search_mcp_server.entity.overlap import compute_entity_overlap

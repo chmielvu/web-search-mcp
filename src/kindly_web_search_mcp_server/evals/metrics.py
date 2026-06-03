@@ -192,3 +192,5 @@ def duplicate_url_rate(candidates: list[dict[str, object]] | list[str]) -> float
 
 def candidate_count_delta(before: int, after: int) -> int:
     return before - after
+
+

@@ -6,13 +6,11 @@ augment (not replace) the regex-based must_keep_terms.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from kindly_web_search_mcp_server.entity.models import EntitySpan
 from kindly_web_search_mcp_server.search.query_policy import (
-    RewritePolicy,
     classify_search_query,
     _extract_must_keep_terms,
 )
@@ -47,7 +45,7 @@ def test_entities_do_not_delete_regex_literals():
     assert any("--verbose" in t for t in policy.must_keep_terms)
     assert any("exact literal" in t for t in policy.must_keep_terms)
 
-    ents = [EntitySpan(text="owner/repo", label="repo_ref", start=0, end=10, confidence=0.95)]
+    [EntitySpan(text="owner/repo", label="repo_ref", start=0, end=10, confidence=0.95)]
     # after augment, the regex ones like --verbose and quoted must remain
     # (the impl must not clobber the list)
     # This will be asserted via full flow in orchestrator tests too.
@@ -69,7 +67,7 @@ async def test_query_entities_extracted_once_before_rewrite(monkeypatch):
         EntitySpan(text="TypeError", label="error_class", start=8, end=17, confidence=0.88),
     ]
     # Pre-impl classify
-    p = classify_search_query(q)
+    classify_search_query(q)
     # Post will include entity texts in must_keep_terms
     p2 = classify_search_query(q, entities=ents)
     must = [t.lower() for t in p2.must_keep_terms]

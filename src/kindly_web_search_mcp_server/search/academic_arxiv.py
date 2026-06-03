@@ -11,7 +11,6 @@ Uses the arxiv Python SDK (pip install arxiv):
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import arxiv
 

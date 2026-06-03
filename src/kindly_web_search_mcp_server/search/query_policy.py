@@ -106,7 +106,6 @@ def _extract_must_keep_terms(
     - Plus (when provided) entity texts from GLiNER on the *original* query.
       Entity terms augment; regex literals are never deleted.
     """
-    from ..entity.models import EntitySpan  # local to avoid circular at import time
 
     terms: list[str] = []
 

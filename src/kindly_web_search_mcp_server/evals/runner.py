@@ -12,7 +12,6 @@ import logging
 import time
 import uuid
 from datetime import datetime, UTC
-from pathlib import Path
 from typing import Any
 
 from ..analytics.evals import ensure_eval_tables
@@ -295,7 +294,7 @@ def run_dataset(
     suite_name: str = "joint-quality",
 ) -> list[dict[str, Any]]:
     """Run multiple cases. Returns list of summaries."""
-    run_id = _insert_eval_run(suite_name, notes={"num_cases": len(cases)})
+    _insert_eval_run(suite_name, notes={"num_cases": len(cases)})
     summaries = []
     for case in cases:
         try:

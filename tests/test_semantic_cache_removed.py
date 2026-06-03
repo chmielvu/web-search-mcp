@@ -32,17 +32,13 @@ class TestSemanticCacheRemoved(unittest.TestCase):
     def test_removed_cache_symbols_cannot_be_imported(self) -> None:
         """Direct imports of deleted semantic symbols must fail."""
         with self.assertRaises(ImportError):
-            from kindly_web_search_mcp_server.cache import SemanticCacheStore  # type: ignore[attr-defined]
+            pass  # type: ignore[attr-defined]
 
         with self.assertRaises(ImportError):
-            from kindly_web_search_mcp_server.cache import (  # type: ignore[attr-defined]
-                get_semantic_cache,
-            )
+            pass
 
         with self.assertRaises(ImportError):
-            from kindly_web_search_mcp_server.cache import (  # type: ignore[attr-defined]
-                set_semantic_cache,
-            )
+            pass
 
         # Also via top level cache
         with self.assertRaises(AttributeError):

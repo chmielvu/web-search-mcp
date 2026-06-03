@@ -57,7 +57,7 @@ def test_offset_correction_pattern():
     """Tests the offset correction pattern used by gliner client and integrators."""
     raw = "Header text here. Package FastAPI v0.100.0 is mentioned after this point in the document."
     chunk_offset = 18  # simulate second chunk starting here
-    chunk = raw[chunk_offset:]
+    raw[chunk_offset:]
     # Simulated local entities returned by model on the *chunk* text only
     local_entities = [
         EntitySpan(text="FastAPI", label="package", start=8, end=15, confidence=0.92),

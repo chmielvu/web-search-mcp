@@ -14,12 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from kindly_web_search_mcp_server.entity.gliner_client import (
-    GLiNER2Client,
     get_gliner_client,
     is_entity_extraction_enabled,
 )
@@ -47,7 +46,7 @@ def test_is_entity_extraction_enabled_defaults_false(monkeypatch):
     """Default must be disabled (explicit opt-in)."""
     monkeypatch.delenv("KINDLY_ENTITY_EXTRACTION_ENABLED", raising=False)
     # fresh settings
-    s = Settings()
+    Settings()
     # The setting is populated in __post_init__ or directly; check helper
     assert is_entity_extraction_enabled() is False
 

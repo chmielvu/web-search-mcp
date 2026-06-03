@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 
 def test_strict_json_parser_handles_pure_and_fenced():
