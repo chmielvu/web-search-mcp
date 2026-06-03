@@ -289,6 +289,27 @@ class Settings:
     # Default num_results for web_search
     default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
 
+    # =====================================================================
+    # Result Memory (Qdrant local store) - Phase 7
+    # =====================================================================
+    # Injects historical candidates (from semantically similar past queries)
+    # as a lower-weight virtual provider list into RRF merge.
+    # Uses Qdrant :memory: or persistent path. Collection per (embed model, dim).
+    # No LanceDB/semantic cache semantics.
+    result_memory_path: str = os.environ.get("KINDLY_RESULT_MEMORY_PATH", "")
+    result_memory_enabled: bool = (
+        os.environ.get("KINDLY_RESULT_MEMORY_ENABLED", "true").lower() == "true"
+    )
+    result_memory_candidate_weight: float = float(
+        os.environ.get("KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT", "0.5")
+    )
+    result_memory_candidate_limit: int = int(
+        os.environ.get("KINDLY_RESULT_MEMORY_CANDIDATE_LIMIT", "5")
+    )
+    result_memory_min_similarity: float = float(
+        os.environ.get("KINDLY_RESULT_MEMORY_MIN_SIMILARITY", "0.65")
+    )
+
     # FastMCP tool visibility profile
     tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "default")
 
@@ -485,6 +506,22 @@ class Settings:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. "
                 "Set KINDLY_RRF_K env var to a positive integer."
+            )
+
+        # Result memory validation (Phase 7)
+        if not (0.0 <= self.result_memory_candidate_weight <= 5.0):
+            raise ValueError(
+                f"result_memory_candidate_weight must be in [0, 5], got {self.result_memory_candidate_weight!r}. "
+                "Set KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT env var."
+            )
+        if self.result_memory_candidate_limit < 0:
+            raise ValueError(
+                f"result_memory_candidate_limit must be >= 0, got {self.result_memory_candidate_limit!r}."
+            )
+        if not (0.0 <= self.result_memory_min_similarity <= 1.0):
+            raise ValueError(
+                f"result_memory_min_similarity must be in [0, 1], got {self.result_memory_min_similarity!r}. "
+                "Set KINDLY_RESULT_MEMORY_MIN_SIMILARITY env var."
             )
 
         # OTel / Observability validation
