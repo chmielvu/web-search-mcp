@@ -4,8 +4,6 @@ import logging
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
-from mcp.types import ToolAnnotations
-
 from opentelemetry import trace
 
 from kindly_web_search_mcp_server.errors import classify_error
@@ -13,7 +11,10 @@ from kindly_web_search_mcp_server.telemetry import (
     record_mcp_tool_call,
     record_tool_details,
 )
-from kindly_web_search_mcp_server.utils.observability import emit_tool_observability_event
+from kindly_web_search_mcp_server.tools.catalog import tool_kwargs
+from kindly_web_search_mcp_server.utils.observability import (
+    emit_tool_observability_event,
+)
 
 from .models import AgenticResearchRequest
 from .runner import run_agentic_web_research
@@ -22,14 +23,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def register_agentic_web_research_tools(mcp: object) -> None:
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Agentic Web Research",
-            readOnlyHint=True,
-            idempotentHint=False,
-            openWorldHint=True,
-        )
-    )
+    @mcp.tool(**tool_kwargs("agentic_web_research"))
     async def agentic_web_research(
         query: str,
         research_goal: str | None = None,
@@ -68,7 +62,9 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 research_goal=research_goal,
                 depth=depth,
             )
-            record_mcp_tool_call("agentic_web_research", success=True)  # will be overwritten on error path
+            record_mcp_tool_call(
+                "agentic_web_research", success=True
+            )  # will be overwritten on error path
 
             try:
                 result = await run_agentic_web_research(
@@ -113,9 +109,16 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 run_limit=getattr(result, "run_limit", 0),
                 answer_preview=(getattr(result, "answer", "") or "")[:400],
                 # Full complex data lives in payload_json (views/reports already json_extract answers/sources)
-                sources=[s.model_dump() if hasattr(s, "model_dump") else dict(getattr(s, "__dict__", {})) for s in result.sources[:3]],
+                sources=[
+                    s.model_dump()
+                    if hasattr(s, "model_dump")
+                    else dict(getattr(s, "__dict__", {}))
+                    for s in result.sources[:3]
+                ],
                 tool_trace=result.tool_trace,
-                knowledge_graph_summary=result.knowledge_graph_summary.model_dump() if hasattr(result.knowledge_graph_summary, "model_dump") else dict(getattr(result.knowledge_graph_summary, "__dict__", {})),
+                knowledge_graph_summary=result.knowledge_graph_summary.model_dump()
+                if hasattr(result.knowledge_graph_summary, "model_dump")
+                else dict(getattr(result.knowledge_graph_summary, "__dict__", {})),
             )
             record_tool_details(
                 tool_name="agentic_web_research",
@@ -134,11 +137,18 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 current = trace.get_current_span()
                 if current:
                     current.set_attribute("agent.depth", depth)
-                    current.set_attribute("agent.model", getattr(result, "model", "unknown"))
+                    current.set_attribute(
+                        "agent.model", getattr(result, "model", "unknown")
+                    )
                     current.set_attribute("agent.tool_calls_count", tool_calls_count)
                     current.set_attribute("agent.sources_count", sources_count)
-                    current.set_attribute("agent.uncertainties_count", uncertainties_count)
-                    current.set_attribute("agent.duration_seconds", getattr(result, "duration_seconds", 0.0))
+                    current.set_attribute(
+                        "agent.uncertainties_count", uncertainties_count
+                    )
+                    current.set_attribute(
+                        "agent.duration_seconds",
+                        getattr(result, "duration_seconds", 0.0),
+                    )
             except Exception:
                 pass
 

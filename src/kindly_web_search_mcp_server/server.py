@@ -41,7 +41,6 @@ from fastmcp import FastMCP
 from fastmcp.dependencies import CurrentContext  # For context injection
 from fastmcp.prompts import Message
 from fastmcp.server.context import Context  # Context type
-from mcp.types import ToolAnnotations  # For tool annotations
 
 from .models import (
     BatchGetContentResponse,
@@ -84,6 +83,8 @@ from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
+from .tools.catalog import tool_kwargs
+from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
 from .utils.diagnostics import (
     Diagnostics,
@@ -467,14 +468,7 @@ def _apply_domain_filters(
     return results
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Web Search",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("web_search"))
 async def web_search(
     query: str,
     research_goal: str,
@@ -860,14 +854,7 @@ async def web_search(
         return response
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Get Content",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("get_content"))
 async def get_content(
     url: str,
     char_offset: int = 0,
@@ -1129,14 +1116,7 @@ async def get_content(
     return response
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Batch Get Content",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("batch_get_content"))
 async def batch_get_content(
     urls: list[str] | None = None,
     max_concurrency: int = 4,
@@ -1305,14 +1285,7 @@ async def batch_get_content(
     return response
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Discover Links",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("discover_links"))
 async def discover_links(
     url: str,
     max_links: int = 100,
@@ -1396,14 +1369,7 @@ async def discover_links(
     return response
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Gemini Search",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("gemini_search"))
 async def gemini_search(
     query: str,
     structured_output: bool = False,
@@ -1515,14 +1481,7 @@ async def gemini_search(
         raise
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Perplexity Search",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("perplexity_search"))
 async def perplexity_search(
     query: str,
     depth: str = "normal",
@@ -1674,14 +1633,7 @@ async def perplexity_search(
 # ============================================================================
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Grok Search",
-        readOnlyHint=True,
-        idempotentHint=False,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("grok_search"))
 async def grok_search(
     query: str,
     research_goal: str,
@@ -1825,14 +1777,7 @@ async def grok_search(
         return format_tool_error(e, provider="grok_openrouter")
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="YouTube Transcript",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("youtube_transcript"))
 async def youtube_transcript(
     video_id_or_url: str,
     language: str | None = None,
@@ -1998,14 +1943,7 @@ async def youtube_transcript(
         }
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="YouTube Search",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("youtube_search"))
 async def youtube_search(
     query: str,
     num_results: int = 5,
@@ -2087,14 +2025,7 @@ async def youtube_search(
         return format_tool_error(e, provider="youtube")
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(
-        title="Academic Search",
-        readOnlyHint=True,
-        idempotentHint=True,
-        openWorldHint=True,
-    )
-)
+@mcp.tool(**tool_kwargs("academic_search"))
 async def academic_search(
     query: str,
     limit: int = 5,
@@ -2674,3 +2605,6 @@ def suggest_tool_prompt(task: str) -> list[Message]:
             "If multiple tools should be used in sequence, describe the full chain.",
         ),
     ]
+
+
+apply_tool_profile(mcp, settings.tool_profile)

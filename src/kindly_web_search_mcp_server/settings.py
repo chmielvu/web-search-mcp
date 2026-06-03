@@ -291,6 +291,9 @@ class Settings:
     # Default num_results for web_search
     default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
 
+    # FastMCP tool visibility profile
+    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "default")
+
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
     # Env vars retain "WEB_SEARCH" prefix for backward compatibility
@@ -349,7 +352,8 @@ class Settings:
         os.environ.get("KINDLY_LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
     )
     langfuse_mcp_auth_header: str = os.environ.get(
-        "LANGFUSE_MCP_AUTH_HEADER", os.environ.get("KINDLY_LANGFUSE_MCP_AUTH_HEADER", "")
+        "LANGFUSE_MCP_AUTH_HEADER",
+        os.environ.get("KINDLY_LANGFUSE_MCP_AUTH_HEADER", ""),
     )
 
     # =====================================================================
@@ -518,6 +522,9 @@ class Settings:
                 )
         if self.observability_max_items < 1:
             raise ValueError("observability_max_items must be >= 1.")
+        from .tools.profiles import normalize_tool_profile
+
+        self.tool_profile = normalize_tool_profile(self.tool_profile)
 
 
 settings = Settings()
