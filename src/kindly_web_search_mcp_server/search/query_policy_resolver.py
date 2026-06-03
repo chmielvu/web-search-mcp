@@ -14,20 +14,13 @@ async def resolve_query_routing(
     query: str,
     *,
     diagnostics: Diagnostics | None = None,
+    entities: list | None = None,
 ) -> RewritePolicy:
     """Resolve query routing policy based on precision signal detection.
 
-    Simple: detect literals → bypass, otherwise → expand.
-    No intent classification, no HF Space calls.
-
-    Args:
-        query: Raw query string
-        diagnostics: Optional diagnostics emitter
-
-    Returns:
-        RewritePolicy with bypass/expand mode
+    Entities (GLiNER on original query only) are forwarded to augment must-keep.
     """
-    policy = classify_search_query(query)
+    policy = classify_search_query(query, entities=entities)
 
     if diagnostics:
         diagnostics.emit(

@@ -24,7 +24,8 @@ from .options import SearchOptions
 from .merge import merge_search_results
 from .normalize import canonicalize_url, normalize_query
 from .provider_config import diagnose_providers, resolve_providers_for_search
-from .query_policy import RewriteMode, RewritePolicy
+from .query_policy import RewriteMode, RewritePolicy, classify_search_query
+from ..entity.models import EntitySpan  # for type in sig (optional dep ok)
 from .query_rewrite import rewrite_search_query
 from .query_rewrite_models import (
     COMMUNITY_PROVIDER_NAMES,
@@ -82,6 +83,7 @@ async def run_web_search(
     providers: list[str] | None = None,
     research_goal: str | None = None,
     search_options: SearchOptions | None = None,
+    query_entities: list[EntitySpan] | None = None,
 ) -> WebSearchResponse:
     """Execute web search with optional query rewriting.
 
@@ -98,6 +100,9 @@ async def run_web_search(
         diagnostics: Optional diagnostics emitter
         providers: Optional list of specific providers to use
         research_goal: Optional context/goal from client to guide query optimization
+        query_entities: Pre-extracted entities from the original (raw) query only.
+            Used to augment must-keep terms in rewrite policy. Extraction happens
+            exactly once in the web_search server entrypoint.
 
     Returns:
         WebSearchResponse with merged and reranked results
@@ -106,7 +111,11 @@ async def run_web_search(
     requested_count = _resolve_requested_result_count(
         num_results, search_options.result_offset if search_options else 0
     )
-    rewrite_policy = RewritePolicy(mode="bypass", reason="Rewrite disabled by caller.")
+    # If no rewrite path, still let entities influence the (bypass) policy
+    if not rewrite and query_entities:
+        rewrite_policy = classify_search_query(normalized_query, entities=query_entities)
+    else:
+        rewrite_policy = RewritePolicy(mode="bypass", reason="Rewrite disabled by caller.")
     active_provider_names = [
         config.name for config in resolve_providers_for_search(providers)
     ]
@@ -119,6 +128,7 @@ async def run_web_search(
                     diagnostics=diagnostics,
                     research_goal=research_goal,
                     providers=providers,
+                    entities=query_entities,
                 ),
                 timeout=15.0,
             )

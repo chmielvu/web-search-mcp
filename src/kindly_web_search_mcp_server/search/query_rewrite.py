@@ -50,10 +50,11 @@ async def rewrite_search_query(
     diagnostics: Diagnostics | None = None,
     research_goal: str | None = None,
     providers: list[str] | None = None,
+    entities: list | None = None,
 ) -> QueryRewritePlan:
     start_time = time.time()
     normalized_query = normalize_query(query)
-    policy = await resolve_query_routing(query, diagnostics=diagnostics)
+    policy = await resolve_query_routing(query, diagnostics=diagnostics, entities=entities)
     max_variants = max(1, min(settings.query_rewrite_max_variants, 3))
     record_query_length(len(query), policy=policy.mode)
 

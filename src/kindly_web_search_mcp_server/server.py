@@ -79,6 +79,9 @@ from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
+from .entity.gliner_client import get_gliner_client, is_entity_extraction_enabled
+from .entity.default_schema import DEFAULT_QUERY_LABELS
+from .entity.models import EntitySpan
 from .tools.catalog import tool_kwargs
 from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
@@ -581,6 +584,40 @@ async def web_search(
 
         # 1. Exact query cache lookup (fastest, deterministic)
         normalized_query = normalize_query(query)
+
+        # Entity extraction for query must-keep (Phase 8.1): exactly once on the
+        # original user query, before any rewrite or variant generation.
+        # Results (if any) are passed down to query policy + orchestrator.
+        # Extraction is fully optional/lazy; disabled by default + emits on error.
+        query_entities: list[EntitySpan] = []
+        if is_entity_extraction_enabled():
+            try:
+                gliner = get_gliner_client()
+                query_entities = await gliner.extract_entities(
+                    query,  # use raw for better surface forms; normalize inside if needed
+                    labels=DEFAULT_QUERY_LABELS,
+                )
+                emit_observability_event(
+                    LOGGER,
+                    "entity.query_extracted",
+                    query=query,
+                    count=len(query_entities),
+                    labels=[e.label for e in query_entities],
+                    enabled=True,
+                )
+            except Exception as exc:  # explicit, never silent when enabled
+                emit_observability_event(
+                    LOGGER,
+                    "entity.extraction.error",
+                    query=query,
+                    error=str(exc)[:300],
+                    failure_mode="query_extract_failed",
+                    retryable=False,
+                    component="web_search_entity",
+                )
+                LOGGER.warning("Query entity extraction failed (enabled): %s", exc)
+                query_entities = []
+
         emit_tool_observability_event(
             LOGGER,
             "web_search",
@@ -702,6 +739,7 @@ async def web_search(
                 providers=providers,
                 research_goal=research_goal,
                 search_options=search_options,
+                query_entities=query_entities,
             )
             _response = _normalize_lightweight_search_response(
                 response_model.model_dump(exclude_none=True),

@@ -18,7 +18,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..utils.observability import emit_observability_event
 from .normalize import normalize_query
+
+import logging
+logger = logging.getLogger(__name__)
 
 # Simplified mode: bypass (preserve literals) or expand (LLM rewrite)
 RewriteMode = Literal["bypass", "expand"]
@@ -87,7 +91,9 @@ class RewritePolicy(BaseModel):
     must_keep_terms: list[str] = Field(default_factory=list)
 
 
-def _extract_must_keep_terms(query: str) -> list[str]:
+def _extract_must_keep_terms(
+    query: str, *, entities: list["EntitySpan"] | None = None
+) -> list[str]:
     """Extract exact literals that must survive any rewriting.
 
     Includes:
@@ -97,7 +103,11 @@ def _extract_must_keep_terms(query: str) -> list[str]:
     - Version numbers
     - Error codes, constants
     - CLI flags, UUIDs, git hashes, IP addresses
+    - Plus (when provided) entity texts from GLiNER on the *original* query.
+      Entity terms augment; regex literals are never deleted.
     """
+    from ..entity.models import EntitySpan  # local to avoid circular at import time
+
     terms: list[str] = []
 
     # Quoted strings (all quote types)
@@ -121,6 +131,22 @@ def _extract_must_keep_terms(query: str) -> list[str]:
     for pattern in _PRECISION_PATTERNS:
         for match in pattern.finditer(query):
             terms.append(match.group(0))
+
+    # GLiNER entities (from original query only) - augment, do not replace or delete regex terms
+    if entities:
+        for e in entities:
+            if getattr(e, "text", None):
+                terms.append(e.text)
+        # Emit here for observability when entities provided to policy (server also emits on extract)
+        try:
+            emit_observability_event(
+                logger,
+                "entity.query_mustkeep_augmented",
+                num_entities=len(entities),
+                added_terms=[e.text for e in entities if getattr(e, "text", None)],
+            )
+        except Exception:
+            pass  # best effort
 
     # Deduplicate with case-insensitive normalization
     seen: set[str] = set()
@@ -158,20 +184,24 @@ def _has_precision_signals(query: str, must_keep_terms: list[str]) -> bool:
     return False
 
 
-def classify_search_query(query: str) -> RewritePolicy:
+def classify_search_query(
+    query: str, *, entities: list["EntitySpan"] | None = None
+) -> RewritePolicy:
     """Classify query as bypass or expand based on precision signals.
 
-    No intent classification - just detect if query contains literals
-    that should be preserved verbatim.
+    Entities (if provided) come from a *single* GLiNER extraction on the original
+    user query (performed in server.py before rewrite). They are used only to
+    augment must_keep_terms.
 
     Args:
         query: Raw query string
+        entities: Optional pre-extracted EntitySpan list for the original query.
 
     Returns:
         RewritePolicy with bypass/expand mode and must_keep_terms
     """
     normalized = normalize_query(query)
-    must_keep_terms = _extract_must_keep_terms(normalized)
+    must_keep_terms = _extract_must_keep_terms(normalized, entities=entities)
 
     if _has_precision_signals(normalized, must_keep_terms):
         return RewritePolicy(
