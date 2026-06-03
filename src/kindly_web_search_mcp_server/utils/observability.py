@@ -6,6 +6,8 @@ import os
 from hashlib import sha256
 from typing import Any
 
+from ..observability.events import PERSISTED_EVENT_PREFIXES
+
 try:
     from opentelemetry import trace
 except Exception:  # pragma: no cover - optional observability dependency
@@ -258,18 +260,7 @@ def _persist_analytics_event(
     payload: dict[str, Any],
     logger: logging.Logger,
 ) -> None:
-    if not event.startswith(
-        (
-            "query.rewrite.",
-            "search.",
-            "provider.",
-            "tool.",
-            "agentic.",
-            "content.",
-            "middleware.",
-            "session.",
-        )
-    ):
+    if not event.startswith(PERSISTED_EVENT_PREFIXES):
         return
 
     try:
