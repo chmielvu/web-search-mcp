@@ -44,6 +44,43 @@ class NoneRerankEngine:
 
 class LocalBaselineRerankEngine(NoneRerankEngine):
     engine_id = "local_baseline"
+    default_model = "ms-marco-MiniLM-L-12-v2"
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: list[RerankCandidate],
+        *,
+        model: str | None = None,
+    ) -> list[RerankResult]:
+        try:
+            from flashrank import Ranker, RerankRequest  # type: ignore
+        except Exception:
+            logger.debug("flashrank not installed; local_baseline falls back to merged order")
+            return []
+
+        model_name = model or self.default_model
+        try:
+            # Ranker may download on first use; keep timeout friendly
+            ranker = Ranker(model_name=model_name, cache_dir=None)
+            passages = [
+                {"id": i, "text": c.document, "meta": {"index": c.index}}
+                for i, c in enumerate(candidates)
+            ]
+            req = RerankRequest(query=query, passages=passages)
+            # flashrank rerank is sync
+            import asyncio
+            results = await asyncio.to_thread(ranker.rerank, req)
+            out: list[RerankResult] = []
+            for r in results or []:
+                idx = r.get("meta", {}).get("index", r.get("id", 0))
+                score = float(r.get("score", 0.0))
+                out.append(RerankResult(index=int(idx), score=score))
+            return out
+        except Exception as exc:
+            logger.warning("local_baseline flashrank failed: %s; preserving order", exc)
+            return []
+
 
 
 class VoyageRerankEngine:
@@ -128,6 +165,8 @@ def get_default_model(engine_id: str) -> str | None:
         return settings.jina_rerank_model
     if normalized == "gcp_cloudrun":
         return settings.rerank_gcp_model
+    if normalized == "local_baseline":
+        return LocalBaselineRerankEngine.default_model
     return None
 
 
