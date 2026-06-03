@@ -56,6 +56,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+eval = ["mcpevals"]
 pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
     "pymupdf4llm>=0.2.7; python_version < '3.14'",
