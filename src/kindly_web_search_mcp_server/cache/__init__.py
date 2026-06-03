@@ -22,10 +22,12 @@ from .semantic_cache import get_semantic_cache, set_semantic_cache
 from .store import SemanticCacheStore
 from .query_cache import (
     ExactQueryCache,
+    QUERY_CACHE_DEFAULT_MAX_ENTRIES,
     QUERY_CACHE_DEFAULT_TTL_SECONDS,
     get_query_cache,
     provider_cache_key,
 )
+from .exact_lru import ExactLRUCache
 from .page_cache import PageCache, get_page_cache, PAGE_CACHE_DEFAULT_TTL_SECONDS
 
 __all__ = [
@@ -46,8 +48,10 @@ __all__ = [
     "ADAPTIVE_TTL_SECONDS",
     # Exact query cache
     "ExactQueryCache",
+    "ExactLRUCache",
     "get_query_cache",
     "provider_cache_key",
+    "QUERY_CACHE_DEFAULT_MAX_ENTRIES",
     "QUERY_CACHE_DEFAULT_TTL_SECONDS",
     # Page cache
     "PageCache",

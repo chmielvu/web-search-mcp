@@ -15,23 +15,14 @@ class TestCacheObservability(unittest.TestCase):
         from kindly_web_search_mcp_server.cache.query_cache import ExactQueryCache
 
         cache = ExactQueryCache(db_path="unused")
-        table = MagicMock()
-        table.search.return_value.where.return_value.limit.return_value.to_list.return_value = [
-            {
-                "created_at": "2026-06-02T00:00:00+00:00",
-                "ttl_seconds": 86400,
-                "response_json": json.dumps({"results": [1]}),
-            }
-        ]
-        cache._get_table = MagicMock(return_value=table)  # type: ignore[method-assign]
 
         with patch(
             "kindly_web_search_mcp_server.cache.query_cache.emit_cache_lookup_event"
         ) as emit_lookup, patch(
             "kindly_web_search_mcp_server.cache.query_cache.emit_cache_store_event"
         ) as emit_store:
-            cache.lookup("fastmcp", 10, False)
             cache.store("fastmcp", 10, False, {"results": [1]})
+            cache.lookup("fastmcp", 10, False)
 
         self.assertEqual(emit_lookup.call_args.args[1], "exact")
         self.assertEqual(emit_lookup.call_args.args[2], "hit")
