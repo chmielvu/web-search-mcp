@@ -160,6 +160,7 @@ def decide_rerank(
         query_type=qtype,
         candidate_count=candidate_count,
         engine_health=health,
+        details={"entity_overlap_enabled": bool(getattr(settings, "rerank_entity_overlap_enabled", False))},
     )
     emit_observability_event(
         logger,

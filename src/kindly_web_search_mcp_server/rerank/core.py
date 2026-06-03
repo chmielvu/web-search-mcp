@@ -69,8 +69,13 @@ async def rerank_results(
     top_k: int = 10,
     *,
     searxng_time_range: str | None = None,
+    query_entities: list | None = None,
 ) -> list[WebSearchResult]:
-    """Rerank web search results with bi-encoder, provider, and diversity stages."""
+    """Rerank web search results with bi-encoder, provider, and diversity stages.
+
+    query_entities (if provided) enables the measured entity-overlap feature
+    when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
+    """
     if not candidates:
         return []
 
@@ -221,6 +226,35 @@ async def rerank_results(
                 )
 
             candidates = [candidates[item.index] for item in sorted_ranked]
+
+            # Entity overlap as measured rerank signal (Phase 8.3)
+            # Blended only when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED; additive on top of
+            # cross-encoder + recency. Weight controlled in settings. Emits for dashboards.
+            if getattr(settings, "rerank_entity_overlap_enabled", False) and query_entities:
+                try:
+                    from ..entity.overlap import compute_entity_overlap
+
+                    w = float(getattr(settings, "rerank_entity_overlap_weight", 0.15))
+                    os_list: list[float] = []
+                    for c in candidates[: min(20, len(candidates))]:
+                        c_ents = getattr(c, "entities", None) or []
+                        o = compute_entity_overlap(query_entities, c_ents if isinstance(c_ents, (list, tuple)) else [])
+                        os_list.append(o)
+                        if getattr(c, "score", None) is not None:
+                            c.score = float(c.score) + (w * o)
+                    if os_list:
+                        emit_observability_event(
+                            logger,
+                            "rerank.entity_overlap",
+                            query=query,
+                            mean_overlap=sum(os_list) / len(os_list),
+                            min_overlap=min(os_list),
+                            max_overlap=max(os_list),
+                            weight=w,
+                            enabled=True,
+                        )
+                except Exception as exc:
+                    logger.debug("entity overlap rerank (measured) skipped: %s", exc)
             relevance_scores = [
                 c.score
                 for c in candidates[: min(10, len(candidates))]
