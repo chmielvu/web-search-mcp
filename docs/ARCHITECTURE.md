@@ -1,11 +1,11 @@
 <!-- generated-by: gsd-doc-writer -->
 # Architecture Overview
 
-The Kindly Web Search MCP Server is a Model Context Protocol (MCP) server designed for AI coding assistants. It provides multi-provider web search with weighted RRF merge, staged content extraction, semantic caching, and comprehensive OpenTelemetry observability for LLM-ready information retrieval.
+The Kindly Web Search MCP Server is a Model Context Protocol (MCP) server designed for AI coding assistants. It provides multi-provider web search with weighted RRF merge, staged content extraction, exact LRU + DuckDB page + Qdrant result-memory caching (no LanceDB/semantic), entity extraction (optional GLiNER2), rerank engine abstraction, FastMCP tool profiles + search transform, and comprehensive OpenTelemetry + DuckDB + Langfuse + Grafana observability + offline mcpevals/LLM-judge evals for LLM-ready information retrieval.
 
 ## System Overview
 
-The server exposes **9 MCP tools**, **3 resources**, and **3 prompts** through the FastMCP framework. It operates as a stateless service with three-tier caching for performance optimization. The architecture follows a pipeline pattern: query policy classification → provider-aware query rewrite → multi-provider search → weighted RRF merge → reranking → lightweight result return. Content extraction is handled separately via staged fallback through specialized loaders.
+The server exposes a dynamic set of MCP tools (via FastMCP profiles: default/research/media/etc and optional RegexSearchTransform) through the FastMCP framework. It operates as a stateless service with exact LRU query cache, DuckDB page cache, and Qdrant result memory (entity-enriched). The architecture follows a pipeline pattern (post Phase 9/10): request → exact LRU → entity extraction → result memory lookup → rewrite → provider search → RRF merge → rerank policy → rerank engine → result memory store → response. Content extraction is handled separately via staged fallback through specialized loaders. AI search tools (gemini/perplexity) and eval/judge harness run outside the hot path.
 
 ```mermaid
 flowchart TD
@@ -35,11 +35,12 @@ flowchart TD
     end
 
     subgraph SearchPipeline
-        QP[Query Policy<br>Precision Signal Detection]
+        QP[Query Policy<br>(+ entity must-keep terms)]
         QR[Query Rewrite<br>Mistral/Cerebras/Groq Router]
         PROVIDERS[Search Providers<br>SearXNG/DDG/Gemini/Tavily/Brave/Jina/Composio]
-        RRF[Weighted RRF Merge<br>k=60 + provider weights]
-        RERANK[Reranking Pipeline<br>Bi-encoder + Voyage 2.5 + MMR Diversity]
+        RRF[Weighted RRF Merge<br>k=60 + provider weights + result_memory virtual list]
+        RERANK_POLICY[Rerank Policy<br>bypass for literal/navigational/low-count]
+        RERANK[Rerank Engine Abstraction<br>voyage/jina/gcp/local_minilm/none + entity-overlap feature (measured)]
     end
 
     subgraph ContentPipeline
@@ -54,9 +55,9 @@ flowchart TD
     end
 
     subgraph Caching
-        EQC[Exact Query Cache<br>LanceDB + SHA256 key]
-        SMC[Semantic Cache<br>LanceDB + Embeddings]
-        PC[Page Cache<br>LanceDB URL cache]
+        EQC[Exact Query Cache<br>in-memory LRU (exact_lru + query_cache)]
+        PC[Page Cache<br>DuckDB per-URL (page_duckdb)]
+        RM[Result Memory<br>Qdrant local (result_memory) + entity overlap]
     end
 
     subgraph Observability
@@ -70,13 +71,16 @@ flowchart TD
     Middleware --> Tools
 
     WS --> EQC
-    EQC --> SMC
-    SMC --> QP
+    EQC --> ENTITY[Entity Extraction<br>(optional GLiNER2 + overlap)]
+    ENTITY --> RM_LOOKUP[Result Memory Lookup]
+    RM_LOOKUP --> QP
     QP --> QR
     QR --> PROVIDERS
     PROVIDERS --> RRF
-    RRF --> RERANK
-    RERANK --> WS
+    RRF --> RERANK_POLICY[ Rerank Policy<br>(bypass/eligibility) ]
+    RERANK_POLICY --> RERANK
+    RERANK --> RM_STORE[Result Memory Store<br>(survivors + entities)]
+    RM_STORE --> WS
 
     GC --> PC
     PC --> RESOLVER
@@ -208,8 +212,8 @@ Returns `has_more` and `cursor` for pagination across multiple calls.
    ├─ Voyage reranker 2.5 (primary cross-encoder)
    ├─ Jina reranker v3 (fallback cross-encoder)
    └─ MMR diversity pruning (threshold 0.85)
-9. Cache write (L1 exact + L2 semantic, fire-and-forget)
-10. Return lightweight results (title, link, snippet, provider_count)
+9. Result memory store (survivors after rerank + entity spans)
+10. Return lightweight results (title, link, snippet, provider_count, optional entities)
 ```
 
 ### Provider Modes
@@ -317,47 +321,40 @@ _ARXIV_RE = re.compile(r"^(?:/abs|/pdf)/(\d+\.\d+|[\w\-]+/\d+)(?:\.pdf)?$")
 
 ## Caching Strategy
 
-### Three-Tier Architecture
+### Three-Tier Architecture (post semantic removal)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    L1: Exact Query Cache                     │
+│                    L1: Exact Query Cache (LRU)               │
 │  ─────────────────────────────────────────────────────────── │
-│  • LanceDB backend + SHA256 composite key                    │
-│  • Key: query|num_results|rewrite|mode|providers_key         │
-│  • TTL: 24 hours                                             │
-│  • Fastest lookup: deterministic hash match                  │
+│  • In-memory OrderedDict LRU (cache/exact_lru.py)            │
+│  • Key: sha256(query|num|rewrite|mode|providers)             │
+│  • TTL + max_entries eviction                                │
+│  • Fastest lookup: deterministic, no disk                    │
 └─────────────────────────────────────────────────────────────┘
                            ↓ Miss
 ┌─────────────────────────────────────────────────────────────┐
-│                   L2: Semantic Cache                         │
+│              L2: Result Memory (Qdrant + entities)           │
 │  ─────────────────────────────────────────────────────────── │
-│  • LanceDB vector store + hybrid search                      │
-│  • Embedding: granite-embedding-97m-multilingual (384 dim)   │
-│  • Similarity threshold: 0.92 (configurable)                 │
-│  • Adaptive TTL by content type                              │
+│  • Qdrant local (:memory: or .kindly/result_memory)          │
+│  • Historical (query, results) vectors + entity spans        │
+│  • Injected as low-weight virtual provider list into RRF     │
+│  • Survival tracked via result_memory.candidate_survived     │
 └─────────────────────────────────────────────────────────────┘
-                           ↓ Miss
+                           ↓ Miss (for content)
 ┌─────────────────────────────────────────────────────────────┐
-│                    L3: Page Cache                            │
+│                    L3: Page Cache (DuckDB)                   │
 │  ─────────────────────────────────────────────────────────── │
-│  • URL → page_content mapping                                │
-│  • LanceDB backend                                           │
-│  • TTL: 7 days (content changes less frequently)             │
-│  • Metadata: extraction_method, word_count                   │
+│  • Separate DuckDB file (.kindly/cache/page_cache.duckdb)    │
+│  • URL-hash key, metadata JSON, TTL                          │
+│  • Locked writes; no contention with analytics DuckDB        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Adaptive TTL by Content Type
+Result memory candidates participate in merge/rerank and can survive to final results (observable).
 
-```python
-ADAPTIVE_TTL_SECONDS = {
-    ContentType.error_debugging: 3600,      # 1 hour - errors get fixed
-    ContentType.docs_api: 21600,            # 6 hours - docs can update
-    ContentType.general: 43200,             # 12 hours - general content
-    ContentType.versioned_factual: 604800,  # 7 days - stable facts
-}
-```
+### No more LanceDB / semantic cache (removed Phase 5.3)
+All LanceDB/semantic symbols, settings (KINDLY_LANCEDB_DIR, KINDLY_SEMANTIC_CACHE_*), and modules (semantic_cache.py, store.py, schema.py) are deleted from runtime. Page cache moved to dedicated DuckDB.
 
 ### SingleFlight Pattern
 
@@ -513,7 +510,7 @@ Environment variables:
 
 - **Provider**: `web_search_provider_calls_total`, `web_search_provider_duration_seconds`
 - **Search**: `web_search_requests_total`, `web_search_duration_seconds`
-- **Cache**: `web_search_cache_requests_total`, `web_search_semantic_cache_score_distribution`
+- **Cache**: `web_search_cache_requests_total`, `web_search_exact_lru_hit_total`, `result_memory.lookup_total` (no semantic)
 - **RRF**: `web_search_rrf_merge_total`, `web_search_rrf_score_distribution`
 - **Rerank**: `web_search_rerank_total`, `web_search_rerank_scores`
 - **Circuit**: `web_search_provider_circuit_state`, `web_search_provider_circuit_events`
@@ -619,13 +616,26 @@ src/kindly_web_search_mcp_server/
 │   ├── fetch.py             # HTTP fetch helpers
 │   └── nodriver_worker.py   # Browser subprocess
 │
-├── cache/                   # Caching layers
-│   ├── query_cache.py       # Exact query cache (L1)
-│   ├── semantic_cache.py    # Semantic similarity (L2)
-│   ├── page_cache.py        # URL → content (L3)
-│   ├── store.py             # LanceDB backend
-│   ├── content_type.py      # Content classification
-│   └── schema.py            # Table schemas
+├── cache/                   # Caching layers (LanceDB/semantic removed)
+│   ├── query_cache.py       # Exact LRU wrapper (L1)
+│   ├── exact_lru.py         # In-memory OrderedDict LRU impl
+│   ├── page_cache.py        # DuckDB page cache wrapper (L3)
+│   ├── page_duckdb.py       # Separate DuckDB backend for pages
+│   ├── result_memory.py     # Qdrant result memory (L2 historical)
+│   ├── content_type.py      # Content classification (for TTLs)
+│   └── observability.py     # Cache event emission
+│
+├── entity/                  # Entity extraction (Phase 6/8)
+│   ├── models.py            # EntitySpan
+│   ├── default_schema.py    # coding/web labels
+│   ├── gliner_client.py     # lazy GLiNER2 (optional extra)
+│   ├── chunk.py
+│   ├── postprocess.py
+│   └── overlap.py
+│
+├── evals/                   # Eval harness + judges (Phase 1/4/9)
+│   ├── cases.py metrics.py judges.py runner.py
+│   └── (offline only; mcpevals + Langfuse + DuckDB)
 │
 ├── embeddings/              # Embedding services
 │   ├── hf_inference.py      # HF Inference Provider client
@@ -677,7 +687,8 @@ All configuration is environment-first via `settings.py`. See [CONFIGURATION.md]
 | `KINDLY_VOYAGE_RERANK_MODEL` | Voyage reranker model | `rerank-2.5` |
 | `KINDLY_ANALYTICS_ENABLED` | DuckDB analytics event capture | `true` |
 | `KINDLY_QUERY_REWRITE_ENABLED` | Query rewrite toggle | `true` |
-| `KINDLY_LANCEDB_DIR` | LanceDB storage path | `./lancedb_data` |
+| `KINDLY_PAGE_CACHE_DUCKDB_PATH` | DuckDB for page cache (separate from analytics) | `.kindly/cache/page_cache.duckdb` |
+| `KINDLY_RESULT_MEMORY_PATH` | Qdrant path or :memory: | `.kindly/result_memory` (empty for in-mem) |
 
 <!-- VERIFY: External service URLs like Grafana Cloud OTLP endpoints are configured via environment variables -->
 <!-- VERIFY: Rate limit values are defaults from settings.py and can be overridden via KINDLY_RATE_LIMIT_* env vars -->

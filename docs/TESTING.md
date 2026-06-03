@@ -592,3 +592,36 @@ pytest
 # With coverage report
 pytest --cov=kindly_web_search_mcp_server --cov-report=term-missing
 ```
+
+## Joint Quality Refactor Verification (Phases 5-10)
+
+Focused commands used for phases and final verification (exact list from plan 2026-06-03-joint...md):
+
+Baseline (Phase 0):
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_server.py tests/test_search_orchestrator.py tests/test_rerank_core.py tests/test_duckdb_analytics.py -q
+.\.venv\Scripts\python.exe -m ruff check src/kindly_web_search_mcp_server/server.py ...
+.\.venv\Scripts\kindly-web-search.exe --help
+```
+
+Phase verification examples:
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_exact_lru_cache.py tests/test_server.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_page_cache_duckdb.py tests/test_page_content_resolver.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_result_memory.py tests/test_observability_events.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_entity_core.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_grafana_dashboard_json.py tests/test_duckdb_analytics.py -q
+.\.venv\Scripts\python.exe -m pytest tests/test_eval_judges.py tests/test_eval_schema.py -q
+```
+
+Final combined (Phase 10.2):
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_server.py tests/test_search_orchestrator.py tests/test_rerank_core.py tests/test_duckdb_analytics.py tests/test_tool_profiles.py tests/test_result_memory.py tests/test_entity_core.py tests/test_eval_schema.py -q
+.\.venv\Scripts\python.exe -m ruff check src tests
+.\.venv\Scripts\python.exe -m compileall -q src
+.\.venv\Scripts\kindly-web-search.exe --help
+rg -n "SemanticCacheStore|get_semantic_cache|set_semantic_cache|semantic_cache_enabled|semantic_cache_min_score|lancedb_dir|import lancedb" src pyproject.toml
+git status --short
+```
+
+All must pass clean before the "test: verify joint quality refactor" commit. Use `uv sync --extra eval` for mcpevals when running judge tests. No legacy semantic symbols in runtime after Phase 5.3.

@@ -73,24 +73,61 @@ Control advanced features with these boolean flags (set to `true` or `false`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDLY_SEMANTIC_CACHE_ENABLED` | `true` | Enable LanceDB-backed semantic similarity cache for queries |
 | `KINDLY_QUERY_REWRITE_ENABLED` | `true` | Enable query expansion and variant generation |
 | `KINDLY_RERANKING_ENABLED` | `true` | Enable provider reranking for search results |
+| `KINDLY_RERANK_ENTITY_OVERLAP_ENABLED` | `false` | Enable measured entity-overlap signal in rerank blend (Phase 8) |
+| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Enable optional GLiNER2 entity extraction (lazy, off by default) |
+| `KINDLY_TOOL_SEARCH_ENABLED` | `false` | Opt-in FastMCP RegexSearchTransform for meta search/call tools |
+| `KINDLY_RESULT_MEMORY_ENABLED` | `false` | Enable Qdrant result memory candidate injection (enable after tests) |
 
 ---
 
-## Semantic Cache
-
-LanceDB-backed fuzzy query matching:
+## Tool Profiles and Search (FastMCP 3.2.4+)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDLY_LANCEDB_DIR` | `./lancedb_data` | Directory for LanceDB semantic cache storage |
-| `KINDLY_SEMANTIC_CACHE_MIN_SCORE` | `0.92` | Minimum similarity score (0.0-1.0) for cache hit |
-| `KINDLY_HF_EMBEDDING_MODEL` | `ibm-granite/granite-embedding-97m-multilingual-r2` | Embedding model used for semantic cache vectors |
-| `KINDLY_EMBEDDING_DIM` | `384` | Expected embedding vector dimension for the active model |
+| `KINDLY_TOOL_PROFILE` | `default` | One of: default\|research\|media\|diagnostic\|experimental\|full. Controls visible tools via tags/profiles. |
+| `KINDLY_TOOL_SEARCH_ENABLED` | `false` | When true, after profile, adds RegexSearchTransform (surfaces docs/URL/YouTube queries to underlying tools). Emits tool_surface.* events. |
 
-The semantic cache table name is derived from the active embedding model and dimension. Changing `KINDLY_HF_EMBEDDING_MODEL` or `KINDLY_EMBEDDING_DIM` creates or opens a different LanceDB table, which prevents vector-dimension collisions with older cache data.
+See docs for visible tools per profile.
+
+---
+
+## Page Cache (DuckDB)
+
+Dedicated DuckDB (no sharing with analytics to avoid write contention).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDLY_PAGE_CACHE_DUCKDB_PATH` | `.kindly/cache/page_cache.duckdb` | Path to page cache DuckDB file |
+| `KINDLY_PAGE_CACHE_TTL_SECONDS` | `604800` (7d) | TTL for URL content |
+
+---
+
+## Result Memory (Qdrant)
+
+Qdrant local mode for historical result injection + entity enrichment.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDLY_RESULT_MEMORY_PATH` | (empty) | Qdrant path (empty => :memory:); set to `.kindly/result_memory` for persistent |
+| `KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT` | `0.6` | list_weight for injected memory candidates in RRF merge |
+| `KINDLY_RESULT_MEMORY_TOP_K` | `20` | Max candidates recalled from memory per query |
+
+Events: result_memory.lookup / store / candidate_injected / candidate_survived
+
+---
+
+## Entity Extraction (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Master switch (lazy import of gliner2 extra) |
+| `KINDLY_GLINER_MODEL` | `fastino/gliner2-base-v1` | HF model for GLiNER2 |
+| `KINDLY_GLINER_THRESHOLD` | `0.3` | Confidence threshold for spans |
+| `KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT` | `0.15` | Weight of entity-overlap feature when rerank entity overlap enabled |
+
+Entities appear in search/content responses only when enabled. Emits entity.* events. No silent failures.
 
 ---
 
@@ -453,11 +490,10 @@ Polite identification for external APIs (recommended):
 
 The server validates at startup:
 - At least one search provider must be configured (`SEARXNG_BASE_URL`, `KINDLY_GEMINI_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`, or `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID`)
-- If `KINDLY_SEMANTIC_CACHE_ENABLED=true`, the LanceDB directory must be writable
-- If `KINDLY_RERANKING_ENABLED=true`, `JINA_API_KEY` must be configured
+- If `KINDLY_RERANKING_ENABLED=true`, `JINA_API_KEY` must be configured (or other engine)
 - If `KINDLY_BROWSER_EXECUTABLE_PATH` is set, the path must point to a valid browser executable
 - `KINDLY_MMR_LAMBDA` must be in range [0.0, 1.0]
-- `KINDLY_SEMANTIC_CACHE_MIN_SCORE` must be in range (0.0, 1.0]
+- `KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT` must be in [-1.0, 1.0] when enabled
 - `KINDLY_RRF_K` must be > 0
 
 ### Example `.env` File
@@ -486,8 +522,11 @@ KINDLY_JINA_MODE=conditional
 KINDLY_GEMINI_SEARCH_MODE=always
 
 # Feature flags
-KINDLY_SEMANTIC_CACHE_ENABLED=true
 KINDLY_QUERY_REWRITE_ENABLED=true
+KINDLY_RERANKING_ENABLED=true
+KINDLY_ENTITY_EXTRACTION_ENABLED=false  # opt-in
+KINDLY_TOOL_SEARCH_ENABLED=false  # opt-in
+KINDLY_RESULT_MEMORY_ENABLED=false  # enable post verification
 KINDLY_RERANKING_ENABLED=true
 
 # Query rewrite (multi-provider load distribution)
