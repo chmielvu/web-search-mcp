@@ -60,6 +60,9 @@ pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
     "pymupdf4llm>=0.2.7; python_version < '3.14'",
 ]
+entity-extraction = [
+    "gliner2>=0.1.0",
+]
 
 [project.scripts]
 mcp-server = "kindly_web_search_mcp_server.server:main"

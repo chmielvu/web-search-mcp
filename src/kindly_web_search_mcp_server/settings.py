@@ -180,6 +180,26 @@ class Settings:
         os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90")
     )
 
+    # Entity extraction (GLiNER2, optional extra, opt-in only)
+    # Per joint plan: explicit disabled by default; error events on failure when enabled.
+    entity_extraction_enabled: bool = (
+        os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
+    )
+    gliner_model: str = os.environ.get(
+        "KINDLY_GLINER_MODEL", "fastino/gliner2-base-v1"
+    )
+    gliner_threshold: float = float(
+        os.environ.get("KINDLY_GLINER_THRESHOLD", "0.5")
+    )
+
+    # Entity overlap feature for rerank (measured only; off by default)
+    rerank_entity_overlap_enabled: bool = (
+        os.environ.get("KINDLY_RERANK_ENTITY_OVERLAP_ENABLED", "false").lower() == "true"
+    )
+    rerank_entity_overlap_weight: float = float(
+        os.environ.get("KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT", "0.15")
+    )
+
     analytics_enabled: bool = (
         os.environ.get("KINDLY_ANALYTICS_ENABLED", "true").lower() == "true"
     )
@@ -501,6 +521,15 @@ class Settings:
             raise ValueError(
                 f"mmr_lambda_param must be in [0, 1], got {self.mmr_lambda_param!r}. "
                 "Set KINDLY_MMR_LAMBDA env var to a value between 0 and 1."
+            )
+        if not 0.0 <= self.gliner_threshold <= 1.0:
+            raise ValueError(
+                f"gliner_threshold must be in [0, 1], got {self.gliner_threshold!r}. "
+                "Set KINDLY_GLINER_THRESHOLD env var."
+            )
+        if not 0.0 <= self.rerank_entity_overlap_weight <= 1.0:
+            raise ValueError(
+                f"rerank_entity_overlap_weight must be in [0, 1], got {self.rerank_entity_overlap_weight!r}."
             )
         if self.rrf_k <= 0:
             raise ValueError(
