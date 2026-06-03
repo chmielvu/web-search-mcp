@@ -1,0 +1,19 @@
+[
+  {
+    "query": "python fastapi",
+    "candidates": [
+      {"index": 0, "title": "FastAPI", "link": "https://ex.com/1", "score": 0.1},
+      {"index": 1, "title": "FastAPI DI", "link": "https://ex.com/gold", "score": 0.2},
+      {"index": 2, "title": "Starlette", "link": "https://ex.com/3", "score": 0.05}
+    ],
+    "gold_links": ["https://ex.com/gold"]
+  },
+  {
+    "query": "git merge",
+    "candidates": [
+      {"index": 0, "title": "Rebase", "link": "https://ex.com/r", "score": 0.9},
+      {"index": 1, "title": "Merge commit", "link": "https://ex.com/g", "score": 0.1}
+    ],
+    "gold_links": ["https://ex.com/g"]
+  }
+]
