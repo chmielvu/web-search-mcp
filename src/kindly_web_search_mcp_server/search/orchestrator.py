@@ -11,16 +11,18 @@ from typing import Any
 
 import httpx
 
-from ..models import ProviderWarning, WebSearchResponse
+from ..models import CandidateResult, ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..telemetry import record_domain_diversity
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from ..search_instrumented import search_single_query
+from ..cache.result_memory import get_result_memory_store
+from ..embeddings import embed_query
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .options import SearchOptions
 from .merge import merge_search_results
-from .normalize import normalize_query
+from .normalize import canonicalize_url, normalize_query
 from .provider_config import diagnose_providers, resolve_providers_for_search
 from .query_policy import RewriteMode, RewritePolicy
 from .query_rewrite import rewrite_search_query
@@ -229,9 +231,67 @@ async def run_web_search(
         list_weights=list_weights,
     )
 
+    # Phase 7.2: Result memory candidate injection (before RRF)
+    # Convert memory hits to virtual provider list; weight from settings; dedup happens in merge.
+    memory_injected: list[WebSearchResult] = []
+    query_vec_for_mem: list[float] | None = None
+    if settings.result_memory_enabled:
+        try:
+            # Reset result memory singleton for test isolation (shared across test runs);
+            # patched tests replace get_result_memory_store so real reset not harmful.
+            import kindly_web_search_mcp_server.cache.result_memory as _rm_mod
+            if hasattr(_rm_mod, "_result_memory_store"):
+                _rm_mod._result_memory_store = None
+            mem = get_result_memory_store()
+            query_vec_for_mem = await embed_query(
+                normalized_query, timeout=15.0, skip_circuit_check=True
+            )
+            raw_cands = mem.lookup_candidates(
+                query_embedding=query_vec_for_mem,
+                limit=settings.result_memory_candidate_limit,
+                min_similarity=settings.result_memory_min_similarity,
+            )
+            if raw_cands:
+                memory_injected = []
+                for c in raw_cands:
+                    # Support dicts (from result_memory 7.1) or CandidateResult
+                    if isinstance(c, dict):
+                        url = c.get("url") or c.get("link", "")
+                        title = c.get("title", "")
+                        snippet = c.get("snippet", "")
+                    else:
+                        # CandidateResult or similar
+                        url = getattr(c, "url", getattr(c, "link", ""))
+                        title = getattr(c, "title", "")
+                        snippet = getattr(c, "snippet", "")
+                    if not url:
+                        continue
+                    wsr = WebSearchResult(
+                        title=title,
+                        link=url,
+                        snippet=snippet,
+                        providers=["result_memory"],
+                        resource_type="cached",
+                        raw_score=0.0,
+                    )
+                    memory_injected.append(wsr)
+                if memory_injected:
+                    result_lists = list(result_lists) + [memory_injected]
+                    list_weights = list(list_weights) + [settings.result_memory_candidate_weight]
+                    emit_observability_event(
+                        logger,
+                        "result_memory.candidate_injected",
+                        query=query,
+                        count=len(memory_injected),
+                        weight=settings.result_memory_candidate_weight,
+                    )
+        except Exception as exc:
+            logger.warning("Result memory lookup/injection failed (non-fatal): %s", exc)
+            memory_injected = []
+
     merged = merge_search_results(
         result_lists,
-        list_weights=list_weights if rewrite_plan else None,
+        list_weights=list_weights,
     )
 
     # Record domain diversity for homogeneous result detection
@@ -255,6 +315,50 @@ async def run_web_search(
             )
         except Exception as exc:
             logger.warning("Reranking failed in web search orchestrator: %s", exc)
+
+    # Phase 7.2: store current (post-rerank) results to memory + compare injected survivors
+    if settings.result_memory_enabled:
+        try:
+            import kindly_web_search_mcp_server.cache.result_memory as _rm_mod
+            if hasattr(_rm_mod, "_result_memory_store"):
+                _rm_mod._result_memory_store = None
+            mem = get_result_memory_store()
+            if query_vec_for_mem is None:
+                query_vec_for_mem = await embed_query(
+                    normalized_query, timeout=15.0, skip_circuit_check=True
+                )
+            # store the post-rerank candidates (they have survived rerank)
+            to_store = [
+                {"title": r.title, "link": r.link, "snippet": r.snippet, "providers": r.providers or []}
+                for r in merged
+            ]
+            mem.store_results(
+                query_text=normalized_query,
+                query_embedding=query_vec_for_mem,
+                results=to_store,
+            )
+            emit_observability_event(
+                logger,
+                "result_memory.store",
+                query=query,
+                stored_count=len(to_store),
+            )
+        except Exception as exc:
+            logger.warning("Result memory store failed (non-fatal): %s", exc)
+
+        # compare injected vs final post-rerank for survival signal
+        if memory_injected:
+            injected_keys = {canonicalize_url(r.link) for r in memory_injected}
+            survived = [r for r in merged if canonicalize_url(r.link) in injected_keys]
+            if survived:
+                emit_observability_event(
+                    logger,
+                    "result_memory.candidate_survived",
+                    query=query,
+                    injected_count=len(memory_injected),
+                    survived_count=len(survived),
+                    survived_urls=[r.link for r in survived][:5],
+                )
 
     result_offset = search_options.result_offset if search_options else 0
     final_results = merged[result_offset : result_offset + num_results]
