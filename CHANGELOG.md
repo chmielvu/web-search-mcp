@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Phase 1.2 eval schema reconciliation: DuckDB eval tables now include `eval_tool_calls`, `eval_candidate_sets`, `eval_scores`, `eval_judge_calls`, and `eval_failures`, plus minimal Pydantic eval case models and deterministic metric helpers for tool-routing, latency, MRR, NDCG, and top-k domain checks.
 - Joint phased implementation plan at `docs/superpowers/plans/2026-06-03-joint-observability-rerank-tools-result-memory.md`, cross-referencing the current TODO plans against live code and current FastMCP/GLiNER2/Qdrant/mcpevals docs. The plan resolves observability, rerank, tool-surface, and entity-aware result-memory contradictions with no backward-compatibility requirement.
 - Three coherent implementation plans consolidated from the observability/rerank/FastMCP/eval design notes: `plans/IN-DESIGN/observability/coherent-reranking-plan-2026-06-03.md`, `plans/IN-DESIGN/observability/coherent-fastmcp-tools-plan-2026-06-03.md`, and `plans/IN-DESIGN/observability/coherent-observability-eval-plan-2026-06-03.md`.
 - Coherent MCP eval and LLM-as-judge framework plan at `plans/IN-DESIGN/observability/mcp-eval-llm-judge-frameworks-research-2026-06-03.md`, selecting `mcp-eval`/`mcpevals` as the only added MCP eval runner and DeepEval as the single role model for custom LLM-as-judge metric design over the existing DuckDB + Langfuse + Grafana stack.

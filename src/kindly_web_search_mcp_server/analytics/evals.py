@@ -66,6 +66,64 @@ def build_eval_table_sql(target: str) -> list[str]:
         )
         """,
         f"""
+        CREATE TABLE IF NOT EXISTS {target}.eval_tool_calls (
+            tool_call_id VARCHAR,
+            eval_run_id VARCHAR,
+            eval_case_id VARCHAR,
+            recorded_at TIMESTAMP,
+            run_key VARCHAR,
+            tool_name VARCHAR,
+            payload_json VARCHAR
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {target}.eval_candidate_sets (
+            candidate_set_id VARCHAR,
+            eval_run_id VARCHAR,
+            eval_case_id VARCHAR,
+            recorded_at TIMESTAMP,
+            run_key VARCHAR,
+            set_name VARCHAR,
+            candidates_json VARCHAR,
+            payload_json VARCHAR
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {target}.eval_scores (
+            score_id VARCHAR,
+            eval_run_id VARCHAR,
+            eval_case_id VARCHAR,
+            recorded_at TIMESTAMP,
+            run_key VARCHAR,
+            metric_name VARCHAR,
+            score_value DOUBLE,
+            payload_json VARCHAR
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {target}.eval_judge_calls (
+            judge_call_id VARCHAR,
+            eval_run_id VARCHAR,
+            eval_case_id VARCHAR,
+            recorded_at TIMESTAMP,
+            run_key VARCHAR,
+            judge_model VARCHAR,
+            score_value DOUBLE,
+            payload_json VARCHAR
+        )
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {target}.eval_failures (
+            failure_id VARCHAR,
+            eval_run_id VARCHAR,
+            eval_case_id VARCHAR,
+            recorded_at TIMESTAMP,
+            run_key VARCHAR,
+            failure_code VARCHAR,
+            payload_json VARCHAR
+        )
+        """,
+        f"""
         CREATE TABLE IF NOT EXISTS {target}.analytics_sync_state (
             target_name VARCHAR,
             last_synced_at TIMESTAMP,
