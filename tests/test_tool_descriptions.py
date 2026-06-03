@@ -229,3 +229,24 @@ def test_suggest_tool_prompt_encodes_tool_routing_table() -> None:
     user_text = _message_text(msgs[1])
     assert "transformer attention" in user_text
     assert "Which tool" in user_text
+
+
+def test_agentic_web_research_tool_is_registered_and_docstring_is_research_oriented() -> None:
+    """Ensure the agentic tool is present after server import and its docstring
+    mentions the ReAct research agent + dedicated primitives (not the legacy pipeline).
+    """
+    from kindly_web_search_mcp_server.server import mcp
+
+    # The server module triggers register_agentic_web_research_tools on import.
+    instructions = getattr(mcp, "instructions", "") or ""
+    assert "agentic_web_research" in instructions
+    assert "LangChain/LangGraph ReAct" in instructions or "ReAct research agent" in instructions.lower()
+
+    # Also verify the source docstring in the registration module is sensible
+    # (the decorator attaches the docstring to the inner function).
+    from kindly_web_search_mcp_server.agent import mcp as agent_mcp_mod
+    # The function is defined inside register_... ; we can at least check the module doc or the known string
+    src = open(agent_mcp_mod.__file__, encoding="utf-8").read()
+    assert "LangChain/LangGraph ReAct research agent" in src
+    assert "dedicated search" in src
+    assert "legacy" in src.lower()  # "instead of calling the legacy full `web_search` pipeline"

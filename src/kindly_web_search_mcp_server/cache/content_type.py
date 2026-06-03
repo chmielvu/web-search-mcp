@@ -1,4 +1,8 @@
-"""Content type classification and adaptive TTL configuration."""
+"""Content type classification and adaptive TTL configuration.
+
+NOTE: Current content type heuristic is a stub — will be revisited as part
+of the unified query understanding redesign (see plans/TAXONOMY.md).
+"""
 
 from __future__ import annotations
 

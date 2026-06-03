@@ -59,6 +59,50 @@ def _phase(event_name: str) -> str | None:
     return parts[1] if len(parts) == 2 else None
 
 
+def _duration_ms_value(payload: dict[str, Any]) -> float | None:
+    value = payload.get("duration_ms")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    duration_seconds = payload.get("duration_seconds")
+    if isinstance(duration_seconds, (int, float)) and not isinstance(
+        duration_seconds, bool
+    ):
+        return round(float(duration_seconds) * 1000.0, 3)
+    return None
+
+
+def _input_count_value(payload: dict[str, Any]) -> int | None:
+    value = _int_value(
+        payload,
+        (
+            "input_count",
+            "input_result_count",
+            "input_list_count",
+            "num_results_requested",
+            "num_results",
+            "tool_calls_count",
+        ),
+    )
+    return value
+
+
+def _output_count_value(payload: dict[str, Any]) -> int | None:
+    value = _int_value(
+        payload,
+        (
+            "output_count",
+            "result_count",
+            "merged_result_count",
+            "final_result_count",
+            "output_result_count",
+            "total_returned",
+            "success_count",
+            "sources_count",
+        ),
+    )
+    return value
+
+
 def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f"""
@@ -144,7 +188,8 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             CAST(json_extract_string(payload_json, '$.input_result_count') AS INTEGER),
             CAST(json_extract_string(payload_json, '$.input_list_count') AS INTEGER),
             CAST(json_extract_string(payload_json, '$.num_results_requested') AS INTEGER),
-            CAST(json_extract_string(payload_json, '$.num_results') AS INTEGER)
+            CAST(json_extract_string(payload_json, '$.num_results') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.tool_calls_count') AS INTEGER)
         )
         WHERE input_count IS NULL
         """
@@ -160,9 +205,21 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             CAST(json_extract_string(payload_json, '$.final_result_count') AS INTEGER),
             CAST(json_extract_string(payload_json, '$.output_result_count') AS INTEGER),
             CAST(json_extract_string(payload_json, '$.total_returned') AS INTEGER),
-            CAST(json_extract_string(payload_json, '$.success_count') AS INTEGER)
+            CAST(json_extract_string(payload_json, '$.success_count') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.sources_count') AS INTEGER)
         )
         WHERE output_count IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET duration_ms = coalesce(
+            duration_ms,
+            CAST(json_extract_string(payload_json, '$.duration_ms') AS DOUBLE),
+            CAST(json_extract_string(payload_json, '$.duration_seconds') AS DOUBLE) * 1000.0
+        )
+        WHERE duration_ms IS NULL
         """
     )
 
@@ -208,29 +265,9 @@ def append_event(
         _event_value(payload, "research_goal"),
         _provider_value(payload),
         _event_value(payload, "model"),
-        _event_value(payload, "duration_ms"),
-        _int_value(
-            payload,
-            (
-                "input_count",
-                "input_result_count",
-                "input_list_count",
-                "num_results_requested",
-                "num_results",
-            ),
-        ),
-        _int_value(
-            payload,
-            (
-                "output_count",
-                "result_count",
-                "merged_result_count",
-                "final_result_count",
-                "output_result_count",
-                "total_returned",
-                "success_count",
-            ),
-        ),
+        _duration_ms_value(payload),
+        _input_count_value(payload),
+        _output_count_value(payload),
         _event_value(payload, "trace_id"),
         _event_value(payload, "span_id"),
         _event_value(payload, "cache_hit"),

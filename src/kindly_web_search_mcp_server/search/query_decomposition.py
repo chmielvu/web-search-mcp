@@ -1,3 +1,9 @@
+"""Query decomposition: sub-question generation via FunctionGemma.
+
+NOTE: Current decomposition is a stub — will be revisited as part of the
+unified query understanding redesign (see plans/TAXONOMY.md).
+"""
+
 from __future__ import annotations
 
 from typing import Any

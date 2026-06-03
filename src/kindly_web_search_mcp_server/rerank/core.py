@@ -27,6 +27,7 @@ from ..telemetry import (
 )
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
+from .gcp_cloudrun import gcp_cloudrun_rerank
 from .jina import jina_rerank
 from .observability import emit_rerank_summary
 from .voyage import voyage_rerank
@@ -82,9 +83,9 @@ async def rerank_results(
     1. Bi-encoder filtering (when candidates > top_k * 2)
        - Filter using embedding similarity down to top_k * 2 candidates
          so the cross-encoder (Stage 2) has a richer pool to reorder.
-    2. Jina API reranking
-       - Use jina-reranker-v3 by default
-       - Min-max normalize scores to [0,1]
+    2. Provider reranking (voyage / jina / gcp_cloudrun)
+       - gcp_cloudrun supports private Cloud Run TEI or custom FastAPI /rerank
+       - Min-max normalize scores to [0,1] for non-Voyage providers
        - Apply recency bonus (unless searxng_time_range is set)
     3. Diversity pruning
        - Remove near-duplicates using embedding similarity
@@ -190,14 +191,16 @@ async def rerank_results(
         stage2_duration = 0.0
         relevance_scores: list[float] = []
         stage2_provider = settings.rerank_provider.strip().lower()
-        if stage2_provider not in {"voyage", "jina"}:
+        if stage2_provider not in {"voyage", "jina", "gcp_cloudrun"}:
             raise ValueError(f"Unsupported rerank provider: {stage2_provider}")
         stage2_model = (
             settings.voyage_rerank_model
             if stage2_provider == "voyage"
             else settings.jina_rerank_model
+            if stage2_provider == "jina"
+            else settings.rerank_gcp_model
         )
-        fallback_provider = "jina" if stage2_provider == "voyage" else "voyage"
+        fallback_provider = "jina" if stage2_provider == "voyage" else "voyage" if stage2_provider == "jina" else "voyage"
         backend_order = [stage2_provider, fallback_provider]
 
         documents = [
@@ -217,7 +220,7 @@ async def rerank_results(
                         api_key=settings.voyage_api_key or None,
                         model=settings.voyage_rerank_model,
                     )
-                else:
+                elif backend == "jina":
                     ranked_indices = await jina_rerank(
                         query,
                         documents,
@@ -225,11 +228,21 @@ async def rerank_results(
                         api_key=None,
                         model=settings.jina_rerank_model,
                     )
+                else:  # gcp_cloudrun
+                    ranked_indices = await gcp_cloudrun_rerank(
+                        query,
+                        documents,
+                        url=settings.rerank_gcp_cloudrun_url,
+                        timeout=settings.rerank_gcp_timeout,
+                        # api_key / static token handled inside if KINDLY_RERANK_GCP_AUTH_TOKEN set
+                    )
                 stage2_provider = backend
                 stage2_model = (
                     settings.voyage_rerank_model
                     if backend == "voyage"
                     else settings.jina_rerank_model
+                    if backend == "jina"
+                    else settings.rerank_gcp_model
                 )
                 break
             except Exception as e:

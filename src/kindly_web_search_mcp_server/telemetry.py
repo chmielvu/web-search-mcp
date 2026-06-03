@@ -41,6 +41,7 @@ from urllib.parse import urlparse
 from opentelemetry import trace, metrics
 
 from .utils.observability import emit_observability_event
+from .settings import resolve_langfuse_credentials
 
 # SDK imports are part of the default runtime dependencies.
 try:
@@ -100,6 +101,35 @@ def build_grafana_cloud_headers(
     auth = f"Basic {token}"
 
     headers = {"Authorization": auth}
+    return headers
+
+
+def build_langfuse_otlp_headers(
+    public_key: str = "", secret_key: str = "", base_url: str = ""
+) -> tuple[dict[str, str], str | None]:
+    """Build OTLP headers + endpoint for Langfuse (OTel backend ingest).
+
+    Langfuse accepts OTLP at <base>/api/public/otel (or /v1/traces for signal-specific).
+    Uses Basic auth with base64(pk:sk). Adds x-langfuse-ingestion-version:4 for Fast Preview.
+    Returns (headers_dict, endpoint_or_None).
+    """
+    if not public_key or not secret_key:
+        return {}, None
+
+    import base64
+
+    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {token}",
+        "x-langfuse-ingestion-version": "4",
+    }
+
+    endpoint = None
+    if base_url:
+        base = base_url.rstrip("/")
+        endpoint = f"{base}/api/public/otel"
+
+    return headers, endpoint
 
     # If a custom endpoint was provided via the convenience var, the caller
     # (init_telemetry) is responsible for using it instead of OTEL_EXPORTER_OTLP_ENDPOINT.
@@ -498,6 +528,44 @@ def init_telemetry(
         )
     )
     trace.set_tracer_provider(tracer_provider)
+
+    # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
+    # If LANGFUSE_* (or KINDLY_LANGFUSE_*) present, add a second BatchSpanProcessor
+    # exporting to Langfuse OTLP endpoint. Reuses sampling/resource.
+    # This complements the LangChain CallbackHandler (rich agent structure) with
+    # general OTel spans (httpx, custom) also flowing to Langfuse.
+    try:
+        from .settings import Settings
+
+        s = Settings()
+        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
+            public_key=s.langfuse_public_key,
+            secret_key=s.langfuse_secret_key,
+            base_url=s.langfuse_base_url,
+            mcp_auth_header=s.langfuse_mcp_auth_header,
+        )
+    except Exception:
+        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
+
+    if lf_pk and lf_sk:
+        try:
+            lf_headers, lf_endpoint = build_langfuse_otlp_headers(lf_pk, lf_sk, lf_base)
+            if lf_endpoint:
+                lf_exporter = OTLPSpanExporter(
+                    endpoint=f"{lf_endpoint}/v1/traces" if not lf_endpoint.endswith("/otel") else lf_endpoint,
+                    headers=lf_headers,
+                )
+                tracer_provider.add_span_processor(
+                    BatchSpanProcessor(
+                        lf_exporter,
+                        max_queue_size=2048,
+                        schedule_delay_millis=5000,
+                        max_export_batch_size=512,
+                    )
+                )
+                logging.info("Langfuse OTLP span processor added (hybrid export enabled)")
+        except Exception as exc:  # pragma: no cover - best effort
+            logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
 
     # === AUTO-INSTRUMENTATION ===
     # Instrument httpx for automatic HTTP client spans (HTTP semantic conventions)
@@ -1221,6 +1289,46 @@ def record_mcp_tool_call(tool_name: str, success: bool) -> None:
             1,
             {
                 GEN_AI_TOOL_NAME: tool_name,
+                ERROR_TYPE: "tool_execution_error",
+            },
+        )
+
+
+def record_agentic_research(
+    *,
+    depth: str,
+    model: str,
+    success: bool,
+    sources_count: int = 0,
+    tool_calls_count: int = 0,
+    uncertainties_count: int = 0,
+    duration_seconds: float = 0.0,
+    run_limit: int = 0,
+) -> None:
+    """Record agentic ReAct research invocation (Layer 3 signals).
+
+    Feeds MCP metrics + custom agentic counters/histograms. The structured
+    completion event is emitted by the agent runner so the payload shape can
+    stay canonical (`agentic.research.completed`) while this helper remains
+    metrics-only.
+    """
+    # Reuse mcp counters for the tool itself (agentic_web_research)
+    tool_counter, error_counter = get_mcp_metrics()
+    status = STATUS_SUCCESS if success else STATUS_ERROR
+    tool_counter.add(
+        1,
+        {
+            GEN_AI_TOOL_NAME: "agentic_web_research",
+            PROVIDER_STATUS: status,
+            "agent.depth": depth,
+            "agent.model": model[:100],  # truncate
+        },
+    )
+    if not success:
+        error_counter.add(
+            1,
+            {
+                GEN_AI_TOOL_NAME: "agentic_web_research",
                 ERROR_TYPE: "tool_execution_error",
             },
         )

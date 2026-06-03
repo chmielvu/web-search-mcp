@@ -100,6 +100,55 @@ class TestDuckDBAnalytics(unittest.TestCase):
         if db_path.exists():
             db_path.unlink()
 
+    def test_append_event_normalizes_agentic_completion_shape(self) -> None:
+        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+
+        import duckdb
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        if db_path.exists():
+            db_path.unlink()
+
+        append_event(
+            "agentic.research.completed",
+            {
+                "tool_name": "agentic_web_research",
+                "query": "How does LangGraph ReAct work?",
+                "research_goal": "shape smoke test",
+                "model": "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
+                "duration_seconds": 1.234,
+                "tool_calls_count": 2,
+                "sources_count": 8,
+                "trace_id": "trace-agentic-1",
+                "span_id": "span-agentic-1",
+            },
+            db_path=str(db_path),
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute(
+            """
+            SELECT event_name, tool_name, duration_ms, input_count, output_count, phase
+            FROM search_events
+            """
+        ).fetchone()
+        con.close()
+
+        self.assertEqual(
+            row,
+            (
+                "agentic.research.completed",
+                "agentic_web_research",
+                1234.0,
+                2,
+                8,
+                "completed",
+            ),
+        )
+
+        if db_path.exists():
+            db_path.unlink()
+
     def test_tool_events_persist_full_text_payload(self) -> None:
         from kindly_web_search_mcp_server.utils.observability import (
             emit_tool_observability_event,

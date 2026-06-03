@@ -264,6 +264,7 @@ def _persist_analytics_event(
             "search.",
             "provider.",
             "tool.",
+            "agentic.",
             "content.",
             "middleware.",
             "session.",

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
-import os
 
 from .models import ResearchDepth
+
+# Centralized source of truth (for consistency with OTel, analytics, rate limits, etc.)
+from ..settings import Settings
 
 
 @dataclass(frozen=True)
@@ -14,81 +16,115 @@ class DepthProfile:
     timeout_seconds: float
 
 
-def _env(name: str, default: str) -> str:
-    return os.environ.get(name, default)
-
-
-def _env_float(name: str, default: str) -> float:
-    return float(_env(name, default))
-
-
-def _env_int(name: str, default: str) -> int:
-    return int(_env(name, default))
-
-
 @dataclass(frozen=True)
 class AgenticResearchConfig:
-    model_name: str = field(
-        default_factory=lambda: _env(
-            "KINDLY_AGENTIC_RESEARCH_MODEL",
-            "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
-        )
+    """Agentic research runtime config.
+
+    Defaults are now sourced from the central Settings (which parses
+    KINDLY_AGENTIC_RESEARCH_* and NANOGPT_API_KEY etc. in one place).
+    This improves consistency and avoids duplicated env parsing logic.
+
+    Callers (runner, tests) can still override individual fields for tests
+    or per-request config (e.g. AgenticResearchConfig(api_key="...")).
+    """
+
+    model_name: str = field(default_factory=lambda: Settings().agentic_research_model)
+    fallback_models: str = field(
+        default_factory=lambda: Settings().agentic_research_fallback_models
     )
-    base_url: str = field(
-        default_factory=lambda: _env(
-            "KINDLY_AGENTIC_RESEARCH_BASE_URL",
-            "https://nano-gpt.com/api/subscription/v1",
-        )
+    gemini_fallback_model: str = field(
+        default_factory=lambda: Settings().agentic_research_gemini_fallback_model
     )
-    api_key: str = field(default_factory=lambda: _env("NANOGPT_API_KEY", ""))
+    hf_router_base_url: str = field(
+        default_factory=lambda: Settings().agentic_research_hf_router_base_url
+    )
+    hf_fallback_model: str = field(
+        default_factory=lambda: Settings().agentic_research_hf_fallback_model
+    )
+    base_url: str = field(default_factory=lambda: Settings().agentic_research_base_url)
+    api_key: str = field(default_factory=lambda: Settings().nanogpt_api_key)
+    gemini_api_key: str = field(default_factory=lambda: Settings().gemini_api_key)
+    hf_token: str = field(default_factory=lambda: Settings().hf_token)
     temperature: float = field(
-        default_factory=lambda: _env_float("KINDLY_AGENTIC_RESEARCH_TEMPERATURE", "0")
+        default_factory=lambda: Settings().agentic_research_temperature
     )
     timeout_seconds: float = field(
-        default_factory=lambda: _env_float(
-            "KINDLY_AGENTIC_RESEARCH_TIMEOUT_SECONDS", "180"
-        )
+        default_factory=lambda: Settings().agentic_research_timeout_seconds
     )
     max_retries: int = field(
-        default_factory=lambda: _env_int("KINDLY_AGENTIC_RESEARCH_MAX_RETRIES", "2")
+        default_factory=lambda: Settings().agentic_research_max_retries
     )
+
     quick_run_limit: int = field(
-        default_factory=lambda: _env_int("KINDLY_AGENTIC_RESEARCH_QUICK_RUN_LIMIT", "6")
+        default_factory=lambda: Settings().agentic_research_quick_run_limit
     )
     normal_run_limit: int = field(
-        default_factory=lambda: _env_int(
-            "KINDLY_AGENTIC_RESEARCH_NORMAL_RUN_LIMIT", "10"
-        )
+        default_factory=lambda: Settings().agentic_research_normal_run_limit
     )
     deep_run_limit: int = field(
-        default_factory=lambda: _env_int("KINDLY_AGENTIC_RESEARCH_DEEP_RUN_LIMIT", "16")
+        default_factory=lambda: Settings().agentic_research_deep_run_limit
     )
     quick_timeout_seconds: float = field(
-        default_factory=lambda: _env_float(
-            "KINDLY_AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS", "120"
-        )
+        default_factory=lambda: Settings().agentic_research_quick_timeout_seconds
     )
     normal_timeout_seconds: float = field(
-        default_factory=lambda: _env_float(
-            "KINDLY_AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS", "180"
-        )
+        default_factory=lambda: Settings().agentic_research_normal_timeout_seconds
     )
     deep_timeout_seconds: float = field(
-        default_factory=lambda: _env_float(
-            "KINDLY_AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS", "300"
-        )
+        default_factory=lambda: Settings().agentic_research_deep_timeout_seconds
     )
     default_num_results: int = field(
-        default_factory=lambda: _env_int(
-            "KINDLY_AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS", "5"
-        )
+        default_factory=lambda: Settings().agentic_research_default_num_results
     )
+
+    # Langfuse support (delegated to central settings for consistency)
+    langfuse_public_key: str = field(
+        default_factory=lambda: Settings().langfuse_public_key
+    )
+    langfuse_secret_key: str = field(
+        default_factory=lambda: Settings().langfuse_secret_key
+    )
+    langfuse_base_url: str = field(default_factory=lambda: Settings().langfuse_base_url)
+    langfuse_mcp_auth_header: str = field(
+        default_factory=lambda: Settings().langfuse_mcp_auth_header
+    )
+
+    # External MCP support (best-effort load when config provided; requires langchain-mcp-adapters package at runtime)
+    external_mcp_config: str = field(
+        default_factory=lambda: Settings().agentic_research_external_mcp_config
+    )
+
+    def model_chain(self) -> tuple[str, ...]:
+        models = [self.model_name.strip()]
+        models.extend(
+            item.strip()
+            for item in self.fallback_models.split(",")
+            if item.strip()
+        )
+        deduped: list[str] = []
+        for model in models:
+            if model and model not in deduped:
+                deduped.append(model)
+        return tuple(deduped)
 
 
 def depth_profile_for(depth: ResearchDepth) -> DepthProfile:
-    config = AgenticResearchConfig()
+    # Use a single Settings instance for the profile lookup
+    s = Settings()
     if depth == "quick":
-        return DepthProfile("quick", config.quick_run_limit, config.quick_timeout_seconds)
+        return DepthProfile(
+            "quick",
+            s.agentic_research_quick_run_limit,
+            s.agentic_research_quick_timeout_seconds,
+        )
     if depth == "deep":
-        return DepthProfile("deep", config.deep_run_limit, config.deep_timeout_seconds)
-    return DepthProfile("normal", config.normal_run_limit, config.normal_timeout_seconds)
+        return DepthProfile(
+            "deep",
+            s.agentic_research_deep_run_limit,
+            s.agentic_research_deep_timeout_seconds,
+        )
+    return DepthProfile(
+        "normal",
+        s.agentic_research_normal_run_limit,
+        s.agentic_research_normal_timeout_seconds,
+    )

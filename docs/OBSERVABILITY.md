@@ -213,11 +213,35 @@ Prometheus/Grafana label names are normalized from those attributes, so the dash
 
 These match the attribute names used in the provided Grafana dashboards.
 
+## Agentic Web Research (LangGraph ReAct) + Langfuse Hybrid
+The `agentic_web_research` tool is instrumented for the full 3-layer model:
+- OTel spans (mcp.tool.agentic_web_research + custom agent.* attrs) + records flow to Grafana (Tempo traces, Mimir metrics with gen_ai_tool_name, Loki logs).
+- Structured events use the boundary `tool.agentic_web_research.request/response` plus the inner `agentic.research.completed` record. DuckDB/MotherDuck persist both, with `duration_seconds` mirrored into `duration_ms`, `sources_count` mirrored into `output_count`, and the full payload carrying sources, tool_trace, knowledge_graph_summary, uncertainties, depth/model, and answer preview for views/reports/evals/analytics-query.
+- Rich ReAct-specific tracing (hierarchical generations for the Tongyi model calls, tool observations with args + results from the dedicated search/fetch/rerank tools, costs, per-step metrics) is sent to **Langfuse** via the LangChain `CallbackHandler` attached to `create_agent.ainvoke` (plus post-run scores derived from the knowledge graph: source coverage, uncertainty flags). The runner also propagates the FastMCP `session_id` into `langfuse_session_id` metadata and tags traces with `agentic_web_research`, depth, and model for easier filtering.
+- Dual OTel export: when LANGFUSE_* keys are present, telemetry.py also configures an OTLP exporter/processor to Langfuse `/api/public/otel` (Basic auth + ingestion version header) so general spans (httpx model calls, etc.) reach Langfuse alongside the Grafana path.
+- The runtime also accepts `LANGFUSE_MCP_AUTH_HEADER` and decodes the contained project keys when the separate public/secret vars are not set. This matches the Langfuse MCP config and avoids a second secret source on Windows.
+
+**Setup (use standard LANGFUSE_* or KINDLY_LANGFUSE_* convenience):**
+```powershell
+$env:LANGFUSE_PUBLIC_KEY="pk-lf-..."
+$env:LANGFUSE_SECRET_KEY="sk-lf-..."
+$env:LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+```
+Or set the MCP auth header directly:
+```powershell
+$env:LANGFUSE_MCP_AUTH_HEADER="Basic <base64(LANGFUSE_PUBLIC_KEY:LANGFUSE_SECRET_KEY)>"
+```
+See `docs/AGENTIC-RESEARCH.md` for the agent-specific env list and verification (check Langfuse traces for ReAct steps + scores; DuckDB for `tool.agentic_web_research` rows + json_extract on sources/tool_trace; Grafana for mcp tool health + quality signals).
+
+This keeps the entire MCP (including the "fundamentally different" agent module) in one Grafana pane for ops while giving first-class agent debugging/eval UX in Langfuse. All via OTel + existing emit patterns + LC native integration.
+
 ## Related Files
 
-- `src/kindly_web_search_mcp_server/telemetry.py` — Core initialization and recording helpers
-- `src/kindly_web_search_mcp_server/utils/observability.py` — Safe attribute truncation
-- `settings.py` — All `KINDLY_OTEL_*` and `GRAFANA_CLOUD_*` configuration
+- `src/kindly_web_search_mcp_server/telemetry.py` — Core initialization and recording helpers (including agentic records + Langfuse OTLP dual)
+- `src/kindly_web_search_mcp_server/utils/observability.py` — Safe attribute truncation + emit/persist (tool. prefix feeds DuckDB)
+- `settings.py` — All `KINDLY_OTEL_*`, `GRAFANA_CLOUD_*`, and `LANGFUSE_*` configuration
+- `src/kindly_web_search_mcp_server/agent/runner.py` + `mcp.py` — Agentic instrumentation points (CallbackHandler, emits, records, spans)
+- `docs/AGENTIC-RESEARCH.md` — Agent module + observability notes
 
 ---
-Maintained as part of the 2026 observability enhancement effort.
+Maintained as part of the 2026 observability enhancement effort (agentic hybrid extension).

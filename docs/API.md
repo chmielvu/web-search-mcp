@@ -16,6 +16,7 @@ Default tool selection strategy:
 5. **Deep reasoning synthesis** → `perplexity_search` (use after refining to single-topic query)
 6. **Video discovery** → `youtube_search` → `youtube_transcript`
 7. **Related URL discovery** → `composio_similarlinks` from known good URL
+8. **Autonomous multi-step research** → `agentic_web_research` (LangGraph ReAct agent self-orchestrates primitives; returns synthesized answer + sources + uncertainties + full tool trace + knowledge graph summary)
 
 ---
 
@@ -234,6 +235,81 @@ gemini_search(
 - Provides inline citations with `[N]` notation referencing `grounding_chunks`.
 - Use for quick factual answers; use `web_search` + `get_content` when you need to browse sources yourself.
 - Structured output mode includes confidence levels and categorized findings.
+
+---
+
+## agentic_web_research
+
+**Description:** LangChain/LangGraph ReAct research agent. The agent autonomously selects and sequences among the dedicated primitive tools (`composio_web_search`, `search_tavily`/`search_brave`/`search_duckduckgo`, `get_content`/`batch_get_content`, `discover_links`, `academic_search`, `rerank_candidates`, `composio_similarlinks`, `composio_image_search`, ...) instead of the legacy full `web_search` pipeline.
+
+It builds an ephemeral knowledge graph over the research run to track sources, domains, tool usage, and potential conflicts (title variants on the same URL).
+
+**When to use:**
+- Multi-hop or open-ended research where the model should decide strategy.
+- You want a single call that returns a synthesized answer + curated sources + detected uncertainties + the exact tool sequence used.
+
+**Parameters:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `query` | `str` | Yes | — | The research question or brief. |
+| `research_goal` | `str` \| `null` | No | `null` | Optional context (why you need the research). Injected into the agent's system prompt. |
+| `depth` | `str` | No | `"normal"` | `quick` / `normal` / `deep`. Controls tool budget and overall timeout (see CONFIGURATION.md). |
+
+**Returns:** `AgenticResearchResult` (JSON)
+
+```json
+{
+  "query": "string",
+  "research_goal": "string|null",
+  "depth": "quick|normal|deep",
+  "model": "string (e.g. Alibaba-NLP/Tongyi-DeepResearch-30B-A3B)",
+  "answer": "string (synthesized narrative)",
+  "sources": [
+    {
+      "title": "string|null",
+      "url": "string",
+      "snippet": "string|null",
+      "tool": "string (which primitive discovered it)",
+      "domain": "string|null",
+      "score": "number|null",
+      "kind": "search|fetch"
+    }
+  ],
+  "uncertainties": ["string (e.g. title conflicts detected by the knowledge graph)"],
+  "tool_trace": ["string (ordered unique tools used)"],
+  "knowledge_graph_summary": {
+    "node_count": 0,
+    "edge_count": 0,
+    "tool_count": 0,
+    "url_count": 0,
+    "domain_count": 0,
+    "source_urls": ["..."],
+    "fetched_urls": ["..."],
+    "tool_calls": { "tool_name": count, ... },
+    "potential_conflicts": ["url: title1, title2"]
+  },
+  "run_limit": 10,
+  "duration_seconds": 42.7,
+  "warnings": ["string"],
+  "extra": { "message_count": 12, ... } | null
+}
+```
+
+**Notes:**
+- Requires `NANOGPT_API_KEY` for the primary NanoGPT model chain. When `KINDLY_GEMINI_API_KEY` is set, the final model fallback is `gemini-3.5-flash` through the Gemini API.
+- The agent is instructed to avoid the legacy `web_search` pipeline and to use the listed primitives directly.
+- `answer` extraction uses the last non-empty AIMessage; sources/uncertainties come from post-processing the message history via the internal knowledge graph.
+- For stronger citation/source guarantees the ReAct agent always has access to an internal `final_answer` tool (structured payload with answer + sources[] + confidence + gaps). The runner prefers the explicit tool payload when the agent emits a ToolMessage(name="final_answer"); plain text extraction from the final AIMessage is retained as fallback. Low source coverage emits a warning in the result. See AGENTIC-RESEARCH.md for details.
+
+**Example:**
+```json
+agentic_web_research(
+  query="Compare React 19 and Vue 3.4 SSR performance and DX in 2026",
+  research_goal="Choosing a framework for a new docs site with heavy MDX",
+  depth="normal"
+)
+```
 
 ---
 

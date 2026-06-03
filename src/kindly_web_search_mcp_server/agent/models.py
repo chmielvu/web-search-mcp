@@ -24,6 +24,10 @@ class AgenticResearchRequest(BaseModel):
         default=None,
         description="Optional description of why the research is being done.",
     )
+    session_id: str | None = Field(
+        default=None,
+        description="Optional MCP session identifier for Langfuse trace grouping.",
+    )
     depth: ResearchDepth = Field(default="normal")
 
 
@@ -145,3 +149,29 @@ class AcademicSearchInput(BaseModel):
     venue: str | None = None
     open_access_only: bool = False
     sort: str = Field(default="relevance")
+
+
+class FinalAnswerInput(BaseModel):
+    """Structured output the agent can call when it decides research is complete.
+
+    Always available to the ReAct agent (no enable flag). Using this gives stronger
+    guarantees on citation and source lists than pure text extraction from the last AIMessage.
+    The runner detects ToolMessage(name="final_answer") and prefers the structured payload.
+    """
+
+    answer: str = Field(
+        description="Final synthesized answer. May include [N] citations."
+    )
+    sources: list[dict] = Field(
+        description="List of sources used: each with at least 'url' and optionally 'title', 'key_finding'."
+    )
+    confidence: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Agent's self-reported confidence in the answer (0-1).",
+    )
+    gaps: str = Field(
+        default="",
+        description="Any remaining uncertainties, missing information, or caveats.",
+    )

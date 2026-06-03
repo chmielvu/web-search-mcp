@@ -103,7 +103,9 @@ def build_analytics_view_sql(target: str) -> list[str]:
             sum(CASE WHEN event_name IN (
                 'tool.gemini_search.response',
                 'tool.perplexity_search.response',
-                'tool.quick_web_search.response'
+                'tool.quick_web_search.response',
+                'tool.agentic_web_research.response',
+                'agentic.research.completed'
             ) THEN 1 ELSE 0 END) AS answer_events
         FROM {target}.analytics_event_raw
         GROUP BY coalesce(run_key, trace_id, event_id)

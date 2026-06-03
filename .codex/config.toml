@@ -1,0 +1,10 @@
+[mcp_servers.langfuse-cloud]
+url = "https://cloud.langfuse.com/api/public/mcp"
+env_http_headers = { Authorization = "LANGFUSE_MCP_AUTH_HEADER" }
+startup_timeout_sec = 90.0
+tool_timeout_sec = 120.0
+
+[mcp_servers.langfuse-docs]
+url = "https://langfuse.com/api/mcp"
+startup_timeout_sec = 90.0
+tool_timeout_sec = 30.0

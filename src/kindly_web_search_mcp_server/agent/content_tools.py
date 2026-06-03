@@ -12,6 +12,7 @@ from kindly_web_search_mcp_server.content.fetch_pipeline import fetch_content_ar
 from kindly_web_search_mcp_server.content.link_discovery import discover_links as discover_page_links
 from kindly_web_search_mcp_server.content.options import build_fetch_options
 from kindly_web_search_mcp_server.content.windowing import slice_content
+from kindly_web_search_mcp_server.utils.observability import emit_observability_event
 
 from .models import (
     BatchGetContentInput,
@@ -61,6 +62,18 @@ async def _get_content(
         strip_selectors=strip_selectors,
     )
     artifact = await fetch_content_artifact(url, fetch_options=options)
+    try:
+        # Light internal event for DuckDB correlation (LC callback usually captures as tool obs too)
+        emit_observability_event(
+            __import__("logging").getLogger(__name__),
+            "agent.content.get_content",
+            url=url[:200],
+            status=getattr(artifact, "status", None),
+            backend=getattr(artifact, "fetch_backend", None),
+            content_len=len(getattr(artifact, "markdown", "") or ""),
+        )
+    except Exception:
+        pass
     sliced = slice_content(artifact.markdown, offset=char_offset, length=char_length)
     payload = _artifact_payload(
         artifact,

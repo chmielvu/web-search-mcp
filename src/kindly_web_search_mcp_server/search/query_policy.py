@@ -1,5 +1,8 @@
 """Query policy: bypass vs expand based on precision signal detection.
 
+NOTE: Current classification is a stub — will be revisited as part of the
+unified query understanding redesign (see plans/TAXONOMY.md).
+
 No intent classification - just detect if query has precision-sensitive literals
 that should be preserved verbatim, or if it can benefit from expansion.
 

@@ -1,3 +1,10 @@
+"""Query rewrite models: intent, variants, decomposition, routing.
+
+NOTE: Current RewriteIntent (code/general_research/comparison) and
+ProviderRouting are stubs — will be revisited as part of the unified
+query understanding redesign (see plans/TAXONOMY.md).
+"""
+
 from __future__ import annotations
 
 from typing import Literal

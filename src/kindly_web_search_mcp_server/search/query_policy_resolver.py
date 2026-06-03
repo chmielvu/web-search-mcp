@@ -1,6 +1,7 @@
 """Query routing resolver - directly uses heuristic classification.
 
-No HF Space backend - simplified to direct precision signal detection.
+NOTE: Current routing is a stub — will be revisited as part of the unified
+query understanding redesign (see plans/TAXONOMY.md).
 """
 
 from __future__ import annotations

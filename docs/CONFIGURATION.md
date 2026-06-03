@@ -397,6 +397,41 @@ $env:OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20<YOUR_GRAFANA_TOKEN>"
 
 ---
 
+## Agentic Research (ReAct via `agentic_web_research`)
+Centralized configuration for the LangChain/LangGraph ReAct research agent.
+
+Use `agentic_web_research` when you want the LLM to autonomously choose among the dedicated search, fetch, rerank, academic, and expansion tools (instead of the legacy full `web_search` pipeline + manual `get_content` chaining).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NANOGPT_API_KEY` | (required for default model) | API key for the default agentic model provider (NanoGPT hosting the Tongyi DeepResearch model) |
+| `KINDLY_AGENTIC_RESEARCH_MODEL` | `Alibaba-NLP/Tongyi-DeepResearch-30B-A3B` | Model name (OpenAI-compatible) |
+| `KINDLY_AGENTIC_RESEARCH_FALLBACK_MODELS` | `minimax/minimax-m3:thinking,mistralai/mistral-small-4-119b-2603:thinking` | Comma-separated NanoGPT/OpenAI-compatible fallback models attempted after the primary model errors |
+| `KINDLY_AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash` | Terminal Gemini API fallback model attempted after all NanoGPT/OpenAI-compatible models fail, when `KINDLY_GEMINI_API_KEY` is set |
+| `KINDLY_AGENTIC_RESEARCH_BASE_URL` | `https://nano-gpt.com/api/subscription/v1` | Base URL for the agentic model |
+| `KINDLY_AGENTIC_RESEARCH_TEMPERATURE` | `0` | Sampling temperature (0 = deterministic) |
+| `KINDLY_AGENTIC_RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request timeout for the agent LLM |
+| `KINDLY_AGENTIC_RESEARCH_MAX_RETRIES` | `2` | Retries for the agent LLM |
+| `KINDLY_AGENTIC_RESEARCH_QUICK_RUN_LIMIT` | `6` | Max tool calls for `depth=quick` |
+| `KINDLY_AGENTIC_RESEARCH_NORMAL_RUN_LIMIT` | `10` | Max tool calls for `depth=normal` (default) |
+| `KINDLY_AGENTIC_RESEARCH_DEEP_RUN_LIMIT` | `16` | Max tool calls for `depth=deep` |
+| `KINDLY_AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS` | `120` | Overall timeout for quick depth |
+| `KINDLY_AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS` | `180` | Overall timeout for normal depth |
+| `KINDLY_AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS` | `300` | Overall timeout for deep depth |
+| `KINDLY_AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS` | `5` | Default `num_results` passed to discovery tools inside the agent |
+| `KINDLY_AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG` | (empty) | Optional JSON (inline) or path to MCP server config for `langchain-mcp-adapters`. When set, the agent best-effort loads extra tools from other MCP servers (e.g. filesystem, GitHub, DBs) in addition to the built-in search/fetch/rerank/academic tools. No separate enable flag; the non-empty value triggers the attempt. Example inline: `{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp"]}}`. The `final_answer` tool is *always* present (unconditional) for citation fidelity. |
+
+**Depth guidance**: `quick` for fast answers with limited exploration; `normal` balanced; `deep` for thorough multi-hop research (higher cost/latency).
+
+**When to use vs. `web_search` + `get_content`**:
+- Use `agentic_web_research` for open-ended, multi-step, or "research a topic" questions where the agent should decide breadth vs. depth, when to fetch full pages, cross-reference, rerank, or go academic.
+- Use the classic `web_search` (lightweight) + `get_content`/`batch_get_content`/`discover_links` when you (or the calling agent) want precise control over the pipeline, caching behavior, or provider selection.
+- The agentic tool returns a rich `AgenticResearchResult` (answer, sources[], uncertainties[], tool_trace, knowledge_graph_summary, duration, etc.).
+
+See also `docs/GETTING-STARTED.md` and `docs/API.md` for usage examples and the exact return shape.
+
+---
+
 ## API Identification
 
 Polite identification for external APIs (recommended):

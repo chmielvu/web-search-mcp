@@ -1,3 +1,10 @@
+"""FunctionGemma classifier/decomposition client.
+
+NOTE: Current classification (code/general_research/comparison) is a stub —
+will be revisited as part of the unified query understanding redesign
+(see plans/TAXONOMY.md).
+"""
+
 from __future__ import annotations
 
 import asyncio

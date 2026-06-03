@@ -474,6 +474,41 @@ uvx --from git+https://github.com/Shelpuk-AI-Technology-Consulting/kindly-web-se
 
 After the environment builds (30-60s), stop with Ctrl+C and retry in your MCP client.
 
+## Agentic Research (`agentic_web_research`)
+`agentic_web_research` is a LangChain/LangGraph ReAct agent that autonomously plans and executes research using the server's dedicated primitive tools (`composio_web_search`, `search_tavily`, `search_brave`, `get_content`, `batch_get_content`, `discover_links`, `academic_search`, `rerank_candidates`, `composio_similarlinks`, ...).
+
+**When to use it**:
+- Open-ended research questions ("compare X vs Y for use case Z", "investigate root cause of ...", "survey recent advances in ...").
+- You want the model to decide tool selection, ordering, depth, when to fetch full content, when to cross-reference or rerank.
+- You want a synthesized answer + structured sources + detected uncertainties + tool trace + knowledge graph summary in one call.
+
+**When to prefer the classic pipeline**:
+- You (or the calling agent) need fine-grained control, specific provider selection, exact caching behavior, or to interleave with other tools.
+- Simple discovery + targeted fetch is sufficient.
+
+**Depth guidance** (affects tool budget + overall timeout only):
+- `quick`: small budget, fast turnaround.
+- `normal` (default): balanced.
+- `deep`: higher budget and longer timeout for thorough exploration.
+
+**Example output shape** (abridged):
+```json
+{
+  "query": "...",
+  "depth": "normal",
+  "model": "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
+  "answer": "Synthesized answer with inline references where appropriate...",
+  "sources": [ {"url": "...", "title": "...", "tool": "search_tavily", "score": 0.92, "kind": "search"} , ... ],
+  "uncertainties": ["title conflict on https://..."],
+  "tool_trace": ["composio_web_search", "get_content", "rerank_candidates", ...],
+  "knowledge_graph_summary": { "node_count": 42, "tool_calls": {"get_content": 3, ...}, "potential_conflicts": [...] },
+  "duration_seconds": 47.3,
+  "run_limit": 10
+}
+```
+
+See CONFIGURATION.md for the full list of `KINDLY_AGENTIC_RESEARCH_*` variables and `API.md` for the exact MCP tool contract.
+
 ## Tool Routing Summary
 
 | Tool | Purpose | When to Use |
@@ -486,6 +521,7 @@ After the environment builds (30-60s), stop with Ctrl+C and retry in your MCP cl
 | `youtube_search` | Find videos | Before extracting transcripts. |
 | `youtube_transcript` | Extract video captions | After `youtube_search` returns video IDs. |
 | `composio_similarlinks` | Find related URLs | Expand from a known good starting URL. |
+| `agentic_web_research` | Autonomous multi-step research | Open-ended questions where the agent should self-orchestrate discovery, fetch, rerank, academic, etc. Returns synthesized answer + sources + uncertainties + trace. |
 
 ## Next Steps
 
