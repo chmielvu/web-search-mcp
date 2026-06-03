@@ -294,6 +294,12 @@ class Settings:
     # FastMCP tool visibility profile
     tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "default")
 
+    # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
+    # No legacy aliases (per joint plan: no backward compat).
+    tool_search_enabled: bool = (
+        os.environ.get("KINDLY_TOOL_SEARCH_ENABLED", "false").lower() == "true"
+    )
+
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
     # Env vars retain "WEB_SEARCH" prefix for backward compatibility

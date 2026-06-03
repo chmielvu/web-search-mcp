@@ -95,6 +95,7 @@ from .utils.diagnostics import (
 from .utils.logging import configure_logging
 from .utils.observability import (
     emit_tool_observability_event,
+    emit_observability_event,
 )
 from .utils.singleflight import SingleFlight
 
@@ -1274,7 +1275,9 @@ async def batch_get_content(
         total_requested=response.get("total_requested"),
         total_returned=response.get("total_returned"),
         total_chars_returned=response.get("total_chars_returned"),
-        total_page_char_count=sum(item["page_char_count"] for item in analytics_results),
+        total_page_char_count=sum(
+            item["page_char_count"] for item in analytics_results
+        ),
         total_word_count=sum(item["word_count"] for item in analytics_results),
     )
     _record_tool_success(
@@ -2608,3 +2611,29 @@ def suggest_tool_prompt(task: str) -> list[Message]:
 
 
 apply_tool_profile(mcp, settings.tool_profile)
+
+# Emit profile applied event (always, after visibility is set)
+emit_observability_event(
+    LOGGER,
+    "tool_surface.profile_applied",
+    profile=settings.tool_profile,
+)
+
+# Opt-in FastMCP tool search transform (per joint plan Task 2.2, no backward compat).
+# When enabled, clients see only pinned + search_tools + call_tool meta-tools;
+# underlying tools (respecting current profile) are discoverable via search.
+if settings.tool_search_enabled:
+    from fastmcp.server.transforms.search import RegexSearchTransform
+
+    # Pin the core safe discovery tools so basic flows don't require a search roundtrip.
+    # Search will still surface profile-specific tools (e.g. youtube_*, gemini_search)
+    # because transform respects prior visibility gates.
+    mcp.add_transform(
+        RegexSearchTransform(always_visible=["web_search", "get_content"])
+    )
+    emit_observability_event(
+        LOGGER,
+        "tool_surface.search_enabled",
+        enabled=True,
+        profile=settings.tool_profile,
+    )
