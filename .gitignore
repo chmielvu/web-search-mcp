@@ -269,3 +269,54 @@ repomix-output*.xml
 
 # Cloned research repositories
 research_repos/
+
+# ======================
+# Additional ignores for files/dirs that should not be tracked
+# ======================
+
+# Planning/research directories (not source code)
+plans/
+future-plans/
+
+# Coding agent state/config directories
+.codex/
+.superpowers/
+.playwright-mcp/
+
+# Local analytics data (binary DuckDB files)
+.kindly/
+
+# DuckDB binary extensions (platform-specific)
+.duckdb_extensions/
+
+# Generated test/output data directories
+outputs/
+grafana_reports/
+
+# Agent-specific planning docs
+docs/superpowers/
+
+# Local SearXNG Docker setup
+searxng-settings/
+
+# Local MCP config (machine-specific editor config)
+.mcp.json
+
+# Scratch research/report files at repo root
+/IMPLEMENTATION-TODO.md
+/RESEARCH-ML-NLP-SYNTHESIS.md
+/OBSERVABILITY-ENHANCEMENT-PLAN.md
+/functiongemma-service-details.md
+/repo-research-summary.md
+/research-findings.md
+/research_report.md
+
+# Adhoc test scripts at repo root
+/test_functiongemma.py
+/test_s2_direct.py
+/test_smoke.py
+
+# Local launcher scripts
+/grafana-mcp.bat
+/grafana-mcp.ps1
+/start_mcp_stdio.bat
