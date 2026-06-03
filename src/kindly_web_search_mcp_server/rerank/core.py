@@ -27,10 +27,8 @@ from ..telemetry import (
 )
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
-from .gcp_cloudrun import gcp_cloudrun_rerank
-from .jina import jina_rerank
+from .engines import rerank_with_engine_fallback
 from .observability import emit_rerank_summary
-from .voyage import voyage_rerank
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -38,7 +36,6 @@ tracer: Any = trace.get_tracer("web-search-mcp")
 
 
 def _normalize_scores_minmax(scores: list[float]) -> list[float]:
-    """Min-max normalize scores to [0,1] range."""
     if not scores:
         return []
     arr = np.array(scores)
@@ -51,11 +48,6 @@ def _normalize_scores_minmax(scores: list[float]) -> list[float]:
 def _compute_recency_score(
     published_date: str | None, half_life_days: int = 90
 ) -> float:
-    """Compute recency score using exponential decay.
-
-    Returns value in [0, 1] where 1.0 = today, 0.0 = very old.
-    Formula: exp(-age_days / half_life_days)
-    """
     if not published_date:
         return 0.0
     try:
@@ -76,33 +68,7 @@ async def rerank_results(
     *,
     searxng_time_range: str | None = None,
 ) -> list[WebSearchResult]:
-    """
-    Rerank web search results with multi-stage pipeline.
-
-    Pipeline stages:
-    1. Bi-encoder filtering (when candidates > top_k * 2)
-       - Filter using embedding similarity down to top_k * 2 candidates
-         so the cross-encoder (Stage 2) has a richer pool to reorder.
-    2. Provider reranking (voyage / jina / gcp_cloudrun)
-       - gcp_cloudrun supports private Cloud Run TEI or custom FastAPI /rerank
-       - Min-max normalize scores to [0,1] for non-Voyage providers
-       - Apply recency bonus (unless searxng_time_range is set)
-    3. Diversity pruning
-       - Remove near-duplicates using embedding similarity
-
-    The query embedding is computed once and shared across Stage 1 and
-    Stage 3 to avoid redundant network calls.
-
-    Args:
-        query: Original search query
-        candidates: List of web search results to rerank
-        top_k: Final number of results to return
-        searxng_time_range: If set, recency scoring is disabled (user already filtered by time)
-
-    Returns:
-        Reranked list of web search results (max top_k items).
-        Returns original candidates[:top_k] on pipeline failures (graceful degradation).
-    """
+    """Rerank web search results with bi-encoder, provider, and diversity stages."""
     if not candidates:
         return []
 
@@ -118,12 +84,8 @@ async def rerank_results(
         f"Starting rerank pipeline: {original_count} candidates, target top_k={top_k}"
     )
 
-    # Compute query embedding once here. Both Stage 1 (bi-encoder) and
-    # Stage 3 (MMR diversity) consume this vector — there is no second call.
-    # If this fails, both embedding-dependent stages are skipped gracefully.
     query_embedding: list[float] | None = None
     try:
-        # Use lower timeout (15s) for query embedding - critical path
         query_embedding = await embed_query(query, timeout=15.0)
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as e:
         logger.warning(
@@ -131,7 +93,6 @@ async def rerank_results(
             "Stage 1 (bi-encoder) and Stage 3 (diversity) will be skipped"
         )
 
-    # Create main rerank span
     with tracer.start_as_current_span(
         "rerank.pipeline",
         kind=trace.SpanKind.INTERNAL,
@@ -141,8 +102,6 @@ async def rerank_results(
             "rerank.top_k": top_k,
         },
     ) as main_span:
-        # Stage 1: Bi-encoder filtering (only if many candidates and embedding available).
-        # Filter to top_k * 2 to give the cross-encoder (Stage 2) a wider pool.
         stage1_output_count = original_count
         stage1_duration = 0.0
         if query_embedding and len(candidates) > top_k * 2:
@@ -167,7 +126,6 @@ async def rerank_results(
             stage1_duration = time.time() - stage1_start
             logger.debug(f"After bi-encoder: {len(candidates)} candidates")
 
-            # Record Stage 1 telemetry
             record_rerank_stage(
                 stage="bi_encoder",
                 input_count=original_count,
@@ -184,82 +142,30 @@ async def rerank_results(
                 },
             )
 
-        # Stage 2: Provider reranking
         logger.debug("Stage 2: provider reranking")
         stage2_input_count = len(candidates)
         stage2_output_count = len(candidates)
         stage2_duration = 0.0
         relevance_scores: list[float] = []
-        stage2_provider = settings.rerank_provider.strip().lower()
-        if stage2_provider not in {"voyage", "jina", "gcp_cloudrun"}:
-            raise ValueError(f"Unsupported rerank provider: {stage2_provider}")
-        stage2_model = (
-            settings.voyage_rerank_model
-            if stage2_provider == "voyage"
-            else settings.jina_rerank_model
-            if stage2_provider == "jina"
-            else settings.rerank_gcp_model
-        )
-        fallback_provider = "jina" if stage2_provider == "voyage" else "voyage" if stage2_provider == "jina" else "voyage"
-        backend_order = [stage2_provider, fallback_provider]
-
-        documents = [
-            f"Title: {candidate.title}\nURL: {candidate.link}\nSnippet: {candidate.snippet}"
-            for candidate in candidates
-        ]
+        configured_provider = settings.rerank_provider.strip().lower()
+        stage2_provider = configured_provider
+        stage2_model = None
 
         stage2_start = time.time()
-        backend_error: Exception | None = None
-        for backend in backend_order:
-            try:
-                if backend == "voyage":
-                    ranked_indices = await voyage_rerank(
-                        query,
-                        documents,
-                        timeout=30.0,
-                        api_key=settings.voyage_api_key or None,
-                        model=settings.voyage_rerank_model,
-                    )
-                elif backend == "jina":
-                    ranked_indices = await jina_rerank(
-                        query,
-                        documents,
-                        timeout=30.0,
-                        api_key=None,
-                        model=settings.jina_rerank_model,
-                    )
-                else:  # gcp_cloudrun
-                    ranked_indices = await gcp_cloudrun_rerank(
-                        query,
-                        documents,
-                        url=settings.rerank_gcp_cloudrun_url,
-                        timeout=settings.rerank_gcp_timeout,
-                        # api_key / static token handled inside if KINDLY_RERANK_GCP_AUTH_TOKEN set
-                    )
-                stage2_provider = backend
-                stage2_model = (
-                    settings.voyage_rerank_model
-                    if backend == "voyage"
-                    else settings.jina_rerank_model
-                    if backend == "jina"
-                    else settings.rerank_gcp_model
-                )
-                break
-            except Exception as e:
-                backend_error = e
-                logger.warning(
-                    "%s rerank failed: %s: %s, trying fallback provider",
-                    backend.capitalize(),
-                    type(e).__name__,
-                    e,
-                )
-        else:
-            ranked_indices = []
+        rerank_outcome = await rerank_with_engine_fallback(
+            query,
+            candidates,
+            engine_id=configured_provider,
+        )
+        stage2_provider = rerank_outcome.engine_id
+        stage2_model = rerank_outcome.model
 
-        if ranked_indices:
-            sorted_ranked = sorted(ranked_indices, key=lambda x: x[1], reverse=True)
+        if rerank_outcome.ranked:
+            sorted_ranked = sorted(
+                rerank_outcome.ranked, key=lambda result: result.score, reverse=True
+            )
 
-            raw_scores = [score for _, score in sorted_ranked]
+            raw_scores = [result.score for result in sorted_ranked]
             normalized_scores = (
                 raw_scores
                 if stage2_provider == "voyage"
@@ -279,9 +185,10 @@ async def rerank_results(
                     f"Recency scoring disabled: searxng_time_range={searxng_time_range!r}"
                 )
 
-            for (idx, _raw_score), norm_score in zip(
+            for ranked_result, norm_score in zip(
                 sorted_ranked, normalized_scores, strict=False
             ):
+                idx = ranked_result.index
                 final_score = norm_score
                 if apply_recency:
                     recency_score = _compute_recency_score(
@@ -292,17 +199,17 @@ async def rerank_results(
                     update={"score": final_score}
                 )
 
-            candidates = [candidates[idx] for idx, _ in sorted_ranked]
+            candidates = [candidates[item.index] for item in sorted_ranked]
             relevance_scores = [
                 c.score
                 for c in candidates[: min(10, len(candidates))]
                 if c.score is not None
             ]
             stage2_output_count = len(candidates)
-        elif backend_error is not None:
+        elif rerank_outcome.error is not None:
             logger.warning(
                 "All rerank providers failed; preserving merged candidate order: %s",
-                backend_error,
+                rerank_outcome.error,
             )
         stage2_duration = time.time() - stage2_start
 
@@ -312,7 +219,6 @@ async def rerank_results(
 
         logger.debug(f"After provider rerank: {len(candidates)} candidates")
 
-        # Record Stage 2 telemetry
         if relevance_scores:
             record_rerank_stage(
                 stage=stage2_provider,
@@ -337,7 +243,6 @@ async def rerank_results(
                 },
             )
 
-        # Stage 3: Diversity pruning (requires query embedding for MMR).
         logger.debug("Stage 3: Diversity pruning")
         stage3_input_count = len(candidates[: top_k * 2])
         stage3_output_count = stage3_input_count
@@ -391,7 +296,6 @@ async def rerank_results(
                 )
             stage3_duration = time.time() - stage3_start
 
-        # Record Stage 3 telemetry
         record_rerank_stage(
             stage="diversity",
             input_count=stage3_input_count,
@@ -409,7 +313,6 @@ async def rerank_results(
             },
         )
 
-        # Return final top_k results with an optional score floor.
         score_threshold = settings.rerank_score_threshold
         final_results = [
             r for r in candidates if r.score is None or r.score >= score_threshold

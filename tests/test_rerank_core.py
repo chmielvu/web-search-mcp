@@ -41,7 +41,7 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ) as mock_embed_query,
             patch(
-                "kindly_web_search_mcp_server.rerank.core.voyage_rerank",
+                "kindly_web_search_mcp_server.rerank.engines.voyage_rerank",
                 new_callable=AsyncMock,
             ) as mock_voyage_rerank,
         ):

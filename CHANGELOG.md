@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Phase 3.1 rerank engine abstraction: added typed rerank candidate/result models, a `RerankEngine` protocol, engine registry support for `none`, `voyage`, `jina`, `gcp_cloudrun`, and `local_baseline`, plus fallback-preserving tests that keep merged-order behavior when rerank is bypassed or all providers fail.
 - Phase 2.1 FastMCP tool visibility profiles: added a public tool catalog with stable annotations/tags, `KINDLY_TOOL_PROFILE` validation, and tag-gated `default`, `research`, `media`, `diagnostic`, `experimental`, and `full` profiles.
 - Shared observability event prefix constants for DuckDB persistence, including `rerank.`, `entity.`, `result_memory.`, and `eval.` event families.
 - Phase 1.2 eval schema reconciliation: DuckDB eval tables now include `eval_tool_calls`, `eval_candidate_sets`, `eval_scores`, `eval_judge_calls`, and `eval_failures`, plus minimal Pydantic eval case models and deterministic metric helpers for tool-routing, latency, MRR, NDCG, and top-k domain checks.
