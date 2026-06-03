@@ -12,6 +12,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+# EntitySpan imported lazily in type hints to keep models light (entity core is pure)
+from .entity.models import EntitySpan  # always available (pure python)
+
 
 # ============================================================================
 # Core Result Types
@@ -62,6 +65,10 @@ class WebSearchResult(BaseModel):
     score: float | None = Field(
         default=None,
         description="Merged/reranked score used for final ordering.",
+    )
+    entities: list[EntitySpan] | None = Field(
+        default=None,
+        description="Extracted entities (GLiNER2) from title + snippet when entity extraction enabled.",
     )
     diagnostics: list[dict[str, Any]] | None = Field(
         default=None,
@@ -202,6 +209,10 @@ class GetContentResponse(BaseModel):
     summary: dict[str, Any] | None = Field(
         default=None,
         description="Optional derived summary when summary_mode is requested.",
+    )
+    entities: list[EntitySpan] | None = Field(
+        default=None,
+        description="Extracted entities (GLiNER2) from the returned page_content when entity extraction enabled.",
     )
     diagnostics: list[dict[str, Any]] | None = Field(
         default=None,

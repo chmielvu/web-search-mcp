@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from ..entity.models import EntitySpan  # pure, safe import
+
 
 ContentStatus = Literal["success", "partial", "blocked", "unsupported", "error"]
 
@@ -32,6 +34,7 @@ class ContentArtifact:
     quality_score: float = 0.0
     error: ContentError | None = None
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
+    entities: list[EntitySpan] | None = None  # populated when entity extraction enabled
 
     @property
     def total_chars(self) -> int:

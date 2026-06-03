@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from functools import partial
 from typing import Callable, Awaitable
 
 import httpx
+from dataclasses import replace
 
 from ..errors import classify_error
 from ..scrape.extract import extract_content_as_markdown
@@ -24,6 +26,7 @@ from .arxiv import (
 )
 from .artifact import ContentArtifact, ContentError
 from .options import FetchOptions
+from ..settings import settings
 from .github_discussions import (
     fetch_github_discussion_thread_markdown,
     parse_github_discussion_url,
@@ -435,7 +438,7 @@ async def fetch_content_artifact(
             ),
         )
 
-    return ContentArtifact(
+    artifact = ContentArtifact(
         input_url=url,
         normalized_url=canonical,
         fetched_url=fetched.fetched_url,
@@ -454,3 +457,34 @@ async def fetch_content_artifact(
             retryable=False,
         ),
     )
+
+    # Entity extraction hook for content (plan 8.2): after clean markdown, before return to caller.
+    # Only when enabled; uses DEFAULT_CONTENT_LABELS; emits entity.content_extracted
+    if settings.entity_extraction_enabled and artifact.markdown:
+        try:
+            from ..entity.gliner_client import get_gliner_client
+            from ..entity.default_schema import DEFAULT_CONTENT_LABELS
+            from ..utils.observability import emit_observability_event
+
+            gliner = get_gliner_client()
+            ents = await gliner.extract_entities(artifact.markdown, DEFAULT_CONTENT_LABELS)
+            if ents:
+                artifact = replace(artifact, entities=ents)
+            emit_observability_event(
+                logging.getLogger(__name__),
+                "entity.content_extracted",
+                url=url,
+                count=len(ents or []),
+                backend=artifact.fetch_backend,
+            )
+        except Exception as exc:
+            emit_observability_event(
+                logging.getLogger(__name__),
+                "entity.extraction.error",
+                url=url,
+                error=str(exc)[:300],
+                failure_mode="content_extract_failed",
+                component="fetch_pipeline",
+            )
+            # do not fail the fetch
+    return artifact

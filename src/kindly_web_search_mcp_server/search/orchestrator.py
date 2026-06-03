@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -375,6 +376,48 @@ async def run_web_search(
     candidate_count = len(merged)
     has_more = result_offset + len(final_results) < candidate_count
     next_offset = result_offset + len(final_results) if has_more else None
+
+    # Entity extraction on lightweight search results (title + snippet) when enabled.
+    # This is cheap (~25ms for small set) and annotates outputs + provides overlap signal for rerank.
+    _enabled = bool(
+        getattr(settings, "entity_extraction_enabled", False)
+        or os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower() in ("true", "1", "yes")
+    )
+    if _enabled and final_results:
+        try:
+            from ..entity.gliner_client import get_gliner_client
+            from ..entity.default_schema import DEFAULT_QUERY_LABELS
+
+            gliner = get_gliner_client()
+            for r in final_results:
+                text = f"{getattr(r, 'title', '') or (r.get('title') if isinstance(r, dict) else '')} {getattr(r, 'snippet', '') or (r.get('snippet') if isinstance(r, dict) else '')}".strip()
+                if text:
+                    ents = await gliner.extract_entities(text, DEFAULT_QUERY_LABELS)
+                    # attach tolerant to dict (from some mocks/paths) or object
+                    if isinstance(r, dict):
+                        r["entities"] = ents or None
+                    elif hasattr(r, "entities"):
+                        try:
+                            r.entities = ents or None
+                        except Exception:
+                            pass  # frozen or readonly ok, field may be set at construction
+            emit_observability_event(
+                logger,
+                "entity.search_result_extracted",
+                query=query,
+                num_results=len(final_results),
+                total_entities=sum(len(getattr(r, "entities", []) or []) for r in final_results),
+            )
+        except Exception as exc:
+            emit_observability_event(
+                logger,
+                "entity.extraction.error",
+                query=query,
+                error=str(exc)[:300],
+                failure_mode="search_result_extract_failed",
+                component="orchestrator_entity",
+            )
+            logger.warning("Search result entity extraction failed: %s", exc)
 
     # Aggregate providers_used from merged results
     providers_used = sorted(set(p for r in final_results for p in (r.providers or [])))
