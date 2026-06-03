@@ -196,6 +196,12 @@ class Settings:
         str(Path(".kindly") / "analytics" / "search_events.duckdb"),
     )
 
+    # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
+    page_cache_duckdb_path: str = os.environ.get(
+        "KINDLY_PAGE_CACHE_DUCKDB_PATH",
+        str(Path(".kindly") / "cache" / "page_cache.duckdb"),
+    )
+
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
 

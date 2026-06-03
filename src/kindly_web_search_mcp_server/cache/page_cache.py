@@ -6,86 +6,35 @@ with metadata about extraction method and timestamps.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
 import time
-import uuid
-from datetime import UTC, datetime
 from typing import Any
 
-import lancedb
-
 from ..telemetry import record_cache_lookup
-from ..utils.observability import emit_observability_event
+from .observability import emit_cache_lookup_event, emit_cache_store_event
+from .page_duckdb import (
+    PAGE_CACHE_DEFAULT_TTL_SECONDS,
+    PageDuckDBCache as _PageDuckDBCache,
+)
 
 logger = logging.getLogger(__name__)
 
-# Default TTL for page cache (7 days - content changes less frequently)
-PAGE_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("KINDLY_PAGE_CACHE_TTL_SECONDS", "604800")  # 7 days
-)
-
-PAGE_CACHE_SCHEMA = [
-    ("id", "string"),
-    ("url_canonical", "string"),
-    ("url_hash", "string"),
-    ("page_content", "string"),
-    ("extraction_method", "string"),
-    ("word_count", "int64"),
-    ("created_at", "string"),
-    ("ttl_seconds", "int64"),
-    ("metadata_json", "string"),  # Optional metadata
-]
+# Re-export for callers that expect the const at this module (e.g. __init__.py)
+# (definition lives in page_duckdb.py to be co-located with the impl)
 
 
 class PageCache:
-    """LanceDB-backed page content cache.
+    """DuckDB-backed page content cache.
 
-    Caches resolved page content by canonical URL to avoid
-    repeated fetching and extraction of the same URLs.
+    Thin facade over PageDuckDBCache (in page_duckdb.py) that preserves the
+    exact public API + singleton used by server.py / get_content.
+
+    Separate DuckDB file controlled by KINDLY_PAGE_CACHE_DUCKDB_PATH.
     """
 
-    def __init__(self, db_path: str = "./lancedb_data") -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path
-        self._db: lancedb.db.DBConnection | None = None
-        self._table: lancedb.table.Table | None = None
-
-    def _get_db(self) -> lancedb.db.DBConnection:
-        if self._db is None:
-            self._db = lancedb.connect(self.db_path)
-        return self._db
-
-    def _get_table(self) -> lancedb.table.Table:
-        if self._table is None:
-            db = self._get_db()
-            try:
-                self._table = db.open_table("page_cache")
-                logger.debug("Opened existing page_cache table")
-            except Exception:
-                import pyarrow as pa
-
-                arrow_schema = pa.schema(
-                    [
-                        pa.field("id", pa.string()),
-                        pa.field("url_canonical", pa.string()),
-                        pa.field("url_hash", pa.string()),
-                        pa.field("page_content", pa.string()),
-                        pa.field("extraction_method", pa.string()),
-                        pa.field("word_count", pa.int64()),
-                        pa.field("created_at", pa.string()),
-                        pa.field("ttl_seconds", pa.int64()),
-                        pa.field("metadata_json", pa.string()),
-                    ]
-                )
-                self._table = db.create_table("page_cache", schema=arrow_schema)
-                logger.info("Created new page_cache table")
-        return self._table
-
-    def _compute_url_hash(self, canonical_url: str) -> str:
-        """Compute a deterministic hash for a canonical URL."""
-        return hashlib.sha256(canonical_url.strip().lower().encode()).hexdigest()[:32]
+        self._backend = _PageDuckDBCache(db_path=db_path)
 
     def lookup(
         self,
@@ -93,133 +42,45 @@ class PageCache:
     ) -> dict[str, Any] | None:
         """Look up cached page content for a URL.
 
-        Args:
-            canonical_url: Canonical URL to look up.
-
-        Returns:
-            Dict with page_content, extraction_method, word_count, age_seconds
-            if found and not expired. None otherwise.
+        Delegates to DuckDB backend (URL hash + TTL + metadata JSON).
+        Emits via cache observability helpers and records telemetry.
         """
         start_time = time.time()
-        url_hash = self._compute_url_hash(canonical_url)
-        table = self._get_table()
-
-        try:
-            results = (
-                table.search().where(f"url_hash = '{url_hash}'").limit(1).to_list()
-            )
-        except Exception as exc:
-            logger.warning("Page cache lookup failed: %s", exc)
-            # Record cache miss on lookup failure
-            duration = time.time() - start_time
-            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
-            emit_observability_event(
-                logger,
-                "search.cache.lookup",
-                level=logging.DEBUG,
-                cache_type="page",
-                hit=False,
-                lookup_status="error",
-                error_type=type(exc).__name__,
-                canonical_url=canonical_url,
-                url_hash=url_hash,
-            )
-            return None
-
-        if not results:
-            logger.debug("No page cache hit for URL hash: %s", url_hash[:16])
-            # Record cache miss
-            duration = time.time() - start_time
-            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
-            emit_observability_event(
-                logger,
-                "search.cache.lookup",
-                level=logging.DEBUG,
-                cache_type="page",
-                hit=False,
-                lookup_status="miss",
-                duration_ms=round(duration * 1000, 3),
-                canonical_url=canonical_url,
-                url_hash=url_hash,
-            )
-            return None
-
-        row = results[0]
-
-        # Check TTL
-        created_at = datetime.fromisoformat(row["created_at"])
-        age_seconds = (datetime.now(UTC) - created_at).total_seconds()
-        ttl_seconds = row.get("ttl_seconds", PAGE_CACHE_DEFAULT_TTL_SECONDS)
-
-        if age_seconds > ttl_seconds:
-            logger.debug(
-                "Page cache expired (age=%.0fs > ttl=%ds) for %s",
-                age_seconds,
-                ttl_seconds,
-                canonical_url[:50],
-            )
-            # Record expired as cache miss
-            duration = time.time() - start_time
-            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
-            emit_observability_event(
-                logger,
-                "search.cache.lookup",
-                level=logging.DEBUG,
-                cache_type="page",
-                hit=False,
-                lookup_status="expired",
-                duration_ms=round(duration * 1000, 3),
-                age_seconds=round(age_seconds, 3),
-                ttl_seconds=ttl_seconds,
-                canonical_url=canonical_url,
-                url_hash=url_hash,
-            )
-            return None
-
-        logger.debug(
-            "Page cache hit (url=%s, method=%s, age=%.0fs, words=%d)",
-            canonical_url[:50],
-            row.get("extraction_method", "unknown"),
-            age_seconds,
-            row.get("word_count", 0),
-        )
-
-        # Record cache hit with word count context
+        result = self._backend.lookup(canonical_url)
         duration = time.time() - start_time
+
+        if result is None:
+            record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
+            emit_cache_lookup_event(
+                logger,
+                "page",
+                "miss",
+                duration_ms=round(duration * 1000, 3),
+                canonical_url=canonical_url,
+            )
+            return None
+
         record_cache_lookup(cache_type="page", hit=True, duration_seconds=duration)
-        emit_observability_event(
+        emit_cache_lookup_event(
             logger,
-            "search.cache.lookup",
-            level=logging.DEBUG,
-            cache_type="page",
-            hit=True,
-            lookup_status="hit",
+            "page",
+            "hit",
             duration_ms=round(duration * 1000, 3),
-            age_seconds=round(age_seconds, 3),
-            ttl_seconds=ttl_seconds,
-            word_count=row.get("word_count", 0),
-            extraction_method=row.get("extraction_method", "unknown"),
+            age_seconds=round(result.get("age_seconds", 0), 3),
+            word_count=result.get("word_count", 0),
+            extraction_method=result.get("extraction_method", "unknown"),
             canonical_url=canonical_url,
-            url_hash=url_hash,
         )
 
-        result = {
-            "page_content": row["page_content"],
-            "extraction_method": row.get("extraction_method", "unknown"),
-            "word_count": row.get("word_count", 0),
-            "age_seconds": age_seconds,
-            "cached_at": row["created_at"],
+        # Ensure callers see same keys as before (metadata already parsed by backend)
+        return {
+            "page_content": result["page_content"],
+            "extraction_method": result.get("extraction_method", "unknown"),
+            "word_count": result.get("word_count", 0),
+            "age_seconds": result.get("age_seconds", 0),
+            "cached_at": result.get("cached_at"),
+            **({"metadata": result["metadata"]} if "metadata" in result else {}),
         }
-
-        # Parse optional metadata
-        metadata_json = row.get("metadata_json", "")
-        if metadata_json:
-            try:
-                result["metadata"] = json.loads(metadata_json)
-            except json.JSONDecodeError:
-                pass
-
-        return result
 
     def store(
         self,
@@ -229,69 +90,38 @@ class PageCache:
         metadata: dict[str, Any] | None = None,
         ttl_seconds: int | None = None,
     ) -> None:
-        """Store resolved page content in the cache.
-
-        Args:
-            canonical_url: Canonical URL for the content.
-            page_content: Extracted markdown content.
-            extraction_method: Method used (e.g., "http_extract", "nodriver").
-            metadata: Optional metadata dict to store.
-            ttl_seconds: TTL override. Uses default if None.
-        """
-        url_hash = self._compute_url_hash(canonical_url)
-
-        if ttl_seconds is None:
-            ttl_seconds = PAGE_CACHE_DEFAULT_TTL_SECONDS
-
-        # Compute word count for diagnostics
-        word_count = len(page_content.split())
-
-        entry = {
-            "id": uuid.uuid4().hex,
-            "url_canonical": canonical_url,
-            "url_hash": url_hash,
-            "page_content": page_content,
-            "extraction_method": extraction_method,
-            "word_count": word_count,
-            "created_at": datetime.now(UTC).isoformat(),
-            "ttl_seconds": ttl_seconds,
-            "metadata_json": json.dumps(metadata) if metadata else "",
-        }
-
-        table = self._get_table()
+        """Store resolved page content via DuckDB backend."""
         try:
-            table.add([entry])
+            self._backend.store(
+                canonical_url=canonical_url,
+                page_content=page_content,
+                extraction_method=extraction_method,
+                metadata=metadata,
+                ttl_seconds=ttl_seconds,
+            )
             logger.debug(
-                "Stored page cache entry (url=%s, method=%s, words=%d, ttl=%ds)",
-                canonical_url[:50],
+                "Stored page cache entry (url=%s, method=%s, ttl=%s)",
+                str(canonical_url)[:50],
                 extraction_method,
-                word_count,
                 ttl_seconds,
             )
-            emit_observability_event(
+            emit_cache_store_event(
                 logger,
-                "search.cache.store",
-                level=logging.DEBUG,
-                cache_type="page",
-                store_status="ok",
-                ttl_seconds=ttl_seconds,
-                word_count=word_count,
-                extraction_method=extraction_method,
+                "page",
+                "ok",
+                ttl_seconds=ttl_seconds or PAGE_CACHE_DEFAULT_TTL_SECONDS,
                 metadata_present=bool(metadata),
+                extraction_method=extraction_method,
                 canonical_url=canonical_url,
-                url_hash=url_hash,
             )
         except Exception as exc:
             logger.warning("Failed to store page cache entry: %s", exc)
-            emit_observability_event(
+            emit_cache_store_event(
                 logger,
-                "search.cache.store",
-                level=logging.DEBUG,
-                cache_type="page",
-                store_status="error",
+                "page",
+                "error",
                 error_type=type(exc).__name__,
                 canonical_url=canonical_url,
-                url_hash=url_hash,
             )
 
 
@@ -300,12 +130,15 @@ _PAGE_CACHE: PageCache | None = None
 
 
 def get_page_cache(db_path: str | None = None) -> PageCache:
-    """Get or create the page cache singleton."""
+    """Get or create the page cache singleton.
+
+    Uses KINDLY_PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
+    """
     global _PAGE_CACHE
     if _PAGE_CACHE is None:
         from ..settings import settings
 
-        actual_path = db_path or settings.lancedb_dir
+        actual_path = db_path or settings.page_cache_duckdb_path
         _PAGE_CACHE = PageCache(db_path=actual_path)
         logger.info("Initialized page cache at %s", actual_path)
     return _PAGE_CACHE
