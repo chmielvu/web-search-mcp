@@ -25,10 +25,12 @@ from ..telemetry import (
     RERANK_OUTPUT_COUNT,
     SEARCH_QUERY,
 )
+from ..utils.observability import emit_observability_event
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
 from .engines import rerank_with_engine_fallback
 from .observability import emit_rerank_summary
+from .policy import decide_rerank
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,25 @@ async def rerank_results(
     if len(candidates) <= top_k:
         logger.debug(
             f"Candidates ({len(candidates)}) <= top_k ({top_k}), skipping rerank"
+        )
+        return candidates
+
+    decision = decide_rerank(
+        query=query, candidate_count=len(candidates), top_k=top_k
+    )
+    if not decision.should_rerank:
+        logger.info(
+            "Rerank bypassed by policy: reason=%s count=%s",
+            decision.reason,
+            len(candidates),
+        )
+        # policy already emitted rerank.eligibility + rerank.bypassed
+        emit_observability_event(
+            logger,
+            "rerank.bypassed",
+            reason=decision.reason,
+            query=query[:200],
+            candidate_count=len(candidates),
         )
         return candidates
 
@@ -334,6 +355,16 @@ async def rerank_results(
             provider=stage2_provider,
             model=stage2_model,
             max_score=max_rerank_score,
+        )
+
+        emit_observability_event(
+            logger,
+            "rerank.completed",
+            query=query[:200],
+            input_count=original_count,
+            output_count=len(final_results),
+            bypassed=False,
+            reason="policy_eligible",
         )
 
         return final_results

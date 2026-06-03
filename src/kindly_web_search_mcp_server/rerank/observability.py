@@ -63,3 +63,16 @@ def emit_rerank_summary(
         results=output,
         top_results=serialize_search_results(output, max_results=min(top_k, 5)),
     )
+
+
+# Policy-level rerank events (Task 3.2). Core and policy use emit_observability_event
+# directly for "rerank.eligibility|engine_selected|completed|bypassed" to keep
+# payload flexible; these helpers exist for future standardization and to satisfy
+# the plan's "modify rerank/observability.py".
+def emit_rerank_policy_decision(
+    logger: logging.Logger,
+    *,
+    decision: str,
+    **fields: Any,
+) -> None:
+    emit_observability_event(logger, f"rerank.{decision}", **fields)
