@@ -349,11 +349,6 @@ _rerank_duration_histogram: metrics.Histogram | None = None
 _rerank_score_histogram: metrics.Histogram | None = None
 _rerank_diversity_counter: metrics.Counter | None = None
 
-# Semantic cache metrics
-_cache_score_histogram: metrics.Histogram | None = None
-_cache_ttl_counter: metrics.Counter | None = None
-_cache_hybrid_counter: metrics.Counter | None = None
-
 # Circuit breaker metrics
 _circuit_state_gauge: metrics.UpDownCounter | None = None
 _circuit_event_counter: metrics.Counter | None = None
@@ -1019,47 +1014,6 @@ def get_rerank_metrics() -> tuple[
     )
 
 
-def get_semantic_cache_metrics() -> tuple[
-    metrics.Histogram, metrics.Counter, metrics.Counter
-]:
-    """Get semantic cache detailed metrics."""
-    meter = get_meter()
-    global _cache_score_histogram, _cache_ttl_counter, _cache_hybrid_counter
-
-    if _cache_score_histogram is None:
-        _cache_score_histogram = meter.create_histogram(
-            name="web_search_semantic_cache_score_distribution",
-            description="Similarity scores for semantic cache lookups",
-            unit="1",
-            explicit_bucket_boundaries_advisory=[
-                0.7,
-                0.75,
-                0.8,
-                0.82,
-                0.85,
-                0.9,
-                0.95,
-                1.0,
-            ],
-        )
-
-    if _cache_ttl_counter is None:
-        _cache_ttl_counter = meter.create_counter(
-            name="web_search_semantic_cache_ttl_used",
-            description="TTL assigned to cached entries",
-            unit="1",
-        )
-
-    if _cache_hybrid_counter is None:
-        _cache_hybrid_counter = meter.create_counter(
-            name="web_search_semantic_cache_hybrid_search",
-            description="Hybrid search method used in semantic cache",
-            unit="1",
-        )
-
-    return _cache_score_histogram, _cache_ttl_counter, _cache_hybrid_counter
-
-
 def get_circuit_metrics() -> tuple[metrics.UpDownCounter, metrics.Counter]:
     """Get circuit breaker metrics."""
     meter = get_meter()
@@ -1596,56 +1550,6 @@ def record_diversity_removal(
             RERANK_SIMILARITY_SCORE: round(similarity_score, 3),
         },
     )
-
-
-def record_semantic_cache_lookup(
-    similarity_score: float,
-    hit: bool,
-    content_type: str | None = None,
-    ttl_seconds: int | None = None,
-    search_type: str | None = None,
-    vector_distance: float | None = None,
-) -> None:
-    """Record semantic cache lookup with similarity score.
-
-    Args:
-        similarity_score: Cosine similarity score (0.0-1.0)
-        hit: True if cache hit
-        content_type: "news", "technical", "faq", or "general"
-        ttl_seconds: TTL assigned to entry (if write)
-        search_type: "vector", "fts", or "hybrid_rrf"
-        vector_distance: Actual vector distance value
-    """
-    score_histogram, ttl_counter, hybrid_counter = get_semantic_cache_metrics()
-
-    # Record similarity score distribution
-    score_histogram.record(
-        similarity_score,
-        {
-            CACHE_HIT: str(hit).lower(),
-            CACHE_CONTENT_TYPE: content_type or "general",
-        },
-    )
-
-    # Record TTL used (for cache writes)
-    if ttl_seconds is not None:
-        ttl_counter.add(
-            1,
-            {
-                CACHE_CONTENT_TYPE: content_type or "general",
-                CACHE_TTL_SECONDS: ttl_seconds,
-            },
-        )
-
-    # Record hybrid search method
-    if search_type is not None:
-        hybrid_counter.add(
-            1,
-            {
-                CACHE_SEARCH_TYPE: search_type,
-                CACHE_VECTOR_DISTANCE: round(vector_distance or 0.0, 4),
-            },
-        )
 
 
 def record_circuit_breaker_state(
@@ -2279,8 +2183,6 @@ __all__ = [
     # Reranking metrics (NEW)
     "record_rerank_stage",
     "record_diversity_removal",
-    # Semantic cache metrics (NEW)
-    "record_semantic_cache_lookup",
     # Circuit breaker metrics (NEW)
     "record_circuit_breaker_state",
     "record_circuit_breaker_event",

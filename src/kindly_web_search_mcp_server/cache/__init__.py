@@ -1,9 +1,9 @@
-"""Semantic cache module for web-search-mcp.
+"""Cache package.
 
-Provides LanceDB-backed semantic caching with hybrid search,
-adaptive TTL based on content type, and embedding-based lookup.
-
-Also provides exact query cache and page cache for deterministic caching.
+Provides:
+- exact query cache (LRU)
+- page cache (DuckDB, separate file)
+- content type classification (kept for potential future use)
 """
 
 from .content_type import (
@@ -12,14 +12,6 @@ from .content_type import (
     ContentType,
     classify_content_type,
 )
-from .schema import (
-    SEMANTIC_CACHE_SCHEMA,
-    SEMANTIC_CACHE_TABLE_NAME,
-    get_semantic_cache_schema,
-    get_semantic_cache_table_name,
-)
-from .semantic_cache import get_semantic_cache, set_semantic_cache
-from .store import SemanticCacheStore
 from .query_cache import (
     ExactQueryCache,
     QUERY_CACHE_DEFAULT_MAX_ENTRIES,
@@ -31,29 +23,19 @@ from .exact_lru import ExactLRUCache
 from .page_cache import PageCache, get_page_cache, PAGE_CACHE_DEFAULT_TTL_SECONDS
 
 __all__ = [
-    # Schema
-    "SEMANTIC_CACHE_SCHEMA",
-    "SEMANTIC_CACHE_TABLE_NAME",
-    "get_semantic_cache_schema",
-    "get_semantic_cache_table_name",
-    # Semantic cache store
-    "SemanticCacheStore",
-    # Semantic cache operations
-    "get_semantic_cache",
-    "set_semantic_cache",
-    # Content type classification
+    # Content type classification (retained module; no longer used by semantic cache)
     "ContentType",
     "classify_content_type",
     "ADAPTIVE_TTL",
     "ADAPTIVE_TTL_SECONDS",
-    # Exact query cache
+    # Exact query cache (LRU)
     "ExactQueryCache",
     "ExactLRUCache",
     "get_query_cache",
     "provider_cache_key",
     "QUERY_CACHE_DEFAULT_MAX_ENTRIES",
     "QUERY_CACHE_DEFAULT_TTL_SECONDS",
-    # Page cache
+    # Page cache (DuckDB)
     "PageCache",
     "get_page_cache",
     "PAGE_CACHE_DEFAULT_TTL_SECONDS",

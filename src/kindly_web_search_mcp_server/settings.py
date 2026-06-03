@@ -89,14 +89,6 @@ class Settings:
     """
 
     # Search providers (removed Serger - SearXNG is primary)
-    # Semantic Cache (LanceDB)
-    lancedb_dir: str = os.environ.get("KINDLY_LANCEDB_DIR", "./lancedb_data")
-    semantic_cache_enabled: bool = (
-        os.environ.get("KINDLY_SEMANTIC_CACHE_ENABLED", "true").lower() == "true"
-    )
-    semantic_cache_min_score: float = float(
-        os.environ.get("KINDLY_SEMANTIC_CACHE_MIN_SCORE", "0.92")
-    )
 
     # Query rewrite (Cerebras → Groq → HF Inference cascade)
     query_rewrite_enabled: bool = (
@@ -488,11 +480,6 @@ class Settings:
             raise ValueError(
                 f"mmr_lambda_param must be in [0, 1], got {self.mmr_lambda_param!r}. "
                 "Set KINDLY_MMR_LAMBDA env var to a value between 0 and 1."
-            )
-        if not 0.0 < self.semantic_cache_min_score <= 1.0:
-            raise ValueError(
-                f"semantic_cache_min_score must be in (0, 1], got {self.semantic_cache_min_score!r}. "
-                "Set KINDLY_SEMANTIC_CACHE_MIN_SCORE env var."
             )
         if self.rrf_k <= 0:
             raise ValueError(

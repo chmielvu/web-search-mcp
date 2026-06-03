@@ -70,10 +70,6 @@ from .content.youtube import (
 from .search.youtube import search_youtube_videos, YouTubeSearchError
 from .search.orchestrator import run_web_search
 from .cache import (
-    SemanticCacheStore,
-    get_semantic_cache,
-    set_semantic_cache,
-    classify_content_type,
     get_query_cache,
     provider_cache_key,
     get_page_cache,
@@ -102,21 +98,9 @@ from .utils.singleflight import SingleFlight
 configure_logging()
 LOGGER = logging.getLogger(__name__)
 
-# Singleton cache store (lazy init)
-_CACHE_STORE: SemanticCacheStore | None = None
-
 # SingleFlight for request coalescing
 _search_flight = SingleFlight()
 _academic_search_flight = SingleFlight()
-
-
-def _get_cache_store() -> SemanticCacheStore:
-    """Get or create the semantic cache store singleton."""
-    global _CACHE_STORE
-    if _CACHE_STORE is None:
-        _CACHE_STORE = SemanticCacheStore(db_path=settings.lancedb_dir)
-        LOGGER.info(f"Initialized semantic cache store at {settings.lancedb_dir}")
-    return _CACHE_STORE
 
 
 def _record_tool_success(
@@ -652,54 +636,6 @@ async def web_search(
         except Exception as e:
             LOGGER.warning(f"Exact query cache lookup failed: {e}")
 
-        # 2. Semantic cache lookup (if enabled, fallback for fuzzy matches)
-        if settings.semantic_cache_enabled:
-            try:
-                cache_store = _get_cache_store()
-                cached = await get_semantic_cache(
-                    cache_store,
-                    query,
-                    min_score=settings.semantic_cache_min_score,
-                    provider_key=search_identity_key,
-                )
-                if cached:
-                    LOGGER.debug(f"Cache hit for query: {query[:100]}")
-                    cached_response = cached.get("answer_json")
-                    if cached_response:
-                        parsed = json.loads(cached_response)
-                        root_span.set_attribute("cache.hit", "semantic")
-                        root_span.set_attribute(
-                            "search.num_results_returned",
-                            len(parsed.get("results", [])),
-                        )
-                        semantic_response = _normalize_lightweight_search_response(
-                            parsed, query=query
-                        )
-                        emit_tool_observability_event(
-                            LOGGER,
-                            "web_search",
-                            "response",
-                            cache_hit="semantic",
-                            query=query,
-                            normalized_query=normalized_query,
-                            research_goal=research_goal,
-                            result_count=len(semantic_response.get("results", [])),
-                            providers_used=semantic_response.get("providers_used", []),
-                            warnings=semantic_response.get("warnings", []),
-                            results=semantic_response.get("results", []),
-                            result_window=semantic_response.get("result_window"),
-                        )
-                        _record_tool_success(
-                            "web_search",
-                            input_query=query,
-                            output_result_count=len(
-                                semantic_response.get("results", [])
-                            ),
-                        )
-                        return semantic_response
-            except Exception as e:
-                LOGGER.warning(f"Cache lookup failed: {e}")
-
         root_span.set_attribute("cache.hit", "miss")
 
         # Report progress: rewriting and searching
@@ -788,31 +724,6 @@ async def web_search(
                 LOGGER.debug(f"Stored exact query cache for: {query[:100]}")
             except Exception as e:
                 LOGGER.warning(f"Exact query cache write failed: {e}")
-
-            # Cache write: semantic cache (non-blocking to avoid delaying response)
-            if settings.semantic_cache_enabled:
-                try:
-                    cache_store = _get_cache_store()
-                    content_type = classify_content_type(query)
-
-                    async def _safe_cache_write() -> None:
-                        try:
-                            await set_semantic_cache(
-                                cache_store,
-                                query,
-                                _response,
-                                content_type,
-                                provider_key=search_identity_key,
-                            )
-                        except Exception as e:
-                            LOGGER.warning(
-                                "Background semantic cache write failed: %s", e
-                            )
-
-                    asyncio.create_task(_safe_cache_write())
-                    LOGGER.debug(f"Scheduled semantic cache write for: {query[:100]}")
-                except Exception as e:
-                    LOGGER.warning(f"Semantic cache write scheduling failed: {e}")
 
             return _response
 
@@ -2159,39 +2070,6 @@ async def academic_search(
     except Exception as e:
         LOGGER.warning(f"Exact query cache lookup failed for academic search: {e}")
 
-    if settings.semantic_cache_enabled:
-        try:
-            cache_store = _get_cache_store()
-            cached = await get_semantic_cache(
-                cache_store,
-                query,
-                min_score=settings.semantic_cache_min_score,
-                provider_key=cache_providers_key,
-            )
-            if cached:
-                LOGGER.debug(f"Semantic cache hit for academic search: {query[:100]}")
-
-                answer_json = cached.get("answer_json") or "{}"
-                parsed = json.loads(answer_json)
-                parsed["query"] = query
-                emit_tool_observability_event(
-                    LOGGER,
-                    "academic_search",
-                    "response",
-                    cache_hit="semantic",
-                    query=query,
-                    result_count=len(parsed.get("results", [])),
-                    sources_used=parsed.get("sources_used", []),
-                )
-                _record_tool_success(
-                    "academic_search",
-                    input_query=query,
-                    output_result_count=len(parsed.get("results", [])),
-                )
-                return parsed
-        except Exception as e:
-            LOGGER.warning(f"Semantic cache lookup failed for academic search: {e}")
-
     await ctx.report_progress(
         progress=20, total=100, message="Searching academic sources..."
     )
@@ -2225,34 +2103,6 @@ async def academic_search(
             LOGGER.debug(f"Stored exact query cache for academic search: {query[:100]}")
         except Exception as e:
             LOGGER.warning(f"Exact query cache write failed for academic search: {e}")
-
-        if settings.semantic_cache_enabled:
-            try:
-                cache_store = _get_cache_store()
-                content_type = classify_content_type(query)
-
-                async def _safe_academic_cache_write() -> None:
-                    try:
-                        await set_semantic_cache(
-                            cache_store,
-                            query,
-                            response,
-                            content_type,
-                            provider_key=cache_providers_key,
-                        )
-                    except Exception as e:
-                        LOGGER.warning(
-                            "Background academic semantic cache write failed: %s", e
-                        )
-
-                asyncio.create_task(_safe_academic_cache_write())
-                LOGGER.debug(
-                    f"Scheduled semantic cache write for academic search: {query[:100]}"
-                )
-            except Exception as e:
-                LOGGER.warning(
-                    f"Semantic cache write scheduling failed for academic search: {e}"
-                )
 
         return response
 
@@ -2358,12 +2208,11 @@ def get_features_status() -> str:
     lines = [
         "# Feature Status",
         "",
-        f"**Semantic Cache**: {'✓ Enabled' if settings.semantic_cache_enabled else '✗ Disabled'}",
         f"**Query Rewrite**: {'✓ Enabled' if settings.query_rewrite_enabled else '✗ Disabled'}",
         f"**Reranking**: {'✓ Enabled' if settings.reranking_enabled else '✗ Disabled'}",
         "",
         "## Cache Settings",
-        f"LanceDB Path: {settings.lancedb_dir}",
+        "Page cache: DuckDB (separate file)",
         "",
         "## Timeouts",
         f"Tool Timeout: {os.environ.get('KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS', '120')}s",

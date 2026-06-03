@@ -1,6 +1,8 @@
 ## [Unreleased]
 
 ### Added
+- Phase 5.2 DuckDB page cache: created `src/kindly_web_search_mcp_server/cache/page_duckdb.py` implementing URL hash lookup (sha256[:32]), TTL expiry (created_at + ttl_seconds), metadata JSON roundtrip (stored in metadata_json column), and threading.Lock-protected writes (separate `.kindly/cache/page_cache.duckdb`, never shares analytics DB); refactored `page_cache.py` to thin facade + telemetry via cache/observability helpers while preserving exact `PageCache.lookup`/`store`/`get_page_cache` contract; added `KINDLY_PAGE_CACHE_DUCKDB_PATH` setting (default `.kindly/cache/page_cache.duckdb`); `tests/test_page_cache_duckdb.py` (URL-hash roundtrip, TTL, metadata, locked concurrent writes, separate-DB assertion) written and run failing first, then green. (Joint plan Task 5.2, commit "feat: move page cache to DuckDB".)
+- Phase 5.3 removal test: added `tests/test_semantic_cache_removed.py` that asserts at runtime: no `lancedb` module load from our imports, cannot `from ...cache import SemanticCacheStore|get_semantic_cache|set_semantic_cache`, settings lack the three keys, and server source contains none of the removed tokens. Written and run failing first. (Joint plan Task 5.3 Step 1.)
 - Phase 5.1 exact query cache LRU: added `cache/exact_lru.py` with in-memory `OrderedDict` LRU eviction and TTL expiry, and migrated the exact query cache wrapper away from LanceDB while preserving the current `lookup`/`store` server contract.
 - Phase 3.1 rerank engine abstraction: added typed rerank candidate/result models, a `RerankEngine` protocol, engine registry support for `none`, `voyage`, `jina`, `gcp_cloudrun`, and `local_baseline`, plus fallback-preserving tests that keep merged-order behavior when rerank is bypassed or all providers fail.
 - Phase 2.1 FastMCP tool visibility profiles: added a public tool catalog with stable annotations/tags, `KINDLY_TOOL_PROFILE` validation, and tag-gated `default`, `research`, `media`, `diagnostic`, `experimental`, and `full` profiles.
@@ -38,6 +40,19 @@
   - Line count now ~506 (modest increase from better organization + explicit structure; far more usable).
   - Verified post-write: clean heading outline (sequential 1-9, no dups), top reads cleanly, all prior v2 depth + "two agents" resolution note retained at top.
   - This directly fulfills the request while keeping the report the single source of truth. (See also the v3 note and "This document (v3 rewrite)" section in the report itself.)
+
+### Removed
+- Phase 5.3: LanceDB semantic cache and all related code (Joint plan Task 5.3):
+  - `git rm src/kindly_web_search_mcp_server/cache/{store.py,semantic_cache.py,schema.py}`
+  - Removed semantic cache lookup + background write paths from both `web_search` and `academic_search` in server.py (exact LRU remains).
+  - Removed the three settings (`lancedb_dir`, `semantic_cache_enabled`, `semantic_cache_min_score`) + leftover __post_init__ validation from settings.py.
+  - Removed `lancedb>=0.25.0` from pyproject.toml dependencies; `uv lock` regenerated (lancedb no longer resolved).
+  - Cleaned `cache/__init__.py` (docstring, removed schema/semantic/store imports + exports; retained content_type/exact/page for now).
+  - Purged `get_semantic_cache_metrics`, `record_semantic_cache_lookup`, associated globals, metric names, and export list entries from telemetry.py.
+  - Updated server status resource and removed now-unused classify_content_type import.
+  - `tests/test_semantic_cache_removed.py` + `rg "lancedb|semantic_cache" src pyproject.toml` (run as part of verification) confirm zero runtime references outside the three deleted files and migration notes in changelog/docs.
+  - Uses exact plan commit message: "refactor: remove LanceDB semantic cache".
+  - (No aliases kept; no cache_hit="semantic" path remains; per compatibility policy.)
 
 ### Changed
 - (No breaking; additive steering layers.)
