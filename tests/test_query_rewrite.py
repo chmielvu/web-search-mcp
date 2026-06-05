@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -261,42 +261,23 @@ def test_keyword_validator_rejects_neural_target() -> None:
     assert validate_keyword_variants([variant], intent="code", must_keep_terms=[]) == []
 
 
-def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() -> None:
+def test_rewrite_search_query_uses_llm_fanout_and_decomposition() -> None:
     from kindly_web_search_mcp_server.search.query_rewrite import rewrite_search_query
     from kindly_web_search_mcp_server.search.query_rewrite_models import (
         ClassifierOutput,
-        ProviderRouting,
         QueryDecompositionOutput,
+        ProviderRouting,
         QueryVariant,
         SubQuestion,
     )
 
-    class _StubClient:
+    class _StubClassifierClient:
         async def classify_query(self, query: str, **kwargs):
             return ClassifierOutput(
                 intent="comparison",
                 should_decompose=True,
                 confidence=0.99,
                 routing=ProviderRouting(keyword=True, neural=True, community=True),
-            )
-
-        async def decompose_query(self, query: str, **kwargs):
-            return QueryDecompositionOutput(
-                should_decompose=True,
-                sub_questions=[
-                    SubQuestion(
-                        question="React 19 SSR performance",
-                        target="keyword",
-                        why="framework docs",
-                        weight=1.1,
-                    ),
-                    SubQuestion(
-                        question="Vue 4 developer experience",
-                        target="community",
-                        why="community feedback",
-                        weight=0.9,
-                    ),
-                ],
             )
 
     async def _run() -> None:
@@ -307,8 +288,12 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
             ),
             patch(
                 "kindly_web_search_mcp_server.search.query_rewrite.get_functiongemma_client",
-                return_value=_StubClient(),
+                return_value=_StubClassifierClient(),
             ),
+            patch(
+                "kindly_web_search_mcp_server.search.query_rewrite.build_fanout_branch_variants",
+                new_callable=AsyncMock,
+            ) as mock_fanout,
             patch(
                 "kindly_web_search_mcp_server.search.query_rewrite.active_target_flags",
                 return_value=(True, True, True, ["searxng", "gemini", "stackexchange"]),
@@ -355,6 +340,58 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
                 ],
             ),
         ):
+            mock_fanout.return_value = (
+                QueryDecompositionOutput(
+                    should_decompose=True,
+                    rationale="Compare both frameworks across docs and community signals.",
+                    sub_questions=[
+                        SubQuestion(
+                            question="React 19 SSR performance",
+                            target="keyword",
+                            why="framework docs",
+                            weight=1.1,
+                            branch_type="related",
+                            must_keep_terms=["React 19", "Vue 4"],
+                            max_results=4,
+                            reason="framework docs",
+                        ),
+                        SubQuestion(
+                            question="Vue 4 developer experience discussion",
+                            target="community",
+                            why="community feedback",
+                            weight=0.9,
+                            branch_type="comparative",
+                            must_keep_terms=["Vue 4"],
+                            max_results=3,
+                            reason="community feedback",
+                        ),
+                    ],
+                ),
+                [
+                    QueryVariant(
+                        kind="related",
+                        target="keyword",
+                        query="React 19 SSR performance",
+                        why="framework docs",
+                        weight=1.1,
+                        branch_type="related",
+                        must_keep_terms=["React 19", "Vue 4"],
+                        max_results=4,
+                        reason="framework docs",
+                    ),
+                    QueryVariant(
+                        kind="comparative",
+                        target="community",
+                        query="Vue 4 developer experience discussion",
+                        why="community feedback",
+                        weight=0.9,
+                        branch_type="comparative",
+                        must_keep_terms=["Vue 4"],
+                        max_results=3,
+                        reason="community feedback",
+                    ),
+                ],
+            )
             plan = await rewrite_search_query(
                 "React 19 vs Vue 4 SSR performance and developer experience",
                 intent="comparison",
@@ -365,7 +402,11 @@ def test_rewrite_search_query_uses_functiongemma_classifier_and_decomposition() 
         assert plan.classifier.intent == "comparison"
         assert plan.decomposition is not None
         assert plan.decomposition.should_decompose is True
-        assert any(variant.kind == "subquestion" for variant in plan.variants)
+        assert plan.decomposition.rationale == (
+            "Compare both frameworks across docs and community signals."
+        )
+        assert any(variant.kind == "related" for variant in plan.variants)
+        assert any(branch.max_results == 4 for branch in plan.variants)
         assert any("React 19 SSR performance" in query for query in plan.final_queries)
 
     asyncio.run(_run())

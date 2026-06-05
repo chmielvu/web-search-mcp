@@ -130,6 +130,9 @@ Acceptance:
 
 ### Existing State
 
+These existing entries are baseline only for this phase.
+They are not "done" for Phase 3; they remain TODO to refine and expand.
+
 The server already exposes:
 
 - `status://providers`
@@ -142,7 +145,7 @@ The server already exposes:
 
 ### Work
 
-Extend, do not replace:
+Refine and expand, do not replace:
 
 1. Add analytics resources:
    - `analytics://reports/{report_name}`
@@ -283,6 +286,9 @@ Current query decomposition metadata exists, but multi-hop branches are not trea
    - `branch_weight`
    - `branch_latency_ms`
    - `branch_result_count`
+
+Implementation note:
+- The executor scaffold is already in code: `search/branch_executor.py` now runs bounded concurrent branches, `search/result_memory_pipeline.py` keeps Qdrant candidate injection/persistence separate from merge logic, `search/finalize_results.py` holds post-processing, and the orchestrator is now under the 300-line module cap. The structured LLM fan-out generator now lives in `search/query_fanout.py`, `search/query_fanout_client.py`, and `search/query_rewrite_branching.py`.
 
 Acceptance:
 

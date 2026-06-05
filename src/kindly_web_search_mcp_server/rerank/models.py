@@ -33,5 +33,6 @@ class RerankEngine(Protocol):
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         """Return ranked candidate indexes with relevance scores."""

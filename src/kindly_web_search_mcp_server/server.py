@@ -35,17 +35,24 @@ import httpx
 import logging
 import os
 import sys
+from types import MethodType
 from typing import Literal
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import NotFoundError
 from fastmcp.dependencies import CurrentContext  # For context injection
 from fastmcp.prompts import Message
 from fastmcp.server.context import Context  # Context type
 
 from .models import (
+    AcademicSearchResultType,
     BatchGetContentResponse,
     DiscoverLinksResponse,
+    GetContentResultType,
     GetContentResponse,
+    WebSearchResultType,
+    YouTubeSearchResultType,
+    YouTubeTranscriptResultType,
     YouTubeTranscriptResponse,
     YouTubeSearchResponse,
 )
@@ -58,6 +65,8 @@ from .content.summary import create_summary
 from .content.windowing import slice_content
 from .analytics.tools import register_analytics_tools
 from .analytics.app import analytics_app
+from .analytics.formatting import json_safe_rows
+from .analytics.reports import available_reports, run_report
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
 from .content.youtube import (
@@ -135,6 +144,110 @@ def _record_tool_failure(tool_name: str) -> None:
     record_mcp_tool_call(tool_name, success=False)
 
 
+def _public_settings_snapshot() -> dict[str, object]:
+    """Return a safe subset of runtime settings for MCP clients."""
+    return {
+        "tool_surface": {
+            "profile": settings.tool_profile,
+            "tool_search_enabled": settings.tool_search_enabled,
+        },
+        "features": {
+            "query_rewrite_enabled": settings.query_rewrite_enabled,
+            "reranking_enabled": settings.reranking_enabled,
+            "entity_extraction_enabled": settings.entity_extraction_enabled,
+            "result_memory_enabled": settings.result_memory_enabled,
+            "analytics_enabled": settings.analytics_enabled,
+            "query_classifier_enabled": settings.query_classifier_enabled,
+            "query_decomposition_enabled": settings.query_decomposition_enabled,
+        },
+        "providers_configured": {
+            "searxng": bool(os.environ.get("SEARXNG_BASE_URL")),
+            "tavily": bool(os.environ.get("TAVILY_API_KEY")),
+            "brave": bool(os.environ.get("BRAVE_API_KEY")),
+            "jina": bool(os.environ.get("JINA_API_KEY")),
+            "gemini": bool(settings.gemini_api_key),
+            "voyage": bool(settings.voyage_api_key),
+            "composio": bool(
+                os.environ.get("COMPOSIO_API_KEY")
+                and os.environ.get("KINDLY_COMPOSIO_USER_ID")
+            ),
+            "github_token": bool(os.environ.get("GITHUB_TOKEN")),
+        },
+        "timeouts_seconds": {
+            "tool_total": _resolve_tool_total_timeout_seconds(),
+            "query_classifier": settings.query_classifier_timeout_seconds,
+            "query_decomposition": settings.query_decomposition_timeout_seconds,
+            "youtube_transcript": settings.youtube_transcript_timeout_seconds,
+            "grok": settings.grok_timeout_seconds,
+        },
+        "models": {
+            "rerank_provider": settings.rerank_provider,
+            "voyage_rerank_model": settings.voyage_rerank_model,
+            "jina_rerank_model": settings.jina_rerank_model,
+            "grok_model": settings.grok_model,
+            "gliner_model": settings.gliner_model,
+            "query_classifier_url": settings.query_classifier_url,
+        },
+    }
+
+
+def _cache_stats_snapshot() -> dict[str, object]:
+    """Return public cache topology and configured limits."""
+    from .cache.page_cache import PAGE_CACHE_DEFAULT_TTL_SECONDS
+    from .cache.query_cache import (
+        QUERY_CACHE_DEFAULT_MAX_ENTRIES,
+        QUERY_CACHE_DEFAULT_TTL_SECONDS,
+    )
+
+    return {
+        "exact_query_cache": {
+            "backend": "in_memory_lru",
+            "ttl_seconds": QUERY_CACHE_DEFAULT_TTL_SECONDS,
+            "max_entries": QUERY_CACHE_DEFAULT_MAX_ENTRIES,
+        },
+        "page_cache": {
+            "backend": "duckdb",
+            "path": settings.page_cache_duckdb_path,
+            "ttl_seconds": PAGE_CACHE_DEFAULT_TTL_SECONDS,
+        },
+        "result_memory": {
+            "backend": "qdrant",
+            "enabled": settings.result_memory_enabled,
+            "path": settings.result_memory_path or ":memory:",
+            "candidate_weight": settings.result_memory_candidate_weight,
+            "candidate_limit": settings.result_memory_candidate_limit,
+            "min_similarity": settings.result_memory_min_similarity,
+        },
+    }
+
+
+def _analytics_schema_snapshot() -> dict[str, object]:
+    """Return the current analytics object catalog for MCP clients."""
+    from .analytics.app import _OBJECT_DESCRIPTIONS
+
+    return {
+        "analytics_db_path": settings.analytics_duckdb_path,
+        "object_count": len(_OBJECT_DESCRIPTIONS),
+        "objects": _OBJECT_DESCRIPTIONS,
+    }
+
+
+def _analytics_report_snapshot(
+    report_name: str,
+    *,
+    days: int = 7,
+) -> dict[str, object]:
+    """Return one deterministic analytics report as JSON-safe rows."""
+    table = run_report(report_name, days=days)
+    return {
+        "report": report_name,
+        "days": days,
+        "row_count": table.num_rows,
+        "rows": json_safe_rows(table.to_pylist()),
+        "available_reports": available_reports(),
+    }
+
+
 mcp = FastMCP(
     "kindly-web-search",
     instructions=(
@@ -185,6 +298,138 @@ except Exception as _analytics_app_err:  # noqa: BLE001
         "Analytics Explorer app could not be mounted (is fastmcp[apps] installed?): %s",
         _analytics_app_err,
     )
+
+
+_base_list_resources = mcp.list_resources
+_base_list_resource_templates = mcp.list_resource_templates
+_base_read_resource = mcp.read_resource
+_base_list_prompts = mcp.list_prompts
+_base_render_prompt = mcp.render_prompt
+
+
+async def _compat_list_resources(
+    self: FastMCP, *, run_middleware: bool = True
+) -> list[object]:
+    """Merge local function resources with the public FastMCP resource list.
+
+    FastMCP 3.4.0 exposes local `@mcp.resource` entries via `_list_resources()`
+    in this server, but the public `list_resources()` path currently returns only
+    mounted app prefab resources. Keep the stock behavior, then append any missing
+    no-auth local resources by URI.
+    """
+    listed = list(await _base_list_resources(run_middleware=run_middleware))
+    existing_uris = {str(getattr(item, "uri", "")) for item in listed}
+    for resource in await self._list_resources():
+        uri = str(getattr(resource, "uri", ""))
+        if not uri or uri in existing_uris:
+            continue
+        if getattr(resource, "auth", None) is not None:
+            continue
+        listed.append(resource)
+        existing_uris.add(uri)
+    return listed
+
+
+async def _compat_read_resource(
+    self: FastMCP,
+    uri: str,
+    *,
+    version: object = None,
+    run_middleware: bool = True,
+    task_meta: object = None,
+):
+    """Fallback to local function-resource resolution when public lookup misses."""
+    try:
+        return await _base_read_resource(
+            uri,
+            version=version,
+            run_middleware=run_middleware,
+            task_meta=task_meta,
+        )
+    except NotFoundError:
+        resource = await self._get_resource(uri, version=version)
+        if resource is not None and getattr(resource, "auth", None) is None:
+            return await resource._read(task_meta=task_meta)
+
+        template = await self._get_resource_template(uri, version=version)
+        if template is None or getattr(template, "auth", None) is not None:
+            raise
+        params = template.matches(uri)
+        if params is None:
+            raise
+        return await template._read(uri, params, task_meta=task_meta)
+
+
+mcp.list_resources = MethodType(_compat_list_resources, mcp)
+mcp.read_resource = MethodType(_compat_read_resource, mcp)
+
+
+async def _compat_list_resource_templates(
+    self: FastMCP, *, run_middleware: bool = True
+) -> list[object]:
+    """Merge local function resource templates with the public template list."""
+    listed = list(
+        await _base_list_resource_templates(run_middleware=run_middleware)
+    )
+    existing_uris = {str(getattr(item, "uri_template", "")) for item in listed}
+    for template in await self._list_resource_templates():
+        uri_template = str(getattr(template, "uri_template", ""))
+        if not uri_template or uri_template in existing_uris:
+            continue
+        if getattr(template, "auth", None) is not None:
+            continue
+        listed.append(template)
+        existing_uris.add(uri_template)
+    return listed
+
+
+mcp.list_resource_templates = MethodType(_compat_list_resource_templates, mcp)
+
+
+async def _compat_list_prompts(
+    self: FastMCP, *, run_middleware: bool = True
+) -> list[object]:
+    """Merge local function prompts with the public FastMCP prompt list."""
+    listed = list(await _base_list_prompts(run_middleware=run_middleware))
+    existing_names = {str(getattr(item, "name", "")) for item in listed}
+    for prompt in await self._list_prompts():
+        name = str(getattr(prompt, "name", ""))
+        if not name or name in existing_names:
+            continue
+        if getattr(prompt, "auth", None) is not None:
+            continue
+        listed.append(prompt)
+        existing_names.add(name)
+    return listed
+
+
+async def _compat_render_prompt(
+    self: FastMCP,
+    name: str,
+    arguments: dict[str, object] | None = None,
+    *,
+    version: object = None,
+    run_middleware: bool = True,
+    task_meta: object = None,
+):
+    """Fallback to local function-prompt resolution when public lookup misses."""
+    try:
+        return await _base_render_prompt(
+            name,
+            arguments,
+            version=version,
+            run_middleware=run_middleware,
+            task_meta=task_meta,
+        )
+    except NotFoundError:
+        prompt = await self._get_prompt(name, version=version)
+        if prompt is None or getattr(prompt, "auth", None) is not None:
+            raise
+        return await prompt._render(arguments, task_meta=task_meta)
+
+
+mcp.list_prompts = MethodType(_compat_list_prompts, mcp)
+mcp.render_prompt = MethodType(_compat_render_prompt, mcp)
 
 Transport = Literal["stdio", "sse", "streamable-http"]
 
@@ -484,7 +729,7 @@ async def web_search(
     domain_boost: list[str] | None = None,
     domain_block: list[str] | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> WebSearchResultType:
     """Search the web and return lightweight results only.
 
     Key instruction:
@@ -825,7 +1070,7 @@ async def get_content(
     max_links: int = 25,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> GetContentResultType:
     """Fetch one URL with bounded windowing and structured status.
 
     When to use:
@@ -1087,7 +1332,7 @@ async def batch_get_content(
     max_links: int = 25,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> BatchGetContentResponse:
     """Fetch multiple URLs with structured status, budgets, and continuation cursor.
 
     When to use:
@@ -1744,7 +1989,7 @@ async def youtube_transcript(
     language: str | None = None,
     translate_to: str | None = None,
     format: str = "text",
-) -> dict:
+) -> YouTubeTranscriptResultType:
     """Retrieve transcript/captions from a YouTube video.
 
     Extracts transcript data from YouTube videos using the youtube-transcript-api
@@ -1908,7 +2153,7 @@ async def youtube_transcript(
 async def youtube_search(
     query: str,
     num_results: int = 5,
-) -> dict:
+) -> YouTubeSearchResultType:
     """Search YouTube videos via SearXNG YouTube engine.
 
     Searches for YouTube videos using the SearXNG metasearch engine's
@@ -1998,7 +2243,7 @@ async def academic_search(
     open_access_only: bool = False,
     sort: str = "relevance",
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> AcademicSearchResultType:
     """Search academic papers across 6 scholarly sources.
 
     Finds research papers, preprints, and citations across major academic
@@ -2199,6 +2444,10 @@ async def academic_search(
 
 
 # ============ RESOURCES ============
+#
+# Phase 3 baseline surface only:
+# These resources already exist, but they are still TODO to refine and expand
+# as the roadmap adds analytics, cache, session, and public-settings resources.
 
 
 @mcp.resource("status://providers")
@@ -2254,6 +2503,12 @@ def get_features_status() -> str:
     """Server feature flags status."""
     lines = [
         "# Feature Status",
+        "",
+        "## Personal Enhanced Profile",
+        f"**Current Tool Profile**: {settings.tool_profile}",
+        f"**Entity Extraction**: {'✓ Enabled' if settings.entity_extraction_enabled else '✗ Disabled'}",
+        f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
+        f"**Result Memory**: {'✓ Enabled' if settings.result_memory_enabled else '✗ Disabled'}",
         "",
         f"**Query Rewrite**: {'✓ Enabled' if settings.query_rewrite_enabled else '✗ Disabled'}",
         f"**Reranking**: {'✓ Enabled' if settings.reranking_enabled else '✗ Disabled'}",
@@ -2327,7 +2582,50 @@ Use perplexity_search only when a refined single-topic query needs deeper synthe
 """
 
 
+@mcp.resource("settings://public")
+def get_public_settings_resource() -> dict[str, object]:
+    """Public runtime settings and configured capabilities, with secrets removed."""
+    return _public_settings_snapshot()
+
+
+@mcp.resource("cache://stats")
+def get_cache_stats_resource() -> dict[str, object]:
+    """Public cache topology and configured limits for exact/page/result-memory layers."""
+    return _cache_stats_snapshot()
+
+
+@mcp.resource("analytics://schema")
+def get_analytics_schema_resource() -> dict[str, object]:
+    """Analytics tables/views catalog for the local DuckDB observability store."""
+    return _analytics_schema_snapshot()
+
+
+@mcp.resource("analytics://candidate-survival")
+def get_candidate_survival_resource() -> dict[str, object]:
+    """Default candidate-survival analytics report for the last 7 days."""
+    return _analytics_report_snapshot("candidate-survival")
+
+
+@mcp.resource("analytics://cache-hit-rates")
+def get_cache_hit_rates_resource() -> dict[str, object]:
+    """Default cache-hit-rate analytics report for the last 7 days."""
+    return _analytics_report_snapshot("cache-hit-rates")
+
+
+@mcp.resource("analytics://reports/{report_name}{?days}")
+def get_analytics_report_resource(
+    report_name: str,
+    days: int = 7,
+) -> dict[str, object]:
+    """Parameterized analytics report resource using the deterministic report catalog."""
+    return _analytics_report_snapshot(report_name, days=days)
+
+
 # ============ PROMPTS ============
+#
+# Phase 3 baseline surface only:
+# These prompts intentionally stay live while the prompt catalog is refined and
+# expanded. Presence here does not mean the roadmap considers prompt work done.
 
 _SEARCH_TOOL_ROUTING = """Tool selection rules for this server:
 
@@ -2425,6 +2723,40 @@ Breadth decay: each iteration narrower than the last.
 - If video content would help: `youtube_search` → `youtube_transcript` on the most relevant video."""
 
 
+_ACADEMIC_DEEP_DIVE_RULES = """Academic research workflow:
+
+1. Start with `academic_search` for papers, not general web search.
+2. Use year, venue, fields_of_study, and open_access_only to narrow early.
+3. Prefer exact paper titles, author names, and benchmark names in follow-up queries.
+4. Check citation count, venue, and year before treating a paper as foundational.
+5. Use `get_content` on a paper abstract/HTML landing page or PDF URL only after you have selected the most relevant papers.
+6. Cross-check scholarly claims with at least two independent papers when possible.
+7. Separate survey/background papers from implementation/benchmark papers.
+8. Stop broadening once you have the core papers, then deepen on methods, baselines, and limitations."""
+
+
+_VIDEO_RESEARCH_RULES = """Video research workflow:
+
+1. Use `youtube_search` to discover candidate videos first.
+2. Rank candidates by title specificity, channel authority, and likely transcript usefulness.
+3. Use `youtube_transcript` only on the best candidate videos.
+4. Prefer transcript evidence over video title/description alone.
+5. If a transcript is long, summarize the key sections and note where deeper follow-up is needed.
+6. Cross-check tutorial claims against official docs or source code when accuracy matters.
+7. If transcripts are unavailable or weak, fall back to standard web/document sources."""
+
+
+_SOURCE_TRIAGE_RULES = """Source triage rules:
+
+1. Official docs and vendor references for API behavior and versioned contracts.
+2. GitHub issues/PRs for real bugs, migrations, and edge-case behavior.
+3. Papers for scholarly or benchmark claims.
+4. Community sources for practitioner experience, not as sole proof of correctness.
+5. Prefer sources with clear dates, concrete examples, and direct evidence.
+6. Flag single-source claims as provisional until corroborated.
+7. When sources disagree, prefer the newer and more authoritative one, and note the conflict explicitly."""
+
+
 @mcp.prompt(
     name="plan_web_research",
     description="Plan your research approach: choose the right search tool, formulate effective queries, set depth strategy. Use BEFORE calling any search tool.",
@@ -2502,6 +2834,78 @@ def suggest_tool_prompt(task: str) -> list[Message]:
             f"Task: {task}\n\n"
             "Which tool(s) should I use? Recommend specific tool names and key parameters. "
             "If multiple tools should be used in sequence, describe the full chain.",
+        ),
+    ]
+
+
+@mcp.prompt(
+    name="research_workflow",
+    description="Guide a complete discovery-to-extraction-to-synthesis research workflow using the available MCP tools.",
+    tags={"research", "workflow"},
+)
+def research_workflow_prompt(goal: str, depth: str = "medium") -> list[Message]:
+    return [
+        Message(_SEARCH_TOOL_ROUTING, role="user"),
+        Message(_RESULT_EVALUATION_RULES, role="user"),
+        Message(_GAP_ANALYSIS_RULES, role="user"),
+        Message(
+            f"Research goal: {goal}\nDepth: {depth}\n\n"
+            "Plan and execute a full workflow: discovery, source triage, content extraction, "
+            "gap analysis, and stopping criteria. Recommend concrete tool calls and parameters.",
+        ),
+    ]
+
+
+@mcp.prompt(
+    name="academic_deep_dive",
+    description="Plan a scholarly research pass using academic_search first, then deepen into selected papers.",
+    tags={"research", "academic"},
+)
+def academic_deep_dive_prompt(topic: str, focus: str = "") -> list[Message]:
+    return [
+        Message(_ACADEMIC_DEEP_DIVE_RULES, role="user"),
+        Message(
+            f"Topic: {topic}\n"
+            + (f"Specific focus: {focus}\n" if focus else "")
+            + "\nDesign the academic search strategy, including filters, follow-up queries, "
+            "and how to separate core papers from supporting context.",
+        ),
+    ]
+
+
+@mcp.prompt(
+    name="video_research",
+    description="Plan a YouTube-first research workflow using youtube_search and youtube_transcript selectively.",
+    tags={"research", "video"},
+)
+def video_research_prompt(topic: str) -> list[Message]:
+    return [
+        Message(_VIDEO_RESEARCH_RULES, role="user"),
+        Message(
+            f"Topic: {topic}\n\n"
+            "Choose how to search for candidate videos, which ones to transcribe, "
+            "and how to cross-check transcript-derived claims against higher-authority sources.",
+        ),
+    ]
+
+
+@mcp.prompt(
+    name="source_triage",
+    description="Decide which sources are authoritative enough to fetch, cite, or discard for a research task.",
+    tags={"research", "triage"},
+)
+def source_triage_prompt(goal: str, candidate_sources: str = "") -> list[Message]:
+    return [
+        Message(_SOURCE_TRIAGE_RULES, role="user"),
+        Message(
+            f"Research goal: {goal}\n"
+            + (
+                f"Candidate sources already found: {candidate_sources}\n"
+                if candidate_sources
+                else ""
+            )
+            + "\nAssess source quality, identify which ones to fetch or cite next, "
+            "and call out any authority or recency gaps.",
         ),
     ]
 

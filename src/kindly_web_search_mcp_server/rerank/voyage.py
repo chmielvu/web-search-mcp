@@ -21,6 +21,13 @@ def _get_voyage_client(timeout: float = 30.0) -> httpx.AsyncClient:
     return _VOYAGE_CLIENT
 
 
+def _apply_instruction(query: str, instruction: str | None) -> str:
+    cleaned_instruction = (instruction or "").strip()
+    if not cleaned_instruction:
+        return query
+    return f"{cleaned_instruction}\n\n{query}"
+
+
 def _parse_rerank_results(
     data: dict[str, Any], document_count: int
 ) -> list[tuple[int, float]]:
@@ -52,6 +59,7 @@ async def voyage_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
+    instruction: str | None = None,
     timeout: float = 30.0,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[tuple[int, float]]:
@@ -68,7 +76,7 @@ async def voyage_rerank(
 
     payload = {
         "model": model or settings.voyage_rerank_model,
-        "query": query,
+        "query": _apply_instruction(query, instruction),
         "documents": documents,
         "top_k": top_n or len(documents),
         "return_documents": False,

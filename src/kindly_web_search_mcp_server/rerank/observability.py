@@ -47,6 +47,9 @@ def emit_rerank_summary(
     duration_seconds: float,
     score_threshold: float,
     max_score: float,
+    instruction_present: bool = False,
+    instruction_length: int | None = None,
+    query_type_hint: str | None = None,
 ) -> None:
     emit_observability_event(
         logger,
@@ -60,6 +63,9 @@ def emit_rerank_summary(
         duration_ms=round(duration_seconds * 1000, 3),
         score_threshold=round(score_threshold, 6),
         max_score=round(max_score, 6),
+        instruction_present=instruction_present,
+        instruction_length=instruction_length,
+        query_type_hint=query_type_hint,
         results=output,
         top_results=serialize_search_results(output, max_results=min(top_k, 5)),
     )

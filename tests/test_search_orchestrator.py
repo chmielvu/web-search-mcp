@@ -84,7 +84,7 @@ def test_run_web_search_rewrites_merges_and_reranks() -> None:
         ):
             mock_rewrite.return_value = rewrite_plan
             mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k: candidates[
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
 
@@ -151,7 +151,7 @@ def test_run_web_search_bypass_mode_fetches_2x_results() -> None:
         ):
             mock_rewrite.return_value = rewrite_plan
             mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k: candidates[
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
 
@@ -242,7 +242,7 @@ def test_run_web_search_routes_keyword_and_neural_variants_to_matching_providers
         ):
             mock_rewrite.return_value = rewrite_plan
             mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k: candidates[
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
 
@@ -316,7 +316,7 @@ def test_run_web_search_applies_result_offset_and_reports_window() -> None:
         ):
             mock_rewrite.return_value = rewrite_plan
             mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k: candidates[
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
 
@@ -403,12 +403,89 @@ def test_run_web_search_propagates_variant_weights_to_merge() -> None:
             mock_rewrite.return_value = rewrite_plan
             mock_single.side_effect = query_results
             mock_merge.return_value = query_results[0] + query_results[1]
-            mock_rerank.side_effect = lambda _query, candidates, top_k: candidates[
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
 
             await run_web_search("fastmcp docs", num_results=1, rewrite=True)
 
         assert mock_merge.call_args.kwargs["list_weights"] == [1.2, 0.8]
+
+    asyncio.run(_run())
+
+
+def test_run_web_search_threads_research_goal_into_rerank() -> None:
+    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
+    from kindly_web_search_mcp_server.search.query_rewrite_models import ClassifierOutput
+
+    rewrite_plan = QueryRewritePlan(
+        original_query="cloud run gliner2",
+        policy=RewritePolicy(mode="expand", reason="Query can benefit from expansion."),
+        variants=[
+            QueryVariant(
+                kind="original",
+                target="keyword",
+                query="cloud run gliner2",
+                why="original",
+                weight=1.0,
+            ),
+        ],
+        final_queries=["cloud run gliner2"],
+        classifier=ClassifierOutput(
+            intent="general_research",
+            should_decompose=False,
+            confidence=0.9,
+        ),
+    )
+
+    query_results = [
+        [
+            WebSearchResult(
+                title="A",
+                link="https://example.com/a",
+                snippet="snippet a",
+                providers=["searxng"],
+            ),
+            WebSearchResult(
+                title="B",
+                link="https://example.com/b",
+                snippet="snippet b",
+                providers=["searxng"],
+            ),
+        ]
+    ]
+
+    async def _run() -> None:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
+                new_callable=AsyncMock,
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
+                new_callable=AsyncMock,
+            ) as mock_single,
+            patch(
+                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+        ):
+            mock_rewrite.return_value = rewrite_plan
+            mock_single.side_effect = query_results
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
+                :top_k
+            ]
+
+            await run_web_search(
+                "cloud run gliner2",
+                num_results=1,
+                rewrite=True,
+                research_goal="Measure GLiNER2 base latency on Cloud Run",
+            )
+
+        assert mock_rerank.await_args.kwargs["research_goal"] == (
+            "Measure GLiNER2 base latency on Cloud Run"
+        )
+        assert mock_rerank.await_args.kwargs["query_type_hint"] == "general_research"
 
     asyncio.run(_run())

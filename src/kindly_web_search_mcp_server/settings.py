@@ -129,6 +129,12 @@ class Settings:
     query_decomposition_max_subquestions: int = int(
         os.environ.get("KINDLY_QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
     )
+    query_decomposition_max_branches: int = int(
+        os.environ.get("KINDLY_DECOMPOSITION_MAX_BRANCHES", "10")
+    )
+    query_decomposition_max_concurrency: int = int(
+        os.environ.get("KINDLY_DECOMPOSITION_MAX_CONCURRENCY", "4")
+    )
 
     # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")

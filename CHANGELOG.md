@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Added
+- Hardened the Phase 6 fan-out parser so malformed JSON now fails closed unless it contains 8-10 branches with the required branch-control fields. Added a negative parser test to prove the guardrail.
+- Implemented the structured Phase 6 fan-out generator: `search/query_fanout.py` defines the 8-10 branch JSON contract and normalization, `search/query_fanout_client.py` runs the structured LLM call through the existing rewrite cascade, `search/query_rewrite_branching.py` maps fan-out output into rewrite plan branches, and the orchestrator/branch executor now carry branch controls (`branch_type`, `must_keep_terms`, `max_results`, `reason`) end-to-end. Added focused tests for the fan-out prompt/normalization and the rewrite integration path.
+- Added the next Phase 6 decomposition scaffold: `search/branch_executor.py` now runs decomposed branches with a bounded semaphore and branch-count cap (`KINDLY_DECOMPOSITION_MAX_BRANCHES` / `KINDLY_DECOMPOSITION_MAX_CONCURRENCY`), `search/result_memory_pipeline.py` isolates candidate injection/persistence, and `search/finalize_results.py` holds post-processing so the orchestrator stays under the 300-line code-file cap. Added `tests/test_branch_executor.py` to prove the concurrency ceiling and branch metadata shape.
 - Centralized tool metadata for analytics and Composio search tools in the shared catalog, so `quick_web_search`, `composio_similarlinks`, `composio_image_search`, `analytics_query`, and `analytics_report` now inherit their profile/tags/annotations from one place instead of inline `ToolAnnotations` blocks.
 - Replaced the Cloud Run classifier container with the official Fastino GLiNER2 base inference path (`gliner2[local]`), kept the service on the existing 2 vCPU class, and raised memory/concurrency to fit the live model load after confirming the 1 GiB and 2 GiB revisions OOM'd during first inference.
 - Reframed the subsumed TODO plan so GLiNER2 Cloud Run readiness precedes GLiNER2-dependent pipeline work, LLM backends own generative query fan-out/rewrite, FunctionGemma is no longer the primary fan-out proposal, and Qdrant/result-memory semantics are explicitly candidate-injection-only.
@@ -61,6 +64,15 @@
   - Line count now ~506 (modest increase from better organization + explicit structure; far more usable).
   - Verified post-write: clean heading outline (sequential 1-9, no dups), top reads cleanly, all prior v2 depth + "two agents" resolution note retained at top.
   - This directly fulfills the request while keeping the report the single source of truth. (See also the v3 note and "This document (v3 rewrite)" section in the report itself.)
+
+### Changed
+- Added native FastMCP structured output schemas for `web_search`, `get_content`, `batch_get_content`, `youtube_transcript`, `youtube_search`, and `academic_search` by using explicit result annotations, while preserving the current dict-shaped JSON responses.
+- Marked the current native resources/prompts section in `server.py` as baseline roadmap surface so Phase 3 remains clearly TODO to refine and expand.
+- Added the first Phase 3 public resources: `settings://public`, `cache://stats`, and `analytics://schema`, exposing safe runtime configuration, current cache topology, and the analytics object catalog without leaking secrets.
+- Added FastMCP public-surface compatibility wrappers so `list_resources`/`read_resource` and `list_prompts`/`render_prompt` now expose the repo's native no-auth resources and prompts even when the mounted provider path omits them.
+- Expanded the native prompt catalog with `research_workflow`, `academic_deep_dive`, `video_research`, and `source_triage`, and added focused tests covering public prompt listing/rendering plus native resource listing/reading.
+- Added Phase 4 rerank instruction steering: Voyage rerank now receives a compact prefixed instruction derived from research goal and query type when available, rerank observability records only instruction presence/length, and the orchestrator threads `research_goal` plus classifier-derived query type into rerank.
+- Updated the `status://features` resource to surface the active tool profile plus entity extraction, entity-overlap rerank, and result-memory state so the "personal enhanced" profile is visible to clients.
 
 ### Removed
 - Phase 5.3: LanceDB semantic cache and all related code (Joint plan Task 5.3):

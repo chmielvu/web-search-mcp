@@ -7,12 +7,191 @@ import unittest
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 
+import pyarrow as pa
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kindly_web_search_mcp_server.models import WebSearchResponse, WebSearchResult
 
 
 class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
+    def test_core_tools_expose_structured_output_schemas(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+        from kindly_web_search_mcp_server.tools.profiles import apply_tool_profile
+
+        apply_tool_profile(mcp, "full")
+        tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
+
+        self.assertIn("web_search", tools)
+        self.assertIn("get_content", tools)
+        self.assertIn("batch_get_content", tools)
+        self.assertIn("youtube_transcript", tools)
+        self.assertIn("youtube_search", tools)
+        self.assertIn("academic_search", tools)
+
+        web_schema = str(tools["web_search"].output_schema)
+        self.assertIn("query", web_schema)
+        self.assertIn("results", web_schema)
+
+        get_content_schema = str(tools["get_content"].output_schema)
+        self.assertIn("input_url", get_content_schema)
+        self.assertIn("page_content", get_content_schema)
+        self.assertIn("window", get_content_schema)
+
+        batch_schema = str(tools["batch_get_content"].output_schema)
+        self.assertIn("results", batch_schema)
+        self.assertIn("total_requested", batch_schema)
+        self.assertIn("cursor", batch_schema)
+
+        transcript_schema = str(tools["youtube_transcript"].output_schema)
+        self.assertIn("video_id", transcript_schema)
+        self.assertIn("transcript_text", transcript_schema)
+
+        youtube_search_schema = str(tools["youtube_search"].output_schema)
+        self.assertIn("query", youtube_search_schema)
+        self.assertIn("total_results", youtube_search_schema)
+
+        academic_schema = str(tools["academic_search"].output_schema)
+        self.assertIn("query", academic_schema)
+        self.assertIn("sources_used", academic_schema)
+        self.assertIn("total_results", academic_schema)
+
+        apply_tool_profile(mcp, "default")
+
+    def test_public_resource_list_includes_native_resources(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        resources = asyncio.run(mcp.list_resources())
+        uris = {str(getattr(resource, "uri", "")) for resource in resources}
+
+        self.assertIn("status://providers", uris)
+        self.assertIn("status://features", uris)
+        self.assertIn("docs://workflow", uris)
+        self.assertIn("settings://public", uris)
+        self.assertIn("cache://stats", uris)
+        self.assertIn("analytics://schema", uris)
+        self.assertIn("analytics://candidate-survival", uris)
+        self.assertIn("analytics://cache-hit-rates", uris)
+
+    def test_public_read_resource_reads_native_resources(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        settings_result = asyncio.run(mcp.read_resource("settings://public"))
+        cache_result = asyncio.run(mcp.read_resource("cache://stats"))
+        schema_result = asyncio.run(mcp.read_resource("analytics://schema"))
+
+        self.assertIn("query_rewrite_enabled", str(settings_result))
+        self.assertIn("exact_query_cache", str(cache_result))
+        self.assertIn("vw_events", str(schema_result))
+
+    def test_features_status_reports_personal_enhanced_flags(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        features_result = asyncio.run(mcp.read_resource("status://features"))
+
+        self.assertIn("Personal Enhanced Profile", str(features_result))
+        self.assertIn("Entity Extraction", str(features_result))
+        self.assertIn("Entity Overlap Rerank", str(features_result))
+        self.assertIn("Result Memory", str(features_result))
+
+    def test_analytics_report_resources_use_report_catalog(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        report_table = pa.table(
+            {
+                "stage": ["merged"],
+                "rows": [12],
+            }
+        )
+
+        with patch(
+            "kindly_web_search_mcp_server.server.run_report",
+            return_value=report_table,
+        ) as run_report_mock:
+            candidate_result = asyncio.run(
+                mcp.read_resource("analytics://candidate-survival")
+            )
+            cache_result = asyncio.run(mcp.read_resource("analytics://cache-hit-rates"))
+            template_result = asyncio.run(
+                mcp.read_resource("analytics://reports/provider-performance?days=14")
+            )
+
+        self.assertEqual(run_report_mock.call_args_list[0].args, ("candidate-survival",))
+        self.assertEqual(run_report_mock.call_args_list[0].kwargs, {"days": 7})
+        self.assertEqual(run_report_mock.call_args_list[1].args, ("cache-hit-rates",))
+        self.assertEqual(run_report_mock.call_args_list[1].kwargs, {"days": 7})
+        self.assertEqual(
+            run_report_mock.call_args_list[2].args,
+            ("provider-performance",),
+        )
+        self.assertEqual(run_report_mock.call_args_list[2].kwargs, {"days": 14})
+
+        self.assertIn("candidate-survival", str(candidate_result))
+        self.assertIn("cache-hit-rates", str(cache_result))
+        self.assertIn("provider-performance", str(template_result))
+        self.assertIn('"days": 14', str(template_result))
+
+    def test_public_resource_template_list_includes_native_templates(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        templates = asyncio.run(mcp.list_resource_templates())
+        uri_templates = {
+            str(getattr(template, "uri_template", "")) for template in templates
+        }
+
+        self.assertIn("analytics://reports/{report_name}{?days}", uri_templates)
+
+    def test_public_prompt_list_includes_native_prompts(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        prompts = asyncio.run(mcp.list_prompts())
+        names = {getattr(prompt, "name", "") for prompt in prompts}
+
+        self.assertIn("plan_web_research", names)
+        self.assertIn("evaluate_web_results", names)
+        self.assertIn("research_gap_analysis", names)
+        self.assertIn("suggest_tool", names)
+        self.assertIn("research_workflow", names)
+        self.assertIn("academic_deep_dive", names)
+        self.assertIn("video_research", names)
+        self.assertIn("source_triage", names)
+
+    def test_public_render_prompt_renders_native_prompts(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        workflow_result = asyncio.run(
+            mcp.render_prompt(
+                "research_workflow",
+                {"goal": "Assess GLiNER2 deployment prerequisites", "depth": "deep"},
+            )
+        )
+        academic_result = asyncio.run(
+            mcp.render_prompt(
+                "academic_deep_dive",
+                {"topic": "Entity extraction benchmarks", "focus": "GLiNER2"},
+            )
+        )
+        video_result = asyncio.run(
+            mcp.render_prompt(
+                "video_research",
+                {"topic": "Cloud Run GPU model serving"},
+            )
+        )
+        triage_result = asyncio.run(
+            mcp.render_prompt(
+                "source_triage",
+                {
+                    "goal": "Select authoritative sources for a FastMCP upgrade",
+                    "candidate_sources": "docs, GitHub releases, blog posts",
+                },
+            )
+        )
+
+        self.assertIn("Research goal: Assess GLiNER2 deployment prerequisites", str(workflow_result))
+        self.assertIn("Topic: Entity extraction benchmarks", str(academic_result))
+        self.assertIn("Topic: Cloud Run GPU model serving", str(video_result))
+        self.assertIn("Candidate sources already found", str(triage_result))
+
     def test_tool_timeout_budget_can_exceed_55_seconds(self) -> None:
         from kindly_web_search_mcp_server.server import _resolve_tool_total_timeout_seconds
 
@@ -474,6 +653,41 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["source_type"], "html")
         self.assertEqual(out["links"][0]["url"], "https://example.com/next")
         self.assertEqual(out["metadata"]["title"], "Example")
+
+    def test_public_settings_resource_redacts_secrets(self) -> None:
+        from kindly_web_search_mcp_server.server import get_public_settings_resource
+
+        out = get_public_settings_resource()
+
+        self.assertIn("tool_surface", out)
+        self.assertIn("features", out)
+        self.assertIn("providers_configured", out)
+        self.assertIn("timeouts_seconds", out)
+        self.assertIn("models", out)
+        self.assertNotIn("api_key", str(out).lower())
+        self.assertNotIn("secret", str(out).lower())
+
+    def test_cache_stats_resource_reports_current_cache_layers(self) -> None:
+        from kindly_web_search_mcp_server.server import get_cache_stats_resource
+
+        out = get_cache_stats_resource()
+
+        self.assertEqual(out["exact_query_cache"]["backend"], "in_memory_lru")
+        self.assertEqual(out["page_cache"]["backend"], "duckdb")
+        self.assertEqual(out["result_memory"]["backend"], "qdrant")
+        self.assertIn("ttl_seconds", out["exact_query_cache"])
+        self.assertIn("path", out["page_cache"])
+        self.assertIn("enabled", out["result_memory"])
+
+    def test_analytics_schema_resource_exposes_object_catalog(self) -> None:
+        from kindly_web_search_mcp_server.server import get_analytics_schema_resource
+
+        out = get_analytics_schema_resource()
+
+        self.assertGreater(out["object_count"], 0)
+        self.assertIn("objects", out)
+        self.assertIn("vw_events", out["objects"])
+        self.assertIn("search_events", out["objects"])
 
 
 if __name__ == "__main__":

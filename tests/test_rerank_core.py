@@ -44,14 +44,42 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.rerank.engines.voyage_rerank",
                 new_callable=AsyncMock,
             ) as mock_voyage_rerank,
+            patch(
+                "kindly_web_search_mcp_server.rerank.core.emit_observability_event",
+            ) as mock_emit_event,
         ):
             mock_embed_query.return_value = None
             mock_voyage_rerank.return_value = [(0, 0.05), (1, 0.04), (2, 0.03)]
 
-            reranked = await rerank_results("example query", candidates, top_k=2)
+            reranked = await rerank_results(
+                "example query",
+                candidates,
+                top_k=2,
+                research_goal="Find authoritative docs for the deployment flow",
+                query_type_hint="comparison",
+            )
 
         self.assertEqual(len(reranked), 2)
         self.assertEqual([item.title for item in reranked], ["A", "B"])
+        self.assertEqual(
+            mock_voyage_rerank.await_args.kwargs["instruction"],
+            (
+                "Prioritize benchmarks, comparison tables, and primary-source evidence. "
+                "Goal: Find authoritative docs for the deployment flow"
+            ),
+        )
+        completed_calls = [
+            call
+            for call in mock_emit_event.call_args_list
+            if len(call.args) > 1 and call.args[1] == "rerank.completed"
+        ]
+        self.assertTrue(completed_calls)
+        self.assertTrue(completed_calls[0].kwargs["instruction_present"])
+        self.assertEqual(
+            completed_calls[0].kwargs["query_type_hint"],
+            "comparison",
+        )
+        self.assertGreater(completed_calls[0].kwargs["instruction_length"], 0)
 
 
 if __name__ == "__main__":

@@ -364,7 +364,7 @@ class TestDuckDBAnalytics(unittest.TestCase):
         }
         panels_by_id = {panel["id"]: panel for panel in dashboard["panels"]}
 
-        self.assertEqual(dashboard["version"], 2)
+        self.assertEqual(dashboard["version"], 3)
         self.assertIn("motherduck", dashboard["tags"])
         self.assertIn("motherduck_datasource", templating_names)
         datasource_variable = next(

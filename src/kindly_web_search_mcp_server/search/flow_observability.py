@@ -35,10 +35,14 @@ def serialize_query_variants(variants: list[Any]) -> list[dict[str, Any]]:
             {
                 "index": index,
                 "kind": getattr(variant, "kind", None),
+                "branch_type": getattr(variant, "branch_type", None),
                 "target": getattr(variant, "target", None),
                 "query": preview_text(getattr(variant, "query", ""), limit=1000),
                 "weight": getattr(variant, "weight", None),
                 "why": preview_text(getattr(variant, "why", ""), limit=1000),
+                "reason": preview_text(getattr(variant, "reason", ""), limit=1000),
+                "must_keep_terms": getattr(variant, "must_keep_terms", []) or [],
+                "max_results": getattr(variant, "max_results", None),
             }
         )
     return serialized
@@ -51,8 +55,9 @@ def summarize_result_list(
     providers: list[str] | None,
     weight: float,
     results: list[WebSearchResult],
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    summary = {
         "index": index,
         "query": preview_text(query, limit=1000),
         "providers": providers or [],
@@ -63,6 +68,9 @@ def summarize_result_list(
         "results": results,
         "top_results": serialize_search_results(results, max_results=3),
     }
+    if metadata:
+        summary.update(metadata)
+    return summary
 
 
 def emit_result_lists_summary(
@@ -74,6 +82,7 @@ def emit_result_lists_summary(
     branch_queries: list[str],
     branch_providers: list[list[str] | None],
     list_weights: list[float],
+    branch_metadata: list[dict[str, Any]] | None = None,
 ) -> None:
     summaries = [
         summarize_result_list(
@@ -84,6 +93,11 @@ def emit_result_lists_summary(
             else None,
             weight=list_weights[index] if index < len(list_weights) else 1.0,
             results=results,
+            metadata=(
+                branch_metadata[index]
+                if branch_metadata and index < len(branch_metadata)
+                else None
+            ),
         )
         for index, results in enumerate(result_lists)
     ]

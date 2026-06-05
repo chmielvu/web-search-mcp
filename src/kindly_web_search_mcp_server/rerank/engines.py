@@ -38,6 +38,7 @@ class NoneRerankEngine:
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         return []
 
@@ -52,6 +53,7 @@ class LocalBaselineRerankEngine(NoneRerankEngine):
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         try:
             from flashrank import Ranker, RerankRequest  # type: ignore
@@ -92,6 +94,7 @@ class VoyageRerankEngine:
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         ranked = await voyage_rerank(
             query,
@@ -99,6 +102,7 @@ class VoyageRerankEngine:
             timeout=30.0,
             api_key=settings.voyage_api_key or None,
             model=model or settings.voyage_rerank_model,
+            instruction=instruction,
         )
         return [RerankResult(index=index, score=score) for index, score in ranked]
 
@@ -112,6 +116,7 @@ class JinaRerankEngine:
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         ranked = await jina_rerank(
             query,
@@ -132,6 +137,7 @@ class GcpCloudRunRerankEngine:
         candidates: list[RerankCandidate],
         *,
         model: str | None = None,
+        instruction: str | None = None,
     ) -> list[RerankResult]:
         ranked = await gcp_cloudrun_rerank(
             query,
@@ -205,6 +211,7 @@ async def rerank_with_engine_fallback(
     *,
     engine_id: str,
     model: str | None = None,
+    instruction: str | None = None,
 ) -> RerankEngineOutcome:
     prepared = build_rerank_candidates(candidates)
     backend_error: Exception | None = None
@@ -214,7 +221,12 @@ async def rerank_with_engine_fallback(
         resolved_model = model if candidate_engine_id == engine_id else None
         resolved_model = resolved_model or get_default_model(candidate_engine_id)
         try:
-            ranked = await engine.rerank(query, prepared, model=resolved_model)
+            ranked = await engine.rerank(
+                query,
+                prepared,
+                model=resolved_model,
+                instruction=instruction if candidate_engine_id == "voyage" else None,
+            )
         except Exception as exc:
             backend_error = exc
             logger.warning(

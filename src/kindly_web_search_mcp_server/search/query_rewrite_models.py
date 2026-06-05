@@ -28,6 +28,11 @@ QueryVariantKind = Literal[
     "bug_report",
     "how_to",
     "subquestion",
+    "related",
+    "implicit",
+    "comparative",
+    "reformulation",
+    "entity_expanded",
 ]
 QueryTarget = Literal["keyword", "neural", "community", "all"]
 
@@ -44,6 +49,10 @@ class QueryVariant(BaseModel):
     query: str = Field(description="Search query or grounded-provider task.")
     why: str = Field(description="Short reason for this variant.")
     weight: float = Field(default=1.0, ge=0.8, le=1.2)
+    branch_type: str | None = None
+    must_keep_terms: list[str] = Field(default_factory=list)
+    max_results: int | None = Field(default=None, ge=1, le=20)
+    reason: str | None = None
 
     @field_validator("query")
     @classmethod
@@ -80,6 +89,10 @@ class SubQuestion(BaseModel):
     target: QueryTarget = Field(description="Provider category to search.")
     why: str = Field(description="Short reason for this branch.")
     weight: float = Field(default=1.0, ge=0.8, le=1.2)
+    branch_type: str | None = None
+    must_keep_terms: list[str] = Field(default_factory=list)
+    max_results: int | None = Field(default=None, ge=1, le=20)
+    reason: str | None = None
 
     @field_validator("question")
     @classmethod
@@ -100,11 +113,17 @@ class SubQuestion(BaseModel):
 
 class QueryDecompositionOutput(BaseModel):
     should_decompose: bool = False
+    rationale: str | None = None
     sub_questions: list[SubQuestion] = Field(default_factory=list)
 
 
 class QueryRewriteOutput(BaseModel):
     variants: list[QueryVariant] = Field(default_factory=list)
+
+
+class QueryFanoutOutput(BaseModel):
+    rationale: str = ""
+    branches: list[QueryVariant] = Field(default_factory=list)
 
 
 class QueryRewritePlan(BaseModel):

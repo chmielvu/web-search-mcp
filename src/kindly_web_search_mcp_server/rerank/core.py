@@ -36,6 +36,13 @@ from opentelemetry import trace
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
 
+_QUERY_TYPE_GUIDANCE: dict[str, str] = {
+    "code": "Prioritize official docs, API signatures, repository code, and implementation guides.",
+    "comparison": "Prioritize benchmarks, comparison tables, and primary-source evidence.",
+    "general_research": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
+    "general": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
+}
+
 
 def _normalize_scores_minmax(scores: list[float]) -> list[float]:
     if not scores:
@@ -63,6 +70,39 @@ def _compute_recency_score(
         return 0.0
 
 
+def _normalize_instruction_text(text: str | None, max_length: int) -> str | None:
+    if text is None:
+        return None
+    cleaned = " ".join(text.split()).strip()
+    if not cleaned:
+        return None
+    if len(cleaned) <= max_length:
+        return cleaned
+    return cleaned[: max_length - 1].rstrip() + "…"
+
+
+def _build_rerank_instruction(
+    *,
+    research_goal: str | None = None,
+    query_type_hint: str | None = None,
+) -> str | None:
+    parts: list[str] = []
+    query_type = (query_type_hint or "general").strip().lower()
+    guidance = _QUERY_TYPE_GUIDANCE.get(query_type)
+    if guidance:
+        parts.append(guidance)
+
+    if research_goal:
+        goal = _normalize_instruction_text(research_goal, 180)
+        if goal:
+            parts.append(f"Goal: {goal}")
+
+    if not parts:
+        return _QUERY_TYPE_GUIDANCE["general"]
+
+    return " ".join(parts)
+
+
 async def rerank_results(
     query: str,
     candidates: list[WebSearchResult],
@@ -70,6 +110,8 @@ async def rerank_results(
     *,
     searxng_time_range: str | None = None,
     query_entities: list | None = None,
+    research_goal: str | None = None,
+    query_type_hint: str | None = None,
 ) -> list[WebSearchResult]:
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
@@ -85,8 +127,17 @@ async def rerank_results(
         )
         return candidates
 
+    instruction = _build_rerank_instruction(
+        research_goal=research_goal,
+        query_type_hint=query_type_hint,
+    )
+    instruction_length = len(instruction) if instruction else None
+
     decision = decide_rerank(
-        query=query, candidate_count=len(candidates), top_k=top_k
+        query=query,
+        candidate_count=len(candidates),
+        top_k=top_k,
+        query_type_hint=query_type_hint,
     )
     if not decision.should_rerank:
         logger.info(
@@ -182,6 +233,7 @@ async def rerank_results(
             query,
             candidates,
             engine_id=configured_provider,
+            instruction=instruction,
         )
         stage2_provider = rerank_outcome.engine_id
         stage2_model = rerank_outcome.model
@@ -389,6 +441,9 @@ async def rerank_results(
             provider=stage2_provider,
             model=stage2_model,
             max_score=max_rerank_score,
+            instruction_present=bool(instruction),
+            instruction_length=instruction_length,
+            query_type_hint=query_type_hint,
         )
 
         emit_observability_event(
@@ -399,6 +454,9 @@ async def rerank_results(
             output_count=len(final_results),
             bypassed=False,
             reason="policy_eligible",
+            instruction_present=bool(instruction),
+            instruction_length=instruction_length,
+            query_type_hint=query_type_hint,
         )
 
         return final_results

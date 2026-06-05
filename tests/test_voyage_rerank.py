@@ -66,6 +66,31 @@ class TestVoyageRerank(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(client.post_calls[0]["json"]["truncation"])
         self.assertFalse(client.post_calls[0]["json"]["return_documents"])
 
+    async def test_voyage_rerank_prepends_instruction_text_when_provided(self) -> None:
+        from kindly_web_search_mcp_server.rerank.voyage import voyage_rerank
+
+        client = _FakeClient(
+            {
+                "object": "list",
+                "data": [{"index": 0, "relevance_score": 0.5}],
+                "model": "rerank-2.5",
+                "usage": {"total_tokens": 4},
+            }
+        )
+
+        await voyage_rerank(
+            "base query",
+            ["doc 1"],
+            api_key="voyage-test-key",
+            instruction="Prefer authoritative docs.",
+            http_client=client,
+        )
+
+        self.assertEqual(
+            client.post_calls[0]["json"]["query"],
+            "Prefer authoritative docs.\n\nbase query",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,34 +7,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 
 import httpx
 
-from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
+from ..models import WebSearchResponse
 from ..settings import settings
 from ..telemetry import record_domain_diversity
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
+from ..cache.result_memory import get_result_memory_store  # noqa: F401
+from ..embeddings import embed_query  # noqa: F401
 from ..search_instrumented import search_single_query
-from ..cache.result_memory import get_result_memory_store
-from ..embeddings import embed_query
+from .branch_executor import (
+    SearchBranchSpec,
+    execute_search_branches,
+    select_providers_for_variant,
+)
+from .finalize_results import build_search_response, maybe_extract_entities
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .options import SearchOptions
 from .merge import merge_search_results
-from .normalize import canonicalize_url, normalize_query
-from .provider_config import diagnose_providers, resolve_providers_for_search
+from .normalize import normalize_query
+from .provider_config import resolve_providers_for_search
 from .query_policy import RewriteMode, RewritePolicy, classify_search_query
 from ..entity.models import EntitySpan  # for type in sig (optional dep ok)
-from .query_rewrite import rewrite_search_query
-from .query_rewrite_models import (
-    COMMUNITY_PROVIDER_NAMES,
-    KEYWORD_PROVIDER_NAMES,
-    NEURAL_PROVIDER_NAMES,
-    QueryVariant,
+from .result_memory_pipeline import (
+    inject_result_memory_candidates,
+    store_result_memory_results,
 )
-
+from .query_rewrite import rewrite_search_query
 logger = logging.getLogger(__name__)
 _rerank_results: Any = None
 
@@ -53,26 +55,6 @@ def _resolve_per_query_k(num_results: int, mode: RewriteMode) -> int:
 
 def _resolve_requested_result_count(num_results: int, result_offset: int) -> int:
     return max(1, num_results + max(0, result_offset))
-
-
-def _select_providers_for_variant(
-    variant: QueryVariant,
-    active_provider_names: list[str],
-) -> list[str] | None:
-    if variant.target == "all":
-        return active_provider_names or None
-    if variant.target == "keyword":
-        selected = [
-            name for name in active_provider_names if name in KEYWORD_PROVIDER_NAMES
-        ]
-        return selected if selected else None
-    if variant.target == "community":
-        selected = [
-            name for name in active_provider_names if name in COMMUNITY_PROVIDER_NAMES
-        ]
-        return selected if selected else None
-    selected = [name for name in active_provider_names if name in NEURAL_PROVIDER_NAMES]
-    return selected if selected else None
 
 
 async def run_web_search(
@@ -189,48 +171,51 @@ async def run_web_search(
         timeout=httpx.Timeout(connect=5, read=20, write=20, pool=20),
         follow_redirects=True,
     ) as client:
+        branch_specs: list[SearchBranchSpec] = []
         if rewrite_plan:
-            search_tasks = []
-            list_weights: list[float] = []
-            branch_queries: list[str] = []
-            branch_providers: list[list[str] | None] = []
-            for variant in rewrite_plan.variants:
-                variant_providers = _select_providers_for_variant(
+            for index, variant in enumerate(rewrite_plan.variants):
+                variant_providers = select_providers_for_variant(
                     variant, active_provider_names
                 )
                 if variant_providers is not None and not variant_providers:
                     continue
-                list_weights.append(variant.weight)
-                branch_queries.append(variant.query)
-                branch_providers.append(variant_providers)
-                search_tasks.append(
-                    search_single_query(
-                        variant.query,
-                        num_results=per_query_k,
-                        http_client=client,
-                        diagnostics=diagnostics,
+                branch_specs.append(
+                    SearchBranchSpec(
+                        index=index,
+                        query=variant.query,
+                        branch_type=variant.branch_type or variant.kind,
+                        weight=variant.weight,
                         providers=variant_providers,
-                        search_options=search_options,
+                        max_results=variant.max_results or per_query_k,
+                        reason=variant.reason or variant.why,
+                        must_keep_terms=variant.must_keep_terms,
                     )
                 )
-            result_lists = await asyncio.gather(*search_tasks) if search_tasks else []
         else:
-            branch_queries = [normalized_query]
-            branch_providers = [providers]
-            result_lists = await asyncio.gather(
-                *[
-                    search_single_query(
-                        normalized_query,
-                        num_results=per_query_k,
-                        http_client=client,
-                        diagnostics=diagnostics,
-                        providers=providers,
-                        search_options=search_options,
-                    )
-                ]
-            )
+            branch_specs = [
+                SearchBranchSpec(
+                    index=0,
+                    query=normalized_query,
+                    branch_type="original",
+                    weight=1.0,
+                    providers=providers,
+                    max_results=per_query_k,
+                    reason="Original query preserved.",
+                )
+            ]
 
-            list_weights = [1.0] * len(result_lists)
+        branch_batch = await execute_search_branches(
+            branch_specs,
+            http_client=client,
+            diagnostics=diagnostics,
+            search_options=search_options,
+            search_runner=search_single_query,
+            max_concurrency=settings.query_decomposition_max_concurrency,
+        )
+        result_lists = branch_batch.result_lists
+        branch_queries = branch_batch.branch_queries
+        branch_providers = branch_batch.branch_providers
+        list_weights = branch_batch.list_weights
 
     emit_result_lists_summary(
         logger,
@@ -240,65 +225,24 @@ async def run_web_search(
         branch_queries=branch_queries,
         branch_providers=branch_providers,
         list_weights=list_weights,
+        branch_metadata=branch_batch.branch_metadata,
     )
 
     # Phase 7.2: Result memory candidate injection (before RRF)
     # Convert memory hits to virtual provider list; weight from settings; dedup happens in merge.
-    memory_injected: list[WebSearchResult] = []
-    query_vec_for_mem: list[float] | None = None
-    if settings.result_memory_enabled:
-        try:
-            # Reset result memory singleton for test isolation (shared across test runs);
-            # patched tests replace get_result_memory_store so real reset not harmful.
-            import kindly_web_search_mcp_server.cache.result_memory as _rm_mod
-            if hasattr(_rm_mod, "_result_memory_store"):
-                _rm_mod._result_memory_store = None
-            mem = get_result_memory_store()
-            query_vec_for_mem = await embed_query(
-                normalized_query, timeout=15.0, skip_circuit_check=True
-            )
-            raw_cands = mem.lookup_candidates(
-                query_embedding=query_vec_for_mem,
-                limit=settings.result_memory_candidate_limit,
-                min_similarity=settings.result_memory_min_similarity,
-            )
-            if raw_cands:
-                memory_injected = []
-                for c in raw_cands:
-                    # Support dicts (from result_memory 7.1) or CandidateResult
-                    if isinstance(c, dict):
-                        url = c.get("url") or c.get("link", "")
-                        title = c.get("title", "")
-                        snippet = c.get("snippet", "")
-                    else:
-                        # CandidateResult or similar
-                        url = getattr(c, "url", getattr(c, "link", ""))
-                        title = getattr(c, "title", "")
-                        snippet = getattr(c, "snippet", "")
-                    if not url:
-                        continue
-                    wsr = WebSearchResult(
-                        title=title,
-                        link=url,
-                        snippet=snippet,
-                        providers=["result_memory"],
-                        resource_type="cached",
-                        raw_score=0.0,
-                    )
-                    memory_injected.append(wsr)
-                if memory_injected:
-                    result_lists = list(result_lists) + [memory_injected]
-                    list_weights = list(list_weights) + [settings.result_memory_candidate_weight]
-                    emit_observability_event(
-                        logger,
-                        "result_memory.candidate_injected",
-                        query=query,
-                        count=len(memory_injected),
-                        weight=settings.result_memory_candidate_weight,
-                    )
-        except Exception as exc:
-            logger.warning("Result memory lookup/injection failed (non-fatal): %s", exc)
-            memory_injected = []
+    (
+        result_lists,
+        list_weights,
+        query_vec_for_mem,
+        memory_injected,
+    ) = await inject_result_memory_candidates(
+        query=query,
+        normalized_query=normalized_query,
+        result_lists=result_lists,
+        list_weights=list_weights,
+        get_result_memory_store_fn=get_result_memory_store,
+        embed_query_fn=embed_query,
+    )
 
     merged = merge_search_results(
         result_lists,
@@ -311,6 +255,11 @@ async def run_web_search(
 
     if settings.reranking_enabled and len(merged) > 1:
         try:
+            query_type_hint = (
+                rewrite_plan.classifier.intent
+                if rewrite_plan and rewrite_plan.classifier
+                else None
+            )
             global _rerank_results
             if _rerank_results is None:
                 from ..rerank import rerank_results as _loaded_rerank_results
@@ -323,53 +272,34 @@ async def run_web_search(
                 searxng_time_range=search_options.searxng_time_range
                 if search_options
                 else None,
+                research_goal=research_goal,
+                query_type_hint=query_type_hint,
             )
         except Exception as exc:
             logger.warning("Reranking failed in web search orchestrator: %s", exc)
 
     # Phase 7.2: store current (post-rerank) results to memory + compare injected survivors
-    if settings.result_memory_enabled:
-        try:
-            import kindly_web_search_mcp_server.cache.result_memory as _rm_mod
-            if hasattr(_rm_mod, "_result_memory_store"):
-                _rm_mod._result_memory_store = None
-            mem = get_result_memory_store()
-            if query_vec_for_mem is None:
-                query_vec_for_mem = await embed_query(
-                    normalized_query, timeout=15.0, skip_circuit_check=True
-                )
-            # store the post-rerank candidates (they have survived rerank)
-            to_store = [
-                {"title": r.title, "link": r.link, "snippet": r.snippet, "providers": r.providers or []}
-                for r in merged
-            ]
-            mem.store_results(
-                query_text=normalized_query,
-                query_embedding=query_vec_for_mem,
-                results=to_store,
-            )
+    await store_result_memory_results(
+        normalized_query=normalized_query,
+        results=merged,
+        query_embedding=query_vec_for_mem,
+        get_result_memory_store_fn=get_result_memory_store,
+        embed_query_fn=embed_query,
+    )
+
+    # compare injected vs final post-rerank for survival signal
+    if memory_injected:
+        injected_urls = {result.link for result in memory_injected}
+        survived = [r for r in merged if r.link in injected_urls]
+        if survived:
             emit_observability_event(
                 logger,
-                "result_memory.store",
+                "result_memory.candidate_survived",
                 query=query,
-                stored_count=len(to_store),
+                injected_count=len(memory_injected),
+                survived_count=len(survived),
+                survived_urls=[r.link for r in survived][:5],
             )
-        except Exception as exc:
-            logger.warning("Result memory store failed (non-fatal): %s", exc)
-
-        # compare injected vs final post-rerank for survival signal
-        if memory_injected:
-            injected_keys = {canonicalize_url(r.link) for r in memory_injected}
-            survived = [r for r in merged if canonicalize_url(r.link) in injected_keys]
-            if survived:
-                emit_observability_event(
-                    logger,
-                    "result_memory.candidate_survived",
-                    query=query,
-                    injected_count=len(memory_injected),
-                    survived_count=len(survived),
-                    survived_urls=[r.link for r in survived][:5],
-                )
 
     result_offset = search_options.result_offset if search_options else 0
     final_results = merged[result_offset : result_offset + num_results]
@@ -377,96 +307,26 @@ async def run_web_search(
     has_more = result_offset + len(final_results) < candidate_count
     next_offset = result_offset + len(final_results) if has_more else None
 
-    # Entity extraction on lightweight search results (title + snippet) when enabled.
-    # This is cheap (~25ms for small set) and annotates outputs + provides overlap signal for rerank.
-    _enabled = bool(
-        getattr(settings, "entity_extraction_enabled", False)
-        or os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower() in ("true", "1", "yes")
-    )
-    if _enabled and final_results:
-        try:
-            from ..entity.gliner_client import get_gliner_client
-            from ..entity.default_schema import DEFAULT_QUERY_LABELS
+    final_results = await maybe_extract_entities(query=query, results=final_results)
 
-            gliner = get_gliner_client()
-            for r in final_results:
-                text = f"{getattr(r, 'title', '') or (r.get('title') if isinstance(r, dict) else '')} {getattr(r, 'snippet', '') or (r.get('snippet') if isinstance(r, dict) else '')}".strip()
-                if text:
-                    ents = await gliner.extract_entities(text, DEFAULT_QUERY_LABELS)
-                    # attach tolerant to dict (from some mocks/paths) or object
-                    if isinstance(r, dict):
-                        r["entities"] = ents or None
-                    elif hasattr(r, "entities"):
-                        try:
-                            r.entities = ents or None
-                        except Exception:
-                            pass  # frozen or readonly ok, field may be set at construction
-            emit_observability_event(
-                logger,
-                "entity.search_result_extracted",
-                query=query,
-                num_results=len(final_results),
-                total_entities=sum(len(getattr(r, "entities", []) or []) for r in final_results),
-            )
-        except Exception as exc:
-            emit_observability_event(
-                logger,
-                "entity.extraction.error",
-                query=query,
-                error=str(exc)[:300],
-                failure_mode="search_result_extract_failed",
-                component="orchestrator_entity",
-            )
-            logger.warning("Search result entity extraction failed: %s", exc)
-
-    # Aggregate providers_used from merged results
-    providers_used = sorted(set(p for r in final_results for p in (r.providers or [])))
-
-    # Build provider warnings for explicitly requested providers that couldn't fire
-    provider_diagnoses = diagnose_providers(providers)
-    provider_warnings = [
-        ProviderWarning(provider=d.name, error=d.reason, error_type="unavailable")
-        for d in provider_diagnoses
-        if not d.available
-    ]
-
-    emit_observability_event(
-        logger,
-        "search.orchestrator.response",
+    (
+        provider_warnings,
+        providers_used,
+        response,
+    ) = build_search_response(
         query=query,
-        research_goal=research_goal,
         normalized_query=normalized_query,
-        rewrite_enabled=rewrite,
-        rewrite_policy=rewrite_policy.mode,
-        rewrite_reason=rewrite_policy.reason,
+        research_goal=research_goal,
+        rewrite=rewrite,
+        rewrite_policy=rewrite_policy,
         unique_domains=unique_domains,
-        merged_result_count=len(merged),
-        final_result_count=len(final_results),
-        providers_requested=providers or [],
-        providers_used=providers_used,
-        warnings=[warning.model_dump() for warning in provider_warnings],
-        results=final_results,
-        merged_results=merged,
-        result_window={
-            "offset": result_offset,
-            "returned": len(final_results),
-            "candidate_count": candidate_count,
-            "has_more": has_more,
-            "next_offset": next_offset,
-        },
+        merged=merged,
+        final_results=final_results,
+        providers=providers,
+        result_offset=result_offset,
+        candidate_count=candidate_count,
+        has_more=has_more,
+        next_offset=next_offset,
     )
 
-    return WebSearchResponse(
-        query=query,
-        results=final_results,
-        total_results=len(final_results),
-        result_window={
-            "offset": result_offset,
-            "returned": len(final_results),
-            "candidate_count": candidate_count,
-            "has_more": has_more,
-            "next_offset": next_offset,
-        },
-        providers_used=providers_used,
-        warnings=provider_warnings or None,
-    )
+    return response

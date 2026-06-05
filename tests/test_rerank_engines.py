@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -112,6 +113,38 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.model, "rerank-2.5")
         self.assertEqual([item.index for item in result.ranked], [2, 0])
         self.assertEqual([item.title for item in result.ordered_candidates], ["C", "A"])
+
+    async def test_voyage_rerank_prepends_instruction_to_query(self) -> None:
+        from kindly_web_search_mcp_server.rerank.voyage import voyage_rerank
+
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "data": [
+                {"index": 1, "relevance_score": 0.9},
+                {"index": 0, "relevance_score": 0.8},
+            ]
+        }
+        mock_client = SimpleNamespace(post=AsyncMock(return_value=response))
+
+        with patch(
+            "kindly_web_search_mcp_server.rerank.voyage._get_voyage_client",
+            return_value=mock_client,
+        ):
+            ranked = await voyage_rerank(
+                "site reliability docs",
+                ["doc a", "doc b"],
+                api_key="voyage-test-key",
+                instruction="Prioritize official docs and canonical references.",
+            )
+
+        self.assertEqual(ranked, [(1, 0.9), (0, 0.8)])
+        payload = mock_client.post.await_args.kwargs["json"]
+        self.assertEqual(
+            payload["query"],
+            "Prioritize official docs and canonical references.\n\nsite reliability docs",
+        )
+        self.assertEqual(payload["top_k"], 2)
 
 
 if __name__ == "__main__":

@@ -22,11 +22,8 @@ from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from .normalize import normalize_query
 from .query_policy_resolver import resolve_query_routing
-from .query_rewrite_models import (
-    QueryRewritePlan,
-    QueryVariant,
-    RewriteIntent,
-)
+from .query_rewrite_branching import build_fanout_branch_variants
+from .query_rewrite_models import QueryRewritePlan, QueryVariant, RewriteIntent
 from .query_rewrite_validate import (
     validate_community_variants,
     validate_keyword_variants,
@@ -147,36 +144,15 @@ async def rewrite_search_query(
             decomposition = None
             subquestion_variants: list[QueryVariant] | None = None
             if settings.query_decomposition_enabled and classifier.should_decompose:
-                decomposition = await classifier_client.decompose_query(
-                    normalized_query,
-                    research_goal=research_goal,
+                decomposition, subquestion_variants = await build_fanout_branch_variants(
+                    query=normalized_query,
                     classifier=classifier,
+                    research_goal=research_goal,
                     must_keep_terms=policy.must_keep_terms,
-                    max_subquestions=settings.query_decomposition_max_subquestions,
+                    active_provider_names=active_provider_names,
+                    diagnostics=diagnostics,
+                    max_branches=settings.query_decomposition_max_branches,
                 )
-                if decomposition.should_decompose and decomposition.sub_questions:
-                    subquestion_variants = [
-                        QueryVariant(
-                            kind="subquestion",
-                            target=sub_question.target,
-                            query=sub_question.question,
-                            why=sub_question.why,
-                            weight=sub_question.weight,
-                        )
-                        for sub_question in decomposition.sub_questions
-                    ]
-                    if diagnostics:
-                        diagnostics.emit(
-                            "query_rewrite.decomposition",
-                            "FunctionGemma decomposed query",
-                            {
-                                "should_decompose": decomposition.should_decompose,
-                                "sub_questions": [
-                                    sq.model_dump()
-                                    for sq in decomposition.sub_questions
-                                ],
-                            },
-                        )
 
             async def _safe_variants(
                 target: str,
