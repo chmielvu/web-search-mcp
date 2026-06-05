@@ -197,20 +197,27 @@ Acceptance:
 ### Work
 
 1. Keep GLiNER/entity extraction opt-in by default unless startup/runtime cost is measured and acceptable.
-2. Add a documented "personal enhanced" profile that enables:
+2. Add a GLiNER2 unified-schema pilot based on the `fastino/gliner2-official-demo` Space:
+   - source pattern: <https://hf.co/spaces/fastino/gliner2-official-demo>
+   - one schema text can combine `<entities>`, `<classification>`, and `<structures>`
+   - target modules: `entity/default_schema.py`, `entity/gliner_client.py`, `entity/models.py`, and a new `entity/unified_schema.py` if the parser does not fit existing files
+   - query/content classification output must be compared against the current FunctionGemma classifier before replacing it
+   - preserve lazy loading; do not preload GLiNER2 at import or server startup
+3. Add a documented "personal enhanced" profile that enables:
    - `KINDLY_ENTITY_EXTRACTION_ENABLED=true`
    - `KINDLY_RERANK_ENTITY_OVERLAP_ENABLED=true`
    - current result-memory settings
-3. Add a profile/status resource section explaining whether entity/result memory is active.
-4. Do not silently enable heavy optional model loading for every user.
+4. Add a profile/status resource section explaining whether entity/result memory is active.
+5. Do not silently enable heavy optional model loading for every user.
 
 Acceptance:
 
 - Clear env/profile toggle documented.
 - No import-time model loading.
 - Entity failures remain non-fatal when enabled.
+- Unified schema pilot returns entities + classification + structured fields from one model call, with latency/quality compared against current NER + FunctionGemma.
 
-## Phase 6 - Parallel Query Decomposition
+## Phase 6 - FunctionGemma Fan-Out And Parallel Query Decomposition
 
 ### Problem
 
@@ -218,19 +225,38 @@ Current query decomposition metadata exists, but multi-hop branches are not trea
 
 ### Work
 
-1. Add a branch execution primitive outside `server.py`.
-2. Run decomposed branch searches with bounded `asyncio.gather`.
-3. Merge branch results with weighted RRF.
-4. Persist branch metadata into existing DuckDB event/view shape:
+1. Adapt the `ryanshelley/ai_query_faning` Space pattern to the existing FunctionGemma pipeline:
+   - source pattern: <https://hf.co/spaces/ryanshelley/ai_query_faning>
+   - one structured JSON call generates 8-10 branch queries plus a compact reasoning summary
+   - branch categories: `related`, `implicit`, `comparative`, `reformulation`, `entity_expanded`
+   - normalized target modules: `search/query_rewrite.py`, `search/query_rewrite_plan.py`, `search/query_decomposition.py`, and `search/orchestrator.py`
+2. Extend the decomposition schema to include branch controls:
+   - `query`
+   - `branch_type`
+   - `weight`
+   - `must_keep_terms`
+   - `max_results`
+   - `reason`
+3. Add a branch execution primitive outside `server.py`.
+4. Run decomposed branch searches with bounded `asyncio.gather` and an internal semaphore:
+   - generate up to 8-10 branches
+   - dispatch at most `KINDLY_DECOMPOSITION_MAX_CONCURRENCY` at once
+   - cap total provider calls so fan-out cannot multiply every provider indefinitely
+5. Merge branch results with weighted RRF.
+6. Persist branch metadata into existing DuckDB event/view shape:
    - `branch_index`
    - `branch_query`
+   - `branch_type`
    - `branch_weight`
+   - `branch_latency_ms`
+   - `branch_result_count`
 
 Acceptance:
 
 - Comparative/multi-hop fixture cases improve recall without excessive latency.
 - Branch execution has a concurrency cap.
 - Existing single-query path is unchanged when decomposition is off.
+- FunctionGemma fan-out fails closed to the current single-query/rewrite path when structured JSON validation fails.
 
 ## Phase 7 - Search To Fetch To Memory Feedback Loop
 
@@ -268,12 +294,29 @@ Acceptance:
    - include_sitemap
    - max_links
 4. Add an academic-search exact LRU keyed by query + filters + sources.
+5. Add CDX-backed Wayback fallback for terminal direct-fetch failures:
+   - source pattern: <https://hf.co/spaces/radhey234/waybackdomainanalyser>
+   - the Space demonstrates Wayback CDX lookup plus archive URL fetch; adapt the pattern, do not copy demo credentials or unrelated OpenRouter analysis code
+   - target modules: `content/safe_fetch.py`, `content/fetch_pipeline.py`, and `content/artifact.py`
+   - retry only for direct-fetch terminal `403`, `404`, and `410` by default
+   - prefer latest valid CDX snapshot URL `https://web.archive.org/web/{timestamp}/{original}` over blind `https://web.archive.org/web/{url}` when CDX is available
+   - record `fetch_backend="wayback"` and `fetched_url` in the returned artifact metadata
+6. Add a lightweight content-quality scorer inspired by `WordLift/content-evaluation-ai`:
+   - source pattern: <https://hf.co/spaces/WordLift/content-evaluation-ai>
+   - new implementation dependency candidate: `textstat`
+   - target modules: new `content/quality.py`, `content/fetch_pipeline.py`, `agent/content_tools.py`, and `rerank/core.py` only when quality metadata is present
+   - score axes: purpose/query match, source/accuracy heuristics, depth, readability grade, SEO/keyword coverage, and extracted-entity coverage
+   - run after crawl/fetch; do not make normal `web_search` secretly fetch pages just to compute quality
+   - for explicit deep/agentic crawled flows, drop or downweight low-quality pages before reranking when `KINDLY_CONTENT_QUALITY_FILTER_ENABLED=true`
+   - default to conservative downweighting rather than hard dropping official docs or canonical references with poor readability
 
 Acceptance:
 
 - Long batch fetches stream useful progress.
 - Repeated link discovery avoids redundant page fetches.
 - Academic cache does not mask provider errors indefinitely; TTL required.
+- 403/404/410 content reads can recover from Wayback when enabled, with provenance visible in metadata.
+- Quality filtering is opt-in, observable, and does not introduce hidden fetches behind `web_search`.
 
 ## Phase 9 - Elicitation And Sampling
 
@@ -333,13 +376,16 @@ For every implemented phase:
 3. Structured output schemas for core tools.
 4. Analytics/cache/session resources.
 5. Voyage instruction steering.
-6. Batch progress and `discover_links` cache.
-7. Prompt catalog expansion.
-8. Elicitation for expensive tools.
-9. Sampling summary backend.
-10. Parallel query decomposition.
-11. Search->fetch->memory feedback.
-12. Remote/long-lived runtime profile.
+6. FunctionGemma fan-out + bounded scatter-gather decomposition.
+7. GLiNER2 unified-schema pilot for entity/classification/structure extraction.
+8. Batch progress and `discover_links` cache.
+9. Wayback fallback for terminal fetch failures.
+10. Lightweight content-quality scorer and opt-in pre-rerank filtering for crawled flows.
+11. Prompt catalog expansion.
+12. Elicitation for expensive tools.
+13. Sampling summary backend.
+14. Search->fetch->memory feedback.
+15. Remote/long-lived runtime profile.
 
 ## Non-Goals
 
@@ -347,4 +393,6 @@ For every implemented phase:
 - No hidden internal deep-research loop behind `web_search`.
 - No default heavy model loading without measured startup/runtime evidence.
 - No compatibility aliases for old non-snake-case tool names.
+- No committed credentials or demo API keys from public HF Spaces.
+- No automatic post-crawl quality filtering on normal lightweight `web_search`.
 - No deleting the source TODO files until this plan is executed or explicitly archived.
