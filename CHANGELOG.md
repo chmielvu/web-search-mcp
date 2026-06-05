@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Centralized tool metadata for analytics and Composio search tools in the shared catalog, so `quick_web_search`, `composio_similarlinks`, `composio_image_search`, `analytics_query`, and `analytics_report` now inherit their profile/tags/annotations from one place instead of inline `ToolAnnotations` blocks.
 - Replaced the Cloud Run classifier container with the official Fastino GLiNER2 base inference path (`gliner2[local]`), kept the service on the existing 2 vCPU class, and raised memory/concurrency to fit the live model load after confirming the 1 GiB and 2 GiB revisions OOM'd during first inference.
 - Reframed the subsumed TODO plan so GLiNER2 Cloud Run readiness precedes GLiNER2-dependent pipeline work, LLM backends own generative query fan-out/rewrite, FunctionGemma is no longer the primary fan-out proposal, and Qdrant/result-memory semantics are explicitly candidate-injection-only.
 - Expanded the subsumed TODO implementation plan with HF Space-derived patterns for LLM fan-out scatter-gather, GLiNER2 unified entity/classification/structure schema, CDX-backed Wayback fetch fallback, and opt-in textstat-based content-quality scoring.

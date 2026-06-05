@@ -23,6 +23,10 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
         assert entry.tags
         assert "tool:public" in entry.tags
         assert isinstance(entry.annotations, ToolAnnotations)
+        assert entry.annotations.title == entry.title
+        assert entry.annotations.readOnlyHint == entry.read_only
+        assert entry.annotations.idempotentHint == entry.idempotent
+        assert entry.annotations.openWorldHint == entry.open_world
         kwargs = tool_kwargs(name)
         assert kwargs["tags"] == entry.tags
         assert kwargs["annotations"] == entry.annotations
@@ -30,6 +34,11 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
     assert TOOL_CATALOG["perplexity_search"].expensive is True
     assert TOOL_CATALOG["grok_search"].expensive is True
     assert TOOL_CATALOG["agentic_web_research"].experimental is True
+    assert TOOL_CATALOG["analytics_query"].open_world is False
+    assert TOOL_CATALOG["analytics_report"].open_world is False
+    assert TOOL_CATALOG["quick_web_search"].open_world is True
+    assert TOOL_CATALOG["composio_similarlinks"].open_world is True
+    assert TOOL_CATALOG["composio_image_search"].open_world is True
 
 
 def test_profile_membership_matches_visibility_requirements() -> None:
@@ -48,6 +57,8 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "perplexity_search",
             "academic_search",
             "grok_search",
+            "quick_web_search",
+            "composio_similarlinks",
             "agentic_web_research",
         }
     )
@@ -59,6 +70,17 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "discover_links",
             "youtube_search",
             "youtube_transcript",
+            "composio_image_search",
+        }
+    )
+    assert tools_for_profile("diagnostic") == frozenset(
+        {
+            "web_search",
+            "get_content",
+            "batch_get_content",
+            "discover_links",
+            "analytics_query",
+            "analytics_report",
         }
     )
     assert tools_for_profile("full") == frozenset(
@@ -71,6 +93,11 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "perplexity_search",
             "academic_search",
             "grok_search",
+            "quick_web_search",
+            "composio_similarlinks",
+            "composio_image_search",
+            "analytics_query",
+            "analytics_report",
             "agentic_web_research",
             "youtube_search",
             "youtube_transcript",
@@ -137,6 +164,18 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
 
     @mcp.tool(**tool_kwargs("web_search"))
     def web_search() -> str:
+        return "ok"
+
+    @mcp.tool(**tool_kwargs("quick_web_search"))
+    def quick_web_search() -> str:
+        return "ok"
+
+    @mcp.tool(**tool_kwargs("composio_similarlinks"))
+    def composio_similarlinks() -> str:
+        return "ok"
+
+    @mcp.tool(**tool_kwargs("analytics_query"))
+    def analytics_query() -> str:
         return "ok"
 
     @mcp.tool(**tool_kwargs("grok_search"))

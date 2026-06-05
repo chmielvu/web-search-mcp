@@ -7,25 +7,18 @@ from typing import Literal, Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
-from mcp.types import ToolAnnotations
 
 from ..errors import format_tool_error
 from .formatting import json_safe_rows
 from .queries import run_analytics_query
 from .reports import available_reports, run_report
+from ..tools.catalog import tool_kwargs
 
 
 def register_analytics_tools(mcp: Any) -> None:
     """Register read-only analytics tools on the MCP server."""
 
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Analytics Query",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
-        )
-    )
+    @mcp.tool(**tool_kwargs("analytics_query"))
     async def analytics_query(
         question: str,
         scope: Literal["local", "motherduck"] = "local",
@@ -50,14 +43,7 @@ def register_analytics_tools(mcp: Any) -> None:
         )
         return result
 
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Analytics Report",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=False,
-        )
-    )
+    @mcp.tool(**tool_kwargs("analytics_report"))
     async def analytics_report(
         report_name: str,
         days: int = 7,

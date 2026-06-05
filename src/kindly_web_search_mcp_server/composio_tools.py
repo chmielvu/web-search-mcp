@@ -6,7 +6,6 @@ from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
-from mcp.types import ToolAnnotations
 
 from .composio_client import execute_composio_tool
 from .models import (
@@ -17,6 +16,7 @@ from .models import (
     SimilarLinkResult,
     SimilarLinksResponse,
 )
+from .tools.catalog import tool_kwargs
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
 IMAGE_SEARCH_SLUG = "COMPOSIO_SEARCH_IMAGE"
@@ -195,14 +195,7 @@ async def _composio_image_search_impl(
 def register_composio_tools(mcp: Any) -> None:
     """Register standalone Composio Search toolkit tools."""
 
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Quick Web Search",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=True,
-        )
-    )
+    @mcp.tool(**tool_kwargs("quick_web_search"))
     async def quick_web_search(
         query: str,
         ctx: Context = CurrentContext(),
@@ -222,14 +215,7 @@ def register_composio_tools(mcp: Any) -> None:
         await ctx.info(f"Found {response.total_citations} citations")
         return response.model_dump(exclude_none=True)
 
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Composio Similarlinks",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=True,
-        )
-    )
+    @mcp.tool(**tool_kwargs("composio_similarlinks"))
     async def composio_similarlinks(
         url: str,
         num_results: int = 5,
@@ -257,14 +243,7 @@ def register_composio_tools(mcp: Any) -> None:
         await ctx.info(f"Found {response.total_results} similar links")
         return response.model_dump(exclude_none=True)
 
-    @mcp.tool(
-        annotations=ToolAnnotations(
-            title="Composio Image Search",
-            readOnlyHint=True,
-            idempotentHint=True,
-            openWorldHint=True,
-        )
-    )
+    @mcp.tool(**tool_kwargs("composio_image_search"))
     async def composio_image_search(
         query: str,
         num_results: int = 10,

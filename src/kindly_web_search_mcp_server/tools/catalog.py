@@ -17,9 +17,12 @@ class ToolCatalogEntry:
     title: str
     profiles: frozenset[str]
     tags: frozenset[str]
-    annotations: ToolAnnotations
+    read_only: bool = True
+    idempotent: bool = True
+    open_world: bool = True
     expensive: bool = False
     experimental: bool = False
+    annotations: ToolAnnotations | None = None
 
 
 def _entry(
@@ -27,6 +30,8 @@ def _entry(
     title: str,
     profiles: set[str],
     *,
+    read_only: bool = True,
+    open_world: bool = True,
     expensive: bool = False,
     experimental: bool = False,
     idempotent: bool = True,
@@ -41,14 +46,17 @@ def _entry(
         title=title,
         profiles=frozenset(profiles),
         tags=frozenset(tags),
-        annotations=ToolAnnotations(
-            title=title,
-            readOnlyHint=True,
-            idempotentHint=idempotent,
-            openWorldHint=True,
-        ),
+        read_only=read_only,
+        idempotent=idempotent,
+        open_world=open_world,
         expensive=expensive,
         experimental=experimental,
+        annotations=ToolAnnotations(
+            title=title,
+            readOnlyHint=read_only,
+            idempotentHint=idempotent,
+            openWorldHint=open_world,
+        ),
     )
 
 
@@ -92,6 +100,33 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     "academic_search": _entry(
         "academic_search", "Academic Search", {"research", "experimental", "full"}
     ),
+    "quick_web_search": _entry(
+        "quick_web_search",
+        "Quick Web Search",
+        {"research", "experimental", "full"},
+    ),
+    "composio_similarlinks": _entry(
+        "composio_similarlinks",
+        "Composio Similarlinks",
+        {"research", "experimental", "full"},
+    ),
+    "composio_image_search": _entry(
+        "composio_image_search",
+        "Composio Image Search",
+        {"media", "experimental", "full"},
+    ),
+    "analytics_query": _entry(
+        "analytics_query",
+        "Analytics Query",
+        {"diagnostic", "experimental", "full"},
+        open_world=False,
+    ),
+    "analytics_report": _entry(
+        "analytics_report",
+        "Analytics Report",
+        {"diagnostic", "experimental", "full"},
+        open_world=False,
+    ),
     "agentic_web_research": _entry(
         "agentic_web_research",
         "Agentic Web Research",
@@ -114,4 +149,6 @@ def catalog_entry(tool_name: str) -> ToolCatalogEntry:
 
 def tool_kwargs(tool_name: str) -> dict[str, Any]:
     entry = catalog_entry(tool_name)
+    if entry.annotations is None:
+        raise ValueError(f"tool catalog entry {tool_name!r} is missing annotations")
     return {"tags": entry.tags, "annotations": entry.annotations}
