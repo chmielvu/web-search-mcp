@@ -131,6 +131,52 @@ Per `.agent/CONTINUITY.md`, ongoing refactor phases:
 - Phase 4: Merge/diversity/rerank refinement (next)
 - Separate track: GitHub GraphQL tuning in `plans/GraphQL-tuning.md`
 
+## CLI surface (mcp2cli)
+
+Every MCP tool is also exposed as a CLI subcommand via [mcp2cli](https://github.com/knowsuchagency/mcp2cli) over stdio. No codegen, no MCP host required.
+
+```powershell
+# Discover tools
+scripts\kindly-cli.cmd --list
+
+# Get help for a tool
+scripts\kindly-cli.cmd web-search --help
+
+# Run a tool
+scripts\kindly-cli.cmd web-search `
+  --query "fastmcp stdio transport" `
+  --research-goal "compare fastmcp vs mcp stdio behavior" `
+  --num-results 3
+```
+
+Wrappers shipped in the repo:
+
+| Wrapper | Shell | Notes |
+| --- | --- | --- |
+| `scripts/kindly-cli.cmd` | cmd.exe | CRLF, `call` form for `uvx mcp2cli`. |
+| `scripts/kindly-cli.ps1` | PowerShell 7+ | Splits `KINDLY_CLI_MCP2CLI` on whitespace before invoking. |
+| `scripts/kindly-cli` | POSIX bash | Falls back to `cmd /c` when `KINDLY_VENV_PYTHON` is `.exe`. |
+| `scripts/kindly-mcp-stdio.bat` | cmd.exe | Stdio launcher (called by mcp2cli). |
+| `.claude/skills/kindly/scripts/kindly.cmd` | cmd.exe | Installed via `mcp2cli bake install`. |
+| `.claude/skills/kindly/scripts/kindly.ps1` | PowerShell | Same, PowerShell form. |
+| `.claude/skills/kindly/scripts/kindly` | POSIX sh | Same, bash form. |
+
+Environment knobs:
+
+- `KINDLY_VENV_PYTHON` — overrides the auto-detected venv python (`<repo>/.venv/Scripts/python.exe` on Windows, `<repo>/.venv/bin/python` elsewhere). Useful when the repo is moved.
+- `KINDLY_CLI_MCP2CLI` — overrides the mcp2cli launcher (default: `uvx mcp2cli`).
+- `MCP_ALLOW_TTY_STDIO` — only needed for manual stdio testing from a TTY.
+
+Re-bake / reinstall after moving the repo:
+
+```powershell
+uvx mcp2cli bake remove kindly
+uvx mcp2cli bake create kindly --mcp-stdio 'cmd /c "<repo>\scripts\kindly-mcp-stdio.bat"'
+uvx mcp2cli bake install kindly --dir .claude\skills\kindly\scripts
+```
+
+See `.claude/skills/kindly/SKILL.md` for the full reference (anti-patterns, error envelope, output processing).
+
 ## Environment Setup
 
 Required: at least one search provider env var.

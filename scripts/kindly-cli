@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# kindly-cli — wrapper that calls mcp2cli against the local Kindly Web Search MCP server over stdio.
+#
+# Usage (from any cwd):
+#   ./scripts/kindly-cli --list
+#   ./scripts/kindly-cli web-search --query "what is x" --research-goal "..."
+#   ./scripts/kindly-cli get-content --url "https://..."
+#
+# Honours these env vars (with defaults):
+#   KINDLY_VENV_PYTHON  Path to the project's venv python (default: <repo>/.venv/Scripts/python.exe on Windows,
+#                                                            <repo>/.venv/bin/python elsewhere)
+#   KINDLY_CLI_MCP2CLI  Command line for mcp2cli (default: "uvx mcp2cli")
+#
+# Requires: `uvx` (or another mcp2cli launcher) on PATH.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+if [[ -z "${KINDLY_VENV_PYTHON:-}" ]]; then
+  if [[ -x "${REPO_ROOT}/.venv/Scripts/python.exe" ]]; then
+    KINDLY_VENV_PYTHON="${REPO_ROOT}/.venv/Scripts/python.exe"
+  elif [[ -x "${REPO_ROOT}/.venv/bin/python" ]]; then
+    KINDLY_VENV_PYTHON="${REPO_ROOT}/.venv/bin/python"
+  else
+    echo "kindly-cli: cannot find venv python (set KINDLY_VENV_PYTHON)" >&2
+    exit 2
+  fi
+fi
+
+KINDLY_CLI_MCP2CLI="${KINDLY_CLI_MCP2CLI:-uvx mcp2cli}"
+
+# On Windows, mcp2cli's stdio backend cannot directly exec a .bat — wrap with cmd /c.
+case "${OSTYPE:-}${KINDLY_VENV_PYTHON}" in
+  *".exe"|msys*|cygwin*)
+    LAUNCHER_BAT="${SCRIPT_DIR}/kindly-mcp-stdio.bat"
+    STDIO_CMD="cmd /c \"${LAUNCHER_BAT}\""
+    ;;
+  *)
+    STDIO_CMD="\"${KINDLY_VENV_PYTHON}\" -u -m kindly_web_search_mcp_server --transport stdio"
+    ;;
+esac
+
+# Run from the repo root so the .env loader in kindly_web_search_mcp_server.server finds the project .env.
+cd "${REPO_ROOT}"
+
+# shellcheck disable=SC2086
+exec ${KINDLY_CLI_MCP2CLI} --mcp-stdio "${STDIO_CMD}" "$@"
