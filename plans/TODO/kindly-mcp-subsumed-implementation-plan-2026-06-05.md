@@ -206,6 +206,7 @@ Acceptance:
      - GLiNER2 Docker pattern: <https://docs.vast.ai/examples/ner/gliner2>
      - Cloud Run GPU docs: <https://docs.cloud.google.com/run/docs/configuring/services/gpu>
      - Cloud Run GPU best practices: <https://docs.cloud.google.com/run/docs/configuring/services/gpu-best-practices>
+   - live Cloud Run service identifier as of 2026-06-05: `functiongemma-classifier` in project `magdalenka-ecosystem`, region `us-central1`, latest ready revision `functiongemma-classifier-00005-cd7`, URL `https://functiongemma-classifier-373347358125.us-central1.run.app`
    - start with `fastino/gliner2-base-v1` for latency/cost measurement; promote to `fastino/gliner2-large-v1` only if evals show material quality lift
    - expose a small FastAPI surface: `/health`, `/extract`, `/classify`, `/extract_structured`, `/extract_combined`
    - container must lazy-load once per instance and reuse the model; no per-request downloads

@@ -1,4 +1,4 @@
 fastapi
 uvicorn
 pydantic
-llama-cpp-python
+gliner2[local]

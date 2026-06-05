@@ -106,7 +106,7 @@ class Settings:
     )
     mistral_api_key: str = os.environ.get("MISTRAL_API_KEY", "")
 
-    # FunctionGemma classifier / decomposition
+    # GLiNER2 classifier / extraction service
     query_classifier_enabled: bool = (
         os.environ.get("KINDLY_CLASSIFIER_ENABLED", "true").lower() == "true"
     )
