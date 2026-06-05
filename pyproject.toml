@@ -9,7 +9,7 @@ description = "MCP server: Multi-provider web search (SearXNG/Tavily/Brave/Jina)
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastmcp>=2.0.0",
+    "fastmcp>=3.4.0",
     "pydantic",
     "httpx",
     "beautifulsoup4",
@@ -52,6 +52,7 @@ dependencies = [
     "langchain-google-genai>=4.0.0",
     "langfuse>=4.0",
     "networkx>=3.6.1",
+    "prefab-ui>=0.20.2",
 ]
 
 [project.optional-dependencies]

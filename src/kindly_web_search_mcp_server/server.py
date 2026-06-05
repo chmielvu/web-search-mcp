@@ -57,6 +57,7 @@ from .content.options import build_fetch_options
 from .content.summary import create_summary
 from .content.windowing import slice_content
 from .analytics.tools import register_analytics_tools
+from .analytics.app import analytics_app
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
 from .content.youtube import (
@@ -176,6 +177,14 @@ mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
 register_agentic_web_research_tools(mcp)
 register_analytics_tools(mcp)
+# Mount the interactive Analytics Explorer app (FastMCP Apps UI, requires fastmcp[apps])
+try:
+    mcp.add_provider(analytics_app)
+except Exception as _analytics_app_err:  # noqa: BLE001
+    LOGGER.warning(
+        "Analytics Explorer app could not be mounted (is fastmcp[apps] installed?): %s",
+        _analytics_app_err,
+    )
 
 Transport = Literal["stdio", "sse", "streamable-http"]
 

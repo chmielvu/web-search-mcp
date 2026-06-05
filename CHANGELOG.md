@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Added
+- Subsumed the two active TODO MCP roadmap notes into `plans/TODO/kindly-mcp-subsumed-implementation-plan-2026-06-05.md`, normalizing tool names and file paths to the current repo layout while preserving the TODO implementation intent.
 - Phase 5.2 DuckDB page cache: created `src/kindly_web_search_mcp_server/cache/page_duckdb.py` implementing URL hash lookup (sha256[:32]), TTL expiry (created_at + ttl_seconds), metadata JSON roundtrip (stored in metadata_json column), and threading.Lock-protected writes (separate `.kindly/cache/page_cache.duckdb`, never shares analytics DB); refactored `page_cache.py` to thin facade + telemetry via cache/observability helpers while preserving exact `PageCache.lookup`/`store`/`get_page_cache` contract; added `KINDLY_PAGE_CACHE_DUCKDB_PATH` setting (default `.kindly/cache/page_cache.duckdb`); `tests/test_page_cache_duckdb.py` (URL-hash roundtrip, TTL, metadata, locked concurrent writes, separate-DB assertion) written and run failing first, then green. (Joint plan Task 5.2.)
 - Phase 5.3 remove LanceDB semantic cache: removed all semantic lookup/write paths from `web_search` + `academic_search` in server.py; removed 3 semantic settings + lancedb_dir; removed lancedb from pyproject.toml + regenerated lock; `git rm`'d cache/{store.py,semantic_cache.py,schema.py}; cleaned cache/__init__.py + telemetry.py (metrics); added `tests/test_semantic_cache_removed.py` (runtime import forbids + settings + source scan); final rg over src+pyproject confirmed 0 runtime hits (except migration text in docs/changelog). Separate page DuckDB already landed. (Joint plan Task 5.3.)
 - Phase 7.1 Qdrant result memory store: `cache/result_memory.py` with QdrantClient(":memory:") or path, collections by embed model+dim, deterministic UUIDs (query+url), payload roundtrip, age decay + entity-overlap boost, emits `result_memory.lookup`/`store`. Settings for path/enabled/weight etc. + validation. `tests/test_result_memory.py` green. (Joint plan Task 7.1.)
@@ -71,6 +72,7 @@
   - (No aliases kept; no cache_hit="semantic" path remains; per compatibility policy.)
 
 ### Changed
+- FastMCP dependency floor bumped to `fastmcp>=3.4.0` after checking the latest stable package metadata and current FastMCP docs for the tool/resource/prompt APIs used by the merged plan.
 - (No breaking; additive steering layers.)
 
 ## [0.1.0] - Previous (truncated...)

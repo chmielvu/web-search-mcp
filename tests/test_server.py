@@ -183,9 +183,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
         ) as mock_search, patch(
             "kindly_web_search_mcp_server.server.get_query_cache"
-        ) as mock_get_query_cache, patch(
-            "kindly_web_search_mcp_server.server.settings.semantic_cache_enabled", False
-        ):
+        ) as mock_get_query_cache:
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
             mock_query_cache.store = MagicMock()
@@ -419,10 +417,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
         ) as mock_search, patch(
             "kindly_web_search_mcp_server.server.get_query_cache"
-        ) as mock_get_query_cache, patch(
-            "kindly_web_search_mcp_server.server.settings.semantic_cache_enabled",
-            False,
-        ):
+        ) as mock_get_query_cache:
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
             mock_query_cache.store = MagicMock()
