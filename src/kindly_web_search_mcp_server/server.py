@@ -847,8 +847,6 @@ async def web_search(
         # 1. Exact query cache lookup (fastest, deterministic)
         normalized_query = normalize_query(query)
 
-        query_entities: list = []
-
         emit_tool_observability_event(
             LOGGER,
             "web_search",
@@ -970,7 +968,6 @@ async def web_search(
                 providers=providers,
                 research_goal=research_goal,
                 search_options=search_options,
-                query_entities=query_entities,
                 session_id=_resolve_session_id(ctx),
             )
             _response = _normalize_lightweight_search_response(

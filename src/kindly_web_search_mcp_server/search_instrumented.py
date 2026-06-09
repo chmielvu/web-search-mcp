@@ -48,6 +48,7 @@ async def _search_single_provider_instrumented(
     http_client: httpx.AsyncClient,
     search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
+    provider_arguments: dict[str, object] | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with telemetry tracking.
 
@@ -80,6 +81,7 @@ async def _search_single_provider_instrumented(
                 http_client,
                 search_options,
                 budget,
+                provider_arguments,
             )
 
             duration = time.time() - start_time
@@ -162,6 +164,7 @@ async def search_single_query(
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
     search_options: SearchOptions | None = None,
+    provider_arguments: dict[str, dict[str, object]] | None = None,
 ) -> list[WebSearchResult]:
     """Search with full OpenTelemetry instrumentation.
 
@@ -223,6 +226,7 @@ async def search_single_query(
                         client,
                         search_options,
                         budget,
+                        provider_arguments.get(c.name) if provider_arguments else None,
                     )
                     for c in free_providers
                 ]
@@ -259,6 +263,9 @@ async def search_single_query(
                             client,
                             search_options,
                             budget,
+                            provider_arguments.get(config.name)
+                            if provider_arguments
+                            else None,
                         )
 
                 paid_tasks = [_search_with_semaphore(c) for c in paid_providers]

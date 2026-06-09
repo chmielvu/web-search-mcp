@@ -36,21 +36,45 @@ async def resolve_query_understanding(
         provider_name="vercel",
     )
     worker = build_llm_worker()
-    result = await worker.complete_structured(
-        StructuredLLMRequest(
-            task="query_understand",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.0,
-            timeout_seconds=settings.query_classifier_timeout_seconds,
+    fallback_reason = "Query classifier unavailable; defaulting to general."
+    result_model_name = "fallback-general"
+    result_provider_name = "fallback"
+    fallback_used = False
+    try:
+        result = await worker.complete_structured(
+            StructuredLLMRequest(
+                task="query_understand",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                timeout_seconds=settings.query_classifier_timeout_seconds,
+            )
         )
-    )
-    understanding = QueryUnderstandingResult.model_validate_json(result.content)
-    understanding = understanding.model_copy(
-        update={"intent": normalize_intent(understanding.intent)}
-    )
+        understanding = QueryUnderstandingResult.model_validate_json(result.content)
+        understanding = understanding.model_copy(
+            update={"intent": normalize_intent(understanding.intent)}
+        )
+        result_model_name = result.model_name
+        result_provider_name = result.endpoint_name
+    except Exception as exc:
+        logger.warning("query understanding failed; falling back to general: %s", exc)
+        fallback_used = True
+        emit_observability_event(
+            logger,
+            "search.query_understanding.fallback",
+            query=normalized_query,
+            error=str(exc)[:300],
+            fallback_intent="general",
+            fallback_reason=fallback_reason,
+        )
+        understanding = QueryUnderstandingResult(
+            intent="general",
+            confidence=0.0,
+            rationale=fallback_reason,
+            should_decompose=False,
+        )
     emit_observability_event(
         logger,
         "search.query_understanding.resolved",
@@ -58,10 +82,11 @@ async def resolve_query_understanding(
         intent=understanding.intent,
         confidence=understanding.confidence,
         should_decompose=understanding.should_decompose,
-        model=result.model_name,
-        provider=result.endpoint_name,
+        model=result_model_name,
+        provider=result_provider_name,
         entities=[entity.model_dump() for entity in understanding.entities],
         preserved_terms=understanding.preserved_terms,
+        fallback=fallback_used,
     )
     if settings.query_understanding_jsonl_enabled:
         try:
@@ -83,7 +108,7 @@ async def resolve_query_understanding(
                     profile_name=understanding.intent,
                 ),
                 understanding=understanding,
-                model_name=result.model_name,
+                model_name=result_model_name,
                 prompt_name="query_understanding",
                 path=settings.query_understanding_jsonl_path,
                 session_id=session_id,

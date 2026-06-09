@@ -51,10 +51,8 @@ async def run_search_pipeline(
     providers: list[str] | None,
     research_goal: str | None,
     search_options: SearchOptions | None,
-    query_entities: list | None = None,
     session_id: str | None = None,
 ) -> WebSearchResponse:
-    del query_entities
     normalized_query = normalize_query(query)
     understanding = await resolve_query_understanding(
         query=query,

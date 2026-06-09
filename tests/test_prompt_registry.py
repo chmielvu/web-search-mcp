@@ -9,6 +9,7 @@ from kindly_web_search_mcp_server.prompts.registry import build_prompt
     "name",
     [
         "query_understanding",
+        "entity_extraction",
         "worker_rewrite",
         "gemini_search",
         "grok_search",

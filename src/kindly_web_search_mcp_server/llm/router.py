@@ -46,8 +46,8 @@ class LLMRouter:
 
 
 def build_classifier_router() -> LLMRouter:
-    """Classifier is pinned to Vercel AI Gateway + amazon/nova-micro."""
-    return LLMRouter((build_classifier_endpoint(),))
+    """Classifier prefers Vercel AI Gateway, then falls back to the worker ladder."""
+    return LLMRouter((build_classifier_endpoint(), *build_worker_endpoints()))
 
 
 def build_worker_router() -> LLMRouter:

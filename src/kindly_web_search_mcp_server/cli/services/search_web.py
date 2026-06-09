@@ -38,6 +38,7 @@ async def fetch_web_search_payload(
         query,
         num_results=num_results,
         rewrite=rewrite,
+        diagnostics=None,
         providers=providers,
         research_goal=research_goal,
         search_options=search_options,

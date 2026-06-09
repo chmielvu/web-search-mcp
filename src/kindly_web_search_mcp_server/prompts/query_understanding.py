@@ -15,7 +15,7 @@ def build_query_understanding_prompt(
     provider_name: str = "worker",
 ) -> tuple[str, str]:
     goal = research_goal or query
-    system = f"""You classify and annotate web search queries for {provider_style(provider_name)}.
+    system = f"""You conservatively classify and annotate web search queries for {provider_style(provider_name)}.
 Today is {anchor_today()}.
 Return JSON only.
 The schema is:
@@ -36,6 +36,8 @@ Rules:
 - ai_coding = code, APIs, packages, tooling, build errors, implementation.
 - digital_humanities = history, archives, corpora, texts, humanities research.
 - comparison = explicit comparison or ranking of named things.
+- If the request is ambiguous, underspecified, or low confidence, choose general.
+- Extract only grounded entities and preserve exact literals and identifiers.
 - Extract only grounded entities.
 - Preserve exact literals and identifiers.
 - Keep the output compact and valid JSON.

@@ -18,11 +18,9 @@ async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[
         return []
 
     system_prompt, user_prompt = build_prompt(
-        "query_understanding",
+        "entity_extraction",
         query=text,
         research_goal=text,
-        intent="general",
-        must_keep_terms=[],
         provider_name=provider_name,
     )
     worker = build_llm_worker()
