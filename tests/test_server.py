@@ -16,10 +16,12 @@ from kindly_web_search_mcp_server.models import WebSearchResponse, WebSearchResu
 
 class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
     def test_core_tools_expose_structured_output_schemas(self) -> None:
+        os.environ.pop("KINDLY_TOOL_PROFILE", None)
+        os.environ.pop("KINDLY_TOOL_SEARCH_ENABLED", None)
+        sys.modules.pop("kindly_web_search_mcp_server.server", None)
+        sys.modules.pop("kindly_web_search_mcp_server.settings", None)
         from kindly_web_search_mcp_server.server import mcp
-        from kindly_web_search_mcp_server.tools.profiles import apply_tool_profile
 
-        apply_tool_profile(mcp, "full")
         tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
 
         self.assertIn("web_search", tools)
@@ -56,8 +58,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("sources_used", academic_schema)
         self.assertIn("total_results", academic_schema)
 
-        apply_tool_profile(mcp, "default")
-
     def test_public_resource_list_includes_native_resources(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
 
@@ -80,7 +80,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         cache_result = asyncio.run(mcp.read_resource("cache://stats"))
         schema_result = asyncio.run(mcp.read_resource("analytics://schema"))
 
-        self.assertIn("query_rewrite_enabled", str(settings_result))
+        self.assertIn("query_understanding", str(settings_result))
         self.assertIn("exact_query_cache", str(cache_result))
         self.assertIn("vw_events", str(schema_result))
 
@@ -347,7 +347,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("page_content", out["results"][0])
 
     async def test_web_search_forwards_search_options_and_window(self) -> None:
-        from kindly_web_search_mcp_server.models import SearchResultWindow
         from kindly_web_search_mcp_server.server import web_search
         from kindly_web_search_mcp_server.search.options import SearchOptions
 
@@ -370,13 +369,13 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             mock_search.return_value = WebSearchResponse(
                 query="hello",
                 results=mocked_results,
-                result_window=SearchResultWindow(
-                    offset=2,
-                    returned=1,
-                    candidate_count=5,
-                    has_more=True,
-                    next_offset=3,
-                ),
+                result_window={
+                    "offset": 2,
+                    "returned": 1,
+                    "candidate_count": 5,
+                    "has_more": True,
+                    "next_offset": 3,
+                },
             )
 
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search

@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +32,7 @@ from .gemini_pollinations import search_gemini_pollinations
 from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
+from .google_cse import search_google_cse
 from .jina import search_jina
 from .reddit import search_reddit
 from .stackexchange import search_stackexchange
@@ -43,6 +45,7 @@ from .provider_config import (
     register_provider,
     resolve_providers_for_search,
 )
+from .provider_call import build_provider_call_kwargs
 from .searxng import search_searxng
 from .tavily import search_tavily
 
@@ -201,11 +204,22 @@ def _init_provider_registry() -> None:
     register_provider(
         ProviderConfig(
             name="brave",
-            mode=_parse_mode(settings.brave_mode),  # default "never" in settings.py
+            mode=_parse_mode(settings.brave_mode),  # default "always" in settings.py
             env_key="BRAVE_API_KEY",
             search_fn=search_brave,
             is_free=False,
             requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="google_cse",
+            mode=ProviderMode.ALWAYS,
+            env_key="KINDLY_GOOGLE_CSE_API_KEY",
+            search_fn=search_google_cse,
+            is_free=False,
+            requires_key=True,
+            extra_env_keys=("KINDLY_GOOGLE_CSE_ENGINE_ID",),
         )
     )
     register_provider(
@@ -320,6 +334,13 @@ def _has_brave_key() -> bool:
     return bool(os.environ.get("BRAVE_API_KEY", "").strip())
 
 
+def _has_google_cse_key() -> bool:
+    return bool(
+        os.environ.get("KINDLY_GOOGLE_CSE_API_KEY", "").strip()
+        and os.environ.get("KINDLY_GOOGLE_CSE_ENGINE_ID", "").strip()
+    )
+
+
 def _has_jina_key() -> bool:
     return bool(os.environ.get("JINA_API_KEY", "").strip())
 
@@ -339,6 +360,7 @@ async def _search_single_provider(
     http_client: httpx.AsyncClient,
     search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
+    provider_arguments: Mapping[str, object] | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with circuit breaker and budget tracking."""
     if _circuit_breaker.is_open(provider_name):
@@ -351,28 +373,17 @@ async def _search_single_provider(
 
     try:
         provider_query = build_search_query(query, search_options)
-        if provider_name == "searxng" and search_options is not None:
-            try:
-                results = await provider_fn(
-                    provider_query,
-                    num_results=num_results,
-                    http_client=http_client,
-                    search_options=search_options,
-                )
-            except TypeError as exc:
-                if "search_options" not in str(exc):
-                    raise
-                results = await provider_fn(
-                    provider_query,
-                    num_results=num_results,
-                    http_client=http_client,
-                )
-        else:
-            results = await provider_fn(
-                provider_query,
-                num_results=num_results,
-                http_client=http_client,
-            )
+        provider_kwargs = build_provider_call_kwargs(
+            provider_fn,
+            search_options=search_options,
+            provider_arguments=provider_arguments,
+        )
+        results = await provider_fn(
+            provider_query,
+            num_results=num_results,
+            http_client=http_client,
+            **provider_kwargs,
+        )
         results = [
             result.model_copy(
                 update={
@@ -401,6 +412,7 @@ async def search_single_query(
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
     search_options: SearchOptions | None = None,
+    provider_arguments: dict[str, dict[str, object]] | None = None,
 ) -> list[WebSearchResult]:
     """
     Search using multi-provider RRF merge with mode-based selection.
@@ -458,6 +470,7 @@ async def search_single_query(
                     client,
                     search_options,
                     budget,
+                    provider_arguments.get(c.name) if provider_arguments else None,
                 )
                 for c in free_providers
             ]
@@ -488,6 +501,9 @@ async def search_single_query(
                         client,
                         search_options,
                         budget,
+                        provider_arguments.get(config.name)
+                        if provider_arguments
+                        else None,
                     )
 
             paid_tasks = [_search_with_semaphore(c) for c in paid_providers]

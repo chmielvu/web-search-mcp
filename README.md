@@ -643,50 +643,22 @@ docker run --rm -p 8000:8000 \
 - Remote HTTP is typically **unauthenticated** and **unencrypted** by default; don't expose this port publicly. Use VPN/firewall rules or a reverse proxy with TLS + auth.
 - Don't bake API keys into the image; pass them via env vars at runtime.
 
-## CLI usage (mcp2cli)
+## Native CLI
 
-Every MCP tool is also exposed as a shell subcommand via [mcp2cli](https://github.com/knowsuchagency/mcp2cli) over stdio — no codegen, no MCP host required.
+The generated mcp2cli wrapper surface has been removed. The first-party CLI is `web-search-cli`, a Typer application with JSON-first output, structured errors, schema discovery, and direct in-process calls into the same service layer used by the MCP server.
 
-```powershell
-# Discover tools
-scripts\kindly-cli.cmd --list
-
-# Get help for a specific tool
-scripts\kindly-cli.cmd web-search --help
-
-# Run a tool (raw JSON on stdout, structured logs on stderr)
-scripts\kindly-cli.cmd web-search `
-  --query "fastmcp stdio transport" `
-  --research-goal "compare fastmcp vs mcp stdio behavior" `
-  --num-results 3
-```
-
-Wrappers shipped in this repo:
-
-| Wrapper | Shell |
-| --- | --- |
-| `scripts\kindly-cli.cmd` | cmd.exe |
-| `scripts\kindly-cli.ps1` | PowerShell 7+ |
-| `scripts\kindly-cli` | POSIX bash |
-| `scripts\kindly-mcp-stdio.bat` | stdio launcher (called by mcp2cli) |
-| `.claude\skills\kindly\scripts\kindly.cmd` | cmd.exe (installed by `mcp2cli bake install`) |
-| `.claude\skills\kindly\scripts\kindly.ps1` | PowerShell (installed) |
-| `.claude\skills\kindly\scripts\kindly` | POSIX sh (installed) |
-
-Environment knobs:
-
-- `KINDLY_VENV_PYTHON` — overrides the auto-detected venv python.
-- `KINDLY_CLI_MCP2CLI` — overrides the mcp2cli launcher (default: `uvx mcp2cli`).
-
-Re-bake the connection after moving the repo:
+Current scaffolded commands:
 
 ```powershell
-uvx mcp2cli bake remove kindly
-uvx mcp2cli bake create kindly --mcp-stdio 'cmd /c "<repo>\scripts\kindly-mcp-stdio.bat"'
-uvx mcp2cli bake install kindly --dir .claude\skills\kindly\scripts
+web-search-cli schema
+web-search-cli doctor
+web-search-cli getskill
+web-search-cli getskill --dev
+web-search-cli reference tools
+web-search-cli reference external-tools
 ```
 
-See `.claude/skills/kindly/SKILL.md` for the full reference (anti-patterns, error envelope, output processing).
+Main search/fetch/media commands are registered but intentionally return structured scaffold errors until the main implementation phase replaces them with service-backed execution. See `plans/web-search-cli-native-typer-design-2026-06-07.md` for the implementation design.
 
 ## Troubleshooting
 

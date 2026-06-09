@@ -19,7 +19,7 @@ At least one search provider must be configured for the server to function. The 
 | `COMPOSIO_API_KEY` | Optional | - | Composio API key used by Composio LLM Search, Composio Similarlinks, and Composio Image Search |
 | `KINDLY_GEMINI_API_KEY` | Optional | - | Gemini API key used both by the standalone `gemini_search` tool and by the Gemini provider inside `web_search` |
 
-**Note:** SearXNG is the recommended primary provider because it is self-hosted and has no query limits. The standard `web_search` mix is SearXNG + DDG + Gemini when configured. Tavily and Brave are disabled by default, while Jina and Composio LLM Search remain conditional.
+**Note:** SearXNG is the recommended primary provider because it is self-hosted and has no query limits. In the 0.2 backend, Brave and Google CSE are always-on semaphored branches, while the LLM understanding / rewrite worker ladder runs separately from provider selection. Tavily remains disabled by default, Jina and the community providers are request-dependent, and Composio LLM Search remains always-on when configured.
 
 ### Optional API Keys (Recommended)
 
@@ -55,9 +55,10 @@ Control when optional providers fire in `web_search`:
 |----------|---------|-------------|
 | `KINDLY_DDG_MODE` | `always` | DuckDuckGo provider mode (free, always-on) |
 | `KINDLY_TAVILY_MODE` | `never` | Tavily provider mode (disabled by default) |
-| `KINDLY_BRAVE_MODE` | `never` | Brave provider mode (disabled by default) |
+| `KINDLY_BRAVE_MODE` | `always` | Brave provider mode (always-on branch when configured) |
 | `KINDLY_JINA_MODE` | `conditional` | Jina provider mode (only when explicitly requested) |
 | `KINDLY_GEMINI_SEARCH_MODE` | `always` | Gemini provider mode for `web_search` |
+| `KINDLY_GROK_WEB_SEARCH_MODE` | `conditional` | Grok provider mode for `web_search` |
 | `KINDLY_COMPOSIO_LLM_SEARCH_MODE` | `always` | Composio LLM Search provider mode |
 
 **Modes:**
@@ -73,10 +74,9 @@ Control advanced features with these boolean flags (set to `true` or `false`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDLY_QUERY_REWRITE_ENABLED` | `true` | Enable query expansion and variant generation |
 | `KINDLY_RERANKING_ENABLED` | `true` | Enable provider reranking for search results |
 | `KINDLY_RERANK_ENTITY_OVERLAP_ENABLED` | `false` | Enable measured entity-overlap signal in rerank blend (Phase 8) |
-| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Enable optional GLiNER2 entity extraction (lazy, off by default) |
+| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Enable optional LLM-backed entity extraction for content/search responses |
 | `KINDLY_TOOL_SEARCH_ENABLED` | `false` | Opt-in FastMCP RegexSearchTransform for meta search/call tools |
 | `KINDLY_RESULT_MEMORY_ENABLED` | `false` | Enable Qdrant result memory candidate injection (enable after tests) |
 
@@ -86,7 +86,7 @@ Control advanced features with these boolean flags (set to `true` or `false`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDLY_TOOL_PROFILE` | `default` | One of: default\|research\|media\|diagnostic\|experimental\|full. Controls visible tools via tags/profiles. |
+| `KINDLY_TOOL_PROFILE` | `full` | One of: default\|research\|media\|diagnostic\|experimental\|full. Controls visible tools via tags/profiles. Set `default` for the minimal four-tool surface. |
 | `KINDLY_TOOL_SEARCH_ENABLED` | `false` | When true, after profile, adds RegexSearchTransform (surfaces docs/URL/YouTube queries to underlying tools). Emits tool_surface.* events. |
 
 See docs for visible tools per profile.
@@ -123,8 +123,8 @@ Events: result_memory.lookup / store / candidate_injected / candidate_survived
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Master switch (lazy import of gliner2 extra) |
-| `KINDLY_GLINER_MODEL` | `fastino/gliner2-base-v1` | HF model for GLiNER2 |
-| `KINDLY_GLINER_THRESHOLD` | `0.3` | Confidence threshold for spans |
+| `KINDLY_GLINER_MODEL` | `fastino/gliner2-base-v1` | Legacy GLiNER2 setting retained for compatibility |
+| `KINDLY_GLINER_THRESHOLD` | `0.3` | Legacy GLiNER2 confidence threshold retained for compatibility |
 | `KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT` | `0.15` | Weight of entity-overlap feature when rerank entity overlap enabled |
 
 Entities appear in search/content responses only when enabled. Emits entity.* events. No silent failures.
@@ -140,27 +140,22 @@ Entities appear in search/content responses only when enabled. Emits entity.* ev
 
 ---
 
-## Query Rewrite (Multi-Provider)
+## Query Understanding and Rewrite
 
-Query expansion and variant generation via multiple LLM providers for free-tier load distribution:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MISTRAL_API_KEY` | - | Mistral API key (primary query rewrite provider) |
-| `CEREBRAS_API_KEY` | - | Cerebras API key (fallback query rewrite provider) |
-| `GROQ_API_KEY` | - | Groq API key (fallback query rewrite provider) |
-| `KINDLY_QUERY_REWRITE_MODEL` | `mistral-small-2603` | Primary model for query rewrite |
-| `KINDLY_QUERY_REWRITE_TEMPERATURE` | `0.0` | Temperature for rewrite generation (deterministic output) |
-| `KINDLY_QUERY_REWRITE_TIMEOUT_SECONDS` | `20` | Timeout for rewrite API calls |
-| `KINDLY_QUERY_REWRITE_MAX_VARIANTS` | `3` | Maximum query variants to generate |
-
-### RPM Limits (Free-Tier Load Distribution)
+The 0.2 backend uses an LLM-understanding stage plus a separate rewrite worker ladder. Query understanding runs through Vercel with `amazon/nova-micro`; rewrite uses the package-local worker prompt registry and can fall through Cerebras, Groq, and Vercel gateway models.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KINDLY_QUERY_REWRITE_MISTRAL_RPM` | `30` | Mistral requests-per-minute estimate |
-| `KINDLY_QUERY_REWRITE_CEREBRAS_RPM` | `30` | Cerebras requests-per-minute estimate |
-| `KINDLY_QUERY_REWRITE_GROQ_RPM` | `30` | Groq requests-per-minute estimate |
+| `KINDLY_QUERY_UNDERSTANDING_MODEL` | `amazon/nova-micro` | Model used for LLM intent classification and entity extraction |
+| `AI_GATEWAY_API_KEY` | - | Vercel AI Gateway key used by the query-understanding and rewrite workers |
+| `KINDLY_VERCEL_AI_GATEWAY_BASE_URL` | `https://ai-gateway.vercel.sh/v1` | Vercel AI Gateway base URL |
+| `KINDLY_CEREBRAS_REWRITE_MODEL` | `cerebras/gpt-oss-120b` | First-tier rewrite worker model |
+| `KINDLY_GROQ_REWRITE_MODEL` | `groq/gpt-oss-120b` | Second-tier rewrite worker model |
+| `KINDLY_VERCEL_REWRITE_MODEL` | `groq/gpt-oss-20b` | Fallback rewrite worker model via Vercel gateway |
+| `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS` | `20` | Timeout budget for rewrite worker cascade |
+| `KINDLY_CLASSIFIER_TIMEOUT_SECONDS` | `10` | Query-understanding timeout budget (historical setting name) |
+| `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED` | `true` | Enable JSONL capture of query-understanding outcomes |
+| `KINDLY_QUERY_UNDERSTANDING_JSONL_PATH` | `.kindly/training/query_understanding.jsonl` | JSONL sink for training data gathering |
 
 ---
 
@@ -522,15 +517,14 @@ KINDLY_JINA_MODE=conditional
 KINDLY_GEMINI_SEARCH_MODE=always
 
 # Feature flags
-KINDLY_QUERY_REWRITE_ENABLED=true
 KINDLY_RERANKING_ENABLED=true
 KINDLY_ENTITY_EXTRACTION_ENABLED=false  # opt-in
 KINDLY_TOOL_SEARCH_ENABLED=false  # opt-in
 KINDLY_RESULT_MEMORY_ENABLED=false  # enable post verification
 KINDLY_RERANKING_ENABLED=true
 
-# Query rewrite (multi-provider load distribution)
-MISTRAL_API_KEY=
+# Query understanding / rewrite workers
+AI_GATEWAY_API_KEY=
 CEREBRAS_API_KEY=
 GROQ_API_KEY=
 

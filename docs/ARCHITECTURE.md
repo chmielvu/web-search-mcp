@@ -1,7 +1,7 @@
 <!-- generated-by: gsd-doc-writer -->
 # Architecture Overview
 
-The Kindly Web Search MCP Server is a Model Context Protocol (MCP) server designed for AI coding assistants. It provides multi-provider web search with weighted RRF merge, staged content extraction, exact LRU + DuckDB page + Qdrant result-memory caching (no LanceDB/semantic), entity extraction (optional GLiNER2), rerank engine abstraction, FastMCP tool profiles + search transform, and comprehensive OpenTelemetry + DuckDB + Langfuse + Grafana observability + offline mcpevals/LLM-judge evals for LLM-ready information retrieval.
+The Kindly Web Search MCP Server is a Model Context Protocol (MCP) server designed for AI coding assistants. It provides multi-provider web search with weighted RRF merge, staged content extraction, exact LRU + DuckDB page + Qdrant result-memory caching (no LanceDB/semantic), LLM query understanding and profile resolution, a Python prompt registry plus package-local worker routing, rerank engine abstraction, FastMCP tool profiles + search transform, and comprehensive OpenTelemetry + DuckDB + Langfuse + Grafana observability + offline mcpevals/LLM-judge evals for LLM-ready information retrieval.
 
 ## System Overview
 
@@ -10,7 +10,7 @@ The server exposes a dynamic set of MCP tools (via FastMCP profiles: default/res
 ```mermaid
 flowchart TD
     subgraph Entry
-        CLI[CLI Wrapper<br>cli.py]
+        NativeCLI[Native Typer CLI<br>cli/]
         Server[FastMCP Server<br>server.py]
     end
 
@@ -35,8 +35,8 @@ flowchart TD
     end
 
     subgraph SearchPipeline
-        QP[Query Policy<br>(+ entity must-keep terms)]
-        QR[Query Rewrite<br>Mistral/Cerebras/Groq Router]
+        QP[Query Understanding<br>(LLM structured output)]
+        QR[Profiled Rewrite<br>Prompt registry + worker ladder]
         PROVIDERS[Search Providers<br>SearXNG/DDG/Gemini/Tavily/Brave/Jina/Composio]
         RRF[Weighted RRF Merge<br>k=60 + provider weights + result_memory virtual list]
         RERANK_POLICY[Rerank Policy<br>bypass for literal/navigational/low-count]
@@ -71,7 +71,7 @@ flowchart TD
     Middleware --> Tools
 
     WS --> EQC
-    EQC --> ENTITY[Entity Extraction<br>(optional GLiNER2 + overlap)]
+    EQC --> ENTITY[Entity Extraction<br>(LLM understanding + overlap)]
     ENTITY --> RM_LOOKUP[Result Memory Lookup]
     RM_LOOKUP --> QP
     QP --> QR
@@ -194,18 +194,18 @@ Returns `has_more` and `cursor` for pagination across multiple calls.
 3. Semantic Cache lookup (L2, embedding similarity >= 0.92)
    ├─ Hit: Return cached results
    └─ Miss: Continue
-4. Query Policy classification (precision signal detection)
-   ├─ bypass: Preserve original query (error codes, URLs, versions)
-   └─ expand: Generate complementary queries via LLM
-5. Query Rewrite (multi-provider LLM router + FunctionGemma classifier)
-   └─ FunctionGemma intent/decomposition + Mistral/Cerebras/Groq rewrite
-   └─ Provider-aware: keyword-targeted vs neural-targeted variants
+4. Query understanding (LLM structured output on Vercel `amazon/nova-micro`)
+   ├─ Intent: `general`, `ai_coding`, `digital_humanities`, `comparison`
+   └─ Emits entities + must-keep terms + decomposition signal
+5. Profiled rewrite (Python prompt registry + worker ladder)
+   ├─ Worker prompts: Cerebras `gpt-oss-120b` → Groq `gpt-oss-120b` → Vercel `gpt-oss-20b`
+   └─ Prompt family / temperature / provider args resolved from profile
 6. Multi-provider search (tiered, circuit-breaker protected)
-   ├─ Tier 1: SearXNG + DDG + Gemini + Composio (ALWAYS mode, free/paid)
-   ├─ Tier 2: Tavily, Brave, Jina (CONDITIONAL mode, caller-requested)
-   └─ Per-provider circuit breaker + budget tracking
+   ├─ Tier 1: SearXNG + DDG + Brave + Google CSE + Gemini + Composio (ALWAYS mode where configured)
+   ├─ Tier 2: Tavily, Jina, Grok, community providers (mode/request-dependent)
+   └─ Per-provider circuit breaker + budget tracking + profile provider arguments
 7. Weighted RRF Merge (k=60)
-   └─ Provider weights: tavily=1.3, gemini=1.2, composio=1.15, jina=1.1
+   └─ Provider weights and provider allow-lists resolved from profile
    └─ Host-cap deduplication (max 2 per host in top-k)
 8. Reranking pipeline (optional, when candidates > top_k)
    ├─ Bi-encoder filtering (HF Inference embeddings)
@@ -220,11 +220,11 @@ Returns `has_more` and `cursor` for pagination across multiple calls.
 
 | Mode | Behavior | Examples |
 |------|----------|----------|
-| `ALWAYS` | Fires on every search (configured) | SearXNG, DDG, Gemini, Composio |
-| `CONDITIONAL` | Only when caller requests via `providers` param | Jina |
-| `NEVER` | Disabled even if API key present | Tavily, Brave (default) |
+| `ALWAYS` | Fires on every search when configured | SearXNG, DDG, Brave, Google CSE, Gemini, Composio |
+| `CONDITIONAL` | Only when caller requests via `providers` param | Jina, Grok, HackerNews, Reddit, GitHub GraphQL, StackExchange |
+| `NEVER` | Disabled even if API key present | Tavily |
 
-Configured via `KINDLY_*_MODE` environment variables.
+Configured via the `KINDLY_*_MODE` environment variables in `settings.py`.
 
 ### Circuit Breaker
 
@@ -404,7 +404,7 @@ Search operators (`site:`, `filetype:`, `inurl:`, etc.) also trigger bypass.
 
 ```python
 # Free-tier load distribution across providers
-CEREBRAS_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY
+AI_GATEWAY_API_KEY, CEREBRAS_API_KEY, GROQ_API_KEY
 
 # Intent-specific temperatures
 TEMPERATURE_BY_INTENT = {
@@ -562,7 +562,7 @@ class QueryRewritePlan(BaseModel):
 src/kindly_web_search_mcp_server/
 ├── __init__.py              # Package exports
 ├── __main__.py              # Entry point for uvx
-├── cli.py                   # CLI wrapper (start-mcp-server)
+├── cli/                     # Native Typer web-search-cli package
 ├── server.py                # FastMCP server registration
 ├── models.py                # Pydantic response models
 ├── settings.py              # Environment-first configuration
@@ -571,8 +571,11 @@ src/kindly_web_search_mcp_server/
 │
 ├── search/                  # Search pipeline
 │   ├── __init__.py          # Provider registry, circuit breaker, budget
-│   ├── orchestrator.py      # Main pipeline coordination
+│   ├── pipeline.py          # Main 0.2 pipeline coordination
 │   ├── provider_config.py   # Provider mode configuration
+│   ├── provider_plan.py     # Profile-derived provider firing plan
+│   ├── provider_options.py  # Provider-specific option bundles
+│   ├── provider_call.py     # Provider argument forwarding helper
 │   ├── searxng.py           # SearXNG provider
 │   ├── ddg.py               # DuckDuckGo provider
 │   ├── tavily.py            # Tavily provider
@@ -583,14 +586,12 @@ src/kindly_web_search_mcp_server/
 │   ├── pollinations.py      # Perplexity Sonar
 │   ├── youtube.py           # YouTube search
 │   ├── merge.py             # Weighted RRF implementation
-│   ├── query_policy.py      # Precision signal detection
-│   ├── query_policy_resolver.py  # Policy routing (local vs heuristic)
-│   ├── query_classifier_client.py # FunctionGemma classifier/decomposition client
-│   ├── query_rewrite.py     # Multi-provider LLM rewrite
-│   ├── query_rewrite_router.py  # LiteLLM Router for query rewrite
-│   ├── query_rewrite_models.py  # Query variant models
-│   ├── query_rewrite_prompts.py # Provider-aware prompts
-│   ├── query_rewrite_validate.py # Variant validation
+│   ├── query_policy.py      # Rewrite policy model
+│   ├── pipeline_builders.py # Search context, rewrite variants, prompt wiring
+│   ├── understanding/       # LLM query understanding schema/resolver
+│   ├── profiles/            # Profile definitions and inheritance
+│   ├── prompts/             # Prompt registry and provider prompt builders
+│   ├── query_rewrite_models.py  # Query variant model used by the live pipeline
 │   ├── gemini_search_tool.py # Gemini grounding MCP tool
 │   └── normalize.py         # Query/URL normalization
 │
@@ -628,7 +629,7 @@ src/kindly_web_search_mcp_server/
 ├── entity/                  # Entity extraction (Phase 6/8)
 │   ├── models.py            # EntitySpan
 │   ├── default_schema.py    # coding/web labels
-│   ├── gliner_client.py     # lazy GLiNER2 (optional extra)
+│   ├── gliner_client.py     # legacy lazy GLiNER2 client (not part of 0.2 hot path)
 │   ├── chunk.py
 │   ├── postprocess.py
 │   └── overlap.py
@@ -673,9 +674,9 @@ All configuration is environment-first via `settings.py`. See [CONFIGURATION.md]
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `SEARXNG_BASE_URL` | Primary search provider | Required (or other provider) |
-| `MISTRAL_API_KEY` | Query rewrite (primary) | Optional |
-| `CEREBRAS_API_KEY` | Query rewrite (fallback) | Optional |
-| `GROQ_API_KEY` | Query rewrite (fallback) | Optional |
+| `AI_GATEWAY_API_KEY` | Query understanding and rewrite workers | Optional |
+| `CEREBRAS_API_KEY` | Query rewrite worker tier 1 | Optional |
+| `GROQ_API_KEY` | Query rewrite worker tier 2 | Optional |
 | `GITHUB_TOKEN` | GitHub GraphQL API | Recommended |
 | `KINDLY_GEMINI_API_KEY` | Gemini grounding | Optional |
 | `POLLINATIONS_API_KEY` | Perplexity Sonar | Optional |
@@ -686,7 +687,7 @@ All configuration is environment-first via `settings.py`. See [CONFIGURATION.md]
 | `KINDLY_RERANK_PROVIDER` | Primary reranker provider | `voyage` |
 | `KINDLY_VOYAGE_RERANK_MODEL` | Voyage reranker model | `rerank-2.5` |
 | `KINDLY_ANALYTICS_ENABLED` | DuckDB analytics event capture | `true` |
-| `KINDLY_QUERY_REWRITE_ENABLED` | Query rewrite toggle | `true` |
+| `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS` | Rewrite worker cascade timeout | `20` |
 | `KINDLY_PAGE_CACHE_DUCKDB_PATH` | DuckDB for page cache (separate from analytics) | `.kindly/cache/page_cache.duckdb` |
 | `KINDLY_RESULT_MEMORY_PATH` | Qdrant path or :memory: | `.kindly/result_memory` (empty for in-mem) |
 

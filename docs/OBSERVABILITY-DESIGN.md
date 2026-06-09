@@ -291,7 +291,7 @@ with tracer.start_as_current_span(
     span.set_attribute("gen_ai.tool.name", tool_name)
 ```
 
-### 2. Search Orchestrator (search/orchestrator.py)
+### 2. Search Pipeline (search/pipeline.py)
 
 ```python
 # Web search operation
@@ -545,7 +545,7 @@ groups:
 - [x] Structured logging bridge (OTLP log export)
 
 ### Phase 2: Integration - Search Instrumentation (Pending)
-- [ ] Integrate spans into search/orchestrator.py
+- [ ] Integrate spans into search/pipeline.py
 - [ ] Add provider call spans with semantic conventions
 - [ ] Add RRF merge spans with details
 - [ ] Add reranking spans with scores

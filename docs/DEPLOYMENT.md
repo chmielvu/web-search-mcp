@@ -268,7 +268,7 @@ At minimum, one search provider must be configured:
 |----------|---------|
 | `GITHUB_TOKEN` | GitHub personal access token for Issues/Discussions extraction |
 | `STACKEXCHANGE_KEY` | Higher quota for StackExchange API |
-| `MISTRAL_API_KEY` | Query rewrite/variant generation |
+| `AI_GATEWAY_API_KEY` | Query understanding and rewrite workers |
 | `POLLINATIONS_API_KEY` | Perplexity Sonar search |
 
 ### Optional Feature Flags
@@ -276,7 +276,7 @@ At minimum, one search provider must be configured:
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `KINDLY_SEMANTIC_CACHE_ENABLED` | `true` | Enable LanceDB semantic cache |
-| `KINDLY_QUERY_REWRITE_ENABLED` | `true` | Enable query expansion |
+| `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED` | `true` | Capture query-understanding training JSONL |
 | `KINDLY_RERANKING_ENABLED` | `true` | Enable Jina cross-encoder reranking |
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the complete environment variable reference.

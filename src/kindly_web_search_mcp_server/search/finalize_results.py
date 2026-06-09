@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..utils.observability import emit_observability_event
 from .provider_config import diagnose_providers
 from .query_policy import RewritePolicy
+from .entity_extractor import extract_entities
 
 logger = logging.getLogger(__name__)
 
@@ -19,34 +19,34 @@ async def maybe_extract_entities(
     query: str,
     results: list[WebSearchResult],
 ) -> list[WebSearchResult]:
-    enabled = bool(
-        getattr(settings, "entity_extraction_enabled", False)
-        or os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower()
-        in ("true", "1", "yes")
-    )
+    enabled = bool(getattr(settings, "entity_extraction_enabled", False))
     if not enabled or not results:
         return results
 
     try:
-        from ..entity.gliner_client import get_gliner_client
-        from ..entity.default_schema import DEFAULT_QUERY_LABELS
-
-        gliner = get_gliner_client()
+        updated_results: list[WebSearchResult] = []
         for result in results:
             text = (
                 f"{getattr(result, 'title', '') or (result.get('title') if isinstance(result, dict) else '')} "
                 f"{getattr(result, 'snippet', '') or (result.get('snippet') if isinstance(result, dict) else '')}"
             ).strip()
             if not text:
+                updated_results.append(result)
                 continue
-            entities = await gliner.extract_entities(text, DEFAULT_QUERY_LABELS)
+            entities = await extract_entities(text)
             if isinstance(result, dict):
                 result["entities"] = entities or None
-            elif hasattr(result, "entities"):
+                updated_results.append(result)
+            elif hasattr(result, "model_copy"):
                 try:
-                    result.entities = entities or None
+                    updated_results.append(
+                        result.model_copy(update={"entities": entities or None})
+                    )
                 except Exception:
-                    pass
+                    updated_results.append(result)
+            else:
+                updated_results.append(result)
+        results = updated_results
         emit_observability_event(
             logger,
             "entity.search_result_extracted",

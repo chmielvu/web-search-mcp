@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from ..prompts.provider_perplexity import build_provider_perplexity_prompt
+
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
@@ -20,44 +22,6 @@ MODEL_MAPPING = {
     "normal": "perplexity-fast",
     "deep": "perplexity-reasoning",
 }
-
-# System prompt ONLY controls response style/tone, NOT search behavior.
-# Perplexity's real-time search component does NOT attend to system prompts.
-# All factual query guidance must be in user prompts.
-SYSTEM_PROMPT = (
-    "You are a concise, precise research assistant. "
-    "Provide factual answers with numbered citations. "
-    "Keep responses professional and succinct."
-)
-
-# User prompt templates - these control search behavior
-# Template for Sonar (normal/fast queries)
-USER_PROMPT_TEMPLATE_NORMAL = """
-{query}
-
-Research context: {research_goal}
-
-Requirements:
-- Provide factual information with numbered citations [1], [2], etc.
-- If specific information cannot be found from reliable sources, state this clearly.
-- Focus on verifiable facts from authoritative sources.
-- Keep the research context in mind when prioritizing information.
-"""
-
-# Template for Sonar Reasoning Pro (deep/analytical queries)
-USER_PROMPT_TEMPLATE_REASONING = """
-{query}
-
-Research context: {research_goal}
-
-Requirements:
-- Provide step-by-step analysis with reasoning for each conclusion.
-- Include numbered citations [1], [2], etc. for each factual claim.
-- If specific information cannot be found, state which aspects were unavailable.
-- Distinguish between verified facts and analytical interpretations.
-- Keep the research context in mind when prioritizing analysis depth.
-"""
-
 
 class PollinationsClient:
     """HTTP client for Pollinations AI web search API (Perplexity Sonar)."""
@@ -107,21 +71,33 @@ class PollinationsClient:
 
         # Default research_goal if not provided
         goal = research_goal or "General information gathering"
-
-        # Select appropriate user prompt template based on model type
+        system_content, user_content = build_provider_perplexity_prompt(
+            query=query.strip(),
+            research_goal=goal,
+            provider_name="perplexity",
+        )
         if depth == "deep":
-            user_content = USER_PROMPT_TEMPLATE_REASONING.format(
-                query=query.strip(), research_goal=goal
+            user_content += (
+                "\n\nRequirements:\n"
+                "- Provide step-by-step analysis with reasoning for each conclusion.\n"
+                "- Include numbered citations [1], [2], etc. for each factual claim.\n"
+                "- If specific information cannot be found, state which aspects were unavailable.\n"
+                "- Distinguish between verified facts and analytical interpretations.\n"
+                "- Keep the research context in mind when prioritizing analysis depth.\n"
             )
         else:
-            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(
-                query=query.strip(), research_goal=goal
+            user_content += (
+                "\n\nRequirements:\n"
+                "- Provide factual information with numbered citations [1], [2], etc.\n"
+                "- If specific information cannot be found from reliable sources, state this clearly.\n"
+                "- Focus on verifiable facts from authoritative sources.\n"
+                "- Keep the research context in mind when prioritizing information.\n"
             )
 
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
             ],
         }

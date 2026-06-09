@@ -90,35 +90,11 @@ class Settings:
 
     # Search providers (removed Serger - SearXNG is primary)
 
-    # Query rewrite (Cerebras → Groq → HF Inference cascade)
-    query_rewrite_enabled: bool = (
-        os.environ.get("KINDLY_QUERY_REWRITE_ENABLED", "true").lower() == "true"
-    )
-    # fallback temperature for query rewrite when intent-specific temp is not set
-    query_rewrite_temperature: float = float(
-        os.environ.get("KINDLY_QUERY_REWRITE_TEMPERATURE", "0.0")
-    )
     query_rewrite_cascade_timeout_seconds: float = float(
         os.environ.get("KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
-    query_rewrite_max_variants: int = int(
-        os.environ.get("KINDLY_QUERY_REWRITE_MAX_VARIANTS", "3")
-    )
-    mistral_api_key: str = os.environ.get("MISTRAL_API_KEY", "")
-
-    # GLiNER2 classifier / extraction service
-    query_classifier_enabled: bool = (
-        os.environ.get("KINDLY_CLASSIFIER_ENABLED", "true").lower() == "true"
-    )
-    query_classifier_url: str = os.environ.get(
-        "KINDLY_CLASSIFIER_URL",
-        "https://functiongemma-classifier-373347358125.us-central1.run.app",
-    )
     query_classifier_timeout_seconds: float = float(
         os.environ.get("KINDLY_CLASSIFIER_TIMEOUT_SECONDS", "10")
-    )
-    query_classifier_max_tokens: int = int(
-        os.environ.get("KINDLY_CLASSIFIER_MAX_TOKENS", "500")
     )
     query_decomposition_enabled: bool = (
         os.environ.get("KINDLY_QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
@@ -135,11 +111,41 @@ class Settings:
     query_decomposition_max_concurrency: int = int(
         os.environ.get("KINDLY_DECOMPOSITION_MAX_CONCURRENCY", "4")
     )
+    query_understanding_jsonl_enabled: bool = (
+        os.environ.get("KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower()
+        == "true"
+    )
+    query_understanding_jsonl_path: str = os.environ.get(
+        "KINDLY_QUERY_UNDERSTANDING_JSONL_PATH",
+        str(Path(".kindly") / "training" / "query_understanding.jsonl"),
+    )
 
     # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     hf_token: str = os.environ.get("HF_TOKEN", "")
+    cerebras_base_url: str = os.environ.get(
+        "KINDLY_CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"
+    )
+    groq_base_url: str = os.environ.get(
+        "KINDLY_GROQ_BASE_URL", "https://api.groq.com/openai/v1"
+    )
+    vercel_ai_gateway_api_key: str = os.environ.get("AI_GATEWAY_API_KEY", "")
+    vercel_ai_gateway_base_url: str = os.environ.get(
+        "KINDLY_VERCEL_AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1"
+    )
+    query_understanding_model: str = os.environ.get(
+        "KINDLY_QUERY_UNDERSTANDING_MODEL", "amazon/nova-micro"
+    )
+    cerebras_rewrite_model: str = os.environ.get(
+        "KINDLY_CEREBRAS_REWRITE_MODEL", "cerebras/gpt-oss-120b"
+    )
+    groq_rewrite_model: str = os.environ.get(
+        "KINDLY_GROQ_REWRITE_MODEL", "groq/gpt-oss-120b"
+    )
+    vercel_rewrite_model: str = os.environ.get(
+        "KINDLY_VERCEL_REWRITE_MODEL", "groq/gpt-oss-20b"
+    )
 
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get(
@@ -290,11 +296,16 @@ class Settings:
     # - never: Never fires, even if API key present
     ddg_mode: str = os.environ.get("KINDLY_DDG_MODE", "always")
     tavily_mode: str = os.environ.get("KINDLY_TAVILY_MODE", "never")
-    brave_mode: str = os.environ.get("KINDLY_BRAVE_MODE", "never")
+    brave_mode: str = os.environ.get("KINDLY_BRAVE_MODE", "always")
     jina_mode: str = os.environ.get("KINDLY_JINA_MODE", "conditional")
     gemini_mode: str = os.environ.get("KINDLY_GEMINI_SEARCH_MODE", "always")
     composio_llm_search_mode: str = os.environ.get(
         "KINDLY_COMPOSIO_LLM_SEARCH_MODE", "always"
+    )
+    google_cse_api_key: str = os.environ.get("KINDLY_GOOGLE_CSE_API_KEY", "")
+    google_cse_engine_id: str = os.environ.get("KINDLY_GOOGLE_CSE_ENGINE_ID", "")
+    google_cse_timeout_seconds: float = float(
+        os.environ.get("KINDLY_GOOGLE_CSE_TIMEOUT_SECONDS", "20")
     )
 
     # Composio Search toolkit
@@ -336,8 +347,19 @@ class Settings:
         os.environ.get("KINDLY_RESULT_MEMORY_MIN_SIMILARITY", "0.65")
     )
 
+    # Remote web results index (Qdrant on HF Space)
+    # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
+    # Master flag; empty URL silently disables indexing.
+    web_results_index_enabled: bool = (
+        os.environ.get("KINDLY_WEB_RESULTS_INDEX_ENABLED", "false").lower() == "true"
+    )
+    qdrant_space_url: str = os.environ.get(
+        "KINDLY_QDRANT_SPACE_URL", "https://chmielvu-web-index.hf.space"
+    )
+    qdrant_api_key: str = os.environ.get("KINDLY_QDRANT_API_KEY", "")
+
     # FastMCP tool visibility profile
-    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "default")
+    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "full")
 
     # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
     # No legacy aliases (per joint plan: no backward compat).

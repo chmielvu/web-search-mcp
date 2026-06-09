@@ -50,9 +50,9 @@ POLLINATIONS_API_KEY=...
 GITHUB_TOKEN=ghp_...
 
 # Optional: advanced features
-MISTRAL_API_KEY=...          # Query rewrite (Mistral backend)
-CEREBRAS_API_KEY=...         # Query rewrite (Cerebras backend - free tier)
-GROQ_API_KEY=...             # Query rewrite (Groq backend - free tier)
+AI_GATEWAY_API_KEY=...       # Query understanding / rewrite workers
+CEREBRAS_API_KEY=...         # Query rewrite worker tier 1
+GROQ_API_KEY=...             # Query rewrite worker tier 2
 KINDLY_GEMINI_API_KEY=...    # Gemini grounding
 
 # Optional: browser path (auto-detected if unset)
@@ -79,7 +79,7 @@ uv run kindly-web-search-mcp-server start-mcp-server --http --port 8000
 ```
 src/kindly_web_search_mcp_server/
 ├── server.py              # FastMCP server entry point, tool definitions
-├── cli.py                 # CLI wrapper with start-mcp-server subcommand
+├── cli/                   # Native Typer web-search-cli package
 ├── models.py              # Pydantic response models
 ├── settings.py            # Environment-based configuration (dataclass)
 ├── errors.py              # Error classification and formatting
@@ -91,7 +91,7 @@ src/kindly_web_search_mcp_server/
 │
 ├── search/                # Multi-provider web search pipeline
 │   ├── __init__.py        # Provider registry, RRF merge, circuit breaker, budget
-│   ├── orchestrator.py    # Query rewrite → search → merge → rerank
+│   ├── pipeline.py        # Query understanding → rewrite → search → merge → rerank
 │   ├── provider_config.py # Provider mode configuration (ALWAYS/CONDITIONAL/NEVER)
 │   ├── searxng.py         # SearXNG provider implementation
 │   ├── tavily.py          # Tavily provider implementation
@@ -105,14 +105,13 @@ src/kindly_web_search_mcp_server/
 │   ├── youtube.py         # YouTube search via SearXNG engine
 │   ├── merge.py           # Weighted RRF merge implementation
 │   ├── normalize.py       # Query/URL normalization utilities
-│   ├── query_rewrite.py   # Query rewrite orchestration
-│   ├── query_rewrite_router.py # LiteLLM multi-provider routing for rewrite
-│   ├── query_rewrite_models.py # Query variant data structures
-│   ├── query_rewrite_prompts.py # Production prompts for rewrite
-│   ├── query_rewrite_validate.py # Rewrite output validation
-│   ├── query_policy.py    # Precision-signal classification (bypass vs expand)
-│   ├── query_policy_resolver.py # Policy resolution backend selection
-│   └── query_classifier_client.py # FunctionGemma intent/decomposition client
+│   ├── pipeline.py        # 0.2 profiled search pipeline
+│   ├── pipeline_builders.py # Search context, rewrite variants, prompt wiring
+│   ├── provider_plan.py   # Profile-derived provider firing plan
+│   ├── provider_options.py # Provider-specific option bundles
+│   ├── prompts/           # Prompt registry and provider prompt builders
+│   ├── understanding/     # LLM query understanding schema/resolver
+│   └── profiles/          # Profile definitions and inheritance
 │
 ├── content/               # URL → Markdown resolution pipeline
 │   ├── resolver.py        # Staged fallback dispatcher
@@ -187,7 +186,7 @@ src/kindly_web_search_mcp_server/
 | `server.py` | FastMCP server definition, tool handlers (`web_search`, `get_content`, `batch_get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`) |
 | `settings.py` | All `KINDLY_*` environment variables, defaults in `Settings` dataclass |
 | `search/__init__.py` | Provider detection, RRF merge, circuit breaker, budget tracking |
-| `search/orchestrator.py` | Coordinates rewrite → multi-provider search → merge → rerank |
+| `search/pipeline.py` | Coordinates understanding → rewrite → multi-provider search → merge → rerank |
 | `search/provider_config.py` | Provider mode enum (ALWAYS/CONDITIONAL/NEVER), registry |
 | `content/resolver.py` | 7-stage fallback: StackExchange → GitHub Issues → GitHub Discussions → Wikipedia → arXiv → HTTP extract → Universal HTML |
 | `content/fetch_pipeline.py` | Unified fetch pipeline with status classification |
@@ -568,7 +567,7 @@ pytest
 Core search contract tests:
 
 ```bash
-python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_search_router.py tests/test_query_rewrite.py tests/test_search_orchestrator.py
+python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_search_router.py tests/test_search_orchestrator.py
 ```
 
 ### Run Single Test File

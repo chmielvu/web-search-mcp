@@ -18,6 +18,7 @@ from ..embeddings.hf_inference import (
 )
 from ..models import WebSearchResult
 from ..settings import settings
+from ..prompts.rerank import build_rerank_instruction
 from ..telemetry import (
     record_rerank_stage,
     RERANK_STAGE,
@@ -38,9 +39,11 @@ tracer: Any = trace.get_tracer("web-search-mcp")
 
 _QUERY_TYPE_GUIDANCE: dict[str, str] = {
     "code": "Prioritize official docs, API signatures, repository code, and implementation guides.",
+    "ai_coding": "Prioritize official docs, API signatures, repository code, and implementation guides.",
     "comparison": "Prioritize benchmarks, comparison tables, and primary-source evidence.",
     "general_research": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
     "general": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
+    "digital_humanities": "Prioritize archival sources, primary texts, scholarly editions, and domain-specific references.",
 }
 
 
@@ -86,21 +89,12 @@ def _build_rerank_instruction(
     research_goal: str | None = None,
     query_type_hint: str | None = None,
 ) -> str | None:
-    parts: list[str] = []
     query_type = (query_type_hint or "general").strip().lower()
-    guidance = _QUERY_TYPE_GUIDANCE.get(query_type)
-    if guidance:
-        parts.append(guidance)
-
-    if research_goal:
-        goal = _normalize_instruction_text(research_goal, 180)
-        if goal:
-            parts.append(f"Goal: {goal}")
-
-    if not parts:
-        return _QUERY_TYPE_GUIDANCE["general"]
-
-    return " ".join(parts)
+    return build_rerank_instruction(
+        query="",
+        query_type=query_type,
+        research_goal=_normalize_instruction_text(research_goal, 180),
+    )
 
 
 async def rerank_results(

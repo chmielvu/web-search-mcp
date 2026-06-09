@@ -133,31 +133,8 @@ $env:KINDLY_MOTHERDUCK_DATABASE="my_db"
 .\.venv\Scripts\kindly-web-search-mcp-server.exe sync-analytics
 ```
 
-If the local venv was created before the wrapper console script existed, call the
-CLI function directly:
-
-```powershell
-.\.venv\Scripts\python.exe -c "from kindly_web_search_mcp_server.cli import main; main(['sync-analytics'])"
-```
-
-Run it as a 5-minute loop:
-
-```powershell
-.\.venv\Scripts\kindly-web-search-mcp-server.exe sync-analytics --loop --interval-seconds 300
-```
-
-Use an existing MotherDuck database name for `KINDLY_MOTHERDUCK_DATABASE`; the
-sync creates the `kindly_analytics` schema inside that database. On Windows, the
-sync defaults DuckDB's extension directory to `.kindly/duckdb_extensions` and
-sets gRPC CA roots from `certifi` when `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` is not
-already set. MotherDuck currently rejected DuckDB `1.5.3` in live testing, so the
-project pins DuckDB below `1.5.3`.
-
-The sync creates:
-
-- `kindly_analytics.analytics_event_raw` - append-only raw event mirror
-- `kindly_analytics.vw_quality_events` - Grafana-friendly drill-down view
-- `kindly_analytics.vw_run_timeline` - per-run timeline view
+Use the local DuckDB file directly for observability analysis and the native
+`web-search-cli` surface for current CLI work.
 - `kindly_analytics.vw_events` - normalized base event view for local and cloud analytics
 - `kindly_analytics.vw_candidate_survival` - candidate stage survival analysis
 - `kindly_analytics.analytics_event_daily` - refreshed daily summary table

@@ -34,7 +34,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_only_searxng(**kwargs):  # noqa: ARG001
+        def _resolve_only_searxng(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
                 mode=pc.ProviderMode.ALWAYS,
@@ -45,8 +45,9 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
             return [config]
 
-        with patch.object(
-            pc, "resolve_providers_for_search", side_effect=_resolve_only_searxng
+        with patch(
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            side_effect=_resolve_only_searxng,
         ):
             out = await search_web("q", num_results=1)
 
@@ -64,7 +65,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_only_tavily(**kwargs):  # noqa: ARG001
+        def _resolve_only_tavily(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="tavily",
                 mode=pc.ProviderMode.ALWAYS,
@@ -75,8 +76,9 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
             return [config]
 
-        with patch.object(
-            pc, "resolve_providers_for_search", side_effect=_resolve_only_tavily
+        with patch(
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            side_effect=_resolve_only_tavily,
         ):
             out = await search_web("q", num_results=1)
 
@@ -107,7 +109,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_multi(**kwargs):  # noqa: ARG001
+        def _resolve_multi(caller_providers=None, **kwargs):  # noqa: ARG001
             return [
                 pc.ProviderConfig(
                     name="searxng",
@@ -135,8 +137,9 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
                 ),
             ]
 
-        with patch.object(
-            pc, "resolve_providers_for_search", side_effect=_resolve_multi
+        with patch(
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            side_effect=_resolve_multi,
         ):
             out = await search_web("q", num_results=5)
 
@@ -165,7 +168,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        def _resolve(**kwargs):  # noqa: ARG001
+        def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
                 mode=pc.ProviderMode.ALWAYS,
@@ -176,7 +179,10 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
             return [config]
 
-        with patch.object(pc, "resolve_providers_for_search", side_effect=_resolve):
+        with patch(
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            side_effect=_resolve,
+        ):
             for _ in range(3):
                 try:
                     await search_web("q", num_results=1)
@@ -199,7 +205,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve(**kwargs):  # noqa: ARG001
+        def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="ddg",
                 mode=pc.ProviderMode.ALWAYS,
@@ -210,7 +216,10 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
             return [config]
 
-        with patch.object(pc, "resolve_providers_for_search", side_effect=_resolve):
+        with patch(
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            side_effect=_resolve,
+        ):
             out = await search_web("q", num_results=1)
 
         self.assertEqual(len(out), 1)

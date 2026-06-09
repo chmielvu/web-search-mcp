@@ -21,7 +21,6 @@ Prompts engineered from:
 
 from __future__ import annotations
 
-import datetime
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -29,6 +28,7 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
+from ..prompts.provider_grok import build_provider_grok_prompt
 from ..retry import retry_with_backoff
 from ..settings import settings
 
@@ -222,10 +222,10 @@ async def search_grok_openrouter(
     _check_grok_configured()
     headers = _get_headers()
     model = settings.grok_model or DEFAULT_MODEL
-    today = datetime.date.today().strftime("%B %d, %Y")
-
-    system_prompt = _PROVIDER_SYSTEM_PROMPT.format(
-        today=today, query=query, num_results=num_results
+    system_prompt, _ = build_provider_grok_prompt(
+        query=query,
+        research_goal=None,
+        provider_name="grok",
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -352,12 +352,10 @@ async def grok_search(
     _check_grok_configured()
     resolved_model = model or settings.grok_model or DEFAULT_MODEL
     resolved_timeout = timeout or settings.grok_timeout_seconds or REQUEST_TIMEOUT
-    today = datetime.date.today().strftime("%B %d, %Y")
-
-    system_prompt = _GROK_SYSTEM_PROMPT.format(today=today)
-    user_prompt = _GROK_USER_PROMPT.format(
+    system_prompt, user_prompt = build_provider_grok_prompt(
         query=query.strip(),
         research_goal=research_goal,
+        provider_name="grok",
     )
 
     messages = [

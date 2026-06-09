@@ -1673,6 +1673,7 @@ dependencies = [
     { name = "semanticscholar" },
     { name = "structlog" },
     { name = "trafilatura" },
+    { name = "typer" },
     { name = "youtube-transcript-api" },
 ]
 
@@ -1751,6 +1752,7 @@ requires-dist = [
     { name = "semanticscholar", specifier = ">=0.8.0" },
     { name = "structlog", specifier = ">=24.0.0" },
     { name = "trafilatura" },
+    { name = "typer", specifier = ">=0.16.0" },
     { name = "youtube-transcript-api", specifier = ">=0.6.0" },
 ]
 provides-extras = ["dev", "eval", "pdf-advanced", "entity-extraction"]

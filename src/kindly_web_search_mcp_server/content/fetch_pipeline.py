@@ -459,15 +459,13 @@ async def fetch_content_artifact(
     )
 
     # Entity extraction hook for content (plan 8.2): after clean markdown, before return to caller.
-    # Only when enabled; uses DEFAULT_CONTENT_LABELS; emits entity.content_extracted
+    # Only when enabled; uses the shared LLM-backed extractor; emits entity.content_extracted.
     if settings.entity_extraction_enabled and artifact.markdown:
         try:
-            from ..entity.gliner_client import get_gliner_client
-            from ..entity.default_schema import DEFAULT_CONTENT_LABELS
+            from ..search.entity_extractor import extract_entities
             from ..utils.observability import emit_observability_event
 
-            gliner = get_gliner_client()
-            ents = await gliner.extract_entities(artifact.markdown, DEFAULT_CONTENT_LABELS)
+            ents = await extract_entities(artifact.markdown)
             if ents:
                 artifact = replace(artifact, entities=ents)
             emit_observability_event(

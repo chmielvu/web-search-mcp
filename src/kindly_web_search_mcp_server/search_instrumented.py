@@ -3,16 +3,8 @@
 This module wraps the standard search functions with telemetry tracking.
 Import this instead of the regular search module to get Grafana Cloud visibility.
 
-USAGE:
-    # In server.py, replace:
-    from .search import search_single_query
-
-    # With:
-    from .search_instrumented import search_single_query
-
-    # And initialize telemetry at startup:
-    from .telemetry import init_telemetry
-    init_telemetry()
+Telemetry is initialized by the server entry point (init_telemetry_background).
+Do NOT call init_telemetry() here — it would re-trigger the ~70s OTLP handshake.
 """
 
 from __future__ import annotations

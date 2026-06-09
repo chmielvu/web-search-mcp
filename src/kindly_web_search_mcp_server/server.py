@@ -12,9 +12,11 @@ load_dotenv(_project_root / ".env")
 load_dotenv()  # Also try cwd as fallback
 
 # Initialize OpenTelemetry BEFORE any other imports
-# This ensures all HTTP calls (httpx, etc.) are auto-instrumented
+# This ensures all HTTP calls (httpx, etc.) are auto-instrumented.
+# init_telemetry_background runs in a daemon thread so that an unreachable
+# OTLP endpoint (Grafana Cloud) never blocks MCP startup (~70s hang).
 from .telemetry import (
-    init_telemetry,
+    init_telemetry_background,
     SEARCH_QUERY,
     SEARCH_NUM_RESULTS_REQUESTED,
     record_mcp_tool_call,
@@ -26,7 +28,7 @@ from .telemetry import (
 )
 from opentelemetry import trace
 
-init_telemetry(service_name="web-search-mcp")
+init_telemetry_background(service_name="web-search-mcp")
 
 import argparse
 import asyncio
@@ -78,7 +80,7 @@ from .content.youtube import (
     calculate_total_duration,
 )
 from .search.youtube import search_youtube_videos, YouTubeSearchError
-from .search.orchestrator import run_web_search
+from .search.pipeline import run_search_pipeline as run_web_search
 from .cache import (
     get_query_cache,
     provider_cache_key,
@@ -89,9 +91,6 @@ from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
-from .entity.gliner_client import get_gliner_client, is_entity_extraction_enabled
-from .entity.default_schema import DEFAULT_QUERY_LABELS
-from .entity.models import EntitySpan
 from .tools.catalog import tool_kwargs
 from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
@@ -144,6 +143,20 @@ def _record_tool_failure(tool_name: str) -> None:
     record_mcp_tool_call(tool_name, success=False)
 
 
+def _resolve_session_id(ctx: Context | None) -> str | None:
+    if ctx is None:
+        return None
+    fastmcp_context = getattr(ctx, "fastmcp_context", None)
+    if fastmcp_context is not None:
+        session_id = getattr(fastmcp_context, "session_id", None)
+        if session_id:
+            return str(session_id)
+        client_id = getattr(fastmcp_context, "client_id", None)
+        if client_id:
+            return str(client_id)
+    return None
+
+
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""
     return {
@@ -152,12 +165,10 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tool_search_enabled": settings.tool_search_enabled,
         },
         "features": {
-            "query_rewrite_enabled": settings.query_rewrite_enabled,
             "reranking_enabled": settings.reranking_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
             "result_memory_enabled": settings.result_memory_enabled,
             "analytics_enabled": settings.analytics_enabled,
-            "query_classifier_enabled": settings.query_classifier_enabled,
             "query_decomposition_enabled": settings.query_decomposition_enabled,
         },
         "providers_configured": {
@@ -175,7 +186,7 @@ def _public_settings_snapshot() -> dict[str, object]:
         },
         "timeouts_seconds": {
             "tool_total": _resolve_tool_total_timeout_seconds(),
-            "query_classifier": settings.query_classifier_timeout_seconds,
+            "query_understanding": settings.query_classifier_timeout_seconds,
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,
@@ -186,7 +197,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "jina_rerank_model": settings.jina_rerank_model,
             "grok_model": settings.grok_model,
             "gliner_model": settings.gliner_model,
-            "query_classifier_url": settings.query_classifier_url,
         },
     }
 
@@ -368,9 +378,7 @@ async def _compat_list_resource_templates(
     self: FastMCP, *, run_middleware: bool = True
 ) -> list[object]:
     """Merge local function resource templates with the public template list."""
-    listed = list(
-        await _base_list_resource_templates(run_middleware=run_middleware)
-    )
+    listed = list(await _base_list_resource_templates(run_middleware=run_middleware))
     existing_uris = {str(getattr(item, "uri_template", "")) for item in listed}
     for template in await self._list_resource_templates():
         uri_template = str(getattr(template, "uri_template", ""))
@@ -839,38 +847,7 @@ async def web_search(
         # 1. Exact query cache lookup (fastest, deterministic)
         normalized_query = normalize_query(query)
 
-        # Entity extraction for query must-keep (Phase 8.1): exactly once on the
-        # original user query, before any rewrite or variant generation.
-        # Results (if any) are passed down to query policy + orchestrator.
-        # Extraction is fully optional/lazy; disabled by default + emits on error.
-        query_entities: list[EntitySpan] = []
-        if is_entity_extraction_enabled():
-            try:
-                gliner = get_gliner_client()
-                query_entities = await gliner.extract_entities(
-                    query,  # use raw for better surface forms; normalize inside if needed
-                    labels=DEFAULT_QUERY_LABELS,
-                )
-                emit_observability_event(
-                    LOGGER,
-                    "entity.query_extracted",
-                    query=query,
-                    count=len(query_entities),
-                    labels=[e.label for e in query_entities],
-                    enabled=True,
-                )
-            except Exception as exc:  # explicit, never silent when enabled
-                emit_observability_event(
-                    LOGGER,
-                    "entity.extraction.error",
-                    query=query,
-                    error=str(exc)[:300],
-                    failure_mode="query_extract_failed",
-                    retryable=False,
-                    component="web_search_entity",
-                )
-                LOGGER.warning("Query entity extraction failed (enabled): %s", exc)
-                query_entities = []
+        query_entities: list = []
 
         emit_tool_observability_event(
             LOGGER,
@@ -994,6 +971,7 @@ async def web_search(
                 research_goal=research_goal,
                 search_options=search_options,
                 query_entities=query_entities,
+                session_id=_resolve_session_id(ctx),
             )
             _response = _normalize_lightweight_search_response(
                 response_model.model_dump(exclude_none=True),
@@ -2510,7 +2488,6 @@ def get_features_status() -> str:
         f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
         f"**Result Memory**: {'✓ Enabled' if settings.result_memory_enabled else '✗ Disabled'}",
         "",
-        f"**Query Rewrite**: {'✓ Enabled' if settings.query_rewrite_enabled else '✗ Disabled'}",
         f"**Reranking**: {'✓ Enabled' if settings.reranking_enabled else '✗ Disabled'}",
         "",
         "## Cache Settings",

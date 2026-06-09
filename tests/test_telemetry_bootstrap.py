@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+
+
 def test_init_telemetry_gracefully_skips_without_runtime_packages(monkeypatch) -> None:
     from kindly_web_search_mcp_server import telemetry
 
@@ -12,3 +15,28 @@ def test_init_telemetry_gracefully_skips_without_runtime_packages(monkeypatch) -
     telemetry.init_telemetry(service_name="web-search-mcp-test")
 
     assert telemetry._initialized is False
+
+
+def test_init_telemetry_respects_otel_enabled_flag(monkeypatch) -> None:
+    from kindly_web_search_mcp_server import telemetry
+
+    monkeypatch.setattr(telemetry, "_initialized", False)
+    monkeypatch.setenv("KINDLY_OTEL_ENABLED", "false")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://example.invalid/otlp")
+
+    telemetry.init_telemetry(service_name="web-search-mcp-test")
+
+    assert telemetry._initialized is False
+
+
+def test_init_telemetry_background_returns_daemon_thread(monkeypatch) -> None:
+    from kindly_web_search_mcp_server import telemetry
+
+    monkeypatch.setattr(telemetry, "_initialized", False)
+    monkeypatch.setenv("KINDLY_OTEL_ENABLED", "false")
+
+    thread = telemetry.init_telemetry_background(service_name="test-bg")
+    assert isinstance(thread, threading.Thread)
+    assert thread.daemon is True
+    assert thread.name == "otel-init"
+    thread.join(timeout=2)

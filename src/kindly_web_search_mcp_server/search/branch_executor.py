@@ -34,6 +34,7 @@ class SearchBranchSpec:
     max_results: int
     reason: str
     must_keep_terms: list[str] | None = None
+    provider_arguments: dict[str, dict[str, object]] | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +134,7 @@ async def execute_search_branches(
                     diagnostics=diagnostics,
                     providers=spec.providers,
                     search_options=search_options,
+                    provider_arguments=spec.provider_arguments,
                 )
             except Exception as exc:
                 logger.warning(

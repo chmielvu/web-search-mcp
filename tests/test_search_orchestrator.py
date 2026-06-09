@@ -1,491 +1,317 @@
-"""Tests for search orchestrator: rewrite → merge → rerank.
-
-Simplified system: bypass (2x results) or expand (3x results).
-"""
+"""Tests for the 0.2 search pipeline."""
 
 from __future__ import annotations
 
 import asyncio
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kindly_web_search_mcp_server.models import WebSearchResult
-from kindly_web_search_mcp_server.search.query_policy import RewritePolicy
-from kindly_web_search_mcp_server.search.query_rewrite import (
-    QueryRewritePlan,
-    QueryVariant,
-)
+from kindly_web_search_mcp_server.search.branch_executor import BranchExecutionBatch
 from kindly_web_search_mcp_server.search.options import SearchOptions
+from kindly_web_search_mcp_server.search.query_rewrite_models import QueryVariant
+from kindly_web_search_mcp_server.search.understanding.models import (
+    QueryUnderstandingResult,
+)
+from kindly_web_search_mcp_server.settings import settings
 
 
-def test_run_web_search_rewrites_merges_and_reranks() -> None:
-    """Orchestrator should rewrite, search parallel, merge, and rerank."""
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="langchain agent react",
-        policy=RewritePolicy(mode="expand", reason="Query can benefit from expansion."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query="langchain agent react",
-                why="original",
-                weight=1.0,
-            ),
-            QueryVariant(
-                kind="official_docs",
-                target="keyword",
-                query="langchain docs react",
-                why="docs",
-                weight=1.0,
-            ),
-        ],
-        final_queries=["langchain agent react", "langchain docs react"],
+def _understanding(intent: str = "general") -> QueryUnderstandingResult:
+    return QueryUnderstandingResult(
+        intent=intent,  # type: ignore[arg-type]
+        confidence=0.92,
+        rationale="query can benefit from rewrite",
     )
 
-    query_results = [
+
+def _branch_batch(branches: list[tuple[str, str]]) -> BranchExecutionBatch:
+    result_lists = [
         [
             WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
+                title=title,
+                link=f"https://example.com/{idx}",
+                snippet=f"{title} snippet",
                 providers=["searxng"],
-            ),
-        ],
-        [
-            WebSearchResult(
-                title="B",
-                link="https://example.com/b",
-                snippet="snippet b",
-                providers=["searxng"],
-            ),
-        ],
+            )
+        ]
+        for idx, (_, title) in enumerate(branches, start=1)
     ]
+    return BranchExecutionBatch(
+        result_lists=result_lists,
+        branch_queries=[query for query, _ in branches],
+        branch_providers=[["searxng"] for _ in branches],
+        list_weights=[1.0 for _ in branches],
+        branch_metadata=[{"branch_index": idx} for idx, _ in enumerate(branches)],
+    )
+
+
+def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
+    from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
 
     async def _run() -> None:
+        batch = _branch_batch(
+            [
+                ("langchain agent react", "A"),
+                ("langchain docs react", "B"),
+            ]
+        )
+
         with (
+            patch.object(settings, "web_results_index_enabled", False),
             patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding",
+                new_callable=AsyncMock,
+            ) as mock_understanding,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants",
                 new_callable=AsyncMock,
             ) as mock_rewrite,
             patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches",
                 new_callable=AsyncMock,
-            ) as mock_single,
+            ) as mock_execute,
             patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
+                new_callable=AsyncMock,
+            ) as mock_memory_inject,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
+                new_callable=AsyncMock,
+            ) as mock_memory_store,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
                 new_callable=AsyncMock,
             ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.maybe_extract_entities",
+                new_callable=AsyncMock,
+            ) as mock_entities,
         ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
+            mock_understanding.return_value = _understanding()
+            mock_rewrite.return_value = (
+                [
+                    QueryVariant(
+                        kind="original",
+                        target="keyword",
+                        query="langchain agent react",
+                        why="original",
+                        weight=1.0,
+                    ),
+                    QueryVariant(
+                        kind="official_docs",
+                        target="keyword",
+                        query="langchain docs react",
+                        why="docs",
+                        weight=1.0,
+                    ),
+                ],
+                "vercel",
+            )
+            mock_execute.return_value = batch
+            mock_memory_inject.return_value = (
+                batch.result_lists,
+                batch.list_weights,
+                None,
+                [],
+            )
             mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
                 :top_k
             ]
+            mock_entities.side_effect = lambda *, query, results: results
 
-            response = await run_web_search(
-                "langchain agent react", num_results=1, rewrite=True
+            response = await run_search_pipeline(
+                "langchain agent react",
+                num_results=1,
+                rewrite=True,
+                diagnostics=None,
+                providers=["searxng"],
+                research_goal="find docs",
+                search_options=SearchOptions(),
             )
 
         assert response.query == "langchain agent react"
-        assert len(response.results) == 1
         assert response.results[0].title == "A"
+        assert mock_understanding.awaited
         assert mock_rewrite.awaited
-        assert mock_single.await_count == 2
-        # expand mode: max(3x num_results, 9) = 9 per query (min floor)
-        assert mock_single.await_args_list[0].kwargs["num_results"] == 9
-        assert mock_rerank.await_count == 1
+        assert mock_execute.awaited
+        assert mock_rerank.awaited
+        assert mock_memory_store.awaited
+        assert mock_entities.awaited
 
     asyncio.run(_run())
 
 
-def test_run_web_search_bypass_mode_fetches_2x_results() -> None:
-    """Bypass mode should fetch 2x results per query."""
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="site:github.com langchain",
-        policy=RewritePolicy(mode="bypass", reason="Query contains precision signals."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="all",
-                query="site:github.com langchain",
-                why="original",
-                weight=1.0,
-            ),
-        ],
-        final_queries=["site:github.com langchain"],
-    )
-
-    query_results = [
-        [
-            WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                providers=["searxng"],
-            ),
-        ],
-    ]
+def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> None:
+    from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
 
     async def _run() -> None:
-        with (
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
-                new_callable=AsyncMock,
-            ) as mock_rewrite,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
-                new_callable=AsyncMock,
-            ) as mock_single,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
-                new_callable=AsyncMock,
-            ) as mock_rerank,
-        ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
+        batch = _branch_batch(
+            [
+                ("FastMCP docs", "Keyword"),
+                ("FastMCP grounding", "Neural"),
             ]
-
-            response = await run_web_search(
-                "site:github.com langchain", num_results=1, rewrite=True
-            )
-
-        assert response.query == "site:github.com langchain"
-        assert len(response.results) == 1
-        assert mock_rewrite.awaited
-        assert mock_single.await_count == 1
-        # bypass mode: max(2x num_results, 6) = 6 per query (min floor)
-        assert mock_single.await_args_list[0].kwargs["num_results"] == 6
-
-    asyncio.run(_run())
-
-
-def test_run_web_search_routes_keyword_and_neural_variants_to_matching_providers() -> (
-    None
-):
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="fastmcp resources tools docs prompt as tools code mode",
-        policy=RewritePolicy(mode="expand", reason="Query can benefit from expansion."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query="FastMCP ResourcesAsTools PromptsAsTools",
-                why="original",
-                weight=1.0,
-            ),
-            QueryVariant(
-                kind="neural_task",
-                target="neural",
-                query="Find official FastMCP documentation and examples for ResourcesAsTools and PromptsAsTools.",
-                why="neural",
-                weight=1.0,
-            ),
-        ],
-        final_queries=[
-            "FastMCP ResourcesAsTools PromptsAsTools",
-            "Find official FastMCP documentation and examples for ResourcesAsTools and PromptsAsTools.",
-        ],
-    )
-
-    query_results = [
-        [
-            WebSearchResult(
-                title="Keyword",
-                link="https://example.com/keyword",
-                snippet="snippet keyword",
-                providers=["searxng"],
-            ),
-        ],
-        [
-            WebSearchResult(
-                title="Neural",
-                link="https://example.com/neural",
-                snippet="snippet neural",
-                providers=["gemini"],
-            ),
-        ],
-    ]
-
-    async def _run() -> None:
-        with (
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
-                new_callable=AsyncMock,
-            ) as mock_rewrite,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
-                new_callable=AsyncMock,
-            ) as mock_single,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
-                new_callable=AsyncMock,
-            ) as mock_rerank,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.resolve_providers_for_search",
-                return_value=[
-                    SimpleNamespace(name="searxng"),
-                    SimpleNamespace(name="gemini"),
-                ],
-            ),
-        ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-
-            await run_web_search(
-                "fastmcp resources tools docs prompt as tools code mode",
-                num_results=2,
-                rewrite=True,
-            )
-
-        assert mock_single.await_args_list[0].kwargs["providers"] == ["searxng"]
-        assert mock_single.await_args_list[1].kwargs["providers"] == ["gemini"]
-
-    asyncio.run(_run())
-
-
-def test_run_web_search_applies_result_offset_and_reports_window() -> None:
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="fastmcp docs",
-        policy=RewritePolicy(mode="bypass", reason="Query is already precise."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="all",
-                query="fastmcp docs",
-                why="original",
-                weight=1.0,
-            ),
-        ],
-        final_queries=["fastmcp docs"],
-    )
-
-    query_results = [
-        [
-            WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                providers=["searxng"],
-            ),
-            WebSearchResult(
-                title="B",
-                link="https://example.com/b",
-                snippet="snippet b",
-                providers=["searxng"],
-            ),
-            WebSearchResult(
-                title="C",
-                link="https://example.com/c",
-                snippet="snippet c",
-                providers=["searxng"],
-            ),
-        ]
-    ]
-
-    async def _run() -> None:
-        with (
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
-                new_callable=AsyncMock,
-            ) as mock_rewrite,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
-                new_callable=AsyncMock,
-            ) as mock_single,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
-                new_callable=AsyncMock,
-            ) as mock_rerank,
-        ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-
-            response = await run_web_search(
-                "fastmcp docs",
-                num_results=2,
-                rewrite=True,
-                search_options=SearchOptions(result_offset=1),
-            )
-
-        assert response.result_window is not None
-        assert response.result_window.offset == 1
-        assert response.result_window.returned == 2
-        assert response.result_window.candidate_count == 3
-        assert response.result_window.has_more is False
-        assert [result.title for result in response.results] == ["B", "C"]
-        assert mock_single.await_args_list[0].kwargs["num_results"] == 6
-
-    asyncio.run(_run())
-
-
-def test_run_web_search_propagates_variant_weights_to_merge() -> None:
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="fastmcp docs",
-        policy=RewritePolicy(mode="expand", reason="Query can benefit from expansion."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query="fastmcp docs",
-                why="original",
-                weight=1.2,
-            ),
-            QueryVariant(
-                kind="official_docs",
-                target="keyword",
-                query="fastmcp documentation",
-                why="docs",
-                weight=0.8,
-            ),
-        ],
-        final_queries=["fastmcp docs", "fastmcp documentation"],
-    )
-
-    query_results = [
-        [
-            WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                providers=["searxng"],
-            ),
-        ],
-        [
-            WebSearchResult(
-                title="B",
-                link="https://example.com/b",
-                snippet="snippet b",
-                providers=["searxng"],
-            ),
-        ],
-    ]
-
-    async def _run() -> None:
-        with (
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
-                new_callable=AsyncMock,
-            ) as mock_rewrite,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
-                new_callable=AsyncMock,
-            ) as mock_single,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.merge_search_results",
-            ) as mock_merge,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
-                new_callable=AsyncMock,
-            ) as mock_rerank,
-        ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
-            mock_merge.return_value = query_results[0] + query_results[1]
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-
-            await run_web_search("fastmcp docs", num_results=1, rewrite=True)
-
-        assert mock_merge.call_args.kwargs["list_weights"] == [1.2, 0.8]
-
-    asyncio.run(_run())
-
-
-def test_run_web_search_threads_research_goal_into_rerank() -> None:
-    from kindly_web_search_mcp_server.search.orchestrator import run_web_search
-    from kindly_web_search_mcp_server.search.query_rewrite_models import ClassifierOutput
-
-    rewrite_plan = QueryRewritePlan(
-        original_query="cloud run gliner2",
-        policy=RewritePolicy(mode="expand", reason="Query can benefit from expansion."),
-        variants=[
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query="cloud run gliner2",
-                why="original",
-                weight=1.0,
-            ),
-        ],
-        final_queries=["cloud run gliner2"],
-        classifier=ClassifierOutput(
-            intent="general_research",
-            should_decompose=False,
-            confidence=0.9,
-        ),
-    )
-
-    query_results = [
-        [
-            WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                providers=["searxng"],
-            ),
-            WebSearchResult(
-                title="B",
-                link="https://example.com/b",
-                snippet="snippet b",
-                providers=["searxng"],
-            ),
-        ]
-    ]
-
-    async def _run() -> None:
-        with (
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.rewrite_search_query",
-                new_callable=AsyncMock,
-            ) as mock_rewrite,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator.search_single_query",
-                new_callable=AsyncMock,
-            ) as mock_single,
-            patch(
-                "kindly_web_search_mcp_server.search.orchestrator._rerank_results",
-                new_callable=AsyncMock,
-            ) as mock_rerank,
-        ):
-            mock_rewrite.return_value = rewrite_plan
-            mock_single.side_effect = query_results
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-
-            await run_web_search(
-                "cloud run gliner2",
-                num_results=1,
-                rewrite=True,
-                research_goal="Measure GLiNER2 base latency on Cloud Run",
-            )
-
-        assert mock_rerank.await_args.kwargs["research_goal"] == (
-            "Measure GLiNER2 base latency on Cloud Run"
         )
-        assert mock_rerank.await_args.kwargs["query_type_hint"] == "general_research"
+        captured: dict[str, object] = {}
+
+        with (
+            patch.object(settings, "web_results_index_enabled", False),
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding",
+                new_callable=AsyncMock,
+            ) as mock_understanding,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants",
+                new_callable=AsyncMock,
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches",
+                new_callable=AsyncMock,
+            ) as mock_execute,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
+                new_callable=AsyncMock,
+            ) as mock_memory_inject,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.maybe_extract_entities",
+                new_callable=AsyncMock,
+            ) as mock_entities,
+        ):
+            mock_understanding.return_value = _understanding()
+            mock_rewrite.return_value = (
+                [
+                    QueryVariant(
+                        kind="original",
+                        target="keyword",
+                        query="FastMCP resources tools",
+                        why="original",
+                        weight=1.0,
+                    ),
+                    QueryVariant(
+                        kind="neural_task",
+                        target="neural",
+                        query="Find official FastMCP documentation and examples.",
+                        why="neural",
+                        weight=1.0,
+                    ),
+                ],
+                "vercel",
+            )
+
+            async def _execute(branch_specs, **kwargs):  # noqa: ANN001
+                captured["branch_specs"] = branch_specs
+                return batch
+
+            mock_execute.side_effect = _execute
+            mock_memory_inject.return_value = (
+                batch.result_lists,
+                batch.list_weights,
+                None,
+                [],
+            )
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
+                :top_k
+            ]
+            mock_entities.side_effect = lambda *, query, results: results
+
+            await run_search_pipeline(
+                "FastMCP resources tools docs prompt as tools code mode",
+                num_results=2,
+                rewrite=True,
+                diagnostics=None,
+                providers=["searxng", "gemini"],
+                research_goal="compare docs and grounded examples",
+                search_options=SearchOptions(),
+            )
+
+        branch_specs = captured["branch_specs"]
+        assert len(branch_specs) == 2
+        assert branch_specs[0].providers == ["searxng"]
+        assert branch_specs[1].providers == ["gemini"]
+        assert mock_rewrite.awaited
+        assert mock_execute.awaited
+        assert mock_rerank.awaited
+        assert mock_entities.awaited
+
+    asyncio.run(_run())
+
+
+def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
+    from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
+
+    async def _run() -> None:
+        batch = _branch_batch([("fastmcp docs", "A")])
+
+        with (
+            patch.object(settings, "web_results_index_enabled", False),
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding",
+                new_callable=AsyncMock,
+            ) as mock_understanding,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants",
+                new_callable=AsyncMock,
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches",
+                new_callable=AsyncMock,
+            ) as mock_execute,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
+                new_callable=AsyncMock,
+            ) as mock_memory_inject,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.maybe_extract_entities",
+                new_callable=AsyncMock,
+            ) as mock_entities,
+        ):
+            mock_understanding.return_value = _understanding()
+            mock_execute.return_value = batch
+            mock_memory_inject.return_value = (
+                batch.result_lists,
+                batch.list_weights,
+                None,
+                [],
+            )
+            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
+                :top_k
+            ]
+            mock_entities.side_effect = lambda *, query, results: results
+
+            response = await run_search_pipeline(
+                "fastmcp docs",
+                num_results=1,
+                rewrite=False,
+                diagnostics=None,
+                providers=["searxng"],
+                research_goal=None,
+                search_options=SearchOptions(),
+            )
+
+        assert response.query == "fastmcp docs"
+        assert response.results[0].title == "A"
+        assert mock_understanding.awaited
+        assert mock_rewrite.await_count == 0
+        assert mock_execute.awaited
+        assert mock_rerank.awaited
+        assert mock_entities.awaited
 
     asyncio.run(_run())

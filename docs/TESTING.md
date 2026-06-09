@@ -25,7 +25,7 @@ pytest
 ### Focused test slice (core search contract)
 
 ```bash
-python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_search_router.py tests/test_query_rewrite.py tests/test_search_orchestrator.py
+python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_profile_resolution.py tests/test_prompt_registry.py tests/test_query_understanding.py tests/test_provider_plan.py tests/test_training_jsonl.py tests/test_entity_response_fields.py tests/test_search_orchestrator.py tests/test_search_router.py
 ```
 
 ### Single test file
@@ -68,7 +68,7 @@ Without these environment variables, live tests are skipped automatically via `p
 |-----------|----------------|
 | `test_server.py` | MCP tool contracts (`web_search`, `get_content`), timeout budget, concurrency limits |
 | `test_search_router.py` | Multi-provider routing, RRF merge, circuit breaker behavior |
-| `test_search_orchestrator.py` | Query rewrite -> search -> merge -> rerank pipeline, bypass vs expand mode |
+| `test_search_orchestrator.py` | 0.2 search pipeline: LLM understanding, rewrite variants, provider routing, rerank, entity propagation, provider-argument wiring |
 | `test_searxng_unit.py` | SearXNG provider: parsing, error handling, config validation, optional params |
 | `test_tavily_unit.py` | Tavily provider: API response parsing |
 | `test_ddg_unit.py` | DuckDuckGo provider: API response parsing |
@@ -82,7 +82,7 @@ Without these environment variables, live tests are skipped automatically via `p
 | `test_wikipedia.py` | Wikipedia: URL parsing, mobile host normalization, truncation markers |
 | `test_arxiv.py` | arXiv: URL parsing (new/legacy IDs), Atom XML parsing, PDF -> Markdown |
 | `test_youtube.py` | YouTube: URL parsing, transcript formatting, search via SearXNG |
-| `test_query_rewrite.py` | Query rewrite: canonicalization, policy classification, HF backend fallback |
+| `test_search_orchestrator.py` | 0.2 search pipeline: LLM understanding, rewrite variants, provider routing, rerank, entity propagation, provider-argument wiring |
 | `test_query_cache_provider_key.py` | Query cache: provider key generation |
 | `test_tool_descriptions.py` | Docstring validation: agent-facing guidance, cross-references, env var mentions |
 | `test_live_fetch_urls.py` | Integration tests for timeout-sensitive URLs (gated by `KINDLY_RUN_LIVE_TESTS`) |
@@ -253,12 +253,14 @@ Each provider has a dedicated unit test file:
 - Circuit breaker opening on consecutive failures
 - Error when no provider configured
 
-### Search Orchestrator (`test_search_orchestrator.py`)
+### Search Pipeline (`test_search_orchestrator.py`)
 
-- Query rewrite -> search -> merge -> rerank pipeline
-- Bypass mode: fetches `2x num_results` (minimum floor 6)
-- Expand mode: fetches `3x num_results` (minimum floor 9)
-- Keyword vs neural variant routing to matching providers
+- LLM understanding resolves intent before rewrite
+- Prompt registry renders query understanding and rewrite prompts
+- Rewrite variants feed branch execution and provider routing
+- Branch routing respects keyword vs neural provider families
+- Rewrite-disabled calls keep the original query path
+- Entity extraction propagates into search results when enabled
 
 ## Testing Content Resolvers
 
@@ -354,24 +356,22 @@ async def test_resolver_falls_back_when_github_fetch_fails(self) -> None:
 - Successful search via mocked SearXNG response
 - Results capped at requested `num_results`
 
-## Testing Query Rewrite and Policy
+## Testing Search Understanding and Pipeline
 
-### Query Rewrite (`test_query_rewrite.py`)
+### Search Pipeline (`test_search_orchestrator.py`)
 
-- Fallback to original query when disabled
-- Whitespace canonicalization via `normalize_query`
-- Bypass mode for exact tokens (`site:`, quoted phrases, error codes, versions)
-- Bypass for CLI flags, UUIDs, git hashes, IP addresses
-- HF Space backend preference when available
-- LiteLLM Router fallback behavior
-- Validator patterns: neural vs keyword target enforcement
+- LLM understanding resolves intent before rewrite
+- Prompt registry renders query understanding and rewrite prompts
+- Rewrite variants feed branch execution and provider routing
+- Branch routing respects keyword vs neural provider families
+- Rewrite-disabled calls keep the original query path
+- Entity extraction propagates into search results when enabled
 
-### Query Policy (tested via rewrite tests)
+### Query Understanding (`test_query_understanding.py`)
 
-- Intent classification (troubleshooting, factual)
-- Policy mode selection (bypass, expand)
-- Must-keep terms preservation (operators with values, quoted strings)
-- Deduplication of extracted terms
+- JSONL training records are appended for understanding and outcomes
+- Intent normalization maps the four intent labels
+- Entity and preserved-term fields survive the understanding roundtrip
 
 ## Testing Merge and Diversity
 

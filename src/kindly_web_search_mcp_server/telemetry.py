@@ -35,6 +35,7 @@ import logging
 import json
 import platform
 import socket
+import threading
 from typing import Any
 from urllib.parse import urlparse
 
@@ -118,7 +119,9 @@ def build_langfuse_otlp_headers(
 
     import base64
 
-    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode("ascii")
+    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode(
+        "ascii"
+    )
     headers = {
         "Authorization": f"Basic {token}",
         "x-langfuse-ingestion-version": "4",
@@ -371,6 +374,11 @@ _domain_diversity_histogram: metrics.Histogram | None = None
 # ============================================================================
 
 
+_OTLP_EXPORT_TIMEOUT_SECONDS = int(
+    os.environ.get("KINDLY_OTLP_EXPORT_TIMEOUT_SECONDS", "10")
+)
+
+
 def init_telemetry(
     service_name: str = "web-search-mcp",
     service_version: str = "1.0.8",
@@ -395,293 +403,336 @@ def init_telemetry(
         KINDLY_PROMETHEUS_PORT / KINDLY_PROMETHEUS_ENABLED
         OTEL_SERVICE_NAME / OTEL_SERVICE_NAMESPACE
         DEPLOYMENT_ENV
+
+    Set KINDLY_OTEL_ENABLED=false to skip telemetry initialization entirely.
+    Set KINDLY_OTLP_EXPORT_TIMEOUT_SECONDS to control per-exporter connect timeout
+    (default 10s).  This prevents the ~70s hang when the OTLP endpoint is unreachable.
     """
     global _initialized
     if _initialized:
         logging.debug("Telemetry already initialized, skipping")
         return
 
+    if os.environ.get("KINDLY_OTEL_ENABLED", "true").lower() not in (
+        "true",
+        "1",
+        "yes",
+    ):
+        logging.info("KINDLY_OTEL_ENABLED=false — telemetry initialization skipped")
+        return
+
     # Allow overrides from env
     service_name = os.environ.get("OTEL_SERVICE_NAME", service_name)
     service_version = os.environ.get("OTEL_SERVICE_VERSION", service_version)
 
-    # ------------------------------------------------------------------
-    # Endpoint + Header resolution (supports both standard OTEL_* and
-    # the Grafana Cloud convenience variables exposed via Settings)
-    # ------------------------------------------------------------------
-    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    headers: dict[str, str] = {}
+    try:
+        # ------------------------------------------------------------------
+        # Endpoint + Header resolution (supports both standard OTEL_* and
+        # the Grafana Cloud convenience variables exposed via Settings)
+        # ------------------------------------------------------------------
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        headers: dict[str, str] = {}
 
-    # 1. Try Grafana Cloud convenience path first (Windows-friendly)
-    gcloud_instance = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
-    gcloud_key = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
-    gcloud_endpoint = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
+        # 1. Try Grafana Cloud convenience path first (Windows-friendly)
+        gcloud_instance = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
+        gcloud_key = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
+        gcloud_endpoint = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
-    if gcloud_instance and gcloud_key:
-        headers = build_grafana_cloud_headers(gcloud_instance, gcloud_key)
+        if gcloud_instance and gcloud_key:
+            headers = build_grafana_cloud_headers(gcloud_instance, gcloud_key)
+            if not endpoint:
+                endpoint = (
+                    gcloud_endpoint
+                    or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+                )
+            logging.info("Using Grafana Cloud convenience variables for OTLP auth")
+
+        # 2. Fall back to classic OTEL_* raw header
+        if not headers:
+            headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+            if headers_raw:
+                for part in headers_raw.split(","):
+                    part = part.strip()
+                    if "=" in part:
+                        key, val = part.split("=", 1)
+                        headers[key.strip()] = val.strip().replace("%20", " ")
+                    elif ":" in part:
+                        key, val = part.split(":", 1)
+                        headers[key.strip()] = val.strip()
+
         if not endpoint:
-            endpoint = (
-                gcloud_endpoint
-                or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+            if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
+                logging.info(
+                    "OpenTelemetry runtime packages are unavailable, but no OTLP endpoint is configured; "
+                    "telemetry remains disabled."
+                )
+            else:
+                logging.info(
+                    "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
+                    "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry "
+                    "or use GRAFANA_CLOUD_* convenience variables."
+                )
+            return
+
+        if not _OTEL_SDK_AVAILABLE:
+            logging.warning(
+                "OpenTelemetry SDK not installed; telemetry export disabled and MCP startup will continue."
             )
-        logging.info("Using Grafana Cloud convenience variables for OTLP auth")
+            return
 
-    # 2. Fall back to classic OTEL_* raw header
-    if not headers:
-        headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
-        if headers_raw:
-            for part in headers_raw.split(","):
-                part = part.strip()
-                if "=" in part:
-                    key, val = part.split("=", 1)
-                    headers[key.strip()] = val.strip().replace("%20", " ")
-                elif ":" in part:
-                    key, val = part.split(":", 1)
-                    headers[key.strip()] = val.strip()
+        # Allow port override from env
+        if prometheus_port is None:
+            port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
+            prometheus_port = int(port_env) if port_env else None
 
-    if not endpoint:
-        if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
+        # === RESOURCE (Grafana Cloud Application Observability) ===
+        hostname = socket.gethostname()
+        pid = os.getpid()
+
+        resource_attrs = {
+            SERVICE_NAME: service_name,
+            SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
+            SERVICE_VERSION: service_version,
+            "service.instance.id": f"{hostname}-{pid}",
+            "deployment.environment": os.environ.get(
+                "DEPLOYMENT_ENV",
+                os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development"),
+            ),
+            "host.name": hostname,
+            "host.arch": "amd64",
+            "host.os.type": os.environ.get("HOST_OS_TYPE", "windows"),
+            "process.pid": pid,
+            "process.executable.name": "python",
+            "process.runtime.name": "cpython",
+            "process.runtime.version": os.environ.get(
+                "PYTHON_VERSION", platform.python_version()
+            ),
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.20.0",
+        }
+        resource = Resource.create(resource_attrs)
+
+        # === SAMPLING (head-based, configurable) ===
+        sampling_ratio = float(
+            os.environ.get(
+                "KINDLY_OTEL_SAMPLING_RATIO",
+                os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
+            )
+        )
+        sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
+
+        # === TRACES ===
+        tracer_provider = TracerProvider(resource=resource, sampler=sampler)
+
+        trace_exporter = OTLPSpanExporter(
+            endpoint=f"{endpoint}/v1/traces",
+            headers=headers,
+            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+        )
+        tracer_provider.add_span_processor(
+            BatchSpanProcessor(
+                trace_exporter,
+                max_queue_size=2048,
+                schedule_delay_millis=5000,
+                max_export_batch_size=512,
+            )
+        )
+        trace.set_tracer_provider(tracer_provider)
+
+        # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
+        try:
+            from .settings import Settings
+
+            s = Settings()
+            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
+                public_key=s.langfuse_public_key,
+                secret_key=s.langfuse_secret_key,
+                base_url=s.langfuse_base_url,
+                mcp_auth_header=s.langfuse_mcp_auth_header,
+            )
+        except Exception:
+            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
+
+        if lf_pk and lf_sk:
+            try:
+                lf_headers, lf_endpoint = build_langfuse_otlp_headers(
+                    lf_pk, lf_sk, lf_base
+                )
+                if lf_endpoint:
+                    lf_exporter = OTLPSpanExporter(
+                        endpoint=f"{lf_endpoint}/v1/traces"
+                        if not lf_endpoint.endswith("/otel")
+                        else lf_endpoint,
+                        headers=lf_headers,
+                        timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                    )
+                    tracer_provider.add_span_processor(
+                        BatchSpanProcessor(
+                            lf_exporter,
+                            max_queue_size=2048,
+                            schedule_delay_millis=5000,
+                            max_export_batch_size=512,
+                        )
+                    )
+                    logging.info(
+                        "Langfuse OTLP span processor added (hybrid export enabled)"
+                    )
+            except Exception as exc:  # pragma: no cover - best effort
+                logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
+
+        # === AUTO-INSTRUMENTATION ===
+        try:
+            from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+            HTTPXClientInstrumentor().instrument()
+            logging.info("HTTPX auto-instrumentation enabled - all HTTP calls traced")
+        except ImportError:
             logging.info(
-                "OpenTelemetry runtime packages are unavailable, but no OTLP endpoint is configured; "
-                "telemetry remains disabled."
+                "opentelemetry-instrumentation-httpx not installed - "
+                "HTTP calls not auto-traced. Install: uv pip install opentelemetry-instrumentation-httpx"
+            )
+
+        # === METRICS ===
+        metric_readers: list[Any] = []
+
+        prometheus_metric_reader = (
+            _get_prometheus_metric_reader() if prometheus_port else None
+        )
+        if prometheus_port and prometheus_metric_reader is not None:
+            prometheus_reader = prometheus_metric_reader(port=prometheus_port)
+            metric_readers.append(prometheus_reader)
+            logging.info(
+                f"Prometheus metrics endpoint started on port {prometheus_port}"
             )
         else:
-            logging.info(
-                "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
-                "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry "
-                "or use GRAFANA_CLOUD_* convenience variables."
-            )
-        return
-
-    if not _OTEL_SDK_AVAILABLE:
-        logging.warning(
-            "OpenTelemetry SDK not installed; telemetry export disabled and MCP startup will continue."
-        )
-        return
-
-    # Allow port override from env
-    if prometheus_port is None:
-        port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
-        prometheus_port = int(port_env) if port_env else None
-
-    # === RESOURCE (Grafana Cloud Application Observability) ===
-    hostname = socket.gethostname()
-    pid = os.getpid()
-
-    resource_attrs = {
-        # Service identity (required for Grafana Cloud)
-        SERVICE_NAME: service_name,
-        SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
-        SERVICE_VERSION: service_version,
-        "service.instance.id": f"{hostname}-{pid}",
-        # Deployment context (respect both DEPLOYMENT_ENV and our KINDLY setting)
-        "deployment.environment": os.environ.get(
-            "DEPLOYMENT_ENV", os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development")
-        ),
-        # Host context
-        "host.name": hostname,
-        "host.arch": "amd64",
-        "host.os.type": os.environ.get("HOST_OS_TYPE", "windows"),
-        # Process context
-        "process.pid": pid,
-        "process.executable.name": "python",
-        "process.runtime.name": "cpython",
-        "process.runtime.version": os.environ.get(
-            "PYTHON_VERSION", platform.python_version()
-        ),
-        # OTEL SDK info
-        "telemetry.sdk.language": "python",
-        "telemetry.sdk.name": "opentelemetry",
-        "telemetry.sdk.version": "1.20.0",
-    }
-    resource = Resource.create(resource_attrs)
-
-    # === SAMPLING (head-based, configurable) ===
-    # Read from KINDLY_OTEL_SAMPLING_RATIO (preferred) or OTEL_TRACES_SAMPLER_ARG
-    sampling_ratio = float(
-        os.environ.get(
-            "KINDLY_OTEL_SAMPLING_RATIO",
-            os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
-        )
-    )
-    sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
-
-    # === TRACES ===
-    tracer_provider = TracerProvider(resource=resource, sampler=sampler)
-
-    # BatchSpanProcessor: batches spans, exports every 5s or 512 spans
-    trace_exporter = OTLPSpanExporter(
-        endpoint=f"{endpoint}/v1/traces",
-        headers=headers,
-    )
-    tracer_provider.add_span_processor(
-        BatchSpanProcessor(
-            trace_exporter,
-            max_queue_size=2048,
-            schedule_delay_millis=5000,
-            max_export_batch_size=512,
-        )
-    )
-    trace.set_tracer_provider(tracer_provider)
-
-    # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
-    # If LANGFUSE_* (or KINDLY_LANGFUSE_*) present, add a second BatchSpanProcessor
-    # exporting to Langfuse OTLP endpoint. Reuses sampling/resource.
-    # This complements the LangChain CallbackHandler (rich agent structure) with
-    # general OTel spans (httpx, custom) also flowing to Langfuse.
-    try:
-        from .settings import Settings
-
-        s = Settings()
-        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
-            public_key=s.langfuse_public_key,
-            secret_key=s.langfuse_secret_key,
-            base_url=s.langfuse_base_url,
-            mcp_auth_header=s.langfuse_mcp_auth_header,
-        )
-    except Exception:
-        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
-
-    if lf_pk and lf_sk:
-        try:
-            lf_headers, lf_endpoint = build_langfuse_otlp_headers(lf_pk, lf_sk, lf_base)
-            if lf_endpoint:
-                lf_exporter = OTLPSpanExporter(
-                    endpoint=f"{lf_endpoint}/v1/traces" if not lf_endpoint.endswith("/otel") else lf_endpoint,
-                    headers=lf_headers,
-                )
-                tracer_provider.add_span_processor(
-                    BatchSpanProcessor(
-                        lf_exporter,
-                        max_queue_size=2048,
-                        schedule_delay_millis=5000,
-                        max_export_batch_size=512,
-                    )
-                )
-                logging.info("Langfuse OTLP span processor added (hybrid export enabled)")
-        except Exception as exc:  # pragma: no cover - best effort
-            logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
-
-    # === AUTO-INSTRUMENTATION ===
-    # Instrument httpx for automatic HTTP client spans (HTTP semantic conventions)
-    try:
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-
-        HTTPXClientInstrumentor().instrument()
-        logging.info("HTTPX auto-instrumentation enabled - all HTTP calls traced")
-    except ImportError:
-        logging.info(
-            "opentelemetry-instrumentation-httpx not installed - "
-            "HTTP calls not auto-traced. Install: uv pip install opentelemetry-instrumentation-httpx"
-        )
-
-    # === METRICS ===
-    metric_readers: list[Any] = []
-
-    prometheus_metric_reader = (
-        _get_prometheus_metric_reader() if prometheus_port else None
-    )
-    if prometheus_port and prometheus_metric_reader is not None:
-        # Prometheus endpoint for Alloy scraping
-        prometheus_reader = prometheus_metric_reader(port=prometheus_port)
-        metric_readers.append(prometheus_reader)
-        logging.info(f"Prometheus metrics endpoint started on port {prometheus_port}")
-    else:
-        # OTLP direct export (60s interval)
-        metric_exporter = OTLPMetricExporter(
-            endpoint=f"{endpoint}/v1/metrics",
-            headers=headers,
-        )
-        metric_reader = PeriodicExportingMetricReader(
-            exporter=metric_exporter,
-            export_interval_millis=60000,
-        )
-        metric_readers.append(metric_reader)
-
-    meter_provider = MeterProvider(
-        resource=resource,
-        metric_readers=metric_readers,
-    )
-    metrics.set_meter_provider(meter_provider)
-
-    # === LOGS (experimental) ===
-    if LOGS_AVAILABLE:
-        try:
-            log_exporter = OTLPLogExporter(
-                endpoint=f"{endpoint}/v1/logs",
+            metric_exporter = OTLPMetricExporter(
+                endpoint=f"{endpoint}/v1/metrics",
                 headers=headers,
+                timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
             )
-            logger_provider = LoggerProvider(resource=resource)
-            logger_provider.add_log_record_processor(
-                BatchLogRecordProcessor(log_exporter)
+            metric_reader = PeriodicExportingMetricReader(
+                exporter=metric_exporter,
+                export_interval_millis=60000,
             )
-            set_logger_provider(logger_provider)
+            metric_readers.append(metric_reader)
 
-            global _otel_logging_handler
-            if _otel_logging_handler is None:
-                _otel_logging_handler = LoggingHandler(
-                    level=logging.NOTSET,
-                    logger_provider=logger_provider,
+        meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=metric_readers,
+        )
+        metrics.set_meter_provider(meter_provider)
+
+        # === LOGS (experimental) ===
+        if LOGS_AVAILABLE:
+            try:
+                log_exporter = OTLPLogExporter(
+                    endpoint=f"{endpoint}/v1/logs",
+                    headers=headers,
+                    timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
                 )
-                setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
-                logging.getLogger().addHandler(_otel_logging_handler)
+                logger_provider = LoggerProvider(resource=resource)
+                logger_provider.add_log_record_processor(
+                    BatchLogRecordProcessor(log_exporter)
+                )
+                set_logger_provider(logger_provider)
 
-            logging.info(
-                "OTLP log export enabled - standard logging bridged to OpenTelemetry"
+                global _otel_logging_handler
+                if _otel_logging_handler is None:
+                    _otel_logging_handler = LoggingHandler(
+                        level=logging.NOTSET,
+                        logger_provider=logger_provider,
+                    )
+                    setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
+                    logging.getLogger().addHandler(_otel_logging_handler)
+
+                logging.info(
+                    "OTLP log export enabled - standard logging bridged to OpenTelemetry"
+                )
+            except Exception as e:
+                logging.warning(f"Failed to initialize log export: {e}")
+
+        # Configure structlog for Loki JSON format with trace context injection.
+        try:
+            from .utils.structured_logging import configure_structlog
+
+            json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in (
+                "true",
+                "1",
+                "yes",
             )
-        except Exception as e:
-            logging.warning(f"Failed to initialize log export: {e}")
+            if endpoint and not json_logs:
+                json_logs = True
+            configure_structlog(json_output=json_logs)
+            if json_logs:
+                logging.info(
+                    "Structured logging enabled - JSON format for Grafana Loki"
+                )
+        except ImportError:
+            logging.info(
+                "structlog not installed - using standard Python logging. Install: pip install structlog"
+            )
 
-    # Configure structlog for Loki JSON format with trace context injection.
-    # Default: plain text logs for local development unless telemetry export is enabled.
-    try:
-        from .utils.structured_logging import configure_structlog
-
-        json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-        if endpoint and not json_logs:
-            json_logs = True
-        configure_structlog(json_output=json_logs)
-        if json_logs:
-            logging.info("Structured logging enabled - JSON format for Grafana Loki")
-    except ImportError:
+        _initialized = True
         logging.info(
-            "structlog not installed - using standard Python logging. Install: pip install structlog"
+            f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}"
+        )
+        endpoint_url = urlparse(endpoint)
+        logging.info(
+            json.dumps(
+                {
+                    "event": "telemetry.startup",
+                    "service_name": service_name,
+                    "service_namespace": "kindly-mcp",
+                    "service_version": service_version,
+                    "deployment_environment": os.environ.get(
+                        "DEPLOYMENT_ENV", "development"
+                    ),
+                    "host_name": hostname,
+                    "process_pid": pid,
+                    "otlp_endpoint_host": endpoint_url.hostname,
+                    "otlp_endpoint_path": endpoint_url.path,
+                    "signals": {
+                        "traces": True,
+                        "metrics": True,
+                        "logs": LOGS_AVAILABLE,
+                        "httpx_instrumentation": True,
+                    },
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+        )
+    except Exception as exc:
+        logging.warning(
+            "OpenTelemetry initialization failed (server will continue without telemetry): %s",
+            exc,
         )
 
-    _initialized = True
-    logging.info(
-        f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}"
+
+def init_telemetry_background(
+    service_name: str = "web-search-mcp",
+    service_version: str = "1.0.8",
+    prometheus_port: int | None = None,
+) -> threading.Thread:
+    """Run init_telemetry in a daemon thread so it never blocks startup.
+
+    Use this when the OTLP endpoint might be unreachable (e.g. local dev,
+    CI, air-gapped networks) and you need the MCP server / CLI to become
+    responsive immediately.  Telemetry becomes available once the background
+    init finishes; spans emitted before that point are silently dropped.
+
+    Returns the daemon thread so callers can ``join()`` if they wish.
+    """
+    thread = threading.Thread(
+        target=init_telemetry,
+        args=(service_name, service_version, prometheus_port),
+        name="otel-init",
+        daemon=True,
     )
-    endpoint_url = urlparse(endpoint)
-    logging.info(
-        json.dumps(
-            {
-                "event": "telemetry.startup",
-                "service_name": service_name,
-                "service_namespace": "kindly-mcp",
-                "service_version": service_version,
-                "deployment_environment": os.environ.get(
-                    "DEPLOYMENT_ENV", "development"
-                ),
-                "host_name": hostname,
-                "process_pid": pid,
-                "otlp_endpoint_host": endpoint_url.hostname,
-                "otlp_endpoint_path": endpoint_url.path,
-                "signals": {
-                    "traces": True,
-                    "metrics": True,
-                    "logs": LOGS_AVAILABLE,
-                    "httpx_instrumentation": True,
-                },
-            },
-            ensure_ascii=True,
-            sort_keys=True,
-        )
-    )
+    thread.start()
+    logging.info("Telemetry init dispatched to background thread")
+    return thread
 
 
 # ============================================================================
@@ -2163,6 +2214,7 @@ def set_span_success(span: trace.Span, result_count: int | None = None) -> None:
 __all__ = [
     # Initialization
     "init_telemetry",
+    "init_telemetry_background",
     "get_tracer",
     "get_meter",
     "get_search_total_metric",

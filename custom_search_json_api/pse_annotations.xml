@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Google Programmable Search Engine - Site Annotations
+  Engine ID : 771d303cf528e4b7c
+  Public URL: https://cse.google.com/cse?cx=771d303cf528e4b7c
+  Label     : _cse_771d303cf528e4b7c
+
+  Upload:
+    PSE Control Panel > Setup > Advanced tab
+    > Search Engine Advanced > Annotations > Upload Annotations
+-->
+<Annotations>
+
+  <!-- ============================================================ -->
+  <!-- AI / ML Research Labs and Blogs (10 sites)                   -->
+  <!-- ============================================================ -->
+
+  <!-- 1. arXiv - primary preprint repository for CS, ML, AI papers -->
+  <Annotation about="*.arxiv.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 2. OpenAI - GPT series, DALL-E, alignment and safety research -->
+  <Annotation about="*.openai.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 3. Google DeepMind - AlphaFold, Gemini, reinforcement learning -->
+  <Annotation about="*.deepmind.google">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 4. Anthropic - Claude, constitutional AI, interpretability -->
+  <Annotation about="*.anthropic.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 5. BAIR Blog - Berkeley AI Research; academic-grade lab blog -->
+  <Annotation about="*.bair.berkeley.edu">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 6. Hugging Face - model hub, datasets, papers, docs, community -->
+  <Annotation about="*.huggingface.co">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 7. Distill.pub - peer-reviewed interactive ML explanations -->
+  <Annotation about="*.distill.pub">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 8. Papers With Code - papers plus benchmarks plus code -->
+  <Annotation about="*.paperswithcode.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 9. Meta AI - LLaMA, PyTorch research, Meta FAIR blog -->
+  <Annotation about="*.ai.meta.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 10. Google AI Blog - Google research announcements -->
+  <Annotation about="*.ai.googleblog.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- ============================================================ -->
+  <!-- Academic and Scientific Reference (6 sites)                  -->
+  <!-- ============================================================ -->
+
+  <!-- 11. Semantic Scholar - AI-enhanced academic search, 200M+ papers -->
+  <Annotation about="*.semanticscholar.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 12. ACM Digital Library - CS paper archive, fully crawlable -->
+  <Annotation about="*.dl.acm.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 13. Nature - top-tier peer-reviewed science journals -->
+  <Annotation about="*.nature.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 14. ScienceDirect - Elsevier journals and scientific library -->
+  <Annotation about="*.sciencedirect.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 15. PubMed / NCBI - life sciences, US National Library of Medicine -->
+  <Annotation about="*.ncbi.nlm.nih.gov">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 16. OpenReview - NeurIPS, ICML, ICLR peer reviews and accepted papers -->
+  <Annotation about="*.openreview.net">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- ============================================================ -->
+  <!-- Technical Documentation and Developer Reference (7 sites)    -->
+  <!-- ============================================================ -->
+
+  <!-- 17. Python Docs - official Python language documentation -->
+  <Annotation about="*.docs.python.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 18. PyTorch - official docs, tutorials, and API reference -->
+  <Annotation about="*.pytorch.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 19. TensorFlow - TensorFlow and Keras official docs -->
+  <Annotation about="*.tensorflow.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 20. Google Cloud - AI Platform, GCP, Vertex AI documentation -->
+  <Annotation about="*.cloud.google.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 21. AWS Docs - SageMaker, Bedrock, technical reference -->
+  <Annotation about="*.docs.aws.amazon.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 22. MDN Web Docs - canonical HTML, CSS, JS platform reference -->
+  <Annotation about="*.developer.mozilla.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 23. GitHub - repositories, READMEs, wikis, discussions -->
+  <Annotation about="*.github.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- ============================================================ -->
+  <!-- Developer Communities and Q&amp;A (4 sites)                  -->
+  <!-- ============================================================ -->
+
+  <!-- 24. Stack Overflow - primary technical Q&amp;A hub -->
+  <Annotation about="*.stackoverflow.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 25. Reddit r/MachineLearning - top ML research discussion -->
+  <Annotation about="www.reddit.com/r/MachineLearning">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 26. Reddit r/LocalLLaMA - open-source LLM practitioners -->
+  <Annotation about="www.reddit.com/r/LocalLLaMA">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 27. Hacker News - tech and AI news plus community discussion -->
+  <Annotation about="*.news.ycombinator.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- ============================================================ -->
+  <!-- General Knowledge and Reference (3 sites)                    -->
+  <!-- ============================================================ -->
+
+  <!-- 28. Wikipedia (English) - broadest general knowledge coverage -->
+  <Annotation about="*.en.wikipedia.org">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 29. Britannica - expert-authored, professionally edited encyclopedia -->
+  <Annotation about="*.britannica.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+  <!-- 30. Towards Data Science - practical ML and data science tutorials -->
+  <Annotation about="*.towardsdatascience.com">
+    <Label name="_cse_771d303cf528e4b7c" />
+  </Annotation>
+
+</Annotations>

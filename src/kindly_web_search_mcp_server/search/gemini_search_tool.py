@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..prompts.provider_gemini import build_provider_gemini_prompt
 from ..settings import settings
 
 logger = logging.getLogger(__name__)
@@ -35,31 +36,12 @@ GEMINI_GROUNDING_TIER = [
 # Practitioner-tested system prompt (adapted from callsphere.ai, inventivehq.com)
 def get_system_prompt(research_goal: str | None = None) -> str:
     """System prompt for Gemini grounding - adapted for general-purpose MCP tool."""
-    from datetime import date
-
-    today = date.today().strftime("%B %d, %Y")
-    goal = (
-        research_goal
-        or "Provide thorough, factual answers based on current information"
-    )
-
-    return f"""You are a research assistant. Today is {today}.
-
-{goal}
-
-Instructions:
-1. Search when you need current or specific information; use your knowledge for general facts
-2. Provide thorough, factual answers grounded in your search results
-3. If sources conflict or information is uncertain, acknowledge this explicitly
-4. Note when information might change rapidly (prices, availability, current events)
-5. Cite sources inline using [1], [2] notation — grounding metadata maps these to URLs
-
-Format:
-- Answer the question directly, citing sources inline
-- Be specific about time frames when discussing recent events or changes
-- For critical or security-sensitive information, reference official sources
-
-Do not add a sources section — the tool provides grounding metadata separately."""
+    return build_provider_gemini_prompt(
+        query="",
+        research_goal=research_goal
+        or "Provide thorough, factual answers based on current information",
+        provider_name="gemini",
+    )[0]
 
 
 class GeminiSource(BaseModel):

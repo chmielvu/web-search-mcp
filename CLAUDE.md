@@ -27,7 +27,7 @@ pytest
 
 Focused test slice (core search contract):
 ```bash
-python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_search_router.py tests/test_query_rewrite.py tests/test_search_orchestrator.py
+python -m pytest tests/test_server.py tests/test_page_content_resolver.py tests/test_tool_descriptions.py tests/test_profile_resolution.py tests/test_prompt_registry.py tests/test_query_understanding.py tests/test_provider_plan.py tests/test_training_jsonl.py tests/test_entity_response_fields.py tests/test_search_orchestrator.py tests/test_search_router.py
 ```
 
 Single test file:
@@ -44,15 +44,18 @@ ruff format src/
 ## Architecture
 
 ### Entry points
-- `cli.py` — wrapper CLI with `start-mcp-server` subcommand
+- `server.py` — MCP server entry point for `start-mcp-server`
+- `cli/` — native Typer package for `web-search-cli`
 - `server.py` — FastMCP server exposing 6 tools: `web_search`, `get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`
 
 ### Search pipeline (`search/`)
-- `orchestrator.py` — coordinates rewrite → multi-provider search → merge → rerank
+- `pipeline.py` — coordinates understanding → profiled rewrite → multi-provider search → merge → rerank
 - `searxng.py`, `tavily.py`, `brave.py`, `jina.py`, `pollinations.py` — provider implementations
 - `merge.py` — RRF (k=60) merge across providers
-- `query_rewrite.py` — Mistral-backed query expansion/variant generation
-- `query_policy.py` + `query_policy_resolver.py` + `query_policy_hf.py` — intent classification and rewrite mode selection (bypass/light_rewrite/decompose)
+- `understanding/resolver.py` — LLM-backed query understanding and intent resolution
+- `pipeline_builders.py` — prompt registry integration plus rewrite variant construction
+- `provider_plan.py` / `provider_options.py` / `provider_call.py` — profile-derived provider weights, allow-lists, and provider arguments
+- `query_policy.py` — lightweight rewrite policy model used by the live pipeline response
 
 ### Content resolution (`content/resolver.py`)
 Staged fallback pipeline:
@@ -83,7 +86,7 @@ All `KINDLY_*` env vars documented there. Key ones:
 - Search providers: `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`
 - `GITHUB_TOKEN` — recommended for better GitHub Issue extraction
 - `KINDLY_BROWSER_EXECUTABLE_PATH` — Chrome/Chromium/Edge path (optional, auto-detected)
-- `KINDLY_SEMANTIC_CACHE_ENABLED`, `KINDLY_RERANKING_ENABLED`, `KINDLY_QUERY_REWRITE_ENABLED`
+- `KINDLY_RERANKING_ENABLED`, `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS`, `KINDLY_CLASSIFIER_TIMEOUT_SECONDS`, `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED`
 
 ## Key Patterns
 
@@ -94,7 +97,7 @@ All `KINDLY_*` env vars documented there. Key ones:
 
 ### Adding a new search provider
 1. Create module in `search/` with `search_provider(query, num_results, http_client, diagnostics)` returning normalized results
-2. Register in `search/__init__.py` and `search/orchestrator.py`
+2. Register in `search/__init__.py` and `search/provider_config.py`, then add profile hooks in `search/provider_plan.py` if the provider needs intent-specific weights or arguments
 3. Add env var config in `settings.py` if needed
 
 ### Testing mocks
@@ -141,7 +144,11 @@ $env:GITHUB_TOKEN="..."  # recommended
 
 Optional for advanced features:
 ```powershell
-$env:MISTRAL_API_KEY="..."  # query rewrite
+$env:AI_GATEWAY_API_KEY="..."  # query understanding / rewrite workers
+$env:KINDLY_QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
+$env:KINDLY_CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
+$env:KINDLY_GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
+$env:KINDLY_VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
 $env:KINDLY_GEMINI_API_KEY="..."  # gemini_search grounding
 $env:POLLINATIONS_API_KEY="..."  # perplexity_search (Perplexity Sonar via Pollinations)
 $env:KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud IPs)

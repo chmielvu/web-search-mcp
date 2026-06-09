@@ -320,3 +320,5 @@ searxng-settings/
 /grafana-mcp.bat
 /grafana-mcp.ps1
 /start_mcp_stdio.bat
+# CocoIndex Code (ccc)
+/.cocoindex_code/
