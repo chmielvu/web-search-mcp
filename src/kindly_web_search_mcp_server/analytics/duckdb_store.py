@@ -14,6 +14,7 @@ from ..settings import settings
 
 _LOCK = threading.Lock()
 _TABLE_NAME = "search_events"
+_RUNS_TABLE_NAME = "search_runs"
 
 
 def _db_path(db_path: str | None = None) -> Path:
@@ -232,6 +233,100 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
         connection = duckdb.connect(str(path))
         try:
             _ensure_schema(connection)
+        finally:
+            connection.close()
+
+
+def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create search_runs table with indexes if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_RUNS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            query VARCHAR NOT NULL,
+            normalized_query VARCHAR,
+            research_goal VARCHAR,
+            num_results_requested INTEGER,
+            rewrite_enabled BOOLEAN,
+            session_id VARCHAR,
+            tool_name VARCHAR DEFAULT 'web_search',
+            duration_ms DOUBLE,
+            final_result_count INTEGER,
+            candidate_count INTEGER,
+            has_more BOOLEAN,
+            result_offset INTEGER,
+            status VARCHAR,
+            error_type VARCHAR,
+            payload_json JSON
+        )
+        """
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_runs_run_key ON {_RUNS_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON {_RUNS_TABLE_NAME}(recorded_at)"
+    )
+
+
+def insert_search_run(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the search_runs table.
+
+    Uses the same pattern as append_event()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "query",
+        "normalized_query",
+        "research_goal",
+        "num_results_requested",
+        "rewrite_enabled",
+        "session_id",
+        "tool_name",
+        "duration_ms",
+        "final_result_count",
+        "candidate_count",
+        "has_more",
+        "result_offset",
+        "status",
+        "error_type",
+        "payload_json",
+    ]
+
+    # Apply Python-level defaults for columns with SQL DEFAULT values
+    # so DuckDB doesn't get an explicit None that bypasses the DEFAULT.
+    if kwargs.get("tool_name") is None:
+        kwargs["tool_name"] = "web_search"
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_search_runs(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_RUNS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
         finally:
             connection.close()
 
