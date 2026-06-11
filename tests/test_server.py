@@ -574,7 +574,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 link="https://example.com",
                 snippet="S",
                 domain="example.com",
-                resource_type="web",
                 mime_hint="text/html",
                 published_date="2026-05-29",
                 source_engines=["searxng"],
@@ -603,11 +602,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", "Find information about hello", num_results=1, ctx=mock_ctx)
+            out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
 
         self.assertNotIn("page_content", out["results"][0])
         self.assertEqual(out["results"][0]["domain"], "example.com")
-        self.assertEqual(out["results"][0]["resource_type"], "web")
         self.assertEqual(out["results"][0]["published_date"], "2026-05-29")
         self.assertEqual(out["results"][0]["providers"], ["searxng", "ddg"])
         self.assertEqual(out["results"][0]["provider_count"], 2)

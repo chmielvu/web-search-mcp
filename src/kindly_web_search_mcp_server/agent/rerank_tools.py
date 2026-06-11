@@ -35,7 +35,8 @@ async def _rerank_candidates(
     top_k: int,
 ) -> dict[str, Any]:
     result_models = [_to_result(candidate) for candidate in candidates]
-    ranked = await rerank_results(query, result_models, top_k=top_k)
+    reranked = await rerank_results(query, result_models, top_k=top_k)
+    ranked = reranked.results
     return {
         "query": query,
         "top_k": top_k,

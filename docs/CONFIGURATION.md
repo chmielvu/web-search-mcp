@@ -1,552 +1,286 @@
-<!-- generated-by: gsd-doc-writer -->
-# Configuration
+# Configuration Reference
 
-This document covers all environment variables and configuration options for the Kindly Web Search MCP Server.
+All configuration is via environment variables. Defaults are sensible for local development.
 
-## Required Settings
+## Search Providers
 
-At least one search provider must be configured for the server to function. The server checks for these at startup and will refuse to start if none are set.
-
-### Search Providers
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `SEARXNG_BASE_URL` | Recommended | - | Primary search provider (self-hosted, unlimited queries). Example: `http://localhost:8080` |
-| `TAVILY_API_KEY` | Optional | - | Tavily search API key (paid provider) |
-| `BRAVE_API_KEY` | Optional | - | Brave Search API key (paid provider) |
-| `JINA_API_KEY` | Optional | - | Jina AI search API key (conditional search provider; fallback reranker) |
-| `VOYAGE_API_KEY` | Optional | - | Voyage AI API key for the primary reranker |
-| `COMPOSIO_API_KEY` | Optional | - | Composio API key used by Composio LLM Search, Composio Similarlinks, and Composio Image Search |
-| `KINDLY_GEMINI_API_KEY` | Optional | - | Gemini API key used both by the standalone `gemini_search` tool and by the Gemini provider inside `web_search` |
-
-**Note:** SearXNG is the recommended primary provider because it is self-hosted and has no query limits. In the 0.2 backend, Brave and Google CSE are always-on semaphored branches, while the LLM understanding / rewrite worker ladder runs separately from provider selection. Tavily remains disabled by default, Jina and the community providers are request-dependent, and Composio LLM Search remains always-on when configured.
-
-### Optional API Keys (Recommended)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GITHUB_TOKEN` | Recommended | - | GitHub personal access token for Issues/Discussions extraction. Avoids rate limits. |
-| `STACKEXCHANGE_KEY` | Optional | - | StackExchange API key for higher quota when fetching Q&A threads |
-
----
-
-## SearXNG Configuration
-
-Fine-tune SearXNG requests with these optional settings:
+### Required (at least one)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SEARXNG_LANGUAGE` | - | Language code for search results (e.g., `en-US`) |
-| `SEARXNG_CATEGORIES` | - | Search categories (e.g., `general`) |
-| `SEARXNG_ENGINES` | - | Specific engines to use (e.g., `google,bing`) |
-| `SEARXNG_TIME_RANGE` | - | Time filter: `day`, `week`, `month`, `year` |
-| `SEARXNG_SAFESEARCH` | - | SafeSearch level: `0` (off), `1` (moderate), `2` (strict) |
-| `SEARXNG_USER_AGENT` | Chrome UA | Custom User-Agent header |
-| `SEARXNG_HEADERS_JSON` | - | JSON object with extra headers (e.g., `{"Authorization":"Bearer ..."}`) |
-| `SEARXNG_TIMEOUT_SECONDS` | - | Request timeout override |
+| `SEARXNG_BASE_URL` | - | SearXNG instance URL (self-hosted, no API key) |
+| `TAVILY_API_KEY` | - | Tavily API key |
+| `BRAVE_API_KEY` | - | Brave Search API key |
+| `JINA_API_KEY` | - | Jina API key |
 
----
+### Provider Modes
 
-## Provider Modes
+Providers have three modes controlled by `KINDLY_*_MODE`:
 
-Control when optional providers fire in `web_search`:
+| Mode | Behavior |
+|------|----------|
+| `always` | Always fires (free providers like SearXNG, DDG) |
+| `conditional` | Only when explicitly requested via `providers` param |
+| `never` | Never fires, even if API key present |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_DDG_MODE` | `always` | DuckDuckGo provider mode (free, always-on) |
-| `KINDLY_TAVILY_MODE` | `never` | Tavily provider mode (disabled by default) |
-| `KINDLY_BRAVE_MODE` | `always` | Brave provider mode (always-on branch when configured) |
-| `KINDLY_JINA_MODE` | `conditional` | Jina provider mode (only when explicitly requested) |
-| `KINDLY_GEMINI_SEARCH_MODE` | `always` | Gemini provider mode for `web_search` |
-| `KINDLY_GROK_WEB_SEARCH_MODE` | `conditional` | Grok provider mode for `web_search` |
-| `KINDLY_COMPOSIO_LLM_SEARCH_MODE` | `always` | Composio LLM Search provider mode |
-
-**Modes:**
-- `always`: Always fires when configured (free providers)
-- `conditional`: Only when explicitly requested via `providers` parameter
-- `never`: Never fires, even if API key present
-
----
-
-## Feature Flags
-
-Control advanced features with these boolean flags (set to `true` or `false`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_RERANKING_ENABLED` | `true` | Enable provider reranking for search results |
-| `KINDLY_RERANK_ENTITY_OVERLAP_ENABLED` | `false` | Enable measured entity-overlap signal in rerank blend (Phase 8) |
-| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Enable optional LLM-backed entity extraction for content/search responses |
-| `KINDLY_TOOL_SEARCH_ENABLED` | `false` | Opt-in FastMCP RegexSearchTransform for meta search/call tools |
-| `KINDLY_RESULT_MEMORY_ENABLED` | `false` | Enable Qdrant result memory candidate injection (enable after tests) |
-
----
-
-## Tool Profiles and Search (FastMCP 3.2.4+)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_TOOL_PROFILE` | `full` | One of: default\|research\|media\|diagnostic\|experimental\|full. Controls visible tools via tags/profiles. Set `default` for the minimal four-tool surface. |
-| `KINDLY_TOOL_SEARCH_ENABLED` | `false` | When true, after profile, adds RegexSearchTransform (surfaces docs/URL/YouTube queries to underlying tools). Emits tool_surface.* events. |
-
-See docs for visible tools per profile.
-
----
-
-## Page Cache (DuckDB)
-
-Dedicated DuckDB (no sharing with analytics to avoid write contention).
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_PAGE_CACHE_DUCKDB_PATH` | `.kindly/cache/page_cache.duckdb` | Path to page cache DuckDB file |
-| `KINDLY_PAGE_CACHE_TTL_SECONDS` | `604800` (7d) | TTL for URL content |
-
----
-
-## Result Memory (Qdrant)
-
-Qdrant local mode for historical result injection + entity enrichment.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_RESULT_MEMORY_PATH` | (empty) | Qdrant path (empty => :memory:); set to `.kindly/result_memory` for persistent |
-| `KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT` | `0.6` | list_weight for injected memory candidates in RRF merge |
-| `KINDLY_RESULT_MEMORY_TOP_K` | `20` | Max candidates recalled from memory per query |
-
-Events: result_memory.lookup / store / candidate_injected / candidate_survived
-
----
-
-## Entity Extraction (optional)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_ENTITY_EXTRACTION_ENABLED` | `false` | Master switch (lazy import of gliner2 extra) |
-| `KINDLY_GLINER_MODEL` | `fastino/gliner2-base-v1` | Legacy GLiNER2 setting retained for compatibility |
-| `KINDLY_GLINER_THRESHOLD` | `0.3` | Legacy GLiNER2 confidence threshold retained for compatibility |
-| `KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT` | `0.15` | Weight of entity-overlap feature when rerank entity overlap enabled |
-
-Entities appear in search/content responses only when enabled. Emits entity.* events. No silent failures.
-
----
-
-## Embeddings (HuggingFace Inference Provider)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_HF_INFERENCE_PROVIDER` | `hf-inference` | HF Inference Provider endpoint |
-| `KINDLY_HF_TOKEN` | - | HuggingFace API token (alternative env vars: `HF_TOKEN`, `HUGGINGFACEHUB_API_TOKEN`) |
-
----
-
-## Query Understanding and Rewrite
-
-The 0.2 backend uses an LLM-understanding stage plus a separate rewrite worker ladder. Query understanding runs through Vercel with `amazon/nova-micro`; rewrite uses the package-local worker prompt registry and can fall through Cerebras, Groq, and Vercel gateway models.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_QUERY_UNDERSTANDING_MODEL` | `amazon/nova-micro` | Model used for LLM intent classification and entity extraction |
-| `AI_GATEWAY_API_KEY` | - | Vercel AI Gateway key used by the query-understanding and rewrite workers |
-| `KINDLY_VERCEL_AI_GATEWAY_BASE_URL` | `https://ai-gateway.vercel.sh/v1` | Vercel AI Gateway base URL |
-| `KINDLY_CEREBRAS_REWRITE_MODEL` | `cerebras/gpt-oss-120b` | First-tier rewrite worker model |
-| `KINDLY_GROQ_REWRITE_MODEL` | `groq/gpt-oss-120b` | Second-tier rewrite worker model |
-| `KINDLY_VERCEL_REWRITE_MODEL` | `groq/gpt-oss-20b` | Fallback rewrite worker model via Vercel gateway |
-| `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS` | `20` | Timeout budget for rewrite worker cascade |
-| `KINDLY_CLASSIFIER_TIMEOUT_SECONDS` | `10` | Query-understanding timeout budget (historical setting name) |
-| `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED` | `true` | Enable JSONL capture of query-understanding outcomes |
-| `KINDLY_QUERY_UNDERSTANDING_JSONL_PATH` | `.kindly/training/query_understanding.jsonl` | JSONL sink for training data gathering |
-
----
-
-## Reranking (Voyage primary, Jina fallback)
-
-Voyage API-based reranking with Jina fallback when configured:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_RERANK_PROVIDER` | `voyage` | Primary reranking provider (`voyage` or `jina`) |
-| `KINDLY_VOYAGE_RERANK_MODEL` | `rerank-2.5` | Voyage reranker model |
-| `KINDLY_JINA_RERANK_MODEL` | `jina-reranker-v3` | Jina reranker model |
-| `KINDLY_RERANK_SCORE_THRESHOLD` | `0.0` | Final score floor applied only to provider rerank scores |
-| `KINDLY_BI_ENCODER_TOP_K` | `100` | Top-K results before cross-encoder reranking |
-| `KINDLY_RERANK_TOP_K` | `10` | Final top-K results after reranking |
-| `KINDLY_DIVERSITY_THRESHOLD` | `0.85` | Similarity threshold for diversity filtering |
-| `KINDLY_MMR_LAMBDA` | `0.5` | MMR lambda parameter (0.0-1.0) for relevance/diversity balance |
-
----
-
-## Analytics
-
-DuckDB-backed event capture for offline search tuning:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_ANALYTICS_ENABLED` | `true` | Persist rewrite/rerank/search observability events to DuckDB |
-| `KINDLY_ANALYTICS_DUCKDB_PATH` | `.kindly/analytics/search_events.duckdb` | DuckDB file used for event storage |
-
----
-
-## RRF Tuning
-
-Reciprocal Rank Fusion merge configuration:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_RRF_K` | `60` | RRF constant k (Bruch et al. 2022) |
-| `KINDLY_RRF_PROVIDER_WEIGHTS` | JSON (see below) | Per-provider weight overrides as JSON object |
-| `KINDLY_DEFAULT_NUM_RESULTS` | `5` | Default `num_results` for `web_search` |
-
-**Default Provider Weights:**
-```json
-{
-  "searxng": 1.0,
-  "ddg": 0.7,
-  "tavily": 1.3,
-  "brave": 1.0,
-  "jina": 1.1,
-  "gemini": 1.2,
-  "composio_llm_search": 1.15
-}
+```bash
+# Example: enable Tavily (paid), keep Brave/SearXNG always
+export KINDLY_TAVILY_MODE="conditional"
+export KINDLY_BRAVE_MODE="always"
+export KINDLY_DDG_MODE="always"
 ```
 
-Provider weights rationale (Bruch et al. 2022: per-list weighting is more impactful than k tuning):
-- `tavily`: 1.3 (optimized for AI assistants, structured extraction, freshness)
-- `gemini`: 1.2 (Google grounding, high recall for factual/research queries)
-- `composio_llm_search`: 1.15 (LLM-enhanced relevance ranking)
-- `jina`: 1.1 (semantic search expertise)
-- `searxng`: 1.0 (baseline, free/open-source aggregator)
-- `brave`: 1.0 (baseline, independent index)
-- `ddg`: 0.7 (aggregator, penalized for instant answers)
+### Optional Providers
 
----
+```bash
+# Grok/xAI
+export GROK_API_KEY="..."
 
-## Gemini Grounding
+# Perplexity Sonar via Pollinations
+export POLLINATIONS_API_KEY="..."
 
-Gemini is used in two separate ways:
-- `gemini_search` is the standalone grounded answer tool.
-- The Gemini provider inside `web_search` contributes lightweight grounded search hits to the shared merge/rerank pipeline.
+# Google Custom Search Engine
+export KINDLY_GOOGLE_CSE_API_KEY="..."
+export KINDLY_GOOGLE_CSE_ENGINE_ID="..."
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_GEMINI_API_KEY` | - | Gemini API key shared by `gemini_search` and the Gemini `web_search` provider |
-| `KINDLY_GEMINI_SEARCH_MODE` | `always` | Provider mode for Gemini inside `web_search`: `always`, `conditional`, or `never` |
-
-**Note:** Model selection uses a hardcoded fallback tier (no env var override):
-- Primary: `gemini-2.5-flash`
-- Fast fallback: `gemini-2.5-flash-lite`
-- Cost fallback: `gemma-4-31b-it`
-
----
-
-## Perplexity Search (via Pollinations)
-
-AI-synthesized answers with citations using Perplexity Sonar:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POLLINATIONS_API_KEY` | - | Pollinations API key for `perplexity_search` tool |
-| `POLLINATIONS_BASE_URL` | - | Custom Pollinations API base URL (optional) |
-
----
-
-## Composio Search Toolkit
-
-Composio is used in three separate ways:
-- `composio_llm_search` is a provider inside `web_search`.
-- `composio_similarlinks` is a standalone URL-to-related-URLs tool.
-- `composio_image_search` is a standalone image metadata search tool.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `COMPOSIO_API_KEY` | - | Composio API key for direct tool execution |
-| `KINDLY_COMPOSIO_USER_ID` | - | Stable Composio user id used for tool execution |
-| `KINDLY_COMPOSIO_SEARCH_TOOLKIT_VERSION` | `20260424_00` | Pinned Composio Search toolkit version for parsed outputs |
-| `KINDLY_COMPOSIO_LLM_SEARCH_MODE` | `always` | Provider mode for Composio LLM Search inside `web_search` |
-| `KINDLY_COMPOSIO_TIMEOUT_SECONDS` | `25` | Timeout for Composio tool execution |
-| `KINDLY_COMPOSIO_MAX_RETRIES` | `2` | Composio SDK retry count |
-
-Recommended rollout:
-
-```powershell
-$env:COMPOSIO_API_KEY="..."
-$env:KINDLY_COMPOSIO_USER_ID="default"
+# OpenRouter (shared by Grok, etc.)
+export OPENROUTER_API_KEY="..."
 ```
 
----
+### Provider Timeout
 
-## YouTube Integration
+```bash
+export KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS="20"
+export KINDLY_CLASSIFIER_TIMEOUT_SECONDS="10"
+```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL` | - | Proxy URL for YouTube transcript fetching |
-| `KINDLY_YOUTUBE_TRANSCRIPT_MAX_CHARS` | `50000` | Maximum characters in transcript output |
-| `KINDLY_YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS` | `30` | Timeout for transcript fetch |
-| `KINDLY_YOUTUBE_SEARCH_ENGINE` | `youtube` | SearXNG engine for YouTube search |
+## Query Understanding
 
----
+LLM-backed intent classification and query rewrite.
 
-## Browser Automation (nodriver)
+```bash
+# Primary model
+export KINDLY_QUERY_UNDERSTANDING_MODEL="openai/gpt-oss-20b"
 
-Required for universal HTML extraction on JavaScript-heavy sites:
+# Rewrite cascade (Cerebras → Groq → HF Inference)
+export CEREBRAS_API_KEY="..."
+export GROQ_API_KEY="..."
+export HF_TOKEN="..."
+export AI_GATEWAY_API_KEY="..."
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_BROWSER_EXECUTABLE_PATH` | Auto-detected | Path to Chrome/Chromium/Edge executable. Set explicitly if nodriver cannot auto-detect. |
+# Specific models
+export KINDLY_CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
+export KINDLY_GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
+export KINDLY_VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
 
-### Browser Pool
+# Decomposition
+export KINDLY_QUERY_DECOMPOSITION_ENABLED="true"
+export KINDLY_DECOMPOSITION_MAX_BRANCHES="10"
+export KINDLY_DECOMPOSITION_MAX_CONCURRENCY="4"
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_NODRIVER_REUSE_BROWSER` | `1` | Enable pooled browser reuse (recommended) |
-| `KINDLY_NODRIVER_BROWSER_POOL_SIZE` | `1` | Number of pooled browser instances |
-| `KINDLY_NODRIVER_ACQUIRE_TIMEOUT_SECONDS` | `30` | Timeout to acquire browser from pool |
-| `KINDLY_NODRIVER_PORT_RANGE` | - | Remote debugging port range (e.g., `45000-45100`) |
+# Training data capture
+export KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED="true"
+export KINDLY_QUERY_UNDERSTANDING_JSONL_PATH=".kindly/training/query_understanding.jsonl"
+```
 
-### Browser Timeout & Retry
+## Reranking
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_HTML_TOTAL_TIMEOUT_SECONDS` | `60` | Total timeout for HTML extraction (max: 600) |
-| `KINDLY_NODRIVER_RETRY_ATTEMPTS` | `3` | Startup retry attempts (helps with cold starts) |
-| `KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS` | `0.5` | Backoff between retries |
-| `KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER` | `3.0` | Extra backoff for Snap-packaged Chromium |
-| `KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS` | `12` | Timeout for DevTools protocol ready signal |
-| `KINDLY_NODRIVER_SANDBOX` | `0` | Chrome sandbox (disabled by default for WSL/Docker reliability) |
-| `KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST` | `1` | Ensure localhost bypasses proxy settings |
+```bash
+# Enable/disable
+export KINDLY_RERANKING_ENABLED="true"
 
----
+# Engine selection (voyage, jina, gcp_cloudrun, local_baseline, none)
+export KINDLY_RERANK_PROVIDER="voyage"
 
-## Tool Time Budgets
+# Voyage API
+export VOYAGE_API_KEY="..."
+export KINDLY_VOYAGE_RERANK_MODEL="rerank-2.5"
 
-Overall timeout limits for MCP tool execution:
+# Jina rerank
+export KINDLY_JINA_RERANK_MODEL="jina-reranker-v3"
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS` | `120` | Default timeout for tool execution |
-| `KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS` | `600` | Maximum allowed timeout (cap) |
-| `KINDLY_WEB_SEARCH_MAX_CONCURRENCY` | `3` | Max concurrent provider requests (clamped 1-5) |
+# GCP Cloud Run custom reranker (TEI/FastAPI)
+export KINDLY_RERANK_GCP_CLOUDRUN_URL="..."
+export KINDLY_RERANK_GCP_MODEL="BAAI/bge-reranker-v2-m3"
+export KINDLY_RERANK_GCP_TIMEOUT="30.0"
 
----
+# Tuning
+export KINDLY_BI_ENCODER_TOP_K="100"
+export KINDLY_RERANK_TOP_K="10"
+export KINDLY_DIVERSITY_THRESHOLD="0.85"
+export KINDLY_MMR_LAMBDA="0.5"
+export KINDLY_RERANK_SCORE_THRESHOLD="0.0"
+
+# Recency boost
+export RERANK_RECENCY_WEIGHT="0.15"
+export RERANK_RECENCY_HALF_LIFE_DAYS="90"
+```
+
+## Entity Extraction
+
+GLiNER2-based entity extraction for query understanding.
+
+```bash
+# Enable (disabled by default)
+export KINDLY_ENTITY_EXTRACTION_ENABLED="false"
+
+# Model
+export KINDLY_GLINER_MODEL="fastino/gliner2-base-v1"
+export KINDLY_GLINER_THRESHOLD="0.5"
+
+# Entity overlap feature for rerank
+export KINDLY_RERANK_ENTITY_OVERLAP_ENABLED="false"
+export KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT="0.15"
+```
+
+## Caching
+
+### Exact Query Cache
+
+In-memory LRU with TTL. No configuration needed.
+
+### Page Cache
+
+DuckDB-backed URL → content cache.
+
+```bash
+export KINDLY_PAGE_CACHE_DUCKDB_PATH=".kindly/cache/page_cache.duckdb"
+```
+
+### Result Memory
+
+Qdrant-backed semantic cache for repeat queries.
+
+```bash
+export KINDLY_RESULT_MEMORY_ENABLED="true"
+export KINDLY_RESULT_MEMORY_PATH=""
+export KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT="0.5"
+export KINDLY_RESULT_MEMORY_CANDIDATE_LIMIT="5"
+export KINDLY_RESULT_MEMORY_MIN_SIMILARITY="0.65"
+```
+
+### Web Results Index
+
+Remote Qdrant index on HF Space.
+
+```bash
+export KINDLY_WEB_RESULTS_INDEX_ENABLED="false"
+export KINDLY_QDRANT_SPACE_URL="https://chmielvu-web-index.hf.space"
+export KINDLY_QDRANT_SEARCH_ENABLED="true"
+```
+
+## Content Extraction
+
+```bash
+# GitHub (better Issue/Discussion extraction)
+export GITHUB_TOKEN="..."
+
+# Browser path (for JS-heavy sites)
+export KINDLY_BROWSER_EXECUTABLE_PATH="/path/to/chrome"
+
+# YouTube
+export KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL=""
+export KINDLY_YOUTUBE_TRANSCRIPT_MAX_CHARS="50000"
+export KINDLY_YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS="30"
+
+# Academic sources
+export KINDLY_S2_API_KEY="..."
+export KINDLY_OPENALEX_EMAIL="..."
+export KINDLY_OPENALEX_API_KEY="..."
+export CROSSREF_MAILTO="..."
+export PUBMED_API_KEY="..."
+export CORE_API_KEY="..."
+
+# Academic defaults
+export KINDLY_ACADEMIC_DEFAULT_SOURCES="arxiv,semanticscholar"
+export KINDLY_ACADEMIC_MAX_RESULTS="10"
+```
+
+## Tool Visibility
+
+Control which MCP tools are exposed.
+
+```bash
+# Profiles: regular, research, media, full
+export KINDLY_TOOL_PROFILE="regular"
+
+# Enable tool search (RegexSearchTransform)
+export KINDLY_TOOL_SEARCH_ENABLED="false"
+```
 
 ## Rate Limiting
 
-Differentiated middleware limits are applied per tool group:
-- Cheap tools: `web_search`, `get_content`, `gemini_search`
-- Expensive tool: `perplexity_search`
+```bash
+# Cheap tools (web_search, etc.)
+export KINDLY_RATE_LIMIT_WEB_SEARCH_RPS="4.0"
+export KINDLY_RATE_LIMIT_WEB_SEARCH_BURST="12"
 
-**Note:** Environment variable names use `WEB_SEARCH` prefix for backward compatibility, but internally these settings apply to all cheap tools.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_RATE_LIMIT_WEB_SEARCH_RPS` | `4.0` | Requests/second budget shared by cheap tools |
-| `KINDLY_RATE_LIMIT_WEB_SEARCH_BURST` | `12` | Burst token capacity for the cheap-tool rate limiter |
-| `KINDLY_RATE_LIMIT_EXPENSIVE_RPS` | `0.5` | Requests/second budget for `perplexity_search` only |
-| `KINDLY_RATE_LIMIT_EXPENSIVE_BURST` | `1` | Burst token capacity for `perplexity_search` |
-
----
-
-## Content Output Limits
-
-Maximum output sizes for various content resolvers:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STACKEXCHANGE_MAX_CHARS` | `20000` | Max characters for StackExchange thread output |
-| `GITHUB_MAX_CHARS` | `20000` | Max characters for GitHub Issues/Discussions |
-| `GITHUB_MAX_COMMENTS` | `50` | Max comments to fetch per GitHub thread |
-| `WIKIPEDIA_MAX_CHARS` | `50000` | Max characters for Wikipedia article output |
-| `ARXIV_MAX_CHARS` | `50000` | Max characters for arXiv paper markdown |
-| `ARXIV_MAX_PAGES` | `30` | Max PDF pages to render for arXiv |
-| `KINDLY_GENERIC_PDF_MAX_PAGES` | `20` | Max pages for generic PDF rendering |
-
----
-
-## Cache TTL
-
-Time-to-live for various cache layers:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KINDLY_QUERY_CACHE_TTL_SECONDS` | `86400` (24h) | TTL for exact query cache |
-| `KINDLY_PAGE_CACHE_TTL_SECONDS` | `604800` (7d) | TTL for URL-to-content cache |
-
----
-
-## Summary Generation
-
-Optional content summarization via Chutes API:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CHUTES_API_TOKEN` | - | Chutes API token for summary generation |
-| `KINDLY_SUMMARY_MODEL` | `zai-org/GLM-5-Turbo` | Model for content summarization |
-| `KINDLY_SUMMARY_MAX_TOKENS` | `1200` | Max tokens for summary output |
-
----
-
-## Server / Transport
-
-HTTP/SSE transport settings (when not using stdio):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FASTMCP_HOST` | `127.0.0.1` | Bind host for HTTP/SSE mode |
-| `FASTMCP_PORT` | `8000` | Bind port for HTTP/SSE mode |
-
----
-
-## Logging & Diagnostics
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LOG_LEVEL` | `WARNING` | Log level (stderr only; keep stdio clean for MCP) |
-| `KINDLY_DIAGNOSTICS` | `0` | Enable verbose diagnostics (set to `1`) |
-| `KINDLY_STRUCTURED_LOGGING` | `false` | Enable JSON structured logs (set to `true`, `1`, or `yes`) |
-
----
-
-## Observability (OpenTelemetry)
-
-Grafana Cloud / OpenTelemetry integration for traces, metrics, and logs:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OTEL_SERVICE_NAME` | `kindly-web-search-mcp` | Service name for telemetry |
-| `OTEL_SERVICE_VERSION` | `0.1.8` | Service version for telemetry |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | - | OTLP endpoint URL (e.g., Grafana Cloud gateway) |
-| `OTEL_EXPORTER_OTLP_HEADERS` | - | Auth headers (e.g., `Authorization=Basic%20<token>`) |
-| `KINDLY_PROMETHEUS_PORT` | `0` | Prometheus metrics port (0 = disabled) |
-| `DEPLOYMENT_ENV` | `development` | Deployment environment label |
-| `HOST_OS_TYPE` | `windows` | Host OS type label |
-| `PYTHON_VERSION` | `3.12` | Python runtime version label |
-
-**Grafana Cloud Setup Example:**
-```powershell
-$env:OTEL_EXPORTER_OTLP_ENDPOINT="https://otlp-gateway-prod-eu-west-2.grafana.net/otlp"
-$env:OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20<YOUR_GRAFANA_TOKEN>"
+# Expensive tools (perplexity_search, etc.)
+export KINDLY_RATE_LIMIT_EXPENSIVE_RPS="0.5"
+export KINDLY_RATE_LIMIT_EXPENSIVE_BURST="1"
 ```
 
----
+## Observability
 
-## Agentic Research (ReAct via `agentic_web_research`)
-Centralized configuration for the LangChain/LangGraph ReAct research agent.
-
-Use `agentic_web_research` when you want the LLM to autonomously choose among the dedicated search, fetch, rerank, academic, and expansion tools (instead of the legacy full `web_search` pipeline + manual `get_content` chaining).
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NANOGPT_API_KEY` | (required for default model) | API key for the default agentic model provider (NanoGPT hosting the Tongyi DeepResearch model) |
-| `KINDLY_AGENTIC_RESEARCH_MODEL` | `Alibaba-NLP/Tongyi-DeepResearch-30B-A3B` | Model name (OpenAI-compatible) |
-| `KINDLY_AGENTIC_RESEARCH_FALLBACK_MODELS` | `minimax/minimax-m3:thinking,mistralai/mistral-small-4-119b-2603:thinking` | Comma-separated NanoGPT/OpenAI-compatible fallback models attempted after the primary model errors |
-| `KINDLY_AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL` | `gemini-3.5-flash` | Terminal Gemini API fallback model attempted after all NanoGPT/OpenAI-compatible models fail, when `KINDLY_GEMINI_API_KEY` is set |
-| `KINDLY_AGENTIC_RESEARCH_BASE_URL` | `https://nano-gpt.com/api/subscription/v1` | Base URL for the agentic model |
-| `KINDLY_AGENTIC_RESEARCH_TEMPERATURE` | `0` | Sampling temperature (0 = deterministic) |
-| `KINDLY_AGENTIC_RESEARCH_TIMEOUT_SECONDS` | `180` | Per-request timeout for the agent LLM |
-| `KINDLY_AGENTIC_RESEARCH_MAX_RETRIES` | `2` | Retries for the agent LLM |
-| `KINDLY_AGENTIC_RESEARCH_QUICK_RUN_LIMIT` | `6` | Max tool calls for `depth=quick` |
-| `KINDLY_AGENTIC_RESEARCH_NORMAL_RUN_LIMIT` | `10` | Max tool calls for `depth=normal` (default) |
-| `KINDLY_AGENTIC_RESEARCH_DEEP_RUN_LIMIT` | `16` | Max tool calls for `depth=deep` |
-| `KINDLY_AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS` | `120` | Overall timeout for quick depth |
-| `KINDLY_AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS` | `180` | Overall timeout for normal depth |
-| `KINDLY_AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS` | `300` | Overall timeout for deep depth |
-| `KINDLY_AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS` | `5` | Default `num_results` passed to discovery tools inside the agent |
-| `KINDLY_AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG` | (empty) | Optional JSON (inline) or path to MCP server config for `langchain-mcp-adapters`. When set, the agent best-effort loads extra tools from other MCP servers (e.g. filesystem, GitHub, DBs) in addition to the built-in search/fetch/rerank/academic tools. No separate enable flag; the non-empty value triggers the attempt. Example inline: `{"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/tmp"]}}`. The `final_answer` tool is *always* present (unconditional) for citation fidelity. |
-
-**Depth guidance**: `quick` for fast answers with limited exploration; `normal` balanced; `deep` for thorough multi-hop research (higher cost/latency).
-
-**When to use vs. `web_search` + `get_content`**:
-- Use `agentic_web_research` for open-ended, multi-step, or "research a topic" questions where the agent should decide breadth vs. depth, when to fetch full pages, cross-reference, rerank, or go academic.
-- Use the classic `web_search` (lightweight) + `get_content`/`batch_get_content`/`discover_links` when you (or the calling agent) want precise control over the pipeline, caching behavior, or provider selection.
-- The agentic tool returns a rich `AgenticResearchResult` (answer, sources[], uncertainties[], tool_trace, knowledge_graph_summary, duration, etc.).
-
-See also `docs/GETTING-STARTED.md` and `docs/API.md` for usage examples and the exact return shape.
-
----
-
-## API Identification
-
-Polite identification for external APIs (recommended):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WIKIPEDIA_USER_AGENT` | `kindly-web-search-mcp-server/0.0.1 (contact: you@example.com)` | User-Agent for Wikipedia API requests |
-| `ARXIV_USER_AGENT` | `kindly-web-search-mcp-server/0.0.1 (arXiv retriever)` | User-Agent for arXiv API requests |
-
----
-
-## Configuration Priority
-
-1. **Environment variables** are read at server startup via `os.environ.get()`
-2. **Defaults** are hardcoded in `settings.py` and individual modules
-3. **Per-request overrides** are not supported — configuration is global
-
-### Startup Validation
-
-The server validates at startup:
-- At least one search provider must be configured (`SEARXNG_BASE_URL`, `KINDLY_GEMINI_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`, or `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID`)
-- If `KINDLY_RERANKING_ENABLED=true`, `JINA_API_KEY` must be configured (or other engine)
-- If `KINDLY_BROWSER_EXECUTABLE_PATH` is set, the path must point to a valid browser executable
-- `KINDLY_MMR_LAMBDA` must be in range [0.0, 1.0]
-- `KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT` must be in [-1.0, 1.0] when enabled
-- `KINDLY_RRF_K` must be > 0
-
-### Example `.env` File
+### OpenTelemetry
 
 ```bash
-# Copy to your runtime environment. Do NOT commit secrets.
+export KINDLY_OTEL_ENABLED="true"
+export KINDLY_OTEL_SAMPLING_RATIO="0.15"
+export OTEL_SERVICE_NAME="web-search-mcp"
+export DEPLOYMENT_ENV="development"
 
-# Search Providers (provide at least one)
-SEARXNG_BASE_URL=http://localhost:8080
-TAVILY_API_KEY=
-BRAVE_API_KEY=
-JINA_API_KEY=
-KINDLY_GEMINI_API_KEY=
-
-# Recommended: GitHub token for better Issue extraction
-GITHUB_TOKEN=ghp_xxxx
-
-# Optional: Polite API identification
-WIKIPEDIA_USER_AGENT=kindly-web-search-mcp-server/0.1.8 (contact: your@email.com)
-ARXIV_USER_AGENT=kindly-web-search-mcp-server/0.1.8 (contact: your@email.com)
-
-# Provider modes (control when optional providers fire)
-KINDLY_TAVILY_MODE=never
-KINDLY_BRAVE_MODE=never
-KINDLY_JINA_MODE=conditional
-KINDLY_GEMINI_SEARCH_MODE=always
-
-# Feature flags
-KINDLY_RERANKING_ENABLED=true
-KINDLY_ENTITY_EXTRACTION_ENABLED=false  # opt-in
-KINDLY_TOOL_SEARCH_ENABLED=false  # opt-in
-KINDLY_RESULT_MEMORY_ENABLED=false  # enable post verification
-KINDLY_RERANKING_ENABLED=true
-
-# Query understanding / rewrite workers
-AI_GATEWAY_API_KEY=
-CEREBRAS_API_KEY=
-GROQ_API_KEY=
-
-# Optional: Browser path if auto-detection fails
-KINDLY_BROWSER_EXECUTABLE_PATH=
-
-# Optional: Observability (Grafana Cloud)
-OTEL_EXPORTER_OTLP_ENDPOINT=
-OTEL_EXPORTER_OTLP_HEADERS=
+# Grafana Cloud
+export GRAFANA_CLOUD_INSTANCE_ID="..."
+export GRAFANA_CLOUD_API_KEY="..."
+export GRAFANA_CLOUD_OTLP_ENDPOINT="..."
 ```
 
----
+### Langfuse
 
-## Platform-Specific Notes
+```bash
+export LANGFUSE_PUBLIC_KEY="..."
+export LANGFUSE_SECRET_KEY="..."
+export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+```
 
-### WSL/Docker/Headless
+### Analytics (DuckDB)
 
-- `KINDLY_NODRIVER_SANDBOX=0` is the default — Chrome sandbox often fails in containers
-- For Snap-packaged Chromium on Ubuntu, consider increasing `KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER`
+```bash
+export KINDLY_ANALYTICS_ENABLED="true"
+export KINDLY_ANALYTICS_DUCKDB_PATH=".kindly/analytics/search_events.duckdb"
+```
 
-### Windows
+## Agentic Research
 
-- `KINDLY_BROWSER_EXECUTABLE_PATH` auto-detects Chrome/Edge; set explicitly if needed:
-  - Chrome: `C:\Program Files\Google\Chrome\Application\chrome.exe`
-  - Edge: `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
+Multi-step research agent using LangChain/LangGraph.
+
+```bash
+export KINDLY_AGENTIC_RESEARCH_MODEL="Alibaba-NLP/Tongyi-DeepResearch-30B-A3B"
+export NANOGPT_API_KEY="..."
+export KINDLY_AGENTIC_RESEARCH_TEMPERATURE="0"
+export KINDLY_AGENTIC_RESEARCH_TIMEOUT_SECONDS="180"
+
+# Depth profiles
+export KINDLY_AGENTIC_RESEARCH_QUICK_RUN_LIMIT="6"
+export KINDLY_AGENTIC_RESEARCH_NORMAL_RUN_LIMIT="10"
+export KINDLY_AGENTIC_RESEARCH_DEEP_RUN_LIMIT="16"
+```
+
+## Composio
+
+```bash
+export COMPOSIO_API_KEY="..."
+export KINDLY_COMPOSIO_USER_ID="..."
+export KINDLY_COMPOSIO_TIMEOUT_SECONDS="25"
+```
+
+## RRF Tuning
+
+```bash
+# k parameter for Reciprocal Rank Fusion
+export KINDLY_RRF_K="60"
+
+# Provider weights (JSON dict)
+export KINDLY_RRF_PROVIDER_WEIGHTS='{"searxng": 1.0, "brave": 1.2}'
+```

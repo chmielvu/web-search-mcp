@@ -18,6 +18,7 @@ from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from ..search_instrumented import search_single_query
 from ..rerank import rerank_results
+from ..rerank.models import RerankEmbeddingContext
 from .branch_executor import (
     SearchBranchSpec,
     execute_search_branches,
@@ -201,16 +202,21 @@ async def run_search_pipeline(
         active_provider_names,
     )
 
+    embedding_ctx_for_index: RerankEmbeddingContext | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
-            merged = await rerank_results(
+            rerank_out = await rerank_results(
                 query=normalized_query,
                 candidates=merged,
                 top_k=num_results,
-                searxng_time_range=search_options.searxng_time_range if search_options else None,
+                searxng_time_range=search_options.searxng_time_range
+                if search_options
+                else None,
                 research_goal=research_goal,
                 query_type_hint=context.intent,
             )
+            embedding_ctx_for_index = rerank_out.embedding_context
+            merged = rerank_out.results
         except Exception as exc:
             logger.warning("Reranking failed in search pipeline: %s", exc)
 
@@ -248,11 +254,46 @@ async def run_search_pipeline(
         for result in final_results:
             get_session_state_store().mark_seen(session_id, result.link)
 
-    if settings.web_results_index_enabled and final_results:
+    if (
+        settings.web_results_index_enabled
+        and final_results
+        and embedding_ctx_for_index is not None
+    ):
         try:
             from ..index import index_final_results
 
-            asyncio.ensure_future(index_final_results(normalized_query, final_results))
+            dense_embeddings: list[list[float]] = []
+            indexed_results: list = []
+            texts: list[str] = []
+            for r in final_results:
+                # Skip results that originated from Qdrant to prevent feedback loop
+                if r.providers and "qdrant" in r.providers:
+                    continue
+                emb = embedding_ctx_for_index.find(r.link.strip())
+                if emb is None:
+                    continue
+                dense_embeddings.append(emb.dense)
+                texts.append(emb.text)
+                indexed_results.append(r)
+
+            entity_dicts = [
+                {"text": e.text, "label": e.label}
+                for r in final_results
+                if r.entities
+                for e in r.entities
+            ] or None
+
+            if indexed_results:
+                asyncio.ensure_future(
+                    index_final_results(
+                        normalized_query,
+                        indexed_results,
+                        dense_embeddings,
+                        texts=texts,
+                        intent=context.intent,
+                        entities=entity_dicts,
+                    )
+                )
         except Exception as exc:
             logger.debug("index_final_results fire-and-forget failed: %s", exc)
 

@@ -7,7 +7,15 @@ from mcp.types import ToolAnnotations
 
 
 DEFAULT_PROFILE_TOOLS = frozenset(
-    {"web_search", "get_content", "batch_get_content", "discover_links"}
+    {
+        "quick_web_search",
+        "web_search",
+        "get_content",
+        "batch_get_content",
+        "discover_links",
+        "gemini_search",
+        "perplexity_search",
+    }
 )
 
 
@@ -61,84 +69,55 @@ def _entry(
 
 
 TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
+    "quick_web_search": _entry(
+        "quick_web_search", "Quick Web Search", {"regular", "full"}
+    ),
     "web_search": _entry(
-        "web_search",
-        "Web Search",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "web_search", "Web Search", {"regular", "full"}
     ),
     "get_content": _entry(
-        "get_content",
-        "Get Content",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "get_content", "Get Content", {"regular", "full"}
     ),
     "batch_get_content": _entry(
-        "batch_get_content",
-        "Batch Get Content",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "batch_get_content", "Batch Get Content", {"regular", "full"}
     ),
     "discover_links": _entry(
-        "discover_links",
-        "Discover Links",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "discover_links", "Discover Links", {"regular", "full"}
     ),
     "gemini_search": _entry(
-        "gemini_search", "Gemini Search", {"research", "experimental", "full"}
+        "gemini_search", "Gemini Search", {"regular", "full"}
     ),
     "perplexity_search": _entry(
         "perplexity_search",
         "Perplexity Search",
-        {"research", "experimental", "full"},
+        {"regular", "full"},
         expensive=True,
     ),
     "grok_search": _entry(
         "grok_search",
         "Grok Search",
-        {"research", "experimental", "full"},
+        {"full"},
         expensive=True,
         idempotent=False,
     ),
     "academic_search": _entry(
-        "academic_search", "Academic Search", {"research", "experimental", "full"}
-    ),
-    "quick_web_search": _entry(
-        "quick_web_search",
-        "Quick Web Search",
-        {"research", "experimental", "full"},
+        "academic_search", "Academic Search", {"full"}
     ),
     "composio_similarlinks": _entry(
-        "composio_similarlinks",
-        "Composio Similarlinks",
-        {"research", "experimental", "full"},
-    ),
-    "composio_image_search": _entry(
-        "composio_image_search",
-        "Composio Image Search",
-        {"media", "experimental", "full"},
-    ),
-    "analytics_query": _entry(
-        "analytics_query",
-        "Analytics Query",
-        {"diagnostic", "experimental", "full"},
-        open_world=False,
-    ),
-    "analytics_report": _entry(
-        "analytics_report",
-        "Analytics Report",
-        {"diagnostic", "experimental", "full"},
-        open_world=False,
+        "composio_similarlinks", "Composio Similarlinks", {"full"}
     ),
     "agentic_web_research": _entry(
         "agentic_web_research",
         "Agentic Web Research",
-        {"research", "experimental", "full"},
+        {"full"},
         experimental=True,
         idempotent=False,
     ),
     "youtube_search": _entry(
-        "youtube_search", "YouTube Search", {"media", "experimental", "full"}
+        "youtube_search", "YouTube Search", {"full"}
     ),
     "youtube_transcript": _entry(
-        "youtube_transcript", "YouTube Transcript", {"media", "experimental", "full"}
+        "youtube_transcript", "YouTube Transcript", {"full"}
     ),
 }
 

@@ -15,6 +15,8 @@ from ..settings import settings
 _LOCK = threading.Lock()
 _TABLE_NAME = "search_events"
 _RUNS_TABLE_NAME = "search_runs"
+_QU_TABLE_NAME = "query_understanding"
+_QR_TABLE_NAME = "query_rewrites"
 
 
 def _db_path(db_path: str | None = None) -> Path:
@@ -323,6 +325,164 @@ def insert_search_run(
             connection.execute(
                 f"""
                 INSERT INTO {_RUNS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
+        finally:
+            connection.close()
+
+
+def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create query_understanding table with index if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_QU_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            intent VARCHAR,
+            confidence DOUBLE,
+            should_decompose BOOLEAN,
+            rationale VARCHAR,
+            model VARCHAR,
+            provider VARCHAR,
+            duration_ms DOUBLE,
+            fallback_used BOOLEAN,
+            entities_count INTEGER,
+            preserved_terms VARCHAR[],
+            time_sensitivity VARCHAR,
+            payload_json JSON
+        )
+        """
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_qu_run_key ON {_QU_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_query_understanding(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the query_understanding table.
+
+    Uses the same pattern as insert_search_run()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "intent",
+        "confidence",
+        "should_decompose",
+        "rationale",
+        "model",
+        "provider",
+        "duration_ms",
+        "fallback_used",
+        "entities_count",
+        "preserved_terms",
+        "time_sensitivity",
+        "payload_json",
+    ]
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_query_understanding(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_QU_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
+        finally:
+            connection.close()
+
+
+def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create query_rewrites table with index if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_QR_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            variant_index INTEGER,
+            branch_type VARCHAR,
+            kind VARCHAR,
+            target VARCHAR,
+            query VARCHAR NOT NULL,
+            weight DOUBLE,
+            reason VARCHAR,
+            max_results INTEGER,
+            model VARCHAR,
+            duration_ms DOUBLE,
+            payload_json JSON
+        )
+        """
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_qr_run_key ON {_QR_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_query_rewrites(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the query_rewrites table.
+
+    Uses the same pattern as insert_search_run()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "variant_index",
+        "branch_type",
+        "kind",
+        "target",
+        "query",
+        "weight",
+        "reason",
+        "max_results",
+        "model",
+        "duration_ms",
+        "payload_json",
+    ]
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_query_rewrites(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_QR_TABLE_NAME} ({col_list})
                 VALUES ({placeholders})
                 """,
                 values,

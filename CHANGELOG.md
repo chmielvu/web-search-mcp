@@ -1,11 +1,24 @@
 ## [Unreleased]
 
-### Fixed
-- Corrected the v0.2 search control-plane regressions found in the audit pass: `web-search-cli search web` now passes `diagnostics=None` into the live pipeline, `provider_arguments` now flow through `search_instrumented.py` into provider calls, the dead `query_entities` seam was removed, query understanding now falls back through the worker/LLM ladder and then to `general`, and search-result entity extraction now uses a dedicated entity prompt.
-- `init_telemetry()` blocking MCP/CLI startup for ~70s when the Grafana OTLP endpoint is unreachable. The function now runs in a background daemon thread (`init_telemetry_background`) so the server becomes responsive immediately; telemetry attaches once the background init completes. Added `KINDLY_OTEL_ENABLED=false` guard to skip telemetry entirely, explicit `timeout` on all OTLP exporter constructors (default 10s, configurable via `KINDLY_OTLP_EXPORT_TIMEOUT_SECONDS`), and a top-level try/except so telemetry failures never crash the server. Removed the redundant `init_telemetry()` call from `search_instrumented.py`.
-- Cleaned the new 0.2 package import graph after the first verification pass: corrected the `search/profiles/defaults.py` settings import, removed the eager resolver import from `search/understanding/__init__.py`, and flattened the `llm`/`prompts` package exports so the new pipeline loads cleanly. Reverified with `compileall`, focused `ruff`, `tests/test_server.py`, and `tests/test_search_orchestrator.py`.
-- Removed the remaining GLiNER hook from the content fetch hot path and moved the content entity helper onto the shared LLM worker facade. Added focused tests for profile inheritance, prompt registry rendering, query-understanding model shape, provider-plan resolution, JSONL training writes, and entity-response handling.
-- Removed the old compatibility rewrite/orchestrator surface entirely. `search/orchestrator.py`, `search/orchestrator_compat.py`, `search/query_rewrite.py`, and `search/query_policy_resolver.py` are gone; the live search path now runs through `search/pipeline.py`, and provider arguments are threaded from profile resolution into provider calls instead of stopping in the plan object. Added a narrow provider-argument forwarding test to prevent regression.
+### Changed
+- **Qdrant two-way search provider**: Qdrant index is now a read/write search provider. Reads use hybrid search (dense embeddings + BM25 sparse with server-side RRF fusion) via `query_points`; writes use precomputed embeddings from the rerank pipeline. Feedback loop prevention: Qdrant-sourced results are tagged with `providers=["qdrant"]` and skipped during re-indexing.
+- **Embedding reuse in rerank pipeline**: Bi-encoder embeddings from Stage 1 are now captured in `RerankEmbeddingContext` and reused for MMR diversity (Stage 3) and Qdrant indexing, eliminating 2 redundant `embed_texts` API calls per search. New Pydantic models: `CandidateEmbedding`, `RerankEmbeddingContext` (with `.find(url)` lookup), `RerankOutput` (returns results + embedding context).
+- **BM25 computation moved to index layer**: Sparse BM25 vectors computed locally inside `index_final_results` from passed `texts=` (no API call). `index_final_results` accepts `texts=` keyword instead of precomputed `sparse_embeddings`.
+- **Qdrant index payload revised**: Payload changed from `{url, title, snippet, domain, resource_type, score, provider_count, indexed_at}` to `{url, title, snippet, domain, intent, provider, entities, indexed_at}` — metadata now captures query-level context (intent, extracted entities) and the provider that surfaced each result.
+- **`resource_type` field removed** from `WebSearchResult` model and all call sites (`youtube.py`, `result_memory_pipeline.py`, `result_memory.py`, `public_output.py`).
+- **Search Router provider removed** (was experimental, replaced by Qdrant native provider).
+
+### Added
+- `rerank/models.py` — Pydantic models `CandidateEmbedding`, `RerankEmbeddingContext` (with `.find(url)` lookup), `RerankOutput`.
+- `search/qdrant.py` — Qdrant hybrid search provider (dense + sparse BM25 with server-side RRF). Registered as `qdrant` (ALWAYS mode, free). No API key required — uses public HF Space endpoint with HF token auth.
+- `KINDLY_QDRANT_SEARCH_ENABLED` env var (default true) to toggle Qdrant search.
+- Feedback loop prevention: Qdrant-sourced results tagged with `providers=["qdrant"]` and skipped during re-indexing (`if "qdrant" in r.providers: continue`).
+
+### Removed
+- `KINDLY_QDRANT_API_KEY` setting and all references (public HF Space endpoint, no API key).
+- `KINDLY_QDRANT_API_KEY` from `.env` and all code references.
+- `resource_type` field from `WebSearchResult` model and all call sites (`youtube.py`, `result_memory_pipeline.py`, `result_memory.py`, `public_output.py`).
+- `search/search_router.py` (experimental Search Router provider, replaced by native Qdrant provider).
 
 ### Changed
 - `KINDLY_TOOL_PROFILE` now defaults to `full`, so MCP hosts and the planned native CLI expose all registered tools unless explicitly narrowed with `KINDLY_TOOL_PROFILE=default` or another profile.

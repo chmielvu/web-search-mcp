@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+from pydantic import BaseModel, Field
+
 from ..llm.worker import build_llm_worker
 from ..llm.structured import StructuredLLMRequest
 from ..prompts.registry import build_prompt
@@ -21,6 +23,10 @@ REWRITE_TEMPERATURE_BY_INTENT: dict[SearchIntent, float] = {
     "digital_humanities": 0.25,
     "comparison": 0.2,
 }
+
+
+class RewriteVariantResponse(BaseModel):
+    variants: list[QueryVariant] = Field(min_length=1)
 
 
 def build_search_context(
@@ -102,6 +108,7 @@ async def build_rewrite_variants(
             ],
             temperature=REWRITE_TEMPERATURE_BY_INTENT[understanding_intent],
             timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
+            response_model=RewriteVariantResponse,
         )
     )
     payload = json.loads(generation.content)

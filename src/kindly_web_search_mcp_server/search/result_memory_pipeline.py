@@ -73,7 +73,6 @@ async def inject_result_memory_candidates(
                     link=url,
                     snippet=snippet,
                     providers=["result_memory"],
-                    resource_type="cached",
                     raw_score=0.0,
                 )
             )

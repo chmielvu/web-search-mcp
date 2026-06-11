@@ -135,7 +135,7 @@ class Settings:
         "KINDLY_VERCEL_AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1"
     )
     query_understanding_model: str = os.environ.get(
-        "KINDLY_QUERY_UNDERSTANDING_MODEL", "amazon/nova-micro"
+        "KINDLY_QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
     cerebras_rewrite_model: str = os.environ.get(
         "KINDLY_CEREBRAS_REWRITE_MODEL", "cerebras/gpt-oss-120b"
@@ -323,9 +323,6 @@ class Settings:
     rrf_k: int = int(os.environ.get("KINDLY_RRF_K", "60"))
     rrf_provider_weights: dict = None  # type: ignore[assignment]  # set in __post_init__
 
-    # Default num_results for web_search
-    default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
-
     # =====================================================================
     # Result Memory (Qdrant local store) - Phase 7
     # =====================================================================
@@ -356,10 +353,14 @@ class Settings:
     qdrant_space_url: str = os.environ.get(
         "KINDLY_QDRANT_SPACE_URL", "https://chmielvu-web-index.hf.space"
     )
-    qdrant_api_key: str = os.environ.get("KINDLY_QDRANT_API_KEY", "")
+
+    # Qdrant search provider (reads from the same index)
+    qdrant_search_enabled: bool = (
+        os.environ.get("KINDLY_QDRANT_SEARCH_ENABLED", "true").lower() == "true"
+    )
 
     # FastMCP tool visibility profile
-    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "full")
+    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "regular")
 
     # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
     # No legacy aliases (per joint plan: no backward compat).
@@ -528,6 +529,7 @@ class Settings:
             # - jina: 1.1 (semantic search expertise, deep understanding)
             # - searxng: 1.0 (baseline, free/open-source aggregator with meta-search breadth)
             # - brave: 1.0 (baseline, independent index, privacy-focused)
+            # - search_router: 1.0 (free general SERP, general-purpose index)
             # - ddg: 0.7 (aggregator, less freshness for navigational queries, penalized for instant answers)
             # Note: weights are query-type dependent. Future: adaptive weighting by intent classification.
             self.rrf_provider_weights = _parse_json_dict(
@@ -541,6 +543,7 @@ class Settings:
                     "gemini": 1.2,
                     "composio_llm_search": 1.15,
                     "grok_openrouter": 1.5,
+                    "search_router": 1.0,
                 },
             )
 

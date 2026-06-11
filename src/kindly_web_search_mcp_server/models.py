@@ -24,40 +24,25 @@ from .entity.models import EntitySpan  # always available (pure python)
 class WebSearchResult(BaseModel):
     """Single search result from web search."""
 
-    title: str = Field(description="Human-readable result title.")
-    link: str = Field(description="Canonical URL for the result.")
-    snippet: str = Field(description="Search engine snippet/preview text.")
-    domain: str | None = Field(
-        default=None, description="Domain associated with the result."
-    )
-    resource_type: str | None = Field(
-        default=None,
-        description="High-level resource type such as web, pdf, youtube, github, or other.",
-    )
+    title: str
+    link: str
+    snippet: str
+    domain: str | None = None
     mime_hint: str | None = Field(
         default=None,
         description="Best-effort MIME hint when known.",
     )
-    published_date: str | None = Field(
-        default=None,
-        description="Best-effort publication date if the provider exposes one.",
-    )
+    published_date: str | None = None
     source_engines: list[str] | None = Field(
         default=None,
         description="Provider engine names that surfaced the result, when known.",
     )
-    category: str | None = Field(
-        default=None,
-        description="Provider category or result bucket, when known.",
-    )
+    category: str | None = None
     raw_score: float | None = Field(
         default=None,
         description="Unnormalized score returned by the provider before merge/rerank.",
     )
-    providers: list[str] | None = Field(
-        default=None,
-        description="Search providers that surfaced this result.",
-    )
+    providers: list[str] | None = None
     provider_count: int | None = Field(
         default=None,
         description="Number of providers that surfaced this result (agreement signal).",
@@ -66,14 +51,8 @@ class WebSearchResult(BaseModel):
         default=None,
         description="Merged/reranked score used for final ordering.",
     )
-    entities: list[EntitySpan] | None = Field(
-        default=None,
-        description="Extracted entities (GLiNER2) from title + snippet when entity extraction enabled.",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata emitted when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    entities: list[EntitySpan] | None = None
+    diagnostics: list[dict[str, Any]] | None = None
 
 
 class CandidateResult(BaseModel):
@@ -85,31 +64,37 @@ class CandidateResult(BaseModel):
     url: str = Field(description="The result URL (used as dedup key).")
     title: str = Field(description="Title from past result.")
     snippet: str = Field(description="Snippet from past result.")
-    similarity: float = Field(default=0.0, description="Raw vector similarity from Qdrant lookup.")
-    entity_overlap: float = Field(default=0.0, description="Entity overlap boost factor (0 if no entities).")
-    adjusted_score: float = Field(default=0.0, description="Similarity after age decay + entity boost.")
-    cached_at: str | None = Field(default=None, description="ISO timestamp when originally stored.")
-    source_query: str | None = Field(default=None, description="The past query that produced this result.")
+    similarity: float = Field(
+        default=0.0, description="Raw vector similarity from Qdrant lookup."
+    )
+    entity_overlap: float = Field(
+        default=0.0, description="Entity overlap boost factor (0 if no entities)."
+    )
+    adjusted_score: float = Field(
+        default=0.0, description="Similarity after age decay + entity boost."
+    )
+    cached_at: str | None = Field(
+        default=None, description="ISO timestamp when originally stored."
+    )
+    source_query: str | None = Field(
+        default=None, description="The past query that produced this result."
+    )
 
 
 class ProviderWarning(BaseModel):
     """Warning about a partial failure from a provider."""
 
-    provider: str = Field(description="Provider that encountered the issue.")
-    error: str = Field(description="Error message from the provider.")
-    error_type: str | None = Field(
-        default=None, description="Error classification if known."
-    )
+    provider: str
+    error: str
+    error_type: str | None = None
 
 
 class SearchResultWindow(BaseModel):
     """Pagination metadata for a search result window."""
 
-    offset: int = Field(description="Zero-based result offset requested by the caller.")
-    returned: int = Field(description="Number of results returned in this page.")
-    candidate_count: int = Field(
-        description="Number of candidates available before window slicing."
-    )
+    offset: int
+    returned: int
+    candidate_count: int
     has_more: bool = Field(description="Whether another page is available.")
     next_offset: int | None = Field(
         default=None,
@@ -120,11 +105,9 @@ class SearchResultWindow(BaseModel):
 class ContentLink(BaseModel):
     """Single discovered link from a page or sitemap."""
 
-    url: str = Field(description="Absolute URL for the discovered link.")
-    text: str = Field(description="Visible link text or URL fallback.")
-    domain: str | None = Field(
-        default=None, description="Destination domain when it can be determined."
-    )
+    url: str
+    text: str
+    domain: str | None = None
     internal: bool = Field(
         default=False, description="Whether the link stays within the source domain."
     )
@@ -138,41 +121,24 @@ class ContentLink(BaseModel):
 class WebSearchResponse(BaseModel):
     """Response from web_search tool."""
 
-    query: str = Field(description="Original raw query.")
-    results: list[WebSearchResult] = Field(
-        default_factory=list, description="Search results."
-    )
-    total_results: int = Field(
-        default=0, description="Total number of results returned."
-    )
-    result_window: SearchResultWindow | None = Field(
-        default=None,
-        description="Pagination metadata for the returned result window.",
-    )
+    query: str
+    results: list[WebSearchResult] = Field(default_factory=list)
+    total_results: int = 0
+    result_window: SearchResultWindow | None = None
     providers_used: list[str] = Field(
         default_factory=list,
         description="Providers that successfully returned results.",
     )
-    warnings: list[ProviderWarning] | None = Field(
-        default=None,
-        description="Partial failures from providers (e.g., rate limits, timeouts).",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    warnings: list[ProviderWarning] | None = None
+    diagnostics: list[dict[str, Any]] | None = None
 
 
 class GetContentResponse(BaseModel):
     """Response from get_content tool."""
 
-    input_url: str = Field(description="Exact URL supplied by the caller.")
-    normalized_url: str = Field(
-        description="Normalized URL used for cache lookup and deduplication."
-    )
-    fetched_url: str | None = Field(
-        default=None, description="Actual URL reached after redirects, if known."
-    )
+    input_url: str
+    normalized_url: str
+    fetched_url: str | None = None
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
     )
@@ -180,44 +146,14 @@ class GetContentResponse(BaseModel):
         description="Detected source type, e.g. html, pdf, github_issue."
     )
     fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
-    page_content: str = Field(
-        description="Bounded content slice for the requested window."
-    )
-    window: dict[str, Any] = Field(
-        description="Window metadata for pagination/continuation."
-    )
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional source metadata extracted from the fetched page.",
-    )
-    links: list[ContentLink] | None = Field(
-        default=None,
-        description="Optional discovered links extracted from the fetched page.",
-    )
-    continuation_notice: str | None = Field(
-        default=None,
-        description="Human-readable truncation notice for the returned window.",
-    )
-    content_type: str | None = Field(
-        default=None,
-        description="Detected HTTP content type if available.",
-    )
-    error: dict[str, Any] | None = Field(
-        default=None,
-        description="Structured error payload for non-success statuses.",
-    )
-    summary: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional derived summary when summary_mode is requested.",
-    )
-    entities: list[EntitySpan] | None = Field(
-        default=None,
-        description="Extracted entities (GLiNER2) from the returned page_content when entity extraction enabled.",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    page_content: str
+    window: dict[str, Any]
+    metadata: dict[str, Any] | None = None
+    links: list[ContentLink] | None = None
+    continuation_notice: str | None = None
+    content_type: str | None = None
+    error: dict[str, Any] | None = None
+    summary: dict[str, Any] | None = None
 
 
 class BatchContentResult(BaseModel):
@@ -241,31 +177,17 @@ class BatchContentResult(BaseModel):
 class DiscoverLinksResponse(BaseModel):
     """Response from discover_links tool."""
 
-    input_url: str = Field(description="Exact URL supplied by the caller.")
-    normalized_url: str = Field(
-        description="Normalized URL used for fetch and deduplication."
-    )
-    fetched_url: str | None = Field(
-        default=None, description="Actual URL reached after redirects, if known."
-    )
-    source_type: str = Field(
-        description="Detected link source type, such as html or sitemap."
-    )
-    links: list[ContentLink] = Field(
-        default_factory=list, description="Discovered links returned in this page."
-    )
-    returned_links: int = Field(
-        default=0, description="Number of links returned in this page."
-    )
+    input_url: str
+    normalized_url: str
+    fetched_url: str | None = None
+    source_type: str
+    links: list[ContentLink] = Field(default_factory=list)
+    returned_links: int = 0
     has_more: bool = Field(
         default=False, description="Whether more links exist beyond the current page."
     )
-    metadata: dict[str, Any] | None = Field(
-        default=None, description="Optional metadata extracted from the source page."
-    )
-    error: dict[str, Any] | None = Field(
-        default=None, description="Structured error payload for failures."
-    )
+    metadata: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
 
 
 class BatchGetContentResponse(BaseModel):
@@ -282,170 +204,116 @@ class BatchGetContentResponse(BaseModel):
 class GeminiSearchResponse(BaseModel):
     """Response from gemini_search tool (AI-grounded search)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str = Field(description="AI-synthesized answer with inline citations [N].")
-    web_search_queries: list[str] | None = Field(
-        default=None,
-        description="Search queries used for grounding.",
-    )
-    grounding_chunks: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Grounding sources with citations.",
-    )
-    structured_result: dict[str, Any] | None = Field(
-        default=None,
-        description="Structured output when structured_output=True.",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str
+    web_search_queries: list[str] | None = None
+    grounding_chunks: list[dict[str, Any]] | None = None
+    structured_result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class PerplexitySearchResponse(BaseModel):
     """Response from perplexity_search tool (AI-synthesized search)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str | None = Field(
-        default=None, description="AI-synthesized answer with citations."
-    )
-    sources: list[str] | None = Field(
-        default=None,
-        description="Source URLs cited in the answer.",
-    )
-    model: str | None = Field(default=None, description="Perplexity model used.")
-    steering_message: str | None = Field(
-        default=None,
-        description="Query guidance message on first call (rate-limited resource).",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str | None = None
+    sources: list[str] | None = None
+    model: str | None = None
+    steering_message: str | None = None
+    error: str | None = None
 
 
 class GrokCitation(BaseModel):
     """Single citation from grok_search result (OpenRouter url_citation)."""
 
-    url: str = Field(description="Source URL.")
-    title: str | None = Field(default=None, description="Source page title.")
-    snippet: str | None = Field(
-        default=None, description="Extracted highlight or excerpt."
-    )
+    url: str
+    title: str | None = None
+    snippet: str | None = None
 
 
 class GrokSearchResponse(BaseModel):
-    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search.
+    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search."""
 
-    Returns AI-synthesized answers with source citations, like gemini_search
-    and perplexity_search, NOT a raw URL list like web_search.
-    """
-
-    query: str = Field(description="Original search query.")
-    answer: str = Field(description="Grok's synthesized answer with inline citations.")
-    citations: list[GrokCitation] = Field(
-        default_factory=list, description="Extracted source URLs with titles."
-    )
-    model: str = Field(description="Model ID used for generation.")
-    search_queries_used: int = Field(
-        default=0, description="Number of web search tool invocations."
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str
+    citations: list[GrokCitation] = Field(default_factory=list)
+    model: str
+    search_queries_used: int = 0
+    error: str | None = None
 
 
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
 
-    video_id: str = Field(description="YouTube video identifier.")
-    video_url: str = Field(description="Canonical YouTube URL.")
-    title: str | None = Field(default=None, description="Video title if available.")
-    transcript_text: str = Field(description="Transcript content in requested format.")
-    language: str = Field(description="Language code of transcript.")
-    is_translated: bool = Field(
-        default=False, description="Whether transcript was translated."
-    )
-    duration_seconds: float | None = Field(
-        default=None, description="Total video duration."
-    )
-    transcript_segments: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Raw transcript segments if format='json'.",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if transcript fetch failed."
-    )
+    video_id: str
+    video_url: str
+    title: str | None = None
+    transcript_text: str
+    language: str
+    is_translated: bool = False
+    duration_seconds: float | None = None
+    transcript_segments: list[dict[str, Any]] | None = None
+    error: str | None = None
 
 
 class YouTubeSearchResponse(BaseModel):
     """Response from youtube_search tool."""
 
-    query: str = Field(description="Original search query.")
-    results: list[WebSearchResult] = Field(
-        default_factory=list,
-        description="YouTube video results.",
-    )
-    total_results: int = Field(default=0, description="Total number of video results.")
+    query: str
+    results: list[WebSearchResult] = Field(default_factory=list)
+    total_results: int = 0
 
 
 class SimilarLinkResult(BaseModel):
     """Single related URL returned by Composio Similarlinks."""
 
-    title: str = Field(description="Human-readable result title.")
-    link: str = Field(description="Canonical URL for the related page.")
-    score: float | None = Field(default=None, description="Provider similarity score.")
+    title: str
+    link: str
+    score: float | None = None
 
 
 class SimilarLinksResponse(BaseModel):
     """Response from Composio Similarlinks."""
 
-    url: str = Field(description="Source URL used to find similar links.")
+    url: str
     results: list[SimilarLinkResult] = Field(default_factory=list)
-    total_results: int = Field(default=0, description="Total related links returned.")
+    total_results: int = 0
 
 
 class ImageSearchResult(BaseModel):
     """Single image metadata result from Composio Image Search."""
 
-    title: str = Field(description="Image result title.")
-    source: str | None = Field(default=None, description="Source site label.")
-    page_link: str = Field(description="Page URL where the image appears.")
-    original_url: str = Field(description="Original/full-resolution image URL.")
-    thumbnail_url: str | None = Field(default=None, description="Thumbnail image URL.")
+    title: str
+    source: str | None = None
+    page_link: str
+    original_url: str
+    thumbnail_url: str | None = None
 
 
 class ImageSearchResponse(BaseModel):
     """Response from Composio Image Search."""
 
-    query: str = Field(description="Original image search query.")
+    query: str
     results: list[ImageSearchResult] = Field(default_factory=list)
-    total_results: int = Field(default=0, description="Total image results returned.")
-    page: int = Field(default=0, description="Image search page index.")
+    total_results: int = 0
+    page: int = 0
 
 
 class QuickWebSearchCitation(BaseModel):
     """Single citation/source from Composio Quick Web Search."""
 
-    title: str | None = Field(
-        default=None, description="Citation title from the source."
-    )
-    url: str | None = Field(default=None, description="URL of the cited source.")
-    snippet: str | None = Field(
-        default=None, description="Text snippet from the source."
-    )
+    title: str | None = None
+    url: str | None = None
+    snippet: str | None = None
 
 
 class QuickWebSearchResponse(BaseModel):
     """Response from Composio Quick Web Search (COMPOSIO_SEARCH_WEB)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str | None = Field(
-        default=None, description="AI-synthesized narrative summary."
-    )
-    citations: list[QuickWebSearchCitation] = Field(
-        default_factory=list,
-        description="Source citations (prioritize these over answer for evidence).",
-    )
-    total_citations: int = Field(default=0, description="Total citations returned.")
+    query: str
+    answer: str | None = None
+    citations: list[QuickWebSearchCitation] = Field(default_factory=list)
+    total_citations: int = 0
 
 
 # ============================================================================
@@ -518,54 +386,30 @@ QuickWebSearchResultType = QuickWebSearchResponse | ToolErrorResponse
 class AcademicPaper(BaseModel):
     """A single academic paper from scholarly search."""
 
-    title: str = Field(description="Paper title.")
-    authors: list[str] = Field(default_factory=list, description="Author names.")
-    abstract: str | None = Field(default=None, description="Paper abstract or summary.")
-    year: int | None = Field(default=None, description="Publication year.")
-    venue: str | None = Field(
-        default=None, description="Publication venue (conference/journal)."
-    )
-    citations: int | None = Field(
-        default=None, description="Citation count if available."
-    )
-    url: str = Field(description="Canonical URL (DOI or abstract page).")
-    pdf_url: str | None = Field(
-        default=None, description="Direct PDF link if available."
-    )
-    source: str = Field(
-        description="Provider that found this paper: semanticscholar or arxiv."
-    )
-    source_id: str = Field(description="Provider-specific paper identifier.")
-    external_ids: dict[str, str] | None = Field(
-        default=None, description="External IDs: DOI, ArXiv, PubMed, etc."
-    )
-    fields_of_study: list[str] | None = Field(
-        default=None, description="Fields of study (e.g. Computer Science)."
-    )
-    is_open_access: bool | None = Field(
-        default=None, description="Whether an open-access PDF is available."
-    )
-    score: float | None = Field(
-        default=None, description="Relevance score from provider."
-    )
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    abstract: str | None = None
+    year: int | None = None
+    venue: str | None = None
+    citations: int | None = None
+    url: str
+    pdf_url: str | None = None
+    source: str = Field(description="Provider: semanticscholar or arxiv.")
+    source_id: str
+    external_ids: dict[str, str] | None = None
+    fields_of_study: list[str] | None = None
+    is_open_access: bool | None = None
+    score: float | None = None
 
 
 class AcademicSearchResponse(BaseModel):
     """Response from academic_search tool."""
 
-    query: str = Field(description="Original search query.")
-    results: list[AcademicPaper] = Field(
-        default_factory=list, description="Deduplicated academic papers."
-    )
-    total_results: int = Field(
-        default=0, description="Total results after deduplication."
-    )
-    sources_used: list[str] = Field(
-        default_factory=list, description="Providers that returned results."
-    )
-    warnings: list[ProviderWarning] | None = Field(
-        default=None, description="Partial failures from providers."
-    )
+    query: str
+    results: list[AcademicPaper] = Field(default_factory=list)
+    total_results: int = 0
+    sources_used: list[str] = Field(default_factory=list)
+    warnings: list[ProviderWarning] | None = None
 
 
 AcademicSearchResultType = AcademicSearchResponse | ToolErrorResponse

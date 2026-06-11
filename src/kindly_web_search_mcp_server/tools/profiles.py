@@ -5,11 +5,7 @@ from typing import Literal, Protocol, cast
 from .catalog import TOOL_CATALOG
 
 ToolProfile = Literal[
-    "default",
-    "research",
-    "media",
-    "diagnostic",
-    "experimental",
+    "regular",
     "full",
 ]
 
@@ -45,6 +41,6 @@ def tags_for_profile(profile: str) -> set[str]:
 def apply_tool_profile(mcp: VisibilityServer, profile: str) -> VisibilityServer:
     normalized = normalize_tool_profile(profile)
     mcp.enable(tags=tags_for_profile(normalized), only=True, components={"tool"})
-    if normalized in {"default", "media", "diagnostic"}:
+    if normalized == "regular":
         mcp.disable(tags={"tool:experimental"}, components={"tool"})
     return mcp

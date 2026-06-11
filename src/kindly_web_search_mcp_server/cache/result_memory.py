@@ -263,7 +263,7 @@ class ResultMemoryStore:
                 "result_title": title,
                 "result_snippet": snippet,
                 "entities_json": ents_json,
-                "content_type": r.get("category") or r.get("resource_type") or "general",
+                "content_type": r.get("category") or "general",
                 "provider_key": provider_key,
                 "created_at": created,
             }

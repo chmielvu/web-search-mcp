@@ -9,8 +9,6 @@ from fastmcp.server.context import Context
 
 from .composio_client import execute_composio_tool
 from .models import (
-    ImageSearchResponse,
-    ImageSearchResult,
     QuickWebSearchCitation,
     QuickWebSearchResponse,
     SimilarLinkResult,
@@ -19,7 +17,6 @@ from .models import (
 from .tools.catalog import tool_kwargs
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
-IMAGE_SEARCH_SLUG = "COMPOSIO_SEARCH_IMAGE"
 WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_WEB"
 
 
@@ -144,54 +141,6 @@ async def _composio_similarlinks_impl(
     return SimilarLinksResponse(url=url, results=results, total_results=len(results))
 
 
-async def _composio_image_search_impl(
-    query: str,
-    num_results: int,
-    page: int,
-) -> ImageSearchResponse:
-    safe_page = max(0, page)
-    data = await execute_composio_tool(
-        IMAGE_SEARCH_SLUG,
-        {
-            "query": query,
-            "num": max(1, min(num_results, 100)),
-            "ijn": safe_page,
-        },
-    )
-    raw_results = data.get("images_results", [])
-    items = raw_results if isinstance(raw_results, list) else []
-    results: list[ImageSearchResult] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        page_link = item.get("link")
-        original_url = item.get("original")
-        if not isinstance(title, str) or not isinstance(page_link, str):
-            continue
-        if not isinstance(original_url, str):
-            continue
-        thumbnail_url = item.get("thumbnail")
-        source = item.get("source")
-        results.append(
-            ImageSearchResult(
-                title=title.strip(),
-                source=source.strip() if isinstance(source, str) else None,
-                page_link=page_link.strip(),
-                original_url=original_url.strip(),
-                thumbnail_url=thumbnail_url.strip()
-                if isinstance(thumbnail_url, str)
-                else None,
-            )
-        )
-    return ImageSearchResponse(
-        query=query,
-        results=results,
-        total_results=len(results),
-        page=safe_page,
-    )
-
-
 def register_composio_tools(mcp: Any) -> None:
     """Register standalone Composio Search toolkit tools."""
 
@@ -200,15 +149,8 @@ def register_composio_tools(mcp: Any) -> None:
         query: str,
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """Quick web search using Composio SEARCH_WEB (Exa-backed).
-
-        Returns an AI-synthesized answer and citations. Prioritize citations
-        as primary evidence over the answer, which can be vague. Only indexes
-        publicly available content — no paywalled or private pages.
-
-        Args:
-            query: Search query. Add qualifiers (year, region, platform) for
-                   better results. Broad queries return generic content.
+        """Fast reconnaissance search. Returns a synthesized answer with citations.
+        Use as the initial tool call to scope a topic before deeper research.
         """
         await ctx.info(f"Quick web search: {query[:80]}...")
         response = await _quick_web_search_impl(query)
@@ -225,11 +167,8 @@ def register_composio_tools(mcp: Any) -> None:
         exclude_domains: list[str] | None = None,
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """Find pages similar to a known URL using Composio Similarlinks.
-
-        Returns related URLs with title/link/score only. The observed Composio payload
-        does not include snippets or page content; use `get_content()` on selected links
-        when page text is needed.
+        """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
+        Use get_content on selected links when page text is needed.
         """
         await ctx.info(f"Finding similar links for: {url[:80]}...")
         response = await _composio_similarlinks_impl(
@@ -241,21 +180,4 @@ def register_composio_tools(mcp: Any) -> None:
             exclude_domains,
         )
         await ctx.info(f"Found {response.total_results} similar links")
-        return response.model_dump(exclude_none=True)
-
-    @mcp.tool(**tool_kwargs("composio_image_search"))
-    async def composio_image_search(
-        query: str,
-        num_results: int = 10,
-        page: int = 0,
-        ctx: Context = CurrentContext(),
-    ) -> dict:
-        """Search image metadata and URLs using Composio Image Search.
-
-        Returns image URLs and metadata, not image bytes. URL accessibility and
-        licensing/commercial reuse must be verified from the result page.
-        """
-        await ctx.info(f"Searching images: {query[:80]}...")
-        response = await _composio_image_search_impl(query, num_results, page)
-        await ctx.info(f"Found {response.total_results} image results")
         return response.model_dump(exclude_none=True)

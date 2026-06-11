@@ -30,6 +30,7 @@ from ..utils.observability import emit_observability_event
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
 from .engines import rerank_with_engine_fallback
+from .models import RerankEmbeddingContext, RerankOutput
 from .observability import emit_rerank_summary
 from .policy import decide_rerank
 from opentelemetry import trace
@@ -106,20 +107,20 @@ async def rerank_results(
     query_entities: list | None = None,
     research_goal: str | None = None,
     query_type_hint: str | None = None,
-) -> list[WebSearchResult]:
+) -> RerankOutput:
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
     query_entities (if provided) enables the measured entity-overlap feature
     when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
     """
     if not candidates:
-        return []
+        return RerankOutput(results=[], embedding_context=None)
 
     if len(candidates) <= top_k:
         logger.debug(
             f"Candidates ({len(candidates)}) <= top_k ({top_k}), skipping rerank"
         )
-        return candidates
+        return RerankOutput(results=candidates, embedding_context=None)
 
     instruction = _build_rerank_instruction(
         research_goal=research_goal,
@@ -139,7 +140,6 @@ async def rerank_results(
             decision.reason,
             len(candidates),
         )
-        # policy already emitted rerank.eligibility + rerank.bypassed
         emit_observability_event(
             logger,
             "rerank.bypassed",
@@ -147,7 +147,7 @@ async def rerank_results(
             query=query[:200],
             candidate_count=len(candidates),
         )
-        return candidates
+        return RerankOutput(results=candidates, embedding_context=None)
 
     original_count = len(candidates)
     pipeline_start = time.time()
@@ -163,6 +163,8 @@ async def rerank_results(
             f"Query embedding failed: {type(e).__name__}: {e}; "
             "Stage 1 (bi-encoder) and Stage 3 (diversity) will be skipped"
         )
+
+    embedding_ctx: RerankEmbeddingContext | None = None
 
     with tracer.start_as_current_span(
         "rerank.pipeline",
@@ -182,7 +184,7 @@ async def rerank_results(
             )
             stage1_start = time.time()
             try:
-                candidates = await bi_encoder_filter(
+                candidates, embedding_ctx = await bi_encoder_filter(
                     query_embedding,
                     candidates,
                     top_k=bi_encoder_top_k,
@@ -274,9 +276,10 @@ async def rerank_results(
             candidates = [candidates[item.index] for item in sorted_ranked]
 
             # Entity overlap as measured rerank signal (Phase 8.3)
-            # Blended only when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED; additive on top of
-            # cross-encoder + recency. Weight controlled in settings. Emits for dashboards.
-            if getattr(settings, "rerank_entity_overlap_enabled", False) and query_entities:
+            if (
+                getattr(settings, "rerank_entity_overlap_enabled", False)
+                and query_entities
+            ):
                 try:
                     from ..entity.overlap import compute_entity_overlap
 
@@ -284,7 +287,10 @@ async def rerank_results(
                     os_list: list[float] = []
                     for c in candidates[: min(20, len(candidates))]:
                         c_ents = getattr(c, "entities", None) or []
-                        o = compute_entity_overlap(query_entities, c_ents if isinstance(c_ents, (list, tuple)) else [])
+                        o = compute_entity_overlap(
+                            query_entities,
+                            c_ents if isinstance(c_ents, (list, tuple)) else [],
+                        )
                         os_list.append(o)
                         if getattr(c, "score", None) is not None:
                             c.score = float(c.score) + (w * o)
@@ -351,17 +357,28 @@ async def rerank_results(
         diversity_removed = 0
 
         if query_embedding:
-            texts = [
-                f"{candidate.title}\n{candidate.snippet}"
-                for candidate in candidates[: top_k * 2]
-            ]
+            stage3_input = candidates[: top_k * 2]
+            stage3_texts = [f"{c.title}\n{c.snippet}" for c in stage3_input]
             stage3_start = time.time()
             try:
-                embeddings = await embed_texts(texts, timeout=10.0)
-                if embeddings and len(embeddings) == len(candidates[: top_k * 2]):
-                    scoped_urls = [
-                        candidate.link for candidate in candidates[: top_k * 2]
-                    ]
+                # Reuse bi-encoder embeddings when available, otherwise embed once here
+                if embedding_ctx is not None:
+                    embeddings = []
+                    for c in stage3_input:
+                        emb = embedding_ctx.find(c.link.strip())
+                        if emb is not None:
+                            embeddings.append(emb.dense)
+                        else:
+                            embeddings = None
+                            break
+                else:
+                    embeddings = None
+
+                if embeddings is None:
+                    embeddings = await embed_texts(stage3_texts, timeout=10.0)
+
+                if embeddings and len(embeddings) == len(stage3_input):
+                    scoped_urls = [c.link for c in stage3_input]
 
                     diversified_rank = maximal_marginal_relevance_rank(
                         query_embedding,
@@ -384,7 +401,7 @@ async def rerank_results(
                 else:
                     logger.warning(
                         f"Diversity embedding mismatch: got {len(embeddings) if embeddings else 0}, "
-                        f"expected {len(candidates[: top_k * 2])}, skipping diversity stage"
+                        f"expected {len(stage3_input)}, skipping diversity stage"
                     )
             except (
                 EmbeddingTimeoutError,
@@ -453,4 +470,4 @@ async def rerank_results(
             query_type_hint=query_type_hint,
         )
 
-        return final_results
+        return RerankOutput(results=final_results, embedding_context=embedding_ctx)

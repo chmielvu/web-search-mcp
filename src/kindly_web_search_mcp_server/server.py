@@ -65,10 +65,6 @@ from .content.link_discovery import discover_links as discover_page_links
 from .content.options import build_fetch_options
 from .content.summary import create_summary
 from .content.windowing import slice_content
-from .analytics.tools import register_analytics_tools
-from .analytics.app import analytics_app
-from .analytics.formatting import json_safe_rows
-from .analytics.reports import available_reports, run_report
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
 from .content.youtube import (
@@ -182,6 +178,7 @@ def _public_settings_snapshot() -> dict[str, object]:
                 os.environ.get("COMPOSIO_API_KEY")
                 and os.environ.get("KINDLY_COMPOSIO_USER_ID")
             ),
+            "search_router": bool(os.environ.get("SEARCH_ROUTER_API_KEY")),
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
         "timeouts_seconds": {
@@ -232,7 +229,6 @@ def _cache_stats_snapshot() -> dict[str, object]:
 
 
 def _analytics_schema_snapshot() -> dict[str, object]:
-    """Return the current analytics object catalog for MCP clients."""
     from .analytics.app import _OBJECT_DESCRIPTIONS
 
     return {
@@ -247,7 +243,9 @@ def _analytics_report_snapshot(
     *,
     days: int = 7,
 ) -> dict[str, object]:
-    """Return one deterministic analytics report as JSON-safe rows."""
+    from .analytics.formatting import json_safe_rows
+    from .analytics.reports import available_reports, run_report
+
     table = run_report(report_name, days=days)
     return {
         "report": report_name,
@@ -261,15 +259,9 @@ def _analytics_report_snapshot(
 mcp = FastMCP(
     "kindly-web-search",
     instructions=(
-        "Tool routing: use web_search first for normal web discovery and keep rewrite=true by default. "
-        "Use rewrite=false only for exact literals such as stack traces, quoted errors, URLs, versions, hashes, and UUIDs. "
-        "Use get_content for one known URL; use batch_get_content for 3 or more URLs and follow has_more/cursor or window.next_offset. "
-        "Use discover_links when you already have a URL and want outgoing links or sitemap targets. "
-        "Use gemini_search for quick grounded synthesis; use grok_search when you need web + X (Twitter) search together; "
-        "use perplexity_search only after refining a single-topic query. "
-        "Use academic_search for scholarly papers (Semantic Scholar + ArXiv) with filters for year, venue, field of study, and open access. "
-        "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL. "
-        "Use agentic_web_research when you want the LangChain/LangGraph ReAct agent to choose among direct search, fetch, rerank, and expansion tools itself."
+        "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
+        "with rewrite=true by default. Use get_content for one known URL; "
+        "use batch_get_content for 3+ URLs."
     ),
 )
 
@@ -299,15 +291,6 @@ from .middleware import create_dynamic_guidance_middleware
 mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
 register_agentic_web_research_tools(mcp)
-register_analytics_tools(mcp)
-# Mount the interactive Analytics Explorer app (FastMCP Apps UI, requires fastmcp[apps])
-try:
-    mcp.add_provider(analytics_app)
-except Exception as _analytics_app_err:  # noqa: BLE001
-    LOGGER.warning(
-        "Analytics Explorer app could not be mounted (is fastmcp[apps] installed?): %s",
-        _analytics_app_err,
-    )
 
 
 _base_list_resources = mcp.list_resources
@@ -563,6 +546,7 @@ def main(argv: list[str] | None = None) -> None:
         or os.environ.get("TAVILY_API_KEY", "").strip()
         or os.environ.get("BRAVE_API_KEY", "").strip()
         or os.environ.get("JINA_API_KEY", "").strip()
+        or os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
         or (
             os.environ.get("COMPOSIO_API_KEY", "").strip()
             and os.environ.get("KINDLY_COMPOSIO_USER_ID", "").strip()
@@ -573,7 +557,8 @@ def main(argv: list[str] | None = None) -> None:
         # and expect the server to at least come up for tool discovery.
         LOGGER.warning(
             "No search provider configured (SEARXNG_BASE_URL, TAVILY_API_KEY, BRAVE_API_KEY, "
-            "JINA_API_KEY, COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID, "
+            "JINA_API_KEY, SEARCH_ROUTER_API_KEY, "
+            "COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID, "
             "or KINDLY_GEMINI_API_KEY); "
             "`web_search` calls will fail until one is provided."
         )
@@ -722,7 +707,6 @@ def _apply_domain_filters(
 async def web_search(
     query: str,
     research_goal: str,
-    num_results: int = 5,
     rewrite: bool = True,
     providers: list[str] | None = None,
     result_offset: int = 0,
@@ -738,80 +722,12 @@ async def web_search(
     domain_block: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResultType:
-    """Search the web and return lightweight results only.
-
-    Key instruction:
-    Default to this tool for web discovery. Keep rewrite=True for normal discovery.
-    Set rewrite=False only for exact-literal queries: stack traces, quoted error
-    messages, URLs, package versions, hashes, UUIDs, CLI flags, function names, or
-    other strings that must not be paraphrased.
-
-    When to use:
-    Especially useful for coding agents like Claude Code / Codex when you need up-to-date information.
-    - Debug an error by searching the exact message/stack trace (often best in quotes).
-    - Double-check API signatures, interfaces, and breaking changes in official docs.
-    - Confirm current package versions, release notes, and migration guides.
-    - Find GitHub issues / StackOverflow threads / authoritative references for a topic.
-
-    When not to use:
-    - If you already have a specific URL to read -> use `get_content(url)` instead.
-
-    Args:
-    - query: Search query string. Prefer specific keywords and exact error text when applicable.
-    - research_goal: REQUIRED. Describe what information you are looking for and why. Include:
-      - The specific topic, feature, or problem you're researching
-      - Any relevant context (package names, versions, error types)
-      - What you plan to do with the results (implement, debug, compare, etc.)
-      Example: "Find React 18.2.0 changelog to check if hooks API changed" or
-      "Debug TypeError in FastAPI middleware - need solution for production"
-    - num_results: Number of results to return. Default is 5; recommended range is 3-7.
-      Results are diversity-pruned so 5-7 provides broad coverage without duplicates. Max 10.
-    - rewrite: If True, use Mistral to generate additional search queries and merge the results.
-      Standard is True. Set False for exact literals that must stay byte-stable.
-    - providers: Optional list of providers to include. Examples: ["tavily"], ["brave", "jina"].
-      - Standard providers (searxng, ddg, gemini) fire automatically when configured.
-      - Conditional providers only fire when listed here.
-      - Available providers: searxng, ddg, tavily, brave, jina, gemini, composio_llm_search.
-    - result_offset: Zero-based result window offset for tool-side pagination.
-    - searxng_categories: Optional SearXNG category override.
-    - searxng_engines: Optional SearXNG engine override list.
-    - searxng_language: Optional SearXNG language override.
-    - searxng_pageno: SearXNG result page number override.
-    - searxng_time_range: Optional SearXNG time range override (`day`, `week`, `month`, `year`).
-    - searxng_safesearch: Optional SearXNG safesearch override (`0`, `1`, or `2`).
-    - site_filters: Optional query restrictions applied to all providers.
-    - domain_filters: Optional domain restrictions applied to all providers.
-    - domain_boost: Optional list of domains to boost in results (e.g., ["stackoverflow.com", "github.com"]).
-      Boosted domains are moved to the front of results after reranking.
-      Supports subdomain matching (e.g., "reddit.com" matches "old.reddit.com").
-      Supports path-aware matching (e.g., "reddit.com/r/programming" matches that subreddit).
-    - domain_block: Optional list of domains to exclude from results (e.g., ["pinterest.com", "quora.com"]).
-      Blocked domains are completely removed from results.
-      Supports the same matching rules as domain_boost.
-    - ctx: FastMCP context (auto-injected, used for logging).
-
-    Prerequisites:
-    - Requires at least one configured search provider in the server environment:
-      `SEARXNG_BASE_URL` (SearXNG, primary), `KINDLY_GEMINI_API_KEY`,
-      `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`, or
-      `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID`.
-      If none is set, this tool will fail.
-
-    Returns:
-    - `{"query": str, "results": [{"title": str, "link": str, "snippet": str, ...}, ...]}`
-    - Results are lightweight search hits only. Page content is intentionally omitted.
-
-    Notes:
-    - Provider priority: SearXNG + DDG + Gemini (standard) → Conditional providers on request.
-    - Results merged via Weighted Reciprocal Rank Fusion (RRF) for optimal ranking.
-    - Treat `provider_count` on each result as an agreement signal: higher means
-      more configured providers surfaced the same URL.
-    - If all search providers fail, the tool will error.
-    - For a deeper look at one result, call `get_content()` on the chosen `link`.
+    """Multi-provider web search returning lightweight results (title, link, snippet, provider_count).
+    Default discovery tool. Set rewrite=False only for exact-literals: errors, URLs, versions, hashes.
     """
 
     # Enforce bounds
-    num_results = max(1, min(num_results, 10))
+    num_results = max(1, min(int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "10")), 25))
     search_options = build_search_options(
         result_offset=result_offset,
         searxng_categories=searxng_categories,
@@ -938,6 +854,7 @@ async def web_search(
                     "BRAVE_API_KEY": os.environ.get("BRAVE_API_KEY", ""),
                     "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
                     "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
+                    "SEARCH_ROUTER_API_KEY": os.environ.get("SEARCH_ROUTER_API_KEY", ""),
                     "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
                     "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
                         "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""
@@ -1046,39 +963,8 @@ async def get_content(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> GetContentResultType:
-    """Fetch one URL with bounded windowing and structured status.
-
-    When to use:
-    - You already have a URL from the user or from `web_search(...)`.
-    - You need source text from one page/document with continuation metadata.
-    - You want optional source-grounded summary via `summary_mode`.
-
-    When not to use:
-    - If you need to discover relevant URLs first -> use `web_search(query)`.
-
-    Args:
-    - url: The URL to fetch.
-    - char_offset: Character offset into the extracted source text. Default 0.
-    - char_length: Maximum characters to return for this page. Default 20000.
-    - summary_mode: `none`, `brief`, or `detailed`. Summaries use Chutes API when requested.
-    - focus_query: Optional focus for summary generation.
-    - include_metadata: Include extracted page metadata in the response.
-    - include_links: Include extracted links in the response.
-    - max_links: Maximum number of links to extract when include_links is true.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-
-    Returns:
-    - `input_url`: exact URL provided by caller.
-    - `normalized_url`: normalized URL used for cache lookup/storage and batch deduplication.
-    - `fetched_url`: actual URL reached after redirects, if network fetch reached one.
-    - `status`: success, partial, blocked, unsupported, or error.
-    - `source_type`: detected source family such as html, pdf, github_issue, or wikipedia.
-    - `fetch_backend`: backend strategy used, such as safe_http_extract, jina_reader, or browser_fallback.
-    - `page_content`: bounded Markdown/text window.
-    - `window`: pagination metadata with `has_more` and `next_offset`.
-    - `metadata`: optional page metadata such as title, description, canonical URL, and domain.
-    - `links`: optional discovered links when `include_links=True`.
-    - `continuation_notice`: human-readable truncation notice when the returned window is partial.
+    """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
+    Use when you already have a URL. Check window.has_more for pagination continuation.
     """
 
     await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
@@ -1308,35 +1194,8 @@ async def batch_get_content(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> BatchGetContentResponse:
-    """Fetch multiple URLs with structured status, budgets, and continuation cursor.
-
-    When to use:
-    - Prefer this over multiple get_content calls when you have 3+ URLs.
-    - Fetch several search results under one total_char_budget.
-    - Continue a partial batch by passing the returned cursor.
-
-    When not to use:
-    - If you have exactly one URL -> use get_content.
-    - If you still need to discover URLs -> use web_search first.
-
-    Args:
-    - urls: URLs to fetch. Duplicates are normalized and deduplicated.
-      Optional on continuation calls when cursor contains URLs.
-    - max_concurrency: Parallel fetch limit. Default 4, capped at 8.
-    - per_item_char_length: Maximum characters per returned URL window.
-    - total_char_budget: Maximum total characters returned across this page.
-    - cursor: Continuation cursor from a prior partial batch response.
-    - include_metadata: Include extracted page metadata in each result.
-    - include_links: Include extracted links in each result.
-    - max_links: Maximum links to extract per URL when include_links is true.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-
-    Returns:
-    - results: per-URL structured statuses with page_content, window metadata, and optional metadata/links.
-    - total_requested, total_returned, total_chars_returned.
-    - has_more and cursor. If has_more is true, call again with cursor.
-
-    This tool isolates failures per URL and keeps payloads bounded.
+    """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
+    Prefer over repeated get_content calls when you have 3+ URLs. Check has_more and cursor for continuation.
     """
     max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
     _urls = urls or []
@@ -1475,23 +1334,7 @@ async def discover_links(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Discover outbound links from a page or sitemap without extracting article text.
-
-    When to use:
-    - You already have a URL and want to expand into nearby pages.
-    - You want sitemap or page-link discovery without fetching page content.
-
-    When not to use:
-    - If you need article/body text -> use `get_content(url)`.
-    - If you still need to discover the starting URL -> use `web_search(...)`.
-
-    Args:
-    - url: The page or sitemap URL to inspect.
-    - max_links: Maximum links to return. Default 100.
-    - include_external: Include links outside the source domain.
-    - same_domain_only: Restrict results to the same domain as the source URL.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-    """
+    """Extract outbound links from a page or sitemap. Returns URLs only, not page content."""
 
     await ctx.report_progress(progress=10, total=100, message="Discovering links...")
     await ctx.info(f"Discovering links from: {url[:80]}...")
@@ -1557,34 +1400,7 @@ async def gemini_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search with Gemini Google Search grounding for quick, grounded answers.
-
-    When to use:
-    - Need a quick, factual answer with Google Search grounding
-    - Want citations directly from search results
-    - Researching current events, facts, or technical documentation
-
-    When not to use:
-    - Need multiple web pages to compare -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-
-    Args:
-    - query: Search query for grounded answer generation
-    - structured_output: If True, returns structured JSON with executive_summary,
-      key_findings, sources, confidence. Default is False (plain text answer).
-    - research_goal: Optional context/goal from client to guide the research.
-      Helps Gemini focus the answer toward the specific need.
-
-    Returns:
-    - Plain text mode: {"query": str, "answer": str, "web_search_queries": list,
-      "grounding_chunks": list, "error": str or null}
-    - Structured mode: {"query": str, "structured_result": dict, ...}
-
-    Notes:
-    - Uses Gemini with Google Search grounding for real-time information
-    - Provides inline citations with [N] notation
-    - Requires KINDLY_GEMINI_API_KEY environment variable
-    """
+    """AI-powered search with Google Search grounding. Returns a synthesized answer with inline [N] citations. Fast, good for factual lookups and current events."""
     emit_tool_observability_event(
         LOGGER,
         "gemini_search",
@@ -1669,37 +1485,8 @@ async def perplexity_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """AI-powered web search using Perplexity Sonar via Pollinations API.
-
-    Returns SYNTHESIZED ANSWERS with source citations, NOT URL lists like web_search.
-    Use for questions requiring AI analysis across multiple sources.
-
-    ⚠️ EXPENSIVE RESOURCE: This tool is rate-limited. First call returns a steering
-    message with query-writing best practices. Refine your query and retry.
-
-    When to use:
-    - Need an AI-synthesized answer with citations, not just a list of URLs
-    - Questions requiring reasoning or synthesis across multiple sources
-    - Research questions where you want the AI to analyze and summarize findings
-
-    When not to use:
-    - Need to browse specific URLs yourself -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-
-    Args:
-    - query: Search query string. Example: 'What are the latest React 19 features?'
-    - depth: Search depth: 'normal' (Perplexity Sonar, balanced) or
-      'deep' (Perplexity Sonar Reasoning, complex reasoning). Default: 'normal'.
-    - research_goal: Optional context/goal from client to guide the research.
-      Helps Perplexity focus the answer toward the specific need.
-
-    Returns:
-    - {"query": str, "answer": str, "sources": list[str], "model": str, "error": str|null}
-
-    Notes:
-    - Uses Perplexity Sonar models via Pollinations API
-    - Returns AI-synthesized text answer with source citations
-    - Requires POLLINATIONS_API_KEY environment variable
+    """Deep AI research via Perplexity Sonar. Returns a synthesized answer with source citations.
+    Rate-limited and expensive — refine your query to a single focused question before using.
     """
     from .search.pollinations import get_pollinations_client
 
@@ -1824,43 +1611,8 @@ async def grok_search(
     excluded_domains: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search web and X (Twitter) using Grok 4.3 via OpenRouter.
-
-    Returns AI-SYNTHESIZED ANSWERS with source citations, NOT raw URL lists.
-    Grok autonomously searches web and X, then synthesizes a grounded answer.
-    When the query or research goal mentions X/Twitter or social data,
-    x_search fires alongside web_search.
-
-    When to use:
-    - Need current information from both web AND X (Twitter) simultaneously
-    - Researching real-time events, breaking news, or social sentiment
-    - Questions where Grok's native search quality adds value
-    - Need AI synthesis of multiple sources with attribution
-
-    When not to use:
-    - Need raw, unfiltered URL lists -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-    - Already have specific URLs to read -> use get_content(url)
-
-    Args:
-    - query: Search query string. Be specific with keywords and context.
-    - research_goal: REQUIRED. What you need the results for.
-      Example: "Check latest FastAPI release for breaking changes."
-    - num_results: Approximate citations to surface (1-10, default 5).
-    - model: Optional model override (default: x-ai/grok-4.3).
-    - allowed_domains: Optional domain allowlist for web search.
-    - excluded_domains: Optional domain blocklist for web search.
-
-    Returns:
-    - {"query": str, "answer": str,
-       "citations": [{"url", "title", "snippet"}],
-       "model": str, "search_queries_used": int, "error": str|null}
-
-    Notes:
-    - Uses OpenRouter with engine: "native" on xAI Grok 4.3
-    - Both web_search and x_search tools are available
-    - Costs: Grok 4.3 tokens ($1.25/$2.50 per 1M) + search tool usage
-    - Requires OPENROUTER_API_KEY environment variable
+    """Search web and X (Twitter) via Grok 4.3. Returns AI-synthesized answer with citations from both platforms.
+    Use when you need social media data alongside web results.
     """
     import time
 
@@ -1965,44 +1717,8 @@ async def youtube_transcript(
     translate_to: str | None = None,
     format: str = "text",
 ) -> YouTubeTranscriptResultType:
-    """Retrieve transcript/captions from a YouTube video.
-
-    Extracts transcript data from YouTube videos using the youtube-transcript-api
-    library. Supports multiple URL formats and direct video IDs.
-
-    When to use:
-    - Need to analyze or summarize video content
-    - Extract spoken content from YouTube videos for AI processing
-    - Get timestamped transcript for citation/reference
-    - Use after youtube_search has returned a video URL or video ID.
-
-    When not to use:
-    - Video has no captions/transcripts available
-    - Video is private, deleted, or age-restricted
-
-    Args:
-    - video_id_or_url: YouTube video URL or bare video ID (11 chars).
-      Supported formats:
-      - https://www.youtube.com/watch?v=VIDEO_ID
-      - https://youtu.be/VIDEO_ID
-      - https://www.youtube.com/embed/VIDEO_ID
-      - https://www.youtube.com/shorts/VIDEO_ID
-      - https://www.youtube.com/live/VIDEO_ID
-      - Bare VIDEO_ID (11 chars, alphanumeric + underscore/dash)
-    - language: Preferred language code (e.g., "en", "es"). Defaults to "en".
-    - translate_to: Target language for translation (e.g., "de", "fr").
-    - format: Output format: "text" (plain text), "timestamped" ([MM:SS] lines),
-      or "json" (raw segments). Default: "text".
-
-    Returns:
-    - YouTubeTranscriptResponse with video_id, transcript_text, language, duration, etc.
-    - If transcript fetch fails, response includes `error` field with message.
-
-    Notes:
-    - Recommended chain: youtube_search(query) -> youtube_transcript(video_id_or_url).
-    - Transcripts are auto-generated or manually provided by video creators.
-    - Some videos have disabled transcripts.
-    - Cloud IPs (AWS/GCP/Azure) may be blocked; use KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL.
+    """Extract captions from a YouTube video. Supports multiple URL formats, language selection, translation, and timestamped/text/JSON output.
+    Use after youtube_search to get video content.
     """
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
@@ -2129,34 +1845,7 @@ async def youtube_search(
     query: str,
     num_results: int = 5,
 ) -> YouTubeSearchResultType:
-    """Search YouTube videos via SearXNG YouTube engine.
-
-    Searches for YouTube videos using the SearXNG metasearch engine's
-    built-in YouTube engine filter. Returns lightweight results with
-    video metadata.
-
-    When to use:
-    - Find relevant YouTube videos on a topic
-    - Discover video content before extracting transcripts
-    - Search for tutorials, lectures, or presentations
-
-    When not to use:
-    - Need to read full video content -> use youtube_transcript instead
-    - Need general web search -> use web_search instead
-
-    Args:
-    - query: Search query string.
-    - num_results: Number of results to return (1-20, default 5).
-
-    Returns:
-    - YouTubeSearchResponse with query and list of WebSearchResult objects.
-    - Each result has title, link (YouTube URL), snippet, and resource_type="youtube".
-
-    Notes:
-    - Requires SEARXNG_BASE_URL to be configured.
-    - Uses SearXNG's YouTube engine for video-specific search.
-    - Results are suitable for follow-up with youtube_transcript tool.
-    """
+    """Find YouTube videos by search query. Returns titles, links, and snippets. Use before youtube_transcript."""
 
     if num_results < 1:
         num_results = 5
@@ -2219,54 +1908,8 @@ async def academic_search(
     sort: str = "relevance",
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResultType:
-    """Search academic papers across 6 scholarly sources.
-
-    Finds research papers, preprints, and citations across major academic
-    sources. Results are deduplicated across providers and normalized to a
-    common schema.
-
-    When to use:
-    - Find research papers on a topic (machine learning, physics, medicine, etc.)
-    - Check citation counts and find influential papers
-    - Discover open-access PDFs for a research area
-    - Filter papers by year, venue, or field of study
-    - Biomedical/clinical literature search (PubMed)
-
-    When not to use:
-    - Need general web search -> use web_search instead
-    - Need full page content extraction -> use get_content on paper URLs
-
-    Args:
-    - query: Search query for academic papers. Prefer specific keywords and
-      paper titles. Example: "attention is all you need" or
-      "transformer neural network architecture"
-    - limit: Maximum results to return. Default 5; range 1-20.
-    - sources: Optional list of sources to search. Available: "semanticscholar",
-      "arxiv", "openalex", "crossref", "pubmed", "core".
-      Default: arxiv + semanticscholar (both free-ish).
-    - year_from: Filter to papers published in or after this year. Example: 2020
-    - year_to: Filter to papers published in or before this year. Example: 2024
-    - fields_of_study: Filter by field. Semantic Scholar values:
-      Computer Science, Medicine, Physics, Mathematics, Statistics, etc.
-      ArXiv/OpenAlex also support field categories.
-    - venue: Filter by publication venue (conference/journal name).
-      Example: "NeurIPS", "ICML", "Nature". Only Semantic Scholar supports this.
-    - open_access_only: If True, only return papers with available open-access PDFs.
-    - sort: Result ordering: "relevance" (default), "citations", or "date".
-
-    Returns:
-    - AcademicSearchResponse with query, results list, total_results,
-      sources_used, and optional warnings.
-
-    Notes:
-    - Semantic Scholar: 214M+ papers, rich metadata (citations, abstracts).
-      Optional KINDLY_S2_API_KEY for 100 RPS vs shared 1 RPS.
-    - ArXiv: 2.5M+ CS/Physics/Math preprints. No auth required.
-    - OpenAlex: 250M+ works, comprehensive coverage. Polite pool with email.
-    - CrossRef: DOI enrichment, citation counts, bibliographic metadata.
-    - PubMed: 35M+ biomedical citations (MEDLINE). Optional API key for 10 RPS.
-    - CORE: Open access full-text aggregation. Requires CORE_API_KEY.
-    - Results deduplicated by DOI, ArXiv ID, PubMed ID, or title match.
+    """Search 6 scholarly sources (Semantic Scholar, arXiv, OpenAlex, CrossRef, PubMed, CORE) with cross-source deduplication.
+    Supports year, venue, field-of-study, and open-access filters.
     """
     limit = max(1, min(limit, 20))
     if sort not in ("relevance", "citations", "date"):
@@ -2436,6 +2079,7 @@ def get_providers_status() -> str:
         f"**SearXNG** (Primary): {'✓ Configured' if os.environ.get('SEARXNG_BASE_URL') else '✗ Not configured'}",
         f"**Tavily**: {'✓ Configured' if os.environ.get('TAVILY_API_KEY') else '✗ Not configured'}",
         f"**Brave**: {'✓ Configured' if os.environ.get('BRAVE_API_KEY') else '✗ Not configured'}",
+        f"**Search Router**: {'✓ Configured' if os.environ.get('SEARCH_ROUTER_API_KEY') else '✗ Not configured'}",
         f"**Jina**: {'✓ Configured' if os.environ.get('JINA_API_KEY') else '✗ Not configured'}",
         f"**Voyage Reranker**: {'✓ Configured' if settings.voyage_api_key else '✗ Not configured'}",
         f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('KINDLY_COMPOSIO_USER_ID') else '✗ Not configured'}",
@@ -2499,60 +2143,63 @@ def get_features_status() -> str:
 
 @mcp.resource("docs://workflow")
 def get_workflow_doc() -> str:
-    """Recommended workflow for using web search tools."""
+    """Complete research workflow: tool routing, result evaluation, gap analysis, depth strategy."""
     return """# Web Search Workflow
 
-## Routing
+## Reconnaissance
+Start with `quick_web_search` for initial topic scoping before deeper research.
 
-1. Start with web_search for URL discovery. rewrite=true is standard.
-2. Use rewrite=false only for exact errors, URLs, versions, hashes, UUIDs, and quoted literals.
-3. Use get_content for one known URL.
-4. Use batch_get_content for 3+ URLs. Continue with cursor when has_more=true.
-5. Use discover_links when you already have a URL and want outbound links or sitemap targets.
-6. Use gemini_search for quick grounded synthesis.
-7. Use perplexity_search only after the query is narrowed to one topic.
-8. Use academic_search for scholarly papers with year/venue/field filters.
-9. Use youtube_search before youtube_transcript.
-10. Use composio_similarlinks to expand from a known good URL.
+## Tool routing
+| Task | Tool | Why |
+|---|---|---|
+| Initial recon | quick_web_search | Fast synthesized answer with citations |
+| Find URLs | web_search | Multi-provider merge, provider_count signal |
+| Quick answer | gemini_search | Google-grounding, [N] citations, fast |
+| Web + X/Twitter | grok_search | Real-time web and social data |
+| Deep analysis | perplexity_search | Synthesized, expensive, refine query first |
+| Scholarly papers | academic_search | 6 sources, field/venue/year filters |
+| Read one URL | get_content | 7-stage resolution, pagination-aware |
+| Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor |
+| Discover links | discover_links | Page/sitemap link extraction |
+| Find videos | youtube_search | SearXNG YouTube engine |
+| Extract captions | youtube_transcript | Timestamped/text/JSON, translation |
+| Similar pages | composio_similarlinks | Neural similarity from known URL |
+| Multi-step research | agentic_web_research | ReAct agent, experimental |
 
-## Discovery -> Extraction -> Synthesis
+## Query
+rewrite=true for normal discovery; rewrite=false for exact literals (errors, URLs, hashes).
+num_results: 3=fast, 5=standard, 7=broad. Max 10.
 
-### Step 1: Search
-web_search(query="your specific question", research_goal="why you need it", num_results=5, rewrite=True)
-Returns lightweight results: title, link, snippet, provider_count.
+## Depth
+- quick: quick_web_search or gemini_search
+- medium: web_search(5) -> batch_get_content(2-3) -> gemini_search
+- deep: web_search(7) -> batch_get_content(5) -> perplexity_search -> academic_search
 
-### Step 2: Extract
-get_content(url="https://selected-url")
-Returns a bounded content window. If window.has_more is true, call again with char_offset=window.next_offset.
+## Result evaluation
+1. provider_count: 2+ stronger signal; 1 or missing = verify
+2. Snippet quality: specific facts > generic text. Domain hints: github.com->issue/PR, stackoverflow.com->Q&A
+3. Decision: 3+ promising -> batch_get_content. 1-2 -> get_content each. Off-topic -> refine. Sparse -> broaden
 
-For 3+ URLs:
-batch_get_content(urls=[...], total_char_budget=120000)
-If has_more is true, call again with cursor.
+## Pagination
+- get_content: check window.has_more. If true, call again with char_offset=window.next_offset
+- batch_get_content: check has_more and cursor. If true, call again with cursor
 
-### Step 3: Synthesize
-gemini_search(query="focused question", research_goal="specific synthesis need")
-Use perplexity_search only when a refined single-topic query needs deeper synthesis.
+## Gap analysis
+- Factual gaps: unverified claims/dates/numbers
+- Source gaps: only one type (blogs, no official docs)
+- Depth gaps: check window.has_more and batch_get_content has_more
+- Terminate when: 3 independent sources agree, 2 rounds with no new info, or depth budget exhausted
 
-| Tool | Purpose |
-|------|---------|
-| web_search | Discover URLs |
-| get_content | Read specific URL |
-| batch_get_content | Read 3+ URLs with budget/cursor |
-| discover_links | Expand a known URL into outbound links |
-| gemini_search | Quick grounded answers |
-| grok_search | Web + X/Twitter search with synthesis |
-| perplexity_search | Deep reasoning synthesis |
-| academic_search | Find scholarly papers (S2 + ArXiv) |
-| youtube_search | Find videos |
-| youtube_transcript | Extract video captions |
-| composio_similarlinks | Find related URLs from a known good URL |
-| quick_web_search | Composio/Exa-backed synthesized answer with citations |
+## Iteration
+- Round 1: broad (num_results=5-7). Round 2: targeted (2-3 queries). Round 3: pinpoint (rewrite=false)
+- Use composio_similarlinks on best URL from round 1
+- For video: youtube_search -> pick best -> youtube_transcript
 
-## Tips
-- Search exact error messages in quotes with rewrite=false
-- Prefer official docs and GitHub issues for implementation work
-- Use provider_count as a confidence hint, not proof
-- Use num_results=3-7 for normal discovery; use 1 for quick existence checks
+## Academic
+academic_search first -> get_content on selected papers. Cross-check with 2+ independent papers. Separate surveys from implementation papers.
+
+## Source triage
+Official docs > GitHub issues/PRs > papers > community sources. Flag single-source claims. Prefer dated sources with concrete examples.
 """
 
 
@@ -2596,290 +2243,18 @@ def get_analytics_report_resource(
 
 
 # ============ PROMPTS ============
-#
-# Phase 3 baseline surface only:
-# These prompts intentionally stay live while the prompt catalog is refined and
-# expanded. Presence here does not mean the roadmap considers prompt work done.
-
-_SEARCH_TOOL_ROUTING = """Tool selection rules for this server:
-
-| Your task | Use this tool | Why |
-|---|---|---|
-| Find URLs about a topic | `web_search` | Lightweight results, multi-provider merge, provider_count signal |
-| Quick factual answer with citations | `gemini_search` | Google-grounding, [N] citations, fast |
-| Web + X/Twitter search with synthesis | `grok_search` | AI-synthesized, real-time web and social data |
-| Deep reasoning across many sources | `perplexity_search` | AI-synthesized, expensive, refine query first |
-| Scholarly papers with filters | `academic_search` | 6 sources (S2, ArXiv, PubMed...), field/venue/year filters |
-| Read one known URL | `get_content` | 7-stage resolution (GitHub→StackExchange→Wikipedia→arXiv→HTTP→browser) |
-| Read 3+ URLs with a budget | `batch_get_content` | Parallel fetch, total_char_budget, cursor continuation |
-| Expand a known URL into outgoing links | `discover_links` | Page/sitemap link discovery without body extraction |
-| Find videos | `youtube_search` | SearXNG YouTube engine |
-| Extract video speech | `youtube_transcript` | Timestamped or plain text, translation |
-| Quick synthesized answer | `quick_web_search` | Exa-backed, lighter than perplexity |
-| Expand from a known URL | `composio_similarlinks` | Neural similarity, filter by domain |
-
-Query formulation:
-- `rewrite=true` (default): Mistral expands your query for broader coverage. Use for normal discovery.
-- `rewrite=false`: Exact literal search. Use for error messages, versions, hashes, UUIDs, quoted strings.
-- `num_results=5`: Standard. Use 3 for fast checks, 7 for broad coverage, max 10.
-- `providers`: Standard providers (SearXNG, DDG, Gemini) fire automatically. Request tavily/brave/jina explicitly.
-- Academic: use `year_from`/`year_to`, `venue` ("NeurIPS"), `fields_of_study`, `open_access_only`.
-
-Depth strategy:
-- quick: `gemini_search` or `quick_web_search`. Skip content extraction unless needed.
-- medium: `web_search` (5 results) → `batch_get_content` on best 2–3 → `gemini_search` for synthesis.
-- deep: `web_search` (7 results, rewrite=true) → `batch_get_content` on top 5 → `perplexity_search` on refined query → `academic_search` if scholarly sources needed."""
-
-
-_RESULT_EVALUATION_RULES = """Quality signals to check after every search:
-
-1. provider_count — How many configured providers returned this URL.
-   - 2+: stronger signal. provider_count=1 may still be good but verify.
-   - 0 or missing: single-source result, treat with lower confidence.
-
-2. Snippet quality — Read snippets before deciding to fetch.
-   - Specific facts, code, dates, version numbers: high signal.
-   - Generic marketing text: low signal.
-   - Domain hints: github.com→likely issue/PR, stackoverflow.com→Q&A, docs.*→official docs.
-
-3. Domain authority (heuristic, not absolute):
-   - .gov, .edu, official docs sites: generally trustworthy.
-   - github.com issues/PRs: high signal for debugging.
-   - stackoverflow.com / stackexchange: high signal for how-to questions.
-   - Medium, dev.to, personal blogs: verify against official sources.
-
-Decision rules after evaluating results:
-- 3+ results look promising → `batch_get_content(urls=[...])` with appropriate total_char_budget.
-- Only 1–2 look good → `get_content(url=...)` on each; check `window.has_more`.
-- Results seem off-topic → refine query: different keywords, add domain terms, try `gemini_search` for quick reorientation.
-- Results are sparse (< 3 returned) → broaden: remove specific terms, try rewrite=true if it was false.
-- Results exist but snippets are thin → fetch the most promising URL before deciding.
-- Need deep analysis → refine to ONE focused question, then `perplexity_search`.
-
-Pagination awareness:
-- `get_content`: check `window.has_more`. If true, call again with `char_offset=window.next_offset`.
-- `batch_get_content`: check `has_more` and `cursor`. If true, call again with `cursor`.
-- Never assume you have the full page without checking these signals."""
-
-
-_GAP_ANALYSIS_RULES = """After initial research, systematically evaluate what's missing before continuing or stopping.
-
-Gap identification:
-1. Factual gaps: What specific claims, numbers, dates, or API details are unverified?
-2. Source gaps: Did you only find one type of source (e.g., only blog posts, no official docs)?
-3. Perspective gaps: Did you only get one viewpoint? (e.g., only author docs, no community critique)
-4. Recency gaps: Are your sources current? Check dates in snippets or fetched content.
-5. Depth gaps: Did you hit `has_more=true` on any fetched page? The full content may hold answers.
-
-Query decomposition for follow-up rounds:
-- Aspect decomposition: Break topic into sub-facets. "How does X work?" → "X architecture", "X performance", "X security".
-- Perspective decomposition: Same question from different angles. "X tutorial" + "X pitfalls" + "X vs Y comparison".
-- Refinement: Narrow with domain terms, version numbers, or date ranges found in initial results.
-- Counter-query: If results lean one way, explicitly search for opposing views or known issues.
-
-Source triangulation:
-- One source = interesting. Two independent sources agreeing = likely true. Three+ = well-established.
-- If a claim only appears on one domain, flag it as unverified.
-- Cross-check: community sources (Reddit, HN) for real-world experience vs official docs for API accuracy.
-
-Termination criteria — stop when:
-- Three independent sources confirm the same finding.
-- Two consecutive rounds produce no new information.
-- You've checked: official docs + GitHub issues + one community source (minimum coverage).
-- `provider_count` ≥ 3 on your key source URLs.
-- Depth budget exhausted: quick → medium → deep completed and gaps remain.
-
-Breadth decay: each iteration narrower than the last.
-- Round 1: Broad discovery (`web_search`, num_results=5–7, rewrite=true).
-- Round 2: Targeted follow-up (2–3 refined queries, num_results=3, specific providers if helpful).
-- Round 3: Pinpoint verification (1–2 precise queries, rewrite=false for exact terms).
-- Use `composio_similarlinks` on the best URL from round 1 to discover adjacent pages.
-- If video content would help: `youtube_search` → `youtube_transcript` on the most relevant video."""
-
-
-_ACADEMIC_DEEP_DIVE_RULES = """Academic research workflow:
-
-1. Start with `academic_search` for papers, not general web search.
-2. Use year, venue, fields_of_study, and open_access_only to narrow early.
-3. Prefer exact paper titles, author names, and benchmark names in follow-up queries.
-4. Check citation count, venue, and year before treating a paper as foundational.
-5. Use `get_content` on a paper abstract/HTML landing page or PDF URL only after you have selected the most relevant papers.
-6. Cross-check scholarly claims with at least two independent papers when possible.
-7. Separate survey/background papers from implementation/benchmark papers.
-8. Stop broadening once you have the core papers, then deepen on methods, baselines, and limitations."""
-
-
-_VIDEO_RESEARCH_RULES = """Video research workflow:
-
-1. Use `youtube_search` to discover candidate videos first.
-2. Rank candidates by title specificity, channel authority, and likely transcript usefulness.
-3. Use `youtube_transcript` only on the best candidate videos.
-4. Prefer transcript evidence over video title/description alone.
-5. If a transcript is long, summarize the key sections and note where deeper follow-up is needed.
-6. Cross-check tutorial claims against official docs or source code when accuracy matters.
-7. If transcripts are unavailable or weak, fall back to standard web/document sources."""
-
-
-_SOURCE_TRIAGE_RULES = """Source triage rules:
-
-1. Official docs and vendor references for API behavior and versioned contracts.
-2. GitHub issues/PRs for real bugs, migrations, and edge-case behavior.
-3. Papers for scholarly or benchmark claims.
-4. Community sources for practitioner experience, not as sole proof of correctness.
-5. Prefer sources with clear dates, concrete examples, and direct evidence.
-6. Flag single-source claims as provisional until corroborated.
-7. When sources disagree, prefer the newer and more authoritative one, and note the conflict explicitly."""
 
 
 @mcp.prompt(
-    name="plan_web_research",
-    description="Plan your research approach: choose the right search tool, formulate effective queries, set depth strategy. Use BEFORE calling any search tool.",
-    tags={"research", "planning"},
-)
-def plan_web_research_prompt(question: str, depth: str = "medium") -> list[Message]:
-    return [
-        Message(
-            _SEARCH_TOOL_ROUTING,
-            role="user",
-        ),
-        Message(
-            f"Research question: {question}\n"
-            f"Preferred depth: {depth}\n\n"
-            "Plan your approach: which tool(s) will you use, what query parameters, "
-            "and what sequence of steps? State your plan before executing.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="evaluate_web_results",
-    description="Assess search result quality and decide next action: fetch content, refine query, or escalate. Use AFTER web_search or academic_search returns.",
-    tags={"research", "evaluation"},
-)
-def evaluate_web_results_prompt(goal: str) -> list[Message]:
-    return [
-        Message(
-            _RESULT_EVALUATION_RULES,
-            role="user",
-        ),
-        Message(
-            f"Research goal: {goal}\n\n"
-            "Review the search results you just received. Evaluate their quality using the signals above. "
-            "State your assessment and decide your next action. If results are insufficient, "
-            "explain why and what you'll try instead.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="research_gap_analysis",
-    description="Identify what's missing after initial research, decompose remaining questions, and plan the next iteration. Use AFTER evaluating search results.",
-    tags={"research", "iteration"},
-)
-def research_gap_analysis_prompt(goal: str, sources_found: str = "") -> list[Message]:
-    return [
-        Message(
-            _GAP_ANALYSIS_RULES,
-            role="user",
-        ),
-        Message(
-            f"Research goal: {goal}\n"
-            + (f"Sources examined so far: {sources_found}\n" if sources_found else "")
-            + "\nReview what you've found against the original goal. "
-            "Identify specific gaps, plan the next round of queries (with tool choices and parameters), "
-            "and state your termination criteria. If gaps remain, proceed with the next iteration. "
-            "If you've met the termination criteria, state that research is complete and why.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="suggest_tool",
-    description="Given a task description, recommend the best search tool(s) and parameters. Use when unsure which of the available tools fits your need.",
-    tags={"discovery"},
-)
-def suggest_tool_prompt(task: str) -> list[Message]:
-    return [
-        Message(
-            _SEARCH_TOOL_ROUTING,
-            role="user",
-        ),
-        Message(
-            f"Task: {task}\n\n"
-            "Which tool(s) should I use? Recommend specific tool names and key parameters. "
-            "If multiple tools should be used in sequence, describe the full chain.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="research_workflow",
-    description="Guide a complete discovery-to-extraction-to-synthesis research workflow using the available MCP tools.",
+    name="web_search_workflow",
+    description="Placeholder prompt — content to be written.",
     tags={"research", "workflow"},
 )
-def research_workflow_prompt(goal: str, depth: str = "medium") -> list[Message]:
+def web_search_workflow_prompt() -> list[Message]:
     return [
-        Message(_SEARCH_TOOL_ROUTING, role="user"),
-        Message(_RESULT_EVALUATION_RULES, role="user"),
-        Message(_GAP_ANALYSIS_RULES, role="user"),
         Message(
-            f"Research goal: {goal}\nDepth: {depth}\n\n"
-            "Plan and execute a full workflow: discovery, source triage, content extraction, "
-            "gap analysis, and stopping criteria. Recommend concrete tool calls and parameters.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="academic_deep_dive",
-    description="Plan a scholarly research pass using academic_search first, then deepen into selected papers.",
-    tags={"research", "academic"},
-)
-def academic_deep_dive_prompt(topic: str, focus: str = "") -> list[Message]:
-    return [
-        Message(_ACADEMIC_DEEP_DIVE_RULES, role="user"),
-        Message(
-            f"Topic: {topic}\n"
-            + (f"Specific focus: {focus}\n" if focus else "")
-            + "\nDesign the academic search strategy, including filters, follow-up queries, "
-            "and how to separate core papers from supporting context.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="video_research",
-    description="Plan a YouTube-first research workflow using youtube_search and youtube_transcript selectively.",
-    tags={"research", "video"},
-)
-def video_research_prompt(topic: str) -> list[Message]:
-    return [
-        Message(_VIDEO_RESEARCH_RULES, role="user"),
-        Message(
-            f"Topic: {topic}\n\n"
-            "Choose how to search for candidate videos, which ones to transcribe, "
-            "and how to cross-check transcript-derived claims against higher-authority sources.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="source_triage",
-    description="Decide which sources are authoritative enough to fetch, cite, or discard for a research task.",
-    tags={"research", "triage"},
-)
-def source_triage_prompt(goal: str, candidate_sources: str = "") -> list[Message]:
-    return [
-        Message(_SOURCE_TRIAGE_RULES, role="user"),
-        Message(
-            f"Research goal: {goal}\n"
-            + (
-                f"Candidate sources already found: {candidate_sources}\n"
-                if candidate_sources
-                else ""
-            )
-            + "\nAssess source quality, identify which ones to fetch or cite next, "
-            "and call out any authority or recency gaps.",
+            "Placeholder — the full research workflow lives at the docs://workflow resource.",
+            role="user",
         ),
     ]
 

@@ -34,6 +34,7 @@ from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
 from .google_cse import search_google_cse
 from .jina import search_jina
+from .qdrant import search_qdrant
 from .reddit import search_reddit
 from .stackexchange import search_stackexchange
 from .merge import merge_search_results
@@ -47,6 +48,7 @@ from .provider_config import (
 )
 from .provider_call import build_provider_call_kwargs
 from .searxng import search_searxng
+from .search_router import search_search_router
 from .tavily import search_tavily
 
 LOGGER = logging.getLogger(__name__)
@@ -185,6 +187,26 @@ def _init_provider_registry() -> None:
             mode=_parse_mode(settings.ddg_mode),  # default "always" in settings.py
             env_key="",  # No env key needed
             search_fn=search_ddg,
+            is_free=True,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="search_router",
+            mode=ProviderMode.ALWAYS,
+            env_key="SEARCH_ROUTER_API_KEY",
+            search_fn=search_search_router,
+            is_free=True,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="qdrant",
+            mode=ProviderMode.ALWAYS,
+            env_key="KINDLY_QDRANT_SPACE_URL",
+            search_fn=search_qdrant,
             is_free=True,
             requires_key=False,
         )
@@ -343,6 +365,12 @@ def _has_google_cse_key() -> bool:
 
 def _has_jina_key() -> bool:
     return bool(os.environ.get("JINA_API_KEY", "").strip())
+
+
+def _has_qdrant_config() -> bool:
+    return bool(
+        os.environ.get("KINDLY_QDRANT_SPACE_URL", "").strip()
+    )
 
 
 # =============================================================================

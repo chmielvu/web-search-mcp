@@ -221,7 +221,6 @@ class TestYouTubeSearch:
         assert len(results) == 2
         assert results[0].title == "Test Video Title"
         assert results[0].link == "https://www.youtube.com/watch?v=test123"
-        assert results[0].resource_type == "youtube"
 
     @pytest.mark.asyncio
     async def test_results_capped(self) -> None:

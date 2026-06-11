@@ -33,7 +33,7 @@ async def resolve_query_understanding(
         research_goal=research_goal,
         intent=intent_hint,
         must_keep_terms=[],
-        provider_name="vercel",
+        provider_name="groq",
     )
     worker = build_llm_worker()
     fallback_reason = "Query classifier unavailable; defaulting to general."
@@ -50,6 +50,7 @@ async def resolve_query_understanding(
                 ],
                 temperature=0.0,
                 timeout_seconds=settings.query_classifier_timeout_seconds,
+                response_model=QueryUnderstandingResult,
             )
         )
         understanding = QueryUnderstandingResult.model_validate_json(result.content)

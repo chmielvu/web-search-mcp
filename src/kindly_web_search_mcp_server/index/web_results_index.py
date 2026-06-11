@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Awaitable
+from typing import Any, Awaitable
 import uuid
 
 from qdrant_client import AsyncQdrantClient, models
@@ -96,8 +96,15 @@ class WebResultsIndex:
         results: list[WebSearchResult],
         dense_embeddings: list[list[float]],
         sparse_embeddings: list[dict[str, list[int] | list[float]]],
+        *,
+        intent: str | None = None,
+        entities: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Upsert final search results into the remote Qdrant index."""
+        """Upsert final search results into the remote Qdrant index.
+
+        Metadata stored per point:
+        - url, intent, entities, indexed_at, provider
+        """
         if not results or not dense_embeddings:
             return
         if len(results) != len(dense_embeddings) or len(results) != len(
@@ -114,6 +121,8 @@ class WebResultsIndex:
         await self._ensure_collection()
         client = await self._ensure_client()
         now = datetime.now(timezone.utc).isoformat()
+
+        entities_json = [e for e in entities if e] if entities else None
 
         points: list[models.PointStruct] = []
         for result, dense, sparse in zip(results, dense_embeddings, sparse_embeddings):
@@ -136,9 +145,9 @@ class WebResultsIndex:
                         "title": result.title,
                         "snippet": result.snippet,
                         "domain": result.domain,
-                        "resource_type": result.resource_type,
-                        "score": result.score,
-                        "provider_count": result.provider_count,
+                        "intent": intent,
+                        "provider": result.providers,
+                        "entities": entities_json,
                         "indexed_at": now,
                     },
                 )
@@ -181,7 +190,7 @@ def get_web_results_index() -> WebResultsIndex | None:
         )
         _web_results_index = WebResultsIndex(
             url=url,
-            api_key=settings.qdrant_api_key.strip() or None,
+            api_key=None,
             auth_token_provider=auth_provider,
         )
     return _web_results_index
@@ -190,41 +199,48 @@ def get_web_results_index() -> WebResultsIndex | None:
 async def index_final_results(
     query_text: str,
     results: list[WebSearchResult],
+    dense_embeddings: list[list[float]],
+    *,
+    texts: list[str] | None = None,
+    intent: str | None = None,
+    entities: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Compute embeddings + BM25 and index final search results into remote Qdrant.
+    """Index final search results into remote Qdrant using precomputed embeddings.
 
-    Intended to be called from the orchestrator after final_results are
-    determined but before building the response. Errors are caught
-    silently so they never propagate to the caller.
+    Sparse BM25 vectors are computed locally from *texts* (no API call).
+    Errors are caught silently so they never propagate to the caller.
     """
-    from ..embeddings import embed_texts
-    from .bm25_encoder import encode_bm25
-
     idx = get_web_results_index()
     if idx is None:
         return
 
-    if not results:
+    if not results or not dense_embeddings:
         return
 
-    texts = [
-        f"{r.title}\n{r.snippet}"
-        if r.title and r.snippet
-        else (r.title or r.snippet or "")
-        for r in results
-    ]
-    texts = [t for t in texts if t.strip()]
-    if not texts:
-        return
+    from .bm25_encoder import encode_bm25
+
+    sparse_embeddings: list[dict[str, list[int] | list[float]]] = []
+    effective_texts = texts or []
+    for i in range(len(results)):
+        t = effective_texts[i] if i < len(effective_texts) else ""
+        if not t:
+            t = (
+                f"{results[i].title}\n{results[i].snippet}"
+                if results[i].title and results[i].snippet
+                else (results[i].title or results[i].snippet or "")
+            )
+        sparse_embeddings.append(
+            encode_bm25(t.strip()) if t.strip() else {"indices": [], "values": []}
+        )
 
     try:
-        dense = await embed_texts(texts, timeout=15.0)
-        if not dense:
-            logger.debug("index_final_results: no dense embeddings returned")
-            return
-
-        sparse = [encode_bm25(t) for t in texts]
-        await idx.index_results(results, dense, sparse)
+        await idx.index_results(
+            results,
+            dense_embeddings,
+            sparse_embeddings,
+            intent=intent,
+            entities=entities,
+        )
         logger.debug(
             "index_final_results: indexed %d results for query=%s",
             len(results),

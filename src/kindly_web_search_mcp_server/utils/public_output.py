@@ -8,7 +8,6 @@ WEB_SEARCH_RESULT_FIELDS = (
     "link",
     "snippet",
     "domain",
-    "resource_type",
     "published_date",
     "providers",
     "provider_count",

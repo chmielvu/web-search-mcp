@@ -174,7 +174,6 @@ async def search_youtube_videos(
             title=title.strip(),
             link=link.strip(),
             snippet=snippet.strip() if snippet else "",
-            resource_type="youtube",
             providers=["searxng_youtube"],
         )
         results.append(result)

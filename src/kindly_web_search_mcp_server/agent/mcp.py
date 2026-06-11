@@ -30,11 +30,8 @@ def register_agentic_web_research_tools(mcp: object) -> None:
         depth: str = "normal",
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """LangChain/LangGraph ReAct research agent.
-
-        Use this when you want the model to choose among the dedicated search,
-        fetch, rerank, and expansion tools directly instead of calling the legacy
-        full `web_search` pipeline.
+        """Multi-step web research using a ReAct agent that selects tools autonomously.
+        Experimental, not idempotent. Use only for open-ended research requiring multiple iterations.
         """
         # Outer MCP boundary instrumentation (Grafana/DuckDB + OTel)
         # Mirrors patterns from server.py for other complex tools (web_search, gemini, etc.)

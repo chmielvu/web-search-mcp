@@ -4,7 +4,7 @@ Per plan:
 - memory candidates -> virtual provider list provider="result_memory"
 - list weight from settings.result_memory_candidate_weight
 - dedup by URL via existing merge_search_results behavior
-- convert to WebSearchResult with resource_type="cached"
+- convert to WebSearchResult with providers=["result_memory"]
 - store survivors after rerank + emit candidate_survived
 - run combined: test_result_memory_injection.py + test_search_orchestrator.py + test_rerank_core.py
 
@@ -59,7 +59,7 @@ class TestResultMemoryCandidateInjection(unittest.TestCase):
                 # setup rewrite bypass for simplicity
                 mock_rewrite.return_value = None  # causes single query path
                 mock_single.return_value = [
-                    type("R", (), {"title": "Fresh 1", "link": "https://fresh.com/a", "snippet": "live", "domain": "fresh.com", "providers": ["searxng"], "resource_type": None})()
+                    type("R", (), {"title": "Fresh 1", "link": "https://fresh.com/a", "snippet": "live", "domain": "fresh.com", "providers": ["searxng"]})()
                 ]
                 mock_embed.return_value = [0.1] * 384
                 mock_mem = mock_get_mem.return_value
@@ -88,7 +88,6 @@ class TestResultMemoryCandidateInjection(unittest.TestCase):
                 mem_list = result_lists[1]
                 self.assertEqual(len(mem_list), 2)
                 self.assertEqual(mem_list[0].providers, ["result_memory"])
-                self.assertEqual(mem_list[0].resource_type, "cached")
                 self.assertEqual(mem_list[0].link, "https://mem.com/1")
 
                 self.assertIsNotNone(list_weights)
@@ -102,7 +101,7 @@ class TestResultMemoryCandidateInjection(unittest.TestCase):
         from kindly_web_search_mcp_server.models import WebSearchResult
 
         fresh = WebSearchResult(title="F", link="https://dup.com", snippet="live", providers=["searxng"])
-        memc = WebSearchResult(title="M", link="https://dup.com", snippet="old cached", providers=["result_memory"], resource_type="cached")
+        memc = WebSearchResult(title="M", link="https://dup.com", snippet="old cached", providers=["result_memory"])
 
         merged = merge_search_results(
             [[fresh], [memc]],

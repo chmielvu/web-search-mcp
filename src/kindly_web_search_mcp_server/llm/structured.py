@@ -12,7 +12,7 @@ class StructuredLLMRequest:
     messages: list[dict[str, str]]
     temperature: float = 0.0
     timeout_seconds: float | None = None
-    response_schema: dict[str, Any] | None = None
+    response_model: type[Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -24,6 +24,7 @@ class LLMWorker:
             messages=request.messages,
             temperature=request.temperature,
             timeout_seconds=request.timeout_seconds,
+            response_model=request.response_model,
         )
         return StructuredLLMResponse(
             endpoint_name=generation.endpoint.name,
