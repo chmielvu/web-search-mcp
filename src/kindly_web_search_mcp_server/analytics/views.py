@@ -396,7 +396,7 @@ def refresh_views(*, db_path: str | None = None) -> None:
     ensure_views(db_path=db_path)
 
 
-# Backward-compatible alias used by analytics/__init__.py
+# Alias used by analytics/__init__.py, queries.py, and app.py
 ensure_local_views = ensure_views
 
 

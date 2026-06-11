@@ -340,44 +340,10 @@ _init_provider_registry()
 
 
 # =============================================================================
-# Provider Detection (kept for backwards compat with existing detection)
-# =============================================================================
-
-
-def _has_searxng_config() -> bool:
-    return bool(os.environ.get("SEARXNG_BASE_URL", "").strip())
-
-
-def _has_tavily_key() -> bool:
-    return bool(os.environ.get("TAVILY_API_KEY", "").strip())
-
-
-def _has_brave_key() -> bool:
-    return bool(os.environ.get("BRAVE_API_KEY", "").strip())
-
-
-def _has_google_cse_key() -> bool:
-    return bool(
-        os.environ.get("KINDLY_GOOGLE_CSE_API_KEY", "").strip()
-        and os.environ.get("KINDLY_GOOGLE_CSE_ENGINE_ID", "").strip()
-    )
-
-
-def _has_jina_key() -> bool:
-    return bool(os.environ.get("JINA_API_KEY", "").strip())
-
-
-def _has_qdrant_config() -> bool:
-    return bool(
-        os.environ.get("KINDLY_QDRANT_SPACE_URL", "").strip()
-    )
-
-
-# =============================================================================
 # Main Search Function
 # =============================================================================
 
-_circuit_breaker = CircuitBreaker()
+
 
 
 async def _search_single_provider(

@@ -31,6 +31,7 @@ SEMANTIC CONVENTIONS:
 from __future__ import annotations
 
 import os
+from importlib.metadata import version as _package_version
 import logging
 import json
 import platform
@@ -376,7 +377,7 @@ _OTLP_EXPORT_TIMEOUT_SECONDS = int(
 
 def init_telemetry(
     service_name: str = "web-search-mcp",
-    service_version: str = "1.0.8",
+    service_version: str = _package_version("kindly-web-search-mcp-server"),
     prometheus_port: int | None = None,
 ) -> None:
     """Initialize OpenTelemetry SDK with Grafana Cloud export.
@@ -707,7 +708,7 @@ def init_telemetry(
 
 def init_telemetry_background(
     service_name: str = "web-search-mcp",
-    service_version: str = "1.0.8",
+    service_version: str = _package_version("kindly-web-search-mcp-server"),
     prometheus_port: int | None = None,
 ) -> threading.Thread:
     """Run init_telemetry in a daemon thread so it never blocks startup.
