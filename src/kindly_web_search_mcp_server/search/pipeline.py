@@ -20,6 +20,8 @@ from ..utils.observability import emit_observability_event
 from ..search_instrumented import search_single_query
 from ..rerank import rerank_results
 from ..rerank.models import RerankEmbeddingContext
+from ..ab_testing.wiring import get_ab_overrides
+from ..ab_testing.shadow_runner import run_shadow
 from ..analytics.duckdb_store import (
     insert_search_run as analytics_insert_search_run,
     insert_final_results as analytics_insert_final_results,
@@ -240,19 +242,70 @@ async def run_search_pipeline(
     embedding_ctx_for_index: RerankEmbeddingContext | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
-            rerank_out = await rerank_results(
-                query=normalized_query,
-                candidates=merged,
-                top_k=num_results,
-                searxng_time_range=search_options.searxng_time_range
-                if search_options
-                else None,
-                research_goal=research_goal,
-                query_type_hint=context.intent,
-                run_key=run_key,
-            )
-            embedding_ctx_for_index = rerank_out.embedding_context
-            merged = rerank_out.results
+            # Check A/B testing overrides for the reranking layer
+            ab_overrides = get_ab_overrides(
+                run_key=run_key, layer="reranking"
+            ) if run_key else None
+
+            if ab_overrides and ab_overrides.get("shadow_mode"):
+                # Shadow mode: run production rerank normally, fire-and-forget variant
+                ab_config = ab_overrides.get("config", {})
+                rerank_out = await rerank_results(
+                    query=normalized_query,
+                    candidates=merged,
+                    top_k=num_results,
+                    searxng_time_range=search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    research_goal=research_goal,
+                    query_type_hint=context.intent,
+                    run_key=run_key,
+                )
+                embedding_ctx_for_index = rerank_out.embedding_context
+                merged = rerank_out.results
+
+                # Fire-and-forget the variant rerank as a shadow
+                shadow_kwargs = {
+                    "query": normalized_query,
+                    "candidates": list(merged),
+                    "top_k": num_results,
+                    "searxng_time_range": search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    "research_goal": research_goal,
+                    "query_type_hint": context.intent,
+                    "run_key": run_key,
+                    "ab_overrides": ab_config or None,
+                }
+                asyncio.ensure_future(
+                    run_shadow(
+                        run_key=run_key,
+                        experiment_id=ab_overrides["experiment_id"],
+                        variant=ab_overrides["variant_key"],
+                        layer="reranking",
+                        shadow_fn=rerank_results,
+                        shadow_kwargs=shadow_kwargs,
+                        control_duration_ms=0.0,
+                        control_result_summary=None,
+                    )
+                )
+            else:
+                # Normal / A/B override mode: pass ab_overrides config directly
+                ab_config = ab_overrides.get("config") if ab_overrides else None
+                rerank_out = await rerank_results(
+                    query=normalized_query,
+                    candidates=merged,
+                    top_k=num_results,
+                    searxng_time_range=search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    research_goal=research_goal,
+                    query_type_hint=context.intent,
+                    run_key=run_key,
+                    ab_overrides=ab_config,
+                )
+                embedding_ctx_for_index = rerank_out.embedding_context
+                merged = rerank_out.results
         except Exception as exc:
             logger.warning("Reranking failed in search pipeline: %s", exc)
 

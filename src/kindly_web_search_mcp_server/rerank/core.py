@@ -112,11 +112,16 @@ async def rerank_results(
     research_goal: str | None = None,
     query_type_hint: str | None = None,
     run_key: str | None = None,
+    ab_overrides: dict | None = None,
 ) -> RerankOutput:
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
     query_entities (if provided) enables the measured entity-overlap feature
     when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
+
+    ab_overrides (optional): A/B experiment variant config dict that can
+        override ``provider``, ``top_k``, ``diversity_weight``, and/or
+        ``entity_boost`` parameters for this rerank invocation.
     """
     if not candidates:
         return RerankOutput(results=[], embedding_context=None)
@@ -126,6 +131,18 @@ async def rerank_results(
             f"Candidates ({len(candidates)}) <= top_k ({top_k}), skipping rerank"
         )
         return RerankOutput(results=candidates, embedding_context=None)
+
+    # Apply A/B experiment overrides (provider, top_k, diversity_weight, entity_boost)
+    if ab_overrides:
+        if "top_k" in ab_overrides:
+            top_k = int(ab_overrides["top_k"])
+            logger.debug("A/B override: top_k -> %s", top_k)
+        if "provider" in ab_overrides:
+            logger.debug("A/B override: provider -> %s", ab_overrides["provider"])
+        if "diversity_weight" in ab_overrides:
+            logger.debug("A/B override: diversity_weight -> %s", ab_overrides["diversity_weight"])
+        if "entity_boost" in ab_overrides:
+            logger.debug("A/B override: entity_boost -> %s", ab_overrides["entity_boost"])
 
     instruction = _build_rerank_instruction(
         research_goal=research_goal,
@@ -246,6 +263,9 @@ async def rerank_results(
         stage2_duration = 0.0
         relevance_scores: list[float] = []
         configured_provider = settings.rerank_provider.strip().lower()
+        # A/B override for provider
+        if ab_overrides and "provider" in ab_overrides:
+            configured_provider = ab_overrides["provider"].strip().lower()
         stage2_provider = configured_provider
         stage2_model = None
 
@@ -309,6 +329,9 @@ async def rerank_results(
                     from ..entity.overlap import compute_entity_overlap
 
                     w = float(getattr(settings, "rerank_entity_overlap_weight", 0.15))
+                    # A/B override for entity_boost
+                    if ab_overrides and "entity_boost" in ab_overrides:
+                        w = float(ab_overrides["entity_boost"])
                     os_list: list[float] = []
                     for c in candidates[: min(20, len(candidates))]:
                         c_ents = getattr(c, "entities", None) or []
@@ -407,6 +430,12 @@ async def rerank_results(
         stage3_duration = 0.0
         diversity_removed = 0
 
+        # A/B override for diversity_weight (MMR lambda)
+        mmr_lambda = settings.mmr_lambda_param
+        if ab_overrides and "diversity_weight" in ab_overrides:
+            mmr_lambda = float(ab_overrides["diversity_weight"])
+            logger.debug("A/B override: MMR lambda -> %s", mmr_lambda)
+
         if query_embedding:
             stage3_input = candidates[: top_k * 2]
             stage3_texts = [f"{c.title}\n{c.snippet}" for c in stage3_input]
@@ -435,7 +464,7 @@ async def rerank_results(
                         query_embedding,
                         embeddings,
                         scoped_urls,
-                        lambda_param=settings.mmr_lambda_param,
+                        lambda_param=mmr_lambda,
                         max_per_host=2,
                     )
 
@@ -489,7 +518,7 @@ async def rerank_results(
                     entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
                     payload_json={
                         "diversity_removed": diversity_removed,
-                        "mmr_lambda": settings.mmr_lambda_param,
+                        "mmr_lambda": mmr_lambda,
                     },
                 )
             except Exception as exc:
