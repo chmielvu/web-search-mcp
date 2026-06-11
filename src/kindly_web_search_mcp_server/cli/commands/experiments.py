@@ -12,6 +12,7 @@ from ..output import emit_json
 from ...ab_testing.models import ABExperiment, ABVariant
 from ...ab_testing.yaml_loader import load_experiments, save_experiments
 from ...settings import settings
+from ...utils.paths import DEFAULT_EXPERIMENTS_YAML
 
 
 experiments_app = typer.Typer(no_args_is_help=True)
@@ -22,7 +23,7 @@ def _resolve_config_path() -> Path:
     raw = settings.ab_config_path
     if raw:
         return Path(raw)
-    return Path(".kindly/experiments.yaml")
+    return Path(DEFAULT_EXPERIMENTS_YAML)
 
 
 def _find_experiment(

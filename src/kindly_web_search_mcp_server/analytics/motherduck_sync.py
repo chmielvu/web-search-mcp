@@ -11,13 +11,14 @@ from pathlib import Path
 import duckdb
 
 from ..settings import settings
+from ..utils.paths import DEFAULT_EXTENSION_DIR
 from .duckdb_store import ensure_store_schema
 from .evals import build_eval_table_sql, ensure_eval_tables
 from .views import build_analytics_view_sql
 
 
 DEFAULT_SCHEMA = "kindly_analytics"
-DEFAULT_EXTENSION_DIR = Path(".kindly") / "duckdb_extensions"
+DEFAULT_EXTENSION_DIR = DEFAULT_EXTENSION_DIR
 
 
 @dataclass(frozen=True)

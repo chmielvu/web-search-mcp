@@ -50,8 +50,8 @@ def test_emit_observability_event_includes_hard_values(monkeypatch) -> None:
     assert payload["query"] == "fastmcp middleware best practices"
     assert payload["answer"] == "Concrete answer text"
     assert payload["sources"] == ["https://example.com/a", "https://example.com/b"]
-    assert record.kindly_event == "tool.perplexity_search.response"
-    assert record.kindly_query == "fastmcp middleware best practices"
+    assert record.obs_event == "tool.perplexity_search.response"
+    assert record.obs_query == "fastmcp middleware best practices"
 
 
 def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monkeypatch) -> None:
@@ -108,7 +108,7 @@ def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monke
     assert request_payload["event"] == "tool.get_content.request"
     assert "request_fingerprint" in request_payload
     assert request_payload["request_fingerprint"]
-    assert handler.records[1].kindly_event == "tool.get_content.request"
+    assert handler.records[1].obs_event == "tool.get_content.request"
 
 
 def test_preview_text_truncates() -> None:
@@ -134,7 +134,7 @@ def test_configure_structlog_preserves_existing_handlers(monkeypatch) -> None:
         structlog_handlers = [
             handler
             for handler in root.handlers
-            if getattr(handler, "_kindly_structlog_stream_handler", False)
+            if getattr(handler, "_otel_structlog_stream_handler", False)
         ]
         assert len(structlog_handlers) == 1
         assert getattr(structlog_handlers[0], "stream", None) is sys.stderr

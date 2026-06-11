@@ -26,7 +26,10 @@ class TestABSettingsDefaults:
 
     def test_ab_config_path_default(self) -> None:
         s = Settings()
-        assert s.ab_config_path == ".kindly/experiments.yaml"
+        # Path uses OS separators; check for the directory structure
+        assert "duckdb_data" in s.ab_config_path
+        assert "experiments" in s.ab_config_path
+        assert s.ab_config_path.endswith("experiments.yaml")
 
     def test_ab_shadow_mode_default_defaults_to_true(self) -> None:
         s = Settings()

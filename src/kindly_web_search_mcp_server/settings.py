@@ -4,7 +4,13 @@ import base64
 import json as _json
 import os
 from dataclasses import dataclass
-from pathlib import Path
+
+from .utils.paths import (
+    DEFAULT_ANALYTICS_DB,
+    DEFAULT_EXPERIMENTS_YAML,
+    DEFAULT_PAGE_CACHE_DB,
+    DEFAULT_QUERY_UNDERSTANDING_JSONL,
+)
 
 
 def _parse_json_dict(raw: str, default: dict) -> dict:
@@ -120,7 +126,7 @@ class Settings:
     )
     query_understanding_jsonl_path: str = os.environ.get(
         "QUERY_UNDERSTANDING_JSONL_PATH",
-        str(Path(".kindly") / "training" / "query_understanding.jsonl"),
+        DEFAULT_QUERY_UNDERSTANDING_JSONL,
     )
 
     # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
@@ -220,13 +226,13 @@ class Settings:
     )
     analytics_duckdb_path: str = os.environ.get(
         "ANALYTICS_DUCKDB_PATH",
-        str(Path(".kindly") / "analytics" / "search_events.duckdb"),
+        DEFAULT_ANALYTICS_DB,
     )
 
     # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
     page_cache_duckdb_path: str = os.environ.get(
         "PAGE_CACHE_DUCKDB_PATH",
-        str(Path(".kindly") / "cache" / "page_cache.duckdb"),
+        DEFAULT_PAGE_CACHE_DB,
     )
 
     # Pollinations API (for gemini-search provider in web_search mix)
@@ -528,7 +534,7 @@ class Settings:
         os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
     )
     ab_config_path: str = os.environ.get(
-        "AB_CONFIG_PATH", ".kindly/experiments.yaml"
+        "AB_CONFIG_PATH", DEFAULT_EXPERIMENTS_YAML
     )
     ab_shadow_mode_default: bool = (
         os.environ.get("AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"

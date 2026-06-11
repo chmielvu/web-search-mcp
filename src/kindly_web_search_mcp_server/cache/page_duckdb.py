@@ -1,6 +1,6 @@
 """DuckDB-backed page content cache (Phase 5.2).
 
-Separate .duckdb file (default .kindly/cache/page_cache.duckdb),
+Separate .duckdb file (default duckdb_data/cache/page_cache.duckdb),
 not sharing the analytics DB. Uses URL hash lookup (sha256[:32]),
 TTL expiry, metadata as JSON roundtrip in metadata_json column,
 and a threading.Lock around all DB operations for safe writes
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+
 
 
 PAGE_CACHE_DEFAULT_TTL_SECONDS = int(

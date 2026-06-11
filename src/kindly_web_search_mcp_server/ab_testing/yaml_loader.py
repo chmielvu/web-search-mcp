@@ -1,14 +1,14 @@
 import logging
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 from .models import ABExperiment, ABVariant
+from ..utils.paths import DEFAULT_EXPERIMENTS_YAML
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = Path(".kindly/experiments.yaml")
+DEFAULT_CONFIG_PATH = Path(DEFAULT_EXPERIMENTS_YAML)
 
 
 def load_experiments(

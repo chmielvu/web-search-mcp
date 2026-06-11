@@ -167,7 +167,7 @@ class TestResultMemoryStore(unittest.TestCase):
             self.assertIsNotNone(s1)
             # reset global for test
             # direct construct with path from settings
-            settings_mod.settings.result_memory_path = ".kindly/test_result_mem_for_test"
+            settings_mod.settings.result_memory_path = "duckdb_data/result_memory/test_result_mem_for_test"
             s2 = ResultMemoryStore(
                 path=settings_mod.settings.result_memory_path,
                 embedding_model="t",
