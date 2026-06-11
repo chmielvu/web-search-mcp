@@ -247,9 +247,13 @@ class TestPipelineABWiringRerank:
                 session_id=None,
             )
 
-            mock_get_ab.assert_called_once()
-            args, kwargs = mock_get_ab.call_args
-            assert "reranking" in str(kwargs)
+            # get_ab_overrides is called for both provider_weights and reranking layers
+            assert mock_get_ab.call_count >= 1
+            reranking_calls = [
+                c for c in mock_get_ab.call_args_list
+                if c.kwargs.get("layer") == "reranking"
+            ]
+            assert len(reranking_calls) >= 1, "Expected reranking layer call"
 
     @pytest.mark.asyncio
     async def test_no_ab_check_when_run_key_none(self, mock_settings):
@@ -350,7 +354,7 @@ class TestPipelineABWiringRerank:
 
             # Pipeline always generates its own run_key, so get_ab_overrides
             # should be called (not suppressed). Just verify it completes.
-            mock_get_ab.assert_called_once()
+            assert mock_get_ab.call_count >= 1
             assert result is not None
 
     @pytest.mark.asyncio
@@ -462,8 +466,8 @@ class TestPipelineABWiringRerank:
                 session_id=None,
             )
 
-            # verify that get_ab_overrides was called
-            mock_get_ab.assert_called_once()
+            # verify that get_ab_overrides was called for multiple layers
+            assert mock_get_ab.call_count >= 1
             # verify that asyncio.ensure_future was called (for shadow task)
             assert mock_ensure_future.called, \
                 "asyncio.ensure_future should be called for shadow mode"
