@@ -1,4 +1,4 @@
-"""Page content cache for resolved URL content.
+"""Page content cache with observability facade.
 
 Caches extracted markdown content by canonical URL,
 with metadata about extraction method and timestamps.

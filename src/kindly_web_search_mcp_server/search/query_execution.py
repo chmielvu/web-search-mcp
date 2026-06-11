@@ -1,159 +1,27 @@
-"""Instrumented search module with OpenTelemetry telemetry.
-
-This module wraps the standard search functions with telemetry tracking.
-Import this instead of the regular search module to get Grafana Cloud visibility.
-
-Telemetry is initialized by the server entry point (init_telemetry_background).
-Do NOT call init_telemetry() here — it would re-trigger the ~70s OTLP handshake.
-"""
+"""Canonical multi-provider search orchestration with OpenTelemetry instrumentation."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any
 
 import httpx
-
 from opentelemetry import trace
 
-from .models import WebSearchResult
-from .search import (
-    ProviderBudget,
-    ProviderConfig,
-    WebSearchProviderError,
-    _search_single_provider as _original_search_single_provider,
-    resolve_providers_for_search,
-)
-from .search.merge import merge_search_results
-from .search.options import SearchOptions
-from .telemetry import (
-    get_tracer,
-    record_provider_call,
-    add_results_to_span,
-)
-from .utils.diagnostics import Diagnostics
-from .utils.observability import emit_observability_event
+from ..models import WebSearchResult
+from ..telemetry import add_results_to_span, get_search_total_metric, get_tracer
+from ..utils.diagnostics import Diagnostics
+from ..utils.observability import emit_observability_event
+from .budget import ProviderBudget
+from .errors import WebSearchProviderError
+from .merge import merge_search_results
+from .options import SearchOptions
+from .provider_execution import _search_single_provider
+from .provider_config import ProviderConfig, resolve_providers_for_search
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
-
-
-async def _search_single_provider_instrumented(
-    provider_name: str,
-    provider_fn: Any,
-    query: str,
-    num_results: int,
-    http_client: httpx.AsyncClient,
-    search_options: SearchOptions | None = None,
-    budget: ProviderBudget | None = None,
-    provider_arguments: dict[str, object] | None = None,
-) -> list[WebSearchResult]:
-    """Search a single provider with telemetry tracking.
-
-    Creates a span for each provider call and records:
-    - Duration (histogram metric)
-    - Result count (counter metric)
-    - Status (success/error)
-    - Actual result titles/links as span events (VISIBLE IN GRAFANA)
-    """
-    start_time = time.time()
-
-    with tracer.start_as_current_span(
-        f"provider.{provider_name}",
-        kind=trace.SpanKind.CLIENT,
-        attributes={
-            "provider": provider_name,
-            "query": query[:200],
-            "num_results_requested": num_results,
-        },
-    ) as span:
-        try:
-            # Lazy import to avoid circular dependency.
-            from .search.provider_health import get_provider_health  # noqa: PLC0415
-
-            results = await _original_search_single_provider(
-                provider_name,
-                provider_fn,
-                query,
-                num_results,
-                http_client,
-                search_options,
-                budget,
-                provider_arguments,
-            )
-
-            duration = time.time() - start_time
-
-            # Mark provider as healthy
-            get_provider_health().mark_success(provider_name)
-
-            # Record metrics
-            record_provider_call(
-                provider=provider_name,
-                duration_seconds=duration,
-                result_count=len(results),
-                status_code=200,
-            )
-
-            # Add span attributes
-            span.set_attribute("result_count", len(results))
-            span.set_attribute("duration_ms", duration * 1000)
-            span.set_attribute("status", "success")
-
-            # ADD ACTUAL RESULTS TO SPAN - THIS IS WHAT YOU WANT TO SEE IN GRAFANA
-            add_results_to_span(span, results, max_results=5)
-            emit_observability_event(
-                LOGGER,
-                "provider.search.result",
-                provider_name=provider_name,
-                query=query,
-                num_results_requested=num_results,
-                duration_ms=round(duration * 1000, 3),
-                result_count=len(results),
-                results=results,
-            )
-
-            LOGGER.debug(
-                f"Provider {provider_name}: {len(results)} results in {duration * 1000:.1f}ms"
-            )
-            return results
-
-        except Exception as e:
-            duration = time.time() - start_time
-
-            # Mark provider as failed (triggers cooldown)
-            get_provider_health().mark_failure(provider_name)
-
-            # Record metrics
-            record_provider_call(
-                provider=provider_name,
-                duration_seconds=duration,
-                result_count=0,
-                status_code=500,
-                error_type=type(e).__name__,
-            )
-
-            # Add span attributes
-            span.set_attribute("status", "error")
-            span.set_attribute("error_type", type(e).__name__)
-            span.set_attribute("error_message", str(e)[:500])
-            span.record_exception(e)
-            emit_observability_event(
-                LOGGER,
-                "provider.search.error",
-                level=logging.WARNING,
-                provider_name=provider_name,
-                query=query,
-                num_results_requested=num_results,
-                duration_ms=round(duration * 1000, 3),
-                error_type=type(e).__name__,
-                error_message=str(e),
-            )
-
-            LOGGER.warning(f"Provider {provider_name} failed: {type(e).__name__}: {e}")
-            return []
 
 
 async def search_single_query(
@@ -166,15 +34,7 @@ async def search_single_query(
     search_options: SearchOptions | None = None,
     provider_arguments: dict[str, dict[str, object]] | None = None,
 ) -> list[WebSearchResult]:
-    """Search with full OpenTelemetry instrumentation.
-
-    Creates spans and metrics for:
-    - Overall search operation
-    - Each provider call
-    - RRF merge operation
-
-    Results are visible in Grafana Cloud trace view.
-    """
+    """Search with full OpenTelemetry instrumentation."""
     start_time = time.time()
 
     with tracer.start_as_current_span(
@@ -218,7 +78,7 @@ async def search_single_query(
 
             if free_providers:
                 free_tasks = [
-                    _search_single_provider_instrumented(
+                    _search_single_provider(
                         c.name,
                         c.search_fn,
                         query,
@@ -255,7 +115,7 @@ async def search_single_query(
                     config: ProviderConfig,
                 ) -> list[WebSearchResult]:
                     async with semaphore:
-                        return await _search_single_provider_instrumented(
+                        return await _search_single_provider(
                             config.name,
                             config.search_fn,
                             query,
@@ -324,14 +184,9 @@ async def search_single_query(
 
             total_duration = time.time() - start_time
             span.set_attribute("total_duration_ms", total_duration * 1000)
-
-            from .telemetry import get_search_total_metric
-
             get_search_total_metric().add(1)
-
             return results
-
-        except Exception as e:
-            span.record_exception(e)
-            span.set_attribute("error", str(e)[:500])
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_attribute("error", str(exc)[:500])
             raise

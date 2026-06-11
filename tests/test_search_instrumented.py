@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from typing import Any
 import unittest
 from unittest.mock import patch
-from typing import Any
 
 from kindly_web_search_mcp_server.models import WebSearchResult
-from kindly_web_search_mcp_server.search import ProviderConfig, ProviderMode
-from kindly_web_search_mcp_server.search_instrumented import search_single_query
+from kindly_web_search_mcp_server.search import (
+    ProviderConfig,
+    ProviderMode,
+    search_single_query,
+)
 
 
 async def _fake_provider(
@@ -38,7 +41,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "kindly_web_search_mcp_server.search_instrumented.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             return_value=[config],
         ):
             results = await search_single_query("FastMCP docs", num_results=3)
@@ -64,15 +67,22 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search_instrumented.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
-            patch("kindly_web_search_mcp_server.analytics.duckdb_store.append_event", side_effect=_capture),
+            patch(
+                "kindly_web_search_mcp_server.analytics.duckdb_store.append_event",
+                side_effect=_capture,
+            ),
         ):
             await search_single_query("FastMCP docs", num_results=3)
 
         provider_event = next(
-            (payload for event_name, payload in captured_calls if event_name == "provider.search.result"),
+            (
+                payload
+                for event_name, payload in captured_calls
+                if event_name == "provider.search.result"
+            ),
             None,
         )
         self.assertIsNotNone(provider_event)
@@ -92,7 +102,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search_instrumented.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch("asyncio.gather", return_value=[RuntimeError("task crashed")]),
@@ -137,11 +147,11 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search_instrumented.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch(
-                "kindly_web_search_mcp_server.search_instrumented._original_search_single_provider",
+                "kindly_web_search_mcp_server.search.query_execution._search_single_provider",
                 side_effect=_capture_original,
             ),
         ):

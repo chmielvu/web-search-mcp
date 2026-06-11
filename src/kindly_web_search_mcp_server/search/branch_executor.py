@@ -14,7 +14,7 @@ from ..models import WebSearchResult
 from ..settings import settings
 from ..utils.diagnostics import Diagnostics
 from .options import SearchOptions
-from ..search_instrumented import search_single_query
+from . import search_single_query
 
 logger = logging.getLogger(__name__)
 

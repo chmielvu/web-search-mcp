@@ -17,7 +17,6 @@ from ..training.query_understanding_jsonl import append_query_outcome_record
 from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
-from ..search_instrumented import search_single_query
 from ..rerank import rerank_results
 from ..rerank.models import RerankEmbeddingContext
 from ..ab_testing.wiring import get_ab_overrides
@@ -38,6 +37,7 @@ from .finalize_results import build_search_response, maybe_extract_entities
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .merge import merge_search_results
 from .options import SearchOptions
+from . import search_single_query
 from .pipeline_builders import build_rewrite_variants, build_search_context
 from .profiles.registry import apply_profile_search_options
 from .profiles.resolve import resolve_search_profile

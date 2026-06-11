@@ -1,4 +1,4 @@
-"""Exact query cache compatibility wrapper."""
+"""Exact query cache with observability facade."""
 
 from __future__ import annotations
 

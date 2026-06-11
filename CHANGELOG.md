@@ -7,6 +7,7 @@
 - **Qdrant index payload revised**: Payload changed from `{url, title, snippet, domain, resource_type, score, provider_count, indexed_at}` to `{url, title, snippet, domain, intent, provider, entities, indexed_at}` — metadata now captures query-level context (intent, extracted entities) and the provider that surfaced each result.
 - **`resource_type` field removed** from `WebSearchResult` model and all call sites (`youtube.py`, `result_memory_pipeline.py`, `result_memory.py`, `public_output.py`).
 - **Search Router provider removed** (was experimental, replaced by Qdrant native provider).
+- **Search package unification**: provider execution and query orchestration now live under `src/kindly_web_search_mcp_server/search/` canonical imports; pipeline and branch executor no longer depend on `search_instrumented.py`.
 
 ### Added
 - **Search-quality DuckDB schema implementation** — 13 specialized analytics tables across the full search pipeline lifecycle, with associated insert functions (`duckdb_store.py`):
@@ -36,6 +37,7 @@
 - `KINDLY_QDRANT_API_KEY` from `.env` and all code references.
 - `resource_type` field from `WebSearchResult` model and all call sites (`youtube.py`, `result_memory_pipeline.py`, `result_memory.py`, `public_output.py`).
 - `search/search_router.py` (experimental Search Router provider, replaced by native Qdrant provider).
+- `search_instrumented.py` wrapper module (telemetry moved into canonical search package imports).
 
 ### Changed
 - `KINDLY_TOOL_PROFILE` now defaults to `full`, so MCP hosts and the planned native CLI expose all registered tools unless explicitly narrowed with `KINDLY_TOOL_PROFILE=default` or another profile.

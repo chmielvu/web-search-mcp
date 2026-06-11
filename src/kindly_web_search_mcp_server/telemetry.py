@@ -846,7 +846,7 @@ def get_search_metrics() -> tuple[
 
 
 def get_search_total_metric() -> metrics.Counter:
-    """Get search total counter directly (convenience function for search_instrumented.py)."""
+    """Get search total counter directly (convenience function for the search package)."""
     total_counter, _, _ = get_search_metrics()
     return total_counter
 
