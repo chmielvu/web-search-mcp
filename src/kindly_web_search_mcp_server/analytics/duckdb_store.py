@@ -17,6 +17,12 @@ _TABLE_NAME = "search_events"
 _RUNS_TABLE_NAME = "search_runs"
 _QU_TABLE_NAME = "query_understanding"
 _QR_TABLE_NAME = "query_rewrites"
+_PC_TABLE_NAME = "provider_calls"
+_PRC_TABLE_NAME = "provider_candidates"
+_MC_TABLE_NAME = "merged_candidates"
+_RS_TABLE_NAME = "rerank_stages"
+_RC_TABLE_NAME = "rerank_candidates"
+_FR_TABLE_NAME = "final_results"
 
 
 def _db_path(db_path: str | None = None) -> Path:
@@ -489,6 +495,368 @@ def insert_query_rewrites(
             )
         finally:
             connection.close()
+
+
+def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_PC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider VARCHAR NOT NULL,
+            branch_index INTEGER,
+            branch_query VARCHAR,
+            num_results_requested INTEGER,
+            num_results_returned INTEGER,
+            duration_ms DOUBLE,
+            error_code VARCHAR,
+            error_message VARCHAR,
+            http_status INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_pc_run_key ON {_PC_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_pc_provider ON {_PC_TABLE_NAME}(provider, recorded_at)"
+    )
+
+
+def insert_provider_calls(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider", "branch_index", "branch_query",
+        "num_results_requested", "num_results_returned", "duration_ms",
+        "error_code", "error_message", "http_status", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_provider_calls(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_PC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_PRC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider VARCHAR NOT NULL,
+            branch_index INTEGER,
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            score DOUBLE,
+            published_date VARCHAR,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_prc_run_key ON {_PRC_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_prc_provider ON {_PRC_TABLE_NAME}(provider)"
+    )
+
+
+def insert_provider_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider", "branch_index", "rank", "title",
+        "link", "snippet", "domain", "score", "published_date", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_provider_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_PRC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_MC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            rrf_score DOUBLE,
+            provider_count INTEGER,
+            providers VARCHAR[],
+            overlap_flag BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_mc_run_key ON {_MC_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_merged_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "rank", "title", "link", "snippet", "domain",
+        "rrf_score", "provider_count", "providers", "overlap_flag", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_merged_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_MC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_RS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            stage VARCHAR NOT NULL,
+            provider VARCHAR,
+            model VARCHAR,
+            input_count INTEGER,
+            output_count INTEGER,
+            duration_ms DOUBLE,
+            max_score DOUBLE,
+            avg_score DOUBLE,
+            score_threshold DOUBLE,
+            instruction_present BOOLEAN,
+            instruction_length INTEGER,
+            query_type_hint VARCHAR,
+            entity_overlap_enabled BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_rs_run_key ON {_RS_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_rs_stage ON {_RS_TABLE_NAME}(stage)"
+    )
+
+
+def insert_rerank_stages(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "stage", "provider", "model", "input_count", "output_count",
+        "duration_ms", "max_score", "avg_score", "score_threshold",
+        "instruction_present", "instruction_length", "query_type_hint",
+        "entity_overlap_enabled", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_rerank_stages(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_RS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_RC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            stage VARCHAR NOT NULL,
+            link VARCHAR NOT NULL,
+            rank_before INTEGER,
+            rank_after INTEGER,
+            score_before DOUBLE,
+            score_after DOUBLE,
+            score_after_relevance DOUBLE,
+            score_after_recency DOUBLE,
+            score_after_entity DOUBLE,
+            recency_boost DOUBLE,
+            entity_overlap_score DOUBLE,
+            diversity_removed BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_rc_run_key ON {_RC_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_rerank_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "stage", "link", "rank_before", "rank_after",
+        "score_before", "score_after", "score_after_relevance",
+        "score_after_recency", "score_after_entity", "recency_boost",
+        "entity_overlap_score", "diversity_removed", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_rerank_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_RC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_FR_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            final_score DOUBLE,
+            providers VARCHAR[],
+            provider_count INTEGER,
+            entities_count INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_fr_run_key ON {_FR_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_final_results(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "rank", "title", "link", "snippet", "domain",
+        "final_score", "providers", "provider_count", "entities_count", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_final_results(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_FR_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
 
 
 def append_event(
