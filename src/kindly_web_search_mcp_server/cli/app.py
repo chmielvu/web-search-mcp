@@ -13,6 +13,7 @@ from .commands import (
     analytics,
     content,
     doctor,
+    experiments,
     getskill,
     links,
     reference,
@@ -59,6 +60,7 @@ ai.register(app)
 youtube.register(app)
 analytics.register(app)
 agent.register(app)
+experiments.register(app)
 server.register(app)
 scaffold.register(app)
 
