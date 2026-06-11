@@ -34,7 +34,7 @@ def _require_composio_config() -> tuple[str, str]:
     if not api_key:
         raise ComposioConfigError("COMPOSIO_API_KEY is not set.")
     if not user_id:
-        raise ComposioConfigError("KINDLY_COMPOSIO_USER_ID is not set.")
+        raise ComposioConfigError("COMPOSIO_USER_ID is not set.")
     return api_key, user_id
 
 

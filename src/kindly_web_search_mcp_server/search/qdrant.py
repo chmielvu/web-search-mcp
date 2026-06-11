@@ -46,7 +46,7 @@ async def search_qdrant(
     # 2. Connect to Qdrant (no API key - public HF Space)
     url = settings.qdrant_space_url.strip()
     if not url:
-        LOGGER.debug("Qdrant search disabled: KINDLY_QDRANT_SPACE_URL not set")
+        LOGGER.debug("Qdrant search disabled: QDRANT_SPACE_URL not set")
         return []
 
     async def _request() -> list[WebSearchResult]:

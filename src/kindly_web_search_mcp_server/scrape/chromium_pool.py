@@ -20,14 +20,14 @@ POOL_HEALTH_TIMEOUT_SECONDS = 2.0
 
 
 def _resolve_reuse_enabled() -> bool:
-    raw = (os.environ.get("KINDLY_NODRIVER_REUSE_BROWSER") or "").strip().lower()
+    raw = (os.environ.get("NODRIVER_REUSE_BROWSER") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
 
 
 def _resolve_pool_size() -> int:
-    raw = (os.environ.get("KINDLY_NODRIVER_BROWSER_POOL_SIZE") or "").strip()
+    raw = (os.environ.get("NODRIVER_BROWSER_POOL_SIZE") or "").strip()
     try:
         value = int(raw)
     except ValueError:
@@ -38,7 +38,7 @@ def _resolve_pool_size() -> int:
 
 
 def _resolve_acquire_timeout_seconds() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_ACQUIRE_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.environ.get("NODRIVER_ACQUIRE_TIMEOUT_SECONDS") or "").strip()
     try:
         value = float(raw)
     except ValueError:
@@ -65,7 +65,7 @@ def _parse_port_range(raw: str) -> tuple[int, int] | None:
 
 
 def _resolve_port_range() -> tuple[int, int] | None:
-    raw = (os.environ.get("KINDLY_NODRIVER_PORT_RANGE") or "").strip()
+    raw = (os.environ.get("NODRIVER_PORT_RANGE") or "").strip()
     return _parse_port_range(raw)
 
 
@@ -184,7 +184,7 @@ class ChromiumSlot:
         if not self.browser_executable_path:
             raise RuntimeError(
                 "No Chromium-based browser executable found. "
-                "Install Chromium/Chrome or set KINDLY_BROWSER_EXECUTABLE_PATH."
+                "Install Chromium/Chrome or set BROWSER_EXECUTABLE_PATH."
             )
         sandbox_enabled = worker._resolve_sandbox_enabled()
         devtools_ready_timeout_seconds = (

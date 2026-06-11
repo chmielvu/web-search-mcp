@@ -14,6 +14,8 @@ from ..models import WebSearchResult
 from ..settings import settings
 from ..utils.diagnostics import Diagnostics
 from .options import SearchOptions
+from .provider_plan import ProviderExecutionPlan
+from .provider_options import ProviderOptionBundle
 from . import search_single_query
 
 logger = logging.getLogger(__name__)
@@ -31,10 +33,10 @@ class SearchBranchSpec:
     branch_type: str
     weight: float
     providers: list[str] | None
+    provider_options_by_name: dict[str, ProviderOptionBundle] | None
     max_results: int
     reason: str
     must_keep_terms: list[str] | None = None
-    provider_arguments: dict[str, dict[str, object]] | None = None
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,7 @@ async def execute_search_branches(
     http_client: httpx.AsyncClient,
     diagnostics: Diagnostics | None,
     search_options: SearchOptions | None,
+    provider_plan: ProviderExecutionPlan | None = None,
     search_runner: SearchRunner | None = None,
     max_concurrency: int | None = None,
 ) -> BranchExecutionBatch:
@@ -126,6 +129,10 @@ async def execute_search_branches(
     async def _run_branch(spec: SearchBranchSpec) -> SearchBranchResult:
         async with semaphore:
             start = time.perf_counter()
+            provider_options_by_name = (
+                spec.provider_options_by_name
+                or (provider_plan.options.bundles if provider_plan else None)
+            )
             try:
                 results = await runner(
                     spec.query,
@@ -134,7 +141,8 @@ async def execute_search_branches(
                     diagnostics=diagnostics,
                     providers=spec.providers,
                     search_options=search_options,
-                    provider_arguments=spec.provider_arguments,
+                    provider_plan=provider_plan,
+                    provider_options_by_name=provider_options_by_name,
                 )
             except Exception as exc:
                 logger.warning(

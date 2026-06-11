@@ -41,10 +41,10 @@ def _attach_name(database: str) -> str:
 
 
 def _motherduck_database(value: str | None = None) -> str:
-    database = (value or os.environ.get("KINDLY_MOTHERDUCK_DATABASE") or "").strip()
+    database = (value or os.environ.get("MOTHERDUCK_DATABASE") or "").strip()
     if not database:
         raise ValueError(
-            "MotherDuck database is required. Set KINDLY_MOTHERDUCK_DATABASE or pass "
+            "MotherDuck database is required. Set MOTHERDUCK_DATABASE or pass "
             "--motherduck-database."
         )
     return database

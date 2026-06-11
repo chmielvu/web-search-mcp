@@ -40,7 +40,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
         def _resolve_only_searxng(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
-                mode=pc.ProviderMode.ALWAYS,
                 env_key="",
                 search_fn=mock_searxng,
                 is_free=True,
@@ -71,7 +70,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
         def _resolve_only_tavily(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="tavily",
-                mode=pc.ProviderMode.ALWAYS,
                 env_key="",
                 search_fn=mock_tavily,
                 is_free=False,
@@ -119,7 +117,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             return [
                 pc.ProviderConfig(
                     name="searxng",
-                    mode=pc.ProviderMode.ALWAYS,
                     env_key="",
                     search_fn=mock_searxng,
                     is_free=True,
@@ -127,7 +124,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
                 ),
                 pc.ProviderConfig(
                     name="tavily",
-                    mode=pc.ProviderMode.ALWAYS,
                     env_key="",
                     search_fn=mock_tavily,
                     is_free=False,
@@ -135,7 +131,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
                 ),
                 pc.ProviderConfig(
                     name="brave",
-                    mode=pc.ProviderMode.ALWAYS,
                     env_key="",
                     search_fn=mock_brave,
                     is_free=False,
@@ -180,7 +175,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
         def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
-                mode=pc.ProviderMode.ALWAYS,
                 env_key="",
                 search_fn=mock_searxng,
                 is_free=True,
@@ -220,7 +214,6 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
         def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="ddg",
-                mode=pc.ProviderMode.ALWAYS,
                 env_key="",
                 search_fn=mock_ddg,
                 is_free=True,

@@ -82,11 +82,11 @@ Staged fallback pipeline:
 - Bi-encoder + cross-encoder reranking pipeline
 
 ### Settings (`settings.py`)
-All `KINDLY_*` env vars documented there. Key ones:
+All `*` env vars documented there. Key ones:
 - Search providers: `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`
 - `GITHUB_TOKEN` — recommended for better GitHub Issue extraction
-- `KINDLY_BROWSER_EXECUTABLE_PATH` — Chrome/Chromium/Edge path (optional, auto-detected)
-- `KINDLY_RERANKING_ENABLED`, `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS`, `KINDLY_CLASSIFIER_TIMEOUT_SECONDS`, `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED`
+- `BROWSER_EXECUTABLE_PATH` — Chrome/Chromium/Edge path (optional, auto-detected)
+- `RERANKING_ENABLED`, `QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS`, `CLASSIFIER_TIMEOUT_SECONDS`, `QUERY_UNDERSTANDING_JSONL_ENABLED`
 
 ## Key Patterns
 
@@ -145,13 +145,13 @@ $env:GITHUB_TOKEN="..."  # recommended
 Optional for advanced features:
 ```powershell
 $env:AI_GATEWAY_API_KEY="..."  # query understanding / rewrite workers
-$env:KINDLY_QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
-$env:KINDLY_CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
-$env:KINDLY_GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
-$env:KINDLY_VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
-$env:KINDLY_GEMINI_API_KEY="..."  # gemini_search grounding
+$env:QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
+$env:CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
+$env:GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
+$env:VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
+$env:GEMINI_API_KEY="..."  # gemini_search grounding
 $env:POLLINATIONS_API_KEY="..."  # perplexity_search (Perplexity Sonar via Pollinations)
-$env:KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud IPs)
+$env:YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud IPs)
 ```
 
 ## Documentation Index

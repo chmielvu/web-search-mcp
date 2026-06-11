@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8080 \
-    KINDLY_GLINER_MODEL=fastino/gliner2-base-v1
+    GLINER_MODEL=fastino/gliner2-base-v1
 
 WORKDIR /app
 

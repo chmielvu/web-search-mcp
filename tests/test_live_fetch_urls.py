@@ -15,18 +15,18 @@ TIMEOUT_URLS = [
 
 def _can_run_live_tests() -> bool:
     return (
-        os.environ.get("KINDLY_RUN_LIVE_TESTS") == "1"
-        and os.environ.get("KINDLY_BROWSER_EXECUTABLE_PATH")
+        os.environ.get("RUN_LIVE_TESTS") == "1"
+        and os.environ.get("BROWSER_EXECUTABLE_PATH")
     )
 
 
 @pytest.mark.skipif(
     not _can_run_live_tests(),
-    reason="Live fetch tests require KINDLY_RUN_LIVE_TESTS=1 and KINDLY_BROWSER_EXECUTABLE_PATH",
+    reason="Live fetch tests require RUN_LIVE_TESTS=1 and BROWSER_EXECUTABLE_PATH",
 )
 def test_get_content_timeout_urls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", "180")
-    monkeypatch.setenv("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("TOOL_TOTAL_TIMEOUT_SECONDS", "180")
+    monkeypatch.setenv("HTML_TOTAL_TIMEOUT_SECONDS", "90")
 
     for url in TIMEOUT_URLS:
         result = asyncio.run(get_content(url))

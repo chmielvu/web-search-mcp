@@ -26,7 +26,7 @@ import duckdb
 
 
 PAGE_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("KINDLY_PAGE_CACHE_TTL_SECONDS", "604800")
+    os.environ.get("PAGE_CACHE_TTL_SECONDS", "604800")
 )
 
 

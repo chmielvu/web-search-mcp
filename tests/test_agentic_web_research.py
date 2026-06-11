@@ -33,8 +33,8 @@ def _install_fake_habanero(monkeypatch) -> None:
 def test_resolve_langfuse_credentials_uses_mcp_auth_header(monkeypatch) -> None:
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
-    monkeypatch.delenv("KINDLY_LANGFUSE_PUBLIC_KEY", raising=False)
-    monkeypatch.delenv("KINDLY_LANGFUSE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
 
     token = base64.b64encode(b"pk-test:sk-test").decode("ascii")
     monkeypatch.setenv("LANGFUSE_MCP_AUTH_HEADER", f"Basic {token}")
@@ -49,13 +49,13 @@ def test_resolve_langfuse_credentials_uses_mcp_auth_header(monkeypatch) -> None:
 
 def test_build_chat_model_uses_nanogpt_configuration(monkeypatch) -> None:
     monkeypatch.setenv("NANOGPT_API_KEY", "x" * 20)
-    monkeypatch.delenv("KINDLY_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv(
-        "KINDLY_AGENTIC_RESEARCH_MODEL",
+        "AGENTIC_RESEARCH_MODEL",
         "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B",
     )
     monkeypatch.setenv(
-        "KINDLY_AGENTIC_RESEARCH_BASE_URL",
+        "AGENTIC_RESEARCH_BASE_URL",
         "https://nano-gpt.com/api/subscription/v1",
     )
 
@@ -74,9 +74,9 @@ def test_build_chat_model_uses_nanogpt_configuration(monkeypatch) -> None:
 
 def test_agentic_model_chain_includes_requested_fallbacks(monkeypatch) -> None:
     monkeypatch.setenv("NANOGPT_API_KEY", "x" * 20)
-    monkeypatch.delenv("KINDLY_GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("KINDLY_AGENTIC_RESEARCH_FALLBACK_MODELS", raising=False)
+    monkeypatch.delenv("AGENTIC_RESEARCH_FALLBACK_MODELS", raising=False)
 
     from kindly_web_search_mcp_server.agent.config import AgenticResearchConfig
     from kindly_web_search_mcp_server.agent.model import build_chat_model
@@ -100,10 +100,10 @@ def test_agentic_model_chain_includes_requested_fallbacks(monkeypatch) -> None:
 
 def test_agentic_model_chain_uses_gemini_and_hf_as_terminal_fallbacks(monkeypatch) -> None:
     monkeypatch.setenv("NANOGPT_API_KEY", "x" * 20)
-    monkeypatch.setenv("KINDLY_GEMINI_API_KEY", "g" * 20)
+    monkeypatch.setenv("GEMINI_API_KEY", "g" * 20)
     monkeypatch.setenv("HF_TOKEN", "h" * 20)
-    monkeypatch.delenv("KINDLY_AGENTIC_RESEARCH_FALLBACK_MODELS", raising=False)
-    monkeypatch.delenv("KINDLY_AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("AGENTIC_RESEARCH_FALLBACK_MODELS", raising=False)
+    monkeypatch.delenv("AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL", raising=False)
 
     from kindly_web_search_mcp_server.agent.config import AgenticResearchConfig
     from kindly_web_search_mcp_server.agent.model import build_chat_model

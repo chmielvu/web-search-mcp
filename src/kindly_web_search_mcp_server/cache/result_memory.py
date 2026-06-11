@@ -4,7 +4,7 @@ Stores individual search results keyed by (query embedding + result URL) for
 future candidate injection into RRF merge. Uses local Qdrant only.
 
 Features per plan:
-- QdrantClient(":memory:") or path= from KINDLY_RESULT_MEMORY_PATH
+- QdrantClient(":memory:") or path= from RESULT_MEMORY_PATH
 - Collection name encodes embedding model + dim (avoids vector dim conflicts)
 - Deterministic point IDs (sha256(query+url) as uuid str) -> no dups on upsert
 - Payload roundtrip for title/url/snippet + query_text + entities_json + created_at + provider_key

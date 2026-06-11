@@ -17,8 +17,10 @@ from .budget import ProviderBudget
 from .errors import WebSearchProviderError
 from .merge import merge_search_results
 from .options import SearchOptions
-from .provider_execution import _search_single_provider
 from .provider_config import ProviderConfig
+from .provider_execution import _search_single_provider
+from .provider_options import ProviderOptionBundle
+from .provider_plan import ProviderExecutionPlan
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
@@ -38,7 +40,8 @@ async def search_single_query(
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
     search_options: SearchOptions | None = None,
-    provider_arguments: dict[str, dict[str, object]] | None = None,
+    provider_plan: ProviderExecutionPlan | None = None,
+    provider_options_by_name: dict[str, ProviderOptionBundle] | None = None,
 ) -> list[WebSearchResult]:
     """Search with full OpenTelemetry instrumentation."""
     start_time = time.time()
@@ -53,7 +56,20 @@ async def search_single_query(
         },
     ) as span:
         budget = ProviderBudget()
-        active_configs = _resolve_active_providers(providers)
+        if providers is not None:
+            requested_providers = providers
+        elif provider_plan is not None:
+            requested_providers = list(provider_plan.provider_names)
+        else:
+            requested_providers = None
+        active_configs = _resolve_active_providers(requested_providers)
+        resolved_provider_options = (
+            provider_options_by_name
+            if provider_options_by_name is not None
+            else provider_plan.options.bundles
+            if provider_plan is not None
+            else {}
+        )
 
         if not active_configs:
             span.set_attribute("error", "No providers available")
@@ -75,6 +91,28 @@ async def search_single_query(
                 },
             )
 
+        async def _provider_call(
+            config: ProviderConfig,
+            client: httpx.AsyncClient,
+        ) -> list[WebSearchResult]:
+            bundle = resolved_provider_options.get(config.name)
+            if bundle is not None and not bundle.fire:
+                return []
+            provider_search_options = (
+                bundle.search_options if bundle and bundle.search_options is not None else search_options
+            )
+            provider_arguments = bundle.arguments if bundle is not None else None
+            return await _search_single_provider(
+                config.name,
+                config.search_fn,
+                query,
+                num_results,
+                client,
+                provider_search_options,
+                budget,
+                provider_arguments,
+            )
+
         async def _run(client: httpx.AsyncClient) -> list[WebSearchResult]:
             all_results: list[list[WebSearchResult]] = []
             provider_names: list[str] = []
@@ -83,19 +121,7 @@ async def search_single_query(
             paid_providers = [c for c in active_configs if not c.is_free]
 
             if free_providers:
-                free_tasks = [
-                    _search_single_provider(
-                        c.name,
-                        c.search_fn,
-                        query,
-                        num_results,
-                        client,
-                        search_options,
-                        budget,
-                        provider_arguments.get(c.name) if provider_arguments else None,
-                    )
-                    for c in free_providers
-                ]
+                free_tasks = [_provider_call(c, client) for c in free_providers]
                 free_results = asyncio.gather(*free_tasks, return_exceptions=True)
                 if hasattr(free_results, "__await__"):
                     free_results = await free_results
@@ -121,18 +147,7 @@ async def search_single_query(
                     config: ProviderConfig,
                 ) -> list[WebSearchResult]:
                     async with semaphore:
-                        return await _search_single_provider(
-                            config.name,
-                            config.search_fn,
-                            query,
-                            num_results,
-                            client,
-                            search_options,
-                            budget,
-                            provider_arguments.get(config.name)
-                            if provider_arguments
-                            else None,
-                        )
+                        return await _provider_call(config, client)
 
                 paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
                 paid_results = asyncio.gather(*paid_tasks, return_exceptions=True)

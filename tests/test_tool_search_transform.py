@@ -40,16 +40,16 @@ def test_tool_search_transform_not_active_by_default():
 def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
     monkeypatch,
 ):
-    """Enabling KINDLY_TOOL_SEARCH_ENABLED adds RegexSearchTransform after profile.
+    """Enabling TOOL_SEARCH_ENABLED adds RegexSearchTransform after profile.
 
     Queries for docs/URL fetch surface get_content or web_search; YouTube transcript
     surfaces youtube_* tools (respecting profile).
     """
     # Set env before importing server (which reads settings at module load and
     # runs profile+conditional transform at bottom of server.py).
-    monkeypatch.setenv("KINDLY_TOOL_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
     # Use media profile so youtube_* tools are visible (for the "YouTube transcript" search surface test)
-    monkeypatch.setenv("KINDLY_TOOL_PROFILE", "media")
+    monkeypatch.setenv("TOOL_PROFILE", "media")
 
     # Clean any prior server import so bottom-of-module code re-executes with new env.
     for mod in list(sys.modules):
@@ -60,7 +60,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
 
     mcp = server_mod.mcp
 
-    # Now list_tools should be transformed by the server wiring under KINDLY_TOOL_SEARCH_ENABLED
+    # Now list_tools should be transformed by the server wiring under TOOL_SEARCH_ENABLED
     listed = asyncio.run(mcp.list_tools())
     listed_names = {t.name for t in listed}
     assert "search_tools" in listed_names, (
@@ -104,7 +104,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
 
 def test_tool_search_emits_surface_events(monkeypatch, caplog):
     """When enabled, server emits tool_surface.search_enabled and tool_surface.profile_applied."""
-    monkeypatch.setenv("KINDLY_TOOL_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
     caplog.set_level("INFO")
 
     # Force fresh import of server to execute the emit statements at module bottom.

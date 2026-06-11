@@ -18,4 +18,3 @@ def patch_settings():
     # This keeps unit tests deterministic while allowing opt-in live integration tests.
     os.environ.setdefault("SEARXNG_BASE_URL", "https://searx.example.org")
     os.environ.setdefault("TAVILY_API_KEY", "test_api_key")
-    os.environ.setdefault("KINDLY_GEMINI_SEARCH_MODE", "never")

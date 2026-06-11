@@ -51,7 +51,7 @@ class TestSemanticCacheRemoved(unittest.TestCase):
 
         self.assertFalse(
             hasattr(settings, "lancedb_dir"),
-            "KINDLY_LANCEDB_DIR / lancedb_dir setting must be removed",
+            "LANCEDB_DIR / lancedb_dir setting must be removed",
         )
         self.assertFalse(
             hasattr(settings, "semantic_cache_enabled"),

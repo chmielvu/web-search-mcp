@@ -24,7 +24,7 @@ class _ListHandler(logging.Handler):
 
 
 def test_emit_observability_event_includes_hard_values(monkeypatch) -> None:
-    monkeypatch.setenv("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", "200")
+    monkeypatch.setenv("OBSERVABILITY_MAX_TEXT_CHARS", "200")
 
     logger = logging.getLogger("test.observability")
     logger.handlers = []
@@ -55,7 +55,7 @@ def test_emit_observability_event_includes_hard_values(monkeypatch) -> None:
 
 
 def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monkeypatch) -> None:
-    monkeypatch.setenv("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", "50")
+    monkeypatch.setenv("OBSERVABILITY_MAX_TEXT_CHARS", "50")
 
     logger = logging.getLogger("test.tool_observability")
     logger.handlers = []

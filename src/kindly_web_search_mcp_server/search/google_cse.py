@@ -10,6 +10,7 @@ from ..models import WebSearchResult
 from ..settings import settings
 from .base_provider import run_provider
 from .options import SearchOptions
+from .google_cse_quota import get_google_cse_quota_tracker
 
 
 class GoogleCseError(RuntimeError):
@@ -25,11 +26,11 @@ def _get_google_cse_credentials() -> tuple[str, str]:
     engine_id = settings.google_cse_engine_id.strip()
     if not api_key:
         raise GoogleCseConfigError(
-            "KINDLY_GOOGLE_CSE_API_KEY is not set. Configure it as an environment variable."
+            "GOOGLE_CSE_API_KEY is not set. Configure it as an environment variable."
         )
     if not engine_id:
         raise GoogleCseConfigError(
-            "KINDLY_GOOGLE_CSE_ENGINE_ID is not set. Configure it as an environment variable."
+            "GOOGLE_CSE_ENGINE_ID is not set. Configure it as an environment variable."
         )
     return api_key, engine_id
 
@@ -100,12 +101,19 @@ async def search_google_cse(
 
         return results
 
-    return await run_provider(
-        "google_cse",
-        query,
-        num_results,
-        request=_do_request,
-        parse_response=_parse_response,
-        http_client=http_client,
-        timeout_seconds=settings.google_cse_timeout_seconds,
-    )
+    try:
+        results = await run_provider(
+            "google_cse",
+            query,
+            num_results,
+            request=_do_request,
+            parse_response=_parse_response,
+            http_client=http_client,
+            timeout_seconds=settings.google_cse_timeout_seconds,
+        )
+    except Exception:
+        get_google_cse_quota_tracker().record_call(success=False)
+        raise
+
+    get_google_cse_quota_tracker().record_call(success=True)
+    return results

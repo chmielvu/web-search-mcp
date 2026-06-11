@@ -1141,7 +1141,7 @@ def append_event(
     """Append a normalized observability payload to DuckDB.
 
     The store is best-effort and is disabled when
-    `KINDLY_ANALYTICS_ENABLED=false`.
+    `ANALYTICS_ENABLED=false`.
     """
 
     if not settings.analytics_enabled:

@@ -263,11 +263,11 @@ def load_keys(repo_root: Path) -> tuple[str, str]:
     load_dotenv(repo_root / ".env")
     load_dotenv()
     pollinations_key = os.environ.get("POLLINATIONS_API_KEY", "").strip()
-    gemini_key = os.environ.get("KINDLY_GEMINI_API_KEY", "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not pollinations_key:
         raise SystemExit("POLLINATIONS_API_KEY is required in the repo env.")
     if not gemini_key:
-        raise SystemExit("KINDLY_GEMINI_API_KEY is required in the repo env.")
+        raise SystemExit("GEMINI_API_KEY is required in the repo env.")
     return pollinations_key, gemini_key
 
 

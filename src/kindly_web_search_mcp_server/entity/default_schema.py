@@ -16,7 +16,7 @@ DEFAULT_QUERY_LABELS: dict[str, str] = {
     "cli_flag": "Command-line flag or argument (e.g. --verbose, -rf, --port 8000)",
     "model_id": "ML model identifier (e.g. bert-base-uncased, gpt-4o, voyage-3)",
     "file_path": "File path or module path (e.g. src/app.ts, kindly_web_search_mcp_server.server)",
-    "env_var": "Environment variable name (e.g. SEARXNG_BASE_URL, KINDLY_RERANKING_ENABLED)",
+    "env_var": "Environment variable name (e.g. SEARXNG_BASE_URL, RERANKING_ENABLED)",
 }
 
 # Richer labels for fetched content (adds general web entities)

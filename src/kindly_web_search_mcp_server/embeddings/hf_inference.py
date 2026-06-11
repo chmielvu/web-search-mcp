@@ -197,7 +197,7 @@ async def embed_texts(
     resolved_provider = provider or settings.hf_inference_provider
     resolved_key = (
         api_key
-        or os.environ.get("KINDLY_HF_TOKEN")
+        or os.environ.get("HF_TOKEN")
         or os.environ.get("HF_TOKEN")
         or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
     )

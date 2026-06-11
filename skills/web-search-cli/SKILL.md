@@ -517,7 +517,7 @@ from the `web_search` docstring:
 - **Academic**: use `--year-from`/`--year-to`, `--venue` (e.g. `NeurIPS`),
   `--field-of-study` (e.g. `Computer Science`), `--open-access-only`.
 - **YouTube transcript**: cloud IPs may be blocked — set
-  `KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL` to a working proxy.
+  `YOUTUBE_TRANSCRIPT_PROXY_URL` to a working proxy.
 
 ### Depth strategy
 
@@ -648,7 +648,7 @@ From `_ACADEMIC_DEEP_DIVE_RULES`:
 Provider notes for `search academic`:
 
 - **Semantic Scholar**: 214M+ papers, rich metadata. Optional
-  `KINDLY_S2_API_KEY` unlocks 100 RPS (vs shared 1 RPS).
+  `S2_API_KEY` unlocks 100 RPS (vs shared 1 RPS).
 - **arXiv**: 2.5M+ CS/Physics/Math preprints, no auth.
 - **OpenAlex**: 250M+ works; polite pool benefits from a contact email.
 - **CrossRef**: DOI enrichment, citation counts, bibliographic data.
@@ -702,8 +702,8 @@ Some commands are explicitly marked as expensive or non-idempotent in
   usage. Requires `OPENROUTER_API_KEY`.
 - `agent research` is **experimental** and **not idempotent**. Use only
   for multi-step, open-ended research.
-- `content batch` is bounded by `KINDLY_BATCH_GET_CONTENT_MAX_URLS`
-  (default 30) and `KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX` (default
+- `content batch` is bounded by `BATCH_GET_CONTENT_MAX_URLS`
+  (default 30) and `BATCH_TOTAL_CHAR_BUDGET_MAX` (default
   300 000) server-side.
 
 ### Capability profiles
@@ -834,10 +834,10 @@ Optional for advanced features:
 
 ```powershell
 $env:MISTRAL_API_KEY = "..."                       # query rewrite
-$env:KINDLY_GEMINI_API_KEY = "..."                 # ai gemini
+$env:GEMINI_API_KEY = "..."                 # ai gemini
 $env:POLLINATIONS_API_KEY = "..."                  # ai perplexity
 $env:OPENROUTER_API_KEY = "..."                    # ai grok
-$env:KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL = "..."   # youtube transcript from cloud IPs
+$env:YOUTUBE_TRANSCRIPT_PROXY_URL = "..."   # youtube transcript from cloud IPs
 ```
 
 ## Implementation pointers

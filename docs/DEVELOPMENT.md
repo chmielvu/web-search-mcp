@@ -13,7 +13,7 @@ This guide covers local development setup, project structure, code patterns, and
 - At least one search provider configured for testing:
   - `SEARXNG_BASE_URL` (self-hosted, primary)
   - `TAVILY_API_KEY`, `BRAVE_API_KEY`, or `JINA_API_KEY` (paid providers)
-  - `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID` (Composio LLM Search)
+  - `COMPOSIO_API_KEY` + `COMPOSIO_USER_ID` (Composio LLM Search)
   - `POLLINATIONS_API_KEY` (Gemini/Perplexity via Pollinations)
 
 ### Clone and Install
@@ -43,7 +43,7 @@ TAVILY_API_KEY=tvly-...
 BRAVE_API_KEY=...
 JINA_API_KEY=...
 COMPOSIO_API_KEY=...
-KINDLY_COMPOSIO_USER_ID=...
+COMPOSIO_USER_ID=...
 POLLINATIONS_API_KEY=...
 
 # Recommended: GitHub token for better Issue extraction
@@ -53,13 +53,13 @@ GITHUB_TOKEN=ghp_...
 AI_GATEWAY_API_KEY=...       # Query understanding / rewrite workers
 CEREBRAS_API_KEY=...         # Query rewrite worker tier 1
 GROQ_API_KEY=...             # Query rewrite worker tier 2
-KINDLY_GEMINI_API_KEY=...    # Gemini grounding
+GEMINI_API_KEY=...    # Gemini grounding
 
 # Optional: browser path (auto-detected if unset)
-KINDLY_BROWSER_EXECUTABLE_PATH=/path/to/chrome
+BROWSER_EXECUTABLE_PATH=/path/to/chrome
 
 # Debugging
-KINDLY_DIAGNOSTICS=1         # Enable JSON-line diagnostics to stderr
+DIAGNOSTICS=1         # Enable JSON-line diagnostics to stderr
 ```
 
 ### First Run
@@ -185,7 +185,7 @@ src/kindly_web_search_mcp_server/
 | File | Purpose |
 |------|---------|
 | `server.py` | FastMCP server definition, tool handlers (`web_search`, `get_content`, `batch_get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`) |
-| `settings.py` | All `KINDLY_*` environment variables, defaults in `Settings` dataclass |
+| `settings.py` | All `*` environment variables, defaults in `Settings` dataclass |
 | `search/__init__.py` | Provider detection, RRF merge, circuit breaker, budget tracking |
 | `search/pipeline.py` | Coordinates understanding → rewrite → multi-provider search → merge → rerank |
 | `search/provider_config.py` | Provider mode enum (ALWAYS/CONDITIONAL/NEVER), registry |
@@ -250,7 +250,7 @@ async def my_function(diagnostics: Diagnostics | None = None) -> None:
 Enable diagnostics via environment:
 
 ```bash
-KINDLY_DIAGNOSTICS=1  # JSON-line output to stderr
+DIAGNOSTICS=1  # JSON-line output to stderr
 ```
 
 ### Error Handling
@@ -291,14 +291,13 @@ return WebSearchResponse(query=query, results=results)
 
 ### Provider Configuration Pattern
 
-Providers use the `ProviderConfig` class with mode-based selection:
+Providers use `ProviderConfig` plus the resolved provider plan and caller allow-lists for selection:
 
 ```python
-from .provider_config import ProviderConfig, ProviderMode
+from .provider_config import ProviderConfig
 
 register_provider(ProviderConfig(
     name="searxng",
-    mode=ProviderMode.ALWAYS,       # Always fires (free provider)
     env_key="SEARXNG_BASE_URL",
     search_fn=search_searxng,
     is_free=True,
@@ -307,7 +306,6 @@ register_provider(ProviderConfig(
 
 register_provider(ProviderConfig(
     name="tavily",
-    mode=ProviderMode.NEVER,        # Disabled by default
     env_key="TAVILY_API_KEY",
     search_fn=search_tavily,
     is_free=False,
@@ -315,10 +313,7 @@ register_provider(ProviderConfig(
 ))
 ```
 
-Modes:
-- `ALWAYS`: Fires automatically (free providers like SearXNG, DDG)
-- `CONDITIONAL`: Only fires when caller requests via `providers` param
-- `NEVER`: Never fires, even if API key present
+Selection comes from the resolved search plan and explicit provider allow-lists, not a per-provider mode flag.
 
 ### Circuit Breaker Pattern
 
@@ -402,7 +397,6 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
    ```python
    register_provider(ProviderConfig(
        name="my_provider",
-       mode=ProviderMode.CONDITIONAL,  # or ALWAYS/NEVER
        env_key="MY_PROVIDER_API_KEY",
        search_fn=search_my_provider,
        is_free=False,
@@ -414,7 +408,6 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
 
    ```python
    my_provider_api_key: str = os.environ.get("MY_PROVIDER_API_KEY", "")
-   my_provider_mode: str = os.environ.get("KINDLY_MY_PROVIDER_MODE", "conditional")
    ```
 
 4. **Write unit tests** in `tests/test_my_provider.py`:
@@ -583,10 +576,10 @@ Live tests require environment setup:
 
 ```bash
 # Set environment variables for live testing
-export KINDLY_RUN_LIVE_TESTS=1
-export KINDLY_BROWSER_EXECUTABLE_PATH="/path/to/chrome"
-export KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS=180
-export KINDLY_HTML_TOTAL_TIMEOUT_SECONDS=90
+export RUN_LIVE_TESTS=1
+export BROWSER_EXECUTABLE_PATH="/path/to/chrome"
+export TOOL_TOTAL_TIMEOUT_SECONDS=180
+export HTML_TOTAL_TIMEOUT_SECONDS=90
 
 python -m pytest tests/test_live_fetch_urls.py -v
 ```
@@ -598,7 +591,6 @@ Tests patch environment variables in `conftest.py`:
 ```python
 os.environ.setdefault("SEARXNG_BASE_URL", "https://searx.example.org")
 os.environ.setdefault("TAVILY_API_KEY", "test_api_key")
-os.environ.setdefault("KINDLY_GEMINI_SEARCH_MODE", "never")
 ```
 
 See [TESTING.md](./TESTING.md) for detailed test patterns and mock conventions.
@@ -634,13 +626,13 @@ Ruff is configured via `pyproject.toml` (if present) or defaults to PEP 8 style.
 ### Enable Diagnostics
 
 ```bash
-KINDLY_DIAGNOSTICS=1
+DIAGNOSTICS=1
 ```
 
 This emits JSON-line diagnostics to stderr for each request:
 
 ```
-KINDLY_DIAG {"request_id":"uuid","stage":"resolver.start","msg":"Resolving URL","elapsed_ms":12,"data":{"url":"..."}}
+DIAG {"request_id":"uuid","stage":"resolver.start","msg":"Resolving URL","elapsed_ms":12,"data":{"url":"..."}}
 ```
 
 ### Key Diagnostic Stages
@@ -714,7 +706,7 @@ If `get_content` returns "No Chromium-based browser executable found":
 2. Set explicit path:
 
    ```powershell
-   $env:KINDLY_BROWSER_EXECUTABLE_PATH="C:\Program Files\Google\Chrome\Application\chrome.exe"
+   $env:BROWSER_EXECUTABLE_PATH="C:\Program Files\Google\Chrome\Application\chrome.exe"
    ```
 
 ### Browser Connection Timeout
@@ -722,9 +714,9 @@ If `get_content` returns "No Chromium-based browser executable found":
 Increase timeouts:
 
 ```bash
-KINDLY_NODRIVER_RETRY_ATTEMPTS=5
-KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS=20
-KINDLY_HTML_TOTAL_TIMEOUT_SECONDS=45
+NODRIVER_RETRY_ATTEMPTS=5
+NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS=20
+HTML_TOTAL_TIMEOUT_SECONDS=45
 ```
 
 ### Tool Timeout on Windows
@@ -732,9 +724,9 @@ KINDLY_HTML_TOTAL_TIMEOUT_SECONDS=45
 Windows headless browser cold starts can be slow. Increase:
 
 ```powershell
-$env:KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS="180"
-$env:KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS="600"
-$env:KINDLY_WEB_SEARCH_MAX_CONCURRENCY="1"
+$env:TOOL_TOTAL_TIMEOUT_SECONDS="180"
+$env:TOOL_TOTAL_TIMEOUT_MAX_SECONDS="600"
+$env:WEB_SEARCH_MAX_CONCURRENCY="1"
 ```
 
 ### No Provider Configured
@@ -744,7 +736,7 @@ Set at least one:
 ```bash
 SEARXNG_BASE_URL=http://localhost:8080
 # Or: TAVILY_API_KEY, BRAVE_API_KEY, JINA_API_KEY, POLLINATIONS_API_KEY
-# Or: COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID
+# Or: COMPOSIO_API_KEY + COMPOSIO_USER_ID
 ```
 
 ### Semantic Cache Errors
@@ -752,7 +744,7 @@ SEARXNG_BASE_URL=http://localhost:8080
 LanceDB issues can occur on first run. Ensure `lancedb_data/` directory is writable:
 
 ```bash
-KINDLY_LANCEDB_DIR=./lancedb_data
+LANCEDB_DIR=./lancedb_data
 ```
 
 ### Circuit Breaker Open

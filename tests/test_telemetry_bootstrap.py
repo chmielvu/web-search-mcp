@@ -21,7 +21,7 @@ def test_init_telemetry_respects_otel_enabled_flag(monkeypatch) -> None:
     from kindly_web_search_mcp_server import telemetry
 
     monkeypatch.setattr(telemetry, "_initialized", False)
-    monkeypatch.setenv("KINDLY_OTEL_ENABLED", "false")
+    monkeypatch.setenv("OTEL_ENABLED", "false")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://example.invalid/otlp")
 
     telemetry.init_telemetry(service_name="web-search-mcp-test")
@@ -33,7 +33,7 @@ def test_init_telemetry_background_returns_daemon_thread(monkeypatch) -> None:
     from kindly_web_search_mcp_server import telemetry
 
     monkeypatch.setattr(telemetry, "_initialized", False)
-    monkeypatch.setenv("KINDLY_OTEL_ENABLED", "false")
+    monkeypatch.setenv("OTEL_ENABLED", "false")
 
     thread = telemetry.init_telemetry_background(service_name="test-bg")
     assert isinstance(thread, threading.Thread)

@@ -180,7 +180,7 @@ def get_web_results_index() -> WebResultsIndex | None:
     url = settings.qdrant_space_url.strip()
     if not url:
         logger.warning(
-            "web_results_index_enabled=True but KINDLY_QDRANT_SPACE_URL is empty"
+            "web_results_index_enabled=True but QDRANT_SPACE_URL is empty"
         )
         return None
     if _web_results_index is None:

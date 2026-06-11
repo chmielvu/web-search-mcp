@@ -10,7 +10,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("KINDLY_GLINER_MODEL", "fastino/gliner2-base-v1")
+MODEL_ID = os.environ.get("GLINER_MODEL", "fastino/gliner2-base-v1")
 
 
 def _as_str_list(value: Any, *, field_name: str) -> list[str]:

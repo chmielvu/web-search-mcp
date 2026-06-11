@@ -29,10 +29,9 @@ from ..analytics.duckdb_store import (
 from ..analytics.judge_runner import run_judge_evaluation
 from ..analytics.quality_metrics import compute_search_quality
 from .branch_executor import (
-    SearchBranchSpec,
     execute_search_branches,
-    select_providers_for_variant,
 )
+from .branch_planner import build_search_branch_specs
 from .finalize_results import build_search_response, maybe_extract_entities
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .merge import merge_search_results
@@ -165,34 +164,19 @@ async def run_search_pipeline(
         timeout=httpx.Timeout(connect=5, read=20, write=20, pool=20),
         follow_redirects=True,
     ) as client:
-        branch_specs: list[SearchBranchSpec] = []
-        for index, variant in enumerate(rewrite_variants):
-            variant_providers = select_providers_for_variant(
-                variant, active_provider_names
-            )
-            branch_specs.append(
-                SearchBranchSpec(
-                    index=index,
-                    query=variant.query,
-                    branch_type=variant.branch_type or variant.kind,
-                    weight=variant.weight,
-                    providers=variant_providers or active_provider_names or providers,
-                    max_results=variant.max_results or num_results,
-                    reason=variant.reason or variant.why,
-                    must_keep_terms=variant.must_keep_terms,
-                    provider_arguments={
-                        name: bundle.arguments
-                        for name, bundle in provider_plan.options.bundles.items()
-                        if bundle.arguments
-                    }
-                    or None,
-                )
-            )
+        branch_specs = build_search_branch_specs(
+            normalized_query=normalized_query,
+            rewrite_variants=rewrite_variants,
+            num_results=num_results,
+            active_provider_names=active_provider_names,
+            provider_plan=provider_plan,
+        )
         branch_batch = await execute_search_branches(
             branch_specs,
             http_client=client,
             diagnostics=diagnostics,
             search_options=search_options,
+            provider_plan=provider_plan,
             search_runner=search_single_query,
             max_concurrency=settings.query_decomposition_max_concurrency,
         )

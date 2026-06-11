@@ -107,8 +107,8 @@ async def create_summary(
     if not api_token:
         raise SummaryError("CHUTES_API_TOKEN is required for summary generation")
 
-    model = (os.environ.get("KINDLY_SUMMARY_MODEL") or "zai-org/GLM-5-Turbo").strip()
-    max_tokens = int((os.environ.get("KINDLY_SUMMARY_MAX_TOKENS") or "1200").strip())
+    model = (os.environ.get("SUMMARY_MODEL") or "zai-org/GLM-5-Turbo").strip()
+    max_tokens = int((os.environ.get("SUMMARY_MAX_TOKENS") or "1200").strip())
     body = {
         "model": model,
         "messages": _build_messages(markdown, mode=mode, focus_query=focus_query),

@@ -172,7 +172,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         client.models.generate_content.return_value = _fake_grounding_response()
 
         with (
-            patch.dict(os.environ, {"KINDLY_GEMINI_API_KEY": "test-key"}, clear=False),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
                 return_value=client,
@@ -203,7 +203,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         client.models.generate_content.return_value = response
 
         with (
-            patch.dict(os.environ, {"KINDLY_GEMINI_API_KEY": "test-key"}, clear=False),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
                 return_value=client,
@@ -230,7 +230,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIsNotNone(result.error)
-        self.assertIn("KINDLY_GEMINI_API_KEY", result.error)
+        self.assertIn("GEMINI_API_KEY", result.error)
 
     async def test_gemini_search_fallback_on_rate_limit(self) -> None:
         """Verify fallback on rate limit error."""
@@ -244,7 +244,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         ]
 
         with (
-            patch.dict(os.environ, {"KINDLY_GEMINI_API_KEY": "test-key"}, clear=False),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
                 return_value=client,
@@ -273,7 +273,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         ]
 
         with (
-            patch.dict(os.environ, {"KINDLY_GEMINI_API_KEY": "test-key"}, clear=False),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
                 return_value=client,
@@ -297,7 +297,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         client.models.generate_content.side_effect = [exc, exc, exc]
 
         with (
-            patch.dict(os.environ, {"KINDLY_GEMINI_API_KEY": "test-key"}, clear=False),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
                 return_value=client,

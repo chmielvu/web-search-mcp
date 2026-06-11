@@ -30,8 +30,8 @@ def _get_float_env(key: str, default: float) -> float:
 
 
 def _resolve_tool_total_timeout_seconds() -> float:
-    value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     return max(1.0, min(value, max(1.0, max_value)))
 
 
@@ -141,7 +141,7 @@ async def fetch_content_payload(
     max_links: int = 25,
     strip_selectors: str | None = None,
 ) -> dict[str, Any]:
-    max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
+    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
     safe_summary_mode = (

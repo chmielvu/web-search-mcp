@@ -11,16 +11,16 @@ def test_start_mcp_server_injects_stdio_and_context(monkeypatch) -> None:
 
     def fake_server_main(argv: list[str] | None = None) -> None:
         captured["argv"] = argv
-        captured["context"] = os.environ.get("KINDLY_MCP_CONTEXT")
+        captured["context"] = os.environ.get("MCP_CONTEXT")
 
     monkeypatch.setattr(server, "main", fake_server_main)
 
-    assert os.environ.get("KINDLY_MCP_CONTEXT") is None
+    assert os.environ.get("MCP_CONTEXT") is None
     cli.main(["start-mcp-server", "--context", "codex"])
 
     assert captured["argv"] == ["--stdio"]
     assert captured["context"] == "codex"
-    assert os.environ.get("KINDLY_MCP_CONTEXT") is None
+    assert os.environ.get("MCP_CONTEXT") is None
 
 
 def test_start_mcp_server_forwards_server_args(monkeypatch) -> None:
@@ -31,7 +31,7 @@ def test_start_mcp_server_forwards_server_args(monkeypatch) -> None:
 
     def fake_server_main(argv: list[str] | None = None) -> None:
         captured["argv"] = argv
-        captured["context"] = os.environ.get("KINDLY_MCP_CONTEXT")
+        captured["context"] = os.environ.get("MCP_CONTEXT")
 
     monkeypatch.setattr(server, "main", fake_server_main)
 
@@ -75,13 +75,13 @@ def test_start_mcp_server_restores_existing_context(monkeypatch) -> None:
 
     def fake_server_main(argv: list[str] | None = None) -> None:
         captured["argv"] = argv
-        captured["context"] = os.environ.get("KINDLY_MCP_CONTEXT")
+        captured["context"] = os.environ.get("MCP_CONTEXT")
 
     monkeypatch.setattr(server, "main", fake_server_main)
-    monkeypatch.setenv("KINDLY_MCP_CONTEXT", "existing")
+    monkeypatch.setenv("MCP_CONTEXT", "existing")
 
     cli.main(["start-mcp-server", "--context", "codex"])
 
     assert captured["argv"] == ["--stdio"]
     assert captured["context"] == "codex"
-    assert os.environ.get("KINDLY_MCP_CONTEXT") == "existing"
+    assert os.environ.get("MCP_CONTEXT") == "existing"

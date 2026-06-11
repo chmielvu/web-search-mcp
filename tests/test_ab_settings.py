@@ -13,10 +13,10 @@ class TestABSettingsDefaults:
     def setup_method(self) -> None:
         # Clear relevant env vars so defaults are used
         for key in [
-            "KINDLY_AB_TESTING_ENABLED",
-            "KINDLY_AB_CONFIG_PATH",
-            "KINDLY_AB_SHADOW_MODE_DEFAULT",
-            "KINDLY_AB_ASSIGNMENT_CACHE_TTL_SECONDS",
+            "AB_TESTING_ENABLED",
+            "AB_CONFIG_PATH",
+            "AB_SHADOW_MODE_DEFAULT",
+            "AB_ASSIGNMENT_CACHE_TTL_SECONDS",
         ]:
             os.environ.pop(key, None)
 
@@ -54,25 +54,25 @@ class TestABSettingsEnvOverride:
         importlib.reload(settings_module)
 
     def test_ab_testing_enabled_via_env(self) -> None:
-        os.environ["KINDLY_AB_TESTING_ENABLED"] = "true"
+        os.environ["AB_TESTING_ENABLED"] = "true"
         SettingsCls = self._reload_settings()
         s = SettingsCls()
         assert s.ab_testing_enabled is True
 
     def test_ab_config_path_via_env(self) -> None:
-        os.environ["KINDLY_AB_CONFIG_PATH"] = "/custom/path/experiments.yaml"
+        os.environ["AB_CONFIG_PATH"] = "/custom/path/experiments.yaml"
         SettingsCls = self._reload_settings()
         s = SettingsCls()
         assert s.ab_config_path == "/custom/path/experiments.yaml"
 
     def test_ab_shadow_mode_default_via_env(self) -> None:
-        os.environ["KINDLY_AB_SHADOW_MODE_DEFAULT"] = "false"
+        os.environ["AB_SHADOW_MODE_DEFAULT"] = "false"
         SettingsCls = self._reload_settings()
         s = SettingsCls()
         assert s.ab_shadow_mode_default is False
 
     def test_ab_assignment_cache_ttl_seconds_via_env(self) -> None:
-        os.environ["KINDLY_AB_ASSIGNMENT_CACHE_TTL_SECONDS"] = "600"
+        os.environ["AB_ASSIGNMENT_CACHE_TTL_SECONDS"] = "600"
         SettingsCls = self._reload_settings()
         s = SettingsCls()
         assert s.ab_assignment_cache_ttl_seconds == 600

@@ -42,6 +42,16 @@ The content is organized as follows:
 <directory_structure>
 __init__.py
 __main__.py
+.cocoindex_code/cocoindex.db/mdb/data.mdb
+.cocoindex_code/cocoindex.db/mdb/lock.mdb
+.cocoindex_code/settings.yml
+.cocoindex_code/target_sqlite.db
+ab_testing/__init__.py
+ab_testing/assignment.py
+ab_testing/models.py
+ab_testing/shadow_runner.py
+ab_testing/wiring.py
+ab_testing/yaml_loader.py
 agent/__init__.py
 agent/academic_tools.py
 agent/config.py
@@ -62,9 +72,14 @@ analytics/derived_views.py
 analytics/duckdb_store.py
 analytics/evals.py
 analytics/formatting.py
+analytics/judge_calibration.py
+analytics/judge_prompt.py
+analytics/judge_runner.py
 analytics/motherduck_sync.py
+analytics/quality_metrics.py
 analytics/queries.py
 analytics/reports.py
+analytics/summaries.py
 analytics/tools.py
 analytics/views.py
 cache/__init__.py
@@ -84,10 +99,10 @@ cli/commands/ai.py
 cli/commands/analytics.py
 cli/commands/content.py
 cli/commands/doctor.py
+cli/commands/experiments.py
 cli/commands/getskill.py
 cli/commands/links.py
 cli/commands/reference.py
-cli/commands/scaffold.py
 cli/commands/schema.py
 cli/commands/search.py
 cli/commands/server.py
@@ -141,7 +156,16 @@ evals/cases.py
 evals/judges.py
 evals/metrics.py
 evals/runner.py
-mcp_compat.py
+index/__init__.py
+index/bm25_encoder.py
+index/web_results_index.py
+llm/__init__.py
+llm/client.py
+llm/config.py
+llm/models.py
+llm/router.py
+llm/structured.py
+llm/worker.py
 middleware/__init__.py
 middleware/expensive_tool_protection.py
 middleware/query_guidance.py
@@ -149,6 +173,17 @@ middleware/rate_limits.py
 middleware/session_tracking.py
 models.py
 observability/events.py
+prompts/__init__.py
+prompts/builders.py
+prompts/entity_extraction.py
+prompts/models.py
+prompts/provider_gemini.py
+prompts/provider_grok.py
+prompts/provider_perplexity.py
+prompts/query_rewrite.py
+prompts/query_understanding.py
+prompts/registry.py
+prompts/rerank.py
 rerank/__init__.py
 rerank/bi_encoder.py
 rerank/core.py
@@ -180,43 +215,52 @@ search/academic_s2.py
 search/academic_search_orchestrator.py
 search/branch_executor.py
 search/brave.py
+search/budget.py
+search/circuit_breaker.py
 search/composio_llm_search.py
+search/context.py
 search/ddg.py
+search/entity_extractor.py
 search/finalize_results.py
 search/flow_observability.py
 search/gemini_pollinations.py
 search/gemini_search_tool.py
 search/github_graphql.py
+search/google_cse.py
 search/grok.py
 search/hackernews.py
+search/intents.py
 search/jina.py
 search/merge_observability.py
 search/merge.py
 search/normalize.py
 search/options.py
-search/orchestrator.py
+search/pipeline_builders.py
+search/pipeline.py
 search/pollinations.py
+search/profiles/__init__.py
+search/profiles/defaults.py
+search/profiles/models.py
+search/profiles/registry.py
+search/profiles/resolve.py
+search/provider_call.py
 search/provider_config.py
 search/provider_health.py
-search/query_classifier_client.py
-search/query_decomposition.py
-search/query_fanout_client.py
-search/query_fanout.py
-search/query_policy_resolver.py
+search/provider_options.py
+search/provider_plan.py
+search/qdrant.py
 search/query_policy.py
-search/query_rewrite_branching.py
-search/query_rewrite_cascade.py
 search/query_rewrite_models.py
-search/query_rewrite_plan.py
-search/query_rewrite_prompts.py
-search/query_rewrite_requests.py
-search/query_rewrite_validate.py
-search/query_rewrite.py
 search/reddit.py
 search/result_memory_pipeline.py
+search/search_router.py
 search/searxng.py
 search/stackexchange.py
 search/tavily.py
+search/understanding/__init__.py
+search/understanding/models.py
+search/understanding/resolver.py
+search/understanding/schema.py
 search/youtube.py
 server.py
 settings.py
@@ -224,6 +268,9 @@ telemetry.py
 tools/__init__.py
 tools/catalog.py
 tools/profiles.py
+training/__init__.py
+training/query_understanding_jsonl.py
+training/session_state.py
 utils/__init__.py
 utils/diagnostics.py
 utils/logging.py
@@ -237,7 +284,7 @@ utils/structured_logging.py
 This section contains the contents of the repository's files.
 
 <file path="__init__.py">
-"""MCP server: Serper web search + (optional) page scraping to Markdown."""
+"""MCP server: Kindly multi-provider web search with RRF merge, content extraction, and agentic research."""
 </file>
 
 <file path="__main__.py">
@@ -252,6 +299,479 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+</file>
+
+<file path=".cocoindex_code/settings.yml">
+exclude_patterns:
+- '**/.*'
+- '**/__pycache__'
+- '**/node_modules'
+- '**/target'
+- '**/build/assets'
+- '**/dist'
+- '**/vendor/*.*/*'
+- '**/vendor/*'
+- '**/.cocoindex_code'
+include_patterns:
+- '**/*.py'
+- '**/*.pyi'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.mjs'
+- '**/*.cjs'
+- '**/*.rs'
+- '**/*.go'
+- '**/*.java'
+- '**/*.c'
+- '**/*.h'
+- '**/*.cpp'
+- '**/*.hpp'
+- '**/*.cc'
+- '**/*.cxx'
+- '**/*.hxx'
+- '**/*.hh'
+- '**/*.cs'
+- '**/*.sql'
+- '**/*.sh'
+- '**/*.bash'
+- '**/*.zsh'
+- '**/*.md'
+- '**/*.mdx'
+- '**/*.txt'
+- '**/*.rst'
+- '**/*.php'
+- '**/*.lua'
+- '**/*.rb'
+- '**/*.swift'
+- '**/*.kt'
+- '**/*.kts'
+- '**/*.scala'
+- '**/*.r'
+- '**/*.html'
+- '**/*.htm'
+- '**/*.svelte'
+- '**/*.vue'
+- '**/*.css'
+- '**/*.scss'
+- '**/*.json'
+- '**/*.xml'
+- '**/*.yaml'
+- '**/*.yml'
+- '**/*.toml'
+- '**/*.sol'
+- '**/*.pas'
+- '**/*.dpr'
+- '**/*.dtd'
+- '**/*.f'
+- '**/*.f90'
+- '**/*.f95'
+- '**/*.f03'
+</file>
+
+<file path="ab_testing/__init__.py">
+
+</file>
+
+<file path="ab_testing/assignment.py">
+import hashlib
+import logging
+from typing import Optional
+
+from .models import ABExperiment, Assignment
+
+logger = logging.getLogger(__name__)
+
+
+def _hash_to_bucket(run_key: str, experiment_id: str, buckets: int = 10000) -> int:
+    """Deterministic hash-based bucket assignment."""
+    digest = hashlib.sha256(
+        f"{experiment_id}:{run_key}".encode()
+    ).hexdigest()
+    return int(digest, 16) % buckets
+
+
+def get_assigned_variant(
+    run_key: str,
+    layer: str,
+    experiments: list[ABExperiment],
+) -> Optional[Assignment]:
+    """Sticky assignment. Returns None if no running experiment or not enrolled.
+
+    Only one running experiment per layer at a time (mutual exclusion).
+    Traffic_pct controls what fraction of run_keys are enrolled.
+    Within enrolled run_keys, variant weights determine allocation.
+    """
+    running = [
+        e for e in experiments if e.status == "running" and e.layer == layer
+    ]
+    if not running:
+        return None
+
+    # Only one running experiment per layer
+    experiment = max(running, key=lambda e: e.started_at or "")
+
+    # Traffic enrollment
+    bucket = _hash_to_bucket(run_key, experiment.experiment_id)
+    if bucket >= int(experiment.traffic_pct * 100):
+        return None
+
+    # Variant selection based on weights
+    total_weight = sum(v.weight for v in experiment.variants)
+    variant_bucket = bucket % total_weight
+    cumulative = 0
+    selected = experiment.variants[0]
+    for v in experiment.variants:
+        cumulative += v.weight
+        if variant_bucket < cumulative:
+            selected = v
+            break
+
+    return Assignment(
+        run_key=run_key,
+        experiment_id=experiment.experiment_id,
+        variant_key=selected.variant_key,
+        layer=layer,
+    )
+</file>
+
+<file path="ab_testing/models.py">
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class ABVariant:
+    variant_key: str
+    weight: int  # must be > 0
+    config: dict[str, Any] = field(default_factory=dict)
+    description: str = ""
+
+
+@dataclass
+class ABExperiment:
+    experiment_id: str
+    layer: str  # e.g. "query_understanding", "reranking", "provider_weights"
+    status: str = "draft"  # draft, running, paused, concluded
+    hypothesis: str = ""
+    primary_metric: str = ""
+    traffic_pct: float = 10.0  # 0-100
+    guardrail_metrics: list[str] = field(default_factory=list)
+    started_at: str | None = None
+    ended_at: str | None = None
+    winning_variant: str | None = None
+    variants: list[ABVariant] = field(default_factory=list)
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> list[str]:
+        """Return list of validation errors. Empty = valid."""
+        errors = []
+        if not self.experiment_id:
+            errors.append("experiment_id is required")
+        if not self.layer:
+            errors.append("layer is required")
+        if self.status not in ("draft", "running", "paused", "concluded"):
+            errors.append(f"invalid status: {self.status}")
+        if not (0 < self.traffic_pct <= 100):
+            errors.append(
+                f"traffic_pct must be in (0, 100], got {self.traffic_pct}"
+            )
+        if len(self.variants) < 2:
+            errors.append("need at least 2 variants")
+        for v in self.variants:
+            if v.weight <= 0:
+                errors.append(f"variant {v.variant_key} weight must be > 0")
+        return errors
+
+
+@dataclass
+class Assignment:
+    run_key: str
+    experiment_id: str
+    variant_key: str
+    layer: str
+    shadow_mode: bool = False
+</file>
+
+<file path="ab_testing/shadow_runner.py">
+import asyncio
+import json
+import logging
+import time
+from typing import Any, Callable, Coroutine
+
+from ..analytics.duckdb_store import insert_ab_shadow_run
+from ..settings import settings
+
+logger = logging.getLogger(__name__)
+
+
+async def run_shadow(
+    run_key: str,
+    experiment_id: str,
+    variant: str,
+    layer: str,
+    shadow_fn: Callable[..., Coroutine],
+    shadow_kwargs: dict,
+    control_duration_ms: float,
+    control_result_summary: dict | None = None,
+) -> None:
+    """Fire-and-forget shadow execution. Runs variant B and records results.
+    
+    This function is designed to be called via asyncio.create_task() or 
+    asyncio.ensure_future(). It never propagates exceptions.
+    
+    Parameters:
+        run_key: The search run identifier
+        experiment_id: The A/B experiment identifier
+        variant: Which variant this shadow is testing (e.g., "treatment")
+        layer: Which pipeline layer (e.g., "query_understanding")
+        shadow_fn: Async callable to execute the shadow variant
+        shadow_kwargs: Keyword arguments to pass to shadow_fn
+        control_duration_ms: How long the control (production) variant took
+        control_result_summary: Optional summary of control result for comparison
+    """
+    shadow_start = time.monotonic()
+    error_type = None
+    
+    try:
+        shadow_result = await shadow_fn(**shadow_kwargs)
+        shadow_duration_ms = (time.monotonic() - shadow_start) * 1000
+    except Exception as exc:
+        shadow_duration_ms = (time.monotonic() - shadow_start) * 1000
+        error_type = "shadow_failed"
+        shadow_result = None
+        logger.debug("Shadow execution failed for %s/%s: %s", experiment_id, run_key, exc)
+    
+    # Record shadow run in DuckDB
+    try:
+        latency_delta_ms = shadow_duration_ms - control_duration_ms
+        
+        insert_ab_shadow_run(
+            run_key=run_key,
+            experiment_id=experiment_id,
+            variant=variant,
+            layer=layer,
+            duration_ms=round(shadow_duration_ms, 3),
+            judge_score=None,  # Judge evaluation happens separately
+            tokens_used=None,
+            cost_usd=None,
+            error_type=error_type,
+            payload_json={
+                "control_duration_ms": round(control_duration_ms, 3),
+                "latency_delta_ms": round(latency_delta_ms, 3),
+                "control_summary": control_result_summary,
+                "shadow_summary": _safe_summary(shadow_result),
+            },
+        )
+    except Exception as exc:
+        logger.debug("Shadow DuckDB insert failed for %s/%s: %s", experiment_id, run_key, exc)
+
+
+def _safe_summary(obj: Any) -> Any:
+    """Create a JSON-safe summary of a result object."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v 
+                for k, v in list(obj.items())[:10]}
+    if isinstance(obj, list):
+        return {"count": len(obj), "first_3": [str(x)[:200] for x in obj[:3]]}
+    if hasattr(obj, "__dict__"):
+        return {k: str(v)[:200] for k, v in list(obj.__dict__.items())[:10]}
+    return str(obj)[:500]
+</file>
+
+<file path="ab_testing/wiring.py">
+"""A/B testing wiring helper — merges experiment overrides into pipeline kwargs.
+
+This module provides the glue between the A/B experiment definitions (YAML)
+and the pipeline stages (query understanding, reranking, etc.). It is
+layer-agnostic: any pipeline stage can call ``get_ab_overrides()`` to
+retrieve variant configuration for the current ``run_key``.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from ..settings import settings
+from .assignment import get_assigned_variant
+from .yaml_loader import load_experiments
+
+logger = logging.getLogger(__name__)
+
+
+def get_ab_overrides(
+    *,
+    run_key: str,
+    layer: str,
+) -> dict[str, Any] | None:
+    """Return AB variant config if *run_key* is enrolled in a running experiment.
+
+    Parameters
+    ----------
+    run_key:
+        Unique search-run identifier (used for sticky bucketing).
+    layer:
+        Pipeline layer name, e.g. ``"query_understanding"``, ``"reranking"``.
+
+    Returns
+    -------
+    ``None`` when
+    - AB testing is globally disabled (``settings.ab_testing_enabled`` is
+      ``False``),
+    - no experiment YAML file exists,
+    - no running experiment for *layer*, or
+    - the *run_key* falls outside the experiment's ``traffic_pct``.
+
+    Otherwise a dict with keys:
+
+    - ``experiment_id`` – the matched experiment identifier
+    - ``variant_key``  – the assigned variant key
+    - ``shadow_mode``  – ``True`` when the variant should run as a shadow
+      (production uses control config; variant runs in the background)
+    - ``config``       – the variant's ``config`` dict (may be empty)
+    """
+    if not settings.ab_testing_enabled:
+        return None
+
+    config_path = settings.ab_config_path if settings.ab_config_path else None
+    experiments = load_experiments(config_path)
+    if not experiments:
+        return None
+
+    assignment = get_assigned_variant(run_key, layer, experiments)
+    if assignment is None:
+        return None
+
+    # Look up the variant config dict from the matched experiment
+    variant_config: dict[str, Any] = {}
+    for exp in experiments:
+        if exp.experiment_id == assignment.experiment_id:
+            for v in exp.variants:
+                if v.variant_key == assignment.variant_key:
+                    variant_config = v.config
+                    break
+
+    shadow_mode = assignment.shadow_mode or variant_config.get("shadow", False)
+
+    return {
+        "experiment_id": assignment.experiment_id,
+        "variant_key": assignment.variant_key,
+        "shadow_mode": bool(shadow_mode),
+        "config": variant_config,
+    }
+</file>
+
+<file path="ab_testing/yaml_loader.py">
+import logging
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .models import ABExperiment, ABVariant
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CONFIG_PATH = Path(".kindly/experiments.yaml")
+
+
+def load_experiments(
+    config_path: Path | str | None = None,
+) -> list[ABExperiment]:
+    """Load experiments from YAML config file.
+
+    Returns empty list if file doesn't exist.
+    Validates each experiment and logs warnings for invalid ones.
+    """
+    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    if not path.exists():
+        logger.debug("No experiments config at %s", path)
+        return []
+
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+
+    experiments = []
+    for raw in data.get("experiments", []):
+        try:
+            variants = [
+                ABVariant(
+                    variant_key=v["variant_key"],
+                    weight=v["weight"],
+                    config=v.get("config", {}),
+                    description=v.get("description", ""),
+                )
+                for v in raw.get("variants", [])
+            ]
+            exp = ABExperiment(
+                experiment_id=raw["experiment_id"],
+                layer=raw["layer"],
+                status=raw.get("status", "draft"),
+                hypothesis=raw.get("hypothesis", ""),
+                primary_metric=raw.get("primary_metric", ""),
+                traffic_pct=raw.get("traffic_pct", 10.0),
+                guardrail_metrics=raw.get("guardrail_metrics", []),
+                started_at=raw.get("started_at"),
+                ended_at=raw.get("ended_at"),
+                winning_variant=raw.get("winning_variant"),
+                variants=variants,
+                payload=raw.get("payload", {}),
+            )
+            errors = exp.validate()
+            if errors:
+                logger.warning(
+                    "Invalid experiment %s: %s", exp.experiment_id, errors
+                )
+                continue
+            experiments.append(exp)
+        except (KeyError, TypeError) as exc:
+            logger.warning("Failed to parse experiment: %s", exc)
+
+    return experiments
+
+
+def save_experiments(
+    experiments: list[ABExperiment],
+    config_path: Path | str | None = None,
+) -> None:
+    """Save experiments back to YAML config file."""
+    path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {"experiments": []}
+    for exp in experiments:
+        raw = {
+            "experiment_id": exp.experiment_id,
+            "layer": exp.layer,
+            "status": exp.status,
+            "hypothesis": exp.hypothesis,
+            "primary_metric": exp.primary_metric,
+            "traffic_pct": exp.traffic_pct,
+            "guardrail_metrics": exp.guardrail_metrics,
+            "started_at": exp.started_at,
+            "ended_at": exp.ended_at,
+            "winning_variant": exp.winning_variant,
+            "variants": [
+                {
+                    "variant_key": v.variant_key,
+                    "weight": v.weight,
+                    "config": v.config,
+                    "description": v.description,
+                }
+                for v in exp.variants
+            ],
+        }
+        if exp.payload:
+            raw["payload"] = exp.payload
+        data["experiments"].append(raw)
+
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 </file>
 
 <file path="agent/__init__.py">
@@ -339,7 +859,7 @@ class AgenticResearchConfig:
     """Agentic research runtime config.
 
     Defaults are now sourced from the central Settings (which parses
-    KINDLY_AGENTIC_RESEARCH_* and NANOGPT_API_KEY etc. in one place).
+    AGENTIC_RESEARCH_* and NANOGPT_API_KEY etc. in one place).
     This improves consistency and avoids duplicated env parsing logic.
 
     Callers (runner, tests) can still override individual fields for tests
@@ -851,11 +1371,8 @@ def register_agentic_web_research_tools(mcp: object) -> None:
         depth: str = "normal",
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """LangChain/LangGraph ReAct research agent.
-
-        Use this when you want the model to choose among the dedicated search,
-        fetch, rerank, and expansion tools directly instead of calling the legacy
-        full `web_search` pipeline.
+        """Multi-step web research using a ReAct agent that selects tools autonomously.
+        Experimental, not idempotent. Use only for open-ended research requiring multiple iterations.
         """
         # Outer MCP boundary instrumentation (Grafana/DuckDB + OTel)
         # Mirrors patterns from server.py for other complex tools (web_search, gemini, etc.)
@@ -1044,7 +1561,7 @@ def _build_chat_model(cfg: AgenticResearchConfig, model_name: str) -> ChatOpenAI
 def _build_gemini_model(cfg: AgenticResearchConfig) -> Any:
     if not cfg.gemini_api_key.strip():
         raise RuntimeError(
-            "KINDLY_GEMINI_API_KEY is not set. Gemini agentic fallback cannot start."
+            "GEMINI_API_KEY is not set. Gemini agentic fallback cannot start."
         )
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -1311,7 +1828,7 @@ Rules:
 - Use `get_content` for one URL, `batch_get_content` for multiple URLs, and `discover_links` for site expansion.
 - Use `rerank_candidates` when you have more than a few competing candidates or conflicting sources.
 - Use `academic_search` for papers and scholarly evidence.
-- Do not use the legacy full `web_search` pipeline from this server.
+- Do not use the full `web_search` pipeline — use granular tools instead.
 - If a search tool fails because credentials are missing, move on to another tool instead of inventing results.
 
 Answering rules:
@@ -1360,7 +1877,8 @@ async def _rerank_candidates(
     top_k: int,
 ) -> dict[str, Any]:
     result_models = [_to_result(candidate) for candidate in candidates]
-    ranked = await rerank_results(query, result_models, top_k=top_k)
+    reranked = await rerank_results(query, result_models, top_k=top_k)
+    ranked = reranked.results
     return {
         "query": query,
         "top_k": top_k,
@@ -3148,11 +3666,29 @@ from ..settings import settings
 
 _LOCK = threading.Lock()
 _TABLE_NAME = "search_events"
-
+_RUNS_TABLE_NAME = "search_runs"
+_QU_TABLE_NAME = "query_understanding"
+_QR_TABLE_NAME = "query_rewrites"
+_PC_TABLE_NAME = "provider_calls"
+_PRC_TABLE_NAME = "provider_candidates"
+_MC_TABLE_NAME = "merged_candidates"
+_RS_TABLE_NAME = "rerank_stages"
+_RC_TABLE_NAME = "rerank_candidates"
+_FR_TABLE_NAME = "final_results"
+_SQS_TABLE_NAME = "search_quality_scores"
+_SUM_PVD_TABLE_NAME = "summary_provider_daily"
+_SUM_ID_TABLE_NAME = "summary_intent_daily"
+_SUM_RD_TABLE_NAME = "summary_rerank_daily"
+_SUM_QD_TABLE_NAME = "summary_quality_daily"
+_JE_TABLE_NAME = "judge_evaluations"
+_ABE_TABLE_NAME = "ab_experiments"
+_ABS_TABLE_NAME = "ab_shadow_runs"
+_ABV_TABLE_NAME = "ab_experiment_variants"
+_ABA_TABLE_NAME = "ab_assignments"
+_ABR_TABLE_NAME = "ab_results"
 
 def _db_path(db_path: str | None = None) -> Path:
     return Path(db_path or settings.analytics_duckdb_path)
-
 
 def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
     value = payload.get(key)
@@ -3160,13 +3696,11 @@ def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
 
-
 def _provider_value(payload: dict[str, Any]) -> str | None:
     value = payload.get("provider")
     if value is None:
         value = payload.get("provider_name")
     return value if isinstance(value, str) else None
-
 
 def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     for key in keys:
@@ -3177,7 +3711,6 @@ def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
             return value
     return None
 
-
 def _run_key(payload: dict[str, Any]) -> str | None:
     trace_id = payload.get("trace_id")
     if isinstance(trace_id, str) and trace_id:
@@ -3187,11 +3720,9 @@ def _run_key(payload: dict[str, Any]) -> str | None:
         return fingerprint
     return None
 
-
 def _phase(event_name: str) -> str | None:
     parts = event_name.rsplit(".", 1)
     return parts[1] if len(parts) == 2 else None
-
 
 def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     value = payload.get("duration_ms")
@@ -3203,7 +3734,6 @@ def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     ):
         return round(float(duration_seconds) * 1000.0, 3)
     return None
-
 
 def _input_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
@@ -3218,7 +3748,6 @@ def _input_count_value(payload: dict[str, Any]) -> int | None:
         ),
     )
     return value
-
 
 def _output_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
@@ -3235,7 +3764,6 @@ def _output_count_value(payload: dict[str, Any]) -> int | None:
         ),
     )
     return value
-
 
 def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -3357,7 +3885,6 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
-
 def ensure_store_schema(*, db_path: str | None = None) -> None:
     path = _db_path(db_path)
     if not path.exists():
@@ -3369,6 +3896,893 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
         finally:
             connection.close()
 
+def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create search_runs table with indexes if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_RUNS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            query VARCHAR NOT NULL,
+            normalized_query VARCHAR,
+            research_goal VARCHAR,
+            num_results_requested INTEGER,
+            rewrite_enabled BOOLEAN,
+            session_id VARCHAR,
+            tool_name VARCHAR DEFAULT 'web_search',
+            duration_ms DOUBLE,
+            final_result_count INTEGER,
+            candidate_count INTEGER,
+            has_more BOOLEAN,
+            result_offset INTEGER,
+            status VARCHAR,
+            error_type VARCHAR,
+            payload_json JSON
+        )
+        """
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_runs_run_key ON {_RUNS_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON {_RUNS_TABLE_NAME}(recorded_at)"
+    )
+
+def insert_search_run(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the search_runs table.
+
+    Uses the same pattern as append_event()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "query",
+        "normalized_query",
+        "research_goal",
+        "num_results_requested",
+        "rewrite_enabled",
+        "session_id",
+        "tool_name",
+        "duration_ms",
+        "final_result_count",
+        "candidate_count",
+        "has_more",
+        "result_offset",
+        "status",
+        "error_type",
+        "payload_json",
+    ]
+
+    # Apply Python-level defaults for columns with SQL DEFAULT values
+    # so DuckDB doesn't get an explicit None that bypasses the DEFAULT.
+    if kwargs.get("tool_name") is None:
+        kwargs["tool_name"] = "web_search"
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_search_runs(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_RUNS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create query_understanding table with index if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_QU_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            intent VARCHAR,
+            confidence DOUBLE,
+            should_decompose BOOLEAN,
+            rationale VARCHAR,
+            model VARCHAR,
+            provider VARCHAR,
+            duration_ms DOUBLE,
+            fallback_used BOOLEAN,
+            entities_count INTEGER,
+            preserved_terms VARCHAR[],
+            time_sensitivity VARCHAR,
+            payload_json JSON
+        )
+        """
+    )
+
+def insert_query_understanding(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the query_understanding table.
+
+    Uses the same pattern as insert_search_run()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "intent",
+        "confidence",
+        "should_decompose",
+        "rationale",
+        "model",
+        "provider",
+        "duration_ms",
+        "fallback_used",
+        "entities_count",
+        "preserved_terms",
+        "time_sensitivity",
+        "payload_json",
+    ]
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_query_understanding(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_QU_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create query_rewrites table with index if it doesn't exist."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_QR_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            variant_index INTEGER,
+            branch_type VARCHAR,
+            kind VARCHAR,
+            target VARCHAR,
+            query VARCHAR NOT NULL,
+            weight DOUBLE,
+            reason VARCHAR,
+            max_results INTEGER,
+            model VARCHAR,
+            duration_ms DOUBLE,
+            payload_json JSON
+        )
+        """
+    )
+
+def insert_query_rewrites(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Insert a row into the query_rewrites table.
+
+    Uses the same pattern as insert_search_run()
+    (threading.Lock, duckdb.connect, execute INSERT with VALUES).
+    """
+
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    columns = [
+        "run_key",
+        "variant_index",
+        "branch_type",
+        "kind",
+        "target",
+        "query",
+        "weight",
+        "reason",
+        "max_results",
+        "model",
+        "duration_ms",
+        "payload_json",
+    ]
+
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+
+    values = [kwargs.get(col) for col in columns]
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_query_rewrites(connection)
+            connection.execute(
+                f"""
+                INSERT INTO {_QR_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                """,
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_PC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider VARCHAR NOT NULL,
+            branch_index INTEGER,
+            branch_query VARCHAR,
+            num_results_requested INTEGER,
+            num_results_returned INTEGER,
+            duration_ms DOUBLE,
+            error_code VARCHAR,
+            error_message VARCHAR,
+            http_status INTEGER,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_provider_calls(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider", "branch_index", "branch_query",
+        "num_results_requested", "num_results_returned", "duration_ms",
+        "error_code", "error_message", "http_status",
+        "tokens_used", "cost_usd", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_provider_calls(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_PC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_PRC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider VARCHAR NOT NULL,
+            branch_index INTEGER,
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            score DOUBLE,
+            published_date VARCHAR,
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def insert_provider_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider", "branch_index", "rank", "title",
+        "link", "snippet", "domain", "score", "published_date", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_provider_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_PRC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_MC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            rrf_score DOUBLE,
+            provider_count INTEGER,
+            providers VARCHAR[],
+            overlap_flag BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_merged_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "rank", "title", "link", "snippet", "domain",
+        "rrf_score", "provider_count", "providers", "overlap_flag", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_merged_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_MC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_RS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            stage VARCHAR NOT NULL,
+            provider VARCHAR,
+            model VARCHAR,
+            input_count INTEGER,
+            output_count INTEGER,
+            duration_ms DOUBLE,
+            max_score DOUBLE,
+            avg_score DOUBLE,
+            score_threshold DOUBLE,
+            instruction_present BOOLEAN,
+            instruction_length INTEGER,
+            query_type_hint VARCHAR,
+            entity_overlap_enabled BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def insert_rerank_stages(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "stage", "provider", "model", "input_count", "output_count",
+        "duration_ms", "max_score", "avg_score", "score_threshold",
+        "instruction_present", "instruction_length", "query_type_hint",
+        "entity_overlap_enabled", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_rerank_stages(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_RS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_RC_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            stage VARCHAR NOT NULL,
+            link VARCHAR NOT NULL,
+            rank_before INTEGER,
+            rank_after INTEGER,
+            score_before DOUBLE,
+            score_after DOUBLE,
+            score_after_relevance DOUBLE,
+            score_after_recency DOUBLE,
+            score_after_entity DOUBLE,
+            recency_boost DOUBLE,
+            entity_overlap_score DOUBLE,
+            diversity_removed BOOLEAN,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_rerank_candidates(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "stage", "link", "rank_before", "rank_after",
+        "score_before", "score_after", "score_after_relevance",
+        "score_after_recency", "score_after_entity", "recency_boost",
+        "entity_overlap_score", "diversity_removed", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_rerank_candidates(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_RC_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_FR_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            rank INTEGER,
+            title VARCHAR,
+            link VARCHAR,
+            snippet VARCHAR,
+            domain VARCHAR,
+            final_score DOUBLE,
+            providers VARCHAR[],
+            provider_count INTEGER,
+            entities_count INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_final_results(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "rank", "title", "link", "snippet", "domain",
+        "final_score", "providers", "provider_count", "entities_count", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_final_results(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_FR_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SQS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL PRIMARY KEY,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider_overlap_rate DOUBLE,
+            domain_diversity_count INTEGER,
+            domain_diversity_ratio DOUBLE,
+            rerank_compression_ratio DOUBLE,
+            avg_rrf_score DOUBLE,
+            top_score DOUBLE,
+            p95_score DOUBLE,
+            rewrite_variant_count INTEGER,
+            provider_count INTEGER,
+            branch_count INTEGER,
+            total_candidates_input INTEGER,
+            total_candidates_merged INTEGER,
+            total_candidates_reranked INTEGER,
+            total_final_results INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_search_quality_scores(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider_overlap_rate", "domain_diversity_count",
+        "domain_diversity_ratio", "rerank_compression_ratio", "avg_rrf_score",
+        "top_score", "p95_score", "rewrite_variant_count", "provider_count",
+        "branch_count", "total_candidates_input", "total_candidates_merged",
+        "total_candidates_reranked", "total_final_results", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_search_quality_scores(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_SQS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ON CONFLICT DO NOTHING
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_summary_provider_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_PVD_TABLE_NAME} (
+            day DATE NOT NULL,
+            provider VARCHAR NOT NULL,
+            query_count BIGINT,
+            avg_results_returned DOUBLE,
+            p50_results_returned DOUBLE,
+            avg_latency_ms DOUBLE,
+            p50_latency_ms DOUBLE,
+            p95_latency_ms DOUBLE,
+            error_rate DOUBLE,
+            distinct_queries BIGINT,
+            PRIMARY KEY (day, provider)
+        )
+        '''
+    )
+
+def _ensure_summary_intent_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_ID_TABLE_NAME} (
+            day DATE NOT NULL,
+            intent VARCHAR NOT NULL,
+            query_count BIGINT,
+            avg_confidence DOUBLE,
+            decomposition_rate DOUBLE,
+            fallback_rate DOUBLE,
+            avg_rewrite_variants DOUBLE,
+            PRIMARY KEY (day, intent)
+        )
+        '''
+    )
+
+def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_RD_TABLE_NAME} (
+            day DATE NOT NULL,
+            stage VARCHAR NOT NULL,
+            provider VARCHAR,
+            runs_count BIGINT,
+            avg_compression_ratio DOUBLE,
+            avg_max_score DOUBLE,
+            p50_latency_ms DOUBLE,
+            p95_latency_ms DOUBLE,
+            entity_overlap_runs BIGINT,
+            PRIMARY KEY (day, stage, provider)
+        )
+        '''
+    )
+
+def _ensure_summary_quality_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_QD_TABLE_NAME} (
+            day DATE NOT NULL,
+            avg_overlap_rate DOUBLE,
+            avg_domain_diversity DOUBLE,
+            avg_domain_diversity_ratio DOUBLE,
+            avg_compression_ratio DOUBLE,
+            avg_top_score DOUBLE,
+            PRIMARY KEY (day)
+        )
+        '''
+    )
+
+def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_JE_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            tool_name VARCHAR,
+            judge_model VARCHAR,
+            relevance_score DOUBLE,
+            accuracy_score DOUBLE,
+            completeness_score DOUBLE,
+            source_quality_score DOUBLE,
+            overall_score DOUBLE,
+            rationale VARCHAR,
+            duration_ms DOUBLE,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
+            payload_json JSON
+        )
+        '''
+    )
+
+def insert_judge_evaluation(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "tool_name", "judge_model", "relevance_score",
+        "accuracy_score", "completeness_score", "source_quality_score",
+        "overall_score", "rationale", "duration_ms", "tokens_used",
+        "cost_usd", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_judge_evaluations(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_JE_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def _ensure_ab_experiments(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABE_TABLE_NAME} (
+            experiment_id VARCHAR NOT NULL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            layer VARCHAR NOT NULL,
+            variant_a VARCHAR NOT NULL,
+            variant_b VARCHAR NOT NULL,
+            allocation_rate DOUBLE NOT NULL DEFAULT 0.5,
+            status VARCHAR NOT NULL DEFAULT 'active',
+            start_date DATE,
+            end_date DATE,
+            min_sample_size INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+
+def _ensure_ab_shadow_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            experiment_id VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            layer VARCHAR NOT NULL,
+            duration_ms DOUBLE,
+            judge_score DOUBLE,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
+            error_type VARCHAR,
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def _ensure_ab_experiment_variants(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABV_TABLE_NAME} (
+            variant_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            variant_name VARCHAR NOT NULL,
+            description VARCHAR,
+            config_json JSON,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        '''
+    )
+
+
+def _ensure_ab_assignments(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABA_TABLE_NAME} (
+            assignment_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            run_key VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def _ensure_ab_results(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABR_TABLE_NAME} (
+            result_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            run_key VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            primary_metric DOUBLE,
+            secondary_metric DOUBLE,
+            duration_ms DOUBLE,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def insert_ab_experiment(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "experiment_id", "layer", "variant_a", "variant_b",
+        "allocation_rate", "status", "start_date", "end_date",
+        "min_sample_size", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_ab_experiments(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_ABE_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ON CONFLICT DO NOTHING
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+def insert_ab_shadow_run(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "experiment_id", "variant", "layer",
+        "duration_ms", "judge_score", "tokens_used", "cost_usd",
+        "error_type", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_ab_shadow_runs(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_ABS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
 
 def append_event(
     event_name: str,
@@ -3379,7 +4793,7 @@ def append_event(
     """Append a normalized observability payload to DuckDB.
 
     The store is best-effort and is disabled when
-    `KINDLY_ANALYTICS_ENABLED=false`.
+    `ANALYTICS_ENABLED=false`.
     """
 
     if not settings.analytics_enabled:
@@ -3730,6 +5144,543 @@ def json_safe_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [_json_safe_value(row) for row in rows]
 </file>
 
+<file path="analytics/judge_calibration.py">
+"""Calibration metrics for the LLM judge evaluation workflow.
+
+Compares the judge's actual scores (stored in DuckDB) against known
+expected scores for a set of queries, computing correlation, MAE,
+and bias to quantify how well-calibrated the judge is.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from typing import Any
+
+import duckdb
+
+from .duckdb_store import _db_path
+
+logger = logging.getLogger(__name__)
+
+# Score keys used in both judge_evaluations and expected_scores
+_SCORE_DIMS = [
+    "relevance_score",
+    "accuracy_score",
+    "completeness_score",
+    "source_quality_score",
+    "overall_score",
+]
+
+
+def _fetch_judge_scores(
+    run_keys: list[str],
+    db_path: str | None = None,
+) -> dict[str, dict[str, float | None]]:
+    """Query judge_evaluations for the given run_keys and return scores keyed by run_key.
+
+    Returns
+    -------
+    dict[str, dict[str, float | None]]
+        {run_key: {relevance_score: ..., overall_score: ..., etc.}}
+    """
+    path = _db_path(db_path)
+    if not path.exists():
+        logger.warning("DuckDB path does not exist: %s", path)
+        return {}
+
+    con = duckdb.connect(str(path))
+    try:
+        rows = con.execute(
+            f"""
+            SELECT run_key,
+                   relevance_score,
+                   accuracy_score,
+                   completeness_score,
+                   source_quality_score,
+                   overall_score
+            FROM judge_evaluations
+            WHERE run_key IN ({','.join('?' for _ in run_keys)})
+            """,
+            run_keys,
+        ).fetchall()
+    finally:
+        con.close()
+
+    result: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        run_key = row[0]
+        result[run_key] = {
+            _SCORE_DIMS[i]: (float(row[i + 1]) if row[i + 1] is not None else None)
+            for i in range(len(_SCORE_DIMS))
+        }
+    return result
+
+
+def _pearson_correlation(
+    actual: list[float],
+    expected: list[float],
+) -> float:
+    """Compute Pearson correlation coefficient between two lists."""
+    n = len(actual)
+    if n < 2:
+        return 0.0
+
+    sum_act = sum(actual)
+    sum_exp = sum(expected)
+    sum_act_sq = sum(a * a for a in actual)
+    sum_exp_sq = sum(e * e for e in expected)
+    sum_prod = sum(a * e for a, e in zip(actual, expected, strict=False))
+
+    numerator = n * sum_prod - sum_act * sum_exp
+    denom_a = n * sum_act_sq - sum_act * sum_act
+    denom_b = n * sum_exp_sq - sum_exp * sum_exp
+
+    if denom_a <= 0 or denom_b <= 0:
+        return 0.0
+
+    denominator = math.sqrt(denom_a) * math.sqrt(denom_b)
+    if denominator == 0:
+        return 0.0
+
+    return numerator / denominator
+
+
+def calibrate_judge(
+    known_queries: list[dict[str, Any]],
+    db_path: str | None = None,
+) -> dict[str, Any]:
+    """Run judge on known queries and compute calibration metrics.
+
+    Each element of *known_queries* must have at least:
+
+    - ``run_key`` (str) — the run_key that was used when the judge evaluation
+      was inserted.
+    - ``expected_scores`` (dict) — the ground-truth scores for this query.
+      Expected keys: ``relevance_score``, ``accuracy_score``,
+      ``completeness_score``, ``source_quality_score``, ``overall_score``.
+      At minimum ``overall_score`` must be present.
+
+    Parameters
+    ----------
+    known_queries : list[dict]
+        Known-query records with run_key and expected_scores.
+    db_path : str or None
+        Path to the DuckDB analytics file.  Uses the settings default when
+        *None*.
+
+    Returns
+    -------
+    dict
+        ``{"correlation": float, "mean_absolute_error": float,
+        "bias": float, "n": int}``
+    """
+    run_keys = [q["run_key"] for q in known_queries]
+    actual_scores = _fetch_judge_scores(run_keys, db_path=db_path)
+
+    # Build paired lists of expected vs actual overall_score
+    expected_overall: list[float] = []
+    actual_overall: list[float] = []
+
+    per_dim_mae: dict[str, float] = {}
+    per_dim_bias: dict[str, float] = {}
+
+    for key in _SCORE_DIMS:
+        dim_abs_errors: list[float] = []
+        dim_bias_errors: list[float] = []
+
+        for q in known_queries:
+            run_key = q["run_key"]
+            expected = q.get("expected_scores", {}).get(key)
+            if expected is None:
+                continue
+
+            actual_row = actual_scores.get(run_key, {})
+            actual = actual_row.get(key)
+            if actual is None:
+                continue
+
+            diff = actual - expected
+            dim_abs_errors.append(abs(diff))
+            dim_bias_errors.append(diff)
+
+            if key == "overall_score":
+                expected_overall.append(expected)
+                actual_overall.append(actual)
+
+        if dim_abs_errors:
+            per_dim_mae[key] = sum(dim_abs_errors) / len(dim_abs_errors)
+            per_dim_bias[key] = sum(dim_bias_errors) / len(dim_bias_errors)
+
+    n = len(expected_overall)
+
+    if n < 2:
+        return {
+            "correlation": 0.0,
+            "mean_absolute_error": per_dim_mae.get("overall_score", 0.0),
+            "bias": per_dim_bias.get("overall_score", 0.0),
+            "n": n,
+            "per_dimension": {
+                dim: {
+                    "mae": per_dim_mae.get(dim, 0.0),
+                    "bias": per_dim_bias.get(dim, 0.0),
+                }
+                for dim in _SCORE_DIMS
+            },
+        }
+
+    correlation = _pearson_correlation(actual_overall, expected_overall)
+    mae = per_dim_mae.get("overall_score", 0.0)
+    bias = per_dim_bias.get("overall_score", 0.0)
+
+    return {
+        "correlation": round(correlation, 6),
+        "mean_absolute_error": round(mae, 6),
+        "bias": round(bias, 6),
+        "n": n,
+        "per_dimension": {
+            dim: {
+                "mae": round(per_dim_mae.get(dim, 0.0), 6),
+                "bias": round(per_dim_bias.get(dim, 0.0), 6),
+            }
+            for dim in _SCORE_DIMS
+        },
+    }
+
+
+__all__ = ["calibrate_judge"]
+</file>
+
+<file path="analytics/judge_prompt.py">
+"""LLM judge prompt templates for live pipeline search quality scoring.
+
+Provides a system prompt and user-prompt builder for an LLM-as-judge that
+evaluates search results across four dimensions (relevance, accuracy,
+completeness, source_quality) plus an overall score and rationale.
+
+This module is used in the *live* search pipeline (not the offline eval
+benchmarking in evals/judges.py). Scores are persisted to the
+judge_evaluations table via analytics/duckdb_store.py.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+LOGGER = logging.getLogger(__name__)
+
+JUDGE_SYSTEM_PROMPT = (
+    "You are a search quality evaluator. "
+    "Your task is to assess how well a set of search results satisfies a user's query, "
+    "considering the user's intent. Evaluate on exactly four dimensions, each scored "
+    "as a float between 0.0 and 1.0:\n"
+    "- relevance: how well each result matches the query topic\n"
+    "- accuracy: factual correctness and trustworthiness of the information\n"
+    "- completeness: whether the results collectively cover the user's information need\n"
+    "- source_quality: authority, recency, and reliability of the sources\n\n"
+    "Also produce:\n"
+    "- overall_score: a single holistic quality score (0.0-1.0) for the result set\n"
+    "- rationale: a brief 1-3 sentence explanation of the scores\n\n"
+    "Respond with ONLY a single JSON object in exactly this format "
+    "(no markdown fences, no extra text):\n"
+    '{"relevance_score": 0.85, "accuracy_score": 0.7, "completeness_score": 0.6, '
+    '"source_quality_score": 0.8, "overall_score": 0.75, "rationale": "Brief explanation"}'
+)
+
+_DEFAULT_SCORES: dict[str, Any] = {
+    "relevance_score": None,
+    "accuracy_score": None,
+    "completeness_score": None,
+    "source_quality_score": None,
+    "overall_score": None,
+    "rationale": None,
+}
+
+
+def build_judge_user_prompt(
+    query: str,
+    intent: str,
+    results_text: str,
+    tool_name: str,
+) -> str:
+    """Build the user-facing evaluation prompt for a judge LLM.
+
+    Parameters
+    ----------
+    query : str
+        The original user search query.
+    intent : str
+        Inferred search intent (e.g. 'informational', 'navigational',
+        'transactional').
+    results_text : str
+        The search results rendered as text (titles, snippets, URLs).
+    tool_name : str
+        The name of the search tool used (e.g. 'web_search', 'news_search').
+
+    Returns
+    -------
+    str
+        The formatted user prompt.
+    """
+    return (
+        f"Tool used: {tool_name}\n"
+        f"User query: {query}\n"
+        f"Search intent: {intent}\n\n"
+        f"--- Search results ---\n{results_text}\n"
+        f"--- End results ---\n\n"
+        f"Please evaluate the quality of these search results."
+    )
+
+
+def parse_judge_response(response_text: str) -> dict[str, Any]:
+    """Extract structured scores from an LLM judge response.
+
+    Handles plain JSON, markdown-wrapped JSON (```json ... ```), and
+    malformed input gracefully. Returns sensible defaults (all scores None)
+    when parsing fails.
+
+    Parameters
+    ----------
+    response_text : str
+        The raw text response from the judge LLM.
+
+    Returns
+    -------
+    dict[str, Any]
+        A dict with keys: relevance_score, accuracy_score, completeness_score,
+        source_quality_score, overall_score, rationale. Values are floats or
+        None if parsing failed.
+    """
+    s = (response_text or "").strip()
+    if not s:
+        LOGGER.debug("judge response empty")
+        return dict(_DEFAULT_SCORES)
+
+    # Strip markdown code fences if present
+    if s.startswith("```"):
+        parts = s.split("```")
+        if len(parts) >= 2:
+            inner = parts[1].strip()
+            if inner.lower().startswith("json"):
+                inner = inner[4:].strip()
+            s = inner
+
+    # Last resort: find first balanced { ... }
+    if not s.startswith("{"):
+        start = s.find("{")
+        end = s.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            s = s[start : end + 1]
+
+    try:
+        data = json.loads(s)
+    except json.JSONDecodeError as exc:
+        LOGGER.debug("failed to parse judge response: %s", exc)
+        return dict(_DEFAULT_SCORES)
+
+    result: dict[str, Any] = {}
+    for key in _DEFAULT_SCORES:
+        val = data.get(key)
+        if val is not None and isinstance(val, (int, float)):
+            result[key] = float(val)
+        else:
+            result[key] = val  # keep as-is (None or unexpected type)
+
+    return result
+
+
+__all__ = [
+    "JUDGE_SYSTEM_PROMPT",
+    "build_judge_user_prompt",
+    "parse_judge_response",
+]
+</file>
+
+<file path="analytics/judge_runner.py">
+"""Fire-and-forget LLM judge evaluation for search pipeline runs.
+
+Encapsulates the judge LLM call, response parsing, and analytics insert
+so the pipeline can trigger it as a background task without blocking.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
+
+from litellm import acompletion
+
+from ..settings import settings
+from .duckdb_store import insert_judge_evaluation
+from .judge_prompt import (
+    JUDGE_SYSTEM_PROMPT,
+    build_judge_user_prompt,
+    parse_judge_response,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _format_results_text(results: list[Any]) -> str:
+    """Build a compact text representation of search results for the judge."""
+    lines: list[str] = []
+    for i, r in enumerate(results, start=1):
+        title = getattr(r, "title", "") or ""
+        link = getattr(r, "link", "") or ""
+        snippet = getattr(r, "snippet", "") or ""
+        lines.append(f"[{i}] {title}\n    URL: {link}\n    Snippet: {snippet}\n")
+    return "\n".join(lines) if lines else "(no results returned)"
+
+
+async def _call_judge_llm(
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Make a single OpenAI-compatible chat completion for the judge."""
+    model = settings.judge_model
+    api_base: str | None = None
+    api_key: str | None = None
+
+    # If Vercel AI Gateway credentials are available, route through it.
+    # Otherwise let litellm resolve the provider natively.
+    if settings.vercel_ai_gateway_api_key:
+        api_base = settings.vercel_ai_gateway_base_url
+        api_key = settings.vercel_ai_gateway_api_key
+
+    response = await acompletion(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.0,
+        api_base=api_base,
+        api_key=api_key,
+        timeout=settings.judge_timeout_seconds,
+    )
+    content = response.choices[0].message.content or ""
+    # Extract token usage from litellm response
+    tokens_used = None
+    if hasattr(response, "usage") and response.usage:
+        tokens_used = getattr(response.usage, "total_tokens", None)
+    return content.strip(), tokens_used
+
+
+async def run_judge_evaluation(
+    run_key: str,
+    query: str,
+    intent: str,
+    results: list[Any],
+    tool_name: str = "web_search",
+) -> None:
+    """Evaluate search results with an LLM judge and persist scores.
+
+    Designed to be called fire-and-forget (e.g. via ``asyncio.create_task``
+    or wrapped in a try/except block).  This function handles all errors
+    internally and will never propagate an exception to the caller.
+
+    Parameters
+    ----------
+    run_key : str
+        Unique identifier for the search pipeline run.
+    query : str
+        The original user query.
+    intent : str
+        Inferred search intent (e.g. 'informational', 'navigational').
+    results : list[WebSearchResult]
+        The final result list returned to the user.
+    tool_name : str
+        Tool name for the analytics record (default 'web_search').
+    """
+    if not results:
+        logger.debug("judge evaluation skipped: no results to evaluate")
+        return
+
+    judge_start = asyncio.get_event_loop().time()
+    results_text = _format_results_text(results)
+
+    try:
+        user_prompt = build_judge_user_prompt(
+            query=query,
+            intent=intent,
+            results_text=results_text,
+            tool_name=tool_name,
+        )
+
+        raw_response, tokens_used = await _call_judge_llm(
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+        )
+    except Exception as exc:
+        logger.debug("judge LLM call failed: %s", exc)
+        # Still record a best-effort row so the run shows up in analytics
+        _insert_fallback(run_key, tool_name, error=str(exc)[:500])
+        return
+
+    if not raw_response:
+        logger.debug("judge returned empty response")
+        _insert_fallback(run_key, tool_name, error="empty response")
+        return
+
+    parsed = parse_judge_response(raw_response)
+
+    duration_ms = round(
+        (asyncio.get_event_loop().time() - judge_start) * 1000.0, 3
+    )
+
+    try:
+        insert_judge_evaluation(
+            run_key=run_key,
+            tool_name=tool_name,
+            judge_model=settings.judge_model,
+            relevance_score=parsed.get("relevance_score"),
+            accuracy_score=parsed.get("accuracy_score"),
+            completeness_score=parsed.get("completeness_score"),
+            source_quality_score=parsed.get("source_quality_score"),
+            overall_score=parsed.get("overall_score"),
+            rationale=parsed.get("rationale"),
+            duration_ms=duration_ms,
+            tokens_used=tokens_used,
+            cost_usd=None,
+            payload_json={
+                "scores_raw": {k: v for k, v in parsed.items() if v is not None},
+                "result_count": len(results),
+            },
+        )
+    except Exception as exc:
+        logger.debug("insert_judge_evaluation failed: %s", exc)
+
+
+def _insert_fallback(
+    run_key: str,
+    tool_name: str,
+    error: str,
+) -> None:
+    """Insert a fallback row when the judge call itself failed."""
+    try:
+        insert_judge_evaluation(
+            run_key=run_key,
+            tool_name=tool_name,
+            judge_model=settings.judge_model,
+            relevance_score=None,
+            accuracy_score=None,
+            completeness_score=None,
+            source_quality_score=None,
+            overall_score=None,
+            rationale=None,
+            duration_ms=None,
+            tokens_used=None,
+            cost_usd=None,
+            payload_json={"error": error},
+        )
+    except Exception as exc:
+        logger.debug("insert_judge_evaluation (fallback) failed: %s", exc)
+</file>
+
 <file path="analytics/motherduck_sync.py">
 """Sync local DuckDB analytics into MotherDuck for Grafana querying."""
 
@@ -3774,10 +5725,10 @@ def _attach_name(database: str) -> str:
 
 
 def _motherduck_database(value: str | None = None) -> str:
-    database = (value or os.environ.get("KINDLY_MOTHERDUCK_DATABASE") or "").strip()
+    database = (value or os.environ.get("MOTHERDUCK_DATABASE") or "").strip()
     if not database:
         raise ValueError(
-            "MotherDuck database is required. Set KINDLY_MOTHERDUCK_DATABASE or pass "
+            "MotherDuck database is required. Set MOTHERDUCK_DATABASE or pass "
             "--motherduck-database."
         )
     return database
@@ -4020,6 +5971,202 @@ def sync_loop(
             schema=schema,
         )
         time.sleep(max(1, interval_seconds))
+</file>
+
+<file path="analytics/quality_metrics.py">
+"""Quality metrics computation for search runs.
+
+Queries the DuckDB pipeline tables for a given ``run_key``, computes derived
+quality metrics, and inserts the result into ``search_quality_scores`` via the
+existing ``insert_search_quality_scores`` function.
+"""
+
+from __future__ import annotations
+
+import duckdb
+
+from .duckdb_store import _db_path, insert_search_quality_scores
+
+
+def compute_search_quality(
+    run_key: str, db_path: str | None = None
+) -> dict[str, object]:
+    """Query DuckDB tables for *run_key* and insert computed quality metrics.
+
+    Metrics are computed from the pipeline tables (merged_candidates,
+    final_results, rerank_stages, rerank_candidates, query_rewrites,
+    provider_calls) and written to ``search_quality_scores`` using the
+    existing ``insert_search_quality_scores`` function.
+
+    Parameters
+    ----------
+    run_key:
+        The search-run identifier to compute metrics for.
+    db_path:
+        Optional explicit path to the DuckDB database.  Defaults to the path
+        resolved by ``settings.analytics_duckdb_path``.
+
+    Returns
+    -------
+    dict[str, object]
+        A mapping of metric name → computed value (``None`` for missing data).
+    """
+    path = _db_path(db_path)
+    con = duckdb.connect(str(path), read_only=True)
+
+    try:
+        # ── provider_overlap_rate ──────────────────────────────────────────
+        # fraction of merged_candidates where overlap_flag is true
+        row = con.execute(
+            """
+            SELECT
+                CAST(SUM(CASE WHEN overlap_flag THEN 1 ELSE 0 END) AS DOUBLE)
+                / NULLIF(COUNT(*), 0)
+            FROM merged_candidates
+            WHERE run_key = ?
+            """,
+            [run_key],
+        ).fetchone()
+        provider_overlap_rate = row[0] if row else None
+
+        # ── domain_diversity_count & ratio from final_results ──────────────
+        row = con.execute(
+            "SELECT COUNT(DISTINCT domain) FROM final_results WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        domain_diversity_count = row[0] if row else None
+
+        row = con.execute(
+            "SELECT COUNT(*) FROM final_results WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        total_final_results = row[0] if row else None
+
+        domain_diversity_ratio = None
+        if (
+            domain_diversity_count is not None
+            and total_final_results is not None
+            and total_final_results > 0
+        ):
+            domain_diversity_ratio = domain_diversity_count / total_final_results
+
+        # ── rerank_compression_ratio ───────────────────────────────────────
+        row = con.execute(
+            """
+            SELECT
+                CAST(SUM(input_count) AS DOUBLE)
+                / NULLIF(SUM(output_count), 0)
+            FROM rerank_stages
+            WHERE run_key = ?
+            """,
+            [run_key],
+        ).fetchone()
+        rerank_compression_ratio = row[0] if row and row[0] is not None else None
+
+        # ── avg_rrf_score ──────────────────────────────────────────────────
+        row = con.execute(
+            "SELECT AVG(rrf_score) FROM merged_candidates WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        avg_rrf_score = row[0] if row else None
+
+        # ── top_score from rerank_candidates ───────────────────────────────
+        row = con.execute(
+            "SELECT MAX(score_after) FROM rerank_candidates WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        top_score = row[0] if row else None
+
+        # ── p95_score (approximate quantile from rerank_candidates) ────────
+        row = con.execute(
+            """
+            SELECT approx_quantile(score_after, 0.95)
+            FROM rerank_candidates
+            WHERE run_key = ?
+            """,
+            [run_key],
+        ).fetchone()
+        p95_score = row[0] if row else None
+
+        # ── rewrite_variant_count (and alias branch_count) ─────────────────
+        row = con.execute(
+            "SELECT COUNT(*) FROM query_rewrites WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        rewrite_variant_count = row[0] if row else None
+        branch_count = rewrite_variant_count  # alias per plan
+
+        # ── provider_count ─────────────────────────────────────────────────
+        row = con.execute(
+            "SELECT COUNT(DISTINCT provider) FROM provider_calls WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        provider_count = row[0] if row else None
+
+        # ── total_candidates_input ─────────────────────────────────────────
+        row = con.execute(
+            "SELECT SUM(num_results_returned) FROM provider_calls WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        total_candidates_input = row[0] if row else None
+
+        # ── total_candidates_merged ────────────────────────────────────────
+        row = con.execute(
+            "SELECT COUNT(*) FROM merged_candidates WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        total_candidates_merged = row[0] if row else None
+
+        # ── total_candidates_reranked ──────────────────────────────────────
+        row = con.execute(
+            "SELECT SUM(output_count) FROM rerank_stages WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        total_candidates_reranked = row[0] if row else None
+
+    finally:
+        con.close()
+
+    # ── Build return dict with native Python types ──────────────────────
+    metrics: dict[str, object] = {
+        "provider_overlap_rate": _to_float(provider_overlap_rate),
+        "domain_diversity_count": _to_int(domain_diversity_count),
+        "domain_diversity_ratio": _to_float(domain_diversity_ratio),
+        "rerank_compression_ratio": _to_float(rerank_compression_ratio),
+        "avg_rrf_score": _to_float(avg_rrf_score),
+        "top_score": _to_float(top_score),
+        "p95_score": _to_float(p95_score),
+        "rewrite_variant_count": _to_int(rewrite_variant_count),
+        "provider_count": _to_int(provider_count),
+        "branch_count": _to_int(branch_count),
+        "total_candidates_input": _to_int(total_candidates_input),
+        "total_candidates_merged": _to_int(total_candidates_merged),
+        "total_candidates_reranked": _to_int(total_candidates_reranked),
+        "total_final_results": _to_int(total_final_results),
+    }
+
+    # ── Persist via the existing insert function ────────────────────────
+    insert_search_quality_scores(
+        run_key=run_key,
+        db_path=db_path,
+        payload_json=None,
+        **metrics,
+    )
+
+    return metrics
+
+
+# ── internal helpers ───────────────────────────────────────────────────────
+
+
+def _to_float(val: object) -> float | None:
+    """Safely convert *val* to ``float`` (or ``None``)."""
+    return None if val is None else float(val)
+
+
+def _to_int(val: object) -> int | None:
+    """Safely convert *val* to ``int`` (or ``None``)."""
+    return None if val is None else int(val)
 </file>
 
 <file path="analytics/queries.py">
@@ -4561,6 +6708,172 @@ def run_report(
     return report_fn(days=days, db_path=db_path)
 </file>
 
+<file path="analytics/summaries.py">
+"""Refresh daily summary tables from raw pipeline tables."""
+
+from __future__ import annotations
+
+import threading
+
+import duckdb
+
+from ..settings import settings
+from .duckdb_store import (
+    _SUM_ID_TABLE_NAME,
+    _SUM_PVD_TABLE_NAME,
+    _SUM_QD_TABLE_NAME,
+    _SUM_RD_TABLE_NAME,
+    _db_path,
+)
+
+_LOCK = threading.Lock()
+
+
+def refresh_summary_tables(db_path: str | None = None) -> None:
+    """Upsert daily-aggregated rows into each summary table.
+
+    Only processes rows from the last 2 days.  Guarded by
+    ``settings.analytics_enabled`` -- returns immediately when disabled.
+    """
+    if not settings.analytics_enabled:
+        return
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_summary_tables(connection)
+
+            # ── summary_provider_daily ─────────────────────────────────────
+            connection.execute(
+                f"""
+                INSERT INTO {_SUM_PVD_TABLE_NAME} BY NAME
+                SELECT
+                    date_trunc('day', recorded_at)::DATE AS day,
+                    provider,
+                    count(*) AS query_count,
+                    avg(num_results_returned) AS avg_results_returned,
+                    approx_quantile(num_results_returned, 0.5) AS p50_results_returned,
+                    avg(duration_ms) AS avg_latency_ms,
+                    approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
+                    approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
+                    count(*) FILTER (WHERE error_code IS NOT NULL) * 1.0 / count(*) AS error_rate,
+                    count(DISTINCT run_key) AS distinct_queries
+                FROM provider_calls
+                WHERE recorded_at >= now() - INTERVAL '2 days'
+                GROUP BY ALL
+                ON CONFLICT (day, provider) DO UPDATE SET
+                    query_count = excluded.query_count,
+                    avg_results_returned = excluded.avg_results_returned,
+                    p50_results_returned = excluded.p50_results_returned,
+                    avg_latency_ms = excluded.avg_latency_ms,
+                    p50_latency_ms = excluded.p50_latency_ms,
+                    p95_latency_ms = excluded.p95_latency_ms,
+                    error_rate = excluded.error_rate,
+                    distinct_queries = excluded.distinct_queries
+                """
+            )
+
+            # ── summary_intent_daily ────────────────────────────────────────
+            connection.execute(
+                f"""
+                INSERT INTO {_SUM_ID_TABLE_NAME} BY NAME
+                SELECT
+                    date_trunc('day', qu.recorded_at)::DATE AS day,
+                    qu.intent,
+                    count(*) AS query_count,
+                    avg(qu.confidence) AS avg_confidence,
+                    count(*) FILTER (WHERE qu.should_decompose) * 1.0 / count(*) AS decomposition_rate,
+                    count(*) FILTER (WHERE qu.fallback_used) * 1.0 / count(*) AS fallback_rate,
+                    avg(COALESCE(qr.cnt, 0)) AS avg_rewrite_variants
+                FROM query_understanding qu
+                LEFT JOIN (
+                    SELECT run_key, COUNT(*) AS cnt
+                    FROM query_rewrites
+                    GROUP BY run_key
+                ) qr ON qu.run_key = qr.run_key
+                WHERE qu.recorded_at >= now() - INTERVAL '2 days'
+                    AND qu.intent IS NOT NULL
+                GROUP BY ALL
+                ON CONFLICT (day, intent) DO UPDATE SET
+                    query_count = excluded.query_count,
+                    avg_confidence = excluded.avg_confidence,
+                    decomposition_rate = excluded.decomposition_rate,
+                    fallback_rate = excluded.fallback_rate,
+                    avg_rewrite_variants = excluded.avg_rewrite_variants
+                """
+            )
+
+            # ── summary_rerank_daily ────────────────────────────────────────
+            connection.execute(
+                f"""
+                INSERT INTO {_SUM_RD_TABLE_NAME} BY NAME
+                SELECT
+                    date_trunc('day', recorded_at)::DATE AS day,
+                    stage,
+                    provider,
+                    count(*) AS runs_count,
+                    avg(input_count * 1.0 / NULLIF(output_count, 0)) AS avg_compression_ratio,
+                    avg(max_score) AS avg_max_score,
+                    approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
+                    approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
+                    count(*) FILTER (WHERE entity_overlap_enabled) AS entity_overlap_runs
+                FROM rerank_stages
+                WHERE recorded_at >= now() - INTERVAL '2 days'
+                GROUP BY ALL
+                ON CONFLICT (day, stage, provider) DO UPDATE SET
+                    runs_count = excluded.runs_count,
+                    avg_compression_ratio = excluded.avg_compression_ratio,
+                    avg_max_score = excluded.avg_max_score,
+                    p50_latency_ms = excluded.p50_latency_ms,
+                    p95_latency_ms = excluded.p95_latency_ms,
+                    entity_overlap_runs = excluded.entity_overlap_runs
+                """
+            )
+
+            # ── summary_quality_daily ───────────────────────────────────────
+            connection.execute(
+                f"""
+                INSERT INTO {_SUM_QD_TABLE_NAME} BY NAME
+                SELECT
+                    date_trunc('day', recorded_at)::DATE AS day,
+                    avg(provider_overlap_rate) AS avg_overlap_rate,
+                    avg(domain_diversity_count) AS avg_domain_diversity,
+                    avg(domain_diversity_ratio) AS avg_domain_diversity_ratio,
+                    avg(rerank_compression_ratio) AS avg_compression_ratio,
+                    avg(top_score) AS avg_top_score
+                FROM search_quality_scores
+                WHERE recorded_at >= now() - INTERVAL '2 days'
+                GROUP BY ALL
+                ON CONFLICT (day) DO UPDATE SET
+                    avg_overlap_rate = excluded.avg_overlap_rate,
+                    avg_domain_diversity = excluded.avg_domain_diversity,
+                    avg_domain_diversity_ratio = excluded.avg_domain_diversity_ratio,
+                    avg_compression_ratio = excluded.avg_compression_ratio,
+                    avg_top_score = excluded.avg_top_score
+                """
+            )
+        finally:
+            connection.close()
+
+
+def _ensure_summary_tables(connection: duckdb.DuckDBPyConnection) -> None:
+    """Ensure all four summary tables exist."""
+    from .duckdb_store import (
+        _ensure_summary_intent_daily,
+        _ensure_summary_provider_daily,
+        _ensure_summary_quality_daily,
+        _ensure_summary_rerank_daily,
+    )
+
+    _ensure_summary_provider_daily(connection)
+    _ensure_summary_intent_daily(connection)
+    _ensure_summary_rerank_daily(connection)
+    _ensure_summary_quality_daily(connection)
+</file>
+
 <file path="analytics/tools.py">
 """Standalone MCP tools for guarded analytics querying and reports."""
 
@@ -4634,200 +6947,421 @@ def register_analytics_tools(mcp: Any) -> None:
 </file>
 
 <file path="analytics/views.py">
-"""Shared DuckDB/MotherDuck analytics event view SQL."""
+"""Human-readable analytics views for search quality inspection.
+
+All views are idempotent (CREATE OR REPLACE VIEW).
+"""
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
+from .duckdb_store import _db_path
 from ..settings import settings
-from .duckdb_store import ensure_store_schema
-from .derived_views import build_derived_view_sql
-from .candidate_views import build_candidate_view_sql
-from .evals import build_eval_view_sql, ensure_eval_tables
+
+_LOCK = threading.Lock()
 
 
-def build_base_view_sql(target: str) -> list[str]:
-    """Build common analytics views used by local DuckDB and MotherDuck."""
-    return [
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            event_name,
-            tool_name,
-            phase,
-            query,
-            normalized_query,
-            research_goal,
-            coalesce(
-                provider,
-                json_extract_string(payload_json, '$.provider'),
-                json_extract_string(payload_json, '$.provider_name')
-            ) AS provider,
-            model,
-            duration_ms,
-            input_count,
-            output_count,
-            trace_id,
-            span_id,
-            cache_hit,
-            json(payload_json) AS payload,
-            payload_json
-        FROM {target}.analytics_event_raw
-        """
-    ]
-
-
-def build_analytics_view_sql(target: str) -> list[str]:
-    """Build all analytics views used by local DuckDB and MotherDuck."""
-    return [
-        *build_base_view_sql(target),
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_quality_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            run_key,
-            event_name,
-            tool_name,
-            phase,
-            query,
-            normalized_query,
-            research_goal,
-            provider,
-            model,
-            duration_ms,
-            input_count,
-            output_count,
-            trace_id,
-            span_id,
-            cache_hit,
-            json_extract(payload_json, '$.final_queries') AS final_queries_json,
-            json_extract(payload_json, '$.variants') AS rewrite_variants_json,
-            json_extract(payload_json, '$.results') AS results_json,
-            json_extract(payload_json, '$.merged_results') AS merged_results_json,
-            json_extract(payload_json, '$.input_results') AS input_results_json,
-            json_extract(payload_json, '$.top_results') AS top_results_json,
-            json_extract(payload_json, '$.branches') AS branches_json,
-            json_extract(payload_json, '$.answer') AS answer_json,
-            json_extract(payload_json, '$.sources') AS sources_json,
-            json_extract(payload_json, '$.grounding_chunks') AS grounding_chunks_json,
-            json_extract(payload_json, '$.page_content') AS page_content_json,
-            json_extract(payload_json, '$.summary') AS summary_json,
-            json_extract(payload_json, '$.metadata') AS metadata_json,
-            json_extract(payload_json, '$.links') AS links_json,
-            payload_json
-        FROM {target}.analytics_event_raw
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_run_timeline AS
-        SELECT
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            min(recorded_at) AS first_seen_at,
-            max(recorded_at) AS last_seen_at,
-            count(*) AS event_count,
-            any_value(query) FILTER (WHERE query IS NOT NULL) AS query,
-            any_value(research_goal) FILTER (WHERE research_goal IS NOT NULL) AS research_goal,
-            sum(CASE WHEN event_name LIKE 'query.rewrite.%' THEN 1 ELSE 0 END) AS rewrite_events,
-            sum(CASE WHEN event_name LIKE 'search.rerank.%' THEN 1 ELSE 0 END) AS rerank_events,
-            sum(CASE WHEN event_name LIKE 'tool.get_content.%' THEN 1 ELSE 0 END) AS fetch_events,
-            sum(CASE WHEN event_name IN (
-                'tool.gemini_search.response',
-                'tool.perplexity_search.response',
-                'tool.quick_web_search.response',
-                'tool.agentic_web_research.response',
-                'agentic.research.completed'
-            ) THEN 1 ELSE 0 END) AS answer_events
-        FROM {target}.analytics_event_raw
-        GROUP BY coalesce(run_key, trace_id, event_id)
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_provider_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            coalesce(e.provider, json_extract_string(e.payload_json, '$.provider_name')) AS provider,
-            coalesce(e.provider, json_extract_string(e.payload_json, '$.provider_name')) AS provider_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.results')) AS r
-        WHERE e.event_name = 'provider.search.result'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_branch_candidates AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            CAST(json_extract_string(b.value, '$.index') AS INTEGER) AS branch_index,
-            json_extract_string(b.value, '$.query') AS branch_query,
-            json_extract(b.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(b.value, '$.weight') AS DOUBLE) AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS result_providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.branches')) AS b,
-             json_each(json_extract(b.value, '$.results')) AS r
-        WHERE e.event_name = 'search.orchestrator.branches'
-        """,
-        *build_derived_view_sql(target),
-        *build_candidate_view_sql(target),
-        *build_eval_view_sql(target),
-    ]
-
-
-def ensure_local_views(*, db_path: str | None = None) -> None:
-    """Install the shared analytics views into the local DuckDB file."""
-    path = Path(db_path or settings.analytics_duckdb_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Analytics DuckDB file does not exist: {path}")
-
-    ensure_store_schema(db_path=str(path))
-    ensure_eval_tables(db_path=str(path))
-
-    connection = duckdb.connect(str(path))
-    try:
-        connection.execute(
-            "CREATE OR REPLACE VIEW analytics_event_raw AS SELECT * FROM search_events"
+VIEW_DEFINITIONS: dict[str, str] = {
+    "v_search_run_story": """
+        WITH qu AS (
+            SELECT run_key, intent, confidence FROM query_understanding
+        ),
+        qr_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM query_rewrites GROUP BY run_key
+        ),
+        pc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt, AVG(duration_ms) AS avg_latency FROM provider_calls GROUP BY run_key
+        ),
+        prc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM provider_candidates GROUP BY run_key
+        ),
+        mc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM merged_candidates GROUP BY run_key
+        ),
+        fr_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM final_results GROUP BY run_key
+        ),
+        rs_latency AS (
+            SELECT run_key, AVG(duration_ms) AS avg_latency FROM rerank_stages GROUP BY run_key
+        ),
+        sqs AS (
+            SELECT run_key, provider_overlap_rate, domain_diversity_count FROM search_quality_scores
         )
-        for statement in build_analytics_view_sql("main"):
-            connection.execute(statement)
-    finally:
-        connection.close()
+        SELECT
+            r.run_key,
+            r.query,
+            r.normalized_query,
+            r.research_goal,
+            r.status,
+            r.duration_ms AS total_duration_ms,
+            r.candidate_count,
+            r.rewrite_enabled,
+            r.recorded_at AS run_recorded_at,
+            COALESCE(qr.cnt, 0) AS rewrite_variant_count,
+            COALESCE(pc.cnt, 0) AS provider_call_count,
+            COALESCE(prc.cnt, 0) AS provider_candidate_count,
+            COALESCE(mc.cnt, 0) AS merged_candidate_count,
+            COALESCE(fr.cnt, 0) AS final_result_count,
+            pc.avg_latency AS avg_provider_latency_ms,
+            rs.avg_latency AS avg_rerank_latency_ms,
+            qu.intent,
+            qu.confidence,
+            sqs.provider_overlap_rate AS overlap_rate,
+            sqs.domain_diversity_count AS domain_diversity
+        FROM search_runs r
+        LEFT JOIN qu ON r.run_key = qu.run_key
+        LEFT JOIN qr_counts qr ON r.run_key = qr.run_key
+        LEFT JOIN pc_counts pc ON r.run_key = pc.run_key
+        LEFT JOIN prc_counts prc ON r.run_key = prc.run_key
+        LEFT JOIN mc_counts mc ON r.run_key = mc.run_key
+        LEFT JOIN fr_counts fr ON r.run_key = fr.run_key
+        LEFT JOIN rs_latency rs ON r.run_key = rs.run_key
+        LEFT JOIN sqs ON r.run_key = sqs.run_key
+    """,
+
+    "v_provider_survival_funnel": """
+        WITH provider_runs AS (
+            SELECT provider, run_key, COUNT(*) AS candidates
+            FROM provider_candidates
+            GROUP BY provider, run_key
+        ),
+        merged_links AS (
+            SELECT mc.run_key, mc.link
+            FROM merged_candidates mc
+        ),
+        final_links AS (
+            SELECT fr.run_key, fr.link
+            FROM final_results fr
+        ),
+        provider_merged AS (
+            SELECT
+                pr.provider,
+                pr.run_key,
+                COUNT(DISTINCT ml.link) AS merged_count
+            FROM provider_runs pr
+            LEFT JOIN merged_links ml
+                ON pr.run_key = ml.run_key
+            LEFT JOIN provider_candidates pc
+                ON pr.run_key = pc.run_key AND pr.provider = pc.provider AND pc.link = ml.link
+            WHERE pc.link IS NOT NULL
+            GROUP BY pr.provider, pr.run_key
+        ),
+        provider_final AS (
+            SELECT
+                pr.provider,
+                pr.run_key,
+                COUNT(DISTINCT fl.link) AS final_count
+            FROM provider_runs pr
+            LEFT JOIN final_links fl
+                ON pr.run_key = fl.run_key
+            LEFT JOIN provider_candidates pc
+                ON pr.run_key = pc.run_key AND pr.provider = pc.provider AND pc.link = fl.link
+            WHERE pc.link IS NOT NULL
+            GROUP BY pr.provider, pr.run_key
+        )
+        SELECT
+            pr.provider,
+            COUNT(DISTINCT pr.run_key) AS runs_with_provider,
+            SUM(pr.candidates) AS provider_candidates,
+            SUM(COALESCE(pm.merged_count, 0)) AS merged_candidates,
+            SUM(COALESCE(pf.final_count, 0)) AS final_results,
+            ROUND(
+                100.0 * SUM(COALESCE(pf.final_count, 0)) / NULLIF(COUNT(DISTINCT pr.run_key), 0),
+                2
+            ) AS survival_rate_pct
+        FROM provider_runs pr
+        LEFT JOIN provider_merged pm ON pr.provider = pm.provider AND pr.run_key = pm.run_key
+        LEFT JOIN provider_final pf ON pr.provider = pf.provider AND pr.run_key = pf.run_key
+        GROUP BY pr.provider
+        ORDER BY survival_rate_pct DESC NULLS LAST
+    """,
+
+    "v_rewrite_effectiveness": """
+        SELECT
+            r.run_key,
+            r.query,
+            r.rewrite_enabled,
+            COUNT(DISTINCT qr.variant_index) AS variant_count,
+            COUNT(DISTINCT pc.provider) AS providers_used,
+            COUNT(DISTINCT prc.link) AS distinct_candidates,
+            r.final_result_count
+        FROM search_runs r
+        LEFT JOIN query_rewrites qr ON r.run_key = qr.run_key
+        LEFT JOIN provider_calls pc ON r.run_key = pc.run_key
+        LEFT JOIN provider_candidates prc ON r.run_key = prc.run_key
+        GROUP BY r.run_key, r.query, r.rewrite_enabled, r.final_result_count
+    """,
+
+    "v_rerank_stage_performance": """
+        SELECT
+            rs.stage,
+            rs.provider,
+            rs.model,
+            COUNT(DISTINCT rs.run_key) AS runs,
+            AVG(rs.input_count) AS avg_input_count,
+            AVG(rs.output_count) AS avg_output_count,
+            AVG(rs.duration_ms) AS avg_duration_ms,
+            AVG(rs.max_score) AS avg_max_score,
+            AVG(rs.avg_score) AS avg_avg_score,
+            SUM(CASE WHEN rs.entity_overlap_enabled THEN 1 ELSE 0 END) AS entity_overlap_runs
+        FROM rerank_stages rs
+        GROUP BY rs.stage, rs.provider, rs.model
+    """,
+
+    "v_query_classification_distribution": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            intent,
+            COUNT(*) AS count,
+            AVG(confidence) AS avg_confidence,
+            COUNT(*) FILTER (WHERE fallback_used) AS fallback_count,
+            COUNT(*) FILTER (WHERE should_decompose) AS decomposed_count
+        FROM query_understanding
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, intent
+        ORDER BY day DESC, count DESC
+    """,
+
+    "v_provider_quality_trend": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            provider,
+            COUNT(*) AS calls,
+            AVG(num_results_returned) AS avg_results,
+            AVG(duration_ms) AS avg_latency_ms,
+            approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
+            approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
+            COUNT(*) FILTER (WHERE error_code IS NOT NULL) * 1.0 / COUNT(*) AS error_rate,
+            COUNT(DISTINCT run_key) AS distinct_runs
+        FROM provider_calls
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, provider
+        ORDER BY day DESC, calls DESC
+    """,
+
+    "v_rerank_stage_impact": """
+        SELECT
+            rs.run_key,
+            rs.stage,
+            rs.provider,
+            rs.model,
+            rs.input_count,
+            rs.output_count,
+            ROUND(rs.input_count * 1.0 / NULLIF(rs.output_count, 0), 3) AS compression_ratio,
+            rs.duration_ms AS stage_latency_ms,
+            rs.max_score,
+            rs.avg_score,
+            rs.query_type_hint,
+            COUNT(rc.link) AS candidates_tracked,
+            AVG(rc.score_after - rc.score_before) AS avg_score_delta,
+            COUNT(rc.link) FILTER (WHERE rc.diversity_removed) AS diversity_removed_count
+        FROM rerank_stages rs
+        LEFT JOIN rerank_candidates rc ON rs.run_key = rc.run_key AND rs.stage = rc.stage
+        GROUP BY rs.run_key, rs.stage, rs.provider, rs.model, rs.input_count, rs.output_count,
+                 rs.duration_ms, rs.max_score, rs.avg_score, rs.query_type_hint
+    """,
+
+    "v_daily_quality_summary": """
+        SELECT
+            CAST(r.recorded_at AS DATE) AS day,
+            COUNT(DISTINCT r.run_key) AS query_count,
+            AVG(r.duration_ms) AS avg_total_latency_ms,
+            AVG(sqs.provider_overlap_rate) AS avg_overlap_rate,
+            AVG(sqs.domain_diversity_count) AS avg_domain_diversity,
+            AVG(sqs.rerank_compression_ratio) AS avg_compression_ratio,
+            AVG(sqs.top_score) AS avg_top_score,
+            AVG(je.overall_score) AS avg_judge_score
+        FROM search_runs r
+        LEFT JOIN search_quality_scores sqs ON r.run_key = sqs.run_key
+        LEFT JOIN judge_evaluations je ON r.run_key = je.run_key
+        GROUP BY day
+        ORDER BY day DESC
+    """,
+
+    "v_judge_score_distribution": """
+        SELECT
+            tool_name,
+            judge_model,
+            COUNT(*) AS evaluations,
+            AVG(relevance_score) AS avg_relevance,
+            AVG(accuracy_score) AS avg_accuracy,
+            AVG(completeness_score) AS avg_completeness,
+            AVG(source_quality_score) AS avg_source_quality,
+            AVG(overall_score) AS avg_overall,
+            approx_quantile(overall_score, 0.5) AS p50_overall,
+            approx_quantile(overall_score, 0.95) AS p95_overall
+        FROM judge_evaluations
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY tool_name, judge_model
+        ORDER BY avg_overall DESC
+    """,
+
+    "v_judge_trend": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            tool_name,
+            COUNT(*) AS evaluations,
+            AVG(overall_score) AS avg_overall,
+            AVG(duration_ms) AS avg_judge_latency_ms,
+            AVG(tokens_used) AS avg_tokens
+        FROM judge_evaluations
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, tool_name
+        ORDER BY day DESC
+    """,
+
+    "v_ab_experiment_summary": """
+        WITH variant_counts AS (
+            SELECT experiment_id, COUNT(DISTINCT variant_name) AS cnt
+            FROM ab_experiment_variants
+            GROUP BY experiment_id
+        ),
+        assignment_counts AS (
+            SELECT experiment_id, COUNT(DISTINCT assignment_id) AS cnt,
+                   COUNT(DISTINCT run_key) AS unique_runs
+            FROM ab_assignments
+            GROUP BY experiment_id
+        ),
+        result_agg AS (
+            SELECT experiment_id,
+                   AVG(primary_metric) AS avg_primary,
+                   AVG(secondary_metric) AS avg_secondary,
+                   AVG(duration_ms) AS avg_dur,
+                   COUNT(result_id) AS cnt
+            FROM ab_results
+            GROUP BY experiment_id
+        )
+        SELECT
+            e.experiment_id,
+            e.layer,
+            e.status,
+            e.variant_a,
+            e.variant_b,
+            e.allocation_rate,
+            e.min_sample_size,
+            COALESCE(v.cnt, 0) AS variant_count,
+            COALESCE(a.cnt, 0) AS assignment_count,
+            COALESCE(a.unique_runs, 0) AS unique_run_count,
+            r.avg_primary AS avg_primary_metric,
+            r.avg_secondary AS avg_secondary_metric,
+            r.avg_dur AS avg_duration_ms,
+            COALESCE(r.cnt, 0) AS result_count
+        FROM ab_experiments e
+        LEFT JOIN variant_counts v ON e.experiment_id = v.experiment_id
+        LEFT JOIN assignment_counts a ON e.experiment_id = a.experiment_id
+        LEFT JOIN result_agg r ON e.experiment_id = r.experiment_id
+    """,
+
+    "v_ab_variant_comparison": """
+        WITH variant_metrics AS (
+            SELECT
+                r.experiment_id,
+                r.variant,
+                COUNT(DISTINCT r.run_key) AS run_count,
+                AVG(r.primary_metric) AS avg_primary_metric,
+                AVG(r.secondary_metric) AS avg_secondary_metric,
+                AVG(r.duration_ms) AS avg_duration_ms,
+                STDDEV_SAMP(r.primary_metric) AS stddev_primary_metric,
+                COUNT(r.result_id) AS result_count
+            FROM ab_results r
+            GROUP BY r.experiment_id, r.variant
+        )
+        SELECT
+            e.experiment_id,
+            e.layer,
+            e.status,
+            vm.variant,
+            vm.run_count,
+            vm.avg_primary_metric,
+            vm.avg_secondary_metric,
+            vm.avg_duration_ms,
+            vm.stddev_primary_metric,
+            vm.result_count,
+            e.variant_a,
+            e.variant_b,
+            CASE
+                WHEN vm.variant = e.variant_a THEN 'control'
+                WHEN vm.variant = e.variant_b THEN 'treatment'
+                ELSE 'other'
+            END AS variant_role
+        FROM ab_experiments e
+        JOIN variant_metrics vm ON e.experiment_id = vm.experiment_id
+        ORDER BY e.experiment_id, vm.variant
+    """,
+
+    "v_ab_shadow_run_analysis": """
+        SELECT
+            s.run_key,
+            s.recorded_at,
+            s.experiment_id,
+            s.variant,
+            s.layer,
+            s.duration_ms AS shadow_duration_ms,
+            s.judge_score,
+            s.tokens_used,
+            s.cost_usd,
+            s.error_type,
+            e.status AS experiment_status,
+            e.variant_a,
+            e.variant_b,
+            CASE
+                WHEN s.variant = e.variant_a THEN 'control'
+                WHEN s.variant = e.variant_b THEN 'treatment'
+                ELSE 'other'
+            END AS variant_role,
+            AVG(s.duration_ms) OVER (PARTITION BY s.experiment_id, s.variant) AS variant_avg_latency_ms,
+            s.duration_ms - AVG(s.duration_ms) OVER (PARTITION BY s.experiment_id, s.variant) AS latency_delta_ms,
+            AVG(s.judge_score) OVER (PARTITION BY s.experiment_id, s.variant) AS variant_avg_judge_score,
+            s.judge_score - AVG(s.judge_score) OVER (PARTITION BY s.experiment_id, s.variant) AS judge_score_delta
+        FROM ab_shadow_runs s
+        LEFT JOIN ab_experiments e ON s.experiment_id = e.experiment_id
+    """,
+}
+
+
+def ensure_views(*, db_path: str | None = None) -> None:
+    """Create or replace all analytics views."""
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    if not path.exists():
+        return
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            for view_name, sql in VIEW_DEFINITIONS.items():
+                connection.execute(f"CREATE OR REPLACE VIEW {view_name} AS {sql}")
+        finally:
+            connection.close()
+
+
+def refresh_views(*, db_path: str | None = None) -> None:
+    """Recreate all views (useful after schema migrations)."""
+    ensure_views(db_path=db_path)
+
+
+# Alias used by analytics/__init__.py, queries.py, and app.py
+ensure_local_views = ensure_views
+
+
+def build_analytics_view_sql(schema: str) -> list[str]:
+    """Return list of SQL statements to create views in a target schema (e.g. MotherDuck).
+
+    Each statement is a CREATE OR REPLACE TABLE AS SELECT (materialized) since
+    MotherDuck views over remote tables can be slow.
+    """
+    statements = []
+    for view_name, sql in VIEW_DEFINITIONS.items():
+        # Materialize as table for MotherDuck performance
+        statements.append(
+            f"CREATE OR REPLACE TABLE {schema}.{view_name} AS {sql}"
+        )
+    return statements
 </file>
 
 <file path="cache/__init__.py">
@@ -5208,7 +7742,7 @@ class PageCache:
     Thin facade over PageDuckDBCache (in page_duckdb.py) that preserves the
     exact public API + singleton used by server.py / get_content.
 
-    Separate DuckDB file controlled by KINDLY_PAGE_CACHE_DUCKDB_PATH.
+    Separate DuckDB file controlled by PAGE_CACHE_DUCKDB_PATH.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
@@ -5311,7 +7845,7 @@ _PAGE_CACHE: PageCache | None = None
 def get_page_cache(db_path: str | None = None) -> PageCache:
     """Get or create the page cache singleton.
 
-    Uses KINDLY_PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
+    Uses PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
     """
     global _PAGE_CACHE
     if _PAGE_CACHE is None:
@@ -5352,7 +7886,7 @@ import duckdb
 
 
 PAGE_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("KINDLY_PAGE_CACHE_TTL_SECONDS", "604800")
+    os.environ.get("PAGE_CACHE_TTL_SECONDS", "604800")
 )
 
 
@@ -5559,10 +8093,10 @@ from .observability import emit_cache_lookup_event, emit_cache_store_event
 logger = logging.getLogger(__name__)
 
 QUERY_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("KINDLY_QUERY_CACHE_TTL_SECONDS", "86400")
+    os.environ.get("QUERY_CACHE_TTL_SECONDS", "86400")
 )
 QUERY_CACHE_DEFAULT_MAX_ENTRIES = int(
-    os.environ.get("KINDLY_QUERY_CACHE_MAX_ENTRIES", "1024")
+    os.environ.get("QUERY_CACHE_MAX_ENTRIES", "1024")
 )
 
 
@@ -5714,7 +8248,7 @@ Stores individual search results keyed by (query embedding + result URL) for
 future candidate injection into RRF merge. Uses local Qdrant only.
 
 Features per plan:
-- QdrantClient(":memory:") or path= from KINDLY_RESULT_MEMORY_PATH
+- QdrantClient(":memory:") or path= from RESULT_MEMORY_PATH
 - Collection name encodes embedding model + dim (avoids vector dim conflicts)
 - Deterministic point IDs (sha256(query+url) as uuid str) -> no dups on upsert
 - Payload roundtrip for title/url/snippet + query_text + entities_json + created_at + provider_key
@@ -5973,7 +8507,7 @@ class ResultMemoryStore:
                 "result_title": title,
                 "result_snippet": snippet,
                 "entities_json": ents_json,
-                "content_type": r.get("category") or r.get("resource_type") or "general",
+                "content_type": r.get("category") or "general",
                 "provider_key": provider_key,
                 "created_at": created,
             }
@@ -6042,10 +8576,10 @@ from .commands import (
     analytics,
     content,
     doctor,
+    experiments,
     getskill,
     links,
     reference,
-    scaffold,
     schema,
     search,
     server,
@@ -6088,8 +8622,8 @@ ai.register(app)
 youtube.register(app)
 analytics.register(app)
 agent.register(app)
+experiments.register(app)
 server.register(app)
-scaffold.register(app)
 
 
 def main(args: list[str] | None = None) -> None:
@@ -6157,8 +8691,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ...agent.models import AgenticResearchRequest
-from ...agent.runner import run_agentic_web_research
 
 
 agent_app = typer.Typer(no_args_is_help=True)
@@ -6171,6 +8703,9 @@ def research_cmd(
     session_id: Annotated[str | None, typer.Option("--session-id")] = None,
     depth: Annotated[Literal["quick", "normal", "deep"], typer.Option("--depth")] = "normal",
 ) -> None:
+    from ...agent.models import AgenticResearchRequest  # lazy: langchain.agents ~22s
+    from ...agent.runner import run_agentic_web_research
+
     try:
         payload = asyncio.run(
             run_agentic_web_research(
@@ -6208,15 +8743,9 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.ai import (
-    fetch_gemini_search_payload,
-    fetch_grok_search_payload,
-    fetch_perplexity_search_payload,
-)
 
 
 ai_app = typer.Typer(no_args_is_help=True)
-
 
 @ai_app.command("gemini")
 def gemini_cmd(
@@ -6227,6 +8756,8 @@ def gemini_cmd(
     ] = False,
     research_goal: Annotated[str | None, typer.Option("--research-goal")] = None,
 ) -> None:
+    from ..services.ai import fetch_gemini_search_payload
+
     try:
         payload = asyncio.run(
             fetch_gemini_search_payload(
@@ -6252,6 +8783,8 @@ def perplexity_cmd(
     depth: Annotated[Literal["normal", "deep"], typer.Option("--depth")] = "normal",
     research_goal: Annotated[str | None, typer.Option("--research-goal")] = None,
 ) -> None:
+    from ..services.ai import fetch_perplexity_search_payload
+
     try:
         payload = asyncio.run(
             fetch_perplexity_search_payload(
@@ -6281,6 +8814,8 @@ def grok_cmd(
     excluded_domain: Annotated[list[str] | None, typer.Option("--excluded-domain")] = None,
     timeout: Annotated[float | None, typer.Option("--timeout")] = None,
 ) -> None:
+    from ..services.ai import fetch_grok_search_payload
+
     try:
         payload = asyncio.run(
             fetch_grok_search_payload(
@@ -6591,6 +9126,468 @@ def register(app: typer.Typer) -> None:
         emit_json({"checks": checks}, command="doctor")
 </file>
 
+<file path="cli/commands/experiments.py">
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from ..errors import CliError
+from ..exit_codes import ExitCode
+from ..output import emit_json
+from ...ab_testing.models import ABExperiment, ABVariant
+from ...ab_testing.yaml_loader import load_experiments, save_experiments
+from ...settings import settings
+
+
+experiments_app = typer.Typer(no_args_is_help=True)
+
+
+def _resolve_config_path() -> Path:
+    """Resolve the A/B config path from settings or default."""
+    raw = settings.ab_config_path
+    if raw:
+        return Path(raw)
+    return Path(".kindly/experiments.yaml")
+
+
+def _find_experiment(
+    experiments: list[ABExperiment], experiment_id: str
+) -> ABExperiment:
+    for exp in experiments:
+        if exp.experiment_id == experiment_id:
+            return exp
+    raise CliError(
+        kind="not_found",
+        message=f"Experiment '{experiment_id}' not found.",
+        hint="Run `web-search-cli experiments list` to see available experiments.",
+        exit_code=ExitCode.NOT_FOUND,
+        context={"command": "experiments", "experiment_id": experiment_id},
+    )
+
+
+@experiments_app.command("list")
+def list_cmd() -> None:
+    """List all experiments from the A/B config YAML."""
+    config_path = _resolve_config_path()
+    try:
+        experiments = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load experiments: {exc}",
+            hint="Check that the YAML config file exists and is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments list", "config_path": str(config_path)},
+        ) from exc
+
+    payload = {
+        "experiments": [
+            {
+                "experiment_id": exp.experiment_id,
+                "layer": exp.layer,
+                "status": exp.status,
+                "traffic_pct": exp.traffic_pct,
+                "variants": [v.variant_key for v in exp.variants],
+                "primary_metric": exp.primary_metric,
+            }
+            for exp in experiments
+        ]
+    }
+    emit_json(payload, command="experiments list")
+
+
+@experiments_app.command("enable")
+def enable_cmd(
+    experiment_id: Annotated[
+        str, typer.Argument(help="Experiment ID to enable.")
+    ],
+) -> None:
+    """Set an experiment status to 'running' and save."""
+    config_path = _resolve_config_path()
+    try:
+        experiments = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load experiments: {exc}",
+            hint="Check that the YAML config file exists and is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments enable", "config_path": str(config_path)},
+        ) from exc
+
+    exp = _find_experiment(experiments, experiment_id)
+
+    if exp.status == "running":
+        raise CliError(
+            kind="conflict",
+            message=f"Experiment '{experiment_id}' is already running.",
+            hint="Use `web-search-cli experiments disable` to pause it first.",
+            exit_code=ExitCode.CONFLICT,
+            context={"command": "experiments enable", "experiment_id": experiment_id},
+        )
+
+    if exp.status == "concluded":
+        raise CliError(
+            kind="conflict",
+            message=f"Experiment '{experiment_id}' is already concluded and cannot be re-enabled.",
+            hint="Create a new experiment instead.",
+            exit_code=ExitCode.CONFLICT,
+            context={"command": "experiments enable", "experiment_id": experiment_id},
+        )
+
+    exp.status = "running"
+    try:
+        save_experiments(experiments, config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to save experiments: {exc}",
+            hint="Check file permissions and disk space.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments enable", "config_path": str(config_path)},
+        ) from exc
+
+    emit_json(
+        {
+            "experiment_id": experiment_id,
+            "status": "running",
+            "message": f"Experiment '{experiment_id}' is now running.",
+        },
+        command="experiments enable",
+    )
+
+
+@experiments_app.command("disable")
+def disable_cmd(
+    experiment_id: Annotated[
+        str, typer.Argument(help="Experiment ID to disable.")
+    ],
+) -> None:
+    """Set an experiment status to 'paused' and save."""
+    config_path = _resolve_config_path()
+    try:
+        experiments = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load experiments: {exc}",
+            hint="Check that the YAML config file exists and is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments disable", "config_path": str(config_path)},
+        ) from exc
+
+    exp = _find_experiment(experiments, experiment_id)
+
+    if exp.status == "paused":
+        raise CliError(
+            kind="conflict",
+            message=f"Experiment '{experiment_id}' is already paused.",
+            hint="Use `web-search-cli experiments enable` to resume it.",
+            exit_code=ExitCode.CONFLICT,
+            context={"command": "experiments disable", "experiment_id": experiment_id},
+        )
+
+    if exp.status == "concluded":
+        raise CliError(
+            kind="conflict",
+            message=f"Experiment '{experiment_id}' is already concluded and cannot be paused.",
+            hint="Create a new experiment instead.",
+            exit_code=ExitCode.CONFLICT,
+            context={"command": "experiments disable", "experiment_id": experiment_id},
+        )
+
+    exp.status = "paused"
+    try:
+        save_experiments(experiments, config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to save experiments: {exc}",
+            hint="Check file permissions and disk space.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments disable", "config_path": str(config_path)},
+        ) from exc
+
+    emit_json(
+        {
+            "experiment_id": experiment_id,
+            "status": "paused",
+            "message": f"Experiment '{experiment_id}' is now paused.",
+        },
+        command="experiments disable",
+    )
+
+
+@experiments_app.command("conclude")
+def conclude_cmd(
+    experiment_id: Annotated[
+        str, typer.Argument(help="Experiment ID to conclude.")
+    ],
+    winner: Annotated[
+        str, typer.Option("--winner", help="Winning variant key.")
+    ],
+) -> None:
+    """Set an experiment status to 'concluded' with a winning variant."""
+    config_path = _resolve_config_path()
+    try:
+        experiments = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load experiments: {exc}",
+            hint="Check that the YAML config file exists and is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={
+                "command": "experiments conclude",
+                "config_path": str(config_path),
+            },
+        ) from exc
+
+    exp = _find_experiment(experiments, experiment_id)
+
+    if exp.status == "concluded":
+        raise CliError(
+            kind="conflict",
+            message=f"Experiment '{experiment_id}' is already concluded.",
+            hint="Create a new experiment instead.",
+            exit_code=ExitCode.CONFLICT,
+            context={"command": "experiments conclude", "experiment_id": experiment_id},
+        )
+
+    # Validate winner is a valid variant
+    variant_keys = [v.variant_key for v in exp.variants]
+    if winner not in variant_keys:
+        raise CliError(
+            kind="usage_error",
+            message=f"Winner '{winner}' is not a valid variant for experiment '{experiment_id}'. "
+            f"Valid variants: {', '.join(variant_keys)}",
+            hint="Use `web-search-cli experiments stats` to see available variants.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={
+                "command": "experiments conclude",
+                "experiment_id": experiment_id,
+                "winner": winner,
+                "valid_variants": variant_keys,
+            },
+        )
+
+    exp.status = "concluded"
+    exp.winning_variant = winner
+    try:
+        save_experiments(experiments, config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to save experiments: {exc}",
+            hint="Check file permissions and disk space.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={
+                "command": "experiments conclude",
+                "config_path": str(config_path),
+            },
+        ) from exc
+
+    emit_json(
+        {
+            "experiment_id": experiment_id,
+            "status": "concluded",
+            "winning_variant": winner,
+            "message": f"Experiment '{experiment_id}' concluded with winner '{winner}'.",
+        },
+        command="experiments conclude",
+    )
+
+
+@experiments_app.command("stats")
+def stats_cmd(
+    experiment_id: Annotated[
+        str, typer.Argument(help="Experiment ID to show stats for.")
+    ],
+) -> None:
+    """Show basic stats for an experiment."""
+    config_path = _resolve_config_path()
+    try:
+        experiments = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load experiments: {exc}",
+            hint="Check that the YAML config file exists and is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments stats", "config_path": str(config_path)},
+        ) from exc
+
+    exp = _find_experiment(experiments, experiment_id)
+
+    payload = {
+        "experiment_id": exp.experiment_id,
+        "layer": exp.layer,
+        "status": exp.status,
+        "traffic_pct": exp.traffic_pct,
+        "hypothesis": exp.hypothesis,
+        "primary_metric": exp.primary_metric,
+        "guardrail_metrics": exp.guardrail_metrics,
+        "started_at": exp.started_at,
+        "ended_at": exp.ended_at,
+        "winning_variant": exp.winning_variant,
+        "variants": [
+            {
+                "variant_key": v.variant_key,
+                "weight": v.weight,
+                "description": v.description,
+            }
+            for v in exp.variants
+        ],
+    }
+    emit_json(payload, command="experiments stats")
+
+
+@experiments_app.command("create")
+def create_cmd(
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="JSON string with experiment config. If omitted, interactive prompts are used.",
+        ),
+    ] = None,
+) -> None:
+    """Scaffold a new experiment interactively or from a JSON config."""
+    config_path = _resolve_config_path()
+
+    if config:
+        try:
+            data = json.loads(config)
+        except json.JSONDecodeError as exc:
+            raise CliError(
+                kind="usage_error",
+                message=f"Invalid JSON config: {exc}",
+                hint="Provide a valid JSON string with --config.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "experiments create"},
+            ) from exc
+
+        variants = [
+            ABVariant(
+                variant_key=v["variant_key"],
+                weight=v["weight"],
+                config=v.get("config", {}),
+                description=v.get("description", ""),
+            )
+            for v in data.get("variants", [])
+        ]
+        exp = ABExperiment(
+            experiment_id=data.get("experiment_id", ""),
+            layer=data.get("layer", ""),
+            status=data.get("status", "draft"),
+            hypothesis=data.get("hypothesis", ""),
+            primary_metric=data.get("primary_metric", ""),
+            traffic_pct=data.get("traffic_pct", 10.0),
+            guardrail_metrics=data.get("guardrail_metrics", []),
+            variants=variants,
+        )
+    else:
+        # Interactive mode
+        experiment_id = typer.prompt("Experiment ID")
+        layer = typer.prompt("Layer (e.g. query_understanding, reranking, provider_weights)")
+        hypothesis = typer.prompt("Hypothesis", default="")
+        primary_metric = typer.prompt("Primary metric", default="")
+        traffic_pct = float(typer.prompt("Traffic percentage (0-100)", default="10"))
+
+        variants = []
+        add_variants = typer.confirm("Add variants?", default=True)
+        while add_variants:
+            variant_key = typer.prompt("Variant key")
+            weight = int(typer.prompt("Weight", default="1"))
+            description = typer.prompt("Description", default="")
+            variants.append(
+                ABVariant(
+                    variant_key=variant_key,
+                    weight=weight,
+                    description=description,
+                )
+            )
+            add_variants = typer.confirm("Add another variant?", default=False)
+
+        exp = ABExperiment(
+            experiment_id=experiment_id,
+            layer=layer,
+            status="draft",
+            hypothesis=hypothesis,
+            primary_metric=primary_metric,
+            traffic_pct=traffic_pct,
+            variants=variants,
+        )
+
+    errors = exp.validate()
+    if errors:
+        raise CliError(
+            kind="validation_error",
+            message=f"Experiment validation failed: {'; '.join(errors)}",
+            hint="Check the experiment configuration and retry.",
+            exit_code=ExitCode.VALIDATION_ERROR,
+            context={
+                "command": "experiments create",
+                "experiment_id": exp.experiment_id,
+                "errors": errors,
+            },
+        )
+
+    try:
+        existing = load_experiments(config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to load existing experiments: {exc}",
+            hint="Check that the YAML config file is valid.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments create", "config_path": str(config_path)},
+        ) from exc
+
+    # Check for duplicate experiment_id
+    for existing_exp in existing:
+        if existing_exp.experiment_id == exp.experiment_id:
+            raise CliError(
+                kind="conflict",
+                message=f"Experiment '{exp.experiment_id}' already exists.",
+                hint="Use a different experiment_id or edit the existing one.",
+                exit_code=ExitCode.CONFLICT,
+                context={
+                    "command": "experiments create",
+                    "experiment_id": exp.experiment_id,
+                },
+            )
+
+    existing.append(exp)
+    try:
+        save_experiments(existing, config_path)
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=f"Failed to save experiments: {exc}",
+            hint="Check file permissions and disk space.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "experiments create", "config_path": str(config_path)},
+        ) from exc
+
+    emit_json(
+        {
+            "experiment_id": exp.experiment_id,
+            "status": exp.status,
+            "message": f"Experiment '{exp.experiment_id}' created successfully.",
+        },
+        command="experiments create",
+    )
+
+
+def register(app: typer.Typer) -> None:
+    app.add_typer(experiments_app, name="experiments")
+</file>
+
 <file path="cli/commands/getskill.py">
 from __future__ import annotations
 
@@ -6804,16 +9801,6 @@ def register(app: typer.Typer) -> None:
     app.add_typer(reference_app, name="reference")
 </file>
 
-<file path="cli/commands/scaffold.py">
-from __future__ import annotations
-
-import typer
-
-
-def register(app: typer.Typer) -> None:
-    _ = app
-</file>
-
 <file path="cli/commands/schema.py">
 from __future__ import annotations
 
@@ -6847,9 +9834,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.academic import fetch_academic_search_payload
-from ..services.quick_search import fetch_quick_web_search_payload
-from ..services.search_web import fetch_web_search_payload
 
 
 search_app = typer.Typer(no_args_is_help=True)
@@ -6860,6 +9844,8 @@ def quick_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
 ) -> None:
     """Run the Composio/Exa-backed quick web search path."""
+    from ..services.quick_search import fetch_quick_web_search_payload
+
     try:
         payload = asyncio.run(fetch_quick_web_search_payload(query))
     except Exception as exc:
@@ -6912,6 +9898,8 @@ def web_cmd(
     domain_filter: Annotated[list[str] | None, typer.Option("--domain-filter")] = None,
 ) -> None:
     """Run the full multi-provider web search pipeline."""
+    from ..services.search_web import fetch_web_search_payload
+
     try:
         payload = asyncio.run(
             fetch_web_search_payload(
@@ -6969,6 +9957,8 @@ def academic_cmd(
     sort: Annotated[str, typer.Option("--sort")] = "relevance",
 ) -> None:
     """Search scholarly sources and return deduplicated papers."""
+    from ..services.academic import fetch_academic_search_payload
+
     try:
         payload = asyncio.run(
             fetch_academic_search_payload(
@@ -7016,8 +10006,6 @@ from typing import Annotated
 
 import typer
 
-from ...server import main as server_main
-
 
 server_app = typer.Typer(no_args_is_help=True)
 
@@ -7030,6 +10018,8 @@ def start_cmd(
     host: Annotated[str | None, typer.Option("--host")] = None,
     port: Annotated[int | None, typer.Option("--port")] = None,
 ) -> None:
+    from ...server import main as server_main  # lazy: init_telemetry ~70s
+
     args: list[str] = []
     if http:
         args.append("--http")
@@ -7167,16 +10157,6 @@ class CliError(Exception):
                 "context": self.context,
             }
         }
-
-
-def scaffold_error(command: str) -> CliError:
-    return CliError(
-        kind="usage_error",
-        message=f"`web-search-cli {command}` is planned but not implemented in the scaffolding phase.",
-        hint="Run `web-search-cli schema` or `web-search-cli reference tools` to inspect the planned surface.",
-        exit_code=ExitCode.USAGE_ERROR,
-        context={"command": command, "phase": "scaffolding"},
-    )
 </file>
 
 <file path="cli/exit_codes.py">
@@ -7452,8 +10432,8 @@ def _get_float_env(key: str, default: float) -> float:
 
 
 def _resolve_tool_total_timeout_seconds() -> float:
-    value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     return max(1.0, min(value, max(1.0, max_value)))
 
 
@@ -7563,7 +10543,7 @@ async def fetch_content_payload(
     max_links: int = 25,
     strip_selectors: str | None = None,
 ) -> dict[str, Any]:
-    max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
+    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
     safe_summary_mode = (
@@ -7714,7 +10694,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...search.options import build_search_options
-from ...search.orchestrator import run_web_search
+from ...search.pipeline import run_search_pipeline
 
 
 async def fetch_web_search_payload(
@@ -7745,10 +10725,11 @@ async def fetch_web_search_payload(
         site_filters=site_filters,
         domain_filters=domain_filters,
     )
-    response = await run_web_search(
+    response = await run_search_pipeline(
         query,
         num_results=num_results,
         rewrite=rewrite,
+        diagnostics=None,
         providers=providers,
         research_goal=research_goal,
         search_options=search_options,
@@ -7885,7 +10866,7 @@ def _require_composio_config() -> tuple[str, str]:
     if not api_key:
         raise ComposioConfigError("COMPOSIO_API_KEY is not set.")
     if not user_id:
-        raise ComposioConfigError("KINDLY_COMPOSIO_USER_ID is not set.")
+        raise ComposioConfigError("COMPOSIO_USER_ID is not set.")
     return api_key, user_id
 
 
@@ -7983,8 +10964,6 @@ from fastmcp.server.context import Context
 
 from .composio_client import execute_composio_tool
 from .models import (
-    ImageSearchResponse,
-    ImageSearchResult,
     QuickWebSearchCitation,
     QuickWebSearchResponse,
     SimilarLinkResult,
@@ -7993,7 +10972,6 @@ from .models import (
 from .tools.catalog import tool_kwargs
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
-IMAGE_SEARCH_SLUG = "COMPOSIO_SEARCH_IMAGE"
 WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_WEB"
 
 
@@ -8118,54 +11096,6 @@ async def _composio_similarlinks_impl(
     return SimilarLinksResponse(url=url, results=results, total_results=len(results))
 
 
-async def _composio_image_search_impl(
-    query: str,
-    num_results: int,
-    page: int,
-) -> ImageSearchResponse:
-    safe_page = max(0, page)
-    data = await execute_composio_tool(
-        IMAGE_SEARCH_SLUG,
-        {
-            "query": query,
-            "num": max(1, min(num_results, 100)),
-            "ijn": safe_page,
-        },
-    )
-    raw_results = data.get("images_results", [])
-    items = raw_results if isinstance(raw_results, list) else []
-    results: list[ImageSearchResult] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        page_link = item.get("link")
-        original_url = item.get("original")
-        if not isinstance(title, str) or not isinstance(page_link, str):
-            continue
-        if not isinstance(original_url, str):
-            continue
-        thumbnail_url = item.get("thumbnail")
-        source = item.get("source")
-        results.append(
-            ImageSearchResult(
-                title=title.strip(),
-                source=source.strip() if isinstance(source, str) else None,
-                page_link=page_link.strip(),
-                original_url=original_url.strip(),
-                thumbnail_url=thumbnail_url.strip()
-                if isinstance(thumbnail_url, str)
-                else None,
-            )
-        )
-    return ImageSearchResponse(
-        query=query,
-        results=results,
-        total_results=len(results),
-        page=safe_page,
-    )
-
-
 def register_composio_tools(mcp: Any) -> None:
     """Register standalone Composio Search toolkit tools."""
 
@@ -8174,15 +11104,8 @@ def register_composio_tools(mcp: Any) -> None:
         query: str,
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """Quick web search using Composio SEARCH_WEB (Exa-backed).
-
-        Returns an AI-synthesized answer and citations. Prioritize citations
-        as primary evidence over the answer, which can be vague. Only indexes
-        publicly available content — no paywalled or private pages.
-
-        Args:
-            query: Search query. Add qualifiers (year, region, platform) for
-                   better results. Broad queries return generic content.
+        """Fast reconnaissance search. Returns a synthesized answer with citations.
+        Use as the initial tool call to scope a topic before deeper research.
         """
         await ctx.info(f"Quick web search: {query[:80]}...")
         response = await _quick_web_search_impl(query)
@@ -8199,11 +11122,8 @@ def register_composio_tools(mcp: Any) -> None:
         exclude_domains: list[str] | None = None,
         ctx: Context = CurrentContext(),
     ) -> dict:
-        """Find pages similar to a known URL using Composio Similarlinks.
-
-        Returns related URLs with title/link/score only. The observed Composio payload
-        does not include snippets or page content; use `get_content()` on selected links
-        when page text is needed.
+        """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
+        Use get_content on selected links when page text is needed.
         """
         await ctx.info(f"Finding similar links for: {url[:80]}...")
         response = await _composio_similarlinks_impl(
@@ -8215,23 +11135,6 @@ def register_composio_tools(mcp: Any) -> None:
             exclude_domains,
         )
         await ctx.info(f"Found {response.total_results} similar links")
-        return response.model_dump(exclude_none=True)
-
-    @mcp.tool(**tool_kwargs("composio_image_search"))
-    async def composio_image_search(
-        query: str,
-        num_results: int = 10,
-        page: int = 0,
-        ctx: Context = CurrentContext(),
-    ) -> dict:
-        """Search image metadata and URLs using Composio Image Search.
-
-        Returns image URLs and metadata, not image bytes. URL accessibility and
-        licensing/commercial reuse must be verified from the result page.
-        """
-        await ctx.info(f"Searching images: {query[:80]}...")
-        response = await _composio_image_search_impl(query, num_results, page)
-        await ctx.info(f"Found {response.total_results} image results")
         return response.model_dump(exclude_none=True)
 </file>
 
@@ -9064,7 +11967,7 @@ async def _maybe_specialized(
 
 
 def _render_generic_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str:
-    max_pages = int((os.environ.get("KINDLY_GENERIC_PDF_MAX_PAGES") or "20").strip())
+    max_pages = int((os.environ.get("GENERIC_PDF_MAX_PAGES") or "20").strip())
     rendered = _pdf_bytes_to_markdown_best_effort(pdf_bytes, max_pages=max_pages)
     return (
         "# PDF Document\n\n"
@@ -9380,15 +12283,13 @@ async def fetch_content_artifact(
     )
 
     # Entity extraction hook for content (plan 8.2): after clean markdown, before return to caller.
-    # Only when enabled; uses DEFAULT_CONTENT_LABELS; emits entity.content_extracted
+    # Only when enabled; uses the shared LLM-backed extractor; emits entity.content_extracted.
     if settings.entity_extraction_enabled and artifact.markdown:
         try:
-            from ..entity.gliner_client import get_gliner_client
-            from ..entity.default_schema import DEFAULT_CONTENT_LABELS
+            from ..search.entity_extractor import extract_entities
             from ..utils.observability import emit_observability_event
 
-            gliner = get_gliner_client()
-            ents = await gliner.extract_entities(artifact.markdown, DEFAULT_CONTENT_LABELS)
+            ents = await extract_entities(artifact.markdown)
             if ents:
                 artifact = replace(artifact, entities=ents)
             emit_observability_event(
@@ -11391,8 +14292,8 @@ async def create_summary(
     if not api_token:
         raise SummaryError("CHUTES_API_TOKEN is required for summary generation")
 
-    model = (os.environ.get("KINDLY_SUMMARY_MODEL") or "zai-org/GLM-5-Turbo").strip()
-    max_tokens = int((os.environ.get("KINDLY_SUMMARY_MAX_TOKENS") or "1200").strip())
+    model = (os.environ.get("SUMMARY_MODEL") or "zai-org/GLM-5-Turbo").strip()
+    max_tokens = int((os.environ.get("SUMMARY_MAX_TOKENS") or "1200").strip())
     body = {
         "model": model,
         "messages": _build_messages(markdown, mode=mode, focus_query=focus_query),
@@ -12066,7 +14967,7 @@ def fetch_transcript_data(
         if "RequestBlocked" in error_msg or "IpBlocked" in error_msg:
             raise YouTubeError(
                 "IP blocked by YouTube (common on AWS/GCP/Azure). "
-                "Set KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL to use a proxy. "
+                "Set YOUTUBE_TRANSCRIPT_PROXY_URL to use a proxy. "
                 f"Original error: {error_msg}"
             )
         raise YouTubeError(f"Could not retrieve transcript: {error_msg}")
@@ -12363,7 +15264,7 @@ async def embed_texts(
     resolved_provider = provider or settings.hf_inference_provider
     resolved_key = (
         api_key
-        or os.environ.get("KINDLY_HF_TOKEN")
+        or os.environ.get("HF_TOKEN")
         or os.environ.get("HF_TOKEN")
         or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
     )
@@ -12739,7 +15640,7 @@ DEFAULT_QUERY_LABELS: dict[str, str] = {
     "cli_flag": "Command-line flag or argument (e.g. --verbose, -rf, --port 8000)",
     "model_id": "ML model identifier (e.g. bert-base-uncased, gpt-4o, voyage-3)",
     "file_path": "File path or module path (e.g. src/app.ts, kindly_web_search_mcp_server.server)",
-    "env_var": "Environment variable name (e.g. SEARXNG_BASE_URL, KINDLY_RERANKING_ENABLED)",
+    "env_var": "Environment variable name (e.g. SEARXNG_BASE_URL, RERANKING_ENABLED)",
 }
 
 # Richer labels for fetched content (adds general web entities)
@@ -12757,7 +15658,7 @@ DEFAULT_CONTENT_LABELS: dict[str, str] = {
 """Lazy GLiNER2 entity extraction client.
 
 - Optional extra: pip install ...[entity-extraction]
-- Controlled by KINDLY_ENTITY_EXTRACTION_ENABLED (default false)
+- Controlled by ENTITY_EXTRACTION_ENABLED (default false)
 - Never imported at package load time.
 - All inference via asyncio.to_thread (CPU bound, non-blocking).
 - Explicit disabled state + error events on failure (no silent degradation when enabled).
@@ -12780,13 +15681,13 @@ _gliner_client: GLiNER2Client | None = None
 
 
 def is_entity_extraction_enabled() -> bool:
-    """Return true only when explicitly enabled via env (KINDLY_ENTITY_EXTRACTION_ENABLED=true)."""
+    """Return true only when explicitly enabled via env (ENTITY_EXTRACTION_ENABLED=true)."""
     # Read live from env to support monkeypatch in tests; fall back to settings.
     raw = (settings.entity_extraction_enabled if hasattr(settings, "entity_extraction_enabled") else False)
     # Re-evaluate from env for test dynamism (settings may be snapshot)
     import os
 
-    env_val = os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower()
+    env_val = os.environ.get("ENTITY_EXTRACTION_ENABLED", "").lower()
     if env_val in ("true", "1", "yes"):
         return True
     if env_val in ("false", "0", "no"):
@@ -12816,14 +15717,14 @@ class GLiNER2Client:
         import os
 
         return (
-            os.environ.get("KINDLY_GLINER_MODEL")
+            os.environ.get("GLINER_MODEL")
             or getattr(settings, "gliner_model", "fastino/gliner2-base-v1")
         )
 
     def _resolve_threshold(self) -> float:
         import os
 
-        raw = os.environ.get("KINDLY_GLINER_THRESHOLD")
+        raw = os.environ.get("GLINER_THRESHOLD")
         if raw is not None:
             try:
                 return float(raw)
@@ -13031,7 +15932,7 @@ class EntitySpan(BaseModel):
 """Entity overlap scoring for rerank feature (measured signal).
 
 Returns bounded score in [-1.0, 1.0].
-Only blended into rerank score when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED=true.
+Only blended into rerank score when RERANK_ENTITY_OVERLAP_ENABLED=true.
 Weights per label from design: exact match positive contribution, version/repo mismatch negative.
 """
 
@@ -13369,7 +16270,7 @@ def classify_error(
             return StructuredToolError(
                 error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
                 error_type="network",
-                action="Set KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
+                action="Set YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
                 provider="youtube",
             )
 
@@ -13510,7 +16411,7 @@ def _forbidden_action(provider: str | None) -> str:
         return f"{provider} API denied access. Check that your API key is valid and has the required permissions."
 
     if provider == "youtube":
-        return "YouTube blocked this request. Cloud IPs are often blocked. Set KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL."
+        return "YouTube blocked this request. Cloud IPs are often blocked. Set YOUTUBE_TRANSCRIPT_PROXY_URL."
 
     return "Access forbidden. Check permissions, API keys, or server configuration."
 
@@ -13713,7 +16614,7 @@ def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
         LOGGER.warning("litellm not available for judge; returning neutral: %s", exc)
         return json.dumps({"score": 0.5, "reason": "judge llm unavailable (litellm missing)"})
 
-    model = model or getattr(settings, "KINDLY_JUDGE_MODEL", None) or "gpt-4o-mini"
+    model = model or getattr(settings, "JUDGE_MODEL", None) or "gpt-4o-mini"
     try:
         resp = litellm.completion(
             model=model,
@@ -13968,20 +16869,7 @@ def latency_within_budget(latency_ms: float, budget_ms: float) -> float:
     return 1.0 if latency_ms <= budget_ms else 0.0
 
 
-def mrr_at_k(candidates: list[dict[str, object]], expected_domain: str, k: int) -> float:
-    for index, candidate in enumerate(candidates[:k], start=1):
-        if _candidate_domain_matches(candidate, expected_domain):
-            return 1.0 / index
-    return 0.0
 
-
-def ndcg_at_k(candidates: list[dict[str, object]], k: int) -> float:
-    gains = [_binary_relevance(candidate) for candidate in candidates[:k]]
-    ideal = sorted(gains, reverse=True)
-    ideal_dcg = _dcg(ideal)
-    if ideal_dcg == 0:
-        return 0.0
-    return _dcg(gains) / ideal_dcg
 
 
 def top_k_domain_hit(
@@ -14021,23 +16909,13 @@ def _dcg(gains: list[float]) -> float:
     return sum(gain / math.log2(index + 1) for index, gain in enumerate(gains, start=1))
 
 
-# Rerank-specific metrics (Phase 4). Support both legacy dict form and simple link-list form
-# for the deterministic harness. Gold is list of canonical URLs or domains.
-
 
 def mrr_at_k(
     candidates: list[dict[str, object]] | list[str],
-    gold: list[str] | str,
+    gold: list[str],
     k: int = 5,
 ) -> float:
-    """MRR@K supporting both legacy (candidates dicts + expected_domain str) and link-list form."""
-    # legacy path: second arg is domain str, candidates are dicts
-    if isinstance(gold, str) and candidates and isinstance(candidates[0], dict):
-        # fall back to original impl for domain
-        for index, candidate in enumerate(candidates[:k], start=1):
-            if _candidate_domain_matches(candidate, gold):
-                return 1.0 / index
-        return 0.0
+    """MRR@K using link-list form. Gold is list of canonical URLs or domains."""
     if isinstance(gold, str):
         gold = [gold]
     ranked: list[str] = []
@@ -14057,24 +16935,10 @@ def mrr_at_k(
 
 def ndcg_at_k(
     candidates: list[dict[str, object]] | list[str],
-    gold_or_k: list[str] | str | int = 10,
+    gold: list[str],
     k: int = 10,
 ) -> float:
-    """Supports legacy ndcg_at_k(cands, k) and ndcg_at_k(cands, gold, k)."""
-    if isinstance(gold_or_k, int):
-        # legacy 2-arg: cands, k ; use internal relevance
-        k = gold_or_k
-        gains = [_binary_relevance(c) for c in (candidates or [])[:k]]
-        ideal = sorted(gains, reverse=True)
-        ideal_dcg = _dcg(ideal)
-        if ideal_dcg == 0:
-            return 0.0
-        return _dcg(gains) / ideal_dcg
-    gold: list[str] = [gold_or_k] if isinstance(gold_or_k, str) else list(gold_or_k or [])
-    if isinstance(gold[0] if gold else None, str) and candidates and isinstance(candidates[0] if candidates else None, dict):
-        # treat gold as domain for legacy dicts too
-        # but for rerank gold is urls, fall to link match below
-        pass
+    """NDCG@K using link-list form. Gold is list of canonical URLs or domains."""
     ranked: list[str] = []
     if candidates and isinstance(candidates[0], str):
         ranked = list(candidates)  # type: ignore[assignment]
@@ -14454,59 +17318,611 @@ def run_dataset(
 __all__ = ["run_eval_case", "run_dataset", "MCPEVAL_AVAILABLE"]
 </file>
 
-<file path="mcp_compat.py">
+<file path="index/__init__.py">
+"""Web results index module — remote Qdrant on HF Space."""
+
+from .bm25_encoder import encode_bm25
+from .web_results_index import WebResultsIndex, get_web_results_index
+
+__all__ = [
+    "encode_bm25",
+    "WebResultsIndex",
+    "get_web_results_index",
+]
+</file>
+
+<file path="index/bm25_encoder.py">
+"""Lightweight BM25 sparse vector encoder using term hashing."""
+
 from __future__ import annotations
 
-import inspect
+import logging
+import math
 import re
-from functools import wraps
+from collections import Counter
+
+logger = logging.getLogger(__name__)
+
+HASH_SPACE = 1 << 20
+
+
+def _term_index(term: str) -> int:
+    return abs(hash(term)) % HASH_SPACE
+
+
+def _tokenize(text: str) -> list[str]:
+    text = text.lower()
+    tokens = re.findall(r"[a-z0-9]+", text)
+    return [t for t in tokens if len(t) >= 2]
+
+
+def encode_bm25(text: str) -> dict[str, list[int] | list[float]]:
+    """Encode text as a Qdrant-compatible BM25 sparse vector.
+
+    Uses sublinear TF normalization (log(1 + tf) / sqrt(dl)), no IDF
+    (no corpus statistics needed). Suitable for per-document indexing
+    without a pre-built vocabulary.
+
+    Returns:
+        Dict with ``indices`` (list[int]) and ``values`` (list[float])
+        ready to pass to ``models.SparseVector(...)``.
+    """
+    tokens = _tokenize(text)
+    if not tokens:
+        return {"indices": [], "values": []}
+
+    tf = Counter(tokens)
+    doc_len = len(tokens)
+    norm = math.sqrt(doc_len) if doc_len else 1.0
+
+    indices: list[int] = []
+    values: list[float] = []
+    for term, count in tf.items():
+        weight = math.log(1 + count) / norm
+        indices.append(_term_index(term))
+        values.append(round(weight, 6))
+
+    return {"indices": indices, "values": values}
+</file>
+
+<file path="index/web_results_index.py">
+"""Remote Qdrant index for web search results — write-only (Phase 0)."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from datetime import datetime, timezone
+from hashlib import sha256
+from typing import Any, Awaitable
+import uuid
+
+from qdrant_client import AsyncQdrantClient, models
+
+from ..models import WebSearchResult
+from ..settings import settings
+
+logger = logging.getLogger(__name__)
+
+_web_results_index: WebResultsIndex | None = None
+
+COLLECTION_NAME = "web_results"
+COLLECTION_VECTORS = {
+    "dense": models.VectorParams(
+        size=384,
+        distance=models.Distance.COSINE,
+    ),
+}
+COLLECTION_SPARSE = {
+    "sparse": models.SparseVectorParams(
+        index=models.SparseIndexParams(on_disk=False),
+    ),
+}
+
+
+def _uuid_from_url(url: str) -> str:
+    digest = sha256(url.strip().encode("utf-8")).hexdigest()
+    return str(uuid.UUID(digest[:32]))
+
+
+class WebResultsIndex:
+    """Asynchronous write-only index for final search results stored on HF Space Qdrant."""
+
+    def __init__(
+        self,
+        *,
+        url: str,
+        api_key: str | None = None,
+        auth_token_provider: Callable[[], str | Awaitable[str]] | None = None,
+    ) -> None:
+        self._url = url.rstrip("/")
+        self._api_key = api_key
+        self._auth_token_provider = auth_token_provider
+        self._client: AsyncQdrantClient | None = None
+        self._collection_ok = False
+
+    async def _ensure_client(self) -> AsyncQdrantClient:
+        if self._client is None:
+            self._client = AsyncQdrantClient(
+                url=self._url,
+                api_key=self._api_key or None,
+                auth_token_provider=self._auth_token_provider,
+                timeout=30,
+            )
+        return self._client
+
+    async def _ensure_collection(self) -> None:
+        if self._collection_ok:
+            return
+        client = await self._ensure_client()
+        try:
+            info = await client.get_collection(COLLECTION_NAME)
+            if info.status == "green":
+                self._collection_ok = True
+                return
+        except Exception:
+            pass
+
+        try:
+            await client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=COLLECTION_VECTORS,
+                sparse_vectors_config=COLLECTION_SPARSE,
+            )
+            self._collection_ok = True
+            logger.info(
+                "Created Qdrant collection '%s' on %s", COLLECTION_NAME, self._url
+            )
+        except Exception as exc:
+            logger.warning(
+                "Qdrant create_collection failed (may already exist): %s", exc
+            )
+            self._collection_ok = True
+
+    async def index_results(
+        self,
+        results: list[WebSearchResult],
+        dense_embeddings: list[list[float]],
+        sparse_embeddings: list[dict[str, list[int] | list[float]]],
+        *,
+        intent: str | None = None,
+        entities: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Upsert final search results into the remote Qdrant index.
+
+        Metadata stored per point:
+        - url, intent, entities, indexed_at, provider
+        """
+        if not results or not dense_embeddings:
+            return
+        if len(results) != len(dense_embeddings) or len(results) != len(
+            sparse_embeddings
+        ):
+            logger.warning(
+                "index_results: embedding count mismatch (%d results, %d dense, %d sparse); skipping",
+                len(results),
+                len(dense_embeddings),
+                len(sparse_embeddings),
+            )
+            return
+
+        await self._ensure_collection()
+        client = await self._ensure_client()
+        now = datetime.now(timezone.utc).isoformat()
+
+        entities_json = [e for e in entities if e] if entities else None
+
+        points: list[models.PointStruct] = []
+        for result, dense, sparse in zip(results, dense_embeddings, sparse_embeddings):
+            url = result.link.strip()
+            if not url:
+                continue
+            pid = _uuid_from_url(url)
+            points.append(
+                models.PointStruct(
+                    id=pid,
+                    vector={
+                        "dense": dense,
+                        "sparse": models.SparseVector(
+                            indices=sparse["indices"],
+                            values=sparse["values"],
+                        ),
+                    },
+                    payload={
+                        "url": url,
+                        "title": result.title,
+                        "snippet": result.snippet,
+                        "domain": result.domain,
+                        "intent": intent,
+                        "provider": result.providers,
+                        "entities": entities_json,
+                        "indexed_at": now,
+                    },
+                )
+            )
+
+        if not points:
+            return
+
+        try:
+            await client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=points,
+                wait=True,
+            )
+            logger.debug("Indexed %d results into %s", len(points), COLLECTION_NAME)
+        except Exception as exc:
+            logger.warning("Qdrant upsert failed for %d points: %s", len(points), exc)
+
+    async def close(self) -> None:
+        if self._client:
+            await self._client.close()
+            self._client = None
+
+
+def get_web_results_index() -> WebResultsIndex | None:
+    """Return singleton index client if indexing is enabled and URL is configured."""
+    global _web_results_index
+    if not settings.web_results_index_enabled:
+        return None
+    url = settings.qdrant_space_url.strip()
+    if not url:
+        logger.warning(
+            "web_results_index_enabled=True but QDRANT_SPACE_URL is empty"
+        )
+        return None
+    if _web_results_index is None:
+        hf_token = settings.hf_token.strip() or None
+        auth_provider: Callable[[], str] | None = (
+            (lambda: hf_token) if hf_token else None
+        )
+        _web_results_index = WebResultsIndex(
+            url=url,
+            api_key=None,
+            auth_token_provider=auth_provider,
+        )
+    return _web_results_index
+
+
+async def index_final_results(
+    query_text: str,
+    results: list[WebSearchResult],
+    dense_embeddings: list[list[float]],
+    *,
+    texts: list[str] | None = None,
+    intent: str | None = None,
+    entities: list[dict[str, Any]] | None = None,
+) -> None:
+    """Index final search results into remote Qdrant using precomputed embeddings.
+
+    Sparse BM25 vectors are computed locally from *texts* (no API call).
+    Errors are caught silently so they never propagate to the caller.
+    """
+    idx = get_web_results_index()
+    if idx is None:
+        return
+
+    if not results or not dense_embeddings:
+        return
+
+    from .bm25_encoder import encode_bm25
+
+    sparse_embeddings: list[dict[str, list[int] | list[float]]] = []
+    effective_texts = texts or []
+    for i in range(len(results)):
+        t = effective_texts[i] if i < len(effective_texts) else ""
+        if not t:
+            t = (
+                f"{results[i].title}\n{results[i].snippet}"
+                if results[i].title and results[i].snippet
+                else (results[i].title or results[i].snippet or "")
+            )
+        sparse_embeddings.append(
+            encode_bm25(t.strip()) if t.strip() else {"indices": [], "values": []}
+        )
+
+    try:
+        await idx.index_results(
+            results,
+            dense_embeddings,
+            sparse_embeddings,
+            intent=intent,
+            entities=entities,
+        )
+        logger.debug(
+            "index_final_results: indexed %d results for query=%s",
+            len(results),
+            query_text[:80],
+        )
+    except Exception:
+        logger.debug("index_final_results: failed (non-fatal)", exc_info=True)
+</file>
+
+<file path="llm/__init__.py">
+"""LLM worker package."""
+
+from .config import build_classifier_endpoint, build_worker_endpoints
+from .models import LLMEndpoint, LLMGeneration
+from .router import LLMRouter, build_classifier_router, build_worker_router
+from .structured import StructuredLLMRequest, StructuredLLMResponse
+from .worker import LLMWorker, build_llm_worker
+
+__all__ = [
+    "LLMEndpoint",
+    "LLMGeneration",
+    "LLMRouter",
+    "LLMWorker",
+    "StructuredLLMRequest",
+    "StructuredLLMResponse",
+    "build_classifier_endpoint",
+    "build_classifier_router",
+    "build_llm_worker",
+    "build_worker_endpoints",
+    "build_worker_router",
+]
+</file>
+
+<file path="llm/client.py">
+"""Small OpenAI-compatible client helpers."""
+
+from __future__ import annotations
+
+from openai import AsyncOpenAI
+
+from .models import LLMEndpoint
+
+
+def build_client(endpoint: LLMEndpoint) -> AsyncOpenAI:
+    """Build an OpenAI-compatible client for one endpoint."""
+    return AsyncOpenAI(
+        api_key=endpoint.api_key,
+        base_url=endpoint.base_url,
+        timeout=endpoint.timeout_seconds,
+        max_retries=0,
+    )
+</file>
+
+<file path="llm/config.py">
+"""LLM endpoint config builders."""
+
+from __future__ import annotations
+
+from .models import LLMEndpoint
+from ..settings import settings
+
+
+def _openai_compatible_model(model: str) -> str:
+    if model.startswith("openai/"):
+        return model
+    return f"openai/{model}"
+
+
+def build_classifier_endpoint() -> LLMEndpoint:
+    return LLMEndpoint(
+        name="groq",
+        model=f"groq/{settings.query_understanding_model.removeprefix('groq/')}",
+        base_url=settings.groq_base_url,
+        api_key=settings.groq_api_key,
+        timeout_seconds=20.0,
+    )
+
+
+def build_vercel_gpt_oss_endpoint(*, timeout_seconds: float) -> LLMEndpoint:
+    return LLMEndpoint(
+        name="vercel",
+        model=_openai_compatible_model(settings.vercel_rewrite_model),
+        base_url=settings.vercel_ai_gateway_base_url,
+        api_key=settings.vercel_ai_gateway_api_key,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def build_worker_endpoints() -> tuple[LLMEndpoint, ...]:
+    return (
+        LLMEndpoint(
+            name="cerebras",
+            model=settings.cerebras_rewrite_model,
+            base_url=settings.cerebras_base_url,
+            api_key=settings.cerebras_api_key,
+            timeout_seconds=30.0,
+        ),
+        LLMEndpoint(
+            name="groq",
+            model=settings.groq_rewrite_model,
+            base_url=settings.groq_base_url,
+            api_key=settings.groq_api_key,
+            timeout_seconds=30.0,
+        ),
+        build_vercel_gpt_oss_endpoint(timeout_seconds=30.0),
+    )
+</file>
+
+<file path="llm/models.py">
+"""Typed models for OpenAI-compatible worker routing."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class LLMEndpoint:
+    """One OpenAI-compatible generation endpoint."""
+
+    name: str
+    model: str
+    base_url: str
+    api_key: str
+    timeout_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
+class LLMGeneration:
+    """Result returned by an endpoint attempt."""
+
+    endpoint: LLMEndpoint
+    content: str
+</file>
+
+<file path="llm/router.py">
+"""Ordered LLM worker routing for classification and rewrite tasks."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 from typing import Any
 
-from fastmcp import FastMCP
+from litellm import acompletion
+
+from .config import (
+    build_classifier_endpoint,
+    build_vercel_gpt_oss_endpoint,
+    build_worker_endpoints,
+)
+from .models import LLMEndpoint, LLMGeneration
 
 
-def _sanitize_tool_name(value: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9_]+", "_", value).strip("_")
-    return cleaned or "tool"
+@dataclass(frozen=True, slots=True)
+class LLMRouter:
+    """Sequential LiteLLM router across configured endpoints."""
+
+    endpoints: tuple[LLMEndpoint, ...]
+
+    async def complete_json(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+        response_model: type[Any] | None = None,
+    ) -> LLMGeneration:
+        errors: list[Exception] = []
+        for endpoint in self.endpoints:
+            try:
+                response = await acompletion(
+                    model=endpoint.model,
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_model or {"type": "json_object"},
+                    api_base=endpoint.base_url,
+                    api_key=endpoint.api_key,
+                    timeout=timeout_seconds or endpoint.timeout_seconds,
+                )
+                content = response.choices[0].message.content or ""
+                if content.strip():
+                    return LLMGeneration(endpoint=endpoint, content=content)
+                raise RuntimeError(f"{endpoint.name} returned empty content")
+            except Exception as exc:  # sequential provider ladder, no hidden fallback
+                errors.append(exc)
+        raise RuntimeError(
+            "All LLM endpoints failed: "
+            + "; ".join(f"{type(error).__name__}: {error}" for error in errors)
+        )
 
 
-def _register_prompt_tool(mcp: FastMCP, prompt: Any) -> None:
-    tool_name = f"prompt_{_sanitize_tool_name(prompt.name)}"
-    tool_title = prompt.title or prompt.name
-
-    @wraps(prompt.fn)
-    async def _tool(**kwargs: Any) -> Any:
-        return prompt.render(kwargs or None)
-
-    _tool.__signature__ = inspect.signature(prompt.fn)
-    _tool.__name__ = tool_name
-    _tool.__doc__ = prompt.description or f"Expose prompt {prompt.name} as a tool."
-    mcp.tool(name=tool_name, title=tool_title, description=prompt.description)(_tool)
+def build_classifier_router() -> LLMRouter:
+    """Classifier prefers Groq GPT-OSS 20B, then falls back to Vercel GPT-OSS."""
+    return LLMRouter(
+        (
+            build_classifier_endpoint(),
+            build_vercel_gpt_oss_endpoint(timeout_seconds=20.0),
+        )
+    )
 
 
-def _register_resource_tool(mcp: FastMCP, resource: Any) -> None:
-    tool_name = f"resource_{_sanitize_tool_name(str(resource.key))}"
-    tool_title = resource.title or resource.name
+def build_worker_router() -> LLMRouter:
+    """Worker ladder: Cerebras GPT-OSS 120B → Groq GPT-OSS 120B → Vercel Groq GPT-OSS-20B."""
+    return LLMRouter(build_worker_endpoints())
+</file>
 
-    async def _tool() -> Any:
-        return resource.read()
+<file path="llm/structured.py">
+"""Structured LLM task helpers."""
 
-    _tool.__name__ = tool_name
-    _tool.__doc__ = resource.description or f"Expose resource {resource.key} as a tool."
-    _tool.__signature__ = inspect.Signature()
-    mcp.tool(name=tool_name, title=tool_title, description=resource.description)(_tool)
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
 
 
-def register_prompt_and_resource_tools(mcp: FastMCP) -> None:
-    """Expose registered prompts and resources as tools for tool-only clients."""
+@dataclass(frozen=True, slots=True)
+class StructuredLLMRequest:
+    task: str
+    messages: list[dict[str, str]]
+    temperature: float = 0.0
+    timeout_seconds: float | None = None
+    response_model: type[Any] | None = None
 
-    for prompt in mcp._prompt_manager._prompts.values():
-        if prompt.enabled:
-            _register_prompt_tool(mcp, prompt)
 
-    for resource in mcp._resource_manager._resources.values():
-        if resource.enabled:
-            _register_resource_tool(mcp, resource)
+@dataclass(frozen=True, slots=True)
+class StructuredLLMResponse:
+    endpoint_name: str
+    model_name: str
+    content: str
+</file>
+
+<file path="llm/worker.py">
+"""Facade for structured and unstructured LLM calls."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .router import build_classifier_router, build_worker_router
+from .structured import StructuredLLMRequest, StructuredLLMResponse
+
+
+@dataclass(frozen=True, slots=True)
+class LLMWorker:
+    """Small task router for the 0.2 backend."""
+
+    async def complete_structured(
+        self, request: StructuredLLMRequest
+    ) -> StructuredLLMResponse:
+        router = (
+            build_classifier_router()
+            if request.task == "query_understand"
+            else build_worker_router()
+        )
+        generation = await router.complete_json(
+            messages=request.messages,
+            temperature=request.temperature,
+            timeout_seconds=request.timeout_seconds,
+            response_model=request.response_model,
+        )
+        return StructuredLLMResponse(
+            endpoint_name=generation.endpoint.name,
+            model_name=generation.endpoint.model,
+            content=generation.content,
+        )
+
+    async def complete_json(
+        self,
+        *,
+        task: str,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+    ) -> StructuredLLMResponse:
+        return await self.complete_structured(
+            StructuredLLMRequest(
+                task=task,
+                messages=messages,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
+    async def complete_text(self, *, task: str, prompt: str) -> str:
+        result = await self.complete_json(
+            task=task,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+        )
+        return result.content
+
+
+def build_llm_worker() -> LLMWorker:
+    return LLMWorker()
 </file>
 
 <file path="middleware/__init__.py">
@@ -15260,40 +18676,25 @@ from .entity.models import EntitySpan  # always available (pure python)
 class WebSearchResult(BaseModel):
     """Single search result from web search."""
 
-    title: str = Field(description="Human-readable result title.")
-    link: str = Field(description="Canonical URL for the result.")
-    snippet: str = Field(description="Search engine snippet/preview text.")
-    domain: str | None = Field(
-        default=None, description="Domain associated with the result."
-    )
-    resource_type: str | None = Field(
-        default=None,
-        description="High-level resource type such as web, pdf, youtube, github, or other.",
-    )
+    title: str
+    link: str
+    snippet: str
+    domain: str | None = None
     mime_hint: str | None = Field(
         default=None,
         description="Best-effort MIME hint when known.",
     )
-    published_date: str | None = Field(
-        default=None,
-        description="Best-effort publication date if the provider exposes one.",
-    )
+    published_date: str | None = None
     source_engines: list[str] | None = Field(
         default=None,
         description="Provider engine names that surfaced the result, when known.",
     )
-    category: str | None = Field(
-        default=None,
-        description="Provider category or result bucket, when known.",
-    )
+    category: str | None = None
     raw_score: float | None = Field(
         default=None,
         description="Unnormalized score returned by the provider before merge/rerank.",
     )
-    providers: list[str] | None = Field(
-        default=None,
-        description="Search providers that surfaced this result.",
-    )
+    providers: list[str] | None = None
     provider_count: int | None = Field(
         default=None,
         description="Number of providers that surfaced this result (agreement signal).",
@@ -15302,14 +18703,8 @@ class WebSearchResult(BaseModel):
         default=None,
         description="Merged/reranked score used for final ordering.",
     )
-    entities: list[EntitySpan] | None = Field(
-        default=None,
-        description="Extracted entities (GLiNER2) from title + snippet when entity extraction enabled.",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata emitted when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    entities: list[EntitySpan] | None = None
+    diagnostics: list[dict[str, Any]] | None = None
 
 
 class CandidateResult(BaseModel):
@@ -15321,31 +18716,37 @@ class CandidateResult(BaseModel):
     url: str = Field(description="The result URL (used as dedup key).")
     title: str = Field(description="Title from past result.")
     snippet: str = Field(description="Snippet from past result.")
-    similarity: float = Field(default=0.0, description="Raw vector similarity from Qdrant lookup.")
-    entity_overlap: float = Field(default=0.0, description="Entity overlap boost factor (0 if no entities).")
-    adjusted_score: float = Field(default=0.0, description="Similarity after age decay + entity boost.")
-    cached_at: str | None = Field(default=None, description="ISO timestamp when originally stored.")
-    source_query: str | None = Field(default=None, description="The past query that produced this result.")
+    similarity: float = Field(
+        default=0.0, description="Raw vector similarity from Qdrant lookup."
+    )
+    entity_overlap: float = Field(
+        default=0.0, description="Entity overlap boost factor (0 if no entities)."
+    )
+    adjusted_score: float = Field(
+        default=0.0, description="Similarity after age decay + entity boost."
+    )
+    cached_at: str | None = Field(
+        default=None, description="ISO timestamp when originally stored."
+    )
+    source_query: str | None = Field(
+        default=None, description="The past query that produced this result."
+    )
 
 
 class ProviderWarning(BaseModel):
     """Warning about a partial failure from a provider."""
 
-    provider: str = Field(description="Provider that encountered the issue.")
-    error: str = Field(description="Error message from the provider.")
-    error_type: str | None = Field(
-        default=None, description="Error classification if known."
-    )
+    provider: str
+    error: str
+    error_type: str | None = None
 
 
 class SearchResultWindow(BaseModel):
     """Pagination metadata for a search result window."""
 
-    offset: int = Field(description="Zero-based result offset requested by the caller.")
-    returned: int = Field(description="Number of results returned in this page.")
-    candidate_count: int = Field(
-        description="Number of candidates available before window slicing."
-    )
+    offset: int
+    returned: int
+    candidate_count: int
     has_more: bool = Field(description="Whether another page is available.")
     next_offset: int | None = Field(
         default=None,
@@ -15356,11 +18757,9 @@ class SearchResultWindow(BaseModel):
 class ContentLink(BaseModel):
     """Single discovered link from a page or sitemap."""
 
-    url: str = Field(description="Absolute URL for the discovered link.")
-    text: str = Field(description="Visible link text or URL fallback.")
-    domain: str | None = Field(
-        default=None, description="Destination domain when it can be determined."
-    )
+    url: str
+    text: str
+    domain: str | None = None
     internal: bool = Field(
         default=False, description="Whether the link stays within the source domain."
     )
@@ -15374,41 +18773,24 @@ class ContentLink(BaseModel):
 class WebSearchResponse(BaseModel):
     """Response from web_search tool."""
 
-    query: str = Field(description="Original raw query.")
-    results: list[WebSearchResult] = Field(
-        default_factory=list, description="Search results."
-    )
-    total_results: int = Field(
-        default=0, description="Total number of results returned."
-    )
-    result_window: SearchResultWindow | None = Field(
-        default=None,
-        description="Pagination metadata for the returned result window.",
-    )
+    query: str
+    results: list[WebSearchResult] = Field(default_factory=list)
+    total_results: int = 0
+    result_window: SearchResultWindow | None = None
     providers_used: list[str] = Field(
         default_factory=list,
         description="Providers that successfully returned results.",
     )
-    warnings: list[ProviderWarning] | None = Field(
-        default=None,
-        description="Partial failures from providers (e.g., rate limits, timeouts).",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    warnings: list[ProviderWarning] | None = None
+    diagnostics: list[dict[str, Any]] | None = None
 
 
 class GetContentResponse(BaseModel):
     """Response from get_content tool."""
 
-    input_url: str = Field(description="Exact URL supplied by the caller.")
-    normalized_url: str = Field(
-        description="Normalized URL used for cache lookup and deduplication."
-    )
-    fetched_url: str | None = Field(
-        default=None, description="Actual URL reached after redirects, if known."
-    )
+    input_url: str
+    normalized_url: str
+    fetched_url: str | None = None
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
     )
@@ -15416,44 +18798,14 @@ class GetContentResponse(BaseModel):
         description="Detected source type, e.g. html, pdf, github_issue."
     )
     fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
-    page_content: str = Field(
-        description="Bounded content slice for the requested window."
-    )
-    window: dict[str, Any] = Field(
-        description="Window metadata for pagination/continuation."
-    )
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional source metadata extracted from the fetched page.",
-    )
-    links: list[ContentLink] | None = Field(
-        default=None,
-        description="Optional discovered links extracted from the fetched page.",
-    )
-    continuation_notice: str | None = Field(
-        default=None,
-        description="Human-readable truncation notice for the returned window.",
-    )
-    content_type: str | None = Field(
-        default=None,
-        description="Detected HTTP content type if available.",
-    )
-    error: dict[str, Any] | None = Field(
-        default=None,
-        description="Structured error payload for non-success statuses.",
-    )
-    summary: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional derived summary when summary_mode is requested.",
-    )
-    entities: list[EntitySpan] | None = Field(
-        default=None,
-        description="Extracted entities (GLiNER2) from the returned page_content when entity extraction enabled.",
-    )
-    diagnostics: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Optional diagnostics metadata when KINDLY_DIAGNOSTICS is enabled.",
-    )
+    page_content: str
+    window: dict[str, Any]
+    metadata: dict[str, Any] | None = None
+    links: list[ContentLink] | None = None
+    continuation_notice: str | None = None
+    content_type: str | None = None
+    error: dict[str, Any] | None = None
+    summary: dict[str, Any] | None = None
 
 
 class BatchContentResult(BaseModel):
@@ -15477,31 +18829,17 @@ class BatchContentResult(BaseModel):
 class DiscoverLinksResponse(BaseModel):
     """Response from discover_links tool."""
 
-    input_url: str = Field(description="Exact URL supplied by the caller.")
-    normalized_url: str = Field(
-        description="Normalized URL used for fetch and deduplication."
-    )
-    fetched_url: str | None = Field(
-        default=None, description="Actual URL reached after redirects, if known."
-    )
-    source_type: str = Field(
-        description="Detected link source type, such as html or sitemap."
-    )
-    links: list[ContentLink] = Field(
-        default_factory=list, description="Discovered links returned in this page."
-    )
-    returned_links: int = Field(
-        default=0, description="Number of links returned in this page."
-    )
+    input_url: str
+    normalized_url: str
+    fetched_url: str | None = None
+    source_type: str
+    links: list[ContentLink] = Field(default_factory=list)
+    returned_links: int = 0
     has_more: bool = Field(
         default=False, description="Whether more links exist beyond the current page."
     )
-    metadata: dict[str, Any] | None = Field(
-        default=None, description="Optional metadata extracted from the source page."
-    )
-    error: dict[str, Any] | None = Field(
-        default=None, description="Structured error payload for failures."
-    )
+    metadata: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
 
 
 class BatchGetContentResponse(BaseModel):
@@ -15518,170 +18856,116 @@ class BatchGetContentResponse(BaseModel):
 class GeminiSearchResponse(BaseModel):
     """Response from gemini_search tool (AI-grounded search)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str = Field(description="AI-synthesized answer with inline citations [N].")
-    web_search_queries: list[str] | None = Field(
-        default=None,
-        description="Search queries used for grounding.",
-    )
-    grounding_chunks: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Grounding sources with citations.",
-    )
-    structured_result: dict[str, Any] | None = Field(
-        default=None,
-        description="Structured output when structured_output=True.",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str
+    web_search_queries: list[str] | None = None
+    grounding_chunks: list[dict[str, Any]] | None = None
+    structured_result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class PerplexitySearchResponse(BaseModel):
     """Response from perplexity_search tool (AI-synthesized search)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str | None = Field(
-        default=None, description="AI-synthesized answer with citations."
-    )
-    sources: list[str] | None = Field(
-        default=None,
-        description="Source URLs cited in the answer.",
-    )
-    model: str | None = Field(default=None, description="Perplexity model used.")
-    steering_message: str | None = Field(
-        default=None,
-        description="Query guidance message on first call (rate-limited resource).",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str | None = None
+    sources: list[str] | None = None
+    model: str | None = None
+    steering_message: str | None = None
+    error: str | None = None
 
 
 class GrokCitation(BaseModel):
     """Single citation from grok_search result (OpenRouter url_citation)."""
 
-    url: str = Field(description="Source URL.")
-    title: str | None = Field(default=None, description="Source page title.")
-    snippet: str | None = Field(
-        default=None, description="Extracted highlight or excerpt."
-    )
+    url: str
+    title: str | None = None
+    snippet: str | None = None
 
 
 class GrokSearchResponse(BaseModel):
-    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search.
+    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search."""
 
-    Returns AI-synthesized answers with source citations, like gemini_search
-    and perplexity_search, NOT a raw URL list like web_search.
-    """
-
-    query: str = Field(description="Original search query.")
-    answer: str = Field(description="Grok's synthesized answer with inline citations.")
-    citations: list[GrokCitation] = Field(
-        default_factory=list, description="Extracted source URLs with titles."
-    )
-    model: str = Field(description="Model ID used for generation.")
-    search_queries_used: int = Field(
-        default=0, description="Number of web search tool invocations."
-    )
-    error: str | None = Field(
-        default=None, description="Error message if search failed."
-    )
+    query: str
+    answer: str
+    citations: list[GrokCitation] = Field(default_factory=list)
+    model: str
+    search_queries_used: int = 0
+    error: str | None = None
 
 
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
 
-    video_id: str = Field(description="YouTube video identifier.")
-    video_url: str = Field(description="Canonical YouTube URL.")
-    title: str | None = Field(default=None, description="Video title if available.")
-    transcript_text: str = Field(description="Transcript content in requested format.")
-    language: str = Field(description="Language code of transcript.")
-    is_translated: bool = Field(
-        default=False, description="Whether transcript was translated."
-    )
-    duration_seconds: float | None = Field(
-        default=None, description="Total video duration."
-    )
-    transcript_segments: list[dict[str, Any]] | None = Field(
-        default=None,
-        description="Raw transcript segments if format='json'.",
-    )
-    error: str | None = Field(
-        default=None, description="Error message if transcript fetch failed."
-    )
+    video_id: str
+    video_url: str
+    title: str | None = None
+    transcript_text: str
+    language: str
+    is_translated: bool = False
+    duration_seconds: float | None = None
+    transcript_segments: list[dict[str, Any]] | None = None
+    error: str | None = None
 
 
 class YouTubeSearchResponse(BaseModel):
     """Response from youtube_search tool."""
 
-    query: str = Field(description="Original search query.")
-    results: list[WebSearchResult] = Field(
-        default_factory=list,
-        description="YouTube video results.",
-    )
-    total_results: int = Field(default=0, description="Total number of video results.")
+    query: str
+    results: list[WebSearchResult] = Field(default_factory=list)
+    total_results: int = 0
 
 
 class SimilarLinkResult(BaseModel):
     """Single related URL returned by Composio Similarlinks."""
 
-    title: str = Field(description="Human-readable result title.")
-    link: str = Field(description="Canonical URL for the related page.")
-    score: float | None = Field(default=None, description="Provider similarity score.")
+    title: str
+    link: str
+    score: float | None = None
 
 
 class SimilarLinksResponse(BaseModel):
     """Response from Composio Similarlinks."""
 
-    url: str = Field(description="Source URL used to find similar links.")
+    url: str
     results: list[SimilarLinkResult] = Field(default_factory=list)
-    total_results: int = Field(default=0, description="Total related links returned.")
+    total_results: int = 0
 
 
 class ImageSearchResult(BaseModel):
     """Single image metadata result from Composio Image Search."""
 
-    title: str = Field(description="Image result title.")
-    source: str | None = Field(default=None, description="Source site label.")
-    page_link: str = Field(description="Page URL where the image appears.")
-    original_url: str = Field(description="Original/full-resolution image URL.")
-    thumbnail_url: str | None = Field(default=None, description="Thumbnail image URL.")
+    title: str
+    source: str | None = None
+    page_link: str
+    original_url: str
+    thumbnail_url: str | None = None
 
 
 class ImageSearchResponse(BaseModel):
     """Response from Composio Image Search."""
 
-    query: str = Field(description="Original image search query.")
+    query: str
     results: list[ImageSearchResult] = Field(default_factory=list)
-    total_results: int = Field(default=0, description="Total image results returned.")
-    page: int = Field(default=0, description="Image search page index.")
+    total_results: int = 0
+    page: int = 0
 
 
 class QuickWebSearchCitation(BaseModel):
     """Single citation/source from Composio Quick Web Search."""
 
-    title: str | None = Field(
-        default=None, description="Citation title from the source."
-    )
-    url: str | None = Field(default=None, description="URL of the cited source.")
-    snippet: str | None = Field(
-        default=None, description="Text snippet from the source."
-    )
+    title: str | None = None
+    url: str | None = None
+    snippet: str | None = None
 
 
 class QuickWebSearchResponse(BaseModel):
     """Response from Composio Quick Web Search (COMPOSIO_SEARCH_WEB)."""
 
-    query: str = Field(description="Original search query.")
-    answer: str | None = Field(
-        default=None, description="AI-synthesized narrative summary."
-    )
-    citations: list[QuickWebSearchCitation] = Field(
-        default_factory=list,
-        description="Source citations (prioritize these over answer for evidence).",
-    )
-    total_citations: int = Field(default=0, description="Total citations returned.")
+    query: str
+    answer: str | None = None
+    citations: list[QuickWebSearchCitation] = Field(default_factory=list)
+    total_citations: int = 0
 
 
 # ============================================================================
@@ -15754,54 +19038,30 @@ QuickWebSearchResultType = QuickWebSearchResponse | ToolErrorResponse
 class AcademicPaper(BaseModel):
     """A single academic paper from scholarly search."""
 
-    title: str = Field(description="Paper title.")
-    authors: list[str] = Field(default_factory=list, description="Author names.")
-    abstract: str | None = Field(default=None, description="Paper abstract or summary.")
-    year: int | None = Field(default=None, description="Publication year.")
-    venue: str | None = Field(
-        default=None, description="Publication venue (conference/journal)."
-    )
-    citations: int | None = Field(
-        default=None, description="Citation count if available."
-    )
-    url: str = Field(description="Canonical URL (DOI or abstract page).")
-    pdf_url: str | None = Field(
-        default=None, description="Direct PDF link if available."
-    )
-    source: str = Field(
-        description="Provider that found this paper: semanticscholar or arxiv."
-    )
-    source_id: str = Field(description="Provider-specific paper identifier.")
-    external_ids: dict[str, str] | None = Field(
-        default=None, description="External IDs: DOI, ArXiv, PubMed, etc."
-    )
-    fields_of_study: list[str] | None = Field(
-        default=None, description="Fields of study (e.g. Computer Science)."
-    )
-    is_open_access: bool | None = Field(
-        default=None, description="Whether an open-access PDF is available."
-    )
-    score: float | None = Field(
-        default=None, description="Relevance score from provider."
-    )
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    abstract: str | None = None
+    year: int | None = None
+    venue: str | None = None
+    citations: int | None = None
+    url: str
+    pdf_url: str | None = None
+    source: str = Field(description="Provider: semanticscholar or arxiv.")
+    source_id: str
+    external_ids: dict[str, str] | None = None
+    fields_of_study: list[str] | None = None
+    is_open_access: bool | None = None
+    score: float | None = None
 
 
 class AcademicSearchResponse(BaseModel):
     """Response from academic_search tool."""
 
-    query: str = Field(description="Original search query.")
-    results: list[AcademicPaper] = Field(
-        default_factory=list, description="Deduplicated academic papers."
-    )
-    total_results: int = Field(
-        default=0, description="Total results after deduplication."
-    )
-    sources_used: list[str] = Field(
-        default_factory=list, description="Providers that returned results."
-    )
-    warnings: list[ProviderWarning] | None = Field(
-        default=None, description="Partial failures from providers."
-    )
+    query: str
+    results: list[AcademicPaper] = Field(default_factory=list)
+    total_results: int = 0
+    sources_used: list[str] = Field(default_factory=list)
+    warnings: list[ProviderWarning] | None = None
 
 
 AcademicSearchResultType = AcademicSearchResponse | ToolErrorResponse
@@ -15826,10 +19086,374 @@ PERSISTED_EVENT_PREFIXES = (
 )
 </file>
 
+<file path="prompts/__init__.py">
+"""Prompt registry package."""
+
+from .registry import build_prompt
+
+__all__ = ["build_prompt"]
+</file>
+
+<file path="prompts/builders.py">
+"""Shared prompt-building helpers."""
+
+from __future__ import annotations
+
+from datetime import date
+
+
+def anchor_today() -> str:
+    return date.today().isoformat()
+
+
+def provider_style(provider_name: str) -> str:
+    return provider_name.strip().casefold() or "worker"
+
+
+def join_terms(terms: list[str]) -> str:
+    if not terms:
+        return "- none"
+    return "\n".join(f"- {term}" for term in terms)
+</file>
+
+<file path="prompts/entity_extraction.py">
+"""Prompt builder for entity extraction from search snippets."""
+
+from __future__ import annotations
+
+from .builders import provider_style
+
+
+def build_entity_extraction_prompt(
+    *,
+    query: str,
+    research_goal: str | None,
+    provider_name: str = "worker",
+) -> tuple[str, str]:
+    goal = research_goal or query
+    system = f"""You extract only grounded entities from short web search text for {provider_style(provider_name)}.
+Today is not needed; do not classify intent, rewrite, or judge relevance.
+Return JSON only.
+The schema is:
+- entities: array of {{text,label,start,end,confidence}}
+
+Rules:
+- Extract only entities explicitly present in the text.
+- Prefer precise labels such as package, api, function, class, model, organization, person, website, framework, dataset, topic, tool, or other.
+- Use exact character offsets from the provided text.
+- If no grounded entities are present, return an empty entities array.
+- Keep the output compact and valid JSON.
+"""
+    user = f"""TEXT:
+{query}
+
+RESEARCH_GOAL:
+{goal}
+
+Return JSON only."""
+    return system, user
+</file>
+
+<file path="prompts/models.py">
+"""Prompt rendering models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class PromptBundle:
+    task: str
+    provider_name: str
+    system: str
+    user: str
+</file>
+
+<file path="prompts/provider_gemini.py">
+"""Prompt builders for Gemini synthesis/search tasks."""
+
+from __future__ import annotations
+
+from .builders import anchor_today
+
+
+def build_provider_gemini_prompt(
+    *, query: str, research_goal: str | None, provider_name: str = "gemini"
+) -> tuple[str, str]:
+    goal = research_goal or query
+    system = f"""You are a search synthesis assistant for {provider_name}.
+Today is {anchor_today()}.
+Answer with short grounded bullet points and inline citations.
+Prefer current, official, and primary sources.
+"""
+    user = f"""QUERY:
+{query}
+
+RESEARCH_GOAL:
+{goal}
+
+Return a concise grounded answer with citations."""
+    return system, user
+</file>
+
+<file path="prompts/provider_grok.py">
+"""Prompt builders for Grok search tasks."""
+
+from __future__ import annotations
+
+from .builders import anchor_today
+
+
+def build_provider_grok_prompt(
+    *, query: str, research_goal: str | None, provider_name: str = "grok"
+) -> tuple[str, str]:
+    goal = research_goal or query
+    system = f"""<identity>
+Search assistant for {provider_name}. Today: {anchor_today()}.
+</identity>
+<instructions>
+Search the web and cite concise results.
+Prefer fresh sources and keep output compact.
+</instructions>"""
+    user = f"""<query>{query}</query>
+<goal>{goal}</goal>"""
+    return system, user
+</file>
+
+<file path="prompts/provider_perplexity.py">
+"""Prompt builders for Perplexity-style search tasks."""
+
+from __future__ import annotations
+
+from .builders import anchor_today
+
+
+def build_provider_perplexity_prompt(
+    *, query: str, research_goal: str | None, provider_name: str = "perplexity"
+) -> tuple[str, str]:
+    goal = research_goal or query
+    system = f"""You are a concise web research assistant for {provider_name}.
+Today is {anchor_today()}.
+Return factual answers with numbered citations and no filler."""
+    user = f"""QUERY:
+{query}
+
+RESEARCH_GOAL:
+{goal}
+
+Answer with numbered citations."""
+    return system, user
+</file>
+
+<file path="prompts/query_rewrite.py">
+"""Prompt builders for rewrite workers."""
+
+from __future__ import annotations
+
+from ..search.intents import SearchIntent
+from .builders import anchor_today, join_terms, provider_style
+
+
+def build_query_rewrite_prompt(
+    *,
+    query: str,
+    research_goal: str | None,
+    intent: SearchIntent,
+    must_keep_terms: list[str],
+    provider_name: str,
+) -> tuple[str, str]:
+    goal = research_goal or query
+    must_keep = join_terms(must_keep_terms)
+    system = {
+        "general": """You rewrite search queries for broad research.
+Create concise variants that improve retrieval without changing meaning.""",
+        "ai_coding": """You rewrite technical search queries for code and API lookup.
+Prefer docs, issues, release notes, and exact technical terms.""",
+        "digital_humanities": """You rewrite humanities research queries.
+Prefer archives, primary sources, editions, corpora, and scholarly context.""",
+        "comparison": """You rewrite comparison queries.
+Preserve the compared items and produce contrastive search variants.""",
+    }[intent]
+    system += f"""
+
+Today is {anchor_today()}.
+Return JSON only with a top-level `variants` array.
+Each variant has: kind, target, query, why, weight.
+Target must be keyword, community, or neural.
+Preserve every must-keep term exactly.
+This prompt is tuned for {provider_style(provider_name)} and GPT-OSS-style workers.
+"""
+    user = f"""RAW_QUERY:
+{query}
+
+RESEARCH_GOAL:
+{goal}
+
+INTENT:
+{intent}
+
+MUST_KEEP_TERMS:
+{must_keep}
+
+Return JSON only."""
+    return system, user
+</file>
+
+<file path="prompts/query_understanding.py">
+"""Prompt builders for query understanding."""
+
+from __future__ import annotations
+
+from ..search.intents import SearchIntent
+from .builders import anchor_today, join_terms, provider_style
+
+
+def build_query_understanding_prompt(
+    *,
+    query: str,
+    research_goal: str | None,
+    intent: SearchIntent | None,
+    must_keep_terms: list[str],
+    provider_name: str = "worker",
+) -> tuple[str, str]:
+    goal = research_goal or query
+    system = f"""You conservatively classify and annotate web search queries for {provider_style(provider_name)}.
+Today is {anchor_today()}.
+Return JSON only.
+The schema is:
+- schema_version: "0.2"
+- intent: general | ai_coding | digital_humanities | comparison
+- confidence: 0 to 1
+- entities: array of {{text,label,start,end,confidence}}
+- preserved_terms: array of exact literals to keep in rewriting
+- compared_entities: array of named items being compared
+- time_sensitivity: none | recent | current | historical
+- domain_hints: array of short labels
+- provider_hints: object with keyword/neural/community booleans
+- rewrite_hints: object with style, variant_count, preserve_order
+- rationale: short string
+
+Rules:
+- general = broad exploration or mixed intent.
+- ai_coding = code, APIs, packages, tooling, build errors, implementation.
+- digital_humanities = history, archives, corpora, texts, humanities research.
+- comparison = explicit comparison or ranking of named things.
+- If the request is ambiguous, underspecified, or low confidence, choose general.
+- Extract only grounded entities and preserve exact literals and identifiers.
+- Extract only grounded entities.
+- Preserve exact literals and identifiers.
+- Keep the output compact and valid JSON.
+"""
+    user = f"""RAW_QUERY:
+{query}
+
+RESEARCH_GOAL:
+{goal}
+
+INTENT_HINT:
+{intent or "none"}
+
+MUST_KEEP_TERMS:
+{join_terms(must_keep_terms)}
+
+Return JSON only."""
+    return system, user
+</file>
+
+<file path="prompts/registry.py">
+"""Prompt registry for worker families."""
+
+from __future__ import annotations
+
+from ..search.intents import SearchIntent
+from .provider_gemini import build_provider_gemini_prompt
+from .provider_grok import build_provider_grok_prompt
+from .provider_perplexity import build_provider_perplexity_prompt
+from .entity_extraction import build_entity_extraction_prompt
+from .query_rewrite import build_query_rewrite_prompt
+from .query_understanding import build_query_understanding_prompt
+
+
+def build_prompt(
+    name: str,
+    *,
+    query: str,
+    research_goal: str | None = None,
+    intent: SearchIntent | None = None,
+    must_keep_terms: list[str] | None = None,
+    provider_name: str = "worker",
+) -> tuple[str, str]:
+    if name == "query_understanding":
+        return build_query_understanding_prompt(
+            query=query,
+            research_goal=research_goal,
+            intent=intent,
+            must_keep_terms=must_keep_terms or [],
+            provider_name=provider_name,
+        )
+    if name == "entity_extraction":
+        return build_entity_extraction_prompt(
+            query=query,
+            research_goal=research_goal,
+            provider_name=provider_name,
+        )
+    if name == "worker_rewrite":
+        return build_query_rewrite_prompt(
+            query=query,
+            research_goal=research_goal,
+            intent=intent or "general",
+            must_keep_terms=must_keep_terms or [],
+            provider_name=provider_name,
+        )
+    if name == "gemini_search":
+        return build_provider_gemini_prompt(
+            query=query,
+            research_goal=research_goal,
+            provider_name=provider_name,
+        )
+    if name == "grok_search":
+        return build_provider_grok_prompt(
+            query=query,
+            research_goal=research_goal,
+            provider_name=provider_name,
+        )
+    if name == "perplexity_search":
+        return build_provider_perplexity_prompt(
+            query=query,
+            research_goal=research_goal,
+            provider_name=provider_name,
+        )
+    if name == "rerank":
+        return (
+            "Use the query and research goal to prioritize sources.",
+            f"QUERY:\n{query}\n\nRESEARCH_GOAL:\n{research_goal or query}",
+        )
+    raise KeyError(name)
+</file>
+
+<file path="prompts/rerank.py">
+"""Prompt helpers for rerank instruction steering."""
+
+from __future__ import annotations
+
+
+def build_rerank_instruction(
+    query: str, query_type: str | None, research_goal: str | None
+) -> str:
+    parts = [f"Query: {query}"]
+    if query_type:
+        parts.append(f"Query type: {query_type}")
+    if research_goal:
+        parts.append(f"Research goal: {research_goal}")
+    return "\n".join(parts)
+</file>
+
 <file path="rerank/__init__.py">
 """Reranking module for web search results."""
 
 from .core import rerank_results
+from .models import CandidateEmbedding, RerankEmbeddingContext, RerankOutput
 from .bi_encoder import bi_encoder_filter
 from .gcp_cloudrun import gcp_cloudrun_rerank
 from .jina import jina_rerank
@@ -15837,6 +19461,9 @@ from .voyage import voyage_rerank
 
 __all__ = [
     "rerank_results",
+    "CandidateEmbedding",
+    "RerankEmbeddingContext",
+    "RerankOutput",
     "bi_encoder_filter",
     "gcp_cloudrun_rerank",
     "jina_rerank",
@@ -15856,6 +19483,7 @@ import numpy as np
 from ..embeddings import embed_texts
 from ..embeddings.hf_inference import EmbeddingAPIError, EmbeddingTimeoutError
 from ..models import WebSearchResult
+from .models import CandidateEmbedding, RerankEmbeddingContext
 
 LOGGER = logging.getLogger(__name__)
 
@@ -15864,13 +19492,13 @@ async def bi_encoder_filter(
     query_embedding: list[float],
     candidates: list[WebSearchResult],
     top_k: int = 100,
-) -> list[WebSearchResult]:
+) -> tuple[list[WebSearchResult], RerankEmbeddingContext | None]:
     """
     Filter a large candidate list using embedding-based similarity scoring.
 
     The query embedding must be pre-computed by the caller and passed in.
-    This keeps the single point of embedding computation in the orchestrating
-    pipeline (rerank_results), so the HF Inference call happens exactly once.
+    Returns the filtered candidates plus an embedding context so downstream
+    stages (MMR diversity, Qdrant index) can reuse the vectors.
 
     Args:
         query_embedding: Pre-computed query embedding vector.
@@ -15878,12 +19506,11 @@ async def bi_encoder_filter(
         top_k: Number of top candidates to return.
 
     Returns:
-        Filtered list of candidates sorted by cosine similarity to the query,
-        or the leading top_k slice of candidates if candidate embedding fails
-        (graceful degradation).
+        Tuple of (ranked_candidates, RerankEmbeddingContext or None).
+        The context is None when no embedding was computed (fallback path).
     """
     if len(candidates) <= top_k:
-        return candidates
+        return candidates, None
 
     # Generate candidate embeddings (title + snippet)
     candidate_texts = [
@@ -15896,14 +19523,29 @@ async def bi_encoder_filter(
         LOGGER.warning(
             f"Bi-encoder candidate embedding failed: {type(e).__name__}: {e}, falling back to top_k slice"
         )
-        return candidates[:top_k]
+        return candidates[:top_k], None
 
     if not candidate_vectors or len(candidate_vectors) != len(candidates):
         LOGGER.warning(
             f"Bi-encoder candidate embedding mismatch: got {len(candidate_vectors) if candidate_vectors else 0}, "
             f"expected {len(candidates)}, falling back to top_k slice"
         )
-        return candidates[:top_k]
+        return candidates[:top_k], None
+
+    # Build embedding context before filtering (retains embeddings for ALL candidates)
+    embedding_ctx = RerankEmbeddingContext(
+        query_embedding=query_embedding,
+        candidates=[
+            CandidateEmbedding(
+                url=candidate.link.strip(),
+                text=text,
+                dense=vec,
+            )
+            for candidate, text, vec in zip(
+                candidates, candidate_texts, candidate_vectors
+            )
+        ],
+    )
 
     # Compute cosine similarity
     query_normalized = np.array(query_embedding) / max(
@@ -15918,7 +19560,7 @@ async def bi_encoder_filter(
     top_indices = np.argsort(similarities)[-top_k:][::-1].tolist()
 
     # Return candidates in ranked order
-    return [candidates[index] for index in top_indices]
+    return [candidates[index] for index in top_indices], embedding_ctx
 </file>
 
 <file path="rerank/core.py">
@@ -15942,6 +19584,7 @@ from ..embeddings.hf_inference import (
 )
 from ..models import WebSearchResult
 from ..settings import settings
+from ..prompts.rerank import build_rerank_instruction
 from ..telemetry import (
     record_rerank_stage,
     RERANK_STAGE,
@@ -15950,9 +19593,14 @@ from ..telemetry import (
     SEARCH_QUERY,
 )
 from ..utils.observability import emit_observability_event
+from ..analytics.duckdb_store import (
+    insert_rerank_stages as analytics_insert_rerank_stages,
+    insert_rerank_candidates as analytics_insert_rerank_candidates,
+)
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
 from .engines import rerank_with_engine_fallback
+from .models import RerankEmbeddingContext, RerankOutput
 from .observability import emit_rerank_summary
 from .policy import decide_rerank
 from opentelemetry import trace
@@ -15962,9 +19610,11 @@ tracer: Any = trace.get_tracer("web-search-mcp")
 
 _QUERY_TYPE_GUIDANCE: dict[str, str] = {
     "code": "Prioritize official docs, API signatures, repository code, and implementation guides.",
+    "ai_coding": "Prioritize official docs, API signatures, repository code, and implementation guides.",
     "comparison": "Prioritize benchmarks, comparison tables, and primary-source evidence.",
     "general_research": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
     "general": "Prioritize authoritative, specific, recent sources without hiding relevant canonical older docs.",
+    "digital_humanities": "Prioritize archival sources, primary texts, scholarly editions, and domain-specific references.",
 }
 
 
@@ -16010,21 +19660,12 @@ def _build_rerank_instruction(
     research_goal: str | None = None,
     query_type_hint: str | None = None,
 ) -> str | None:
-    parts: list[str] = []
     query_type = (query_type_hint or "general").strip().lower()
-    guidance = _QUERY_TYPE_GUIDANCE.get(query_type)
-    if guidance:
-        parts.append(guidance)
-
-    if research_goal:
-        goal = _normalize_instruction_text(research_goal, 180)
-        if goal:
-            parts.append(f"Goal: {goal}")
-
-    if not parts:
-        return _QUERY_TYPE_GUIDANCE["general"]
-
-    return " ".join(parts)
+    return build_rerank_instruction(
+        query="",
+        query_type=query_type,
+        research_goal=_normalize_instruction_text(research_goal, 180),
+    )
 
 
 async def rerank_results(
@@ -16036,20 +19677,38 @@ async def rerank_results(
     query_entities: list | None = None,
     research_goal: str | None = None,
     query_type_hint: str | None = None,
-) -> list[WebSearchResult]:
+    run_key: str | None = None,
+    ab_overrides: dict | None = None,
+) -> RerankOutput:
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
     query_entities (if provided) enables the measured entity-overlap feature
-    when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
+    when RERANK_ENTITY_OVERLAP_ENABLED.
+
+    ab_overrides (optional): A/B experiment variant config dict that can
+        override ``provider``, ``top_k``, ``diversity_weight``, and/or
+        ``entity_boost`` parameters for this rerank invocation.
     """
     if not candidates:
-        return []
+        return RerankOutput(results=[], embedding_context=None)
 
     if len(candidates) <= top_k:
         logger.debug(
             f"Candidates ({len(candidates)}) <= top_k ({top_k}), skipping rerank"
         )
-        return candidates
+        return RerankOutput(results=candidates, embedding_context=None)
+
+    # Apply A/B experiment overrides (provider, top_k, diversity_weight, entity_boost)
+    if ab_overrides:
+        if "top_k" in ab_overrides:
+            top_k = int(ab_overrides["top_k"])
+            logger.debug("A/B override: top_k -> %s", top_k)
+        if "provider" in ab_overrides:
+            logger.debug("A/B override: provider -> %s", ab_overrides["provider"])
+        if "diversity_weight" in ab_overrides:
+            logger.debug("A/B override: diversity_weight -> %s", ab_overrides["diversity_weight"])
+        if "entity_boost" in ab_overrides:
+            logger.debug("A/B override: entity_boost -> %s", ab_overrides["entity_boost"])
 
     instruction = _build_rerank_instruction(
         research_goal=research_goal,
@@ -16069,7 +19728,6 @@ async def rerank_results(
             decision.reason,
             len(candidates),
         )
-        # policy already emitted rerank.eligibility + rerank.bypassed
         emit_observability_event(
             logger,
             "rerank.bypassed",
@@ -16077,7 +19735,7 @@ async def rerank_results(
             query=query[:200],
             candidate_count=len(candidates),
         )
-        return candidates
+        return RerankOutput(results=candidates, embedding_context=None)
 
     original_count = len(candidates)
     pipeline_start = time.time()
@@ -16093,6 +19751,8 @@ async def rerank_results(
             f"Query embedding failed: {type(e).__name__}: {e}; "
             "Stage 1 (bi-encoder) and Stage 3 (diversity) will be skipped"
         )
+
+    embedding_ctx: RerankEmbeddingContext | None = None
 
     with tracer.start_as_current_span(
         "rerank.pipeline",
@@ -16112,7 +19772,7 @@ async def rerank_results(
             )
             stage1_start = time.time()
             try:
-                candidates = await bi_encoder_filter(
+                candidates, embedding_ctx = await bi_encoder_filter(
                     query_embedding,
                     candidates,
                     top_k=bi_encoder_top_k,
@@ -16134,6 +19794,26 @@ async def rerank_results(
                 duration_seconds=stage1_duration,
             )
 
+            # Analytics dual-write: bi_encoder stage
+            if run_key:
+                try:
+                    analytics_insert_rerank_stages(
+                        run_key=run_key,
+                        stage="bi_encoder",
+                        provider=None,
+                        model=None,
+                        input_count=original_count,
+                        output_count=stage1_output_count,
+                        duration_ms=round(stage1_duration * 1000.0, 3),
+                        max_score=None,
+                        avg_score=None,
+                        query_type_hint=query_type_hint,
+                        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                        payload_json={"original_count": original_count},
+                    )
+                except Exception as exc:
+                    logger.debug("analytics insert_rerank_stages (bi_encoder) failed: %s", exc)
+
             main_span.add_event(
                 "rerank.bi_encoder",
                 attributes={
@@ -16149,6 +19829,9 @@ async def rerank_results(
         stage2_duration = 0.0
         relevance_scores: list[float] = []
         configured_provider = settings.rerank_provider.strip().lower()
+        # A/B override for provider
+        if ab_overrides and "provider" in ab_overrides:
+            configured_provider = ab_overrides["provider"].strip().lower()
         stage2_provider = configured_provider
         stage2_model = None
 
@@ -16204,17 +19887,24 @@ async def rerank_results(
             candidates = [candidates[item.index] for item in sorted_ranked]
 
             # Entity overlap as measured rerank signal (Phase 8.3)
-            # Blended only when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED; additive on top of
-            # cross-encoder + recency. Weight controlled in settings. Emits for dashboards.
-            if getattr(settings, "rerank_entity_overlap_enabled", False) and query_entities:
+            if (
+                getattr(settings, "rerank_entity_overlap_enabled", False)
+                and query_entities
+            ):
                 try:
                     from ..entity.overlap import compute_entity_overlap
 
                     w = float(getattr(settings, "rerank_entity_overlap_weight", 0.15))
+                    # A/B override for entity_boost
+                    if ab_overrides and "entity_boost" in ab_overrides:
+                        w = float(ab_overrides["entity_boost"])
                     os_list: list[float] = []
                     for c in candidates[: min(20, len(candidates))]:
                         c_ents = getattr(c, "entities", None) or []
-                        o = compute_entity_overlap(query_entities, c_ents if isinstance(c_ents, (list, tuple)) else [])
+                        o = compute_entity_overlap(
+                            query_entities,
+                            c_ents if isinstance(c_ents, (list, tuple)) else [],
+                        )
                         os_list.append(o)
                         if getattr(c, "score", None) is not None:
                             c.score = float(c.score) + (w * o)
@@ -16251,6 +19941,8 @@ async def rerank_results(
         logger.debug(f"After provider rerank: {len(candidates)} candidates")
 
         if relevance_scores:
+            avg_rerank_score = sum(relevance_scores) / len(relevance_scores)
+
             record_rerank_stage(
                 stage=stage2_provider,
                 input_count=stage2_input_count,
@@ -16259,6 +19951,30 @@ async def rerank_results(
                 relevance_scores=relevance_scores,
                 model=stage2_model,
             )
+
+            # Analytics dual-write: provider rerank stage
+            if run_key:
+                try:
+                    analytics_insert_rerank_stages(
+                        run_key=run_key,
+                        stage=stage2_provider,
+                        provider=stage2_provider,
+                        model=stage2_model,
+                        input_count=stage2_input_count,
+                        output_count=stage2_output_count,
+                        duration_ms=round(stage2_duration * 1000.0, 3),
+                        max_score=max_rerank_score,
+                        avg_score=avg_rerank_score,
+                        query_type_hint=query_type_hint,
+                        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                        payload_json={
+                            "original_count": original_count,
+                            "recency_weight": recency_weight,
+                            "apply_recency": apply_recency,
+                        },
+                    )
+                except Exception as exc:
+                    logger.debug("analytics insert_rerank_stages (rerank) failed: %s", exc)
 
             main_span.add_event(
                 f"rerank.{stage2_provider}",
@@ -16280,24 +19996,41 @@ async def rerank_results(
         stage3_duration = 0.0
         diversity_removed = 0
 
+        # A/B override for diversity_weight (MMR lambda)
+        mmr_lambda = settings.mmr_lambda_param
+        if ab_overrides and "diversity_weight" in ab_overrides:
+            mmr_lambda = float(ab_overrides["diversity_weight"])
+            logger.debug("A/B override: MMR lambda -> %s", mmr_lambda)
+
         if query_embedding:
-            texts = [
-                f"{candidate.title}\n{candidate.snippet}"
-                for candidate in candidates[: top_k * 2]
-            ]
+            stage3_input = candidates[: top_k * 2]
+            stage3_texts = [f"{c.title}\n{c.snippet}" for c in stage3_input]
             stage3_start = time.time()
             try:
-                embeddings = await embed_texts(texts, timeout=10.0)
-                if embeddings and len(embeddings) == len(candidates[: top_k * 2]):
-                    scoped_urls = [
-                        candidate.link for candidate in candidates[: top_k * 2]
-                    ]
+                # Reuse bi-encoder embeddings when available, otherwise embed once here
+                if embedding_ctx is not None:
+                    embeddings = []
+                    for c in stage3_input:
+                        emb = embedding_ctx.find(c.link.strip())
+                        if emb is not None:
+                            embeddings.append(emb.dense)
+                        else:
+                            embeddings = None
+                            break
+                else:
+                    embeddings = None
+
+                if embeddings is None:
+                    embeddings = await embed_texts(stage3_texts, timeout=10.0)
+
+                if embeddings and len(embeddings) == len(stage3_input):
+                    scoped_urls = [c.link for c in stage3_input]
 
                     diversified_rank = maximal_marginal_relevance_rank(
                         query_embedding,
                         embeddings,
                         scoped_urls,
-                        lambda_param=settings.mmr_lambda_param,
+                        lambda_param=mmr_lambda,
                         max_per_host=2,
                     )
 
@@ -16314,7 +20047,7 @@ async def rerank_results(
                 else:
                     logger.warning(
                         f"Diversity embedding mismatch: got {len(embeddings) if embeddings else 0}, "
-                        f"expected {len(candidates[: top_k * 2])}, skipping diversity stage"
+                        f"expected {len(stage3_input)}, skipping diversity stage"
                     )
             except (
                 EmbeddingTimeoutError,
@@ -16333,6 +20066,29 @@ async def rerank_results(
             output_count=stage3_output_count,
             duration_seconds=stage3_duration,
         )
+
+        # Analytics dual-write: diversity stage
+        if run_key:
+            try:
+                analytics_insert_rerank_stages(
+                    run_key=run_key,
+                    stage="diversity",
+                    provider=None,
+                    model=None,
+                    input_count=stage3_input_count,
+                    output_count=stage3_output_count,
+                    duration_ms=round(stage3_duration * 1000.0, 3),
+                    max_score=None,
+                    avg_score=None,
+                    query_type_hint=query_type_hint,
+                    entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                    payload_json={
+                        "diversity_removed": diversity_removed,
+                        "mmr_lambda": mmr_lambda,
+                    },
+                )
+            except Exception as exc:
+                logger.debug("analytics insert_rerank_stages (diversity) failed: %s", exc)
 
         main_span.add_event(
             "rerank.diversity",
@@ -16383,7 +20139,7 @@ async def rerank_results(
             query_type_hint=query_type_hint,
         )
 
-        return final_results
+        return RerankOutput(results=final_results, embedding_context=embedding_ctx)
 </file>
 
 <file path="rerank/diversity.py">
@@ -16800,10 +20556,10 @@ Compatible with:
 - Custom FastAPI example returning Jina-like {"results": [{"index":, "relevance_score":}] }
 
 Env / settings:
-  KINDLY_RERANK_GCP_CLOUDRUN_URL (required)
-  KINDLY_RERANK_GCP_MODEL (for logging/telemetry)
-  KINDLY_RERANK_GCP_TIMEOUT
-  (optional) static token via KINDLY_RERANK_GCP_AUTH_TOKEN or passed api_key
+  RERANK_GCP_CLOUDRUN_URL (required)
+  RERANK_GCP_MODEL (for logging/telemetry)
+  RERANK_GCP_TIMEOUT
+  (optional) static token via RERANK_GCP_AUTH_TOKEN or passed api_key
 """
 
 from __future__ import annotations
@@ -16966,16 +20722,16 @@ async def gcp_cloudrun_rerank(
     """Rerank using a private GCP Cloud Run TEI or custom /rerank service.
 
     Authentication:
-    - If api_key provided or KINDLY_RERANK_GCP_AUTH_TOKEN set: use as Bearer token.
+    - If api_key provided or RERANK_GCP_AUTH_TOKEN set: use as Bearer token.
     - Else: attempt Google ID token for the service URL (audience).
     - If no token obtainable and service is --allow-unauthenticated, request succeeds unauthed.
     """
     if not documents:
         return []
 
-    resolved_url = url or settings.rerank_gcp_cloudrun_url or os.environ.get("KINDLY_RERANK_GCP_CLOUDRUN_URL", "")
+    resolved_url = url or settings.rerank_gcp_cloudrun_url or os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
     if not resolved_url.strip():
-        raise ValueError("KINDLY_RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker")
+        raise ValueError("RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker")
 
     resolved_timeout = timeout or getattr(settings, "rerank_gcp_timeout", 30.0)
 
@@ -16995,7 +20751,7 @@ async def gcp_cloudrun_rerank(
     }
 
     # Determine auth
-    static_token = api_key or os.environ.get("KINDLY_RERANK_GCP_AUTH_TOKEN", "")
+    static_token = api_key or os.environ.get("RERANK_GCP_AUTH_TOKEN", "")
     if static_token.strip():
         headers["Authorization"] = f"Bearer {static_token.strip()}"
     else:
@@ -17122,12 +20878,14 @@ async def jina_rerank(
 </file>
 
 <file path="rerank/models.py">
-"""Shared rerank engine contracts."""
+"""Shared rerank engine contracts and embedding context models."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
+
+from pydantic import BaseModel, Field
 
 
 @dataclass(frozen=True, slots=True)
@@ -17160,6 +20918,58 @@ class RerankEngine(Protocol):
         instruction: str | None = None,
     ) -> list[RerankResult]:
         """Return ranked candidate indexes with relevance scores."""
+
+
+# =============================================================================
+# Embedding Context Models (for rerank -> Qdrant embedding reuse)
+# =============================================================================
+
+
+class CandidateEmbedding(BaseModel):
+    """A single candidate's precomputed dense embedding and source text.
+
+    Stored in a RerankEmbeddingContext for lookup by URL across pipeline stages.
+    """
+
+    url: str = Field(description="Result URL (dedup/identity key)")
+    text: str = Field(description="Text that was embedded (f'{title}\\n{snippet}')")
+    dense: list[float] = Field(description="384-dim dense embedding vector")
+
+    model_config = {"frozen": True}
+
+
+class RerankEmbeddingContext(BaseModel):
+    """Query embedding + per-candidate embeddings produced by bi-encoder stage.
+
+    Carried through the rerank pipeline so MMR diversity and downstream
+    consumers (e.g. Qdrant index) can reuse the already-computed vectors.
+    """
+
+    query_embedding: list[float] = Field(description="384-dim query embedding vector")
+    candidates: list[CandidateEmbedding] = Field(
+        description="Per-candidate dense embeddings, indexed by url"
+    )
+
+    def find(self, url: str) -> CandidateEmbedding | None:
+        for c in self.candidates:
+            if c.url == url:
+                return c
+        return None
+
+
+class RerankOutput(BaseModel):
+    """Return type for rerank_results carrying final results + embedding context.
+
+    Consumers that only need results can access ``.results`` and ignore the context.
+    """
+
+    results: list[Any] = Field(
+        description="Final reranked and diversified results (WebSearchResult objects)"
+    )
+    embedding_context: RerankEmbeddingContext | None = Field(
+        default=None,
+        description="Per-candidate embeddings for reuse in downstream stages (e.g. Qdrant)",
+    )
 </file>
 
 <file path="rerank/observability.py">
@@ -17714,14 +21524,14 @@ POOL_HEALTH_TIMEOUT_SECONDS = 2.0
 
 
 def _resolve_reuse_enabled() -> bool:
-    raw = (os.environ.get("KINDLY_NODRIVER_REUSE_BROWSER") or "").strip().lower()
+    raw = (os.environ.get("NODRIVER_REUSE_BROWSER") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False
     return True
 
 
 def _resolve_pool_size() -> int:
-    raw = (os.environ.get("KINDLY_NODRIVER_BROWSER_POOL_SIZE") or "").strip()
+    raw = (os.environ.get("NODRIVER_BROWSER_POOL_SIZE") or "").strip()
     try:
         value = int(raw)
     except ValueError:
@@ -17732,7 +21542,7 @@ def _resolve_pool_size() -> int:
 
 
 def _resolve_acquire_timeout_seconds() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_ACQUIRE_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.environ.get("NODRIVER_ACQUIRE_TIMEOUT_SECONDS") or "").strip()
     try:
         value = float(raw)
     except ValueError:
@@ -17759,7 +21569,7 @@ def _parse_port_range(raw: str) -> tuple[int, int] | None:
 
 
 def _resolve_port_range() -> tuple[int, int] | None:
-    raw = (os.environ.get("KINDLY_NODRIVER_PORT_RANGE") or "").strip()
+    raw = (os.environ.get("NODRIVER_PORT_RANGE") or "").strip()
     return _parse_port_range(raw)
 
 
@@ -17878,7 +21688,7 @@ class ChromiumSlot:
         if not self.browser_executable_path:
             raise RuntimeError(
                 "No Chromium-based browser executable found. "
-                "Install Chromium/Chrome or set KINDLY_BROWSER_EXECUTABLE_PATH."
+                "Install Chromium/Chrome or set BROWSER_EXECUTABLE_PATH."
             )
         sandbox_enabled = worker._resolve_sandbox_enabled()
         devtools_ready_timeout_seconds = (
@@ -18543,7 +22353,7 @@ _DIAG_LINE_LIMIT = 8000  # Keep in sync with utils.diagnostics.MAX_LINE_CHARS
 
 
 def _diagnostics_enabled() -> bool:
-    raw = (os.environ.get("KINDLY_DIAGNOSTICS") or "").strip().lower()
+    raw = (os.environ.get("DIAGNOSTICS") or "").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -18574,7 +22384,7 @@ def _emit_diag(stage: str, msg: str, data: dict[str, object] | None = None) -> N
                 },
             }
             payload = json.dumps(entry, ensure_ascii=True, separators=(",", ":"))
-        _safe_write_text(stream, f"KINDLY_DIAG {payload}")
+        _safe_write_text(stream, f"DIAG {payload}")
     except Exception:
         return
 
@@ -18733,7 +22543,7 @@ def _resolve_browser_executable_path(explicit_path: str | None) -> str | None:
         return explicit_path.strip()
 
     for key in (
-        "KINDLY_BROWSER_EXECUTABLE_PATH",
+        "BROWSER_EXECUTABLE_PATH",
         "BROWSER_EXECUTABLE_PATH",
         "CHROME_BIN",
         "CHROME_PATH",
@@ -18784,7 +22594,7 @@ def _resolve_sandbox_enabled() -> bool:
     except Exception:
         pass
 
-    raw_sandbox = (os.environ.get("KINDLY_NODRIVER_SANDBOX") or "").strip().lower()
+    raw_sandbox = (os.environ.get("NODRIVER_SANDBOX") or "").strip().lower()
     if raw_sandbox in ("0", "false", "no", "off"):
         return False
     if raw_sandbox in ("1", "true", "yes", "on"):
@@ -18814,7 +22624,7 @@ def _is_snap_browser(executable_path: str) -> bool:
 
 
 def _resolve_start_retry_attempts() -> int:
-    raw = (os.environ.get("KINDLY_NODRIVER_RETRY_ATTEMPTS") or "").strip()
+    raw = (os.environ.get("NODRIVER_RETRY_ATTEMPTS") or "").strip()
     try:
         value = int(raw) if raw else 3
     except ValueError:
@@ -18823,7 +22633,7 @@ def _resolve_start_retry_attempts() -> int:
 
 
 def _resolve_retry_backoff_seconds() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS") or "").strip()
+    raw = (os.environ.get("NODRIVER_RETRY_BACKOFF_SECONDS") or "").strip()
     try:
         value = float(raw) if raw else 0.5
     except ValueError:
@@ -18840,7 +22650,7 @@ def _resolve_devtools_ready_timeout_seconds() -> float:
       Keep defaults conservative and allow env overrides for slow cold starts (e.g., Snap).
     """
     raw = (
-        os.environ.get("KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or ""
+        os.environ.get("NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or ""
     ).strip()
     try:
         # Windows cold starts (first run + antivirus scans of fresh user-data-dir) can
@@ -18859,7 +22669,7 @@ def _resolve_worker_timeout_seconds() -> float:
 def _resolve_worker_timeout_details() -> tuple[
     float, float, float, bool, bool, bool, str
 ]:
-    raw = (os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
     used_default = False
     invalid = False
     try:
@@ -18908,7 +22718,7 @@ def _ensure_no_proxy_localhost() -> None:
     - We only need to guarantee loopback bypass for the local DevTools endpoint.
     """
     raw = (
-        (os.environ.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1")
+        (os.environ.get("NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1")
         .strip()
         .lower()
     )
@@ -18934,7 +22744,7 @@ def _pick_free_port(host: str = "127.0.0.1") -> int:
 
 
 def _resolve_snap_backoff_multiplier() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER") or "").strip()
+    raw = (os.environ.get("NODRIVER_SNAP_BACKOFF_MULTIPLIER") or "").strip()
     try:
         value = float(raw) if raw else 3.0
     except ValueError:
@@ -19128,7 +22938,7 @@ async def _fetch_html(
         if resolved_browser_executable_path is None:
             raise RuntimeError(
                 "No Chromium-based browser executable found. "
-                "Install Chromium/Chrome or set KINDLY_BROWSER_EXECUTABLE_PATH to the browser binary path."
+                "Install Chromium/Chrome or set BROWSER_EXECUTABLE_PATH to the browser binary path."
             )
         is_snap = _is_snap_browser(resolved_browser_executable_path)
         attempts = _resolve_start_retry_attempts()
@@ -19546,8 +23356,8 @@ async def _fetch_html(
                 raise RuntimeError(
                     f"Failed to connect to browser after {attempts} attempt(s). "
                     f"(root={is_root}, sandbox={sandbox_enabled}, browser_executable_path={resolved_browser_executable_path!r}) "
-                    "If running as root (e.g., in Docker), ensure sandbox is disabled (KINDLY_NODRIVER_SANDBOX=0). "
-                    "If the browser cannot be found/started, set KINDLY_BROWSER_EXECUTABLE_PATH."
+                    "If running as root (e.g., in Docker), ensure sandbox is disabled (NODRIVER_SANDBOX=0). "
+                    "If the browser cannot be found/started, set BROWSER_EXECUTABLE_PATH."
                 ) from exc
             _emit_diag(
                 "worker.error",
@@ -19568,7 +23378,7 @@ async def _main_async(args: argparse.Namespace) -> int:
     global _DIAG_ENABLED, _DIAG_REQUEST_ID, _DIAG_STREAM, _DIAG_STARTED
     _DIAG_ENABLED = _diagnostics_enabled()
     _DIAG_REQUEST_ID = (
-        os.environ.get("KINDLY_REQUEST_ID") or "unknown"
+        os.environ.get("REQUEST_ID") or "unknown"
     ).strip() or "unknown"
     _DIAG_STREAM = original_stderr
     _DIAG_STARTED = time.monotonic()
@@ -19593,23 +23403,23 @@ async def _main_async(args: argparse.Namespace) -> int:
                 "python_version": platform.python_version(),
                 "platform": platform.platform(),
                 "env": {
-                    "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""
+                    "HTML_TOTAL_TIMEOUT_SECONDS": os.environ.get(
+                        "HTML_TOTAL_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_RETRY_ATTEMPTS": os.environ.get(
-                        "KINDLY_NODRIVER_RETRY_ATTEMPTS", ""
+                    "NODRIVER_RETRY_ATTEMPTS": os.environ.get(
+                        "NODRIVER_RETRY_ATTEMPTS", ""
                     ),
-                    "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": os.environ.get(
-                        "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""
+                    "NODRIVER_RETRY_BACKOFF_SECONDS": os.environ.get(
+                        "NODRIVER_RETRY_BACKOFF_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
+                    "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": os.environ.get(
+                        "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER": os.environ.get(
-                        "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
+                    "NODRIVER_SNAP_BACKOFF_MULTIPLIER": os.environ.get(
+                        "NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
                     ),
-                    "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST": os.environ.get(
-                        "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
+                    "NODRIVER_ENSURE_NO_PROXY_LOCALHOST": os.environ.get(
+                        "NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
                     ),
                     "NO_PROXY": os.environ.get("NO_PROXY", ""),
                     "no_proxy": os.environ.get("no_proxy", ""),
@@ -19815,7 +23625,7 @@ def _resolve_browser_executable_path() -> str | None:
     no default Chrome/Chromium binary exists in standard locations.
     """
     for key in (
-        "KINDLY_BROWSER_EXECUTABLE_PATH",
+        "BROWSER_EXECUTABLE_PATH",
         "BROWSER_EXECUTABLE_PATH",
         "CHROME_BIN",
         "CHROME_PATH",
@@ -19834,7 +23644,7 @@ def _ensure_no_proxy_localhost_env(env: dict[str, str]) -> None:
     If HTTP(S)_PROXY/ALL_PROXY are set without NO_PROXY/no_proxy, urllib can attempt to proxy loopback
     requests, leading to long hangs (commonly on Windows corporate machines).
     """
-    raw = (env.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1").strip().lower()
+    raw = (env.get("NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return
 
@@ -19857,10 +23667,10 @@ def _split_worker_diagnostics(
     cleaned_lines: list[str] = []
     error_samples: list[str] = []
     for line in (stderr_text or "").splitlines():
-        if not line.startswith("KINDLY_DIAG "):
+        if not line.startswith("DIAG "):
             cleaned_lines.append(line)
             continue
-        payload = line[len("KINDLY_DIAG ") :].strip()
+        payload = line[len("DIAG ") :].strip()
         try:
             parsed = json.loads(payload)
         except Exception:
@@ -19933,8 +23743,8 @@ def _consume_stderr_line(
 ) -> None:
     if line == "":
         return
-    if line.startswith("KINDLY_DIAG "):
-        payload = line[len("KINDLY_DIAG ") :].strip()
+    if line.startswith("DIAG "):
+        payload = line[len("DIAG ") :].strip()
         try:
             parsed = json.loads(payload)
         except Exception:
@@ -20337,13 +24147,13 @@ async def fetch_html_via_nodriver(
     # Ensure nodriver can find the browser: if we have a resolved browser path,
     # propagate it via environment variables that nodriver recognizes.
     if browser_executable_path:
-        env["KINDLY_BROWSER_EXECUTABLE_PATH"] = browser_executable_path
+        env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["CHROME_BIN"] = browser_executable_path
 
     if diagnostics and diagnostics.enabled:
-        env["KINDLY_DIAGNOSTICS"] = "1"
-        env["KINDLY_REQUEST_ID"] = diagnostics.request_id
+        env["DIAGNOSTICS"] = "1"
+        env["REQUEST_ID"] = diagnostics.request_id
     _ensure_no_proxy_localhost_env(env)
 
     if diagnostics and diagnostics.enabled:
@@ -20367,26 +24177,26 @@ async def fetch_html_via_nodriver(
         if diagnostics is None:
             return
         env_snapshot = {
-            "KINDLY_BROWSER_EXECUTABLE_PATH": env.get(
-                "KINDLY_BROWSER_EXECUTABLE_PATH", ""
+            "BROWSER_EXECUTABLE_PATH": env.get(
+                "BROWSER_EXECUTABLE_PATH", ""
             ),
-            "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": env.get(
-                "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""
+            "HTML_TOTAL_TIMEOUT_SECONDS": env.get(
+                "HTML_TOTAL_TIMEOUT_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_RETRY_ATTEMPTS": env.get(
-                "KINDLY_NODRIVER_RETRY_ATTEMPTS", ""
+            "NODRIVER_RETRY_ATTEMPTS": env.get(
+                "NODRIVER_RETRY_ATTEMPTS", ""
             ),
-            "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
-                "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""
+            "NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
+                "NODRIVER_RETRY_BACKOFF_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
-                "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
+            "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
+                "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER": env.get(
-                "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
+            "NODRIVER_SNAP_BACKOFF_MULTIPLIER": env.get(
+                "NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
             ),
-            "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST": env.get(
-                "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
+            "NODRIVER_ENSURE_NO_PROXY_LOCALHOST": env.get(
+                "NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
             ),
             "NO_PROXY": env.get("NO_PROXY", ""),
             "no_proxy": env.get("no_proxy", ""),
@@ -20439,7 +24249,7 @@ async def fetch_html_via_nodriver(
 
         try:
             raw_timeout = (
-                os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or ""
+                os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or ""
             ).strip()
             used_default = False
             invalid = False
@@ -20722,7 +24532,7 @@ async def load_url_as_markdown(
                 "No browser available for nodriver",
                 {"url": url},
             )
-        return f"_Browser-based extraction unavailable (no Chrome detected). Set KINDLY_BROWSER_EXECUTABLE_PATH._\n\nSource: {url}\n"
+        return f"_Browser-based extraction unavailable (no Chrome detected). Set BROWSER_EXECUTABLE_PATH._\n\nSource: {url}\n"
 
     try:
         html = await fetch_html_via_nodriver(
@@ -20768,16 +24578,8 @@ async def load_url_as_markdown(
 This module wraps the standard search functions with telemetry tracking.
 Import this instead of the regular search module to get Grafana Cloud visibility.
 
-USAGE:
-    # In server.py, replace:
-    from .search import search_single_query
-
-    # With:
-    from .search_instrumented import search_single_query
-
-    # And initialize telemetry at startup:
-    from .telemetry import init_telemetry
-    init_telemetry()
+Telemetry is initialized by the server entry point (init_telemetry_background).
+Do NOT call init_telemetry() here — it would re-trigger the ~70s OTLP handshake.
 """
 
 from __future__ import annotations
@@ -20821,6 +24623,7 @@ async def _search_single_provider_instrumented(
     http_client: httpx.AsyncClient,
     search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
+    provider_arguments: dict[str, object] | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with telemetry tracking.
 
@@ -20853,6 +24656,7 @@ async def _search_single_provider_instrumented(
                 http_client,
                 search_options,
                 budget,
+                provider_arguments,
             )
 
             duration = time.time() - start_time
@@ -20935,6 +24739,7 @@ async def search_single_query(
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
     search_options: SearchOptions | None = None,
+    provider_arguments: dict[str, dict[str, object]] | None = None,
 ) -> list[WebSearchResult]:
     """Search with full OpenTelemetry instrumentation.
 
@@ -20996,6 +24801,7 @@ async def search_single_query(
                         client,
                         search_options,
                         budget,
+                        provider_arguments.get(c.name) if provider_arguments else None,
                     )
                     for c in free_providers
                 ]
@@ -21032,6 +24838,9 @@ async def search_single_query(
                             client,
                             search_options,
                             budget,
+                            provider_arguments.get(config.name)
+                            if provider_arguments
+                            else None,
                         )
 
                 paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
@@ -21121,6 +24930,7 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21137,7 +24947,9 @@ from .gemini_pollinations import search_gemini_pollinations
 from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
+from .google_cse import search_google_cse
 from .jina import search_jina
+from .qdrant import search_qdrant
 from .reddit import search_reddit
 from .stackexchange import search_stackexchange
 from .merge import merge_search_results
@@ -21149,7 +24961,9 @@ from .provider_config import (
     register_provider,
     resolve_providers_for_search,
 )
+from .provider_call import build_provider_call_kwargs
 from .searxng import search_searxng
+from .search_router import search_search_router
 from .tavily import search_tavily
 
 LOGGER = logging.getLogger(__name__)
@@ -21164,103 +24978,15 @@ class WebSearchProviderError(RuntimeError):
 # =============================================================================
 
 
-@dataclass
-class CircuitBreaker:
-    """Per-provider circuit breaker. Opens after N consecutive failures."""
+from .circuit_breaker import CircuitBreaker
+from .budget import ProviderBudget
 
-    failure_threshold: int = 3
-    reset_timeout_seconds: float = 60.0
-    _failures: dict[str, int] = field(default_factory=dict)
-    _opened_at: dict[str, float] = field(default_factory=dict)
-
-    def is_open(self, provider: str) -> bool:
-        if provider not in self._opened_at:
-            # Record closed state
-            record_circuit_breaker_state(
-                provider, "closed", self._failures.get(provider, 0)
-            )
-            return False
-        if time.time() - self._opened_at[provider] > self.reset_timeout_seconds:
-            # Circuit is transitioning from open to half-open (resetting)
-            del self._opened_at[provider]
-            self._failures[provider] = 0
-            record_circuit_breaker_state(provider, "half_open", 0)
-            record_circuit_breaker_event(provider, "half_open", self.failure_threshold)
-            LOGGER.info(f"Circuit breaker HALF_OPEN for {provider} after reset timeout")
-            return False
-        # Circuit is open
-        record_circuit_breaker_state(provider, "open", self._failures.get(provider, 0))
-        return True
-
-    def record_success(self, provider: str) -> None:
-        was_open = provider in self._opened_at
-        self._failures[provider] = 0
-        self._opened_at.pop(provider, None)
-        # Record reset event if circuit was previously open
-        if was_open:
-            record_circuit_breaker_event(provider, "reset", self.failure_threshold)
-            LOGGER.info(f"Circuit breaker RESET for {provider} after success")
-        record_circuit_breaker_state(provider, "closed", 0)
-
-    def record_failure(self, provider: str) -> None:
-        self._failures[provider] = self._failures.get(provider, 0) + 1
-        failure_count = self._failures[provider]
-
-        if failure_count >= self.failure_threshold:
-            # Circuit trips from closed to open
-            self._opened_at[provider] = time.time()
-            record_circuit_breaker_state(provider, "open", failure_count)
-            record_circuit_breaker_event(provider, "trip", self.failure_threshold)
-            LOGGER.warning(
-                f"Circuit breaker OPEN for {provider} after {failure_count} failures"
-            )
-        else:
-            # Still closed but accumulating failures
-            record_circuit_breaker_state(provider, "closed", failure_count)
-
-
-# =============================================================================
-# Provider Budget
-# =============================================================================
-
-
-@dataclass
-class ProviderBudget:
-    """Tracks per-provider calls and auto-demotion on poor performance."""
-
-    max_calls_per_query: int = 3
-    stats: dict[str, dict[str, Any]] = field(default_factory=dict)
-    _demoted: set[str] = field(default_factory=set)
-
-    def can_spend(self, provider: str) -> bool:
-        if provider in self._demoted:
-            return False
-        s = self.stats.get(provider)
-        if s is None:
-            return True
-        if s["calls"] >= self.max_calls_per_query:
-            return False
-        # Auto-demotion: >50% failure rate after 2+ calls
-        if s["calls"] >= 2 and s["failures"] / s["calls"] > 0.5:
-            self._demoted.add(provider)
-            return False
-        return True
-
-    def record_call(self, provider: str, success: bool) -> None:
-        if provider not in self.stats:
-            self.stats[provider] = {"calls": 0, "failures": 0}
-        self.stats[provider]["calls"] += 1
-        if not success:
-            self.stats[provider]["failures"] += 1
-
-    def reset(self) -> None:
-        self.stats.clear()
-        self._demoted.clear()
-
+_circuit_breaker = CircuitBreaker()
 
 # =============================================================================
 # Provider Registry
 # =============================================================================
+
 
 
 def _parse_mode(mode_str: str) -> ProviderMode:
@@ -21292,6 +25018,26 @@ def _init_provider_registry() -> None:
             requires_key=False,
         )
     )
+    register_provider(
+        ProviderConfig(
+            name="search_router",
+            mode=ProviderMode.ALWAYS,
+            env_key="SEARCH_ROUTER_API_KEY",
+            search_fn=search_search_router,
+            is_free=True,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="qdrant",
+            mode=ProviderMode.ALWAYS,
+            env_key="QDRANT_SPACE_URL",
+            search_fn=search_qdrant,
+            is_free=True,
+            requires_key=False,
+        )
+    )
 
     # Tier 2: Paid providers (mode from settings.py defaults)
     register_provider(
@@ -21307,11 +25053,22 @@ def _init_provider_registry() -> None:
     register_provider(
         ProviderConfig(
             name="brave",
-            mode=_parse_mode(settings.brave_mode),  # default "never" in settings.py
+            mode=_parse_mode(settings.brave_mode),  # default "always" in settings.py
             env_key="BRAVE_API_KEY",
             search_fn=search_brave,
             is_free=False,
             requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="google_cse",
+            mode=ProviderMode.ALWAYS,
+            env_key="GOOGLE_CSE_API_KEY",
+            search_fn=search_google_cse,
+            is_free=False,
+            requires_key=True,
+            extra_env_keys=("GOOGLE_CSE_ENGINE_ID",),
         )
     )
     register_provider(
@@ -21358,7 +25115,7 @@ def _init_provider_registry() -> None:
             search_fn=search_composio_llm_search,
             is_free=False,
             requires_key=True,
-            extra_env_keys=("KINDLY_COMPOSIO_USER_ID",),
+            extra_env_keys=("COMPOSIO_USER_ID",),
         )
     )
 
@@ -21410,31 +25167,10 @@ _init_provider_registry()
 
 
 # =============================================================================
-# Provider Detection (kept for backwards compat with existing detection)
-# =============================================================================
-
-
-def _has_searxng_config() -> bool:
-    return bool(os.environ.get("SEARXNG_BASE_URL", "").strip())
-
-
-def _has_tavily_key() -> bool:
-    return bool(os.environ.get("TAVILY_API_KEY", "").strip())
-
-
-def _has_brave_key() -> bool:
-    return bool(os.environ.get("BRAVE_API_KEY", "").strip())
-
-
-def _has_jina_key() -> bool:
-    return bool(os.environ.get("JINA_API_KEY", "").strip())
-
-
-# =============================================================================
 # Main Search Function
 # =============================================================================
 
-_circuit_breaker = CircuitBreaker()
+
 
 
 async def _search_single_provider(
@@ -21445,6 +25181,7 @@ async def _search_single_provider(
     http_client: httpx.AsyncClient,
     search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
+    provider_arguments: Mapping[str, object] | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with circuit breaker and budget tracking."""
     if _circuit_breaker.is_open(provider_name):
@@ -21457,28 +25194,17 @@ async def _search_single_provider(
 
     try:
         provider_query = build_search_query(query, search_options)
-        if provider_name == "searxng" and search_options is not None:
-            try:
-                results = await provider_fn(
-                    provider_query,
-                    num_results=num_results,
-                    http_client=http_client,
-                    search_options=search_options,
-                )
-            except TypeError as exc:
-                if "search_options" not in str(exc):
-                    raise
-                results = await provider_fn(
-                    provider_query,
-                    num_results=num_results,
-                    http_client=http_client,
-                )
-        else:
-            results = await provider_fn(
-                provider_query,
-                num_results=num_results,
-                http_client=http_client,
-            )
+        provider_kwargs = build_provider_call_kwargs(
+            provider_fn,
+            search_options=search_options,
+            provider_arguments=provider_arguments,
+        )
+        results = await provider_fn(
+            provider_query,
+            num_results=num_results,
+            http_client=http_client,
+            **provider_kwargs,
+        )
         results = [
             result.model_copy(
                 update={
@@ -21507,6 +25233,7 @@ async def search_single_query(
     diagnostics: Diagnostics | None = None,
     providers: list[str] | None = None,
     search_options: SearchOptions | None = None,
+    provider_arguments: dict[str, dict[str, object]] | None = None,
 ) -> list[WebSearchResult]:
     """
     Search using multi-provider RRF merge with mode-based selection.
@@ -21564,6 +25291,7 @@ async def search_single_query(
                     client,
                     search_options,
                     budget,
+                    provider_arguments.get(c.name) if provider_arguments else None,
                 )
                 for c in free_providers
             ]
@@ -21594,6 +25322,9 @@ async def search_single_query(
                         client,
                         search_options,
                         budget,
+                        provider_arguments.get(config.name)
+                        if provider_arguments
+                        else None,
                     )
 
             paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
@@ -21629,26 +25360,6 @@ async def search_single_query(
 
     async with httpx.AsyncClient(timeout=30) as client:
         return await _run(client)
-
-
-async def search_web(
-    query: str,
-    *,
-    num_results: int,
-    http_client: httpx.AsyncClient | None = None,
-    diagnostics: Diagnostics | None = None,
-    providers: list[str] | None = None,
-    search_options: SearchOptions | None = None,
-) -> list[WebSearchResult]:
-    """Backward-compatible alias for the single-query executor."""
-    return await search_single_query(
-        query,
-        num_results=num_results,
-        http_client=http_client,
-        diagnostics=diagnostics,
-        providers=providers,
-        search_options=search_options,
-    )
 </file>
 
 <file path="search/academic_arxiv.py">
@@ -22192,8 +25903,8 @@ from ..retry import retry_with_backoff
 logger = logging.getLogger(__name__)
 
 # Configure pyalex (polite pool or with API key)
-_openalex_email = os.environ.get("KINDLY_OPENALEX_EMAIL", "")
-_openalex_api_key = os.environ.get("KINDLY_OPENALEX_API_KEY", "")
+_openalex_email = os.environ.get("OPENALEX_EMAIL", "")
+_openalex_api_key = os.environ.get("OPENALEX_API_KEY", "")
 pyalex.config.email = _openalex_email
 pyalex.config.api_key = _openalex_api_key
 
@@ -22573,13 +26284,13 @@ from ..models import AcademicPaper
 logger = logging.getLogger(__name__)
 
 # Fail-fast configuration (Phase 1.2)
-S2_TIMEOUT = int(os.environ.get("KINDLY_S2_TIMEOUT", "30"))
+S2_TIMEOUT = int(os.environ.get("S2_TIMEOUT", "30"))
 # retry=False means SDK won't retry on 429/5xx - we handle fail-fast
-S2_RETRY_ENABLED = os.environ.get("KINDLY_S2_MAX_RETRIES", "0") != "0"  # False when 0
+S2_RETRY_ENABLED = os.environ.get("S2_MAX_RETRIES", "0") != "0"  # False when 0
 
 
 def _get_api_key() -> str | None:
-    raw = (os.environ.get("KINDLY_S2_API_KEY") or "").strip()
+    raw = (os.environ.get("S2_API_KEY") or "").strip()
     return raw if raw else None
 
 
@@ -22673,7 +26384,7 @@ async def search_semanticscholar(
     sch = AsyncSemanticScholar(
         api_key=api_key,
         timeout=S2_TIMEOUT,
-        retry=S2_RETRY_ENABLED,  # False when KINDLY_S2_MAX_RETRIES=0 (fail fast)
+        retry=S2_RETRY_ENABLED,  # False when S2_MAX_RETRIES=0 (fail fast)
     )
 
     year_str: str | None = None
@@ -22709,12 +26420,12 @@ async def search_semanticscholar(
         msg = str(e)
         if "429" in msg or "rate" in msg.lower():
             logger.warning(
-                "Semantic Scholar search rate-limited: %s. Set KINDLY_S2_API_KEY for higher limits.",
+                "Semantic Scholar search rate-limited: %s. Set S2_API_KEY for higher limits.",
                 e,
             )
         elif "timeout" in msg.lower() or "timed out" in msg.lower():
             logger.warning(
-                "Semantic Scholar search timed out (configurable via KINDLY_S2_TIMEOUT): %s",
+                "Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s",
                 e,
             )
         else:
@@ -23208,6 +26919,7 @@ class SearchBranchSpec:
     max_results: int
     reason: str
     must_keep_terms: list[str] | None = None
+    provider_arguments: dict[str, dict[str, object]] | None = None
 
 
 @dataclass(frozen=True)
@@ -23307,6 +27019,7 @@ async def execute_search_branches(
                     diagnostics=diagnostics,
                     providers=spec.providers,
                     search_options=search_options,
+                    provider_arguments=spec.provider_arguments,
                 )
             except Exception as exc:
                 logger.warning(
@@ -23453,6 +27166,107 @@ async def search_brave(
     return results
 </file>
 
+<file path="search/budget.py">
+"""Tracks per-provider calls and auto-demotion on poor performance."""
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class ProviderBudget:
+    """Tracks per-provider calls and auto-demotion on poor performance."""
+
+    max_calls_per_query: int = 3
+    stats: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _demoted: set[str] = field(default_factory=set)
+
+    def can_spend(self, provider: str) -> bool:
+        if provider in self._demoted:
+            return False
+        s = self.stats.get(provider)
+        if s is None:
+            return True
+        if s["calls"] >= self.max_calls_per_query:
+            return False
+        if s["calls"] >= 2 and s["failures"] / s["calls"] > 0.5:
+            self._demoted.add(provider)
+            return False
+        return True
+
+    def record_call(self, provider: str, success: bool) -> None:
+        if provider not in self.stats:
+            self.stats[provider] = {"calls": 0, "failures": 0}
+        self.stats[provider]["calls"] += 1
+        if not success:
+            self.stats[provider]["failures"] += 1
+
+    def reset(self) -> None:
+        self.stats.clear()
+        self._demoted.clear()
+</file>
+
+<file path="search/circuit_breaker.py">
+"""Per-provider circuit breaker. Opens after N consecutive failures."""
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+from ..telemetry import record_circuit_breaker_event, record_circuit_breaker_state
+
+LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class CircuitBreaker:
+    """Per-provider circuit breaker. Opens after N consecutive failures."""
+
+    failure_threshold: int = 3
+    reset_timeout_seconds: float = 60.0
+    _failures: dict[str, int] = field(default_factory=dict)
+    _opened_at: dict[str, float] = field(default_factory=dict)
+
+    def is_open(self, provider: str) -> bool:
+        if provider not in self._opened_at:
+            record_circuit_breaker_state(
+                provider, "closed", self._failures.get(provider, 0)
+            )
+            return False
+        if time.time() - self._opened_at[provider] > self.reset_timeout_seconds:
+            del self._opened_at[provider]
+            self._failures[provider] = 0
+            record_circuit_breaker_state(provider, "half_open", 0)
+            record_circuit_breaker_event(provider, "half_open", self.failure_threshold)
+            LOGGER.info(f"Circuit breaker HALF_OPEN for {provider} after reset timeout")
+            return False
+        record_circuit_breaker_state(provider, "open", self._failures.get(provider, 0))
+        return True
+
+    def record_success(self, provider: str) -> None:
+        was_open = provider in self._opened_at
+        self._failures[provider] = 0
+        self._opened_at.pop(provider, None)
+        if was_open:
+            record_circuit_breaker_event(provider, "reset", self.failure_threshold)
+            LOGGER.info(f"Circuit breaker RESET for {provider} after success")
+        record_circuit_breaker_state(provider, "closed", 0)
+
+    def record_failure(self, provider: str) -> None:
+        self._failures[provider] = self._failures.get(provider, 0) + 1
+        failure_count = self._failures[provider]
+
+        if failure_count >= self.failure_threshold:
+            self._opened_at[provider] = time.time()
+            record_circuit_breaker_state(provider, "open", failure_count)
+            record_circuit_breaker_event(provider, "trip", self.failure_threshold)
+            LOGGER.warning(
+                f"Circuit breaker OPEN for {provider} after {failure_count} failures"
+            )
+        else:
+            record_circuit_breaker_state(provider, "closed", failure_count)
+</file>
+
 <file path="search/composio_llm_search.py">
 """Composio LLM Search provider for the shared web_search mix."""
 
@@ -23544,6 +27358,46 @@ async def search_composio_llm_search(
         if len(results) >= num_results:
             break
     return results
+</file>
+
+<file path="search/context.py">
+"""Search context passed between understanding, planning, and execution."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+from ..entity.models import EntitySpan
+from .intents import SearchIntent
+from .options import SearchOptions
+
+
+@dataclass(frozen=True, slots=True)
+class SearchContext:
+    raw_query: str
+    normalized_query: str
+    research_goal: str | None
+    session_id: str | None
+    intent: SearchIntent
+    confidence: float
+    should_decompose: bool
+    rationale: str
+    entities: tuple[EntitySpan, ...]
+    must_keep_terms: tuple[str, ...]
+    providers: tuple[str, ...] | None
+    num_results: int
+    search_options: SearchOptions | None
+    profile_name: str
+
+    @property
+    def original_query(self) -> str:
+        return self.raw_query
+
+    def with_intent(self, intent: SearchIntent) -> "SearchContext":
+        return replace(self, intent=intent)
+
+    def with_entities(self, entities: list[EntitySpan]) -> "SearchContext":
+        return replace(self, entities=tuple(entities))
 </file>
 
 <file path="search/ddg.py">
@@ -23669,19 +27523,67 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
     return results
 </file>
 
+<file path="search/entity_extractor.py">
+"""LLM-backed entity extraction for search text."""
+
+from __future__ import annotations
+
+import json
+import logging
+
+from ..entity.models import EntitySpan
+from ..llm.structured import StructuredLLMRequest
+from ..llm.worker import build_llm_worker
+from ..prompts.registry import build_prompt
+
+logger = logging.getLogger(__name__)
+
+
+async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[EntitySpan]:
+    if not text.strip():
+        return []
+
+    system_prompt, user_prompt = build_prompt(
+        "entity_extraction",
+        query=text,
+        research_goal=text,
+        provider_name=provider_name,
+    )
+    worker = build_llm_worker()
+    result = await worker.complete_structured(
+        StructuredLLMRequest(
+            task="structure_extract",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+        )
+    )
+    payload = json.loads(result.content)
+    raw_entities = payload.get("entities", []) if isinstance(payload, dict) else []
+    entities: list[EntitySpan] = []
+    for item in raw_entities:
+        try:
+            entities.append(EntitySpan.model_validate(item))
+        except Exception:
+            continue
+    return entities
+</file>
+
 <file path="search/finalize_results.py">
 """Post-process merged search results into the public response shape."""
 
 from __future__ import annotations
 
 import logging
-import os
 
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..utils.observability import emit_observability_event
 from .provider_config import diagnose_providers
 from .query_policy import RewritePolicy
+from .entity_extractor import extract_entities
 
 logger = logging.getLogger(__name__)
 
@@ -23691,34 +27593,34 @@ async def maybe_extract_entities(
     query: str,
     results: list[WebSearchResult],
 ) -> list[WebSearchResult]:
-    enabled = bool(
-        getattr(settings, "entity_extraction_enabled", False)
-        or os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower()
-        in ("true", "1", "yes")
-    )
+    enabled = bool(getattr(settings, "entity_extraction_enabled", False))
     if not enabled or not results:
         return results
 
     try:
-        from ..entity.gliner_client import get_gliner_client
-        from ..entity.default_schema import DEFAULT_QUERY_LABELS
-
-        gliner = get_gliner_client()
+        updated_results: list[WebSearchResult] = []
         for result in results:
             text = (
                 f"{getattr(result, 'title', '') or (result.get('title') if isinstance(result, dict) else '')} "
                 f"{getattr(result, 'snippet', '') or (result.get('snippet') if isinstance(result, dict) else '')}"
             ).strip()
             if not text:
+                updated_results.append(result)
                 continue
-            entities = await gliner.extract_entities(text, DEFAULT_QUERY_LABELS)
+            entities = await extract_entities(text)
             if isinstance(result, dict):
                 result["entities"] = entities or None
-            elif hasattr(result, "entities"):
+                updated_results.append(result)
+            elif hasattr(result, "model_copy"):
                 try:
-                    result.entities = entities or None
+                    updated_results.append(
+                        result.model_copy(update={"entities": entities or None})
+                    )
                 except Exception:
-                    pass
+                    updated_results.append(result)
+            else:
+                updated_results.append(result)
+        results = updated_results
         emit_observability_event(
             logger,
             "entity.search_result_extracted",
@@ -24153,6 +28055,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..prompts.provider_gemini import build_provider_gemini_prompt
 from ..settings import settings
 
 logger = logging.getLogger(__name__)
@@ -24171,31 +28074,12 @@ GEMINI_GROUNDING_TIER = [
 # Practitioner-tested system prompt (adapted from callsphere.ai, inventivehq.com)
 def get_system_prompt(research_goal: str | None = None) -> str:
     """System prompt for Gemini grounding - adapted for general-purpose MCP tool."""
-    from datetime import date
-
-    today = date.today().strftime("%B %d, %Y")
-    goal = (
-        research_goal
-        or "Provide thorough, factual answers based on current information"
-    )
-
-    return f"""You are a research assistant. Today is {today}.
-
-{goal}
-
-Instructions:
-1. Search when you need current or specific information; use your knowledge for general facts
-2. Provide thorough, factual answers grounded in your search results
-3. If sources conflict or information is uncertain, acknowledge this explicitly
-4. Note when information might change rapidly (prices, availability, current events)
-5. Cite sources inline using [1], [2] notation — grounding metadata maps these to URLs
-
-Format:
-- Answer the question directly, citing sources inline
-- Be specific about time frames when discussing recent events or changes
-- For critical or security-sensitive information, reference official sources
-
-Do not add a sources section — the tool provides grounding metadata separately."""
+    return build_provider_gemini_prompt(
+        query="",
+        research_goal=research_goal
+        or "Provide thorough, factual answers based on current information",
+        provider_name="gemini",
+    )[0]
 
 
 class GeminiSource(BaseModel):
@@ -24340,7 +28224,7 @@ async def gemini_search_with_grounding(
             answer="",
             model_used=GEMINI_GROUNDING_TIER[0],
             structured_output=structured_output,
-            error="Set KINDLY_GEMINI_API_KEY environment variable",
+            error="Set GEMINI_API_KEY environment variable",
         )
 
     # Format system prompt with research goal
@@ -24812,6 +28696,123 @@ async def search_github_graphql(
         return []
 </file>
 
+<file path="search/google_cse.py">
+"""Google Custom Search JSON API provider."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+from ..models import WebSearchResult
+from ..retry import retry_with_backoff
+from ..settings import settings
+from .options import SearchOptions
+
+
+class GoogleCseError(RuntimeError):
+    pass
+
+
+class GoogleCseConfigError(GoogleCseError):
+    pass
+
+
+def _get_google_cse_credentials() -> tuple[str, str]:
+    api_key = settings.google_cse_api_key.strip()
+    engine_id = settings.google_cse_engine_id.strip()
+    if not api_key:
+        raise GoogleCseConfigError(
+            "GOOGLE_CSE_API_KEY is not set. Configure it as an environment variable."
+        )
+    if not engine_id:
+        raise GoogleCseConfigError(
+            "GOOGLE_CSE_ENGINE_ID is not set. Configure it as an environment variable."
+        )
+    return api_key, engine_id
+
+
+async def search_google_cse(
+    query: str,
+    *,
+    num_results: int,
+    http_client: httpx.AsyncClient | None = None,
+    search_options: SearchOptions | None = None,
+) -> list[WebSearchResult]:
+    if not query.strip() or num_results < 1:
+        return []
+
+    api_key, engine_id = _get_google_cse_credentials()
+    url = "https://www.googleapis.com/customsearch/v1"
+    params: dict[str, Any] = {
+        "key": api_key,
+        "cx": engine_id,
+        "q": query,
+        "num": min(max(num_results, 1), 10),
+    }
+
+    if search_options and search_options.domain_filters:
+        params["siteSearch"] = search_options.domain_filters[0]
+        params["siteSearchFilter"] = "i"
+    elif search_options and search_options.site_filters:
+        params["siteSearch"] = search_options.site_filters[0]
+        params["siteSearchFilter"] = "i"
+
+    async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        body = response.json()
+        if not isinstance(body, dict):
+            raise GoogleCseError("Google CSE response was not a JSON object.")
+        return body
+
+    if http_client is None:
+        async with httpx.AsyncClient(timeout=settings.google_cse_timeout_seconds) as client:
+            data = await retry_with_backoff(
+                lambda: _do_request(client),
+                provider_name="google_cse",
+                max_retries=2,
+            )
+    else:
+        data = await retry_with_backoff(
+            lambda: _do_request(http_client),
+            provider_name="google_cse",
+            max_retries=2,
+        )
+
+    raw_items = data.get("items", [])
+    if not isinstance(raw_items, list):
+        return []
+
+    results: list[WebSearchResult] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        link = item.get("link")
+        snippet = item.get("snippet") or item.get("htmlSnippet") or ""
+        domain = item.get("displayLink")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        if not isinstance(link, str) or not link.strip():
+            continue
+        if not isinstance(snippet, str):
+            snippet = ""
+        results.append(
+            WebSearchResult(
+                title=title,
+                link=link,
+                snippet=snippet,
+                domain=domain if isinstance(domain, str) and domain.strip() else None,
+            )
+        )
+        if len(results) >= num_results:
+            break
+
+    return results
+</file>
+
 <file path="search/grok.py">
 """Grok 4.3 search via OpenRouter with native web_search + x_search.
 
@@ -24836,7 +28837,6 @@ Prompts engineered from:
 
 from __future__ import annotations
 
-import datetime
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -24844,6 +28844,7 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
+from ..prompts.provider_grok import build_provider_grok_prompt
 from ..retry import retry_with_backoff
 from ..settings import settings
 
@@ -25037,10 +29038,10 @@ async def search_grok_openrouter(
     _check_grok_configured()
     headers = _get_headers()
     model = settings.grok_model or DEFAULT_MODEL
-    today = datetime.date.today().strftime("%B %d, %Y")
-
-    system_prompt = _PROVIDER_SYSTEM_PROMPT.format(
-        today=today, query=query, num_results=num_results
+    system_prompt, _ = build_provider_grok_prompt(
+        query=query,
+        research_goal=None,
+        provider_name="grok",
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -25167,12 +29168,10 @@ async def grok_search(
     _check_grok_configured()
     resolved_model = model or settings.grok_model or DEFAULT_MODEL
     resolved_timeout = timeout or settings.grok_timeout_seconds or REQUEST_TIMEOUT
-    today = datetime.date.today().strftime("%B %d, %Y")
-
-    system_prompt = _GROK_SYSTEM_PROMPT.format(today=today)
-    user_prompt = _GROK_USER_PROMPT.format(
+    system_prompt, user_prompt = build_provider_grok_prompt(
         query=query.strip(),
         research_goal=research_goal,
+        provider_name="grok",
     )
 
     messages = [
@@ -25337,6 +29336,32 @@ async def search_hackernews(
             break
 
     return results
+</file>
+
+<file path="search/intents.py">
+"""Canonical search intents for the 0.2 control plane."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+SearchIntent = Literal["general", "ai_coding", "digital_humanities", "comparison"]
+
+INTENT_ALIASES: dict[str, SearchIntent] = {
+    "code": "ai_coding",
+    "general_research": "general",
+    "comparison": "comparison",
+    "general": "general",
+    "ai_coding": "ai_coding",
+    "digital_humanities": "digital_humanities",
+}
+
+
+def normalize_intent(value: str | None) -> SearchIntent:
+    if not value:
+        return "general"
+    key = value.strip().casefold()
+    return INTENT_ALIASES.get(key, "general")
 </file>
 
 <file path="search/jina.py">
@@ -25557,6 +29582,7 @@ from ..telemetry import (
 )
 from .normalize import canonicalize_url
 from .merge_observability import emit_merge_summary
+from ..analytics.duckdb_store import insert_merged_candidates as analytics_insert_merged_candidates
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -25658,6 +29684,7 @@ def merge_search_results(
     max_per_host: int = 2,
     host_cap_top_k: int | None = None,
     enable_telemetry: bool = False,
+    run_key: str | None = None,
 ) -> list[WebSearchResult]:
     """Merge multiple ranked lists using Weighted Reciprocal Rank Fusion.
 
@@ -25828,7 +29855,7 @@ def merge_search_results(
                 )
 
     logger.debug(
-        "RRF merge: k=%d, %d lists → %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
+        "RRF merge: k=%d, %d lists -> %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
         k,
         len(result_lists),
         len(output),
@@ -25836,6 +29863,32 @@ def merge_search_results(
         overlap_rate,
         [(r.link[:50], f"{r.score:.5f}") for r in output[:5]],
     )
+
+    # Best-effort dual-write to analytics merged_candidates table
+    if run_key:
+        try:
+            for rank, result in enumerate(output, start=1):
+                analytics_insert_merged_candidates(
+                    run_key=run_key,
+                    rank=rank,
+                    link=result.link,
+                    title=result.title,
+                    snippet=result.snippet,
+                    domain=result.domain or "",
+                    rrf_score=result.score or 0.0,
+                    provider_count=result.provider_count,
+                    providers=result.providers or [],
+                    overlap_flag=(
+                        canonicalize_url(result.link) in overlapping_urls
+                    ),
+                    payload_json={
+                        "list_weights": list_weights,
+                        "k": k,
+                        "overlap_rate": round(overlap_rate, 4),
+                    },
+                )
+        except Exception as exc:
+            logger.debug("analytics insert_merged_candidates failed: %s", exc)
 
     return output
 </file>
@@ -26034,28 +30087,156 @@ def build_search_query(query: str, search_options: SearchOptions | None) -> str:
     return normalize_query(f"{normalized} {suffix}")
 </file>
 
-<file path="search/orchestrator.py">
-"""Web search orchestrator: coordinate rewrite → multi-provider search → merge → rerank.
+<file path="search/pipeline_builders.py">
+"""Helper builders for the 0.2 search pipeline."""
 
-Simplified: bypass (preserve literals) or expand (LLM rewrite).
-"""
+from __future__ import annotations
+
+import json
+
+from pydantic import BaseModel, Field
+
+from ..llm.worker import build_llm_worker
+from ..llm.structured import StructuredLLMRequest
+from ..prompts.registry import build_prompt
+from ..settings import settings
+from .context import SearchContext
+from .intents import SearchIntent
+from .normalize import normalize_query
+from .options import SearchOptions
+from .profiles.registry import resolve_profile_name
+from .query_rewrite_models import QueryVariant
+
+REWRITE_TEMPERATURE_BY_INTENT: dict[SearchIntent, float] = {
+    "general": 0.35,
+    "ai_coding": 0.15,
+    "digital_humanities": 0.25,
+    "comparison": 0.2,
+}
+
+
+class RewriteVariantResponse(BaseModel):
+    variants: list[QueryVariant] = Field(min_length=1)
+
+
+def build_search_context(
+    *,
+    query: str,
+    research_goal: str | None,
+    session_id: str | None = None,
+    providers: list[str] | None,
+    num_results: int,
+    search_options: SearchOptions | None,
+    understanding_intent: SearchIntent,
+    understanding_confidence: float,
+    understanding_should_decompose: bool,
+    understanding_rationale: str,
+    entities: list,
+    must_keep_terms: list[str],
+) -> SearchContext:
+    normalized_query = normalize_query(query)
+    profile_name = resolve_profile_name(understanding_intent)
+    return SearchContext(
+        raw_query=query,
+        normalized_query=normalized_query,
+        research_goal=research_goal,
+        session_id=session_id,
+        intent=understanding_intent,
+        confidence=understanding_confidence,
+        should_decompose=understanding_should_decompose,
+        rationale=understanding_rationale,
+        entities=tuple(entities),
+        must_keep_terms=tuple(must_keep_terms),
+        providers=tuple(providers) if providers else None,
+        num_results=num_results,
+        search_options=search_options,
+        profile_name=profile_name,
+    )
+
+
+def parse_variant_payload(payload: object) -> list[QueryVariant]:
+    if not isinstance(payload, dict):
+        raise ValueError("Rewrite worker response must be a JSON object")
+    raw_variants = payload.get("variants", [])
+    if not isinstance(raw_variants, list):
+        raise ValueError("Rewrite worker response missing variants array")
+    variants: list[QueryVariant] = []
+    seen: set[str] = set()
+    for item in raw_variants:
+        variant = QueryVariant.model_validate(item)
+        key = normalize_query(variant.query).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        variants.append(variant)
+    if not variants:
+        raise ValueError("Rewrite worker returned no usable variants")
+    return variants
+
+
+async def build_rewrite_variants(
+    *,
+    context: SearchContext,
+    understanding_intent: SearchIntent,
+    must_keep_terms: list[str],
+) -> tuple[list[QueryVariant], str]:
+    system_prompt, user_prompt = build_prompt(
+        "worker_rewrite",
+        query=context.normalized_query,
+        research_goal=context.research_goal,
+        intent=understanding_intent,
+        must_keep_terms=must_keep_terms,
+        provider_name="worker",
+    )
+    worker = build_llm_worker()
+    generation = await worker.complete_structured(
+        StructuredLLMRequest(
+            task="worker_rewrite",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=REWRITE_TEMPERATURE_BY_INTENT[understanding_intent],
+            timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
+            response_model=RewriteVariantResponse,
+        )
+    )
+    payload = json.loads(generation.content)
+    return parse_variant_payload(payload), generation.endpoint_name
+</file>
+
+<file path="search/pipeline.py">
+"""End-to-end search pipeline for the 0.2 control plane."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+import uuid
 
 import httpx
 
+from ..cache.result_memory import get_result_memory_store
+from ..embeddings import embed_query
 from ..models import WebSearchResponse
 from ..settings import settings
 from ..telemetry import record_domain_diversity
+from ..training.query_understanding_jsonl import append_query_outcome_record
+from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
-from ..cache.result_memory import get_result_memory_store  # noqa: F401
-from ..embeddings import embed_query  # noqa: F401
 from ..search_instrumented import search_single_query
+from ..rerank import rerank_results
+from ..rerank.models import RerankEmbeddingContext
+from ..ab_testing.wiring import get_ab_overrides
+from ..ab_testing.shadow_runner import run_shadow
+from ..analytics.duckdb_store import (
+    insert_search_run as analytics_insert_search_run,
+    insert_final_results as analytics_insert_final_results,
+    insert_query_rewrites as analytics_insert_query_rewrites,
+)
+from ..analytics.judge_runner import run_judge_evaluation
+from ..analytics.quality_metrics import compute_search_quality
 from .branch_executor import (
     SearchBranchSpec,
     execute_search_branches,
@@ -26063,184 +30244,158 @@ from .branch_executor import (
 )
 from .finalize_results import build_search_response, maybe_extract_entities
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
-from .options import SearchOptions
 from .merge import merge_search_results
-from .normalize import normalize_query
-from .provider_config import resolve_providers_for_search
-from .query_policy import RewriteMode, RewritePolicy, classify_search_query
-from ..entity.models import EntitySpan  # for type in sig (optional dep ok)
+from .options import SearchOptions
+from .pipeline_builders import build_rewrite_variants, build_search_context
+from .profiles.registry import apply_profile_search_options
+from .profiles.resolve import resolve_search_profile
+from .provider_plan import build_cache_identity, build_provider_execution_plan
+from .query_policy import RewritePolicy
 from .result_memory_pipeline import (
     inject_result_memory_candidates,
     store_result_memory_results,
 )
-from .query_rewrite import rewrite_search_query
+from .understanding.resolver import resolve_query_understanding
+from .normalize import normalize_query
+
 logger = logging.getLogger(__name__)
-_rerank_results: Any = None
 
 
-def _resolve_per_query_k(num_results: int, mode: RewriteMode) -> int:
-    """Determine how many results to fetch per query based on mode.
-
-    bypass: 2x (preserve precision, minimal expansion)
-    expand: 3x (multiple variants need more results for merge)
-    """
-    if mode == "bypass":
-        return max(num_results * 2, 6)
-    # expand mode
-    return max(num_results * 3, 9)
-
-
-def _resolve_requested_result_count(num_results: int, result_offset: int) -> int:
-    return max(1, num_results + max(0, result_offset))
-
-
-async def run_web_search(
+async def run_search_pipeline(
     query: str,
     *,
     num_results: int,
-    rewrite: bool = True,
-    diagnostics: Diagnostics | None = None,
-    providers: list[str] | None = None,
-    research_goal: str | None = None,
-    search_options: SearchOptions | None = None,
-    query_entities: list[EntitySpan] | None = None,
+    rewrite: bool,
+    diagnostics: Diagnostics | None,
+    providers: list[str] | None,
+    research_goal: str | None,
+    search_options: SearchOptions | None,
+    session_id: str | None = None,
 ) -> WebSearchResponse:
-    """Execute web search with optional query rewriting.
+    run_key = str(uuid.uuid4())
+    pipeline_start = asyncio.get_event_loop().time()
 
-    Flow:
-    1. Rewrite query (if enabled) → get final_queries
-    2. Search each query in parallel via configured providers
-    3. Merge results via RRF
-    4. Rerank top results
-
-    Args:
-        query: Raw query string
-        num_results: Number of final results to return
-        rewrite: Whether to enable query rewriting
-        diagnostics: Optional diagnostics emitter
-        providers: Optional list of specific providers to use
-        research_goal: Optional context/goal from client to guide query optimization
-        query_entities: Pre-extracted entities from the original (raw) query only.
-            Used to augment must-keep terms in rewrite policy. Extraction happens
-            exactly once in the web_search server entrypoint.
-
-    Returns:
-        WebSearchResponse with merged and reranked results
-    """
     normalized_query = normalize_query(query)
-    requested_count = _resolve_requested_result_count(
-        num_results, search_options.result_offset if search_options else 0
+    understanding = await resolve_query_understanding(
+        query=query,
+        research_goal=research_goal,
+        intent_hint=None,
+        session_id=session_id,
+        run_key=run_key,
     )
-    # If no rewrite path, still let entities influence the (bypass) policy
-    if not rewrite and query_entities:
-        rewrite_policy = classify_search_query(normalized_query, entities=query_entities)
-    else:
-        rewrite_policy = RewritePolicy(mode="bypass", reason="Rewrite disabled by caller.")
-    active_provider_names = [
-        config.name for config in resolve_providers_for_search(providers)
-    ]
-
+    context = build_search_context(
+        query=query,
+        research_goal=research_goal,
+        session_id=session_id,
+        providers=providers,
+        num_results=num_results,
+        search_options=search_options,
+        understanding_intent=understanding.intent,
+        understanding_confidence=understanding.confidence,
+        understanding_should_decompose=understanding.should_decompose,
+        understanding_rationale=understanding.rationale,
+        entities=understanding.entities,
+        must_keep_terms=understanding.must_keep_terms,
+    )
+    profile = resolve_search_profile(context.intent)
+    search_options = apply_profile_search_options(search_options, profile)
+    provider_plan = build_provider_execution_plan(
+        profile=profile,
+        context=context,
+        public_options=search_options,
+    )
+    cache_identity = build_cache_identity(
+        query=normalized_query,
+        profile=profile,
+        provider_plan=provider_plan,
+        search_options=search_options,
+        rewrite_enabled=rewrite,
+    )
     if rewrite:
-        try:
-            rewrite_plan = await asyncio.wait_for(
-                rewrite_search_query(
-                    normalized_query,
-                    diagnostics=diagnostics,
-                    research_goal=research_goal,
-                    providers=providers,
-                    entities=query_entities,
-                ),
-                timeout=15.0,
-            )
-        except (asyncio.TimeoutError, Exception) as exc:
-            logger.warning(
-                "Query rewrite failed (will proceed with original query): %s", exc
-            )
-            rewrite_plan = None
-            rewrite_policy = RewritePolicy(
-                mode="bypass",
-                reason=f"Rewrite fallback: {type(exc).__name__}",
-            )
-            queries = [normalized_query]
-        else:
-            queries = rewrite_plan.final_queries
-            rewrite_policy = rewrite_plan.policy
+        rewrite_variants, rewrite_model = await build_rewrite_variants(
+            context=context,
+            understanding_intent=context.intent,
+            must_keep_terms=list(context.must_keep_terms),
+        )
     else:
-        queries = [normalized_query]
-        rewrite_plan = None
+        from .query_rewrite_models import QueryVariant
 
-    per_query_k = _resolve_per_query_k(requested_count, rewrite_policy.mode)
+        rewrite_variants = [
+            QueryVariant(
+                kind="original",
+                target="keyword",
+                query=normalized_query,
+                why="Rewrite disabled by caller.",
+                weight=1.0,
+            )
+        ]
+        rewrite_model = "disabled"
 
     emit_observability_event(
         logger,
-        "search.orchestrator.plan",
+        "search.pipeline.plan",
         query=query,
         normalized_query=normalized_query,
-        rewrite_enabled=rewrite,
-        rewrite_policy=rewrite_policy.mode,
-        rewrite_reason=rewrite_policy.reason,
-        final_queries=queries,
-        query_variants=serialize_query_variants(rewrite_plan.variants)
-        if rewrite_plan
-        else [],
-        active_providers=active_provider_names,
-        per_query_k=per_query_k,
+        intent=context.intent,
+        confidence=context.confidence,
+        should_decompose=context.should_decompose,
+        profile=context.profile_name,
+        cache_identity=cache_identity,
+        rewrite_model=rewrite_model,
+        variants=serialize_query_variants(rewrite_variants),
         providers_requested=providers or [],
-        research_goal=research_goal,
-        search_options=search_options.to_dict() if search_options else None,
     )
 
-    if diagnostics:
-        diagnostics.emit(
-            "web_search.rewrite_plan",
-            "Resolved search queries",
-            {
-                "query": normalized_query,
-                "queries": queries,
-                "rewrite": rewrite,
-                "policy": rewrite_policy.mode,
-                "per_query_k": per_query_k,
-                "search_options": search_options.to_dict() if search_options else None,
-            },
-        )
+    # Best-effort dual-write: query rewrites
+    try:
+        for index, variant in enumerate(rewrite_variants):
+            analytics_insert_query_rewrites(
+                run_key=run_key,
+                variant_index=index,
+                query=variant.query,
+                kind=getattr(variant, "kind", None),
+                target=getattr(variant, "target", None),
+                weight=getattr(variant, "weight", None),
+                reason=getattr(variant, "why", None),
+                branch_type=getattr(variant, "branch_type", None),
+                max_results=getattr(variant, "max_results", None),
+                model=rewrite_model,
+                duration_ms=None,
+                payload_json={
+                    "must_keep_terms": getattr(variant, "must_keep_terms", None),
+                },
+            )
+    except Exception as exc:
+        logger.debug("analytics insert_query_rewrites failed: %s", exc)
 
+    active_provider_names = list(provider_plan.provider_names)
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(connect=5, read=20, write=20, pool=20),
         follow_redirects=True,
     ) as client:
         branch_specs: list[SearchBranchSpec] = []
-        if rewrite_plan:
-            for index, variant in enumerate(rewrite_plan.variants):
-                variant_providers = select_providers_for_variant(
-                    variant, active_provider_names
-                )
-                if variant_providers is not None and not variant_providers:
-                    continue
-                branch_specs.append(
-                    SearchBranchSpec(
-                        index=index,
-                        query=variant.query,
-                        branch_type=variant.branch_type or variant.kind,
-                        weight=variant.weight,
-                        providers=variant_providers,
-                        max_results=variant.max_results or per_query_k,
-                        reason=variant.reason or variant.why,
-                        must_keep_terms=variant.must_keep_terms,
-                    )
-                )
-        else:
-            branch_specs = [
+        for index, variant in enumerate(rewrite_variants):
+            variant_providers = select_providers_for_variant(
+                variant, active_provider_names
+            )
+            branch_specs.append(
                 SearchBranchSpec(
-                    index=0,
-                    query=normalized_query,
-                    branch_type="original",
-                    weight=1.0,
-                    providers=providers,
-                    max_results=per_query_k,
-                    reason="Original query preserved.",
+                    index=index,
+                    query=variant.query,
+                    branch_type=variant.branch_type or variant.kind,
+                    weight=variant.weight,
+                    providers=variant_providers or active_provider_names or providers,
+                    max_results=variant.max_results or num_results,
+                    reason=variant.reason or variant.why,
+                    must_keep_terms=variant.must_keep_terms,
+                    provider_arguments={
+                        name: bundle.arguments
+                        for name, bundle in provider_plan.options.bundles.items()
+                        if bundle.arguments
+                    }
+                    or None,
                 )
-            ]
-
+            )
         branch_batch = await execute_search_branches(
             branch_specs,
             http_client=client,
@@ -26249,14 +30404,15 @@ async def run_web_search(
             search_runner=search_single_query,
             max_concurrency=settings.query_decomposition_max_concurrency,
         )
-        result_lists = branch_batch.result_lists
-        branch_queries = branch_batch.branch_queries
-        branch_providers = branch_batch.branch_providers
-        list_weights = branch_batch.list_weights
+
+    result_lists = branch_batch.result_lists
+    branch_queries = branch_batch.branch_queries
+    branch_providers = branch_batch.branch_providers
+    list_weights = branch_batch.list_weights
 
     emit_result_lists_summary(
         logger,
-        "search.orchestrator.branches",
+        "search.pipeline.branches",
         query=query,
         result_lists=result_lists,
         branch_queries=branch_queries,
@@ -26265,8 +30421,6 @@ async def run_web_search(
         branch_metadata=branch_batch.branch_metadata,
     )
 
-    # Phase 7.2: Result memory candidate injection (before RRF)
-    # Convert memory hits to virtual provider list; weight from settings; dedup happens in merge.
     (
         result_lists,
         list_weights,
@@ -26281,41 +30435,158 @@ async def run_web_search(
         embed_query_fn=embed_query,
     )
 
+    # ------------------------------------------------------------------
+    # A/B experiment override: check if this run_key is enrolled in
+    # a provider_weights experiment
+    # ------------------------------------------------------------------
+    base_provider_weights = provider_plan.provider_weights or profile.provider_weights
+    pw_ab_overrides = get_ab_overrides(
+        run_key=run_key, layer="provider_weights"
+    ) if run_key else None
+    pw_shadow_mode = bool(pw_ab_overrides and pw_ab_overrides.get("shadow_mode"))
+
+    if pw_ab_overrides and not pw_shadow_mode:
+        # Non-shadow mode: merge variant provider_weights over the base weights
+        pw_config = pw_ab_overrides.get("config", {})
+        variant_weights = pw_config.get("provider_weights", {})
+        if variant_weights:
+            merged_weights = dict(base_provider_weights)
+            merged_weights.update(variant_weights)
+            effective_weights = merged_weights
+        else:
+            effective_weights = base_provider_weights
+    else:
+        effective_weights = base_provider_weights
+
     merged = merge_search_results(
         result_lists,
         list_weights=list_weights,
+        provider_weights=effective_weights,
+        run_key=run_key,
     )
 
-    # Record domain diversity for homogeneous result detection
-    unique_domains = len(set(r.domain for r in merged if r.domain))
-    record_domain_diversity(unique_domains, len(merged), providers or [])
+    # Shadow mode: fire-and-forget variant merge and record comparison
+    if pw_shadow_mode and pw_ab_overrides and run_key:
+        pw_ab_config = pw_ab_overrides.get("config", {})
+        shadow_variant_weights = pw_ab_config.get("provider_weights", {})
+        if shadow_variant_weights:
+            shadow_weights = dict(base_provider_weights)
+            shadow_weights.update(shadow_variant_weights)
+        else:
+            shadow_weights = base_provider_weights
 
+        control_result_summary = {
+            "num_results": len(merged),
+            "domains": len(set(r.domain for r in merged if r.domain)),
+        }
+
+        async def _shadow_merge_fn(
+            result_lists=result_lists,
+            list_weights=list_weights,
+            shadow_weights=shadow_weights,
+            run_key=run_key,
+        ) -> dict:
+            shadow_merged = merge_search_results(
+                result_lists,
+                list_weights=list_weights,
+                provider_weights=shadow_weights,
+                run_key=run_key,
+            )
+            return {
+                "num_results": len(shadow_merged),
+                "domains": len(set(r.domain for r in shadow_merged if r.domain)),
+                "top_links": [r.link for r in shadow_merged[:5]],
+            }
+
+        asyncio.ensure_future(
+            run_shadow(
+                run_key=run_key,
+                experiment_id=pw_ab_overrides["experiment_id"],
+                variant=pw_ab_overrides["variant_key"],
+                layer="provider_weights",
+                shadow_fn=_shadow_merge_fn,
+                shadow_kwargs={},
+                control_duration_ms=0.0,
+                control_result_summary=control_result_summary,
+            )
+        )
+
+    record_domain_diversity(
+        len(set(r.domain for r in merged if r.domain)),
+        len(merged),
+        active_provider_names,
+    )
+
+    embedding_ctx_for_index: RerankEmbeddingContext | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
-            query_type_hint = (
-                rewrite_plan.classifier.intent
-                if rewrite_plan and rewrite_plan.classifier
-                else None
-            )
-            global _rerank_results
-            if _rerank_results is None:
-                from ..rerank import rerank_results as _loaded_rerank_results
+            # Check A/B testing overrides for the reranking layer
+            ab_overrides = get_ab_overrides(
+                run_key=run_key, layer="reranking"
+            ) if run_key else None
 
-                _rerank_results = _loaded_rerank_results
-            merged = await _rerank_results(
-                normalized_query,
-                merged,
-                top_k=requested_count,
-                searxng_time_range=search_options.searxng_time_range
-                if search_options
-                else None,
-                research_goal=research_goal,
-                query_type_hint=query_type_hint,
-            )
+            if ab_overrides and ab_overrides.get("shadow_mode"):
+                # Shadow mode: run production rerank normally, fire-and-forget variant
+                ab_config = ab_overrides.get("config", {})
+                rerank_out = await rerank_results(
+                    query=normalized_query,
+                    candidates=merged,
+                    top_k=num_results,
+                    searxng_time_range=search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    research_goal=research_goal,
+                    query_type_hint=context.intent,
+                    run_key=run_key,
+                )
+                embedding_ctx_for_index = rerank_out.embedding_context
+                merged = rerank_out.results
+
+                # Fire-and-forget the variant rerank as a shadow
+                shadow_kwargs = {
+                    "query": normalized_query,
+                    "candidates": list(merged),
+                    "top_k": num_results,
+                    "searxng_time_range": search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    "research_goal": research_goal,
+                    "query_type_hint": context.intent,
+                    "run_key": run_key,
+                    "ab_overrides": ab_config or None,
+                }
+                asyncio.ensure_future(
+                    run_shadow(
+                        run_key=run_key,
+                        experiment_id=ab_overrides["experiment_id"],
+                        variant=ab_overrides["variant_key"],
+                        layer="reranking",
+                        shadow_fn=rerank_results,
+                        shadow_kwargs=shadow_kwargs,
+                        control_duration_ms=0.0,
+                        control_result_summary=None,
+                    )
+                )
+            else:
+                # Normal / A/B override mode: pass ab_overrides config directly
+                ab_config = ab_overrides.get("config") if ab_overrides else None
+                rerank_out = await rerank_results(
+                    query=normalized_query,
+                    candidates=merged,
+                    top_k=num_results,
+                    searxng_time_range=search_options.searxng_time_range
+                    if search_options
+                    else None,
+                    research_goal=research_goal,
+                    query_type_hint=context.intent,
+                    run_key=run_key,
+                    ab_overrides=ab_config,
+                )
+                embedding_ctx_for_index = rerank_out.embedding_context
+                merged = rerank_out.results
         except Exception as exc:
-            logger.warning("Reranking failed in web search orchestrator: %s", exc)
+            logger.warning("Reranking failed in search pipeline: %s", exc)
 
-    # Phase 7.2: store current (post-rerank) results to memory + compare injected survivors
     await store_result_memory_results(
         normalized_query=normalized_query,
         results=merged,
@@ -26324,10 +30595,9 @@ async def run_web_search(
         embed_query_fn=embed_query,
     )
 
-    # compare injected vs final post-rerank for survival signal
     if memory_injected:
         injected_urls = {result.link for result in memory_injected}
-        survived = [r for r in merged if r.link in injected_urls]
+        survived = [result for result in merged if result.link in injected_urls]
         if survived:
             emit_observability_event(
                 logger,
@@ -26335,7 +30605,7 @@ async def run_web_search(
                 query=query,
                 injected_count=len(memory_injected),
                 survived_count=len(survived),
-                survived_urls=[r.link for r in survived][:5],
+                survived_urls=[result.link for result in survived][:5],
             )
 
     result_offset = search_options.result_offset if search_options else 0
@@ -26343,20 +30613,70 @@ async def run_web_search(
     candidate_count = len(merged)
     has_more = result_offset + len(final_results) < candidate_count
     next_offset = result_offset + len(final_results) if has_more else None
-
     final_results = await maybe_extract_entities(query=query, results=final_results)
 
-    (
-        provider_warnings,
-        providers_used,
-        response,
-    ) = build_search_response(
+    if session_id:
+        session_state = get_session_state_store().get(session_id)
+        session_state.last_intent = context.intent
+        for result in final_results:
+            get_session_state_store().mark_seen(session_id, result.link)
+
+    if (
+        settings.web_results_index_enabled
+        and final_results
+        and embedding_ctx_for_index is not None
+    ):
+        try:
+            from ..index import index_final_results
+
+            dense_embeddings: list[list[float]] = []
+            indexed_results: list = []
+            texts: list[str] = []
+            for r in final_results:
+                # Skip results that originated from Qdrant to prevent feedback loop
+                if r.providers and "qdrant" in r.providers:
+                    continue
+                emb = embedding_ctx_for_index.find(r.link.strip())
+                if emb is None:
+                    continue
+                dense_embeddings.append(emb.dense)
+                texts.append(emb.text)
+                indexed_results.append(r)
+
+            entity_dicts = [
+                {"text": e.text, "label": e.label}
+                for r in final_results
+                if r.entities
+                for e in r.entities
+            ] or None
+
+            if indexed_results:
+                asyncio.ensure_future(
+                    index_final_results(
+                        normalized_query,
+                        indexed_results,
+                        dense_embeddings,
+                        texts=texts,
+                        intent=context.intent,
+                        entities=entity_dicts,
+                    )
+                )
+        except Exception as exc:
+            logger.debug("index_final_results fire-and-forget failed: %s", exc)
+
+    rewrite_policy = RewritePolicy(
+        mode="expand" if rewrite else "bypass",
+        reason=understanding.rationale,
+        must_keep_terms=list(context.must_keep_terms),
+    )
+    duration_ms = round((asyncio.get_event_loop().time() - pipeline_start) * 1000.0, 3)
+    _, _, response = build_search_response(
         query=query,
         normalized_query=normalized_query,
         research_goal=research_goal,
         rewrite=rewrite,
         rewrite_policy=rewrite_policy,
-        unique_domains=unique_domains,
+        unique_domains=len(set(r.domain for r in merged if r.domain)),
         merged=merged,
         final_results=final_results,
         providers=providers,
@@ -26365,6 +30685,100 @@ async def run_web_search(
         has_more=has_more,
         next_offset=next_offset,
     )
+
+    try:
+        await append_query_outcome_record(
+            context=context,
+            understanding=understanding,
+            results=[
+                {
+                    "title": result.title,
+                    "link": result.link,
+                    "snippet": result.snippet,
+                    "providers": result.providers or [],
+                }
+                for result in final_results
+            ],
+            path=settings.query_understanding_jsonl_path,
+            session_id=session_id,
+        )
+    except Exception as exc:
+        logger.warning("query outcome JSONL write failed: %s", exc)
+
+    # Best-effort dual-write: search_run
+    try:
+        analytics_insert_search_run(
+            run_key=run_key,
+            query=query,
+            normalized_query=normalized_query,
+            research_goal=research_goal,
+            num_results_requested=num_results,
+            rewrite_enabled=rewrite,
+            session_id=session_id,
+            duration_ms=duration_ms,
+            final_result_count=len(final_results),
+            candidate_count=candidate_count,
+            has_more=has_more,
+            result_offset=result_offset,
+            status="success",
+            error_type=None,
+            payload_json={
+                "intent": context.intent,
+                "confidence": context.confidence,
+                "profile": context.profile_name,
+                "providers_requested": providers or [],
+                "providers_active": active_provider_names,
+                "rewrite_variants": len(rewrite_variants),
+                "rewrite_model": rewrite_model,
+            },
+        )
+    except Exception as exc:
+        logger.debug("analytics insert_search_run failed: %s", exc)
+
+    # Best-effort dual-write: final_results
+    try:
+        for position, result in enumerate(final_results, start=1):
+            analytics_insert_final_results(
+                run_key=run_key,
+                rank=position,
+                link=result.link,
+                title=result.title,
+                snippet=result.snippet,
+                domain=result.domain or "",
+                final_score=result.score,
+                payload_json={
+                    "provider_count": result.provider_count,
+                    "providers": result.providers or [],
+                    "entities": (
+                        [e.model_dump() for e in result.entities]
+                        if result.entities
+                        else None
+                    ),
+                },
+            )
+    except Exception as exc:
+        logger.debug("analytics insert_final_results failed: %s", exc)
+
+    # Best-effort dual-write: search quality metrics
+    try:
+        compute_search_quality(run_key)
+    except Exception as exc:
+        logger.debug("compute_search_quality failed: %s", exc)
+
+    # Judge evaluation (opt-in, fire-and-forget, never blocks the pipeline)
+    if settings.judge_evaluation_enabled:
+        try:
+            asyncio.ensure_future(
+                run_judge_evaluation(
+                    run_key=run_key,
+                    query=query,
+                    intent=context.intent,
+                    results=final_results,
+                    tool_name="web_search",
+                )
+            )
+        except Exception as exc:
+            logger.debug("judge evaluation fire-and-forget failed: %s", exc)
 
     return response
 </file>
@@ -26381,6 +30795,8 @@ from typing import Any
 
 import httpx
 
+from ..prompts.provider_perplexity import build_provider_perplexity_prompt
+
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
@@ -26392,44 +30808,6 @@ MODEL_MAPPING = {
     "normal": "perplexity-fast",
     "deep": "perplexity-reasoning",
 }
-
-# System prompt ONLY controls response style/tone, NOT search behavior.
-# Perplexity's real-time search component does NOT attend to system prompts.
-# All factual query guidance must be in user prompts.
-SYSTEM_PROMPT = (
-    "You are a concise, precise research assistant. "
-    "Provide factual answers with numbered citations. "
-    "Keep responses professional and succinct."
-)
-
-# User prompt templates - these control search behavior
-# Template for Sonar (normal/fast queries)
-USER_PROMPT_TEMPLATE_NORMAL = """
-{query}
-
-Research context: {research_goal}
-
-Requirements:
-- Provide factual information with numbered citations [1], [2], etc.
-- If specific information cannot be found from reliable sources, state this clearly.
-- Focus on verifiable facts from authoritative sources.
-- Keep the research context in mind when prioritizing information.
-"""
-
-# Template for Sonar Reasoning Pro (deep/analytical queries)
-USER_PROMPT_TEMPLATE_REASONING = """
-{query}
-
-Research context: {research_goal}
-
-Requirements:
-- Provide step-by-step analysis with reasoning for each conclusion.
-- Include numbered citations [1], [2], etc. for each factual claim.
-- If specific information cannot be found, state which aspects were unavailable.
-- Distinguish between verified facts and analytical interpretations.
-- Keep the research context in mind when prioritizing analysis depth.
-"""
-
 
 class PollinationsClient:
     """HTTP client for Pollinations AI web search API (Perplexity Sonar)."""
@@ -26479,21 +30857,33 @@ class PollinationsClient:
 
         # Default research_goal if not provided
         goal = research_goal or "General information gathering"
-
-        # Select appropriate user prompt template based on model type
+        system_content, user_content = build_provider_perplexity_prompt(
+            query=query.strip(),
+            research_goal=goal,
+            provider_name="perplexity",
+        )
         if depth == "deep":
-            user_content = USER_PROMPT_TEMPLATE_REASONING.format(
-                query=query.strip(), research_goal=goal
+            user_content += (
+                "\n\nRequirements:\n"
+                "- Provide step-by-step analysis with reasoning for each conclusion.\n"
+                "- Include numbered citations [1], [2], etc. for each factual claim.\n"
+                "- If specific information cannot be found, state which aspects were unavailable.\n"
+                "- Distinguish between verified facts and analytical interpretations.\n"
+                "- Keep the research context in mind when prioritizing analysis depth.\n"
             )
         else:
-            user_content = USER_PROMPT_TEMPLATE_NORMAL.format(
-                query=query.strip(), research_goal=goal
+            user_content += (
+                "\n\nRequirements:\n"
+                "- Provide factual information with numbered citations [1], [2], etc.\n"
+                "- If specific information cannot be found from reliable sources, state this clearly.\n"
+                "- Focus on verifiable facts from authoritative sources.\n"
+                "- Keep the research context in mind when prioritizing information.\n"
             )
 
         payload = {
             "model": model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
             ],
         }
@@ -26640,6 +31030,190 @@ async def gemini_grounding_search(
         "usage": data.get("usage", {}),
         "query": query,
     }
+</file>
+
+<file path="search/profiles/__init__.py">
+"""Search profile registry."""
+
+from .defaults import build_default_profiles
+from .models import SearchProfile
+from .registry import get_profile, resolve_profile_name, resolve_profiles
+from .resolve import resolve_search_profile
+
+__all__ = [
+    "SearchProfile",
+    "build_default_profiles",
+    "get_profile",
+    "resolve_profile_name",
+    "resolve_profiles",
+    "resolve_search_profile",
+]
+</file>
+
+<file path="search/profiles/defaults.py">
+"""Default profile definitions for 0.2."""
+
+from __future__ import annotations
+
+from ..intents import SearchIntent
+from ...settings import settings
+from .models import SearchProfile
+
+
+def build_default_profiles() -> dict[SearchIntent, SearchProfile]:
+    base = SearchProfile(
+        name="general",
+        provider_weights=dict(settings.rrf_provider_weights),
+        prompt_family="worker",
+    )
+    return {
+        "general": base,
+        "ai_coding": SearchProfile(name="ai_coding", parent="general"),
+        "digital_humanities": SearchProfile(name="digital_humanities", parent="general"),
+        "comparison": SearchProfile(name="comparison", parent="general"),
+    }
+</file>
+
+<file path="search/profiles/models.py">
+"""Profile data model."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from ..intents import SearchIntent
+
+
+@dataclass(frozen=True, slots=True)
+class SearchProfile:
+    name: SearchIntent
+    parent: SearchIntent | None = None
+    provider_weights: dict[str, float] = field(default_factory=dict)
+    provider_names: tuple[str, ...] | None = None
+    provider_arguments: dict[str, dict[str, object]] = field(default_factory=dict)
+    search_options_overrides: dict[str, object] = field(default_factory=dict)
+    prompt_family: str = "general"
+</file>
+
+<file path="search/profiles/registry.py">
+"""Search profile resolution with inheritance."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+from ..intents import SearchIntent, normalize_intent
+from ..options import SearchOptions
+from .defaults import build_default_profiles
+from .models import SearchProfile
+
+
+_PROFILES: dict[SearchIntent, SearchProfile] = build_default_profiles()
+
+
+def resolve_profile_name(intent: str | None) -> SearchIntent:
+    return normalize_intent(intent)
+
+
+def get_profile(name: SearchIntent) -> SearchProfile:
+    profile = _PROFILES[name]
+    if profile.parent is None:
+        return profile
+    parent = _PROFILES[profile.parent]
+    provider_weights = dict(parent.provider_weights)
+    provider_weights.update(profile.provider_weights)
+    provider_names = profile.provider_names if profile.provider_names is not None else parent.provider_names
+    provider_arguments = dict(parent.provider_arguments)
+    provider_arguments.update(profile.provider_arguments)
+    search_options_overrides = dict(parent.search_options_overrides)
+    search_options_overrides.update(profile.search_options_overrides)
+    return SearchProfile(
+        name=profile.name,
+        parent=profile.parent,
+        provider_weights=provider_weights,
+        provider_names=provider_names,
+        provider_arguments=provider_arguments,
+        search_options_overrides=search_options_overrides,
+        prompt_family=profile.prompt_family or parent.prompt_family,
+    )
+
+
+def resolve_profiles() -> dict[SearchIntent, SearchProfile]:
+    return {name: get_profile(name) for name in _PROFILES}
+
+
+def apply_profile_search_options(
+    search_options: SearchOptions | None,
+    profile: SearchProfile,
+) -> SearchOptions | None:
+    if search_options is None and not profile.search_options_overrides:
+        return None
+    base = search_options or SearchOptions()
+    if not profile.search_options_overrides:
+        return base
+    return replace(base, **profile.search_options_overrides).validate()
+</file>
+
+<file path="search/profiles/resolve.py">
+"""Search profile resolver."""
+
+from __future__ import annotations
+
+from ..intents import normalize_intent
+from .models import SearchProfile
+from .registry import get_profile
+
+
+def resolve_search_profile(intent: str | None) -> SearchProfile:
+    return get_profile(normalize_intent(intent))
+</file>
+
+<file path="search/provider_call.py">
+"""Provider invocation helpers for search execution."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Mapping
+
+from .options import SearchOptions
+
+
+def build_provider_call_kwargs(
+    provider_fn: object,
+    *,
+    search_options: SearchOptions | None,
+    provider_arguments: Mapping[str, object] | None,
+) -> dict[str, object]:
+    signature = inspect.signature(provider_fn)
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
+    kwargs: dict[str, object] = {}
+    if search_options is not None and (
+        "search_options" in signature.parameters or accepts_kwargs
+    ):
+        kwargs["search_options"] = search_options
+    if not provider_arguments:
+        return kwargs
+    if accepts_kwargs:
+        kwargs.update(provider_arguments)
+        return kwargs
+    allowed = {
+        name
+        for name, parameter in signature.parameters.items()
+        if name not in {"query", "num_results", "http_client"}
+        and parameter.kind
+        in {
+            inspect.Parameter.KEYWORD_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }
+    }
+    kwargs.update(
+        {key: value for key, value in provider_arguments.items() if key in allowed}
+    )
+    return kwargs
 </file>
 
 <file path="search/provider_config.py">
@@ -27094,1358 +31668,285 @@ def reset_provider_health() -> None:
     _provider_health = None
 </file>
 
-<file path="search/query_classifier_client.py">
-"""FunctionGemma classifier/decomposition client.
-
-NOTE: Current classification (code/general_research/comparison) is a stub —
-will be revisited as part of the unified query understanding redesign
-(see plans/TAXONOMY.md).
-"""
+<file path="search/provider_options.py">
+"""Provider-specific option bundles."""
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
+from dataclasses import dataclass, field
+
+from .options import SearchOptions
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderOptionBundle:
+    provider_name: str
+    search_options: SearchOptions | None = None
+    fire: bool = True
+    weight: float = 1.0
+    arguments: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderOptionSet:
+    bundles: dict[str, ProviderOptionBundle]
+
+    def bundle_for(self, provider_name: str) -> ProviderOptionBundle | None:
+        return self.bundles.get(provider_name)
+</file>
+
+<file path="search/provider_plan.py">
+"""Resolved provider execution plan for a search request."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from hashlib import sha256
+
+from .context import SearchContext
+from .options import SearchOptions
+from .profiles.models import SearchProfile
+from .provider_options import ProviderOptionBundle, ProviderOptionSet
+from .provider_config import resolve_providers_for_search
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderExecutionPlan:
+    provider_names: tuple[str, ...]
+    provider_weights: dict[str, float]
+    options: ProviderOptionSet
+    plan_version: str = "0.2"
+
+
+def build_provider_execution_plan(
+    *,
+    profile: SearchProfile,
+    context: SearchContext,
+    public_options: SearchOptions | None,
+) -> ProviderExecutionPlan:
+    provider_names = tuple(profile.provider_names or ())
+    if not provider_names:
+        provider_names = tuple(context.providers or ())
+    if not provider_names:
+        provider_names = tuple(
+            config.name for config in resolve_providers_for_search(None)
+        )
+    if not provider_names:
+        provider_names = tuple(profile.provider_weights.keys()) or (
+            "searxng",
+            "brave",
+            "google_cse",
+        )
+    provider_weights = dict(profile.provider_weights)
+    bundles = {
+        name: ProviderOptionBundle(
+            provider_name=name,
+            search_options=public_options,
+            fire=True,
+            weight=provider_weights.get(name, 1.0),
+            arguments=dict(profile.provider_arguments.get(name, {})),
+        )
+        for name in provider_names
+    }
+    return ProviderExecutionPlan(
+        provider_names=provider_names,
+        provider_weights=provider_weights,
+        options=ProviderOptionSet(bundles=bundles),
+    )
+
+
+def build_cache_identity(
+    *,
+    query: str,
+    profile: SearchProfile,
+    provider_plan: ProviderExecutionPlan,
+    search_options: SearchOptions | None,
+    rewrite_enabled: bool,
+) -> str:
+    payload = "|".join(
+        [
+            query,
+            profile.name,
+            provider_plan.plan_version,
+            ",".join(provider_plan.provider_names),
+            str(search_options.cache_fingerprint() if search_options else ""),
+            str(int(rewrite_enabled)),
+        ]
+    ).encode("utf-8")
+    return sha256(payload).hexdigest()[:24]
+</file>
+
+<file path="search/qdrant.py">
+"""Qdrant hybrid search provider — reads from the Qdrant index."""
+
+from __future__ import annotations
+
 import logging
-from collections import OrderedDict
-from typing import Any
 
 import httpx
-from pybreaker import CircuitBreaker
+from qdrant_client import AsyncQdrantClient, models
 
+from ..embeddings import embed_query
+from ..index.bm25_encoder import encode_bm25
+from ..models import WebSearchResult
+from .options import SearchOptions
 from ..settings import settings
-from .normalize import normalize_query
-from .query_decomposition import (
-    CLASSIFIER_JSON_SCHEMA,
-    DECOMPOSITION_JSON_SCHEMA,
-    build_classifier_messages,
-    build_decomposition_messages,
-    normalize_sub_questions,
-)
-from .query_rewrite_models import (
-    ClassifierOutput,
-    QueryDecompositionOutput,
-    ProviderRouting,
-    RewriteIntent,
-    SubQuestion,
-)
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
-_CLASSIFICATION_CACHE: OrderedDict[tuple[str, str], ClassifierOutput] = OrderedDict()
-_DECOMPOSITION_CACHE: OrderedDict[tuple[str, str, str], QueryDecompositionOutput] = (
-    OrderedDict()
-)
-_CACHE_MAXSIZE = 256
 
+class QdrantSearchError(RuntimeError):
+    pass
 
-def _hash_key(*parts: str) -> tuple[str, ...]:
-    return tuple(
-        hashlib.sha256(normalize_query(part).encode("utf-8")).hexdigest()
-        for part in parts
-    )
 
+class QdrantConfigError(QdrantSearchError):
+    pass
 
-def _store_cache(
-    cache: OrderedDict[Any, Any],
-    key: Any,
-    value: Any,
-) -> None:
-    cache[key] = value
-    cache.move_to_end(key)
-    while len(cache) > _CACHE_MAXSIZE:
-        cache.popitem(last=False)
 
-
-def _get_cache(cache: OrderedDict[Any, Any], key: Any) -> Any | None:
-    value = cache.get(key)
-    if value is not None:
-        cache.move_to_end(key)
-    return value
-
-
-def _default_routing_for_intent(intent: RewriteIntent, query: str) -> ProviderRouting:
-    lowered = normalize_query(query).casefold()
-    if intent == "comparison":
-        return ProviderRouting(keyword=True, neural=True, community=True)
-    if intent == "general_research":
-        return ProviderRouting(keyword=True, neural=True, community=False)
-    community = any(
-        token in lowered
-        for token in ("github", "reddit", "hackernews", "forum", "issue", "bug")
-    )
-    return ProviderRouting(keyword=True, neural=True, community=community)
-
-
-def _fallback_classifier_output(
-    query: str, research_goal: str | None
-) -> ClassifierOutput:
-    lowered = normalize_query(research_goal or query).casefold()
-    if any(
-        token in lowered
-        for token in (" vs ", " compare ", "comparison", "difference", "versus")
-    ):
-        intent: RewriteIntent = "comparison"
-        should_decompose = True
-    elif any(
-        token in lowered
-        for token in ("docs", "api", "error", "bug", "install", "how to", "debug")
-    ):
-        intent = "code"
-        should_decompose = False
-    else:
-        intent = "general_research"
-        should_decompose = " and " in lowered or ";" in lowered
-    return ClassifierOutput(
-        intent=intent,
-        should_decompose=should_decompose,
-        confidence=0.55 if should_decompose else 0.35,
-        routing=_default_routing_for_intent(intent, query),
-    )
-
-
-def _fallback_decomposition_output(
-    query: str,
-    classifier: ClassifierOutput,
-    *,
-    max_subquestions: int,
-) -> QueryDecompositionOutput:
-    normalized = normalize_query(query)
-    candidate_segments = [
-        segment.strip(" ,.;:()[]{}")
-        for segment in normalized.replace(" vs ", " and ")
-        .replace(" versus ", " and ")
-        .split(" and ")
-        if segment.strip()
-    ]
-    if len(candidate_segments) < 2:
-        return QueryDecompositionOutput(should_decompose=False, sub_questions=[])
-
-    sub_questions: list[SubQuestion] = []
-    for segment in candidate_segments[:max_subquestions]:
-        lowered = segment.casefold()
-        if any(
-            token in lowered for token in ("reddit", "hackernews", "forum", "opinion")
-        ):
-            target = "community"
-        elif any(
-            token in lowered
-            for token in ("docs", "api", "error", "bug", "install", "debug")
-        ):
-            target = "keyword"
-        elif classifier.routing.neural:
-            target = "neural"
-        else:
-            target = "keyword"
-        sub_questions.append(
-            SubQuestion(
-                question=segment,
-                target=target,
-                why="Heuristic decomposition fallback.",
-                weight=1.0,
-            )
-        )
-
-    return normalize_sub_questions(
-        QueryDecompositionOutput(should_decompose=True, sub_questions=sub_questions),
-        max_subquestions=max_subquestions,
-    )
-
-
-class FunctionGemmaClient:
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        enabled: bool,
-        timeout_seconds: float,
-        max_tokens: int,
-    ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.enabled = enabled
-        self.timeout_seconds = timeout_seconds
-        self.max_tokens = max_tokens
-        self._breaker = CircuitBreaker(
-            fail_max=3,
-            reset_timeout=30,
-            name="functiongemma-classifier",
-        )
-
-    def _generate_sync(
-        self,
-        *,
-        messages: list[dict[str, str]],
-        json_schema: dict[str, Any],
-        temperature: float,
-        max_tokens: int,
-    ) -> dict[str, Any]:
-        payload = {
-            "messages": messages,
-            "json_schema": json_schema,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        with httpx.Client(timeout=self.timeout_seconds) as client:
-            response = client.post(f"{self.base_url}/generate", json=payload)
-            response.raise_for_status()
-            body = response.json()
-
-        if not isinstance(body, dict):
-            raise ValueError("FunctionGemma response must be a JSON object")
-        result = body.get("result")
-        if not isinstance(result, dict):
-            raise ValueError("FunctionGemma response missing result object")
-        return result
-
-    async def classify_query(
-        self,
-        query: str,
-        *,
-        research_goal: str | None = None,
-        must_keep_terms: list[str] | None = None,
-    ) -> ClassifierOutput:
-        normalized_query = normalize_query(query)
-        goal = normalize_query(research_goal or query)
-        cache_key = _hash_key(normalized_query, goal)
-        cached = _get_cache(_CLASSIFICATION_CACHE, cache_key)
-        if cached is not None:
-            return cached
-
-        if not self.enabled or not self.base_url:
-            result = _fallback_classifier_output(query, research_goal)
-            _store_cache(_CLASSIFICATION_CACHE, cache_key, result)
-            return result
-
-        messages = build_classifier_messages(
-            query=normalized_query,
-            research_goal=research_goal,
-            must_keep_terms=must_keep_terms or [],
-        )
-
-        try:
-            raw_result = await asyncio.to_thread(
-                self._breaker.call,
-                self._generate_sync,
-                messages=messages,
-                json_schema=CLASSIFIER_JSON_SCHEMA,
-                temperature=0.1,
-                max_tokens=self.max_tokens,
-            )
-            result = ClassifierOutput.model_validate(raw_result)
-        except Exception as exc:
-            logger.warning("FunctionGemma classification failed: %s", exc)
-            result = _fallback_classifier_output(query, research_goal)
-
-        _store_cache(_CLASSIFICATION_CACHE, cache_key, result)
-        return result
-
-    async def decompose_query(
-        self,
-        query: str,
-        *,
-        research_goal: str | None = None,
-        classifier: ClassifierOutput | None = None,
-        must_keep_terms: list[str] | None = None,
-        max_subquestions: int | None = None,
-    ) -> QueryDecompositionOutput:
-        normalized_query = normalize_query(query)
-        goal = normalize_query(research_goal or query)
-        classifier_key = classifier.intent if classifier else "unknown"
-        cache_key = _hash_key(normalized_query, goal, classifier_key)
-        cached = _get_cache(_DECOMPOSITION_CACHE, cache_key)
-        if cached is not None:
-            return cached
-
-        if not self.enabled or not self.base_url:
-            result = _fallback_decomposition_output(
-                query,
-                classifier or _fallback_classifier_output(query, research_goal),
-                max_subquestions=max_subquestions
-                or settings.query_decomposition_max_subquestions,
-            )
-            _store_cache(_DECOMPOSITION_CACHE, cache_key, result)
-            return result
-
-        if classifier is None:
-            classifier = await self.classify_query(
-                query,
-                research_goal=research_goal,
-                must_keep_terms=must_keep_terms,
-            )
-
-        messages = build_decomposition_messages(
-            query=normalized_query,
-            research_goal=research_goal,
-            must_keep_terms=must_keep_terms or [],
-            intent=classifier.intent,
-            routing={
-                "keyword": classifier.routing.keyword,
-                "neural": classifier.routing.neural,
-                "community": classifier.routing.community,
-            },
-        )
-
-        try:
-            raw_result = await asyncio.to_thread(
-                self._breaker.call,
-                self._generate_sync,
-                messages=messages,
-                json_schema=DECOMPOSITION_JSON_SCHEMA,
-                temperature=0.1,
-                max_tokens=self.max_tokens,
-            )
-            result = QueryDecompositionOutput.model_validate(raw_result)
-            result = normalize_sub_questions(
-                result,
-                max_subquestions=max_subquestions
-                or settings.query_decomposition_max_subquestions,
-            )
-        except Exception as exc:
-            logger.warning("FunctionGemma decomposition failed: %s", exc)
-            result = _fallback_decomposition_output(
-                query,
-                classifier,
-                max_subquestions=max_subquestions
-                or settings.query_decomposition_max_subquestions,
-            )
-
-        _store_cache(_DECOMPOSITION_CACHE, cache_key, result)
-        return result
-
-
-_CLIENT_CACHE: dict[tuple[str, bool, float, int], FunctionGemmaClient] = {}
-
-
-def get_functiongemma_client() -> FunctionGemmaClient:
-    cache_key = (
-        settings.query_classifier_url,
-        settings.query_classifier_enabled,
-        settings.query_classifier_timeout_seconds,
-        settings.query_classifier_max_tokens,
-    )
-    client = _CLIENT_CACHE.get(cache_key)
-    if client is None:
-        client = FunctionGemmaClient(
-            base_url=settings.query_classifier_url,
-            enabled=settings.query_classifier_enabled,
-            timeout_seconds=settings.query_classifier_timeout_seconds,
-            max_tokens=settings.query_classifier_max_tokens,
-        )
-        _CLIENT_CACHE[cache_key] = client
-    return client
-</file>
-
-<file path="search/query_decomposition.py">
-"""Query decomposition: sub-question generation via FunctionGemma.
-
-NOTE: Current decomposition is a stub — will be revisited as part of the
-unified query understanding redesign (see plans/TAXONOMY.md).
-"""
-
-from __future__ import annotations
-
-from typing import Any
-
-from .normalize import normalize_query
-from .query_rewrite_models import (
-    QueryDecompositionOutput,
-    RewriteIntent,
-    SubQuestion,
-)
-
-CLASSIFIER_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "intent": {
-            "type": "string",
-            "enum": ["code", "general_research", "comparison"],
-        },
-        "should_decompose": {"type": "boolean"},
-        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-        "routing": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "keyword": {"type": "boolean"},
-                "neural": {"type": "boolean"},
-                "community": {"type": "boolean"},
-            },
-            "required": ["keyword", "neural", "community"],
-        },
-    },
-    "required": ["intent", "should_decompose", "confidence", "routing"],
-}
-
-DECOMPOSITION_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "should_decompose": {"type": "boolean"},
-        "sub_questions": {
-            "type": "array",
-            "minItems": 0,
-            "maxItems": 3,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "question": {"type": "string"},
-                    "target": {
-                        "type": "string",
-                        "enum": ["keyword", "neural", "community", "all"],
-                    },
-                    "why": {"type": "string"},
-                    "weight": {"type": "number", "minimum": 0.8, "maximum": 1.2},
-                },
-                "required": ["question", "target", "why", "weight"],
-            },
-        },
-    },
-    "required": ["should_decompose", "sub_questions"],
-}
-
-CLASSIFIER_SYSTEM_PROMPT = """You classify AI-agent web search queries.
-
-Return JSON only matching the provided schema.
-Allowed intent values:
-- code
-- general_research
-- comparison
-
-Routing guidance:
-- keyword: docs, APIs, release notes, error messages, precise lookups
-- neural: conceptual synthesis, grounded answers, natural-language research
-- community: bugs, workarounds, opinions, discussions, developer experiences
-
-Set should_decompose=true only when the query clearly contains multiple independent search goals.
-Do not explain your reasoning.
-
-Examples:
-- Query: "FastMCP prompt timeout docs" -> {"intent":"code","should_decompose":false,"confidence":0.96,"routing":{"keyword":true,"neural":true,"community":false}}
-- Query: "React 19 vs Vue 4 SSR performance and developer experience" -> {"intent":"comparison","should_decompose":true,"confidence":0.92,"routing":{"keyword":true,"neural":true,"community":true}}
-- Query: "what is query rewriting in search agents" -> {"intent":"general_research","should_decompose":false,"confidence":0.9,"routing":{"keyword":true,"neural":true,"community":false}}
-"""
-
-DECOMPOSITION_SYSTEM_PROMPT = """You decompose one search goal into a small set of standalone search queries.
-
-Return JSON only matching the provided schema.
-
-Rules:
-- Generate 2 to 3 sub-questions when decomposition is useful.
-- Each sub-question must be self-contained and searchable on its own.
-- Keep each sub-question concise.
-- Use keyword for docs/specs/errors, neural for synthesis, community for opinions/bugs/workarounds.
-- Preserve exact terms from MUST_KEEP_TERMS.
-- Do not invent entities or facts.
-- Do not explain your reasoning.
-
-Examples:
-- Query: "React 19 vs Vue 4 SSR performance and developer experience" ->
-  sub_questions for React 19, Vue 4, and developer experience discussion
-- Query: "FastMCP ResourcesAsTools PromptsAsTools" ->
-  sub_questions for official docs and community issues
-"""
-
-
-def build_classifier_messages(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-) -> list[dict[str, str]]:
-    must_keep = "\n".join(f"- {term}" for term in must_keep_terms) or "- none"
-    goal = research_goal or query
-    return [
-        {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"""RAW_QUERY:
-{query}
-
-RESEARCH_GOAL:
-{goal}
-
-MUST_KEEP_TERMS:
-{must_keep}
-
-Return JSON only.""",
-        },
-    ]
-
-
-def build_decomposition_messages(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    intent: RewriteIntent,
-    routing: dict[str, bool] | None = None,
-) -> list[dict[str, str]]:
-    must_keep = "\n".join(f"- {term}" for term in must_keep_terms) or "- none"
-    goal = research_goal or query
-    routing_lines = ""
-    if routing:
-        routing_lines = "\n".join(f"- {k}: {v}" for k, v in routing.items())
-    return [
-        {"role": "system", "content": DECOMPOSITION_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"""RAW_QUERY:
-{query}
-
-RESEARCH_GOAL:
-{goal}
-
-INTENT:
-{intent}
-
-ROUTING:
-{routing_lines or "- none"}
-
-MUST_KEEP_TERMS:
-{must_keep}
-
-Return JSON only.""",
-        },
-    ]
-
-
-def normalize_sub_questions(
-    output: QueryDecompositionOutput,
-    *,
-    max_subquestions: int,
-) -> QueryDecompositionOutput:
-    seen: set[str] = set()
-    cleaned: list[SubQuestion] = []
-    for item in output.sub_questions:
-        normalized = normalize_query(item.question)
-        if not normalized:
-            continue
-        key = normalized.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned.append(
-            item.model_copy(
-                update={"question": normalized, "why": normalize_query(item.why)}
-            )
-        )
-        if len(cleaned) >= max_subquestions:
-            break
-    return QueryDecompositionOutput(
-        should_decompose=output.should_decompose and len(cleaned) >= 1,
-        sub_questions=cleaned,
-    )
-</file>
-
-<file path="search/query_fanout_client.py">
-"""LLM fan-out client for decomposed branch generation."""
-
-from __future__ import annotations
-
-import logging
-
-from ..settings import settings
-from ..utils.diagnostics import Diagnostics
-from .query_fanout import (
-    build_fanout_messages,
-    normalize_fanout_output,
-    parse_fanout_output,
-)
-from .query_rewrite_cascade import cascade_query_rewrite
-from .query_rewrite_models import QueryFanoutOutput, RewriteIntent
-
-logger = logging.getLogger(__name__)
-
-FANOUT_TEMPERATURE_BY_INTENT: dict[RewriteIntent, float] = {
-    "code": 0.2,
-    "general_research": 0.5,
-    "comparison": 0.35,
-}
-
-
-async def generate_fanout_branches(
-    *,
-    query: str,
-    intent: RewriteIntent,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    active_provider_names: list[str],
-    routing: dict[str, bool] | None = None,
-    max_branches: int | None = None,
-    diagnostics: Diagnostics | None = None,
-) -> QueryFanoutOutput:
-    if not settings.query_rewrite_enabled:
-        return QueryFanoutOutput()
-    if not (
-        settings.cerebras_api_key or settings.groq_api_key or settings.hf_token
-    ):
-        return QueryFanoutOutput()
-
-    messages = build_fanout_messages(
-        query=query,
-        research_goal=research_goal,
-        must_keep_terms=must_keep_terms,
-        intent=intent,
-        active_provider_names=active_provider_names,
-        routing=routing,
-    )
-    try:
-        raw_content, model_used = await cascade_query_rewrite(
-            messages=messages,
-            temperature=FANOUT_TEMPERATURE_BY_INTENT.get(
-                intent, settings.query_rewrite_temperature
-            ),
-            timeout=settings.query_rewrite_cascade_timeout_seconds,
-        )
-        parsed = parse_fanout_output(raw_content)
-        normalized = normalize_fanout_output(
-            parsed,
-            must_keep_terms=must_keep_terms,
-            max_branches=max_branches or settings.query_decomposition_max_branches,
-        )
-        if diagnostics:
-            diagnostics.emit(
-                "query_rewrite.fanout",
-                "LLM fan-out call completed",
-                {
-                    "branch_count": len(normalized.branches),
-                    "model": model_used,
-                    "rationale": normalized.rationale,
-                },
-            )
-        return normalized
-    except Exception as exc:
-        logger.warning("LLM fan-out generation failed: %s", exc)
-        if diagnostics:
-            diagnostics.emit(
-                "query_rewrite.fanout_error",
-                "LLM fan-out call failed",
-                {
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc),
-                },
-            )
-        return QueryFanoutOutput()
-</file>
-
-<file path="search/query_fanout.py">
-"""LLM fan-out prompt, schema, parsing, and normalization."""
-
-from __future__ import annotations
-
-import json
-from datetime import date
-from typing import Any
-
-from .normalize import normalize_query
-from .query_rewrite_models import QueryFanoutOutput, QueryVariant, RewriteIntent
-
-BRANCH_KINDS = (
-    "related",
-    "implicit",
-    "comparative",
-    "reformulation",
-    "entity_expanded",
-)
-
-BRANCH_TARGETS = ("keyword", "neural", "community", "all")
-
-FANOUT_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "rationale": {"type": "string"},
-        "branches": {
-            "type": "array",
-            "minItems": 8,
-            "maxItems": 10,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "kind": {"type": "string", "enum": list(BRANCH_KINDS)},
-                    "branch_type": {"type": "string", "enum": list(BRANCH_KINDS)},
-                    "target": {"type": "string", "enum": list(BRANCH_TARGETS)},
-                    "query": {"type": "string"},
-                    "why": {"type": "string"},
-                    "reason": {"type": "string"},
-                    "weight": {"type": "number", "minimum": 0.8, "maximum": 1.2},
-                    "must_keep_terms": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                    "max_results": {"type": "integer", "minimum": 1, "maximum": 20},
-                },
-                "required": [
-                    "kind",
-                    "branch_type",
-                    "target",
-                    "query",
-                    "why",
-                    "reason",
-                    "weight",
-                    "must_keep_terms",
-                    "max_results",
-                ],
-            },
-        },
-    },
-    "required": ["rationale", "branches"],
-}
-
-FANOUT_SYSTEM_PROMPT = """You generate a fan-out plan for agentic web search.
-
-Return JSON only matching the provided schema.
-
-Hard rules:
-- Generate 8 to 10 branches.
-- Each branch must be independently searchable.
-- Branch categories must be one of: related, implicit, comparative, reformulation, entity_expanded.
-- Each branch must include branch_type, target, query, why, reason, weight, must_keep_terms, and max_results.
-- Preserve every MUST_KEEP_TERMS item exactly in every branch.
-- Use the research goal as the main objective.
-- Use the raw query only to recover literal terms, entities, and constraints.
-- Keep branch queries short, precise, and different from each other.
-- Use keyword for docs, specs, release notes, and exact lookup work.
-- Use neural for synthesis, grounded understanding, and natural-language framing.
-- Use community for bugs, workarounds, and practitioner reports.
-- Use all only when the branch should be searched everywhere.
-- Do not invent facts, entities, versions, or citations.
-- reason must be compact and explain why the branch exists.
-- why must not be empty.
-- Do not produce duplicates or near-duplicates.
-"""
-
-
-def build_fanout_messages(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    intent: RewriteIntent,
-    active_provider_names: list[str],
-    routing: dict[str, bool] | None = None,
-) -> list[dict[str, str]]:
-    must_keep = "\n".join(f"- {term}" for term in must_keep_terms) or "- none"
-    goal = research_goal or query
-    routing_lines = ""
-    if routing:
-        routing_lines = "\n".join(f"- {name}: {enabled}" for name, enabled in routing.items())
-    providers = "\n".join(f"- {provider}" for provider in active_provider_names) or "- none"
-    return [
-        {"role": "system", "content": FANOUT_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": f"""CURRENT_DATE:
-{date.today().isoformat()}
-
-RAW_QUERY:
-{query}
-
-RESEARCH_GOAL:
-{goal}
-
-INTENT:
-{intent}
-
-ACTIVE_PROVIDERS:
-{providers}
-
-ROUTING:
-{routing_lines or "- none"}
-
-MUST_KEEP_TERMS:
-{must_keep}
-
-Return JSON only.""",
-        },
-    ]
-
-
-def parse_fanout_output(content: str) -> QueryFanoutOutput:
-    data = json.loads(content)
-    if not isinstance(data, dict):
-        raise ValueError("Fan-out response must be a JSON object")
-    branches = data.get("branches")
-    if not isinstance(branches, list):
-        raise ValueError("Fan-out response missing branches array")
-    if not 8 <= len(branches) <= 10:
-        raise ValueError("Fan-out response must contain 8 to 10 branches")
-    for index, branch in enumerate(branches):
-        if not isinstance(branch, dict):
-            raise ValueError(f"Fan-out branch {index} must be an object")
-        required_fields = (
-            "kind",
-            "branch_type",
-            "target",
-            "query",
-            "why",
-            "reason",
-            "weight",
-            "must_keep_terms",
-            "max_results",
-        )
-        missing = [field for field in required_fields if field not in branch]
-        if missing:
-            raise ValueError(
-                f"Fan-out branch {index} missing required fields: {', '.join(missing)}"
-            )
-        for field in ("kind", "branch_type", "target", "query", "why", "reason"):
-            if not isinstance(branch[field], str) or not branch[field].strip():
-                raise ValueError(
-                    f"Fan-out branch {index} field '{field}' must be a non-empty string"
-                )
-    return QueryFanoutOutput.model_validate(data)
-
-
-def normalize_fanout_output(
-    output: QueryFanoutOutput,
-    *,
-    must_keep_terms: list[str],
-    max_branches: int,
-) -> QueryFanoutOutput:
-    rationale = normalize_query(output.rationale)
-    seen: set[str] = set()
-    branches: list[QueryVariant] = []
-    for branch in output.branches:
-        normalized_query = normalize_query(branch.query)
-        if not normalized_query:
-            continue
-        key = normalized_query.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        merged_keep_terms = _merge_terms(must_keep_terms, branch.must_keep_terms)
-        branch_kind = normalize_query(branch.branch_type or branch.kind)
-        reason = normalize_query(branch.reason or branch.why)
-        branches.append(
-            branch.model_copy(
-                update={
-                    "query": normalized_query,
-                    "why": normalize_query(branch.why),
-                    "branch_type": branch_kind,
-                    "reason": reason,
-                    "must_keep_terms": merged_keep_terms,
-                }
-            )
-        )
-        if len(branches) >= max_branches:
-            break
-    return QueryFanoutOutput(rationale=rationale, branches=branches)
-
-
-def _merge_terms(left: list[str], right: list[str]) -> list[str]:
-    seen: set[str] = set()
-    merged: list[str] = []
-    for term in [*left, *right]:
-        normalized = normalize_query(term)
-        if not normalized:
-            continue
-        key = normalized.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        merged.append(normalized)
-    return merged
-</file>
-
-<file path="search/query_policy_resolver.py">
-"""Query routing resolver - directly uses heuristic classification.
-
-NOTE: Current routing is a stub — will be revisited as part of the unified
-query understanding redesign (see plans/TAXONOMY.md).
-"""
-
-from __future__ import annotations
-
-from ..utils.diagnostics import Diagnostics
-from .query_policy import RewritePolicy, classify_search_query
-
-
-async def resolve_query_routing(
+async def search_qdrant(
     query: str,
     *,
-    diagnostics: Diagnostics | None = None,
-    entities: list | None = None,
-) -> RewritePolicy:
-    """Resolve query routing policy based on precision signal detection.
+    num_results: int,
+    http_client: httpx.AsyncClient | None = None,
+    search_options: SearchOptions | None = None,
+) -> list[WebSearchResult]:
+    """Query Qdrant index using hybrid search (dense + sparse with RRF fusion).
 
-    Entities (GLiNER on original query only) are forwarded to augment must-keep.
+    Returns results tagged with provider="qdrant" for feedback loop prevention.
     """
-    policy = classify_search_query(query, entities=entities)
+    if not query.strip():
+        return []
 
-    if diagnostics:
-        diagnostics.emit(
-            "query_policy.resolved",
-            "Resolved query routing via precision signal detection",
-            {"mode": policy.mode, "must_keep_terms": policy.must_keep_terms},
+    if num_results < 1:
+        return []
+
+    # 1. Dense embedding for query
+    query_embedding: list[float] | None = None
+    try:
+        query_embedding = await embed_query(query, timeout=15.0)
+    except Exception as e:
+        LOGGER.warning(f"Qdrant query embedding failed: {e}")
+        return []
+
+    if not query_embedding:
+        return []
+
+    # 2. Sparse BM25 vector for query
+    sparse = encode_bm25(query)
+    if not sparse or not sparse.get("indices"):
+        sparse = {"indices": [], "values": []}
+
+    # 3. Connect to Qdrant (no API key - public HF Space)
+    url = settings.qdrant_space_url.strip()
+    if not url:
+        LOGGER.debug("Qdrant search disabled: QDRANT_SPACE_URL not set")
+        return []
+
+    try:
+        client = AsyncQdrantClient(url=url, timeout=30)
+    except Exception as e:
+        LOGGER.warning(f"Qdrant client creation failed: {e}")
+        return []
+
+    # 4. Hybrid search: dense + sparse with RRF fusion
+    try:
+        sparse_vector = models.SparseVector(
+            indices=sparse["indices"],
+            values=sparse["values"],
         )
 
-    return policy
+        result = await client.query_points(
+            collection_name="web_results",
+            prefetch=[
+                models.Prefetch(
+                    query=query_embedding,
+                    using="dense",
+                    limit=50,
+                ),
+                models.Prefetch(
+                    query=sparse_vector,
+                    using="sparse",
+                    limit=50,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=num_results,
+            with_payload=True,
+        )
+
+        # Map hits to WebSearchResult
+        results: list[WebSearchResult] = []
+        for hit in result.points:
+            payload = hit.payload or {}
+            url = payload.get("url", "")
+            if not url:
+                continue
+
+            # Tag with provider for feedback loop prevention
+            providers = ["qdrant"]
+
+            results.append(
+                WebSearchResult(
+                    title=payload.get("title", ""),
+                    link=url,
+                    snippet=payload.get("snippet", ""),
+                    domain=payload.get("domain"),
+                    providers=providers,
+                    score=hit.score,
+                    raw_score=hit.score,
+                )
+            )
+
+        return results
+
+    except Exception as e:
+        LOGGER.warning(f"Qdrant search failed: {e}")
+        return []
+    finally:
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+
+__all__ = ["search_qdrant", "QdrantSearchError", "QdrantConfigError"]
 </file>
 
 <file path="search/query_policy.py">
-"""Query policy: bypass vs expand based on precision signal detection.
-
-NOTE: Current classification is a stub — will be revisited as part of the
-unified query understanding redesign (see plans/TAXONOMY.md).
-
-No intent classification - just detect if query has precision-sensitive literals
-that should be preserved verbatim, or if it can benefit from expansion.
-
-This follows industry patterns from LlamaIndex, LangChain, and Perplexity:
-- Detect literals (error codes, versions, URLs, quoted strings) → bypass
-- Otherwise → expand via LLM with docs/issues angles
-"""
+"""Rewrite policy model used by the 0.2 search pipeline."""
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
-from ..utils.observability import emit_observability_event
-from .normalize import normalize_query
-
-import logging
-logger = logging.getLogger(__name__)
-
-# Simplified mode: bypass (preserve literals) or expand (LLM rewrite)
 RewriteMode = Literal["bypass", "expand"]
-
-# Search operators that signal precision intent
-_SEARCH_OPERATORS = (
-    "site:",
-    "filetype:",
-    "inurl:",
-    "intitle:",
-    "repo:",
-    "path:",
-    "is:",
-    "after:",
-    "before:",
-    "language:",
-    "ext:",
-    "user:",
-)
-
-# Compiled patterns for operator detection (word-boundary to avoid substring matches)
-_OPERATOR_PATTERNS = tuple(
-    re.compile(rf"(?:^|\s){re.escape(op)}", re.IGNORECASE) for op in _SEARCH_OPERATORS
-)
-
-# Patterns that signal precision-sensitive content (should bypass rewrite)
-_PRECISION_PATTERNS = (
-    re.compile(r"https?://", re.IGNORECASE),  # URLs
-    re.compile(r"\bwww\.", re.IGNORECASE),
-    re.compile(r'["`][^"`]{4,}["`]'),  # Quoted strings (4+ chars, double/backtick)
-    re.compile(r"'[^']{4,}'"),  # Single-quoted strings (4+ chars)
-    re.compile(
-        r"\b[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?\b"
-    ),  # Repo names (owner/repo or owner/repo/path)
-    re.compile(r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+"),  # File paths
-    re.compile(
-        r"\b\d+(?:\.\d+){2,3}\b"
-    ),  # Version numbers (1.2.3) — at least 3 segments
-    re.compile(r"0x[0-9A-Fa-f]{4,8}"),  # Hex error codes
-    re.compile(r"E[A-Z]+[0-9]+"),  # Error codes (E001, EINVAL, EBADF)
-    re.compile(r"ERR_[A-Z_]+"),  # Named error constants (ERR_INVALID_DATA)
-    re.compile(r"[A-Z][A-Z0-9_]*::[a-z_]+"),  # Method names (Class::method)
-    re.compile(r"[A-Z][a-z]+\.[a-z_]+"),  # Function calls (Foo.bar, np.array)
-    re.compile(r"[A-Z_][A-Z0-9_]{3,}"),  # Constants (MAX_SIZE, DEFAULT_TIMEOUT)
-    re.compile(r"--[A-Za-z0-9_-]+"),  # Long CLI flags (--verbose, --no-cache)
-    re.compile(r"(?<!\w)-[A-Za-z]{1,2}\b"),  # Short CLI flags (-v, -f, -it)
-    re.compile(
-        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    ),  # UUIDs
-    re.compile(r"\b[0-9a-fA-F]{7,40}\b"),  # Git hashes (7-40 hex chars)
-    re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"),  # IP addresses
-)
 
 
 class RewritePolicy(BaseModel):
-    """Policy for query rewriting.
-
-    Attributes:
-        mode: "bypass" (preserve literals) or "expand" (LLM rewrite)
-        reason: Explanation for the chosen mode
-        must_keep_terms: Exact literals that must survive any rewriting
-    """
+    """Policy for query rewriting."""
 
     mode: RewriteMode
     reason: str
     must_keep_terms: list[str] = Field(default_factory=list)
-
-
-def _extract_must_keep_terms(
-    query: str, *, entities: list["EntitySpan"] | None = None
-) -> list[str]:
-    """Extract exact literals that must survive any rewriting.
-
-    Includes:
-    - Quoted strings (double, single, backtick)
-    - Search operators with their values
-    - URLs, repo names, file paths
-    - Version numbers
-    - Error codes, constants
-    - CLI flags, UUIDs, git hashes, IP addresses
-    - Plus (when provided) entity texts from GLiNER on the *original* query.
-      Entity terms augment; regex literals are never deleted.
-    """
-
-    terms: list[str] = []
-
-    # Quoted strings (all quote types)
-    terms.extend(
-        match.group(1) for match in re.finditer(r'"([^"]+)"', query) if match.group(1)
-    )
-    terms.extend(
-        match.group(1) for match in re.finditer(r"'([^']+)'", query) if match.group(1)
-    )
-    terms.extend(
-        match.group(1) for match in re.finditer(r"`([^`]+)`", query) if match.group(1)
-    )
-
-    # Search operators with their values (e.g., "site:github.com" not just "site")
-    for operator in _SEARCH_OPERATORS:
-        pattern = re.compile(rf"{re.escape(operator)}(\S+)")
-        for match in pattern.finditer(query):
-            terms.append(match.group(0))  # Full operator+value
-
-    # Precision patterns
-    for pattern in _PRECISION_PATTERNS:
-        for match in pattern.finditer(query):
-            terms.append(match.group(0))
-
-    # GLiNER entities (from original query only) - augment, do not replace or delete regex terms
-    if entities:
-        for e in entities:
-            if getattr(e, "text", None):
-                terms.append(e.text)
-        # Emit here for observability when entities provided to policy (server also emits on extract)
-        try:
-            emit_observability_event(
-                logger,
-                "entity.query_mustkeep_augmented",
-                num_entities=len(entities),
-                added_terms=[e.text for e in entities if getattr(e, "text", None)],
-            )
-        except Exception:
-            pass  # best effort
-
-    # Deduplicate with case-insensitive normalization
-    seen: set[str] = set()
-    out: list[str] = []
-    for term in terms:
-        normalized = normalize_query(term)
-        if normalized and normalized.casefold() not in seen:
-            seen.add(normalized.casefold())
-            out.append(normalized)
-
-    return out
-
-
-def _has_precision_signals(query: str, must_keep_terms: list[str]) -> bool:
-    """Detect if query has precision-sensitive content that should bypass rewriting.
-
-    Signals:
-    - Multiple search operators (advanced query)
-    - Any precision pattern match (URLs, versions, error codes)
-    - Extracted must_keep terms (quoted strings, etc.)
-    """
-    # Multiple search operators = precision query
-    operator_count = sum(1 for p in _OPERATOR_PATTERNS if p.search(query))
-    if operator_count >= 2:
-        return True
-
-    # Any precision pattern match
-    if any(pattern.search(query) for pattern in _PRECISION_PATTERNS):
-        return True
-
-    # Quoted strings or extracted literals
-    if must_keep_terms:
-        return True
-
-    return False
-
-
-def classify_search_query(
-    query: str, *, entities: list["EntitySpan"] | None = None
-) -> RewritePolicy:
-    """Classify query as bypass or expand based on precision signals.
-
-    Entities (if provided) come from a *single* GLiNER extraction on the original
-    user query (performed in server.py before rewrite). They are used only to
-    augment must_keep_terms.
-
-    Args:
-        query: Raw query string
-        entities: Optional pre-extracted EntitySpan list for the original query.
-
-    Returns:
-        RewritePolicy with bypass/expand mode and must_keep_terms
-    """
-    normalized = normalize_query(query)
-    must_keep_terms = _extract_must_keep_terms(normalized, entities=entities)
-
-    if _has_precision_signals(normalized, must_keep_terms):
-        return RewritePolicy(
-            mode="bypass",
-            reason="Query contains precision-sensitive literals that should be preserved verbatim.",
-            must_keep_terms=must_keep_terms,
-        )
-
-    return RewritePolicy(
-        mode="expand",
-        reason="Query can benefit from expansion with docs/issues angles.",
-        must_keep_terms=must_keep_terms,
-    )
-</file>
-
-<file path="search/query_rewrite_branching.py">
-"""Helpers for turning structured fan-out output into rewrite plan branches."""
-
-from __future__ import annotations
-
-from ..utils.diagnostics import Diagnostics
-from .query_fanout_client import generate_fanout_branches
-from .query_rewrite_models import (
-    ClassifierOutput,
-    QueryDecompositionOutput,
-    QueryVariant,
-    SubQuestion,
-)
-
-
-async def build_fanout_branch_variants(
-    *,
-    query: str,
-    classifier: ClassifierOutput,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    active_provider_names: list[str],
-    diagnostics: Diagnostics | None,
-    max_branches: int,
-) -> tuple[QueryDecompositionOutput | None, list[QueryVariant] | None]:
-    fanout = await generate_fanout_branches(
-        query=query,
-        intent=classifier.intent,
-        research_goal=research_goal,
-        must_keep_terms=must_keep_terms,
-        active_provider_names=active_provider_names,
-        routing=classifier.routing.model_dump(),
-        max_branches=max_branches,
-        diagnostics=diagnostics,
-    )
-    if not fanout.branches:
-        return None, None
-
-    decomposition = QueryDecompositionOutput(
-        should_decompose=True,
-        rationale=fanout.rationale,
-        sub_questions=[
-            SubQuestion(
-                question=branch.query,
-                target=branch.target,
-                why=branch.why,
-                weight=branch.weight,
-                branch_type=branch.branch_type or branch.kind,
-                must_keep_terms=branch.must_keep_terms,
-                max_results=branch.max_results,
-                reason=branch.reason,
-            )
-            for branch in fanout.branches
-        ],
-    )
-    variants = [
-        branch.model_copy(
-            update={
-                "branch_type": branch.branch_type or branch.kind,
-                "reason": branch.reason or branch.why,
-            }
-        )
-        for branch in fanout.branches
-    ]
-    return decomposition, variants
-</file>
-
-<file path="search/query_rewrite_cascade.py">
-"""Cascade through query rewrite providers: Cerebras pool → Groq → HF Inference.
-
-Cerebras free tier rotates its model roster — some models are temporarily
-unavailable while others remain active.  We try each model sequentially
-and only skip to the next provider on a genuine rate-limit (429).
-"""
-
-from __future__ import annotations
-
-import asyncio
-import logging
-
-from litellm import acompletion
-from litellm.exceptions import (
-    APIConnectionError,
-    NotFoundError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
-
-from ..settings import settings
-
-logger = logging.getLogger(__name__)
-
-CEREBRAS_POOL: list[tuple[str, str]] = [
-    ("cerebras/llama3.1-8b", "llama3.1-8b"),
-    ("cerebras/gpt-oss-120b", "gpt-oss-120b"),
-    ("cerebras/zai-glm-4.7", "zai-glm-4.7"),
-    ("cerebras/qwen-3-235b-a22b-instruct-2507", "qwen-235b"),
-]
-
-_MODEL_NOT_AVAILABLE = (
-    ServiceUnavailableError,
-    NotFoundError,
-    APIConnectionError,
-)
-
-
-async def cascade_query_rewrite(
-    messages: list[dict[str, str]],
-    *,
-    temperature: float,
-    timeout: float,
-) -> tuple[str, str]:
-    """Run query rewrite through the provider cascade.
-
-    Tier 1 — Cerebras pool (free, direct API, sequential on model-not-found).
-    Tier 2 — Groq (free, direct API).
-    Tier 3 — HF Inference / together (paid, $0.05/M, last resort).
-
-    Returns ``(raw_json_content, model_short_name)``.
-    """
-
-    # ── Tier 1: Cerebras ────────────────────────────────────────────
-    if settings.cerebras_api_key:
-        for model_id, short_name in CEREBRAS_POOL:
-            try:
-                response = await asyncio.wait_for(
-                    acompletion(
-                        model=model_id,
-                        messages=messages,
-                        temperature=temperature,
-                        response_format={"type": "json_object"},
-                        api_key=settings.cerebras_api_key,
-                    ),
-                    timeout=timeout,
-                )
-                content = response.choices[0].message.content
-                if isinstance(content, str):
-                    return content, short_name
-            except RateLimitError:
-                logger.debug("Cerebras rate-limited, skipping to Groq")
-                break  # all Cerebras models share the same key → skip pool
-            except _MODEL_NOT_AVAILABLE:
-                logger.debug("Cerebras %s unavailable, trying next", short_name)
-                continue
-            except Exception as exc:
-                logger.debug("Cerebras %s error: %s", short_name, exc)
-                continue
-
-    # ── Tier 2: Groq ─────────────────────────────────────────────────
-    if settings.groq_api_key:
-        try:
-            response = await asyncio.wait_for(
-                acompletion(
-                    model="groq/llama-3.1-8b-instant",
-                    messages=messages,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},
-                    api_key=settings.groq_api_key,
-                ),
-                timeout=timeout,
-            )
-            content = response.choices[0].message.content
-            if isinstance(content, str):
-                return content, "groq/llama-3.1-8b-instant"
-        except Exception as exc:
-            logger.debug("Groq query rewrite failed: %s", exc)
-
-    # ── Tier 3: HF Inference (together/gpt-oss-20b) ──────────────────
-    if settings.hf_token:
-        try:
-            response = await asyncio.wait_for(
-                acompletion(
-                    model="huggingface/together/openai/gpt-oss-20b",
-                    messages=messages,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},
-                    api_key=settings.hf_token,
-                ),
-                timeout=timeout,
-            )
-            content = response.choices[0].message.content
-            if isinstance(content, str):
-                return content, "gpt-oss-20b"
-        except Exception as exc:
-            logger.debug("HF Inference query rewrite failed: %s", exc)
-
-    raise RuntimeError("All query rewrite providers exhausted")
 </file>
 
 <file path="search/query_rewrite_models.py">
-"""Query rewrite models: intent, variants, decomposition, routing.
-
-NOTE: Current RewriteIntent (code/general_research/comparison) and
-ProviderRouting are stubs — will be revisited as part of the unified
-query understanding redesign (see plans/TAXONOMY.md).
-"""
+"""Query rewrite variant model for the 0.2 pipeline."""
 
 from __future__ import annotations
-
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from .normalize import normalize_query
-from .query_policy import RewritePolicy
-
-RewriteIntent = Literal["code", "general_research", "comparison"]
-QueryVariantKind = Literal[
-    "original",
-    "official_docs",
-    "community_issues",
-    "expanded",
-    "focused",
-    "entity_a",
-    "entity_b",
-    "neural_task",
-    "practitioner_opinion",
-    "bug_report",
-    "how_to",
-    "subquestion",
-    "related",
-    "implicit",
-    "comparative",
-    "reformulation",
-    "entity_expanded",
-]
-QueryTarget = Literal["keyword", "neural", "community", "all"]
-
-KEYWORD_PROVIDER_NAMES = frozenset({"searxng", "ddg", "brave", "tavily"})
-COMMUNITY_PROVIDER_NAMES = frozenset(
-    {"hackernews", "reddit", "github_graphql", "stackexchange"}
-)
-NEURAL_PROVIDER_NAMES = frozenset({"gemini", "composio_llm_search", "jina"})
 
 
 class QueryVariant(BaseModel):
-    kind: QueryVariantKind
-    target: QueryTarget
+    kind: str
+    target: str
     query: str = Field(description="Search query or grounded-provider task.")
     why: str = Field(description="Short reason for this variant.")
-    weight: float = Field(default=1.0, ge=0.8, le=1.2)
+    weight: float = Field(default=1.0, ge=0.0, le=1.2)
     branch_type: str | None = None
     must_keep_terms: list[str] = Field(default_factory=list)
     max_results: int | None = Field(default=None, ge=1, le=20)
@@ -28466,971 +31967,6 @@ class QueryVariant(BaseModel):
         if not value:
             raise ValueError("why cannot be empty")
         return value
-
-
-class ProviderRouting(BaseModel):
-    keyword: bool = True
-    neural: bool = True
-    community: bool = False
-
-
-class ClassifierOutput(BaseModel):
-    intent: RewriteIntent
-    should_decompose: bool
-    confidence: float = Field(ge=0.0, le=1.0)
-    routing: ProviderRouting = Field(default_factory=ProviderRouting)
-
-
-class SubQuestion(BaseModel):
-    question: str = Field(description="Standalone sub-question or search query.")
-    target: QueryTarget = Field(description="Provider category to search.")
-    why: str = Field(description="Short reason for this branch.")
-    weight: float = Field(default=1.0, ge=0.8, le=1.2)
-    branch_type: str | None = None
-    must_keep_terms: list[str] = Field(default_factory=list)
-    max_results: int | None = Field(default=None, ge=1, le=20)
-    reason: str | None = None
-
-    @field_validator("question")
-    @classmethod
-    def validate_question(cls, value: str) -> str:
-        value = normalize_query(value)
-        if not value:
-            raise ValueError("question cannot be empty")
-        return value
-
-    @field_validator("why")
-    @classmethod
-    def validate_subquestion_why(cls, value: str) -> str:
-        value = normalize_query(value)
-        if not value:
-            raise ValueError("why cannot be empty")
-        return value
-
-
-class QueryDecompositionOutput(BaseModel):
-    should_decompose: bool = False
-    rationale: str | None = None
-    sub_questions: list[SubQuestion] = Field(default_factory=list)
-
-
-class QueryRewriteOutput(BaseModel):
-    variants: list[QueryVariant] = Field(default_factory=list)
-
-
-class QueryFanoutOutput(BaseModel):
-    rationale: str = ""
-    branches: list[QueryVariant] = Field(default_factory=list)
-
-
-class QueryRewritePlan(BaseModel):
-    original_query: str
-    policy: RewritePolicy
-    variants: list[QueryVariant]
-    final_queries: list[str]
-    classifier: ClassifierOutput | None = None
-    decomposition: QueryDecompositionOutput | None = None
-</file>
-
-<file path="search/query_rewrite_plan.py">
-from __future__ import annotations
-
-from .normalize import normalize_query
-from .provider_config import resolve_providers_for_search
-from .query_policy import RewritePolicy
-from .query_rewrite_models import (
-    COMMUNITY_PROVIDER_NAMES,
-    KEYWORD_PROVIDER_NAMES,
-    NEURAL_PROVIDER_NAMES,
-    ClassifierOutput,
-    QueryDecompositionOutput,
-    QueryRewritePlan,
-    QueryVariant,
-    RewriteIntent,
-)
-from .query_rewrite_validate import dedupe_keep_order, inject_missing_terms
-
-
-def build_fallback_plan(
-    query: str, policy: RewritePolicy, reason: str
-) -> QueryRewritePlan:
-    cleaned = normalize_query(query)
-    original = QueryVariant(
-        kind="original",
-        target="all",
-        query=cleaned,
-        why=reason,
-        weight=1.0,
-    )
-    return QueryRewritePlan(
-        original_query=query,
-        policy=policy,
-        variants=[original],
-        final_queries=[cleaned],
-    )
-
-
-def active_target_flags(
-    providers: list[str] | None,
-) -> tuple[bool, bool, bool, list[str]]:
-    active_provider_names = [
-        config.name for config in resolve_providers_for_search(providers)
-    ]
-    has_keyword = any(name in KEYWORD_PROVIDER_NAMES for name in active_provider_names)
-    has_neural = any(name in NEURAL_PROVIDER_NAMES for name in active_provider_names)
-    has_community = any(
-        name in COMMUNITY_PROVIDER_NAMES for name in active_provider_names
-    )
-    return has_keyword, has_neural, has_community, active_provider_names
-
-
-def build_rewrite_plan(
-    *,
-    query: str,
-    policy: RewritePolicy,
-    intent: RewriteIntent,
-    keyword_variants: list[QueryVariant],
-    neural_variants: list[QueryVariant],
-    community_variants: list[QueryVariant] | None = None,
-    subquestion_variants: list[QueryVariant] | None = None,
-    include_keyword: bool,
-    include_neural: bool,
-    include_community: bool = False,
-    classifier: ClassifierOutput | None = None,
-    decomposition: QueryDecompositionOutput | None = None,
-    max_variants: int = 3,
-) -> QueryRewritePlan:
-    cleaned = normalize_query(query)
-    variants: list[QueryVariant] = []
-    if include_keyword:
-        variants.append(
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query=cleaned,
-                why="Original query preserved as a keyword search candidate.",
-                weight=1.15 if intent == "code" else 1.0,
-            )
-        )
-        keyword_limit = (
-            max_variants
-            if not include_neural and not include_community and not subquestion_variants
-            else max(1, min(2, max_variants - 1))
-        )
-        for variant in keyword_variants:
-            if len(variants) >= keyword_limit:
-                break
-            variants.append(
-                variant.model_copy(
-                    update={
-                        "query": inject_missing_terms(
-                            variant.query, policy.must_keep_terms
-                        )
-                    }
-                )
-            )
-    if include_neural and len(variants) < max_variants:
-        variants.extend(
-            variant.model_copy(
-                update={
-                    "query": inject_missing_terms(variant.query, policy.must_keep_terms)
-                }
-            )
-            for variant in neural_variants[:1]
-        )
-    if include_community and community_variants and len(variants) < max_variants:
-        for variant in community_variants:
-            if len(variants) >= max_variants:
-                break
-            variants.append(
-                variant.model_copy(
-                    update={
-                        "query": inject_missing_terms(
-                            variant.query, policy.must_keep_terms
-                        )
-                    }
-                )
-            )
-    if subquestion_variants and len(variants) < max_variants + len(
-        subquestion_variants
-    ):
-        for variant in subquestion_variants:
-            variants.append(
-                variant.model_copy(
-                    update={
-                        "query": inject_missing_terms(
-                            variant.query, policy.must_keep_terms
-                        )
-                    }
-                )
-            )
-
-    if not variants:
-        return build_fallback_plan(
-            query, policy, "Rewrite produced no usable variants."
-        )
-
-    final_queries = dedupe_keep_order([variant.query for variant in variants])
-    return QueryRewritePlan(
-        original_query=query,
-        policy=policy,
-        variants=variants,
-        final_queries=final_queries,
-        classifier=classifier,
-        decomposition=decomposition,
-    )
-</file>
-
-<file path="search/query_rewrite_prompts.py">
-from __future__ import annotations
-
-from .query_rewrite_models import RewriteIntent
-
-KEYWORD_CODE_SYSTEM_PROMPT = """You rewrite messy AI-agent web search queries for keyword search engines.
-
-Output JSON only:
-{"variants":[{"kind":"original|official_docs|community_issues","target":"keyword","query":"string","why":"string","weight":1.0}]}
-
-Create up to 3 variants:
-- original: closest cleaned query
-- official_docs: official docs, API reference, changelog, release notes, or spec angle
-- community_issues: GitHub issues, discussions, Stack Overflow, forum, workaround, or bug angle
-
-Hard rules:
-- Use only these kind values: original, official_docs, community_issues.
-- target must always be "keyword".
-- Preserve every MUST_KEEP_TERMS item exactly.
-- Preserve package names, versions, CLI flags, repo names, APIs, model names, file paths, quoted text, and error fragments.
-- community_issues queries must include at least one of: GitHub, issue, discussion, Stack Overflow, forum, workaround, bug.
-- Keep each query short enough for a web search box.
-- Prefer keyword order over full sentences.
-- Do not output duplicate or near-duplicate queries.
-- why must not be empty.
-- weight must be between 0.8 and 1.2.
-
-Example output:
-{"variants":[
-  {"kind":"original","target":"keyword","query":"FastMCP ResourcesAsTools PromptsAsTools CodeMode","why":"Keeps the core terms from the agent query.","weight":1.15},
-  {"kind":"official_docs","target":"keyword","query":"FastMCP ResourcesAsTools PromptsAsTools documentation","why":"Targets official docs and API examples.","weight":1.05},
-  {"kind":"community_issues","target":"keyword","query":"FastMCP ResourcesAsTools PromptsAsTools GitHub issue discussion","why":"Targets community debugging and implementation examples.","weight":1.0}
-]}"""
-
-KEYWORD_GENERAL_SYSTEM_PROMPT = """You rewrite messy AI-agent web search queries for general keyword web search.
-
-Output JSON only:
-{"variants":[{"kind":"original|expanded|focused","target":"keyword","query":"string","why":"string","weight":1.0}]}
-
-Create up to 3 variants:
-- original: closest cleaned query
-- expanded: adds missing high-signal terms from RESEARCH_GOAL
-- focused: shortest discriminative query
-
-Hard rules:
-- Use only these kind values: original, expanded, focused.
-- target must always be "keyword".
-- Preserve every MUST_KEEP_TERMS item exactly.
-- Preserve names, dates, versions, quoted phrases, URLs, identifiers, and codes.
-- Do not add docs/GitHub/Stack Overflow bias unless the query is technical.
-- Do not invent facts or entities.
-- Keep queries concise and searchable.
-- why must not be empty.
-- weight must be between 0.8 and 1.2.
-
-Example output:
-{"variants":[
-  {"kind":"original","target":"keyword","query":"OpenAI BrowseComp web search benchmark","why":"Keeps the named benchmark and main topic.","weight":1.15},
-  {"kind":"expanded","target":"keyword","query":"OpenAI BrowseComp benchmark web browsing agents limitations","why":"Adds the agent-evaluation context from the research goal.","weight":1.0},
-  {"kind":"focused","target":"keyword","query":"BrowseComp benchmark web browsing agents","why":"Shortest discriminative query.","weight":1.05}
-]}"""
-
-KEYWORD_COMPARISON_SYSTEM_PROMPT = """You rewrite messy AI-agent comparison queries for keyword web search.
-
-Output JSON only:
-{"variants":[{"kind":"original|entity_a|entity_b","target":"keyword","query":"string","why":"string","weight":1.0}]}
-
-Create up to 3 variants:
-- original: comparison query preserving both or all named entities
-- entity_a: query for exactly one named entity and the shared comparison aspect
-- entity_b: query for exactly one different named entity and the shared comparison aspect
-
-Hard rules:
-- Use only these kind values: original, entity_a, entity_b.
-- target must always be "keyword".
-- Preserve every MUST_KEEP_TERMS item exactly across the whole variant set.
-- entity_a and entity_b must each contain exactly one compared entity name.
-- entity_a and entity_b must use different entities.
-- entity-specific queries must not contain any second compared entity.
-- Keep entity_a and entity_b parallel in wording.
-- Do not invent comparison dimensions.
-- why must not be empty.
-- weight must be between 0.8 and 1.2.
-
-Example output:
-{"variants":[
-  {"kind":"original","target":"keyword","query":"Tavily Exa SearXNG coding agent web search comparison","why":"Preserves all compared providers and the comparison topic.","weight":1.15},
-  {"kind":"entity_a","target":"keyword","query":"Tavily coding agent web search API quality","why":"Isolates Tavily on the shared aspect.","weight":0.95},
-  {"kind":"entity_b","target":"keyword","query":"Exa coding agent web search API quality","why":"Isolates Exa on the shared aspect.","weight":0.95}
-]}"""
-
-COMMUNITY_SEARCH_SYSTEM_PROMPT = """You rewrite messy AI-agent queries into concise search queries for community platforms (Reddit, HackerNews, GitHub, StackExchange).
-
-Output JSON only:
-{"variants":[{"kind":"original|practitioner_opinion|bug_report|how_to","target":"community","query":"string","why":"string","weight":1.0}]}
-
-Create up to 3 variants targeting different community angles:
-- original: clean 2-5 word query preserving key entities
-- practitioner_opinion: query optimized for Reddit/HN — natural phrasing, opinion-seeking
-- bug_report: query optimized for GitHub Issues — includes keywords like "bug", "error", "issue"
-- how_to: query optimized for StackExchange — includes "how to", "best way", "fix"
-
-Hard rules:
-- Use only these kind values: original, practitioner_opinion, bug_report, how_to.
-- target must always be "community".
-- Each query must be 2-8 words max (community search boxes are short).
-- Natural language phrasing, NOT keyword piles.
-- Preserve every MUST_KEEP_TERMS item exactly.
-- Do not include "site:" or "repo:" qualifiers.
-- Do not invent facts, versions, entities, or claims.
-- why must not be empty.
-- weight must be between 0.8 and 1.2.
-
-Example output:
-{"variants":[
-  {"kind":"original","target":"community","query":"python asyncio gather best practices","why":"Clean key-term query for community platforms.","weight":1.15},
-  {"kind":"practitioner_opinion","target":"community","query":"python async vs sync real world experience 2026","why":"Natural opinion-seeking phrasing for Reddit and HN.","weight":1.0},
-  {"kind":"bug_report","target":"community","query":"asyncio gather exception error bug","why":"Bug/issue-focused query for GitHub Issues.","weight":0.95},
-  {"kind":"how_to","target":"community","query":"how to limit concurrency with python asyncio","why":"How-to phrasing for StackExchange intitle search.","weight":0.95}
-]}"""
-
-NEURAL_TASK_SYSTEM_PROMPT = """You rewrite messy AI-agent search input into one clear research task for a grounded or neural web-search provider.
-
-Output JSON only:
-{"variants":[{"kind":"neural_task","target":"neural","query":"string","why":"string","weight":1.0}]}
-
-Create exactly 1 variant.
-
-Hard rules:
-- kind must be "neural_task".
-- target must be "neural".
-- Write a clear standalone natural-language research task.
-- Use RESEARCH_GOAL as the main objective.
-- Use RAW_AGENT_QUERY only to recover entities and constraints.
-- Preserve every MUST_KEEP_TERMS item exactly.
-- Do not write a keyword pile.
-- Do not ask for an answer format.
-- Do not invent facts, versions, entities, URLs, or claims.
-- why must not be empty.
-- Keep the task under 35 words unless MUST_KEEP_TERMS force more.
-- weight must be 1.0.
-
-Example output:
-{"variants":[
-  {"kind":"neural_task","target":"neural","query":"Find current Gemini API documentation for Google Search grounding metadata, especially webSearchQueries and groundingChunks behavior in Python.","why":"Turns the keyword dump into a provider-friendly grounded research task.","weight":1.0}
-]}"""
-
-
-def build_query_rewrite_messages(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    intent: RewriteIntent,
-    target: str,
-) -> list[dict[str, str]]:
-    if target == "community":
-        return [
-            {"role": "system", "content": COMMUNITY_SEARCH_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": build_keyword_user_prompt(
-                    query=query,
-                    research_goal=research_goal,
-                    must_keep_terms=must_keep_terms,
-                    intent=intent,
-                ),
-            },
-        ]
-    if target == "neural":
-        return [
-            {"role": "system", "content": NEURAL_TASK_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": build_neural_task_user_prompt(
-                    query=query,
-                    research_goal=research_goal,
-                    must_keep_terms=must_keep_terms,
-                ),
-            },
-        ]
-
-    if intent == "comparison":
-        system = KEYWORD_COMPARISON_SYSTEM_PROMPT
-    elif intent == "general_research":
-        system = KEYWORD_GENERAL_SYSTEM_PROMPT
-    else:
-        system = KEYWORD_CODE_SYSTEM_PROMPT
-
-    return [
-        {"role": "system", "content": system},
-        {
-            "role": "user",
-            "content": build_keyword_user_prompt(
-                query=query,
-                research_goal=research_goal,
-                must_keep_terms=must_keep_terms,
-                intent=intent,
-            ),
-        },
-    ]
-
-
-def build_keyword_user_prompt(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-    intent: RewriteIntent,
-) -> str:
-    must_keep = "\n".join(f"- {term}" for term in must_keep_terms) or "- none"
-    goal = research_goal or query
-    return f"""RAW_QUERY:
-{query}
-
-RESEARCH_GOAL:
-{goal}
-
-INTENT:
-{intent}
-
-MUST_KEEP_TERMS:
-{must_keep}
-
-Return JSON only."""
-
-
-def build_neural_task_user_prompt(
-    *,
-    query: str,
-    research_goal: str | None,
-    must_keep_terms: list[str],
-) -> str:
-    must_keep = "\n".join(f"- {term}" for term in must_keep_terms) or "- none"
-    goal = research_goal or query
-    return f"""RAW_AGENT_QUERY:
-{query}
-
-RESEARCH_GOAL:
-{goal}
-
-MUST_KEEP_TERMS:
-{must_keep}
-
-Return JSON only."""
-</file>
-
-<file path="search/query_rewrite_requests.py">
-from __future__ import annotations
-
-from ..settings import settings
-from .query_rewrite_cascade import cascade_query_rewrite
-from .query_rewrite_models import QueryVariant, RewriteIntent
-from .query_rewrite_prompts import build_query_rewrite_messages
-from .query_rewrite_validate import parse_query_rewrite_output
-from .query_policy import RewritePolicy
-from ..utils.diagnostics import Diagnostics
-
-
-TEMPERATURE_BY_INTENT: dict[RewriteIntent, float] = {
-    "code": 0.15,
-    "general_research": 0.5,
-    "comparison": 0.3,
-}
-
-
-async def request_variants(
-    *,
-    query: str,
-    intent: RewriteIntent,
-    target: str,
-    policy: RewritePolicy,
-    diagnostics: Diagnostics | None,
-    research_goal: str | None,
-) -> tuple[list[QueryVariant], str]:
-    messages = build_query_rewrite_messages(
-        query=query,
-        research_goal=research_goal,
-        must_keep_terms=policy.must_keep_terms,
-        intent=intent,
-        target=target,
-    )
-    raw_content, model_used = await cascade_query_rewrite(
-        messages=messages,
-        temperature=TEMPERATURE_BY_INTENT.get(
-            intent, settings.query_rewrite_temperature
-        ),
-        timeout=settings.query_rewrite_cascade_timeout_seconds,
-    )
-    parsed = parse_query_rewrite_output(raw_content)
-    if diagnostics:
-        diagnostics.emit(
-            "query_rewrite.raw_result",
-            "Query rewrite call completed",
-            {
-                "target": target,
-                "variant_count": len(parsed.variants),
-                "model": model_used,
-            },
-        )
-    return parsed.variants, model_used
-</file>
-
-<file path="search/query_rewrite_validate.py">
-from __future__ import annotations
-
-import json
-from collections.abc import Iterable
-
-from pydantic import ValidationError
-
-from .normalize import normalize_query
-from .query_rewrite_models import QueryRewriteOutput, QueryVariant, RewriteIntent
-
-ALLOWED_KINDS_BY_INTENT = {
-    "code": {"original", "official_docs", "community_issues"},
-    "general_research": {"original", "expanded", "focused"},
-    "comparison": {"original", "entity_a", "entity_b"},
-}
-COMMUNITY_TOKENS = ("github", "issue", "discussion", "stack overflow", "forum", "bug")
-
-
-def parse_query_rewrite_output(content: str) -> QueryRewriteOutput:
-    data = json.loads(content)
-    raw_variants = data.get("variants", []) if isinstance(data, dict) else []
-    variants: list[QueryVariant] = []
-    for item in raw_variants:
-        try:
-            variants.append(QueryVariant.model_validate(item))
-        except ValidationError:
-            continue
-    return QueryRewriteOutput(variants=variants)
-
-
-def dedupe_keep_order(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in items:
-        key = normalize_query(item).casefold()
-        if key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
-
-
-def inject_missing_terms(query: str, must_keep_terms: list[str]) -> str:
-    missing = []
-    lowered = normalize_query(query).casefold()
-    for term in must_keep_terms:
-        normalized_term = normalize_query(term)
-        if normalized_term and normalized_term.casefold() not in lowered:
-            missing.append(normalized_term)
-    if not missing:
-        return normalize_query(query)
-    return normalize_query(f"{query} {' '.join(missing)}")
-
-
-def validate_keyword_variants(
-    variants: Iterable[QueryVariant],
-    *,
-    intent: RewriteIntent,
-    must_keep_terms: list[str],
-) -> list[QueryVariant]:
-    allowed = ALLOWED_KINDS_BY_INTENT[intent]
-    valid: list[QueryVariant] = []
-    seen: set[str] = set()
-    for variant in variants:
-        if variant.target != "keyword" or variant.kind not in allowed:
-            continue
-        if not _keeps_required_terms(variant.query, must_keep_terms):
-            continue
-        if _looks_like_prose_answer(variant.query):
-            continue
-        if variant.kind == "community_issues" and not _has_community_signal(
-            variant.query
-        ):
-            continue
-        key = normalize_query(variant.query).casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        valid.append(variant)
-    return valid
-
-
-def validate_neural_variants(
-    variants: Iterable[QueryVariant],
-    *,
-    must_keep_terms: list[str],
-) -> list[QueryVariant]:
-    valid: list[QueryVariant] = []
-    for variant in variants:
-        if variant.target != "neural" or variant.kind != "neural_task":
-            continue
-        if not _keeps_required_terms(variant.query, must_keep_terms):
-            continue
-        if _looks_like_keyword_pile(variant.query):
-            continue
-        valid.append(variant)
-    return valid[:1]
-
-
-COMMUNITY_ALLOWED_KINDS = frozenset(
-    {"original", "practitioner_opinion", "bug_report", "how_to"}
-)
-
-
-def validate_community_variants(
-    variants: Iterable[QueryVariant],
-    *,
-    must_keep_terms: list[str],
-) -> list[QueryVariant]:
-    valid: list[QueryVariant] = []
-    seen: set[str] = set()
-    for variant in variants:
-        if variant.target != "community" or variant.kind not in COMMUNITY_ALLOWED_KINDS:
-            continue
-        if not _keeps_required_terms(variant.query, must_keep_terms):
-            continue
-        if _looks_like_keyword_pile(variant.query):
-            continue
-        key = normalize_query(variant.query).casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        valid.append(variant)
-    return valid
-
-
-def _keeps_required_terms(query: str, must_keep_terms: list[str]) -> bool:
-    normalized = normalize_query(query).casefold()
-    return all(
-        normalize_query(term).casefold() in normalized for term in must_keep_terms
-    )
-
-
-def _looks_like_prose_answer(query: str) -> bool:
-    lowered = query.strip().casefold()
-    return lowered.startswith(("here is", "this query", "the answer", "i need"))
-
-
-def _has_community_signal(query: str) -> bool:
-    lowered = query.casefold()
-    return any(token in lowered for token in COMMUNITY_TOKENS)
-
-
-def _looks_like_keyword_pile(query: str) -> bool:
-    words = query.split()
-    if len(words) < 8:
-        return False
-    punctuation = query.count(",") + query.count(".")
-    if punctuation > 0:
-        return False
-    lowered = query.casefold()
-    return not any(
-        token in lowered for token in ("find ", "compare ", "identify ", "verify ")
-    )
-</file>
-
-<file path="search/query_rewrite.py">
-"""Query rewrite with provider-aware keyword and neural prompt paths."""
-
-from __future__ import annotations
-
-import asyncio
-import logging
-import time
-from typing import Any
-
-from opentelemetry import trace
-
-from .query_classifier_client import get_functiongemma_client
-from ..settings import settings
-from ..telemetry import (
-    REWRITE_MODEL,
-    REWRITE_POLICY,
-    SEARCH_QUERY,
-    record_query_length,
-    record_query_rewrite,
-)
-from ..utils.diagnostics import Diagnostics
-from ..utils.observability import emit_observability_event
-from .normalize import normalize_query
-from .query_policy_resolver import resolve_query_routing
-from .query_rewrite_branching import build_fanout_branch_variants
-from .query_rewrite_models import QueryRewritePlan, QueryVariant, RewriteIntent
-from .query_rewrite_validate import (
-    validate_community_variants,
-    validate_keyword_variants,
-    validate_neural_variants,
-)
-from .query_rewrite_plan import (
-    active_target_flags,
-    build_fallback_plan,
-    build_rewrite_plan,
-)
-from .query_rewrite_requests import request_variants
-
-logger = logging.getLogger(__name__)
-tracer: Any = trace.get_tracer("web-search-mcp")
-
-
-async def rewrite_search_query(
-    query: str,
-    *,
-    intent: RewriteIntent = "code",
-    diagnostics: Diagnostics | None = None,
-    research_goal: str | None = None,
-    providers: list[str] | None = None,
-    entities: list | None = None,
-) -> QueryRewritePlan:
-    start_time = time.time()
-    normalized_query = normalize_query(query)
-    policy = await resolve_query_routing(query, diagnostics=diagnostics, entities=entities)
-    max_variants = max(1, min(settings.query_rewrite_max_variants, 3))
-    record_query_length(len(query), policy=policy.mode)
-
-    with tracer.start_as_current_span(
-        "query.rewrite",
-        kind=trace.SpanKind.INTERNAL,
-        attributes={
-            SEARCH_QUERY: normalized_query[:500],
-            REWRITE_POLICY: policy.mode,
-            REWRITE_MODEL: "cascade",
-        },
-    ) as span:
-        if not settings.query_rewrite_enabled:
-            duration = time.time() - start_time
-            record_query_rewrite("bypass", 1, False, duration, "disabled")
-            return build_fallback_plan(query, policy, "Query rewriting disabled.")
-        if policy.mode == "bypass":
-            duration = time.time() - start_time
-            record_query_rewrite("bypass", 1, True, duration, "bypass")
-            return build_fallback_plan(query, policy, policy.reason)
-
-        # Check that at least one rewrite provider API key is configured
-        if (
-            not settings.cerebras_api_key
-            and not settings.groq_api_key
-            and not settings.hf_token
-        ):
-            duration = time.time() - start_time
-            record_query_rewrite("fallback", 1, False, duration, "fallback")
-            return build_fallback_plan(
-                query, policy, "No query rewrite provider API keys configured."
-            )
-
-        include_keyword, include_neural, include_community, active_provider_names = (
-            active_target_flags(providers)
-        )
-        if not include_keyword and not include_neural and not include_community:
-            return build_fallback_plan(
-                query, policy, "No active providers resolved for query rewrite."
-            )
-
-        if diagnostics:
-            diagnostics.emit(
-                "query_rewrite.start",
-                "Starting provider-aware query rewrite",
-                {
-                    "query": query,
-                    "intent": intent,
-                    "policy": policy.mode,
-                    "must_keep_terms": policy.must_keep_terms,
-                    "active_provider_names": active_provider_names,
-                },
-            )
-
-        try:
-            classifier_client = get_functiongemma_client()
-            classifier = await classifier_client.classify_query(
-                normalized_query,
-                research_goal=research_goal,
-                must_keep_terms=policy.must_keep_terms,
-            )
-            if diagnostics:
-                diagnostics.emit(
-                    "query_rewrite.classifier",
-                    "FunctionGemma classified query",
-                    {
-                        "intent": classifier.intent,
-                        "should_decompose": classifier.should_decompose,
-                        "confidence": classifier.confidence,
-                        "routing": classifier.routing.model_dump(),
-                    },
-                )
-
-            filtered_include_keyword = include_keyword and classifier.routing.keyword
-            filtered_include_neural = include_neural and classifier.routing.neural
-            filtered_include_community = (
-                include_community and classifier.routing.community
-            )
-            if not any(
-                [
-                    filtered_include_keyword,
-                    filtered_include_neural,
-                    filtered_include_community,
-                ]
-            ):
-                filtered_include_keyword = include_keyword
-                filtered_include_neural = include_neural
-                filtered_include_community = include_community
-
-            decomposition = None
-            subquestion_variants: list[QueryVariant] | None = None
-            if settings.query_decomposition_enabled and classifier.should_decompose:
-                decomposition, subquestion_variants = await build_fanout_branch_variants(
-                    query=normalized_query,
-                    classifier=classifier,
-                    research_goal=research_goal,
-                    must_keep_terms=policy.must_keep_terms,
-                    active_provider_names=active_provider_names,
-                    diagnostics=diagnostics,
-                    max_branches=settings.query_decomposition_max_branches,
-                )
-
-            async def _safe_variants(
-                target: str,
-            ) -> tuple[list[QueryVariant], str | None] | None:
-                try:
-                    variants, model = await request_variants(
-                        query=normalized_query,
-                        intent=intent,
-                        target=target,
-                        policy=policy,
-                        diagnostics=diagnostics,
-                        research_goal=research_goal,
-                    )
-                    return variants, model
-                except Exception as exc:
-                    logger.warning("%s rewrite target failed: %s", target, exc)
-                    return None
-
-            tasks = []
-            task_names: list[str] = []
-            if filtered_include_keyword:
-                tasks.append(_safe_variants("keyword"))
-                task_names.append("keyword")
-            if filtered_include_neural:
-                tasks.append(_safe_variants("neural"))
-                task_names.append("neural")
-            if filtered_include_community:
-                tasks.append(_safe_variants("community"))
-                task_names.append("community")
-            results = await asyncio.gather(*tasks)  # type: ignore[var-annotated]
-
-            keyword_raw: list[QueryVariant] = []
-            neural_raw: list[QueryVariant] = []
-            community_raw: list[QueryVariant] = []
-            models_used: list[str] = []
-            for target_name, raw in zip(task_names, results, strict=False):
-                if raw is None:
-                    continue
-                variants, model = raw
-                if model:
-                    models_used.append(model)
-                if target_name == "keyword":
-                    keyword_raw = variants
-                elif target_name == "neural":
-                    neural_raw = variants
-                elif target_name == "community":
-                    community_raw = variants
-
-            keyword_valid = validate_keyword_variants(
-                keyword_raw,
-                intent=intent,
-                must_keep_terms=policy.must_keep_terms,
-            )
-            keyword_valid = [
-                variant
-                for variant in keyword_valid
-                if normalize_query(variant.query).casefold()
-                != normalized_query.casefold()
-            ]
-            neural_valid = validate_neural_variants(
-                neural_raw,
-                must_keep_terms=policy.must_keep_terms,
-            )
-            community_valid = validate_community_variants(
-                community_raw,
-                must_keep_terms=policy.must_keep_terms,
-            )
-            community_valid = [
-                variant
-                for variant in community_valid
-                if normalize_query(variant.query).casefold()
-                != normalized_query.casefold()
-            ]
-            plan = build_rewrite_plan(
-                query=query,
-                policy=policy,
-                intent=intent,
-                keyword_variants=keyword_valid,
-                neural_variants=neural_valid,
-                community_variants=community_valid,
-                subquestion_variants=subquestion_variants,
-                include_keyword=filtered_include_keyword,
-                include_neural=filtered_include_neural,
-                include_community=filtered_include_community,
-                classifier=classifier,
-                decomposition=decomposition,
-                max_variants=max_variants,
-            )
-            duration = time.time() - start_time
-            record_query_rewrite(
-                "expand",
-                len(plan.variants),
-                False,
-                duration,
-                ",".join(models_used) or "unknown",
-            )
-            span.set_attribute(
-                "rewrite.active_provider_names", ",".join(active_provider_names)
-            )
-            emit_observability_event(
-                logger,
-                "query.rewrite.completed",
-                query=query,
-                normalized_query=normalized_query,
-                policy=policy.mode,
-                intent=intent,
-                research_goal=research_goal,
-                providers_requested=providers or [],
-                active_provider_names=active_provider_names,
-                final_queries=plan.final_queries,
-                variants=[variant.model_dump() for variant in plan.variants],
-                duration_ms=round(duration * 1000, 3),
-                models_used=models_used,
-            )
-            return plan
-        except Exception as exc:
-            logger.warning("Query rewrite failed, using original query: %s", exc)
-            duration = time.time() - start_time
-            record_query_rewrite("fallback", 1, False, duration, "error")
-            emit_observability_event(
-                logger,
-                "query.rewrite.error",
-                level=logging.WARNING,
-                query=query,
-                normalized_query=normalized_query,
-                policy=policy.mode,
-                intent=intent,
-                research_goal=research_goal,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-                final_queries=[normalized_query],
-            )
-            return build_fallback_plan(
-                query, policy, "Rewrite failed; original query preserved."
-            )
 </file>
 
 <file path="search/reddit.py">
@@ -29624,7 +32160,6 @@ async def inject_result_memory_candidates(
                     link=url,
                     snippet=snippet,
                     providers=["result_memory"],
-                    resource_type="cached",
                     raw_score=0.0,
                 )
             )
@@ -29690,6 +32225,140 @@ async def store_result_memory_results(
         )
     except Exception as exc:
         logger.warning("Result memory store failed (non-fatal): %s", exc)
+</file>
+
+<file path="search/search_router.py">
+"""Search Router API provider — free general SERP provider."""
+
+from __future__ import annotations
+
+import os
+from typing import Any
+
+import httpx
+
+from ..models import WebSearchResult
+from ..retry import retry_with_backoff
+
+
+class SearchRouterError(RuntimeError):
+    pass
+
+
+class SearchRouterConfigError(SearchRouterError):
+    pass
+
+
+def _get_search_router_api_key() -> str:
+    api_key = os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise SearchRouterConfigError(
+            "SEARCH_ROUTER_API_KEY is not set. Configure it as an environment variable."
+        )
+    return api_key
+
+
+async def search_search_router(
+    query: str,
+    *,
+    num_results: int,
+    http_client: httpx.AsyncClient | None = None,
+) -> list[WebSearchResult]:
+    """Query Search Router API and return parsed results.
+
+    Endpoint:
+    - POST https://search-router.com/api/search
+    - Header: X-API-Key: <SEARCH_ROUTER_API_KEY>
+
+    Docs: https://search-router.com/docs
+    """
+    if not query.strip():
+        return []
+
+    if num_results < 1:
+        return []
+
+    api_key = _get_search_router_api_key()
+    url = "https://search-router.com/api/search"
+    headers = {
+        "X-API-Key": api_key,
+        "Content-Type": "application/json",
+    }
+    body = {"query": query, "num_results": num_results}
+
+    async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
+        resp = await client.post(url, headers=headers, json=body)
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise SearchRouterError(
+                "Search Router response was not valid JSON."
+            ) from exc
+        if not isinstance(data, dict):
+            raise SearchRouterError("Search Router response was not a JSON object.")
+        return data
+
+    if http_client is None:
+        async with httpx.AsyncClient(timeout=30) as client:
+
+            async def _request() -> dict[str, Any]:
+                return await _do_request(client)
+
+            data = await retry_with_backoff(
+                _request,
+                provider_name="search_router",
+                max_retries=2,
+            )
+    else:
+
+        async def _request_with_client() -> dict[str, Any]:
+            return await _do_request(http_client)
+
+        data = await retry_with_backoff(
+            _request_with_client,
+            provider_name="search_router",
+            max_retries=2,
+        )
+
+    raw_results = data.get("results", [])
+    if not isinstance(raw_results, list):
+        return []
+
+    results: list[WebSearchResult] = []
+    for item in raw_results:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        link = item.get("url")
+        snippet = (
+            item.get("snippet") or item.get("description") or item.get("content") or ""
+        )
+        domain = item.get("domain")
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(link, str)
+            or not link.strip()
+        ):
+            continue
+        if not isinstance(snippet, str):
+            snippet = ""
+        if not isinstance(domain, str):
+            domain = None
+
+        results.append(
+            WebSearchResult(
+                title=title,
+                link=link,
+                snippet=snippet,
+                domain=domain,
+            )
+        )
+        if len(results) >= num_results:
+            break
+
+    return results
 </file>
 
 <file path="search/searxng.py">
@@ -30304,6 +32973,414 @@ async def search_tavily(
     return results
 </file>
 
+<file path="search/understanding/__init__.py">
+"""LLM-backed query understanding."""
+
+from .models import (
+    ProviderRoutingHints,
+    QueryUnderstanding,
+    QueryUnderstandingResult,
+    RewriteHints,
+)
+
+__all__ = [
+    "ProviderRoutingHints",
+    "QueryUnderstanding",
+    "QueryUnderstandingResult",
+    "RewriteHints",
+]
+</file>
+
+<file path="search/understanding/models.py">
+"""Query understanding result models."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from ...entity.models import EntitySpan
+from ..intents import SearchIntent
+
+
+class ProviderRoutingHints(BaseModel):
+    keyword: bool = True
+    neural: bool = True
+    community: bool = False
+
+
+class RewriteHints(BaseModel):
+    style: str = "compact"
+    variant_count: int = 2
+    preserve_order: bool = True
+
+
+class QueryUnderstandingResult(BaseModel):
+    schema_version: Literal["0.2"] = "0.2"
+    intent: SearchIntent
+    confidence: float = Field(ge=0.0, le=1.0)
+    entities: list[EntitySpan] = Field(default_factory=list)
+    preserved_terms: list[str] = Field(default_factory=list)
+    compared_entities: list[str] = Field(default_factory=list)
+    time_sensitivity: Literal["none", "recent", "current", "historical"] = "none"
+    domain_hints: list[str] = Field(default_factory=list)
+    provider_hints: ProviderRoutingHints = Field(default_factory=ProviderRoutingHints)
+    rewrite_hints: RewriteHints = Field(default_factory=RewriteHints)
+    rationale: str
+    should_decompose: bool = False
+
+    @property
+    def must_keep_terms(self) -> list[str]:
+        return list(self.preserved_terms)
+
+    model_config = {"extra": "forbid"}
+
+
+QueryUnderstanding = QueryUnderstandingResult
+</file>
+
+<file path="search/understanding/resolver.py">
+"""LLM-backed query understanding."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time as time_module
+
+from ...settings import settings
+from ...llm.worker import build_llm_worker
+from ...llm.structured import StructuredLLMRequest
+from ...prompts.registry import build_prompt
+from ...training.session_state import get_session_state_store
+from ...training.query_understanding_jsonl import append_query_understanding_record
+from ...utils.observability import emit_observability_event
+from ...analytics.duckdb_store import insert_query_understanding as analytics_insert_query_understanding
+from ...ab_testing.wiring import get_ab_overrides
+from ...ab_testing.shadow_runner import run_shadow
+from ..intents import SearchIntent, normalize_intent
+from ..normalize import normalize_query
+from ..context import SearchContext
+from .models import QueryUnderstandingResult
+
+logger = logging.getLogger(__name__)
+
+
+def _build_ab_router(ab_overrides: dict) -> "LLMRouter":
+    """Build a custom LLM router from experiment variant config.
+
+    The variant config may contain ``model`` and/or ``timeout_seconds``
+    keys to override the default classifier endpoint.
+    """
+    from ...llm.models import LLMEndpoint
+    from ...llm.router import LLMRouter
+    from ...llm.config import build_vercel_gpt_oss_endpoint
+
+    cfg = ab_overrides["config"]
+    model = cfg.get("model", settings.query_understanding_model)
+    timeout = float(cfg.get("timeout_seconds", 20.0))
+
+    # Normalise model name
+    model_str: str = f"groq/{model.removeprefix('groq/')}"
+
+    endpoint = LLMEndpoint(
+        name="groq",
+        model=model_str,
+        base_url=settings.groq_base_url,
+        api_key=settings.groq_api_key,
+        timeout_seconds=timeout,
+    )
+    return LLMRouter((endpoint, build_vercel_gpt_oss_endpoint(timeout_seconds=timeout)))
+
+
+async def resolve_query_understanding(
+    *,
+    query: str,
+    research_goal: str | None,
+    intent_hint: SearchIntent | None = None,
+    session_id: str | None = None,
+    run_key: str | None = None,
+) -> QueryUnderstandingResult:
+    normalized_query = normalize_query(query)
+    system_prompt, user_prompt = build_prompt(
+        "query_understanding",
+        query=normalized_query,
+        research_goal=research_goal,
+        intent=intent_hint,
+        must_keep_terms=[],
+        provider_name="groq",
+    )
+
+    # ------------------------------------------------------------------
+    # A/B experiment override: check if this run_key is enrolled
+    # ------------------------------------------------------------------
+    ab_overrides = get_ab_overrides(run_key=run_key, layer="query_understanding") if run_key else None
+    timeout_seconds = settings.query_classifier_timeout_seconds
+    use_ab_router = False
+    if ab_overrides:
+        cfg = ab_overrides["config"]
+        shadow_mode = ab_overrides["shadow_mode"]
+        if "timeout_seconds" in cfg:
+            timeout_seconds = float(cfg["timeout_seconds"])
+        # Build router with different endpoint config if model differs
+        use_ab_router = bool("model" in cfg or "timeout_seconds" in cfg)
+    else:
+        shadow_mode = False
+
+    fallback_reason = "Query classifier unavailable; defaulting to general."
+    result_model_name = "fallback-general"
+    result_provider_name = "fallback"
+    fallback_used = False
+    control_start = time_module.monotonic()
+
+    try:
+        if use_ab_router:
+            # A/B variant: use a custom router with overridden model/timeout
+            router = _build_ab_router(ab_overrides)
+            generation = await router.complete_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                timeout_seconds=timeout_seconds,
+                response_model=QueryUnderstandingResult,
+            )
+            result_model_name = generation.endpoint.model
+            result_provider_name = generation.endpoint.name
+            content = generation.content
+        else:
+            # Production path: use the standard LLMWorker
+            result = await build_llm_worker().complete_structured(
+                StructuredLLMRequest(
+                    task="query_understand",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=0.0,
+                    timeout_seconds=timeout_seconds,
+                    response_model=QueryUnderstandingResult,
+                )
+            )
+            result_model_name = result.model_name
+            result_provider_name = result.endpoint_name
+            content = result.content
+
+        control_duration_ms = (time_module.monotonic() - control_start) * 1000
+        understanding = QueryUnderstandingResult.model_validate_json(content)
+        understanding = understanding.model_copy(
+            update=dict(intent=normalize_intent(understanding.intent))
+        )
+    except Exception as exc:
+        control_duration_ms = (time_module.monotonic() - control_start) * 1000
+        logger.warning("query understanding failed; falling back to general: %s", exc)
+        fallback_used = True
+        emit_observability_event(
+            logger,
+            "search.query_understanding.fallback",
+            query=normalized_query,
+            error=str(exc)[:300],
+            fallback_intent="general",
+            fallback_reason=fallback_reason,
+        )
+        understanding = QueryUnderstandingResult(
+            intent="general",
+            confidence=0.0,
+            rationale=fallback_reason,
+            should_decompose=False,
+        )
+
+    # ------------------------------------------------------------------
+    # Shadow mode: fire-and-forget the variant in the background
+    # ------------------------------------------------------------------
+    if shadow_mode and ab_overrides and run_key and not fallback_used:
+        shadow_cfg = ab_overrides["config"]
+        shadow_router = _build_ab_router(ab_overrides)
+        shadow_timeout = float(shadow_cfg.get("timeout_seconds", settings.query_classifier_timeout_seconds))
+
+        async def _shadow_fn() -> QueryUnderstandingResult:
+            shadow_gen = await shadow_router.complete_json(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                timeout_seconds=shadow_timeout,
+                response_model=QueryUnderstandingResult,
+            )
+            return QueryUnderstandingResult.model_validate_json(shadow_gen.content)
+
+        asyncio.ensure_future(
+            run_shadow(
+                run_key=run_key,
+                experiment_id=ab_overrides["experiment_id"],
+                variant=ab_overrides["variant_key"],
+                layer="query_understanding",
+                shadow_fn=_shadow_fn,
+                shadow_kwargs={},
+                control_duration_ms=control_duration_ms,
+                control_result_summary={
+                    "intent": understanding.intent,
+                    "confidence": understanding.confidence,
+                    "model": result_model_name,
+                },
+            )
+        )
+    emit_observability_event(
+        logger,
+        "search.query_understanding.resolved",
+        query=normalized_query,
+        intent=understanding.intent,
+        confidence=understanding.confidence,
+        should_decompose=understanding.should_decompose,
+        model=result_model_name,
+        provider=result_provider_name,
+        entities=[entity.model_dump() for entity in understanding.entities],
+        preserved_terms=understanding.preserved_terms,
+        fallback=fallback_used,
+    )
+    if settings.query_understanding_jsonl_enabled:
+        try:
+            await append_query_understanding_record(
+                context=SearchContext(
+                    raw_query=query,
+                    normalized_query=normalized_query,
+                    research_goal=research_goal,
+                    session_id=session_id,
+                    intent=understanding.intent,
+                    confidence=understanding.confidence,
+                    should_decompose=understanding.should_decompose,
+                    rationale=understanding.rationale,
+                    entities=tuple(understanding.entities),
+                    must_keep_terms=tuple(understanding.must_keep_terms),
+                    providers=None,
+                    num_results=0,
+                    search_options=None,
+                    profile_name=understanding.intent,
+                ),
+                understanding=understanding,
+                model_name=result_model_name,
+                prompt_name="query_understanding",
+                path=settings.query_understanding_jsonl_path,
+                session_id=session_id,
+            )
+            if session_id:
+                get_session_state_store().get(session_id).last_intent = understanding.intent
+        except Exception as exc:
+            logger.warning("query understanding JSONL write failed: %s", exc)
+
+    # Best-effort dual-write to analytics tables
+    if run_key:
+        try:
+            analytics_insert_query_understanding(
+                run_key=run_key,
+                intent=understanding.intent,
+                confidence=understanding.confidence,
+                should_decompose=understanding.should_decompose,
+                model=result_model_name,
+                provider=result_provider_name,
+                fallback_used=fallback_used,
+                rationale=understanding.rationale,
+                entities_count=len(understanding.entities or []),
+                preserved_terms=understanding.preserved_terms or [],
+                time_sensitivity=understanding.time_sensitivity,
+                payload_json={
+                    "query": normalized_query,
+                    "rewrite_variant_count": len(understanding.preserved_terms or []),
+                },
+            )
+        except Exception as exc:
+            logger.debug("analytics insert_query_understanding failed: %s", exc)
+    return understanding
+</file>
+
+<file path="search/understanding/schema.py">
+"""Structured output schema for query understanding."""
+
+from __future__ import annotations
+
+QUERY_UNDERSTANDING_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["0.2"]},
+        "intent": {
+            "type": "string",
+            "enum": ["general", "ai_coding", "digital_humanities", "comparison"],
+        },
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "entities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "text": {"type": "string"},
+                    "label": {"type": "string"},
+                    "start": {"type": ["integer", "null"]},
+                    "end": {"type": ["integer", "null"]},
+                    "confidence": {"type": ["number", "null"]},
+                },
+                "required": ["text", "label", "start", "end", "confidence"],
+            },
+        },
+        "preserved_terms": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "compared_entities": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "time_sensitivity": {
+            "type": "string",
+            "enum": ["none", "recent", "current", "historical"],
+        },
+        "domain_hints": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "provider_hints": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "keyword": {"type": "boolean"},
+                "neural": {"type": "boolean"},
+                "community": {"type": "boolean"},
+            },
+            "required": ["keyword", "neural", "community"],
+        },
+        "rewrite_hints": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "style": {"type": "string"},
+                "variant_count": {"type": "integer"},
+                "preserve_order": {"type": "boolean"},
+            },
+            "required": ["style", "variant_count", "preserve_order"],
+        },
+        "rationale": {"type": "string"},
+        "should_decompose": {"type": "boolean"},
+    },
+    "required": [
+        "schema_version",
+        "intent",
+        "confidence",
+        "entities",
+        "preserved_terms",
+        "compared_entities",
+        "time_sensitivity",
+        "domain_hints",
+        "provider_hints",
+        "rewrite_hints",
+        "rationale",
+    ],
+}
+</file>
+
 <file path="search/youtube.py">
 from __future__ import annotations
 
@@ -30481,7 +33558,6 @@ async def search_youtube_videos(
             title=title.strip(),
             link=link.strip(),
             snippet=snippet.strip() if snippet else "",
-            resource_type="youtube",
             providers=["searxng_youtube"],
         )
         results.append(result)
@@ -30515,9 +33591,11 @@ load_dotenv(_project_root / ".env")
 load_dotenv()  # Also try cwd as fallback
 
 # Initialize OpenTelemetry BEFORE any other imports
-# This ensures all HTTP calls (httpx, etc.) are auto-instrumented
+# This ensures all HTTP calls (httpx, etc.) are auto-instrumented.
+# init_telemetry_background runs in a daemon thread so that an unreachable
+# OTLP endpoint (Grafana Cloud) never blocks MCP startup (~70s hang).
 from .telemetry import (
-    init_telemetry,
+    init_telemetry_background,
     SEARCH_QUERY,
     SEARCH_NUM_RESULTS_REQUESTED,
     record_mcp_tool_call,
@@ -30529,10 +33607,11 @@ from .telemetry import (
 )
 from opentelemetry import trace
 
-init_telemetry(service_name="web-search-mcp")
+init_telemetry_background(service_name="web-search-mcp")
 
 import argparse
 import asyncio
+import uuid
 import json
 import httpx
 import logging
@@ -30566,10 +33645,6 @@ from .content.link_discovery import discover_links as discover_page_links
 from .content.options import build_fetch_options
 from .content.summary import create_summary
 from .content.windowing import slice_content
-from .analytics.tools import register_analytics_tools
-from .analytics.app import analytics_app
-from .analytics.formatting import json_safe_rows
-from .analytics.reports import available_reports, run_report
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
 from .content.youtube import (
@@ -30581,7 +33656,7 @@ from .content.youtube import (
     calculate_total_duration,
 )
 from .search.youtube import search_youtube_videos, YouTubeSearchError
-from .search.orchestrator import run_web_search
+from .search.pipeline import run_search_pipeline as run_web_search
 from .cache import (
     get_query_cache,
     provider_cache_key,
@@ -30592,9 +33667,7 @@ from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
-from .entity.gliner_client import get_gliner_client, is_entity_extraction_enabled
-from .entity.default_schema import DEFAULT_QUERY_LABELS
-from .entity.models import EntitySpan
+from .analytics.judge_runner import run_judge_evaluation
 from .tools.catalog import tool_kwargs
 from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
@@ -30647,6 +33720,20 @@ def _record_tool_failure(tool_name: str) -> None:
     record_mcp_tool_call(tool_name, success=False)
 
 
+def _resolve_session_id(ctx: Context | None) -> str | None:
+    if ctx is None:
+        return None
+    fastmcp_context = getattr(ctx, "fastmcp_context", None)
+    if fastmcp_context is not None:
+        session_id = getattr(fastmcp_context, "session_id", None)
+        if session_id:
+            return str(session_id)
+        client_id = getattr(fastmcp_context, "client_id", None)
+        if client_id:
+            return str(client_id)
+    return None
+
+
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""
     return {
@@ -30655,12 +33742,10 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tool_search_enabled": settings.tool_search_enabled,
         },
         "features": {
-            "query_rewrite_enabled": settings.query_rewrite_enabled,
             "reranking_enabled": settings.reranking_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
             "result_memory_enabled": settings.result_memory_enabled,
             "analytics_enabled": settings.analytics_enabled,
-            "query_classifier_enabled": settings.query_classifier_enabled,
             "query_decomposition_enabled": settings.query_decomposition_enabled,
         },
         "providers_configured": {
@@ -30672,13 +33757,14 @@ def _public_settings_snapshot() -> dict[str, object]:
             "voyage": bool(settings.voyage_api_key),
             "composio": bool(
                 os.environ.get("COMPOSIO_API_KEY")
-                and os.environ.get("KINDLY_COMPOSIO_USER_ID")
+                and os.environ.get("COMPOSIO_USER_ID")
             ),
+            "search_router": bool(os.environ.get("SEARCH_ROUTER_API_KEY")),
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
         "timeouts_seconds": {
             "tool_total": _resolve_tool_total_timeout_seconds(),
-            "query_classifier": settings.query_classifier_timeout_seconds,
+            "query_understanding": settings.query_classifier_timeout_seconds,
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,
@@ -30689,7 +33775,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "jina_rerank_model": settings.jina_rerank_model,
             "grok_model": settings.grok_model,
             "gliner_model": settings.gliner_model,
-            "query_classifier_url": settings.query_classifier_url,
         },
     }
 
@@ -30725,7 +33810,6 @@ def _cache_stats_snapshot() -> dict[str, object]:
 
 
 def _analytics_schema_snapshot() -> dict[str, object]:
-    """Return the current analytics object catalog for MCP clients."""
     from .analytics.app import _OBJECT_DESCRIPTIONS
 
     return {
@@ -30740,7 +33824,9 @@ def _analytics_report_snapshot(
     *,
     days: int = 7,
 ) -> dict[str, object]:
-    """Return one deterministic analytics report as JSON-safe rows."""
+    from .analytics.formatting import json_safe_rows
+    from .analytics.reports import available_reports, run_report
+
     table = run_report(report_name, days=days)
     return {
         "report": report_name,
@@ -30754,15 +33840,9 @@ def _analytics_report_snapshot(
 mcp = FastMCP(
     "kindly-web-search",
     instructions=(
-        "Tool routing: use web_search first for normal web discovery and keep rewrite=true by default. "
-        "Use rewrite=false only for exact literals such as stack traces, quoted errors, URLs, versions, hashes, and UUIDs. "
-        "Use get_content for one known URL; use batch_get_content for 3 or more URLs and follow has_more/cursor or window.next_offset. "
-        "Use discover_links when you already have a URL and want outgoing links or sitemap targets. "
-        "Use gemini_search for quick grounded synthesis; use grok_search when you need web + X (Twitter) search together; "
-        "use perplexity_search only after refining a single-topic query. "
-        "Use academic_search for scholarly papers (Semantic Scholar + ArXiv) with filters for year, venue, field of study, and open access. "
-        "Use youtube_search before youtube_transcript, and composio_similarlinks to expand from a known good URL. "
-        "Use agentic_web_research when you want the LangChain/LangGraph ReAct agent to choose among direct search, fetch, rerank, and expansion tools itself."
+        "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
+        "with rewrite=true by default. Use get_content for one known URL; "
+        "use batch_get_content for 3+ URLs."
     ),
 )
 
@@ -30792,15 +33872,6 @@ from .middleware import create_dynamic_guidance_middleware
 mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
 register_agentic_web_research_tools(mcp)
-register_analytics_tools(mcp)
-# Mount the interactive Analytics Explorer app (FastMCP Apps UI, requires fastmcp[apps])
-try:
-    mcp.add_provider(analytics_app)
-except Exception as _analytics_app_err:  # noqa: BLE001
-    LOGGER.warning(
-        "Analytics Explorer app could not be mounted (is fastmcp[apps] installed?): %s",
-        _analytics_app_err,
-    )
 
 
 _base_list_resources = mcp.list_resources
@@ -30871,9 +33942,7 @@ async def _compat_list_resource_templates(
     self: FastMCP, *, run_middleware: bool = True
 ) -> list[object]:
     """Merge local function resource templates with the public template list."""
-    listed = list(
-        await _base_list_resource_templates(run_middleware=run_middleware)
-    )
+    listed = list(await _base_list_resource_templates(run_middleware=run_middleware))
     existing_uris = {str(getattr(item, "uri_template", "")) for item in listed}
     for template in await self._list_resource_templates():
         uri_template = str(getattr(template, "uri_template", ""))
@@ -31058,9 +34127,10 @@ def main(argv: list[str] | None = None) -> None:
         or os.environ.get("TAVILY_API_KEY", "").strip()
         or os.environ.get("BRAVE_API_KEY", "").strip()
         or os.environ.get("JINA_API_KEY", "").strip()
+        or os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
         or (
             os.environ.get("COMPOSIO_API_KEY", "").strip()
-            and os.environ.get("KINDLY_COMPOSIO_USER_ID", "").strip()
+            and os.environ.get("COMPOSIO_USER_ID", "").strip()
         )
         or settings.gemini_api_key.strip()
     ):
@@ -31068,8 +34138,9 @@ def main(argv: list[str] | None = None) -> None:
         # and expect the server to at least come up for tool discovery.
         LOGGER.warning(
             "No search provider configured (SEARXNG_BASE_URL, TAVILY_API_KEY, BRAVE_API_KEY, "
-            "JINA_API_KEY, COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID, "
-            "or KINDLY_GEMINI_API_KEY); "
+            "JINA_API_KEY, SEARCH_ROUTER_API_KEY, "
+            "COMPOSIO_API_KEY + COMPOSIO_USER_ID, "
+            "or GEMINI_API_KEY); "
             "`web_search` calls will fail until one is provided."
         )
 
@@ -31113,8 +34184,8 @@ def _resolve_tool_total_timeout_seconds() -> float:
     In practice, Windows headless-browser cold starts can exceed that, so we allow a
     higher cap that can be tuned via environment variables.
     """
-    value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     safe_max = max(1.0, max_value)
     return max(1.0, min(value, safe_max))
 
@@ -31125,7 +34196,7 @@ def _timeout_markdown_note(url: str, *, scope: str | None = None) -> str:
 
 
 def _resolve_web_search_max_concurrency(num_results: int) -> int:
-    raw_env = (os.environ.get("KINDLY_WEB_SEARCH_MAX_CONCURRENCY") or "").strip()
+    raw_env = (os.environ.get("WEB_SEARCH_MAX_CONCURRENCY") or "").strip()
     value: int | None = None
     if raw_env:
         try:
@@ -31217,7 +34288,6 @@ def _apply_domain_filters(
 async def web_search(
     query: str,
     research_goal: str,
-    num_results: int = 5,
     rewrite: bool = True,
     providers: list[str] | None = None,
     result_offset: int = 0,
@@ -31233,80 +34303,12 @@ async def web_search(
     domain_block: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResultType:
-    """Search the web and return lightweight results only.
-
-    Key instruction:
-    Default to this tool for web discovery. Keep rewrite=True for normal discovery.
-    Set rewrite=False only for exact-literal queries: stack traces, quoted error
-    messages, URLs, package versions, hashes, UUIDs, CLI flags, function names, or
-    other strings that must not be paraphrased.
-
-    When to use:
-    Especially useful for coding agents like Claude Code / Codex when you need up-to-date information.
-    - Debug an error by searching the exact message/stack trace (often best in quotes).
-    - Double-check API signatures, interfaces, and breaking changes in official docs.
-    - Confirm current package versions, release notes, and migration guides.
-    - Find GitHub issues / StackOverflow threads / authoritative references for a topic.
-
-    When not to use:
-    - If you already have a specific URL to read -> use `get_content(url)` instead.
-
-    Args:
-    - query: Search query string. Prefer specific keywords and exact error text when applicable.
-    - research_goal: REQUIRED. Describe what information you are looking for and why. Include:
-      - The specific topic, feature, or problem you're researching
-      - Any relevant context (package names, versions, error types)
-      - What you plan to do with the results (implement, debug, compare, etc.)
-      Example: "Find React 18.2.0 changelog to check if hooks API changed" or
-      "Debug TypeError in FastAPI middleware - need solution for production"
-    - num_results: Number of results to return. Default is 5; recommended range is 3-7.
-      Results are diversity-pruned so 5-7 provides broad coverage without duplicates. Max 10.
-    - rewrite: If True, use Mistral to generate additional search queries and merge the results.
-      Standard is True. Set False for exact literals that must stay byte-stable.
-    - providers: Optional list of providers to include. Examples: ["tavily"], ["brave", "jina"].
-      - Standard providers (searxng, ddg, gemini) fire automatically when configured.
-      - Conditional providers only fire when listed here.
-      - Available providers: searxng, ddg, tavily, brave, jina, gemini, composio_llm_search.
-    - result_offset: Zero-based result window offset for tool-side pagination.
-    - searxng_categories: Optional SearXNG category override.
-    - searxng_engines: Optional SearXNG engine override list.
-    - searxng_language: Optional SearXNG language override.
-    - searxng_pageno: SearXNG result page number override.
-    - searxng_time_range: Optional SearXNG time range override (`day`, `week`, `month`, `year`).
-    - searxng_safesearch: Optional SearXNG safesearch override (`0`, `1`, or `2`).
-    - site_filters: Optional query restrictions applied to all providers.
-    - domain_filters: Optional domain restrictions applied to all providers.
-    - domain_boost: Optional list of domains to boost in results (e.g., ["stackoverflow.com", "github.com"]).
-      Boosted domains are moved to the front of results after reranking.
-      Supports subdomain matching (e.g., "reddit.com" matches "old.reddit.com").
-      Supports path-aware matching (e.g., "reddit.com/r/programming" matches that subreddit).
-    - domain_block: Optional list of domains to exclude from results (e.g., ["pinterest.com", "quora.com"]).
-      Blocked domains are completely removed from results.
-      Supports the same matching rules as domain_boost.
-    - ctx: FastMCP context (auto-injected, used for logging).
-
-    Prerequisites:
-    - Requires at least one configured search provider in the server environment:
-      `SEARXNG_BASE_URL` (SearXNG, primary), `KINDLY_GEMINI_API_KEY`,
-      `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`, or
-      `COMPOSIO_API_KEY` + `KINDLY_COMPOSIO_USER_ID`.
-      If none is set, this tool will fail.
-
-    Returns:
-    - `{"query": str, "results": [{"title": str, "link": str, "snippet": str, ...}, ...]}`
-    - Results are lightweight search hits only. Page content is intentionally omitted.
-
-    Notes:
-    - Provider priority: SearXNG + DDG + Gemini (standard) → Conditional providers on request.
-    - Results merged via Weighted Reciprocal Rank Fusion (RRF) for optimal ranking.
-    - Treat `provider_count` on each result as an agreement signal: higher means
-      more configured providers surfaced the same URL.
-    - If all search providers fail, the tool will error.
-    - For a deeper look at one result, call `get_content()` on the chosen `link`.
+    """Multi-provider web search returning lightweight results (title, link, snippet, provider_count).
+    Default discovery tool. Set rewrite=False only for exact-literals: errors, URLs, versions, hashes.
     """
 
     # Enforce bounds
-    num_results = max(1, min(num_results, 10))
+    num_results = max(1, min(int(os.environ.get("DEFAULT_NUM_RESULTS", "10")), 25))
     search_options = build_search_options(
         result_offset=result_offset,
         searxng_categories=searxng_categories,
@@ -31341,39 +34343,6 @@ async def web_search(
 
         # 1. Exact query cache lookup (fastest, deterministic)
         normalized_query = normalize_query(query)
-
-        # Entity extraction for query must-keep (Phase 8.1): exactly once on the
-        # original user query, before any rewrite or variant generation.
-        # Results (if any) are passed down to query policy + orchestrator.
-        # Extraction is fully optional/lazy; disabled by default + emits on error.
-        query_entities: list[EntitySpan] = []
-        if is_entity_extraction_enabled():
-            try:
-                gliner = get_gliner_client()
-                query_entities = await gliner.extract_entities(
-                    query,  # use raw for better surface forms; normalize inside if needed
-                    labels=DEFAULT_QUERY_LABELS,
-                )
-                emit_observability_event(
-                    LOGGER,
-                    "entity.query_extracted",
-                    query=query,
-                    count=len(query_entities),
-                    labels=[e.label for e in query_entities],
-                    enabled=True,
-                )
-            except Exception as exc:  # explicit, never silent when enabled
-                emit_observability_event(
-                    LOGGER,
-                    "entity.extraction.error",
-                    query=query,
-                    error=str(exc)[:300],
-                    failure_mode="query_extract_failed",
-                    retryable=False,
-                    component="web_search_entity",
-                )
-                LOGGER.warning("Query entity extraction failed (enabled): %s", exc)
-                query_entities = []
 
         emit_tool_observability_event(
             LOGGER,
@@ -31466,15 +34435,16 @@ async def web_search(
                     "BRAVE_API_KEY": os.environ.get("BRAVE_API_KEY", ""),
                     "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
                     "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
+                    "SEARCH_ROUTER_API_KEY": os.environ.get("SEARCH_ROUTER_API_KEY", ""),
                     "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""
+                    "TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
+                        "TOOL_TOTAL_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
-                        "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
+                    "TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
+                        "TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
                     ),
-                    "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get(
-                        "KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""
+                    "WEB_SEARCH_MAX_CONCURRENCY": os.environ.get(
+                        "WEB_SEARCH_MAX_CONCURRENCY", ""
                     ),
                 }
                 parent_diag.emit(
@@ -31496,7 +34466,7 @@ async def web_search(
                 providers=providers,
                 research_goal=research_goal,
                 search_options=search_options,
-                query_entities=query_entities,
+                session_id=_resolve_session_id(ctx),
             )
             _response = _normalize_lightweight_search_response(
                 response_model.model_dump(exclude_none=True),
@@ -31574,39 +34544,8 @@ async def get_content(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> GetContentResultType:
-    """Fetch one URL with bounded windowing and structured status.
-
-    When to use:
-    - You already have a URL from the user or from `web_search(...)`.
-    - You need source text from one page/document with continuation metadata.
-    - You want optional source-grounded summary via `summary_mode`.
-
-    When not to use:
-    - If you need to discover relevant URLs first -> use `web_search(query)`.
-
-    Args:
-    - url: The URL to fetch.
-    - char_offset: Character offset into the extracted source text. Default 0.
-    - char_length: Maximum characters to return for this page. Default 20000.
-    - summary_mode: `none`, `brief`, or `detailed`. Summaries use Chutes API when requested.
-    - focus_query: Optional focus for summary generation.
-    - include_metadata: Include extracted page metadata in the response.
-    - include_links: Include extracted links in the response.
-    - max_links: Maximum number of links to extract when include_links is true.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-
-    Returns:
-    - `input_url`: exact URL provided by caller.
-    - `normalized_url`: normalized URL used for cache lookup/storage and batch deduplication.
-    - `fetched_url`: actual URL reached after redirects, if network fetch reached one.
-    - `status`: success, partial, blocked, unsupported, or error.
-    - `source_type`: detected source family such as html, pdf, github_issue, or wikipedia.
-    - `fetch_backend`: backend strategy used, such as safe_http_extract, jina_reader, or browser_fallback.
-    - `page_content`: bounded Markdown/text window.
-    - `window`: pagination metadata with `has_more` and `next_offset`.
-    - `metadata`: optional page metadata such as title, description, canonical URL, and domain.
-    - `links`: optional discovered links when `include_links=True`.
-    - `continuation_notice`: human-readable truncation notice when the returned window is partial.
+    """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
+    Use when you already have a URL. Check window.has_more for pagination continuation.
     """
 
     await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
@@ -31626,7 +34565,7 @@ async def get_content(
         strip_selectors=strip_selectors,
     )
 
-    max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
+    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
     safe_summary_mode = (
@@ -31836,49 +34775,22 @@ async def batch_get_content(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> BatchGetContentResponse:
-    """Fetch multiple URLs with structured status, budgets, and continuation cursor.
-
-    When to use:
-    - Prefer this over multiple get_content calls when you have 3+ URLs.
-    - Fetch several search results under one total_char_budget.
-    - Continue a partial batch by passing the returned cursor.
-
-    When not to use:
-    - If you have exactly one URL -> use get_content.
-    - If you still need to discover URLs -> use web_search first.
-
-    Args:
-    - urls: URLs to fetch. Duplicates are normalized and deduplicated.
-      Optional on continuation calls when cursor contains URLs.
-    - max_concurrency: Parallel fetch limit. Default 4, capped at 8.
-    - per_item_char_length: Maximum characters per returned URL window.
-    - total_char_budget: Maximum total characters returned across this page.
-    - cursor: Continuation cursor from a prior partial batch response.
-    - include_metadata: Include extracted page metadata in each result.
-    - include_links: Include extracted links in each result.
-    - max_links: Maximum links to extract per URL when include_links is true.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-
-    Returns:
-    - results: per-URL structured statuses with page_content, window metadata, and optional metadata/links.
-    - total_requested, total_returned, total_chars_returned.
-    - has_more and cursor. If has_more is true, call again with cursor.
-
-    This tool isolates failures per URL and keeps payloads bounded.
+    """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
+    Prefer over repeated get_content calls when you have 3+ URLs. Check has_more and cursor for continuation.
     """
-    max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
+    max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
     _urls = urls or []
     bounded_urls: list[str] = _urls[: max(1, max_urls)]
     safe_concurrency = max(1, min(max_concurrency, 8))
     safe_item_length = max(
         500,
-        min(per_item_char_length, _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)),
+        min(per_item_char_length, _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)),
     )
     safe_total_budget = max(
         2_000,
         min(
             total_char_budget,
-            _get_int_env("KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
+            _get_int_env("BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
         ),
     )
 
@@ -32003,23 +34915,7 @@ async def discover_links(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Discover outbound links from a page or sitemap without extracting article text.
-
-    When to use:
-    - You already have a URL and want to expand into nearby pages.
-    - You want sitemap or page-link discovery without fetching page content.
-
-    When not to use:
-    - If you need article/body text -> use `get_content(url)`.
-    - If you still need to discover the starting URL -> use `web_search(...)`.
-
-    Args:
-    - url: The page or sitemap URL to inspect.
-    - max_links: Maximum links to return. Default 100.
-    - include_external: Include links outside the source domain.
-    - same_domain_only: Restrict results to the same domain as the source URL.
-    - strip_selectors: Optional CSS selectors to remove before extraction.
-    """
+    """Extract outbound links from a page or sitemap. Returns URLs only, not page content."""
 
     await ctx.report_progress(progress=10, total=100, message="Discovering links...")
     await ctx.info(f"Discovering links from: {url[:80]}...")
@@ -32085,34 +34981,7 @@ async def gemini_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search with Gemini Google Search grounding for quick, grounded answers.
-
-    When to use:
-    - Need a quick, factual answer with Google Search grounding
-    - Want citations directly from search results
-    - Researching current events, facts, or technical documentation
-
-    When not to use:
-    - Need multiple web pages to compare -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-
-    Args:
-    - query: Search query for grounded answer generation
-    - structured_output: If True, returns structured JSON with executive_summary,
-      key_findings, sources, confidence. Default is False (plain text answer).
-    - research_goal: Optional context/goal from client to guide the research.
-      Helps Gemini focus the answer toward the specific need.
-
-    Returns:
-    - Plain text mode: {"query": str, "answer": str, "web_search_queries": list,
-      "grounding_chunks": list, "error": str or null}
-    - Structured mode: {"query": str, "structured_result": dict, ...}
-
-    Notes:
-    - Uses Gemini with Google Search grounding for real-time information
-    - Provides inline citations with [N] notation
-    - Requires KINDLY_GEMINI_API_KEY environment variable
-    """
+    """AI-powered search with Google Search grounding. Returns a synthesized answer with inline [N] citations. Fast, good for factual lookups and current events."""
     emit_tool_observability_event(
         LOGGER,
         "gemini_search",
@@ -32166,6 +35035,20 @@ async def gemini_search(
             else None,
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("uri",""), "snippet": c.get("snippet","")})()
+                    for c in (response.get("grounding_chunks", []) if isinstance(response, dict) else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="gemini_search",
+                ))
+            except Exception:
+                pass
+
         return response
     except Exception as exc:
         duration_seconds = time.time() - start_time
@@ -32197,37 +35080,8 @@ async def perplexity_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """AI-powered web search using Perplexity Sonar via Pollinations API.
-
-    Returns SYNTHESIZED ANSWERS with source citations, NOT URL lists like web_search.
-    Use for questions requiring AI analysis across multiple sources.
-
-    ⚠️ EXPENSIVE RESOURCE: This tool is rate-limited. First call returns a steering
-    message with query-writing best practices. Refine your query and retry.
-
-    When to use:
-    - Need an AI-synthesized answer with citations, not just a list of URLs
-    - Questions requiring reasoning or synthesis across multiple sources
-    - Research questions where you want the AI to analyze and summarize findings
-
-    When not to use:
-    - Need to browse specific URLs yourself -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-
-    Args:
-    - query: Search query string. Example: 'What are the latest React 19 features?'
-    - depth: Search depth: 'normal' (Perplexity Sonar, balanced) or
-      'deep' (Perplexity Sonar Reasoning, complex reasoning). Default: 'normal'.
-    - research_goal: Optional context/goal from client to guide the research.
-      Helps Perplexity focus the answer toward the specific need.
-
-    Returns:
-    - {"query": str, "answer": str, "sources": list[str], "model": str, "error": str|null}
-
-    Notes:
-    - Uses Perplexity Sonar models via Pollinations API
-    - Returns AI-synthesized text answer with source citations
-    - Requires POLLINATIONS_API_KEY environment variable
+    """Deep AI research via Perplexity Sonar. Returns a synthesized answer with source citations.
+    Rate-limited and expensive — refine your query to a single focused question before using.
     """
     from .search.pollinations import get_pollinations_client
 
@@ -32287,6 +35141,20 @@ async def perplexity_search(
             output_content=response["answer"],
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": s.get("title",""), "link": s.get("url",""), "snippet": s.get("snippet","")})()
+                    for s in (response.get("sources", []) if isinstance(response, dict) else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="perplexity_search",
+                ))
+            except Exception:
+                pass
+
         return response
     except ValueError as e:
         duration_seconds = time.time() - start_time
@@ -32352,43 +35220,8 @@ async def grok_search(
     excluded_domains: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search web and X (Twitter) using Grok 4.3 via OpenRouter.
-
-    Returns AI-SYNTHESIZED ANSWERS with source citations, NOT raw URL lists.
-    Grok autonomously searches web and X, then synthesizes a grounded answer.
-    When the query or research goal mentions X/Twitter or social data,
-    x_search fires alongside web_search.
-
-    When to use:
-    - Need current information from both web AND X (Twitter) simultaneously
-    - Researching real-time events, breaking news, or social sentiment
-    - Questions where Grok's native search quality adds value
-    - Need AI synthesis of multiple sources with attribution
-
-    When not to use:
-    - Need raw, unfiltered URL lists -> use web_search instead
-    - Need full page content extraction -> use web_search + get_content
-    - Already have specific URLs to read -> use get_content(url)
-
-    Args:
-    - query: Search query string. Be specific with keywords and context.
-    - research_goal: REQUIRED. What you need the results for.
-      Example: "Check latest FastAPI release for breaking changes."
-    - num_results: Approximate citations to surface (1-10, default 5).
-    - model: Optional model override (default: x-ai/grok-4.3).
-    - allowed_domains: Optional domain allowlist for web search.
-    - excluded_domains: Optional domain blocklist for web search.
-
-    Returns:
-    - {"query": str, "answer": str,
-       "citations": [{"url", "title", "snippet"}],
-       "model": str, "search_queries_used": int, "error": str|null}
-
-    Notes:
-    - Uses OpenRouter with engine: "native" on xAI Grok 4.3
-    - Both web_search and x_search tools are available
-    - Costs: Grok 4.3 tokens ($1.25/$2.50 per 1M) + search tool usage
-    - Requires OPENROUTER_API_KEY environment variable
+    """Search web and X (Twitter) via Grok 4.3. Returns AI-synthesized answer with citations from both platforms.
+    Use when you need social media data alongside web results.
     """
     import time
 
@@ -32443,6 +35276,20 @@ async def grok_search(
         )
 
         await ctx.report_progress(progress=100, total=100, message="Done")
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("url",""), "snippet": c.get("snippet","")})()
+                    for c in (result.citations if hasattr(result, 'citations') and result.citations else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="grok_search",
+                ))
+            except Exception:
+                pass
+
         return response
 
     except ValueError as e:
@@ -32493,44 +35340,8 @@ async def youtube_transcript(
     translate_to: str | None = None,
     format: str = "text",
 ) -> YouTubeTranscriptResultType:
-    """Retrieve transcript/captions from a YouTube video.
-
-    Extracts transcript data from YouTube videos using the youtube-transcript-api
-    library. Supports multiple URL formats and direct video IDs.
-
-    When to use:
-    - Need to analyze or summarize video content
-    - Extract spoken content from YouTube videos for AI processing
-    - Get timestamped transcript for citation/reference
-    - Use after youtube_search has returned a video URL or video ID.
-
-    When not to use:
-    - Video has no captions/transcripts available
-    - Video is private, deleted, or age-restricted
-
-    Args:
-    - video_id_or_url: YouTube video URL or bare video ID (11 chars).
-      Supported formats:
-      - https://www.youtube.com/watch?v=VIDEO_ID
-      - https://youtu.be/VIDEO_ID
-      - https://www.youtube.com/embed/VIDEO_ID
-      - https://www.youtube.com/shorts/VIDEO_ID
-      - https://www.youtube.com/live/VIDEO_ID
-      - Bare VIDEO_ID (11 chars, alphanumeric + underscore/dash)
-    - language: Preferred language code (e.g., "en", "es"). Defaults to "en".
-    - translate_to: Target language for translation (e.g., "de", "fr").
-    - format: Output format: "text" (plain text), "timestamped" ([MM:SS] lines),
-      or "json" (raw segments). Default: "text".
-
-    Returns:
-    - YouTubeTranscriptResponse with video_id, transcript_text, language, duration, etc.
-    - If transcript fetch fails, response includes `error` field with message.
-
-    Notes:
-    - Recommended chain: youtube_search(query) -> youtube_transcript(video_id_or_url).
-    - Transcripts are auto-generated or manually provided by video creators.
-    - Some videos have disabled transcripts.
-    - Cloud IPs (AWS/GCP/Azure) may be blocked; use KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL.
+    """Extract captions from a YouTube video. Supports multiple URL formats, language selection, translation, and timestamped/text/JSON output.
+    Use after youtube_search to get video content.
     """
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
@@ -32657,34 +35468,7 @@ async def youtube_search(
     query: str,
     num_results: int = 5,
 ) -> YouTubeSearchResultType:
-    """Search YouTube videos via SearXNG YouTube engine.
-
-    Searches for YouTube videos using the SearXNG metasearch engine's
-    built-in YouTube engine filter. Returns lightweight results with
-    video metadata.
-
-    When to use:
-    - Find relevant YouTube videos on a topic
-    - Discover video content before extracting transcripts
-    - Search for tutorials, lectures, or presentations
-
-    When not to use:
-    - Need to read full video content -> use youtube_transcript instead
-    - Need general web search -> use web_search instead
-
-    Args:
-    - query: Search query string.
-    - num_results: Number of results to return (1-20, default 5).
-
-    Returns:
-    - YouTubeSearchResponse with query and list of WebSearchResult objects.
-    - Each result has title, link (YouTube URL), snippet, and resource_type="youtube".
-
-    Notes:
-    - Requires SEARXNG_BASE_URL to be configured.
-    - Uses SearXNG's YouTube engine for video-specific search.
-    - Results are suitable for follow-up with youtube_transcript tool.
-    """
+    """Find YouTube videos by search query. Returns titles, links, and snippets. Use before youtube_transcript."""
 
     if num_results < 1:
         num_results = 5
@@ -32747,54 +35531,8 @@ async def academic_search(
     sort: str = "relevance",
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResultType:
-    """Search academic papers across 6 scholarly sources.
-
-    Finds research papers, preprints, and citations across major academic
-    sources. Results are deduplicated across providers and normalized to a
-    common schema.
-
-    When to use:
-    - Find research papers on a topic (machine learning, physics, medicine, etc.)
-    - Check citation counts and find influential papers
-    - Discover open-access PDFs for a research area
-    - Filter papers by year, venue, or field of study
-    - Biomedical/clinical literature search (PubMed)
-
-    When not to use:
-    - Need general web search -> use web_search instead
-    - Need full page content extraction -> use get_content on paper URLs
-
-    Args:
-    - query: Search query for academic papers. Prefer specific keywords and
-      paper titles. Example: "attention is all you need" or
-      "transformer neural network architecture"
-    - limit: Maximum results to return. Default 5; range 1-20.
-    - sources: Optional list of sources to search. Available: "semanticscholar",
-      "arxiv", "openalex", "crossref", "pubmed", "core".
-      Default: arxiv + semanticscholar (both free-ish).
-    - year_from: Filter to papers published in or after this year. Example: 2020
-    - year_to: Filter to papers published in or before this year. Example: 2024
-    - fields_of_study: Filter by field. Semantic Scholar values:
-      Computer Science, Medicine, Physics, Mathematics, Statistics, etc.
-      ArXiv/OpenAlex also support field categories.
-    - venue: Filter by publication venue (conference/journal name).
-      Example: "NeurIPS", "ICML", "Nature". Only Semantic Scholar supports this.
-    - open_access_only: If True, only return papers with available open-access PDFs.
-    - sort: Result ordering: "relevance" (default), "citations", or "date".
-
-    Returns:
-    - AcademicSearchResponse with query, results list, total_results,
-      sources_used, and optional warnings.
-
-    Notes:
-    - Semantic Scholar: 214M+ papers, rich metadata (citations, abstracts).
-      Optional KINDLY_S2_API_KEY for 100 RPS vs shared 1 RPS.
-    - ArXiv: 2.5M+ CS/Physics/Math preprints. No auth required.
-    - OpenAlex: 250M+ works, comprehensive coverage. Polite pool with email.
-    - CrossRef: DOI enrichment, citation counts, bibliographic metadata.
-    - PubMed: 35M+ biomedical citations (MEDLINE). Optional API key for 10 RPS.
-    - CORE: Open access full-text aggregation. Requires CORE_API_KEY.
-    - Results deduplicated by DOI, ArXiv ID, PubMed ID, or title match.
+    """Search 6 scholarly sources (Semantic Scholar, arXiv, OpenAlex, CrossRef, PubMed, CORE) with cross-source deduplication.
+    Supports year, venue, field-of-study, and open-access filters.
     """
     limit = max(1, min(limit, 20))
     if sort not in ("relevance", "citations", "date"):
@@ -32964,16 +35702,17 @@ def get_providers_status() -> str:
         f"**SearXNG** (Primary): {'✓ Configured' if os.environ.get('SEARXNG_BASE_URL') else '✗ Not configured'}",
         f"**Tavily**: {'✓ Configured' if os.environ.get('TAVILY_API_KEY') else '✗ Not configured'}",
         f"**Brave**: {'✓ Configured' if os.environ.get('BRAVE_API_KEY') else '✗ Not configured'}",
+        f"**Search Router**: {'✓ Configured' if os.environ.get('SEARCH_ROUTER_API_KEY') else '✗ Not configured'}",
         f"**Jina**: {'✓ Configured' if os.environ.get('JINA_API_KEY') else '✗ Not configured'}",
         f"**Voyage Reranker**: {'✓ Configured' if settings.voyage_api_key else '✗ Not configured'}",
-        f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('KINDLY_COMPOSIO_USER_ID') else '✗ Not configured'}",
+        f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('COMPOSIO_USER_ID') else '✗ Not configured'}",
         "",
         "## AI Search",
         f"**Gemini**: {'✓ Configured' if settings.gemini_api_key else '✗ Not configured'}",
         f"**Perplexity (Pollinations)**: {'✓ Configured' if os.environ.get('POLLINATIONS_API_KEY') else '✗ Not configured'}",
         "",
         "## Academic Search",
-        f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('KINDLY_S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
+        f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
         "**ArXiv**: ✓ Always available (no auth required)",
         "",
         "## Other",
@@ -33013,14 +35752,13 @@ def get_features_status() -> str:
         f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
         f"**Result Memory**: {'✓ Enabled' if settings.result_memory_enabled else '✗ Disabled'}",
         "",
-        f"**Query Rewrite**: {'✓ Enabled' if settings.query_rewrite_enabled else '✗ Disabled'}",
         f"**Reranking**: {'✓ Enabled' if settings.reranking_enabled else '✗ Disabled'}",
         "",
         "## Cache Settings",
         "Page cache: DuckDB (separate file)",
         "",
         "## Timeouts",
-        f"Tool Timeout: {os.environ.get('KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS', '120')}s",
+        f"Tool Timeout: {os.environ.get('TOOL_TOTAL_TIMEOUT_SECONDS', '120')}s",
         f"YouTube Transcript Timeout: {settings.youtube_transcript_timeout_seconds}s",
     ]
     return "\n".join(lines)
@@ -33028,60 +35766,63 @@ def get_features_status() -> str:
 
 @mcp.resource("docs://workflow")
 def get_workflow_doc() -> str:
-    """Recommended workflow for using web search tools."""
+    """Complete research workflow: tool routing, result evaluation, gap analysis, depth strategy."""
     return """# Web Search Workflow
 
-## Routing
+## Reconnaissance
+Start with `quick_web_search` for initial topic scoping before deeper research.
 
-1. Start with web_search for URL discovery. rewrite=true is standard.
-2. Use rewrite=false only for exact errors, URLs, versions, hashes, UUIDs, and quoted literals.
-3. Use get_content for one known URL.
-4. Use batch_get_content for 3+ URLs. Continue with cursor when has_more=true.
-5. Use discover_links when you already have a URL and want outbound links or sitemap targets.
-6. Use gemini_search for quick grounded synthesis.
-7. Use perplexity_search only after the query is narrowed to one topic.
-8. Use academic_search for scholarly papers with year/venue/field filters.
-9. Use youtube_search before youtube_transcript.
-10. Use composio_similarlinks to expand from a known good URL.
+## Tool routing
+| Task | Tool | Why |
+|---|---|---|
+| Initial recon | quick_web_search | Fast synthesized answer with citations |
+| Find URLs | web_search | Multi-provider merge, provider_count signal |
+| Quick answer | gemini_search | Google-grounding, [N] citations, fast |
+| Web + X/Twitter | grok_search | Real-time web and social data |
+| Deep analysis | perplexity_search | Synthesized, expensive, refine query first |
+| Scholarly papers | academic_search | 6 sources, field/venue/year filters |
+| Read one URL | get_content | 7-stage resolution, pagination-aware |
+| Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor |
+| Discover links | discover_links | Page/sitemap link extraction |
+| Find videos | youtube_search | SearXNG YouTube engine |
+| Extract captions | youtube_transcript | Timestamped/text/JSON, translation |
+| Similar pages | composio_similarlinks | Neural similarity from known URL |
+| Multi-step research | agentic_web_research | ReAct agent, experimental |
 
-## Discovery -> Extraction -> Synthesis
+## Query
+rewrite=true for normal discovery; rewrite=false for exact literals (errors, URLs, hashes).
+num_results: 3=fast, 5=standard, 7=broad. Max 10.
 
-### Step 1: Search
-web_search(query="your specific question", research_goal="why you need it", num_results=5, rewrite=True)
-Returns lightweight results: title, link, snippet, provider_count.
+## Depth
+- quick: quick_web_search or gemini_search
+- medium: web_search(5) -> batch_get_content(2-3) -> gemini_search
+- deep: web_search(7) -> batch_get_content(5) -> perplexity_search -> academic_search
 
-### Step 2: Extract
-get_content(url="https://selected-url")
-Returns a bounded content window. If window.has_more is true, call again with char_offset=window.next_offset.
+## Result evaluation
+1. provider_count: 2+ stronger signal; 1 or missing = verify
+2. Snippet quality: specific facts > generic text. Domain hints: github.com->issue/PR, stackoverflow.com->Q&A
+3. Decision: 3+ promising -> batch_get_content. 1-2 -> get_content each. Off-topic -> refine. Sparse -> broaden
 
-For 3+ URLs:
-batch_get_content(urls=[...], total_char_budget=120000)
-If has_more is true, call again with cursor.
+## Pagination
+- get_content: check window.has_more. If true, call again with char_offset=window.next_offset
+- batch_get_content: check has_more and cursor. If true, call again with cursor
 
-### Step 3: Synthesize
-gemini_search(query="focused question", research_goal="specific synthesis need")
-Use perplexity_search only when a refined single-topic query needs deeper synthesis.
+## Gap analysis
+- Factual gaps: unverified claims/dates/numbers
+- Source gaps: only one type (blogs, no official docs)
+- Depth gaps: check window.has_more and batch_get_content has_more
+- Terminate when: 3 independent sources agree, 2 rounds with no new info, or depth budget exhausted
 
-| Tool | Purpose |
-|------|---------|
-| web_search | Discover URLs |
-| get_content | Read specific URL |
-| batch_get_content | Read 3+ URLs with budget/cursor |
-| discover_links | Expand a known URL into outbound links |
-| gemini_search | Quick grounded answers |
-| grok_search | Web + X/Twitter search with synthesis |
-| perplexity_search | Deep reasoning synthesis |
-| academic_search | Find scholarly papers (S2 + ArXiv) |
-| youtube_search | Find videos |
-| youtube_transcript | Extract video captions |
-| composio_similarlinks | Find related URLs from a known good URL |
-| quick_web_search | Composio/Exa-backed synthesized answer with citations |
+## Iteration
+- Round 1: broad (num_results=5-7). Round 2: targeted (2-3 queries). Round 3: pinpoint (rewrite=false)
+- Use composio_similarlinks on best URL from round 1
+- For video: youtube_search -> pick best -> youtube_transcript
 
-## Tips
-- Search exact error messages in quotes with rewrite=false
-- Prefer official docs and GitHub issues for implementation work
-- Use provider_count as a confidence hint, not proof
-- Use num_results=3-7 for normal discovery; use 1 for quick existence checks
+## Academic
+academic_search first -> get_content on selected papers. Cross-check with 2+ independent papers. Separate surveys from implementation papers.
+
+## Source triage
+Official docs > GitHub issues/PRs > papers > community sources. Flag single-source claims. Prefer dated sources with concrete examples.
 """
 
 
@@ -33125,290 +35866,18 @@ def get_analytics_report_resource(
 
 
 # ============ PROMPTS ============
-#
-# Phase 3 baseline surface only:
-# These prompts intentionally stay live while the prompt catalog is refined and
-# expanded. Presence here does not mean the roadmap considers prompt work done.
-
-_SEARCH_TOOL_ROUTING = """Tool selection rules for this server:
-
-| Your task | Use this tool | Why |
-|---|---|---|
-| Find URLs about a topic | `web_search` | Lightweight results, multi-provider merge, provider_count signal |
-| Quick factual answer with citations | `gemini_search` | Google-grounding, [N] citations, fast |
-| Web + X/Twitter search with synthesis | `grok_search` | AI-synthesized, real-time web and social data |
-| Deep reasoning across many sources | `perplexity_search` | AI-synthesized, expensive, refine query first |
-| Scholarly papers with filters | `academic_search` | 6 sources (S2, ArXiv, PubMed...), field/venue/year filters |
-| Read one known URL | `get_content` | 7-stage resolution (GitHub→StackExchange→Wikipedia→arXiv→HTTP→browser) |
-| Read 3+ URLs with a budget | `batch_get_content` | Parallel fetch, total_char_budget, cursor continuation |
-| Expand a known URL into outgoing links | `discover_links` | Page/sitemap link discovery without body extraction |
-| Find videos | `youtube_search` | SearXNG YouTube engine |
-| Extract video speech | `youtube_transcript` | Timestamped or plain text, translation |
-| Quick synthesized answer | `quick_web_search` | Exa-backed, lighter than perplexity |
-| Expand from a known URL | `composio_similarlinks` | Neural similarity, filter by domain |
-
-Query formulation:
-- `rewrite=true` (default): Mistral expands your query for broader coverage. Use for normal discovery.
-- `rewrite=false`: Exact literal search. Use for error messages, versions, hashes, UUIDs, quoted strings.
-- `num_results=5`: Standard. Use 3 for fast checks, 7 for broad coverage, max 10.
-- `providers`: Standard providers (SearXNG, DDG, Gemini) fire automatically. Request tavily/brave/jina explicitly.
-- Academic: use `year_from`/`year_to`, `venue` ("NeurIPS"), `fields_of_study`, `open_access_only`.
-
-Depth strategy:
-- quick: `gemini_search` or `quick_web_search`. Skip content extraction unless needed.
-- medium: `web_search` (5 results) → `batch_get_content` on best 2–3 → `gemini_search` for synthesis.
-- deep: `web_search` (7 results, rewrite=true) → `batch_get_content` on top 5 → `perplexity_search` on refined query → `academic_search` if scholarly sources needed."""
-
-
-_RESULT_EVALUATION_RULES = """Quality signals to check after every search:
-
-1. provider_count — How many configured providers returned this URL.
-   - 2+: stronger signal. provider_count=1 may still be good but verify.
-   - 0 or missing: single-source result, treat with lower confidence.
-
-2. Snippet quality — Read snippets before deciding to fetch.
-   - Specific facts, code, dates, version numbers: high signal.
-   - Generic marketing text: low signal.
-   - Domain hints: github.com→likely issue/PR, stackoverflow.com→Q&A, docs.*→official docs.
-
-3. Domain authority (heuristic, not absolute):
-   - .gov, .edu, official docs sites: generally trustworthy.
-   - github.com issues/PRs: high signal for debugging.
-   - stackoverflow.com / stackexchange: high signal for how-to questions.
-   - Medium, dev.to, personal blogs: verify against official sources.
-
-Decision rules after evaluating results:
-- 3+ results look promising → `batch_get_content(urls=[...])` with appropriate total_char_budget.
-- Only 1–2 look good → `get_content(url=...)` on each; check `window.has_more`.
-- Results seem off-topic → refine query: different keywords, add domain terms, try `gemini_search` for quick reorientation.
-- Results are sparse (< 3 returned) → broaden: remove specific terms, try rewrite=true if it was false.
-- Results exist but snippets are thin → fetch the most promising URL before deciding.
-- Need deep analysis → refine to ONE focused question, then `perplexity_search`.
-
-Pagination awareness:
-- `get_content`: check `window.has_more`. If true, call again with `char_offset=window.next_offset`.
-- `batch_get_content`: check `has_more` and `cursor`. If true, call again with `cursor`.
-- Never assume you have the full page without checking these signals."""
-
-
-_GAP_ANALYSIS_RULES = """After initial research, systematically evaluate what's missing before continuing or stopping.
-
-Gap identification:
-1. Factual gaps: What specific claims, numbers, dates, or API details are unverified?
-2. Source gaps: Did you only find one type of source (e.g., only blog posts, no official docs)?
-3. Perspective gaps: Did you only get one viewpoint? (e.g., only author docs, no community critique)
-4. Recency gaps: Are your sources current? Check dates in snippets or fetched content.
-5. Depth gaps: Did you hit `has_more=true` on any fetched page? The full content may hold answers.
-
-Query decomposition for follow-up rounds:
-- Aspect decomposition: Break topic into sub-facets. "How does X work?" → "X architecture", "X performance", "X security".
-- Perspective decomposition: Same question from different angles. "X tutorial" + "X pitfalls" + "X vs Y comparison".
-- Refinement: Narrow with domain terms, version numbers, or date ranges found in initial results.
-- Counter-query: If results lean one way, explicitly search for opposing views or known issues.
-
-Source triangulation:
-- One source = interesting. Two independent sources agreeing = likely true. Three+ = well-established.
-- If a claim only appears on one domain, flag it as unverified.
-- Cross-check: community sources (Reddit, HN) for real-world experience vs official docs for API accuracy.
-
-Termination criteria — stop when:
-- Three independent sources confirm the same finding.
-- Two consecutive rounds produce no new information.
-- You've checked: official docs + GitHub issues + one community source (minimum coverage).
-- `provider_count` ≥ 3 on your key source URLs.
-- Depth budget exhausted: quick → medium → deep completed and gaps remain.
-
-Breadth decay: each iteration narrower than the last.
-- Round 1: Broad discovery (`web_search`, num_results=5–7, rewrite=true).
-- Round 2: Targeted follow-up (2–3 refined queries, num_results=3, specific providers if helpful).
-- Round 3: Pinpoint verification (1–2 precise queries, rewrite=false for exact terms).
-- Use `composio_similarlinks` on the best URL from round 1 to discover adjacent pages.
-- If video content would help: `youtube_search` → `youtube_transcript` on the most relevant video."""
-
-
-_ACADEMIC_DEEP_DIVE_RULES = """Academic research workflow:
-
-1. Start with `academic_search` for papers, not general web search.
-2. Use year, venue, fields_of_study, and open_access_only to narrow early.
-3. Prefer exact paper titles, author names, and benchmark names in follow-up queries.
-4. Check citation count, venue, and year before treating a paper as foundational.
-5. Use `get_content` on a paper abstract/HTML landing page or PDF URL only after you have selected the most relevant papers.
-6. Cross-check scholarly claims with at least two independent papers when possible.
-7. Separate survey/background papers from implementation/benchmark papers.
-8. Stop broadening once you have the core papers, then deepen on methods, baselines, and limitations."""
-
-
-_VIDEO_RESEARCH_RULES = """Video research workflow:
-
-1. Use `youtube_search` to discover candidate videos first.
-2. Rank candidates by title specificity, channel authority, and likely transcript usefulness.
-3. Use `youtube_transcript` only on the best candidate videos.
-4. Prefer transcript evidence over video title/description alone.
-5. If a transcript is long, summarize the key sections and note where deeper follow-up is needed.
-6. Cross-check tutorial claims against official docs or source code when accuracy matters.
-7. If transcripts are unavailable or weak, fall back to standard web/document sources."""
-
-
-_SOURCE_TRIAGE_RULES = """Source triage rules:
-
-1. Official docs and vendor references for API behavior and versioned contracts.
-2. GitHub issues/PRs for real bugs, migrations, and edge-case behavior.
-3. Papers for scholarly or benchmark claims.
-4. Community sources for practitioner experience, not as sole proof of correctness.
-5. Prefer sources with clear dates, concrete examples, and direct evidence.
-6. Flag single-source claims as provisional until corroborated.
-7. When sources disagree, prefer the newer and more authoritative one, and note the conflict explicitly."""
 
 
 @mcp.prompt(
-    name="plan_web_research",
-    description="Plan your research approach: choose the right search tool, formulate effective queries, set depth strategy. Use BEFORE calling any search tool.",
-    tags={"research", "planning"},
-)
-def plan_web_research_prompt(question: str, depth: str = "medium") -> list[Message]:
-    return [
-        Message(
-            _SEARCH_TOOL_ROUTING,
-            role="user",
-        ),
-        Message(
-            f"Research question: {question}\n"
-            f"Preferred depth: {depth}\n\n"
-            "Plan your approach: which tool(s) will you use, what query parameters, "
-            "and what sequence of steps? State your plan before executing.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="evaluate_web_results",
-    description="Assess search result quality and decide next action: fetch content, refine query, or escalate. Use AFTER web_search or academic_search returns.",
-    tags={"research", "evaluation"},
-)
-def evaluate_web_results_prompt(goal: str) -> list[Message]:
-    return [
-        Message(
-            _RESULT_EVALUATION_RULES,
-            role="user",
-        ),
-        Message(
-            f"Research goal: {goal}\n\n"
-            "Review the search results you just received. Evaluate their quality using the signals above. "
-            "State your assessment and decide your next action. If results are insufficient, "
-            "explain why and what you'll try instead.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="research_gap_analysis",
-    description="Identify what's missing after initial research, decompose remaining questions, and plan the next iteration. Use AFTER evaluating search results.",
-    tags={"research", "iteration"},
-)
-def research_gap_analysis_prompt(goal: str, sources_found: str = "") -> list[Message]:
-    return [
-        Message(
-            _GAP_ANALYSIS_RULES,
-            role="user",
-        ),
-        Message(
-            f"Research goal: {goal}\n"
-            + (f"Sources examined so far: {sources_found}\n" if sources_found else "")
-            + "\nReview what you've found against the original goal. "
-            "Identify specific gaps, plan the next round of queries (with tool choices and parameters), "
-            "and state your termination criteria. If gaps remain, proceed with the next iteration. "
-            "If you've met the termination criteria, state that research is complete and why.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="suggest_tool",
-    description="Given a task description, recommend the best search tool(s) and parameters. Use when unsure which of the available tools fits your need.",
-    tags={"discovery"},
-)
-def suggest_tool_prompt(task: str) -> list[Message]:
-    return [
-        Message(
-            _SEARCH_TOOL_ROUTING,
-            role="user",
-        ),
-        Message(
-            f"Task: {task}\n\n"
-            "Which tool(s) should I use? Recommend specific tool names and key parameters. "
-            "If multiple tools should be used in sequence, describe the full chain.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="research_workflow",
-    description="Guide a complete discovery-to-extraction-to-synthesis research workflow using the available MCP tools.",
+    name="web_search_workflow",
+    description="Placeholder prompt — content to be written.",
     tags={"research", "workflow"},
 )
-def research_workflow_prompt(goal: str, depth: str = "medium") -> list[Message]:
+def web_search_workflow_prompt() -> list[Message]:
     return [
-        Message(_SEARCH_TOOL_ROUTING, role="user"),
-        Message(_RESULT_EVALUATION_RULES, role="user"),
-        Message(_GAP_ANALYSIS_RULES, role="user"),
         Message(
-            f"Research goal: {goal}\nDepth: {depth}\n\n"
-            "Plan and execute a full workflow: discovery, source triage, content extraction, "
-            "gap analysis, and stopping criteria. Recommend concrete tool calls and parameters.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="academic_deep_dive",
-    description="Plan a scholarly research pass using academic_search first, then deepen into selected papers.",
-    tags={"research", "academic"},
-)
-def academic_deep_dive_prompt(topic: str, focus: str = "") -> list[Message]:
-    return [
-        Message(_ACADEMIC_DEEP_DIVE_RULES, role="user"),
-        Message(
-            f"Topic: {topic}\n"
-            + (f"Specific focus: {focus}\n" if focus else "")
-            + "\nDesign the academic search strategy, including filters, follow-up queries, "
-            "and how to separate core papers from supporting context.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="video_research",
-    description="Plan a YouTube-first research workflow using youtube_search and youtube_transcript selectively.",
-    tags={"research", "video"},
-)
-def video_research_prompt(topic: str) -> list[Message]:
-    return [
-        Message(_VIDEO_RESEARCH_RULES, role="user"),
-        Message(
-            f"Topic: {topic}\n\n"
-            "Choose how to search for candidate videos, which ones to transcribe, "
-            "and how to cross-check transcript-derived claims against higher-authority sources.",
-        ),
-    ]
-
-
-@mcp.prompt(
-    name="source_triage",
-    description="Decide which sources are authoritative enough to fetch, cite, or discard for a research task.",
-    tags={"research", "triage"},
-)
-def source_triage_prompt(goal: str, candidate_sources: str = "") -> list[Message]:
-    return [
-        Message(_SOURCE_TRIAGE_RULES, role="user"),
-        Message(
-            f"Research goal: {goal}\n"
-            + (
-                f"Candidate sources already found: {candidate_sources}\n"
-                if candidate_sources
-                else ""
-            )
-            + "\nAssess source quality, identify which ones to fetch or cite next, "
-            "and call out any authority or recency gaps.",
+            "Placeholder — the full research workflow lives at the docs://workflow resource.",
+            role="user",
         ),
     ]
 
@@ -33502,18 +35971,18 @@ def resolve_langfuse_credentials(
 ) -> tuple[str, str, str]:
     """Resolve Langfuse credentials from standard envs or MCP auth header."""
     resolved_public_key = public_key or os.environ.get(
-        "LANGFUSE_PUBLIC_KEY", os.environ.get("KINDLY_LANGFUSE_PUBLIC_KEY", "")
+        "LANGFUSE_PUBLIC_KEY", os.environ.get("LANGFUSE_PUBLIC_KEY", "")
     )
     resolved_secret_key = secret_key or os.environ.get(
-        "LANGFUSE_SECRET_KEY", os.environ.get("KINDLY_LANGFUSE_SECRET_KEY", "")
+        "LANGFUSE_SECRET_KEY", os.environ.get("LANGFUSE_SECRET_KEY", "")
     )
     resolved_base_url = base_url or os.environ.get(
         "LANGFUSE_BASE_URL",
-        os.environ.get("KINDLY_LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+        os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
     )
     resolved_header = mcp_auth_header or os.environ.get(
         "LANGFUSE_MCP_AUTH_HEADER",
-        os.environ.get("KINDLY_LANGFUSE_MCP_AUTH_HEADER", ""),
+        os.environ.get("LANGFUSE_MCP_AUTH_HEADER", ""),
     )
 
     if not resolved_public_key or not resolved_secret_key:
@@ -33533,97 +36002,103 @@ class Settings:
     Note: keep this module lightweight; it is imported by tests.
     """
 
-    # Search providers (removed Serger - SearXNG is primary)
+    # Search providers (SearXNG is primary)
 
-    # Query rewrite (Cerebras → Groq → HF Inference cascade)
-    query_rewrite_enabled: bool = (
-        os.environ.get("KINDLY_QUERY_REWRITE_ENABLED", "true").lower() == "true"
-    )
-    # fallback temperature for query rewrite when intent-specific temp is not set
-    query_rewrite_temperature: float = float(
-        os.environ.get("KINDLY_QUERY_REWRITE_TEMPERATURE", "0.0")
-    )
     query_rewrite_cascade_timeout_seconds: float = float(
-        os.environ.get("KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
-    )
-    query_rewrite_max_variants: int = int(
-        os.environ.get("KINDLY_QUERY_REWRITE_MAX_VARIANTS", "3")
-    )
-    mistral_api_key: str = os.environ.get("MISTRAL_API_KEY", "")
-
-    # GLiNER2 classifier / extraction service
-    query_classifier_enabled: bool = (
-        os.environ.get("KINDLY_CLASSIFIER_ENABLED", "true").lower() == "true"
-    )
-    query_classifier_url: str = os.environ.get(
-        "KINDLY_CLASSIFIER_URL",
-        "https://functiongemma-classifier-373347358125.us-central1.run.app",
+        os.environ.get("QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
     query_classifier_timeout_seconds: float = float(
-        os.environ.get("KINDLY_CLASSIFIER_TIMEOUT_SECONDS", "10")
-    )
-    query_classifier_max_tokens: int = int(
-        os.environ.get("KINDLY_CLASSIFIER_MAX_TOKENS", "500")
+        os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
     query_decomposition_enabled: bool = (
-        os.environ.get("KINDLY_QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
+        os.environ.get("QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
     )
     query_decomposition_timeout_seconds: float = float(
-        os.environ.get("KINDLY_QUERY_DECOMPOSITION_TIMEOUT_SECONDS", "10")
+        os.environ.get("QUERY_DECOMPOSITION_TIMEOUT_SECONDS", "10")
     )
     query_decomposition_max_subquestions: int = int(
-        os.environ.get("KINDLY_QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
+        os.environ.get("QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
     )
     query_decomposition_max_branches: int = int(
-        os.environ.get("KINDLY_DECOMPOSITION_MAX_BRANCHES", "10")
+        os.environ.get("DECOMPOSITION_MAX_BRANCHES", "10")
     )
     query_decomposition_max_concurrency: int = int(
-        os.environ.get("KINDLY_DECOMPOSITION_MAX_CONCURRENCY", "4")
+        os.environ.get("DECOMPOSITION_MAX_CONCURRENCY", "4")
+    )
+    query_understanding_jsonl_enabled: bool = (
+        os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower()
+        == "true"
+    )
+    query_understanding_jsonl_path: str = os.environ.get(
+        "QUERY_UNDERSTANDING_JSONL_PATH",
+        str(Path(".kindly") / "training" / "query_understanding.jsonl"),
     )
 
     # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     hf_token: str = os.environ.get("HF_TOKEN", "")
+    cerebras_base_url: str = os.environ.get(
+        "CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"
+    )
+    groq_base_url: str = os.environ.get(
+        "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
+    )
+    vercel_ai_gateway_api_key: str = os.environ.get("AI_GATEWAY_API_KEY", "")
+    vercel_ai_gateway_base_url: str = os.environ.get(
+        "VERCEL_AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1"
+    )
+    query_understanding_model: str = os.environ.get(
+        "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
+    )
+    cerebras_rewrite_model: str = os.environ.get(
+        "CEREBRAS_REWRITE_MODEL", "cerebras/gpt-oss-120b"
+    )
+    groq_rewrite_model: str = os.environ.get(
+        "GROQ_REWRITE_MODEL", "groq/gpt-oss-120b"
+    )
+    vercel_rewrite_model: str = os.environ.get(
+        "VERCEL_REWRITE_MODEL", "groq/gpt-oss-20b"
+    )
 
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get(
-        "KINDLY_HF_INFERENCE_PROVIDER", "hf-inference"
+        "HF_INFERENCE_PROVIDER", "hf-inference"
     )
     hf_embedding_model: str = os.environ.get(
-        "KINDLY_HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
+        "HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
     )
-    embedding_dim: int = int(os.environ.get("KINDLY_EMBEDDING_DIM", "384"))
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
 
     # Reranking (Voyage primary, Jina fallback; gcp_cloudrun for custom GCP Cloud Run / TEI / FastAPI supported)
     reranking_enabled: bool = (
-        os.environ.get("KINDLY_RERANKING_ENABLED", "true").lower() == "true"
+        os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
     )
-    rerank_provider: str = os.environ.get("KINDLY_RERANK_PROVIDER", "voyage").lower()
-    bi_encoder_top_k: int = int(os.environ.get("KINDLY_BI_ENCODER_TOP_K", "100"))
-    rerank_top_k: int = int(os.environ.get("KINDLY_RERANK_TOP_K", "10"))
+    rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
+    bi_encoder_top_k: int = int(os.environ.get("BI_ENCODER_TOP_K", "100"))
+    rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get(
-        "KINDLY_VOYAGE_RERANK_MODEL", "rerank-2.5"
+        "VOYAGE_RERANK_MODEL", "rerank-2.5"
     )
     jina_rerank_model: str = os.environ.get(
-        "KINDLY_JINA_RERANK_MODEL", "jina-reranker-v3"
+        "JINA_RERANK_MODEL", "jina-reranker-v3"
     )
     # GCP Cloud Run reranker (TEI or custom FastAPI /rerank endpoint). Private by default; client handles IAM ID tokens.
-    rerank_gcp_cloudrun_url: str = os.environ.get("KINDLY_RERANK_GCP_CLOUDRUN_URL", "")
+    rerank_gcp_cloudrun_url: str = os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
     rerank_gcp_model: str = os.environ.get(
-        "KINDLY_RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3"
+        "RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3"
     )
     rerank_gcp_timeout: float = float(
-        os.environ.get("KINDLY_RERANK_GCP_TIMEOUT", "30.0")
+        os.environ.get("RERANK_GCP_TIMEOUT", "30.0")
     )
     rerank_score_threshold: float = float(
-        os.environ.get("KINDLY_RERANK_SCORE_THRESHOLD", "0.0")
+        os.environ.get("RERANK_SCORE_THRESHOLD", "0.0")
     )
     diversity_threshold: float = float(
-        os.environ.get("KINDLY_DIVERSITY_THRESHOLD", "0.85")
+        os.environ.get("DIVERSITY_THRESHOLD", "0.85")
     )
-    mmr_lambda_param: float = float(os.environ.get("KINDLY_MMR_LAMBDA", "0.5"))
+    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.5"))
     rerank_recency_weight: float = float(
         os.environ.get("RERANK_RECENCY_WEIGHT", "0.15")
     )
@@ -33634,34 +36109,34 @@ class Settings:
     # Entity extraction (GLiNER2, optional extra, opt-in only)
     # Per joint plan: explicit disabled by default; error events on failure when enabled.
     entity_extraction_enabled: bool = (
-        os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
+        os.environ.get("ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
     )
     gliner_model: str = os.environ.get(
-        "KINDLY_GLINER_MODEL", "fastino/gliner2-base-v1"
+        "GLINER_MODEL", "fastino/gliner2-base-v1"
     )
     gliner_threshold: float = float(
-        os.environ.get("KINDLY_GLINER_THRESHOLD", "0.5")
+        os.environ.get("GLINER_THRESHOLD", "0.5")
     )
 
     # Entity overlap feature for rerank (measured only; off by default)
     rerank_entity_overlap_enabled: bool = (
-        os.environ.get("KINDLY_RERANK_ENTITY_OVERLAP_ENABLED", "false").lower() == "true"
+        os.environ.get("RERANK_ENTITY_OVERLAP_ENABLED", "false").lower() == "true"
     )
     rerank_entity_overlap_weight: float = float(
-        os.environ.get("KINDLY_RERANK_ENTITY_OVERLAP_WEIGHT", "0.15")
+        os.environ.get("RERANK_ENTITY_OVERLAP_WEIGHT", "0.15")
     )
 
     analytics_enabled: bool = (
-        os.environ.get("KINDLY_ANALYTICS_ENABLED", "true").lower() == "true"
+        os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
     )
     analytics_duckdb_path: str = os.environ.get(
-        "KINDLY_ANALYTICS_DUCKDB_PATH",
+        "ANALYTICS_DUCKDB_PATH",
         str(Path(".kindly") / "analytics" / "search_events.duckdb"),
     )
 
     # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
     page_cache_duckdb_path: str = os.environ.get(
-        "KINDLY_PAGE_CACHE_DUCKDB_PATH",
+        "PAGE_CACHE_DUCKDB_PATH",
         str(Path(".kindly") / "cache" / "page_cache.duckdb"),
     )
 
@@ -33672,46 +36147,46 @@ class Settings:
     openrouter_api_key: str = os.environ.get("OPENROUTER_API_KEY", "")
 
     # Grok Search via OpenRouter (native web_search + x_search for xAI models)
-    grok_model: str = os.environ.get("KINDLY_GROK_MODEL", "x-ai/grok-4.3")
+    grok_model: str = os.environ.get("GROK_MODEL", "x-ai/grok-4.3")
     grok_timeout_seconds: float = float(
-        os.environ.get("KINDLY_GROK_TIMEOUT_SECONDS", "60.0")
+        os.environ.get("GROK_TIMEOUT_SECONDS", "60.0")
     )
     # Light provider mode for web_search RRF pipeline
     grok_web_search_mode: str = os.environ.get(
-        "KINDLY_GROK_WEB_SEARCH_MODE", "conditional"
+        "GROK_WEB_SEARCH_MODE", "conditional"
     )
 
     # Gemini Grounding (for gemini_search MCP tool)
-    gemini_api_key: str = os.environ.get("KINDLY_GEMINI_API_KEY", "")
+    gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
 
     # YouTube Transcript
     youtube_transcript_proxy_url: str = os.environ.get(
-        "KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL", ""
+        "YOUTUBE_TRANSCRIPT_PROXY_URL", ""
     )
     youtube_transcript_max_chars: int = int(
-        os.environ.get("KINDLY_YOUTUBE_TRANSCRIPT_MAX_CHARS", "50000")
+        os.environ.get("YOUTUBE_TRANSCRIPT_MAX_CHARS", "50000")
     )
     youtube_transcript_timeout_seconds: float = float(
-        os.environ.get("KINDLY_YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
+        os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
     )
 
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get(
-        "KINDLY_YOUTUBE_SEARCH_ENGINE", "youtube"
+        "YOUTUBE_SEARCH_ENGINE", "youtube"
     )
 
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
-    s2_api_key: str = os.environ.get("KINDLY_S2_API_KEY", "")
-    s2_timeout: int = int(os.environ.get("KINDLY_S2_TIMEOUT", "30"))
+    s2_api_key: str = os.environ.get("S2_API_KEY", "")
+    s2_timeout: int = int(os.environ.get("S2_TIMEOUT", "30"))
     s2_max_retries: int = int(
-        os.environ.get("KINDLY_S2_MAX_RETRIES", "0")
+        os.environ.get("S2_MAX_RETRIES", "0")
     )  # 0 = fail fast
 
     # OpenAlex (optional, polite pool with email)
-    openalex_email: str = os.environ.get("KINDLY_OPENALEX_EMAIL", "")
-    openalex_api_key: str = os.environ.get("KINDLY_OPENALEX_API_KEY", "")
+    openalex_email: str = os.environ.get("OPENALEX_EMAIL", "")
+    openalex_api_key: str = os.environ.get("OPENALEX_API_KEY", "")
 
     # CrossRef (optional, polite pool with mailto)
     crossref_mailto: str = os.environ.get("CROSSREF_MAILTO", "")
@@ -33724,41 +36199,43 @@ class Settings:
 
     # Academic search defaults
     academic_default_sources: str = os.environ.get(
-        "KINDLY_ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"
+        "ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"
     )
-    academic_max_results: int = int(os.environ.get("KINDLY_ACADEMIC_MAX_RESULTS", "10"))
+    academic_max_results: int = int(os.environ.get("ACADEMIC_MAX_RESULTS", "10"))
 
     # Provider modes (default: paid providers disabled/conditional)
     # Modes: always, conditional, never
     # - always: Always fires (free providers like SearXNG, DDG)
     # - conditional: Only when explicitly requested via providers param
     # - never: Never fires, even if API key present
-    ddg_mode: str = os.environ.get("KINDLY_DDG_MODE", "always")
-    tavily_mode: str = os.environ.get("KINDLY_TAVILY_MODE", "never")
-    brave_mode: str = os.environ.get("KINDLY_BRAVE_MODE", "never")
-    jina_mode: str = os.environ.get("KINDLY_JINA_MODE", "conditional")
-    gemini_mode: str = os.environ.get("KINDLY_GEMINI_SEARCH_MODE", "always")
+    ddg_mode: str = os.environ.get("DDG_MODE", "always")
+    tavily_mode: str = os.environ.get("TAVILY_MODE", "never")
+    brave_mode: str = os.environ.get("BRAVE_MODE", "always")
+    jina_mode: str = os.environ.get("JINA_MODE", "conditional")
+    gemini_mode: str = os.environ.get("GEMINI_SEARCH_MODE", "always")
     composio_llm_search_mode: str = os.environ.get(
-        "KINDLY_COMPOSIO_LLM_SEARCH_MODE", "always"
+        "COMPOSIO_LLM_SEARCH_MODE", "always"
+    )
+    google_cse_api_key: str = os.environ.get("GOOGLE_CSE_API_KEY", "")
+    google_cse_engine_id: str = os.environ.get("GOOGLE_CSE_ENGINE_ID", "")
+    google_cse_timeout_seconds: float = float(
+        os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
     )
 
     # Composio Search toolkit
     composio_api_key: str = os.environ.get("COMPOSIO_API_KEY", "")
-    composio_user_id: str = os.environ.get("KINDLY_COMPOSIO_USER_ID", "")
+    composio_user_id: str = os.environ.get("COMPOSIO_USER_ID", "")
     composio_search_toolkit_version: str = os.environ.get(
-        "KINDLY_COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260424_00"
+        "COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260424_00"
     )
     composio_timeout_seconds: float = float(
-        os.environ.get("KINDLY_COMPOSIO_TIMEOUT_SECONDS", "25")
+        os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25")
     )
-    composio_max_retries: int = int(os.environ.get("KINDLY_COMPOSIO_MAX_RETRIES", "2"))
+    composio_max_retries: int = int(os.environ.get("COMPOSIO_MAX_RETRIES", "2"))
 
     # RRF tuning
-    rrf_k: int = int(os.environ.get("KINDLY_RRF_K", "60"))
+    rrf_k: int = int(os.environ.get("RRF_K", "60"))
     rrf_provider_weights: dict = None  # type: ignore[assignment]  # set in __post_init__
-
-    # Default num_results for web_search
-    default_num_results: int = int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "5"))
 
     # =====================================================================
     # Result Memory (Qdrant local store) - Phase 7
@@ -33767,43 +36244,58 @@ class Settings:
     # as a lower-weight virtual provider list into RRF merge.
     # Uses Qdrant :memory: or persistent path. Collection per (embed model, dim).
     # No LanceDB/semantic cache semantics.
-    result_memory_path: str = os.environ.get("KINDLY_RESULT_MEMORY_PATH", "")
+    result_memory_path: str = os.environ.get("RESULT_MEMORY_PATH", "")
     result_memory_enabled: bool = (
-        os.environ.get("KINDLY_RESULT_MEMORY_ENABLED", "true").lower() == "true"
+        os.environ.get("RESULT_MEMORY_ENABLED", "true").lower() == "true"
     )
     result_memory_candidate_weight: float = float(
-        os.environ.get("KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT", "0.5")
+        os.environ.get("RESULT_MEMORY_CANDIDATE_WEIGHT", "0.5")
     )
     result_memory_candidate_limit: int = int(
-        os.environ.get("KINDLY_RESULT_MEMORY_CANDIDATE_LIMIT", "5")
+        os.environ.get("RESULT_MEMORY_CANDIDATE_LIMIT", "5")
     )
     result_memory_min_similarity: float = float(
-        os.environ.get("KINDLY_RESULT_MEMORY_MIN_SIMILARITY", "0.65")
+        os.environ.get("RESULT_MEMORY_MIN_SIMILARITY", "0.65")
+    )
+
+    # Remote web results index (Qdrant on HF Space)
+    # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
+    # Master flag; empty URL silently disables indexing.
+    web_results_index_enabled: bool = (
+        os.environ.get("WEB_RESULTS_INDEX_ENABLED", "false").lower() == "true"
+    )
+    qdrant_space_url: str = os.environ.get(
+        "QDRANT_SPACE_URL", "https://chmielvu-web-index.hf.space"
+    )
+
+    # Qdrant search provider (reads from the same index)
+    qdrant_search_enabled: bool = (
+        os.environ.get("QDRANT_SEARCH_ENABLED", "true").lower() == "true"
     )
 
     # FastMCP tool visibility profile
-    tool_profile: str = os.environ.get("KINDLY_TOOL_PROFILE", "full")
+    tool_profile: str = os.environ.get("TOOL_PROFILE", "regular")
 
     # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
     # No legacy aliases (per joint plan: no backward compat).
     tool_search_enabled: bool = (
-        os.environ.get("KINDLY_TOOL_SEARCH_ENABLED", "false").lower() == "true"
+        os.environ.get("TOOL_SEARCH_ENABLED", "false").lower() == "true"
     )
 
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
-    # Env vars retain "WEB_SEARCH" prefix for backward compatibility
+    # Rate-limit and concurrency settings for web search (prefixed with ).
     rate_limit_cheap_rps: float = float(
-        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
+        os.environ.get("RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
     )
     rate_limit_cheap_burst: int = int(
-        os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_BURST", "12")
+        os.environ.get("RATE_LIMIT_WEB_SEARCH_BURST", "12")
     )
     rate_limit_expensive_rps: float = float(
-        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_RPS", "0.5")
+        os.environ.get("RATE_LIMIT_EXPENSIVE_RPS", "0.5")
     )
     rate_limit_expensive_burst: int = int(
-        os.environ.get("KINDLY_RATE_LIMIT_EXPENSIVE_BURST", "1")
+        os.environ.get("RATE_LIMIT_EXPENSIVE_BURST", "1")
     )
 
     # =====================================================================
@@ -33812,20 +36304,20 @@ class Settings:
     # These enable first-class traces + metrics export to Grafana Cloud
     # (or local collector / Alloy). We prefer standard OTEL_* env vars
     # for compatibility with the broader ecosystem, but provide
-    # KINDLY_ + GRAFANA_CLOUD_* convenience vars for Windows/pwsh ergonomics.
+    #  + GRAFANA_CLOUD_* convenience vars for Windows/pwsh ergonomics.
 
-    otel_enabled: bool = os.environ.get("KINDLY_OTEL_ENABLED", "true").lower() == "true"
+    otel_enabled: bool = os.environ.get("OTEL_ENABLED", "true").lower() == "true"
 
     # Sampling (head-based). 1.0 = all traces (expensive). 0.1 = 10% typical for dev/prod.
     otel_sampling_ratio: float = float(
-        os.environ.get("KINDLY_OTEL_SAMPLING_RATIO", "0.15")
+        os.environ.get("OTEL_SAMPLING_RATIO", "0.15")
     )
 
     # Service identity overrides (fall back to telemetry.py defaults + package version)
     otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
     otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp")
     otel_deployment_environment: str = os.environ.get(
-        "DEPLOYMENT_ENV", os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development")
+        "DEPLOYMENT_ENV", os.environ.get("OTEL_ENVIRONMENT", "development")
     )
 
     # Grafana Cloud convenience (recommended for Windows users who dislike manual Base64)
@@ -33836,109 +36328,138 @@ class Settings:
 
     # Langfuse (hybrid observability for agentic ReAct module)
     # Primary: standard LANGFUSE_* envs (Langfuse SDK + OTLP client read them directly).
-    # KINDLY_* are Windows/pwsh convenience fallbacks (mirrors GRAFANA_CLOUD_* pattern).
+    # * are Windows/pwsh convenience fallbacks (mirrors GRAFANA_CLOUD_* pattern).
     langfuse_public_key: str = os.environ.get(
-        "LANGFUSE_PUBLIC_KEY", os.environ.get("KINDLY_LANGFUSE_PUBLIC_KEY", "")
+        "LANGFUSE_PUBLIC_KEY", os.environ.get("LANGFUSE_PUBLIC_KEY", "")
     )
     langfuse_secret_key: str = os.environ.get(
-        "LANGFUSE_SECRET_KEY", os.environ.get("KINDLY_LANGFUSE_SECRET_KEY", "")
+        "LANGFUSE_SECRET_KEY", os.environ.get("LANGFUSE_SECRET_KEY", "")
     )
     langfuse_base_url: str = os.environ.get(
         "LANGFUSE_BASE_URL",
-        os.environ.get("KINDLY_LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
+        os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
     )
     langfuse_mcp_auth_header: str = os.environ.get(
         "LANGFUSE_MCP_AUTH_HEADER",
-        os.environ.get("KINDLY_LANGFUSE_MCP_AUTH_HEADER", ""),
+        os.environ.get("LANGFUSE_MCP_AUTH_HEADER", ""),
     )
 
     # =====================================================================
     # Agentic Research (LangChain/LangGraph ReAct module: agentic_web_research)
     # =====================================================================
-    # Centralized parsing of KINDLY_AGENTIC_RESEARCH_* + NANOGPT_API_KEY.
+    # Centralized parsing of AGENTIC_RESEARCH_* + NANOGPT_API_KEY.
     # This replaces the previous direct os.environ reads in agent/config.py
     # for consistency with OTel, analytics, rate limits, etc.
     # The agent/ subpackage now delegates to Settings for defaults.
 
     agentic_research_model: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_MODEL", "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B"
+        "AGENTIC_RESEARCH_MODEL", "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B"
     )
     agentic_research_fallback_models: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_FALLBACK_MODELS",
+        "AGENTIC_RESEARCH_FALLBACK_MODELS",
         "minimax/minimax-m3:thinking,mistralai/mistral-small-4-119b-2603:thinking",
     )
     agentic_research_gemini_fallback_model: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL", "gemini-3.5-flash"
+        "AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL", "gemini-3.5-flash"
     )
     agentic_research_hf_router_base_url: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_HF_ROUTER_BASE_URL",
+        "AGENTIC_RESEARCH_HF_ROUTER_BASE_URL",
         "https://router.huggingface.co/v1",
     )
     agentic_research_hf_fallback_model: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_HF_FALLBACK_MODEL",
+        "AGENTIC_RESEARCH_HF_FALLBACK_MODEL",
         "openai/gpt-oss-120b:novita",
     )
     agentic_research_base_url: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_BASE_URL", "https://nano-gpt.com/api/subscription/v1"
+        "AGENTIC_RESEARCH_BASE_URL", "https://nano-gpt.com/api/subscription/v1"
     )
     # NANOGPT_API_KEY is the canonical key name used by the default agentic model provider
     nanogpt_api_key: str = os.environ.get("NANOGPT_API_KEY", "")
     agentic_research_temperature: float = float(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_TEMPERATURE", "0")
+        os.environ.get("AGENTIC_RESEARCH_TEMPERATURE", "0")
     )
     agentic_research_timeout_seconds: float = float(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_TIMEOUT_SECONDS", "180")
+        os.environ.get("AGENTIC_RESEARCH_TIMEOUT_SECONDS", "180")
     )
     agentic_research_max_retries: int = int(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_MAX_RETRIES", "2")
+        os.environ.get("AGENTIC_RESEARCH_MAX_RETRIES", "2")
     )
 
     # Depth profile controls (quick/normal/deep affect tool budget + timeout)
     agentic_research_quick_run_limit: int = int(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_QUICK_RUN_LIMIT", "6")
+        os.environ.get("AGENTIC_RESEARCH_QUICK_RUN_LIMIT", "6")
     )
     agentic_research_normal_run_limit: int = int(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_NORMAL_RUN_LIMIT", "10")
+        os.environ.get("AGENTIC_RESEARCH_NORMAL_RUN_LIMIT", "10")
     )
     agentic_research_deep_run_limit: int = int(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_DEEP_RUN_LIMIT", "16")
+        os.environ.get("AGENTIC_RESEARCH_DEEP_RUN_LIMIT", "16")
     )
     agentic_research_quick_timeout_seconds: float = float(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS", "120")
+        os.environ.get("AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS", "120")
     )
     agentic_research_normal_timeout_seconds: float = float(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS", "180")
+        os.environ.get("AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS", "180")
     )
     agentic_research_deep_timeout_seconds: float = float(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS", "300")
+        os.environ.get("AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS", "300")
     )
     agentic_research_default_num_results: int = int(
-        os.environ.get("KINDLY_AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS", "5")
+        os.environ.get("AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS", "5")
     )
 
     # External MCP tools (via langchain-mcp-adapters) for the ReAct agent.
-    # If KINDLY_AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG is set (JSON string or filesystem path
+    # If AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG is set (JSON string or filesystem path
     # to a servers config), the runner will best-effort load and merge additional tools
     # (no master enable flag; the presence of a non-empty config enables the attempt).
     # Example: '{"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]}}'
     agentic_research_external_mcp_config: str = os.environ.get(
-        "KINDLY_AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG", ""
+        "AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG", ""
     )
 
     # Prometheus sidecar / Alloy scrape support
     prometheus_enabled: bool = (
-        os.environ.get("KINDLY_PROMETHEUS_ENABLED", "false").lower() == "true"
+        os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
     )
     prometheus_port: int = int(
-        os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
+        os.environ.get("PROMETHEUS_PORT", "0")
     )  # 0 = disabled / dynamic
 
     # Attribute safety (used by utils/observability.py and telemetry)
     observability_max_text_chars: int = int(
-        os.environ.get("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", "20000")
+        os.environ.get("OBSERVABILITY_MAX_TEXT_CHARS", "20000")
     )
     observability_max_items: int = int(
-        os.environ.get("KINDLY_OBSERVABILITY_MAX_ITEMS", "10")
+        os.environ.get("OBSERVABILITY_MAX_ITEMS", "10")
+    )
+
+    # =====================================================================
+    # LLM Judge Evaluation (opt-in, for automatic quality assessment of search runs)
+    # =====================================================================
+    judge_evaluation_enabled: bool = (
+        os.environ.get("JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
+    )
+    judge_model: str = os.environ.get(
+        "JUDGE_MODEL", "google/gemini-2.0-flash-001"
+    )
+    judge_timeout_seconds: float = float(
+        os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0")
+    )
+
+    # =====================================================================
+    # A/B Testing Framework (opt-in, experiment config via YAML)
+    # =====================================================================
+    ab_testing_enabled: bool = (
+        os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
+    )
+    ab_config_path: str = os.environ.get(
+        "AB_CONFIG_PATH", ".kindly/experiments.yaml"
+    )
+    ab_shadow_mode_default: bool = (
+        os.environ.get("AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"
+    )
+    ab_assignment_cache_ttl_seconds: int = int(
+        os.environ.get("AB_ASSIGNMENT_CACHE_TTL_SECONDS", "300")
     )
 
     def __post_init__(self) -> None:
@@ -33951,10 +36472,11 @@ class Settings:
             # - jina: 1.1 (semantic search expertise, deep understanding)
             # - searxng: 1.0 (baseline, free/open-source aggregator with meta-search breadth)
             # - brave: 1.0 (baseline, independent index, privacy-focused)
+            # - search_router: 1.0 (free general SERP, general-purpose index)
             # - ddg: 0.7 (aggregator, less freshness for navigational queries, penalized for instant answers)
             # Note: weights are query-type dependent. Future: adaptive weighting by intent classification.
             self.rrf_provider_weights = _parse_json_dict(
-                os.environ.get("KINDLY_RRF_PROVIDER_WEIGHTS", ""),
+                os.environ.get("RRF_PROVIDER_WEIGHTS", ""),
                 default={
                     "searxng": 1.0,
                     "ddg": 0.7,
@@ -33964,6 +36486,7 @@ class Settings:
                     "gemini": 1.2,
                     "composio_llm_search": 1.15,
                     "grok_openrouter": 1.5,
+                    "search_router": 1.0,
                 },
             )
 
@@ -33971,12 +36494,12 @@ class Settings:
         if not 0.0 <= self.mmr_lambda_param <= 1.0:
             raise ValueError(
                 f"mmr_lambda_param must be in [0, 1], got {self.mmr_lambda_param!r}. "
-                "Set KINDLY_MMR_LAMBDA env var to a value between 0 and 1."
+                "Set MMR_LAMBDA env var to a value between 0 and 1."
             )
         if not 0.0 <= self.gliner_threshold <= 1.0:
             raise ValueError(
                 f"gliner_threshold must be in [0, 1], got {self.gliner_threshold!r}. "
-                "Set KINDLY_GLINER_THRESHOLD env var."
+                "Set GLINER_THRESHOLD env var."
             )
         if not 0.0 <= self.rerank_entity_overlap_weight <= 1.0:
             raise ValueError(
@@ -33985,14 +36508,14 @@ class Settings:
         if self.rrf_k <= 0:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. "
-                "Set KINDLY_RRF_K env var to a positive integer."
+                "Set RRF_K env var to a positive integer."
             )
 
         # Result memory validation (Phase 7)
         if not (0.0 <= self.result_memory_candidate_weight <= 5.0):
             raise ValueError(
                 f"result_memory_candidate_weight must be in [0, 5], got {self.result_memory_candidate_weight!r}. "
-                "Set KINDLY_RESULT_MEMORY_CANDIDATE_WEIGHT env var."
+                "Set RESULT_MEMORY_CANDIDATE_WEIGHT env var."
             )
         if self.result_memory_candidate_limit < 0:
             raise ValueError(
@@ -34001,14 +36524,14 @@ class Settings:
         if not (0.0 <= self.result_memory_min_similarity <= 1.0):
             raise ValueError(
                 f"result_memory_min_similarity must be in [0, 1], got {self.result_memory_min_similarity!r}. "
-                "Set KINDLY_RESULT_MEMORY_MIN_SIMILARITY env var."
+                "Set RESULT_MEMORY_MIN_SIMILARITY env var."
             )
 
         # OTel / Observability validation
         if not (0.0 < self.otel_sampling_ratio <= 1.0):
             raise ValueError(
                 f"otel_sampling_ratio must be in (0.0, 1.0], got {self.otel_sampling_ratio!r}. "
-                "Set KINDLY_OTEL_SAMPLING_RATIO (e.g. 0.1 for 10% head sampling)."
+                "Set OTEL_SAMPLING_RATIO (e.g. 0.1 for 10% head sampling)."
             )
         if self.observability_max_text_chars < 1024:
             raise ValueError(
@@ -34034,7 +36557,7 @@ class Settings:
             if val <= 0:
                 raise ValueError(
                     f"agentic_research_{name} must be > 0, got {val}. "
-                    f"Check KINDLY_AGENTIC_RESEARCH_* env var."
+                    f"Check AGENTIC_RESEARCH_* env var."
                 )
         if self.observability_max_items < 1:
             raise ValueError("observability_max_items must be >= 1.")
@@ -34080,10 +36603,12 @@ SEMANTIC CONVENTIONS:
 from __future__ import annotations
 
 import os
+from importlib.metadata import version as _package_version
 import logging
 import json
 import platform
 import socket
+import threading
 from typing import Any
 from urllib.parse import urlparse
 
@@ -34167,7 +36692,9 @@ def build_langfuse_otlp_headers(
 
     import base64
 
-    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode("ascii")
+    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode(
+        "ascii"
+    )
     headers = {
         "Authorization": f"Basic {token}",
         "x-langfuse-ingestion-version": "4",
@@ -34179,11 +36706,6 @@ def build_langfuse_otlp_headers(
         endpoint = f"{base}/api/public/otel"
 
     return headers, endpoint
-
-    # If a custom endpoint was provided via the convenience var, the caller
-    # (init_telemetry) is responsible for using it instead of OTEL_EXPORTER_OTLP_ENDPOINT.
-    # We only return the auth header here.
-    return headers
 
 
 # Logging bridge (experimental but useful)
@@ -34420,9 +36942,14 @@ _domain_diversity_histogram: metrics.Histogram | None = None
 # ============================================================================
 
 
+_OTLP_EXPORT_TIMEOUT_SECONDS = int(
+    os.environ.get("OTLP_EXPORT_TIMEOUT_SECONDS", "10")
+)
+
+
 def init_telemetry(
     service_name: str = "web-search-mcp",
-    service_version: str = "1.0.8",
+    service_version: str = _package_version("kindly-web-search-mcp-server"),
     prometheus_port: int | None = None,
 ) -> None:
     """Initialize OpenTelemetry SDK with Grafana Cloud export.
@@ -34435,302 +36962,345 @@ def init_telemetry(
 
     Windows / convenience path (recommended in this repo):
         GRAFANA_CLOUD_INSTANCE_ID + GRAFANA_CLOUD_API_KEY + GRAFANA_CLOUD_OTLP_ENDPOINT
-        (or the KINDLY_* equivalents). These are automatically turned into the
+        (or the * equivalents). These are automatically turned into the
         correct Authorization header.
 
-    Sampling is controlled via KINDLY_OTEL_SAMPLING_RATIO (default 0.15 in Settings).
+    Sampling is controlled via OTEL_SAMPLING_RATIO (default 0.15 in Settings).
 
     Optional:
-        KINDLY_PROMETHEUS_PORT / KINDLY_PROMETHEUS_ENABLED
+        PROMETHEUS_PORT / PROMETHEUS_ENABLED
         OTEL_SERVICE_NAME / OTEL_SERVICE_NAMESPACE
         DEPLOYMENT_ENV
+
+    Set OTEL_ENABLED=false to skip telemetry initialization entirely.
+    Set OTLP_EXPORT_TIMEOUT_SECONDS to control per-exporter connect timeout
+    (default 10s).  This prevents the ~70s hang when the OTLP endpoint is unreachable.
     """
     global _initialized
     if _initialized:
         logging.debug("Telemetry already initialized, skipping")
         return
 
+    if os.environ.get("OTEL_ENABLED", "true").lower() not in (
+        "true",
+        "1",
+        "yes",
+    ):
+        logging.info("OTEL_ENABLED=false — telemetry initialization skipped")
+        return
+
     # Allow overrides from env
     service_name = os.environ.get("OTEL_SERVICE_NAME", service_name)
     service_version = os.environ.get("OTEL_SERVICE_VERSION", service_version)
 
-    # ------------------------------------------------------------------
-    # Endpoint + Header resolution (supports both standard OTEL_* and
-    # the Grafana Cloud convenience variables exposed via Settings)
-    # ------------------------------------------------------------------
-    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-    headers: dict[str, str] = {}
+    try:
+        # ------------------------------------------------------------------
+        # Endpoint + Header resolution (supports both standard OTEL_* and
+        # the Grafana Cloud convenience variables exposed via Settings)
+        # ------------------------------------------------------------------
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        headers: dict[str, str] = {}
 
-    # 1. Try Grafana Cloud convenience path first (Windows-friendly)
-    gcloud_instance = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
-    gcloud_key = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
-    gcloud_endpoint = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
+        # 1. Try Grafana Cloud convenience path first (Windows-friendly)
+        gcloud_instance = os.environ.get("GRAFANA_CLOUD_INSTANCE_ID", "")
+        gcloud_key = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
+        gcloud_endpoint = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
-    if gcloud_instance and gcloud_key:
-        headers = build_grafana_cloud_headers(gcloud_instance, gcloud_key)
+        if gcloud_instance and gcloud_key:
+            headers = build_grafana_cloud_headers(gcloud_instance, gcloud_key)
+            if not endpoint:
+                endpoint = (
+                    gcloud_endpoint
+                    or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+                )
+            logging.info("Using Grafana Cloud convenience variables for OTLP auth")
+
+        # 2. Fall back to classic OTEL_* raw header
+        if not headers:
+            headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
+            if headers_raw:
+                for part in headers_raw.split(","):
+                    part = part.strip()
+                    if "=" in part:
+                        key, val = part.split("=", 1)
+                        headers[key.strip()] = val.strip().replace("%20", " ")
+                    elif ":" in part:
+                        key, val = part.split(":", 1)
+                        headers[key.strip()] = val.strip()
+
         if not endpoint:
-            endpoint = (
-                gcloud_endpoint
-                or "https://otlp-gateway-prod-us-east-0.grafana.net/otlp"
+            if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
+                logging.info(
+                    "OpenTelemetry runtime packages are unavailable, but no OTLP endpoint is configured; "
+                    "telemetry remains disabled."
+                )
+            else:
+                logging.info(
+                    "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
+                    "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry "
+                    "or use GRAFANA_CLOUD_* convenience variables."
+                )
+            return
+
+        if not _OTEL_SDK_AVAILABLE:
+            logging.warning(
+                "OpenTelemetry SDK not installed; telemetry export disabled and MCP startup will continue."
             )
-        logging.info("Using Grafana Cloud convenience variables for OTLP auth")
+            return
 
-    # 2. Fall back to classic OTEL_* raw header
-    if not headers:
-        headers_raw = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
-        if headers_raw:
-            for part in headers_raw.split(","):
-                part = part.strip()
-                if "=" in part:
-                    key, val = part.split("=", 1)
-                    headers[key.strip()] = val.strip().replace("%20", " ")
-                elif ":" in part:
-                    key, val = part.split(":", 1)
-                    headers[key.strip()] = val.strip()
+        # Allow port override from env
+        if prometheus_port is None:
+            port_env = os.environ.get("PROMETHEUS_PORT", "0")
+            prometheus_port = int(port_env) if port_env else None
 
-    if not endpoint:
-        if not _OTEL_SDK_AVAILABLE or not LOGS_AVAILABLE:
+        # === RESOURCE (Grafana Cloud Application Observability) ===
+        hostname = socket.gethostname()
+        pid = os.getpid()
+
+        resource_attrs = {
+            SERVICE_NAME: service_name,
+            SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
+            SERVICE_VERSION: service_version,
+            "service.instance.id": f"{hostname}-{pid}",
+            "deployment.environment": os.environ.get(
+                "DEPLOYMENT_ENV",
+                os.environ.get("OTEL_ENVIRONMENT", "development"),
+            ),
+            "host.name": hostname,
+            "host.arch": "amd64",
+            "host.os.type": os.environ.get("HOST_OS_TYPE", "windows"),
+            "process.pid": pid,
+            "process.executable.name": "python",
+            "process.runtime.name": "cpython",
+            "process.runtime.version": os.environ.get(
+                "PYTHON_VERSION", platform.python_version()
+            ),
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.20.0",
+        }
+        resource = Resource.create(resource_attrs)
+
+        # === SAMPLING (head-based, configurable) ===
+        sampling_ratio = float(
+            os.environ.get(
+                "OTEL_SAMPLING_RATIO",
+                os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
+            )
+        )
+        sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
+
+        # === TRACES ===
+        tracer_provider = TracerProvider(resource=resource, sampler=sampler)
+
+        trace_exporter = OTLPSpanExporter(
+            endpoint=f"{endpoint}/v1/traces",
+            headers=headers,
+            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+        )
+        tracer_provider.add_span_processor(
+            BatchSpanProcessor(
+                trace_exporter,
+                max_queue_size=2048,
+                schedule_delay_millis=5000,
+                max_export_batch_size=512,
+            )
+        )
+        trace.set_tracer_provider(tracer_provider)
+
+        # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
+        try:
+            from .settings import Settings
+
+            s = Settings()
+            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
+                public_key=s.langfuse_public_key,
+                secret_key=s.langfuse_secret_key,
+                base_url=s.langfuse_base_url,
+                mcp_auth_header=s.langfuse_mcp_auth_header,
+            )
+        except Exception:
+            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
+
+        if lf_pk and lf_sk:
+            try:
+                lf_headers, lf_endpoint = build_langfuse_otlp_headers(
+                    lf_pk, lf_sk, lf_base
+                )
+                if lf_endpoint:
+                    lf_exporter = OTLPSpanExporter(
+                        endpoint=f"{lf_endpoint}/v1/traces"
+                        if not lf_endpoint.endswith("/otel")
+                        else lf_endpoint,
+                        headers=lf_headers,
+                        timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                    )
+                    tracer_provider.add_span_processor(
+                        BatchSpanProcessor(
+                            lf_exporter,
+                            max_queue_size=2048,
+                            schedule_delay_millis=5000,
+                            max_export_batch_size=512,
+                        )
+                    )
+                    logging.info(
+                        "Langfuse OTLP span processor added (hybrid export enabled)"
+                    )
+            except Exception as exc:  # pragma: no cover - best effort
+                logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
+
+        # === AUTO-INSTRUMENTATION ===
+        try:
+            from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+            HTTPXClientInstrumentor().instrument()
+            logging.info("HTTPX auto-instrumentation enabled - all HTTP calls traced")
+        except ImportError:
             logging.info(
-                "OpenTelemetry runtime packages are unavailable, but no OTLP endpoint is configured; "
-                "telemetry remains disabled."
+                "opentelemetry-instrumentation-httpx not installed - "
+                "HTTP calls not auto-traced. Install: uv pip install opentelemetry-instrumentation-httpx"
+            )
+
+        # === METRICS ===
+        metric_readers: list[Any] = []
+
+        prometheus_metric_reader = (
+            _get_prometheus_metric_reader() if prometheus_port else None
+        )
+        if prometheus_port and prometheus_metric_reader is not None:
+            prometheus_reader = prometheus_metric_reader(port=prometheus_port)
+            metric_readers.append(prometheus_reader)
+            logging.info(
+                f"Prometheus metrics endpoint started on port {prometheus_port}"
             )
         else:
-            logging.info(
-                "OTEL_EXPORTER_OTLP_ENDPOINT not set - telemetry disabled. "
-                "To enable, set endpoint from Grafana Cloud → Connections → OpenTelemetry "
-                "or use GRAFANA_CLOUD_* convenience variables."
-            )
-        return
-
-    if not _OTEL_SDK_AVAILABLE:
-        logging.warning(
-            "OpenTelemetry SDK not installed; telemetry export disabled and MCP startup will continue."
-        )
-        return
-
-    # Allow port override from env
-    if prometheus_port is None:
-        port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
-        prometheus_port = int(port_env) if port_env else None
-
-    # === RESOURCE (Grafana Cloud Application Observability) ===
-    hostname = socket.gethostname()
-    pid = os.getpid()
-
-    resource_attrs = {
-        # Service identity (required for Grafana Cloud)
-        SERVICE_NAME: service_name,
-        SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
-        SERVICE_VERSION: service_version,
-        "service.instance.id": f"{hostname}-{pid}",
-        # Deployment context (respect both DEPLOYMENT_ENV and our KINDLY setting)
-        "deployment.environment": os.environ.get(
-            "DEPLOYMENT_ENV", os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development")
-        ),
-        # Host context
-        "host.name": hostname,
-        "host.arch": "amd64",
-        "host.os.type": os.environ.get("HOST_OS_TYPE", "windows"),
-        # Process context
-        "process.pid": pid,
-        "process.executable.name": "python",
-        "process.runtime.name": "cpython",
-        "process.runtime.version": os.environ.get(
-            "PYTHON_VERSION", platform.python_version()
-        ),
-        # OTEL SDK info
-        "telemetry.sdk.language": "python",
-        "telemetry.sdk.name": "opentelemetry",
-        "telemetry.sdk.version": "1.20.0",
-    }
-    resource = Resource.create(resource_attrs)
-
-    # === SAMPLING (head-based, configurable) ===
-    # Read from KINDLY_OTEL_SAMPLING_RATIO (preferred) or OTEL_TRACES_SAMPLER_ARG
-    sampling_ratio = float(
-        os.environ.get(
-            "KINDLY_OTEL_SAMPLING_RATIO",
-            os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
-        )
-    )
-    sampler = ParentBased(TraceIdRatioBased(sampling_ratio))
-
-    # === TRACES ===
-    tracer_provider = TracerProvider(resource=resource, sampler=sampler)
-
-    # BatchSpanProcessor: batches spans, exports every 5s or 512 spans
-    trace_exporter = OTLPSpanExporter(
-        endpoint=f"{endpoint}/v1/traces",
-        headers=headers,
-    )
-    tracer_provider.add_span_processor(
-        BatchSpanProcessor(
-            trace_exporter,
-            max_queue_size=2048,
-            schedule_delay_millis=5000,
-            max_export_batch_size=512,
-        )
-    )
-    trace.set_tracer_provider(tracer_provider)
-
-    # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
-    # If LANGFUSE_* (or KINDLY_LANGFUSE_*) present, add a second BatchSpanProcessor
-    # exporting to Langfuse OTLP endpoint. Reuses sampling/resource.
-    # This complements the LangChain CallbackHandler (rich agent structure) with
-    # general OTel spans (httpx, custom) also flowing to Langfuse.
-    try:
-        from .settings import Settings
-
-        s = Settings()
-        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
-            public_key=s.langfuse_public_key,
-            secret_key=s.langfuse_secret_key,
-            base_url=s.langfuse_base_url,
-            mcp_auth_header=s.langfuse_mcp_auth_header,
-        )
-    except Exception:
-        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
-
-    if lf_pk and lf_sk:
-        try:
-            lf_headers, lf_endpoint = build_langfuse_otlp_headers(lf_pk, lf_sk, lf_base)
-            if lf_endpoint:
-                lf_exporter = OTLPSpanExporter(
-                    endpoint=f"{lf_endpoint}/v1/traces" if not lf_endpoint.endswith("/otel") else lf_endpoint,
-                    headers=lf_headers,
-                )
-                tracer_provider.add_span_processor(
-                    BatchSpanProcessor(
-                        lf_exporter,
-                        max_queue_size=2048,
-                        schedule_delay_millis=5000,
-                        max_export_batch_size=512,
-                    )
-                )
-                logging.info("Langfuse OTLP span processor added (hybrid export enabled)")
-        except Exception as exc:  # pragma: no cover - best effort
-            logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
-
-    # === AUTO-INSTRUMENTATION ===
-    # Instrument httpx for automatic HTTP client spans (HTTP semantic conventions)
-    try:
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-
-        HTTPXClientInstrumentor().instrument()
-        logging.info("HTTPX auto-instrumentation enabled - all HTTP calls traced")
-    except ImportError:
-        logging.info(
-            "opentelemetry-instrumentation-httpx not installed - "
-            "HTTP calls not auto-traced. Install: uv pip install opentelemetry-instrumentation-httpx"
-        )
-
-    # === METRICS ===
-    metric_readers: list[Any] = []
-
-    prometheus_metric_reader = (
-        _get_prometheus_metric_reader() if prometheus_port else None
-    )
-    if prometheus_port and prometheus_metric_reader is not None:
-        # Prometheus endpoint for Alloy scraping
-        prometheus_reader = prometheus_metric_reader(port=prometheus_port)
-        metric_readers.append(prometheus_reader)
-        logging.info(f"Prometheus metrics endpoint started on port {prometheus_port}")
-    else:
-        # OTLP direct export (60s interval)
-        metric_exporter = OTLPMetricExporter(
-            endpoint=f"{endpoint}/v1/metrics",
-            headers=headers,
-        )
-        metric_reader = PeriodicExportingMetricReader(
-            exporter=metric_exporter,
-            export_interval_millis=60000,
-        )
-        metric_readers.append(metric_reader)
-
-    meter_provider = MeterProvider(
-        resource=resource,
-        metric_readers=metric_readers,
-    )
-    metrics.set_meter_provider(meter_provider)
-
-    # === LOGS (experimental) ===
-    if LOGS_AVAILABLE:
-        try:
-            log_exporter = OTLPLogExporter(
-                endpoint=f"{endpoint}/v1/logs",
+            metric_exporter = OTLPMetricExporter(
+                endpoint=f"{endpoint}/v1/metrics",
                 headers=headers,
+                timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
             )
-            logger_provider = LoggerProvider(resource=resource)
-            logger_provider.add_log_record_processor(
-                BatchLogRecordProcessor(log_exporter)
+            metric_reader = PeriodicExportingMetricReader(
+                exporter=metric_exporter,
+                export_interval_millis=60000,
             )
-            set_logger_provider(logger_provider)
+            metric_readers.append(metric_reader)
 
-            global _otel_logging_handler
-            if _otel_logging_handler is None:
-                _otel_logging_handler = LoggingHandler(
-                    level=logging.NOTSET,
-                    logger_provider=logger_provider,
+        meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=metric_readers,
+        )
+        metrics.set_meter_provider(meter_provider)
+
+        # === LOGS (experimental) ===
+        if LOGS_AVAILABLE:
+            try:
+                log_exporter = OTLPLogExporter(
+                    endpoint=f"{endpoint}/v1/logs",
+                    headers=headers,
+                    timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
                 )
-                setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
-                logging.getLogger().addHandler(_otel_logging_handler)
+                logger_provider = LoggerProvider(resource=resource)
+                logger_provider.add_log_record_processor(
+                    BatchLogRecordProcessor(log_exporter)
+                )
+                set_logger_provider(logger_provider)
 
-            logging.info(
-                "OTLP log export enabled - standard logging bridged to OpenTelemetry"
+                global _otel_logging_handler
+                if _otel_logging_handler is None:
+                    _otel_logging_handler = LoggingHandler(
+                        level=logging.NOTSET,
+                        logger_provider=logger_provider,
+                    )
+                    setattr(_otel_logging_handler, "_kindly_otlp_handler", True)
+                    logging.getLogger().addHandler(_otel_logging_handler)
+
+                logging.info(
+                    "OTLP log export enabled - standard logging bridged to OpenTelemetry"
+                )
+            except Exception as e:
+                logging.warning(f"Failed to initialize log export: {e}")
+
+        # Configure structlog for Loki JSON format with trace context injection.
+        try:
+            from .utils.structured_logging import configure_structlog
+
+            json_logs = os.environ.get("STRUCTURED_LOGGING", "").lower() in (
+                "true",
+                "1",
+                "yes",
             )
-        except Exception as e:
-            logging.warning(f"Failed to initialize log export: {e}")
+            if endpoint and not json_logs:
+                json_logs = True
+            configure_structlog(json_output=json_logs)
+            if json_logs:
+                logging.info(
+                    "Structured logging enabled - JSON format for Grafana Loki"
+                )
+        except ImportError:
+            logging.info(
+                "structlog not installed - using standard Python logging. Install: pip install structlog"
+            )
 
-    # Configure structlog for Loki JSON format with trace context injection.
-    # Default: plain text logs for local development unless telemetry export is enabled.
-    try:
-        from .utils.structured_logging import configure_structlog
-
-        json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
-        if endpoint and not json_logs:
-            json_logs = True
-        configure_structlog(json_output=json_logs)
-        if json_logs:
-            logging.info("Structured logging enabled - JSON format for Grafana Loki")
-    except ImportError:
+        _initialized = True
         logging.info(
-            "structlog not installed - using standard Python logging. Install: pip install structlog"
+            f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}"
+        )
+        endpoint_url = urlparse(endpoint)
+        logging.info(
+            json.dumps(
+                {
+                    "event": "telemetry.startup",
+                    "service_name": service_name,
+                    "service_namespace": "kindly-mcp",
+                    "service_version": service_version,
+                    "deployment_environment": os.environ.get(
+                        "DEPLOYMENT_ENV", "development"
+                    ),
+                    "host_name": hostname,
+                    "process_pid": pid,
+                    "otlp_endpoint_host": endpoint_url.hostname,
+                    "otlp_endpoint_path": endpoint_url.path,
+                    "signals": {
+                        "traces": True,
+                        "metrics": True,
+                        "logs": LOGS_AVAILABLE,
+                        "httpx_instrumentation": True,
+                    },
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+            )
+        )
+    except Exception as exc:
+        logging.warning(
+            "OpenTelemetry initialization failed (server will continue without telemetry): %s",
+            exc,
         )
 
-    _initialized = True
-    logging.info(
-        f"OpenTelemetry initialized: service={service_name}, endpoint={endpoint}"
+
+def init_telemetry_background(
+    service_name: str = "web-search-mcp",
+    service_version: str = _package_version("kindly-web-search-mcp-server"),
+    prometheus_port: int | None = None,
+) -> threading.Thread:
+    """Run init_telemetry in a daemon thread so it never blocks startup.
+
+    Use this when the OTLP endpoint might be unreachable (e.g. local dev,
+    CI, air-gapped networks) and you need the MCP server / CLI to become
+    responsive immediately.  Telemetry becomes available once the background
+    init finishes; spans emitted before that point are silently dropped.
+
+    Returns the daemon thread so callers can ``join()`` if they wish.
+    """
+    thread = threading.Thread(
+        target=init_telemetry,
+        args=(service_name, service_version, prometheus_port),
+        name="otel-init",
+        daemon=True,
     )
-    endpoint_url = urlparse(endpoint)
-    logging.info(
-        json.dumps(
-            {
-                "event": "telemetry.startup",
-                "service_name": service_name,
-                "service_namespace": "kindly-mcp",
-                "service_version": service_version,
-                "deployment_environment": os.environ.get(
-                    "DEPLOYMENT_ENV", "development"
-                ),
-                "host_name": hostname,
-                "process_pid": pid,
-                "otlp_endpoint_host": endpoint_url.hostname,
-                "otlp_endpoint_path": endpoint_url.path,
-                "signals": {
-                    "traces": True,
-                    "metrics": True,
-                    "logs": LOGS_AVAILABLE,
-                    "httpx_instrumentation": True,
-                },
-            },
-            ensure_ascii=True,
-            sort_keys=True,
-        )
-    )
+    thread.start()
+    logging.info("Telemetry init dispatched to background thread")
+    return thread
 
 
 # ============================================================================
@@ -36212,6 +38782,7 @@ def set_span_success(span: trace.Span, result_count: int | None = None) -> None:
 __all__ = [
     # Initialization
     "init_telemetry",
+    "init_telemetry_background",
     "get_tracer",
     "get_meter",
     "get_search_total_metric",
@@ -36386,7 +38957,15 @@ from mcp.types import ToolAnnotations
 
 
 DEFAULT_PROFILE_TOOLS = frozenset(
-    {"web_search", "get_content", "batch_get_content", "discover_links"}
+    {
+        "quick_web_search",
+        "web_search",
+        "get_content",
+        "batch_get_content",
+        "discover_links",
+        "gemini_search",
+        "perplexity_search",
+    }
 )
 
 
@@ -36440,84 +39019,55 @@ def _entry(
 
 
 TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
+    "quick_web_search": _entry(
+        "quick_web_search", "Quick Web Search", {"regular", "full"}
+    ),
     "web_search": _entry(
-        "web_search",
-        "Web Search",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "web_search", "Web Search", {"regular", "full"}
     ),
     "get_content": _entry(
-        "get_content",
-        "Get Content",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "get_content", "Get Content", {"regular", "full"}
     ),
     "batch_get_content": _entry(
-        "batch_get_content",
-        "Batch Get Content",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "batch_get_content", "Batch Get Content", {"regular", "full"}
     ),
     "discover_links": _entry(
-        "discover_links",
-        "Discover Links",
-        {"default", "research", "media", "diagnostic", "experimental", "full"},
+        "discover_links", "Discover Links", {"regular", "full"}
     ),
     "gemini_search": _entry(
-        "gemini_search", "Gemini Search", {"research", "experimental", "full"}
+        "gemini_search", "Gemini Search", {"regular", "full"}
     ),
     "perplexity_search": _entry(
         "perplexity_search",
         "Perplexity Search",
-        {"research", "experimental", "full"},
+        {"regular", "full"},
         expensive=True,
     ),
     "grok_search": _entry(
         "grok_search",
         "Grok Search",
-        {"research", "experimental", "full"},
+        {"full"},
         expensive=True,
         idempotent=False,
     ),
     "academic_search": _entry(
-        "academic_search", "Academic Search", {"research", "experimental", "full"}
-    ),
-    "quick_web_search": _entry(
-        "quick_web_search",
-        "Quick Web Search",
-        {"research", "experimental", "full"},
+        "academic_search", "Academic Search", {"full"}
     ),
     "composio_similarlinks": _entry(
-        "composio_similarlinks",
-        "Composio Similarlinks",
-        {"research", "experimental", "full"},
-    ),
-    "composio_image_search": _entry(
-        "composio_image_search",
-        "Composio Image Search",
-        {"media", "experimental", "full"},
-    ),
-    "analytics_query": _entry(
-        "analytics_query",
-        "Analytics Query",
-        {"diagnostic", "experimental", "full"},
-        open_world=False,
-    ),
-    "analytics_report": _entry(
-        "analytics_report",
-        "Analytics Report",
-        {"diagnostic", "experimental", "full"},
-        open_world=False,
+        "composio_similarlinks", "Composio Similarlinks", {"full"}
     ),
     "agentic_web_research": _entry(
         "agentic_web_research",
         "Agentic Web Research",
-        {"research", "experimental", "full"},
+        {"full"},
         experimental=True,
         idempotent=False,
     ),
     "youtube_search": _entry(
-        "youtube_search", "YouTube Search", {"media", "experimental", "full"}
+        "youtube_search", "YouTube Search", {"full"}
     ),
     "youtube_transcript": _entry(
-        "youtube_transcript", "YouTube Transcript", {"media", "experimental", "full"}
+        "youtube_transcript", "YouTube Transcript", {"full"}
     ),
 }
 
@@ -36541,11 +39091,7 @@ from typing import Literal, Protocol, cast
 from .catalog import TOOL_CATALOG
 
 ToolProfile = Literal[
-    "default",
-    "research",
-    "media",
-    "diagnostic",
-    "experimental",
+    "regular",
     "full",
 ]
 
@@ -36581,9 +39127,154 @@ def tags_for_profile(profile: str) -> set[str]:
 def apply_tool_profile(mcp: VisibilityServer, profile: str) -> VisibilityServer:
     normalized = normalize_tool_profile(profile)
     mcp.enable(tags=tags_for_profile(normalized), only=True, components={"tool"})
-    if normalized in {"default", "media", "diagnostic"}:
+    if normalized == "regular":
         mcp.disable(tags={"tool:experimental"}, components={"tool"})
     return mcp
+</file>
+
+<file path="training/__init__.py">
+"""Training data helpers."""
+
+from .query_understanding_jsonl import (
+    append_query_outcome_record,
+    append_query_understanding_record,
+)
+from .session_state import SessionStateStore, get_session_state_store
+
+__all__ = [
+    "SessionStateStore",
+    "append_query_outcome_record",
+    "append_query_understanding_record",
+    "get_session_state_store",
+]
+</file>
+
+<file path="training/query_understanding_jsonl.py">
+"""Write-only JSONL sink for query-understanding training data."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from ..search.context import SearchContext
+from ..search.understanding.models import QueryUnderstanding
+
+
+async def append_query_understanding_record(
+    *,
+    context: SearchContext,
+    understanding: QueryUnderstanding,
+    model_name: str,
+    prompt_name: str,
+    path: str,
+    session_id: str | None = None,
+) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "query": context.raw_query,
+        "normalized_query": context.normalized_query,
+        "research_goal": context.research_goal,
+        "profile": context.profile_name,
+        "intent": understanding.intent,
+        "confidence": understanding.confidence,
+        "should_decompose": understanding.should_decompose,
+        "rationale": understanding.rationale,
+        "must_keep_terms": understanding.must_keep_terms,
+        "entities": [entity.model_dump() for entity in understanding.entities],
+        "model": model_name,
+        "prompt": prompt_name,
+        "session_id": session_id,
+    }
+    line = json.dumps(record, ensure_ascii=False, sort_keys=True)
+    await _append_line(target, line)
+
+
+async def append_query_outcome_record(
+    *,
+    context: SearchContext,
+    understanding: QueryUnderstanding,
+    results: list[dict[str, object]],
+    path: str,
+    session_id: str | None = None,
+) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "query": context.raw_query,
+        "normalized_query": context.normalized_query,
+        "research_goal": context.research_goal,
+        "profile": context.profile_name,
+        "intent": understanding.intent,
+        "confidence": understanding.confidence,
+        "result_count": len(results),
+        "results": results,
+        "session_id": session_id,
+    }
+    line = json.dumps(record, ensure_ascii=False, sort_keys=True)
+    await _append_line(target, line)
+
+
+async def _append_line(path: Path, line: str) -> None:
+    from asyncio import to_thread
+
+    def _write() -> None:
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(line)
+            handle.write("\n")
+
+    await to_thread(_write)
+</file>
+
+<file path="training/session_state.py">
+"""TTL session state for search-side labels and suppression signals."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SessionState:
+    last_activity: float = field(default_factory=time.time)
+    counters: dict[str, int] = field(default_factory=dict)
+    seen_urls: set[str] = field(default_factory=set)
+    last_intent: str | None = None
+
+
+class SessionStateStore:
+    def __init__(self, ttl_seconds: float = 900.0) -> None:
+        self.ttl_seconds = max(60.0, ttl_seconds)
+        self._sessions: dict[str, SessionState] = {}
+
+    def get(self, session_id: str) -> SessionState:
+        state = self._sessions.get(session_id)
+        if state is None or time.time() - state.last_activity > self.ttl_seconds:
+            state = SessionState()
+            self._sessions[session_id] = state
+        state.last_activity = time.time()
+        return state
+
+    def mark_seen(self, session_id: str, url: str) -> None:
+        self.get(session_id).seen_urls.add(url)
+
+    def increment(self, session_id: str, key: str) -> int:
+        state = self.get(session_id)
+        current = state.counters.get(key, 0) + 1
+        state.counters[key] = current
+        return current
+
+
+_SESSION_STATE = SessionStateStore()
+
+
+def get_session_state_store() -> SessionStateStore:
+    return _SESSION_STATE
 </file>
 
 <file path="utils/__init__.py">
@@ -36611,7 +39302,7 @@ MAX_LINE_CHARS = 8000
 
 def diagnostics_enabled(env: Mapping[str, str] | None = None) -> bool:
     source = env if env is not None else os.environ
-    raw = (source.get("KINDLY_DIAGNOSTICS") or "").strip().lower()
+    raw = (source.get("DIAGNOSTICS") or "").strip().lower()
     return raw in _TRUTHY
 
 
@@ -36679,7 +39370,7 @@ def emit_diagnostic(entry: dict[str, Any], *, stream: TextIO | None = None) -> N
     try:
         target = stream or sys.stderr
         payload = json.dumps(entry, ensure_ascii=True, separators=(",", ":"))
-        target.write(f"KINDLY_DIAG {payload}\n")
+        target.write(f"DIAG {payload}\n")
         target.flush()
     except Exception:
         return
@@ -36786,18 +39477,18 @@ def _get_int_env(name: str, default: int) -> int:
 
 
 def _max_text_chars() -> int:
-    return _get_int_env("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
+    return _get_int_env("OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
 
 
 def _max_items() -> int:
-    return _get_int_env("KINDLY_OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
+    return _get_int_env("OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
 
 
 def preview_text(value: str | None, *, limit: int | None = None) -> str:
     if not value:
         return ""
     hard_limit = limit or _get_int_env(
-        "KINDLY_OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS
+        "OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS
     )
     if len(value) <= hard_limit:
         return value
@@ -37112,7 +39803,6 @@ WEB_SEARCH_RESULT_FIELDS = (
     "link",
     "snippet",
     "domain",
-    "resource_type",
     "published_date",
     "providers",
     "provider_count",
@@ -37262,7 +39952,7 @@ This module configures structlog to:
 3. Bridge existing Python logging to structlog
 
 USAGE:
-    Set KINDLY_STRUCTURED_LOGGING=true to enable JSON output.
+    Set STRUCTURED_LOGGING=true to enable JSON output.
     Default: plain text logs (for local development)
 
 GRAFANA LOGQL CORRELATION:

@@ -18,7 +18,11 @@ from ..models import WebSearchResult
 from .base_provider import run_provider
 
 _SE_BASE = "https://api.stackexchange.com/2.3/search"
-_SITES = "stackoverflow+serverfault+superuser+askubuntu"
+
+
+def _stackexchange_sites() -> str:
+    sites = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow").strip()
+    return sites or "stackoverflow"
 
 
 async def search_stackexchange(
@@ -47,7 +51,7 @@ async def search_stackexchange(
         "order": "desc",
         "sort": "votes",
         "intitle": query,
-        "site": _SITES,
+        "site": _stackexchange_sites(),
         "pagesize": min(num_results, 50),
     }
 

@@ -187,7 +187,6 @@ Sets up test environment with default provider keys:
 def patch_settings():
     os.environ.setdefault("SEARXNG_BASE_URL", "https://searx.example.org")
     os.environ.setdefault("TAVILY_API_KEY", "test_api_key")
-    os.environ.setdefault("KINDLY_GEMINI_SEARCH_MODE", "never")
 ```
 
 ### pytest.ini / pyproject.toml

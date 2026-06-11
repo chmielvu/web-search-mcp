@@ -186,7 +186,7 @@ async def gemini_search_with_grounding(
             answer="",
             model_used=GEMINI_GROUNDING_TIER[0],
             structured_output=structured_output,
-            error="Set KINDLY_GEMINI_API_KEY environment variable",
+            error="Set GEMINI_API_KEY environment variable",
         )
 
     # Format system prompt with research goal

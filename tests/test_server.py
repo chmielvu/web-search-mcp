@@ -16,8 +16,8 @@ from kindly_web_search_mcp_server.models import WebSearchResponse, WebSearchResu
 
 class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
     def test_core_tools_expose_structured_output_schemas(self) -> None:
-        os.environ.pop("KINDLY_TOOL_PROFILE", None)
-        os.environ.pop("KINDLY_TOOL_SEARCH_ENABLED", None)
+        os.environ.pop("TOOL_PROFILE", None)
+        os.environ.pop("TOOL_SEARCH_ENABLED", None)
         sys.modules.pop("kindly_web_search_mcp_server.server", None)
         sys.modules.pop("kindly_web_search_mcp_server.settings", None)
         from kindly_web_search_mcp_server.server import mcp
@@ -198,8 +198,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         with patch.dict(
             os.environ,
             {
-                "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": "120",
-                "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "600",
+                "TOOL_TOTAL_TIMEOUT_SECONDS": "120",
+                "TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "600",
             },
             clear=False,
         ):
@@ -208,8 +208,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         with patch.dict(
             os.environ,
             {
-                "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": "120",
-                "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "100",
+                "TOOL_TOTAL_TIMEOUT_SECONDS": "120",
+                "TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "100",
             },
             clear=False,
         ):
@@ -217,21 +217,21 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(
             os.environ,
-            {"KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": "abc"},
+            {"TOOL_TOTAL_TIMEOUT_SECONDS": "abc"},
             clear=False,
         ):
             self.assertEqual(_resolve_tool_total_timeout_seconds(), 120.0)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "abc"},
+            {"TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "abc"},
             clear=False,
         ):
             self.assertEqual(_resolve_tool_total_timeout_seconds(), 120.0)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "90"},
+            {"TOOL_TOTAL_TIMEOUT_MAX_SECONDS": "90"},
             clear=False,
         ):
             self.assertEqual(_resolve_tool_total_timeout_seconds(), 90.0)
@@ -246,28 +246,28 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "3"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "3"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "abc"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "0"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "0"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "-2"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "-2"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
@@ -277,7 +277,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "10"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "10"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
@@ -292,21 +292,21 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "5"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "5"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "7"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "7"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
             self.assertEqual(_resolve_web_search_max_concurrency(5), 5)
 
         with patch.dict(
             os.environ,
-            {"KINDLY_WEB_SEARCH_MAX_CONCURRENCY": "abc"},
+            {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
             clear=True,
         ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)

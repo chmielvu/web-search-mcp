@@ -6,7 +6,7 @@ They mock GLiNER2.from_pretrained and verify:
 - use of asyncio.to_thread for CPU-bound call
 - settings propagation (model, threshold)
 - output normalized to list[EntitySpan]
-- explicit disabled state when KINDLY_ENTITY_EXTRACTION_ENABLED=false
+- explicit disabled state when ENTITY_EXTRACTION_ENABLED=false
 - error events emitted on load/extract failure (no silent fail)
 """
 
@@ -44,7 +44,7 @@ def test_gliner_not_imported_at_module_level(monkeypatch):
 
 def test_is_entity_extraction_enabled_defaults_false(monkeypatch):
     """Default must be disabled (explicit opt-in)."""
-    monkeypatch.delenv("KINDLY_ENTITY_EXTRACTION_ENABLED", raising=False)
+    monkeypatch.delenv("ENTITY_EXTRACTION_ENABLED", raising=False)
     # fresh settings
     Settings()
     # The setting is populated in __post_init__ or directly; check helper
@@ -52,18 +52,18 @@ def test_is_entity_extraction_enabled_defaults_false(monkeypatch):
 
 
 def test_is_entity_extraction_enabled_from_env(monkeypatch):
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
     assert is_entity_extraction_enabled() is True
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "false")
     assert is_entity_extraction_enabled() is False
 
 
 @pytest.mark.asyncio
 async def test_lazy_load_and_to_thread(monkeypatch):
     """First call triggers lazy from_pretrained inside to_thread; subsequent reuse."""
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
-    monkeypatch.setenv("KINDLY_GLINER_MODEL", "fastino/gliner2-base-v1")
-    monkeypatch.setenv("KINDLY_GLINER_THRESHOLD", "0.4")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("GLINER_MODEL", "fastino/gliner2-base-v1")
+    monkeypatch.setenv("GLINER_THRESHOLD", "0.4")
 
     import kindly_web_search_mcp_server.entity.gliner_client as gc_mod
 
@@ -119,11 +119,11 @@ async def test_lazy_load_and_to_thread(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_threshold_propagation(monkeypatch):
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
-    monkeypatch.setenv("KINDLY_GLINER_THRESHOLD", "0.75")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("GLINER_THRESHOLD", "0.75")
     # Direct os.environ to guarantee resolve_threshold sees it even if prior tests left snapshot
     import os
-    os.environ["KINDLY_GLINER_THRESHOLD"] = "0.75"
+    os.environ["GLINER_THRESHOLD"] = "0.75"
 
     # Ensure fresh client so settings/env snapshot in client sees monkeypatch
     import kindly_web_search_mcp_server.entity.gliner_client as gc_mod
@@ -149,7 +149,7 @@ async def test_threshold_propagation(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_disabled_returns_empty_and_no_load(monkeypatch):
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "false")
 
     import kindly_web_search_mcp_server.entity.gliner_client as gc_mod
 
@@ -168,9 +168,9 @@ async def test_disabled_returns_empty_and_no_load(monkeypatch):
 @pytest.mark.asyncio
 async def test_extract_error_emits_event_and_returns_empty(monkeypatch, caplog):
     """Enabled but broken -> explicit error event, never silent, returns [] ."""
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
     import os
-    os.environ["KINDLY_ENTITY_EXTRACTION_ENABLED"] = "true"
+    os.environ["ENTITY_EXTRACTION_ENABLED"] = "true"
 
     # reset singleton so load path is exercised with the failing from_pretrained
     import kindly_web_search_mcp_server.entity.gliner_client as gc_mod
@@ -208,7 +208,7 @@ async def test_extract_error_emits_event_and_returns_empty(monkeypatch, caplog):
 
 
 def test_get_gliner_client_is_singleton(monkeypatch):
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
 
     import kindly_web_search_mcp_server.entity.gliner_client as gc_mod
 

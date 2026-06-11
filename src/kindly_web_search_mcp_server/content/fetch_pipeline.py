@@ -143,7 +143,7 @@ async def _maybe_specialized(
 
 
 def _render_generic_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str:
-    max_pages = int((os.environ.get("KINDLY_GENERIC_PDF_MAX_PAGES") or "20").strip())
+    max_pages = int((os.environ.get("GENERIC_PDF_MAX_PAGES") or "20").strip())
     rendered = _pdf_bytes_to_markdown_best_effort(pdf_bytes, max_pages=max_pages)
     return (
         "# PDF Document\n\n"

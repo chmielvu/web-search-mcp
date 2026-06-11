@@ -38,7 +38,7 @@ def test_get_content_response_model_accepts_entities() -> None:
 
 @pytest.mark.asyncio
 async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "false")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "false")
 
     from kindly_web_search_mcp_server.search.branch_executor import BranchExecutionBatch
     from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
@@ -138,7 +138,7 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_entity_extraction_runs_when_enabled_in_search(monkeypatch) -> None:
-    monkeypatch.setenv("KINDLY_ENTITY_EXTRACTION_ENABLED", "true")
+    monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
 
     from kindly_web_search_mcp_server.search.finalize_results import (
         maybe_extract_entities,

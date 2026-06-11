@@ -29,18 +29,18 @@ def _get_int_env(name: str, default: int) -> int:
 
 
 def _max_text_chars() -> int:
-    return _get_int_env("KINDLY_OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
+    return _get_int_env("OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
 
 
 def _max_items() -> int:
-    return _get_int_env("KINDLY_OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
+    return _get_int_env("OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
 
 
 def preview_text(value: str | None, *, limit: int | None = None) -> str:
     if not value:
         return ""
     hard_limit = limit or _get_int_env(
-        "KINDLY_OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS
+        "OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS
     )
     if len(value) <= hard_limit:
         return value
@@ -88,7 +88,7 @@ def _record_key(name: str) -> str:
     for char in name:
         normalized.append(char if char.isalnum() else "_")
     key = "".join(normalized).strip("_")
-    return f"kindly_{key}" if key else "kindly_field"
+    return f"obs_{key}" if key else "obs_field"
 
 
 def _stable_hash(value: Any, *, length: int = 16) -> str:
@@ -300,7 +300,7 @@ def emit_tool_observability_event(
             fields,
         )
 
-    extra = {"kindly_event": event}
+    extra = {"obs_event": event}
     for name, value in payload.items():
         if name == "event":
             continue
@@ -330,7 +330,7 @@ def emit_observability_event(
         {name: _normalize_for_analytics(value) for name, value in fields.items()}
     )
 
-    extra = {"kindly_event": event}
+    extra = {"obs_event": event}
     for name, value in payload.items():
         if name == "event":
             continue

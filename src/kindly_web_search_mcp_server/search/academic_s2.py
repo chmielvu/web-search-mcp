@@ -22,13 +22,13 @@ from ..models import AcademicPaper
 logger = logging.getLogger(__name__)
 
 # Fail-fast configuration (Phase 1.2)
-S2_TIMEOUT = int(os.environ.get("KINDLY_S2_TIMEOUT", "30"))
+S2_TIMEOUT = int(os.environ.get("S2_TIMEOUT", "30"))
 # retry=False means SDK won't retry on 429/5xx - we handle fail-fast
-S2_RETRY_ENABLED = os.environ.get("KINDLY_S2_MAX_RETRIES", "0") != "0"  # False when 0
+S2_RETRY_ENABLED = os.environ.get("S2_MAX_RETRIES", "0") != "0"  # False when 0
 
 
 def _get_api_key() -> str | None:
-    raw = (os.environ.get("KINDLY_S2_API_KEY") or "").strip()
+    raw = (os.environ.get("S2_API_KEY") or "").strip()
     return raw if raw else None
 
 
@@ -122,7 +122,7 @@ async def search_semanticscholar(
     sch = AsyncSemanticScholar(
         api_key=api_key,
         timeout=S2_TIMEOUT,
-        retry=S2_RETRY_ENABLED,  # False when KINDLY_S2_MAX_RETRIES=0 (fail fast)
+        retry=S2_RETRY_ENABLED,  # False when S2_MAX_RETRIES=0 (fail fast)
     )
 
     year_str: str | None = None
@@ -158,12 +158,12 @@ async def search_semanticscholar(
         msg = str(e)
         if "429" in msg or "rate" in msg.lower():
             logger.warning(
-                "Semantic Scholar search rate-limited: %s. Set KINDLY_S2_API_KEY for higher limits.",
+                "Semantic Scholar search rate-limited: %s. Set S2_API_KEY for higher limits.",
                 e,
             )
         elif "timeout" in msg.lower() or "timed out" in msg.lower():
             logger.warning(
-                "Semantic Scholar search timed out (configurable via KINDLY_S2_TIMEOUT): %s",
+                "Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s",
                 e,
             )
         else:

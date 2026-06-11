@@ -16,10 +16,10 @@ Compatible with:
 - Custom FastAPI example returning Jina-like {"results": [{"index":, "relevance_score":}] }
 
 Env / settings:
-  KINDLY_RERANK_GCP_CLOUDRUN_URL (required)
-  KINDLY_RERANK_GCP_MODEL (for logging/telemetry)
-  KINDLY_RERANK_GCP_TIMEOUT
-  (optional) static token via KINDLY_RERANK_GCP_AUTH_TOKEN or passed api_key
+  RERANK_GCP_CLOUDRUN_URL (required)
+  RERANK_GCP_MODEL (for logging/telemetry)
+  RERANK_GCP_TIMEOUT
+  (optional) static token via RERANK_GCP_AUTH_TOKEN or passed api_key
 """
 
 from __future__ import annotations
@@ -182,16 +182,16 @@ async def gcp_cloudrun_rerank(
     """Rerank using a private GCP Cloud Run TEI or custom /rerank service.
 
     Authentication:
-    - If api_key provided or KINDLY_RERANK_GCP_AUTH_TOKEN set: use as Bearer token.
+    - If api_key provided or RERANK_GCP_AUTH_TOKEN set: use as Bearer token.
     - Else: attempt Google ID token for the service URL (audience).
     - If no token obtainable and service is --allow-unauthenticated, request succeeds unauthed.
     """
     if not documents:
         return []
 
-    resolved_url = url or settings.rerank_gcp_cloudrun_url or os.environ.get("KINDLY_RERANK_GCP_CLOUDRUN_URL", "")
+    resolved_url = url or settings.rerank_gcp_cloudrun_url or os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
     if not resolved_url.strip():
-        raise ValueError("KINDLY_RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker")
+        raise ValueError("RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker")
 
     resolved_timeout = timeout or getattr(settings, "rerank_gcp_timeout", 30.0)
 
@@ -211,7 +211,7 @@ async def gcp_cloudrun_rerank(
     }
 
     # Determine auth
-    static_token = api_key or os.environ.get("KINDLY_RERANK_GCP_AUTH_TOKEN", "")
+    static_token = api_key or os.environ.get("RERANK_GCP_AUTH_TOKEN", "")
     if static_token.strip():
         headers["Authorization"] = f"Bearer {static_token.strip()}"
     else:

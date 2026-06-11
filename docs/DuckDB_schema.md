@@ -680,14 +680,14 @@ All views are created idempotently via `CREATE OR REPLACE VIEW` in `views.py` �
 
 | Setting | Default | Description |
 |---|---|---|
-| `KINDLY_ANALYTICS_ENABLED` | `true` | Global analytics toggle — all inserts/views skip when `false` |
-| `KINDLY_AB_TESTING_ENABLED` | `false` | A/B testing toggle |
-| `KINDLY_AB_CONFIG_PATH` | `.kindly/experiments.yaml` | Experiment YAML config file path |
-| `KINDLY_AB_SHADOW_MODE_DEFAULT` | `true` | Default shadow mode for A/B variants |
-| `KINDLY_AB_ASSIGNMENT_CACHE_TTL_SECONDS` | `300` | Sticky assignment cache TTL |
-| `KINDLY_JUDGE_EVALUATION_ENABLED` | `false` | LLM judge evaluation toggle |
-| `KINDLY_JUDGE_MODEL` | `google/gemini-2.0-flash-001` | Judge LLM model |
-| `KINDLY_JUDGE_TIMEOUT_SECONDS` | `10.0` | Judge LLM call timeout |
+| `ANALYTICS_ENABLED` | `true` | Global analytics toggle — all inserts/views skip when `false` |
+| `AB_TESTING_ENABLED` | `false` | A/B testing toggle |
+| `AB_CONFIG_PATH` | `.kindly/experiments.yaml` | Experiment YAML config file path |
+| `AB_SHADOW_MODE_DEFAULT` | `true` | Default shadow mode for A/B variants |
+| `AB_ASSIGNMENT_CACHE_TTL_SECONDS` | `300` | Sticky assignment cache TTL |
+| `JUDGE_EVALUATION_ENABLED` | `false` | LLM judge evaluation toggle |
+| `JUDGE_MODEL` | `google/gemini-2.0-flash-001` | Judge LLM model |
+| `JUDGE_TIMEOUT_SECONDS` | `10.0` | Judge LLM call timeout |
 
 ---
 

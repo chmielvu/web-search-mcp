@@ -9,6 +9,7 @@ API: GET https://www.reddit.com/r/{subreddits}/search.json
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import httpx
@@ -18,6 +19,16 @@ from .base_provider import run_provider
 
 _REDDIT_BASE = "https://www.reddit.com/r/programming+MachineLearning+LocalLLaMA+Rag+Python/search.json"
 _USER_AGENT = "kindly-web-search-mcp/1.0 (research bot)"
+
+
+def _reddit_delay_seconds() -> float:
+    raw = os.environ.get("REDDIT_DELAY_SECONDS", "2").strip()
+    if not raw:
+        return 2.0
+    try:
+        return float(raw)
+    except ValueError:
+        return 2.0
 
 
 async def search_reddit(
@@ -39,8 +50,8 @@ async def search_reddit(
     if not query.strip() or num_results < 1:
         return []
 
-    # Reddit rate-limits aggressively — be polite
-    await asyncio.sleep(2)
+    # Reddit rate-limits aggressively — be polite.
+    await asyncio.sleep(_reddit_delay_seconds())
 
     params: dict[str, Any] = {
         "q": query,

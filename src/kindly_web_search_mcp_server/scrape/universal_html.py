@@ -86,7 +86,7 @@ def _resolve_browser_executable_path() -> str | None:
     no default Chrome/Chromium binary exists in standard locations.
     """
     for key in (
-        "KINDLY_BROWSER_EXECUTABLE_PATH",
+        "BROWSER_EXECUTABLE_PATH",
         "BROWSER_EXECUTABLE_PATH",
         "CHROME_BIN",
         "CHROME_PATH",
@@ -105,7 +105,7 @@ def _ensure_no_proxy_localhost_env(env: dict[str, str]) -> None:
     If HTTP(S)_PROXY/ALL_PROXY are set without NO_PROXY/no_proxy, urllib can attempt to proxy loopback
     requests, leading to long hangs (commonly on Windows corporate machines).
     """
-    raw = (env.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1").strip().lower()
+    raw = (env.get("NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return
 
@@ -128,10 +128,10 @@ def _split_worker_diagnostics(
     cleaned_lines: list[str] = []
     error_samples: list[str] = []
     for line in (stderr_text or "").splitlines():
-        if not line.startswith("KINDLY_DIAG "):
+        if not line.startswith("DIAG "):
             cleaned_lines.append(line)
             continue
-        payload = line[len("KINDLY_DIAG ") :].strip()
+        payload = line[len("DIAG ") :].strip()
         try:
             parsed = json.loads(payload)
         except Exception:
@@ -204,8 +204,8 @@ def _consume_stderr_line(
 ) -> None:
     if line == "":
         return
-    if line.startswith("KINDLY_DIAG "):
-        payload = line[len("KINDLY_DIAG ") :].strip()
+    if line.startswith("DIAG "):
+        payload = line[len("DIAG ") :].strip()
         try:
             parsed = json.loads(payload)
         except Exception:
@@ -608,13 +608,13 @@ async def fetch_html_via_nodriver(
     # Ensure nodriver can find the browser: if we have a resolved browser path,
     # propagate it via environment variables that nodriver recognizes.
     if browser_executable_path:
-        env["KINDLY_BROWSER_EXECUTABLE_PATH"] = browser_executable_path
+        env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
         env["CHROME_BIN"] = browser_executable_path
 
     if diagnostics and diagnostics.enabled:
-        env["KINDLY_DIAGNOSTICS"] = "1"
-        env["KINDLY_REQUEST_ID"] = diagnostics.request_id
+        env["DIAGNOSTICS"] = "1"
+        env["REQUEST_ID"] = diagnostics.request_id
     _ensure_no_proxy_localhost_env(env)
 
     if diagnostics and diagnostics.enabled:
@@ -638,26 +638,26 @@ async def fetch_html_via_nodriver(
         if diagnostics is None:
             return
         env_snapshot = {
-            "KINDLY_BROWSER_EXECUTABLE_PATH": env.get(
-                "KINDLY_BROWSER_EXECUTABLE_PATH", ""
+            "BROWSER_EXECUTABLE_PATH": env.get(
+                "BROWSER_EXECUTABLE_PATH", ""
             ),
-            "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": env.get(
-                "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""
+            "HTML_TOTAL_TIMEOUT_SECONDS": env.get(
+                "HTML_TOTAL_TIMEOUT_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_RETRY_ATTEMPTS": env.get(
-                "KINDLY_NODRIVER_RETRY_ATTEMPTS", ""
+            "NODRIVER_RETRY_ATTEMPTS": env.get(
+                "NODRIVER_RETRY_ATTEMPTS", ""
             ),
-            "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
-                "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""
+            "NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
+                "NODRIVER_RETRY_BACKOFF_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
-                "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
+            "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
+                "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
             ),
-            "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER": env.get(
-                "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
+            "NODRIVER_SNAP_BACKOFF_MULTIPLIER": env.get(
+                "NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
             ),
-            "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST": env.get(
-                "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
+            "NODRIVER_ENSURE_NO_PROXY_LOCALHOST": env.get(
+                "NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
             ),
             "NO_PROXY": env.get("NO_PROXY", ""),
             "no_proxy": env.get("no_proxy", ""),
@@ -710,7 +710,7 @@ async def fetch_html_via_nodriver(
 
         try:
             raw_timeout = (
-                os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or ""
+                os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or ""
             ).strip()
             used_default = False
             invalid = False
@@ -993,7 +993,7 @@ async def load_url_as_markdown(
                 "No browser available for nodriver",
                 {"url": url},
             )
-        return f"_Browser-based extraction unavailable (no Chrome detected). Set KINDLY_BROWSER_EXECUTABLE_PATH._\n\nSource: {url}\n"
+        return f"_Browser-based extraction unavailable (no Chrome detected). Set BROWSER_EXECUTABLE_PATH._\n\nSource: {url}\n"
 
     try:
         html = await fetch_html_via_nodriver(

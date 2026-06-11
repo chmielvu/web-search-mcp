@@ -7,7 +7,7 @@ This module configures structlog to:
 3. Bridge existing Python logging to structlog
 
 USAGE:
-    Set KINDLY_STRUCTURED_LOGGING=true to enable JSON output.
+    Set STRUCTURED_LOGGING=true to enable JSON output.
     Default: plain text logs (for local development)
 
 GRAFANA LOGQL CORRELATION:
@@ -24,7 +24,7 @@ from typing import Any
 import structlog
 from opentelemetry import trace
 
-_STRUCTLOG_STREAM_HANDLER_ATTR = "_kindly_structlog_stream_handler"
+_STRUCTLOG_STREAM_HANDLER_ATTR = "_otel_structlog_stream_handler"
 
 
 def add_trace_context(

@@ -29,7 +29,7 @@ class PageCache:
     Thin facade over PageDuckDBCache (in page_duckdb.py) that preserves the
     exact public API + singleton used by server.py / get_content.
 
-    Separate DuckDB file controlled by KINDLY_PAGE_CACHE_DUCKDB_PATH.
+    Separate DuckDB file controlled by PAGE_CACHE_DUCKDB_PATH.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
@@ -132,7 +132,7 @@ _PAGE_CACHE: PageCache | None = None
 def get_page_cache(db_path: str | None = None) -> PageCache:
     """Get or create the page cache singleton.
 
-    Uses KINDLY_PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
+    Uses PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
     """
     global _PAGE_CACHE
     if _PAGE_CACHE is None:

@@ -82,7 +82,7 @@ def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
         LOGGER.warning("litellm not available for judge; returning neutral: %s", exc)
         return json.dumps({"score": 0.5, "reason": "judge llm unavailable (litellm missing)"})
 
-    model = model or getattr(settings, "KINDLY_JUDGE_MODEL", None) or "gpt-4o-mini"
+    model = model or getattr(settings, "JUDGE_MODEL", None) or "gpt-4o-mini"
     try:
         resp = litellm.completion(
             model=model,

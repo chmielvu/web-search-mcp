@@ -65,7 +65,7 @@ def _build_chat_model(cfg: AgenticResearchConfig, model_name: str) -> ChatOpenAI
 def _build_gemini_model(cfg: AgenticResearchConfig) -> Any:
     if not cfg.gemini_api_key.strip():
         raise RuntimeError(
-            "KINDLY_GEMINI_API_KEY is not set. Gemini agentic fallback cannot start."
+            "GEMINI_API_KEY is not set. Gemini agentic fallback cannot start."
         )
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI

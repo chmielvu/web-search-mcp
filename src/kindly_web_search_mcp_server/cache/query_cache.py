@@ -15,10 +15,10 @@ from .observability import emit_cache_lookup_event, emit_cache_store_event
 logger = logging.getLogger(__name__)
 
 QUERY_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("KINDLY_QUERY_CACHE_TTL_SECONDS", "86400")
+    os.environ.get("QUERY_CACHE_TTL_SECONDS", "86400")
 )
 QUERY_CACHE_DEFAULT_MAX_ENTRIES = int(
-    os.environ.get("KINDLY_QUERY_CACHE_MAX_ENTRIES", "1024")
+    os.environ.get("QUERY_CACHE_MAX_ENTRIES", "1024")
 )
 
 

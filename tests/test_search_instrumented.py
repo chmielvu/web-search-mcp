@@ -7,7 +7,6 @@ from unittest.mock import patch
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search import (
     ProviderConfig,
-    ProviderMode,
     search_single_query,
 )
 
@@ -33,7 +32,6 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
     async def test_instrumented_search_returns_provider_results(self) -> None:
         config = ProviderConfig(
             name="searxng",
-            mode=ProviderMode.ALWAYS,
             env_key="",
             search_fn=_fake_provider,
             is_free=True,
@@ -41,7 +39,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
             return_value=[config],
         ):
             results = await search_single_query("FastMCP docs", num_results=3)
@@ -53,7 +51,6 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
     async def test_instrumented_search_persists_raw_provider_results(self) -> None:
         config = ProviderConfig(
             name="searxng",
-            mode=ProviderMode.ALWAYS,
             env_key="",
             search_fn=_fake_provider,
             is_free=True,
@@ -67,7 +64,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch(
@@ -93,7 +90,6 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
     async def test_instrumented_search_logs_provider_task_crashes(self) -> None:
         config = ProviderConfig(
             name="searxng",
-            mode=ProviderMode.ALWAYS,
             env_key="",
             search_fn=_fake_provider,
             is_free=True,
@@ -102,7 +98,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch("asyncio.gather", return_value=[RuntimeError("task crashed")]),
@@ -111,10 +107,16 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(results, [])
 
-    async def test_instrumented_search_forwards_provider_arguments(self) -> None:
+    async def test_instrumented_search_forwards_provider_options(self) -> None:
+        from kindly_web_search_mcp_server.search.context import SearchContext
+        from kindly_web_search_mcp_server.search.options import SearchOptions
+        from kindly_web_search_mcp_server.search.profiles.models import SearchProfile
+        from kindly_web_search_mcp_server.search.provider_plan import (
+            build_provider_execution_plan,
+        )
+
         config = ProviderConfig(
             name="searxng",
-            mode=ProviderMode.ALWAYS,
             env_key="",
             search_fn=_fake_provider,
             is_free=True,
@@ -135,6 +137,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
         ) -> list[WebSearchResult]:
             captured["provider_name"] = provider_name
             captured["provider_arguments"] = provider_arguments
+            captured["search_options"] = search_options
             return [
                 WebSearchResult(
                     title=f"Result for {query}",
@@ -147,20 +150,49 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch(
                 "kindly_web_search_mcp_server.search.query_execution._search_single_provider",
                 side_effect=_capture_original,
-            ),
-        ):
+                ),
+            ):
+            profile = SearchProfile(
+                name="general",
+                provider_weights={"searxng": 1.0},
+                provider_names=("searxng",),
+                provider_arguments={"searxng": {"country": "us"}},
+            )
+            context = SearchContext(
+                raw_query="FastMCP docs",
+                normalized_query="FastMCP docs",
+                research_goal=None,
+                session_id="session-1",
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                rationale="clear request",
+                entities=(),
+                must_keep_terms=(),
+                providers=("searxng",),
+                num_results=3,
+                search_options=SearchOptions(),
+                profile_name="general",
+            )
+            provider_plan = build_provider_execution_plan(
+                profile=profile,
+                context=context,
+                public_options=context.search_options,
+            )
             results = await search_single_query(
                 "FastMCP docs",
                 num_results=3,
-                provider_arguments={"searxng": {"country": "us"}},
+                provider_plan=provider_plan,
+                provider_options_by_name=provider_plan.options.bundles,
             )
 
         self.assertEqual(len(results), 1)
         self.assertEqual(captured["provider_name"], "searxng")
         self.assertEqual(captured["provider_arguments"], {"country": "us"})
+        assert captured["search_options"] is context.search_options

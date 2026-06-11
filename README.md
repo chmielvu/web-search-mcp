@@ -85,7 +85,7 @@ mcp-server --http --port 8000
 
 ### Tool Profiles
 
-Control which tools are exposed via `KINDLY_TOOL_PROFILE`:
+Control which tools are exposed via `TOOL_PROFILE`:
 
 | Profile | Tools | Use Case |
 |---------|-------|----------|
@@ -95,7 +95,7 @@ Control which tools are exposed via `KINDLY_TOOL_PROFILE`:
 | `full` | All tools | Power users |
 
 ```bash
-export KINDLY_TOOL_PROFILE="full"
+export TOOL_PROFILE="full"
 ```
 
 ## Architecture
@@ -171,33 +171,33 @@ POLLINATIONS_API_KEY="..."                 # Perplexity Sonar via Pollinations
 
 ```bash
 GITHUB_TOKEN="..."                         # Better GitHub Issue/Discussion extraction
-KINDLY_BROWSER_EXECUTABLE_PATH="/path/to/chrome"  # Browser for JS-heavy sites
+BROWSER_EXECUTABLE_PATH="/path/to/chrome"  # Browser for JS-heavy sites
 ```
 
 #### Query Understanding
 
 ```bash
 AI_GATEWAY_API_KEY="..."                   # For LLM-backed query rewrite
-KINDLY_QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
-KINDLY_CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
-KINDLY_GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
+QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
+CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
+GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
 ```
 
 #### Feature Flags
 
 ```bash
-KINDLY_TOOL_PROFILE="regular"              # Tool visibility profile
-KINDLY_RERANKING_ENABLED="true"           # Enable/disable reranking
-KINDLY_QUERY_DECOMPOSITION_ENABLED="true" # Enable query decomposition
-KINDLY_QDRANT_SEARCH_ENABLED="true"       # Enable Qdrant result memory
+TOOL_PROFILE="regular"              # Tool visibility profile
+RERANKING_ENABLED="true"           # Enable/disable reranking
+QUERY_DECOMPOSITION_ENABLED="true" # Enable query decomposition
+QDRANT_SEARCH_ENABLED="true"       # Enable Qdrant result memory
 ```
 
 #### Observability
 
 ```bash
-KINDLY_LANGFUSE_PUBLIC_KEY="..."
-KINDLY_LANGFUSE_SECRET_KEY="..."
-KINDLY_LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+LANGFUSE_PUBLIC_KEY="..."
+LANGFUSE_SECRET_KEY="..."
+LANGFUSE_BASE_URL="https://cloud.langfuse.com"
 ```
 
 See `src/kindly_web_search_mcp_server/settings.py` for all 100+ configuration options.

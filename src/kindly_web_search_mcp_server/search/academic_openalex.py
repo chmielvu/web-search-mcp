@@ -23,8 +23,8 @@ from ..retry import retry_with_backoff
 logger = logging.getLogger(__name__)
 
 # Configure pyalex (polite pool or with API key)
-_openalex_email = os.environ.get("KINDLY_OPENALEX_EMAIL", "")
-_openalex_api_key = os.environ.get("KINDLY_OPENALEX_API_KEY", "")
+_openalex_email = os.environ.get("OPENALEX_EMAIL", "")
+_openalex_api_key = os.environ.get("OPENALEX_API_KEY", "")
 pyalex.config.email = _openalex_email
 pyalex.config.api_key = _openalex_api_key
 

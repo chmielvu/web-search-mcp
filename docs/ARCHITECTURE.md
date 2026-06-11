@@ -208,7 +208,7 @@ URL Input
 
 ## Tool Profiles
 
-Control tool visibility via `KINDLY_TOOL_PROFILE`:
+Control tool visibility via `TOOL_PROFILE`:
 
 ```python
 TOOL_PROFILES = {

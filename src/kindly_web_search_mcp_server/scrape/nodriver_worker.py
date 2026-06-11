@@ -113,7 +113,7 @@ _DIAG_LINE_LIMIT = 8000  # Keep in sync with utils.diagnostics.MAX_LINE_CHARS
 
 
 def _diagnostics_enabled() -> bool:
-    raw = (os.environ.get("KINDLY_DIAGNOSTICS") or "").strip().lower()
+    raw = (os.environ.get("DIAGNOSTICS") or "").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -144,7 +144,7 @@ def _emit_diag(stage: str, msg: str, data: dict[str, object] | None = None) -> N
                 },
             }
             payload = json.dumps(entry, ensure_ascii=True, separators=(",", ":"))
-        _safe_write_text(stream, f"KINDLY_DIAG {payload}")
+        _safe_write_text(stream, f"DIAG {payload}")
     except Exception:
         return
 
@@ -303,7 +303,7 @@ def _resolve_browser_executable_path(explicit_path: str | None) -> str | None:
         return explicit_path.strip()
 
     for key in (
-        "KINDLY_BROWSER_EXECUTABLE_PATH",
+        "BROWSER_EXECUTABLE_PATH",
         "BROWSER_EXECUTABLE_PATH",
         "CHROME_BIN",
         "CHROME_PATH",
@@ -354,7 +354,7 @@ def _resolve_sandbox_enabled() -> bool:
     except Exception:
         pass
 
-    raw_sandbox = (os.environ.get("KINDLY_NODRIVER_SANDBOX") or "").strip().lower()
+    raw_sandbox = (os.environ.get("NODRIVER_SANDBOX") or "").strip().lower()
     if raw_sandbox in ("0", "false", "no", "off"):
         return False
     if raw_sandbox in ("1", "true", "yes", "on"):
@@ -384,7 +384,7 @@ def _is_snap_browser(executable_path: str) -> bool:
 
 
 def _resolve_start_retry_attempts() -> int:
-    raw = (os.environ.get("KINDLY_NODRIVER_RETRY_ATTEMPTS") or "").strip()
+    raw = (os.environ.get("NODRIVER_RETRY_ATTEMPTS") or "").strip()
     try:
         value = int(raw) if raw else 3
     except ValueError:
@@ -393,7 +393,7 @@ def _resolve_start_retry_attempts() -> int:
 
 
 def _resolve_retry_backoff_seconds() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS") or "").strip()
+    raw = (os.environ.get("NODRIVER_RETRY_BACKOFF_SECONDS") or "").strip()
     try:
         value = float(raw) if raw else 0.5
     except ValueError:
@@ -410,7 +410,7 @@ def _resolve_devtools_ready_timeout_seconds() -> float:
       Keep defaults conservative and allow env overrides for slow cold starts (e.g., Snap).
     """
     raw = (
-        os.environ.get("KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or ""
+        os.environ.get("NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS") or ""
     ).strip()
     try:
         # Windows cold starts (first run + antivirus scans of fresh user-data-dir) can
@@ -429,7 +429,7 @@ def _resolve_worker_timeout_seconds() -> float:
 def _resolve_worker_timeout_details() -> tuple[
     float, float, float, bool, bool, bool, str
 ]:
-    raw = (os.environ.get("KINDLY_HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
+    raw = (os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
     used_default = False
     invalid = False
     try:
@@ -478,7 +478,7 @@ def _ensure_no_proxy_localhost() -> None:
     - We only need to guarantee loopback bypass for the local DevTools endpoint.
     """
     raw = (
-        (os.environ.get("KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1")
+        (os.environ.get("NODRIVER_ENSURE_NO_PROXY_LOCALHOST") or "1")
         .strip()
         .lower()
     )
@@ -504,7 +504,7 @@ def _pick_free_port(host: str = "127.0.0.1") -> int:
 
 
 def _resolve_snap_backoff_multiplier() -> float:
-    raw = (os.environ.get("KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER") or "").strip()
+    raw = (os.environ.get("NODRIVER_SNAP_BACKOFF_MULTIPLIER") or "").strip()
     try:
         value = float(raw) if raw else 3.0
     except ValueError:
@@ -698,7 +698,7 @@ async def _fetch_html(
         if resolved_browser_executable_path is None:
             raise RuntimeError(
                 "No Chromium-based browser executable found. "
-                "Install Chromium/Chrome or set KINDLY_BROWSER_EXECUTABLE_PATH to the browser binary path."
+                "Install Chromium/Chrome or set BROWSER_EXECUTABLE_PATH to the browser binary path."
             )
         is_snap = _is_snap_browser(resolved_browser_executable_path)
         attempts = _resolve_start_retry_attempts()
@@ -1116,8 +1116,8 @@ async def _fetch_html(
                 raise RuntimeError(
                     f"Failed to connect to browser after {attempts} attempt(s). "
                     f"(root={is_root}, sandbox={sandbox_enabled}, browser_executable_path={resolved_browser_executable_path!r}) "
-                    "If running as root (e.g., in Docker), ensure sandbox is disabled (KINDLY_NODRIVER_SANDBOX=0). "
-                    "If the browser cannot be found/started, set KINDLY_BROWSER_EXECUTABLE_PATH."
+                    "If running as root (e.g., in Docker), ensure sandbox is disabled (NODRIVER_SANDBOX=0). "
+                    "If the browser cannot be found/started, set BROWSER_EXECUTABLE_PATH."
                 ) from exc
             _emit_diag(
                 "worker.error",
@@ -1138,7 +1138,7 @@ async def _main_async(args: argparse.Namespace) -> int:
     global _DIAG_ENABLED, _DIAG_REQUEST_ID, _DIAG_STREAM, _DIAG_STARTED
     _DIAG_ENABLED = _diagnostics_enabled()
     _DIAG_REQUEST_ID = (
-        os.environ.get("KINDLY_REQUEST_ID") or "unknown"
+        os.environ.get("REQUEST_ID") or "unknown"
     ).strip() or "unknown"
     _DIAG_STREAM = original_stderr
     _DIAG_STARTED = time.monotonic()
@@ -1163,23 +1163,23 @@ async def _main_async(args: argparse.Namespace) -> int:
                 "python_version": platform.python_version(),
                 "platform": platform.platform(),
                 "env": {
-                    "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_HTML_TOTAL_TIMEOUT_SECONDS", ""
+                    "HTML_TOTAL_TIMEOUT_SECONDS": os.environ.get(
+                        "HTML_TOTAL_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_RETRY_ATTEMPTS": os.environ.get(
-                        "KINDLY_NODRIVER_RETRY_ATTEMPTS", ""
+                    "NODRIVER_RETRY_ATTEMPTS": os.environ.get(
+                        "NODRIVER_RETRY_ATTEMPTS", ""
                     ),
-                    "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS": os.environ.get(
-                        "KINDLY_NODRIVER_RETRY_BACKOFF_SECONDS", ""
+                    "NODRIVER_RETRY_BACKOFF_SECONDS": os.environ.get(
+                        "NODRIVER_RETRY_BACKOFF_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
+                    "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": os.environ.get(
+                        "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER": os.environ.get(
-                        "KINDLY_NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
+                    "NODRIVER_SNAP_BACKOFF_MULTIPLIER": os.environ.get(
+                        "NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
                     ),
-                    "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST": os.environ.get(
-                        "KINDLY_NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
+                    "NODRIVER_ENSURE_NO_PROXY_LOCALHOST": os.environ.get(
+                        "NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
                     ),
                     "NO_PROXY": os.environ.get("NO_PROXY", ""),
                     "no_proxy": os.environ.get("no_proxy", ""),

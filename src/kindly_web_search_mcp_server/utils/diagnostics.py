@@ -18,7 +18,7 @@ MAX_LINE_CHARS = 8000
 
 def diagnostics_enabled(env: Mapping[str, str] | None = None) -> bool:
     source = env if env is not None else os.environ
-    raw = (source.get("KINDLY_DIAGNOSTICS") or "").strip().lower()
+    raw = (source.get("DIAGNOSTICS") or "").strip().lower()
     return raw in _TRUTHY
 
 
@@ -86,7 +86,7 @@ def emit_diagnostic(entry: dict[str, Any], *, stream: TextIO | None = None) -> N
     try:
         target = stream or sys.stderr
         payload = json.dumps(entry, ensure_ascii=True, separators=(",", ":"))
-        target.write(f"KINDLY_DIAG {payload}\n")
+        target.write(f"DIAG {payload}\n")
         target.flush()
     except Exception:
         return

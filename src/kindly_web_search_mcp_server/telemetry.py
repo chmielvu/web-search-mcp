@@ -371,7 +371,7 @@ _domain_diversity_histogram: metrics.Histogram | None = None
 
 
 _OTLP_EXPORT_TIMEOUT_SECONDS = int(
-    os.environ.get("KINDLY_OTLP_EXPORT_TIMEOUT_SECONDS", "10")
+    os.environ.get("OTLP_EXPORT_TIMEOUT_SECONDS", "10")
 )
 
 
@@ -390,18 +390,18 @@ def init_telemetry(
 
     Windows / convenience path (recommended in this repo):
         GRAFANA_CLOUD_INSTANCE_ID + GRAFANA_CLOUD_API_KEY + GRAFANA_CLOUD_OTLP_ENDPOINT
-        (or the KINDLY_* equivalents). These are automatically turned into the
+        (or the * equivalents). These are automatically turned into the
         correct Authorization header.
 
-    Sampling is controlled via KINDLY_OTEL_SAMPLING_RATIO (default 0.15 in Settings).
+    Sampling is controlled via OTEL_SAMPLING_RATIO (default 0.15 in Settings).
 
     Optional:
-        KINDLY_PROMETHEUS_PORT / KINDLY_PROMETHEUS_ENABLED
+        PROMETHEUS_PORT / PROMETHEUS_ENABLED
         OTEL_SERVICE_NAME / OTEL_SERVICE_NAMESPACE
         DEPLOYMENT_ENV
 
-    Set KINDLY_OTEL_ENABLED=false to skip telemetry initialization entirely.
-    Set KINDLY_OTLP_EXPORT_TIMEOUT_SECONDS to control per-exporter connect timeout
+    Set OTEL_ENABLED=false to skip telemetry initialization entirely.
+    Set OTLP_EXPORT_TIMEOUT_SECONDS to control per-exporter connect timeout
     (default 10s).  This prevents the ~70s hang when the OTLP endpoint is unreachable.
     """
     global _initialized
@@ -409,12 +409,12 @@ def init_telemetry(
         logging.debug("Telemetry already initialized, skipping")
         return
 
-    if os.environ.get("KINDLY_OTEL_ENABLED", "true").lower() not in (
+    if os.environ.get("OTEL_ENABLED", "true").lower() not in (
         "true",
         "1",
         "yes",
     ):
-        logging.info("KINDLY_OTEL_ENABLED=false — telemetry initialization skipped")
+        logging.info("OTEL_ENABLED=false — telemetry initialization skipped")
         return
 
     # Allow overrides from env
@@ -478,7 +478,7 @@ def init_telemetry(
 
         # Allow port override from env
         if prometheus_port is None:
-            port_env = os.environ.get("KINDLY_PROMETHEUS_PORT", "0")
+            port_env = os.environ.get("PROMETHEUS_PORT", "0")
             prometheus_port = int(port_env) if port_env else None
 
         # === RESOURCE (Grafana Cloud Application Observability) ===
@@ -492,7 +492,7 @@ def init_telemetry(
             "service.instance.id": f"{hostname}-{pid}",
             "deployment.environment": os.environ.get(
                 "DEPLOYMENT_ENV",
-                os.environ.get("KINDLY_OTEL_ENVIRONMENT", "development"),
+                os.environ.get("OTEL_ENVIRONMENT", "development"),
             ),
             "host.name": hostname,
             "host.arch": "amd64",
@@ -512,7 +512,7 @@ def init_telemetry(
         # === SAMPLING (head-based, configurable) ===
         sampling_ratio = float(
             os.environ.get(
-                "KINDLY_OTEL_SAMPLING_RATIO",
+                "OTEL_SAMPLING_RATIO",
                 os.environ.get("OTEL_TRACES_SAMPLER_ARG", "0.15"),
             )
         )
@@ -652,7 +652,7 @@ def init_telemetry(
         try:
             from .utils.structured_logging import configure_structlog
 
-            json_logs = os.environ.get("KINDLY_STRUCTURED_LOGGING", "").lower() in (
+            json_logs = os.environ.get("STRUCTURED_LOGGING", "").lower() in (
                 "true",
                 "1",
                 "yes",

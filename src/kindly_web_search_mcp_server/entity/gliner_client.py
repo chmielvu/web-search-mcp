@@ -1,7 +1,7 @@
 """Lazy GLiNER2 entity extraction client.
 
 - Optional extra: pip install ...[entity-extraction]
-- Controlled by KINDLY_ENTITY_EXTRACTION_ENABLED (default false)
+- Controlled by ENTITY_EXTRACTION_ENABLED (default false)
 - Never imported at package load time.
 - All inference via asyncio.to_thread (CPU bound, non-blocking).
 - Explicit disabled state + error events on failure (no silent degradation when enabled).
@@ -24,13 +24,13 @@ _gliner_client: GLiNER2Client | None = None
 
 
 def is_entity_extraction_enabled() -> bool:
-    """Return true only when explicitly enabled via env (KINDLY_ENTITY_EXTRACTION_ENABLED=true)."""
+    """Return true only when explicitly enabled via env (ENTITY_EXTRACTION_ENABLED=true)."""
     # Read live from env to support monkeypatch in tests; fall back to settings.
     raw = (settings.entity_extraction_enabled if hasattr(settings, "entity_extraction_enabled") else False)
     # Re-evaluate from env for test dynamism (settings may be snapshot)
     import os
 
-    env_val = os.environ.get("KINDLY_ENTITY_EXTRACTION_ENABLED", "").lower()
+    env_val = os.environ.get("ENTITY_EXTRACTION_ENABLED", "").lower()
     if env_val in ("true", "1", "yes"):
         return True
     if env_val in ("false", "0", "no"):
@@ -60,14 +60,14 @@ class GLiNER2Client:
         import os
 
         return (
-            os.environ.get("KINDLY_GLINER_MODEL")
+            os.environ.get("GLINER_MODEL")
             or getattr(settings, "gliner_model", "fastino/gliner2-base-v1")
         )
 
     def _resolve_threshold(self) -> float:
         import os
 
-        raw = os.environ.get("KINDLY_GLINER_THRESHOLD")
+        raw = os.environ.get("GLINER_THRESHOLD")
         if raw is not None:
             try:
                 return float(raw)

@@ -178,7 +178,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "voyage": bool(settings.voyage_api_key),
             "composio": bool(
                 os.environ.get("COMPOSIO_API_KEY")
-                and os.environ.get("KINDLY_COMPOSIO_USER_ID")
+                and os.environ.get("COMPOSIO_USER_ID")
             ),
             "search_router": bool(os.environ.get("SEARCH_ROUTER_API_KEY")),
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
@@ -551,7 +551,7 @@ def main(argv: list[str] | None = None) -> None:
         or os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
         or (
             os.environ.get("COMPOSIO_API_KEY", "").strip()
-            and os.environ.get("KINDLY_COMPOSIO_USER_ID", "").strip()
+            and os.environ.get("COMPOSIO_USER_ID", "").strip()
         )
         or settings.gemini_api_key.strip()
     ):
@@ -560,8 +560,8 @@ def main(argv: list[str] | None = None) -> None:
         LOGGER.warning(
             "No search provider configured (SEARXNG_BASE_URL, TAVILY_API_KEY, BRAVE_API_KEY, "
             "JINA_API_KEY, SEARCH_ROUTER_API_KEY, "
-            "COMPOSIO_API_KEY + KINDLY_COMPOSIO_USER_ID, "
-            "or KINDLY_GEMINI_API_KEY); "
+            "COMPOSIO_API_KEY + COMPOSIO_USER_ID, "
+            "or GEMINI_API_KEY); "
             "`web_search` calls will fail until one is provided."
         )
 
@@ -605,8 +605,8 @@ def _resolve_tool_total_timeout_seconds() -> float:
     In practice, Windows headless-browser cold starts can exceed that, so we allow a
     higher cap that can be tuned via environment variables.
     """
-    value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     safe_max = max(1.0, max_value)
     return max(1.0, min(value, safe_max))
 
@@ -617,7 +617,7 @@ def _timeout_markdown_note(url: str, *, scope: str | None = None) -> str:
 
 
 def _resolve_web_search_max_concurrency(num_results: int) -> int:
-    raw_env = (os.environ.get("KINDLY_WEB_SEARCH_MAX_CONCURRENCY") or "").strip()
+    raw_env = (os.environ.get("WEB_SEARCH_MAX_CONCURRENCY") or "").strip()
     value: int | None = None
     if raw_env:
         try:
@@ -729,7 +729,7 @@ async def web_search(
     """
 
     # Enforce bounds
-    num_results = max(1, min(int(os.environ.get("KINDLY_DEFAULT_NUM_RESULTS", "10")), 25))
+    num_results = max(1, min(int(os.environ.get("DEFAULT_NUM_RESULTS", "10")), 25))
     search_options = build_search_options(
         result_offset=result_offset,
         searxng_categories=searxng_categories,
@@ -858,14 +858,14 @@ async def web_search(
                     "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
                     "SEARCH_ROUTER_API_KEY": os.environ.get("SEARCH_ROUTER_API_KEY", ""),
                     "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
-                        "KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS", ""
+                    "TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
+                        "TOOL_TOTAL_TIMEOUT_SECONDS", ""
                     ),
-                    "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
-                        "KINDLY_TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
+                    "TOOL_TOTAL_TIMEOUT_MAX_SECONDS": os.environ.get(
+                        "TOOL_TOTAL_TIMEOUT_MAX_SECONDS", ""
                     ),
-                    "KINDLY_WEB_SEARCH_MAX_CONCURRENCY": os.environ.get(
-                        "KINDLY_WEB_SEARCH_MAX_CONCURRENCY", ""
+                    "WEB_SEARCH_MAX_CONCURRENCY": os.environ.get(
+                        "WEB_SEARCH_MAX_CONCURRENCY", ""
                     ),
                 }
                 parent_diag.emit(
@@ -986,7 +986,7 @@ async def get_content(
         strip_selectors=strip_selectors,
     )
 
-    max_length = _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)
+    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
     safe_summary_mode = (
@@ -1199,19 +1199,19 @@ async def batch_get_content(
     """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
     Prefer over repeated get_content calls when you have 3+ URLs. Check has_more and cursor for continuation.
     """
-    max_urls = _get_int_env("KINDLY_BATCH_GET_CONTENT_MAX_URLS", 30)
+    max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
     _urls = urls or []
     bounded_urls: list[str] = _urls[: max(1, max_urls)]
     safe_concurrency = max(1, min(max_concurrency, 8))
     safe_item_length = max(
         500,
-        min(per_item_char_length, _get_int_env("KINDLY_GET_CONTENT_MAX_CHARS", 50_000)),
+        min(per_item_char_length, _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)),
     )
     safe_total_budget = max(
         2_000,
         min(
             total_char_budget,
-            _get_int_env("KINDLY_BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
+            _get_int_env("BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
         ),
     )
 
@@ -2126,14 +2126,14 @@ def get_providers_status() -> str:
         f"**Search Router**: {'✓ Configured' if os.environ.get('SEARCH_ROUTER_API_KEY') else '✗ Not configured'}",
         f"**Jina**: {'✓ Configured' if os.environ.get('JINA_API_KEY') else '✗ Not configured'}",
         f"**Voyage Reranker**: {'✓ Configured' if settings.voyage_api_key else '✗ Not configured'}",
-        f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('KINDLY_COMPOSIO_USER_ID') else '✗ Not configured'}",
+        f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('COMPOSIO_USER_ID') else '✗ Not configured'}",
         "",
         "## AI Search",
         f"**Gemini**: {'✓ Configured' if settings.gemini_api_key else '✗ Not configured'}",
         f"**Perplexity (Pollinations)**: {'✓ Configured' if os.environ.get('POLLINATIONS_API_KEY') else '✗ Not configured'}",
         "",
         "## Academic Search",
-        f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('KINDLY_S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
+        f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
         "**ArXiv**: ✓ Always available (no auth required)",
         "",
         "## Other",
@@ -2179,7 +2179,7 @@ def get_features_status() -> str:
         "Page cache: DuckDB (separate file)",
         "",
         "## Timeouts",
-        f"Tool Timeout: {os.environ.get('KINDLY_TOOL_TOTAL_TIMEOUT_SECONDS', '120')}s",
+        f"Tool Timeout: {os.environ.get('TOOL_TOTAL_TIMEOUT_SECONDS', '120')}s",
         f"YouTube Transcript Timeout: {settings.youtube_transcript_timeout_seconds}s",
     ]
     return "\n".join(lines)

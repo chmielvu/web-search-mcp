@@ -1,7 +1,7 @@
 """Entity overlap scoring for rerank feature (measured signal).
 
 Returns bounded score in [-1.0, 1.0].
-Only blended into rerank score when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED=true.
+Only blended into rerank score when RERANK_ENTITY_OVERLAP_ENABLED=true.
 Weights per label from design: exact match positive contribution, version/repo mismatch negative.
 """
 

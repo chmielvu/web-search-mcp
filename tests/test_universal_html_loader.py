@@ -72,7 +72,7 @@ class TestUniversalHtmlLoader(unittest.IsolatedAsyncioTestCase):
             async def communicate(self):
                 return b"<html><body><p>ok</p></body></html>", b""
 
-        with patch.dict("os.environ", {"KINDLY_BROWSER_EXECUTABLE_PATH": "/usr/bin/chromium"}), patch(
+        with patch.dict("os.environ", {"BROWSER_EXECUTABLE_PATH": "/usr/bin/chromium"}), patch(
             "kindly_web_search_mcp_server.scrape.universal_html.asyncio.create_subprocess_exec",
             new_callable=AsyncMock,
         ) as mock_spawn:

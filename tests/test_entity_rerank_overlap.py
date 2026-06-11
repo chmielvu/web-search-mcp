@@ -1,6 +1,6 @@
 """Tests for entity overlap as rerank feature (Phase 8.3).
 
-Score in [-1.0, 1.0]. Blend only under KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
+Score in [-1.0, 1.0]. Blend only under RERANK_ENTITY_OVERLAP_ENABLED.
 Penalties for version/repo mismatch; boost for exact package etc.
 """
 

@@ -175,7 +175,7 @@ class TestNodriverWorkerSandbox(unittest.IsolatedAsyncioTestCase):
         fake_start = AsyncMock(return_value=_FakeBrowser())
 
         with patch.dict("sys.modules", {"nodriver": type("X", (), {"start": fake_start})}), patch.dict(
-            "os.environ", {"KINDLY_NODRIVER_SANDBOX": "1"}, clear=False
+            "os.environ", {"NODRIVER_SANDBOX": "1"}, clear=False
         ), patch(
             "shutil.which", return_value="/usr/bin/chromium"
         ), patch(
@@ -229,7 +229,7 @@ class TestNodriverWorkerSandbox(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.dict("sys.modules", {"nodriver": type("X", (), {"start": fake_start})}),
-            patch.dict("os.environ", {"KINDLY_NODRIVER_SANDBOX": "1"}, clear=False),
+            patch.dict("os.environ", {"NODRIVER_SANDBOX": "1"}, clear=False),
             patch("os.geteuid", return_value=0),
             patch("shutil.which", return_value="/usr/bin/chromium"),
             patch("kindly_web_search_mcp_server.scrape.nodriver_worker._pick_free_port", return_value=9222),
@@ -310,7 +310,7 @@ class TestNodriverWorkerSandbox(unittest.IsolatedAsyncioTestCase):
             patch.dict("os.environ", {}, clear=False),
             patch("shutil.which", return_value=None),
         ):
-            with self.assertRaisesRegex(RuntimeError, "KINDLY_BROWSER_EXECUTABLE_PATH"):
+            with self.assertRaisesRegex(RuntimeError, "BROWSER_EXECUTABLE_PATH"):
                 await _fetch_html(
                     "https://example.com",
                     referer=None,
@@ -341,7 +341,7 @@ class TestNodriverWorkerSandbox(unittest.IsolatedAsyncioTestCase):
         fake_terminate = AsyncMock()
         with (
             patch.dict("sys.modules", {"nodriver": type("X", (), {"start": fake_start})}),
-            patch.dict("os.environ", {"KINDLY_NODRIVER_RETRY_ATTEMPTS": "2"}, clear=False),
+            patch.dict("os.environ", {"NODRIVER_RETRY_ATTEMPTS": "2"}, clear=False),
             patch("shutil.which", return_value="/snap/bin/chromium"),
             patch("kindly_web_search_mcp_server.scrape.nodriver_worker._pick_free_port", return_value=9222),
             patch("kindly_web_search_mcp_server.scrape.nodriver_worker._launch_chromium", AsyncMock()),
@@ -377,7 +377,7 @@ class TestNodriverWorkerSandbox(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.dict("sys.modules", {"nodriver": type("X", (), {"start": fake_start})}),
-            patch.dict("os.environ", {"KINDLY_NODRIVER_RETRY_ATTEMPTS": "2"}, clear=False),
+            patch.dict("os.environ", {"NODRIVER_RETRY_ATTEMPTS": "2"}, clear=False),
             patch("shutil.which", return_value="/snap/bin/chromium"),
             patch("kindly_web_search_mcp_server.scrape.nodriver_worker._pick_free_port", return_value=9222),
             patch("kindly_web_search_mcp_server.scrape.nodriver_worker._launch_chromium", fake_launch),

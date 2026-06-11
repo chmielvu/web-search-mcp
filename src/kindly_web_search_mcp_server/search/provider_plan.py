@@ -37,7 +37,6 @@ def build_provider_execution_plan(
         provider_names = tuple(profile.provider_weights.keys()) or (
             "searxng",
             "brave",
-            "google_cse",
         )
     provider_weights = dict(profile.provider_weights)
     bundles = {

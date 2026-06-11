@@ -117,7 +117,7 @@ async def rerank_results(
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
     query_entities (if provided) enables the measured entity-overlap feature
-    when KINDLY_RERANK_ENTITY_OVERLAP_ENABLED.
+    when RERANK_ENTITY_OVERLAP_ENABLED.
 
     ab_overrides (optional): A/B experiment variant config dict that can
         override ``provider``, ``top_k``, ``diversity_weight``, and/or

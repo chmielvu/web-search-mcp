@@ -21,7 +21,7 @@ class AgenticResearchConfig:
     """Agentic research runtime config.
 
     Defaults are now sourced from the central Settings (which parses
-    KINDLY_AGENTIC_RESEARCH_* and NANOGPT_API_KEY etc. in one place).
+    AGENTIC_RESEARCH_* and NANOGPT_API_KEY etc. in one place).
     This improves consistency and avoids duplicated env parsing logic.
 
     Callers (runner, tests) can still override individual fields for tests

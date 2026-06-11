@@ -220,7 +220,7 @@ def fetch_transcript_data(
         if "RequestBlocked" in error_msg or "IpBlocked" in error_msg:
             raise YouTubeError(
                 "IP blocked by YouTube (common on AWS/GCP/Azure). "
-                "Set KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL to use a proxy. "
+                "Set YOUTUBE_TRANSCRIPT_PROXY_URL to use a proxy. "
                 f"Original error: {error_msg}"
             )
         raise YouTubeError(f"Could not retrieve transcript: {error_msg}")
