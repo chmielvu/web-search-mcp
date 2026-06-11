@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..models import WebSearchResult
+from .base_provider import run_clientless_provider
 from .pollinations import gemini_grounding_search
 
 logger = logging.getLogger(__name__)
@@ -143,61 +144,66 @@ async def search_gemini_pollinations(
     if num_results < 1:
         return []
 
-    try:
-        response = await gemini_grounding_search(query, num_results=num_results)
-    except Exception as e:
-        logger.warning(f"gemini-search provider failed: {e}")
-        return []
+    async def _request() -> dict[str, Any]:
+        return await gemini_grounding_search(query, num_results=num_results)
 
-    grounding_metadata = response.get("groundingMetadata", {})
-    grounding_chunks = grounding_metadata.get("groundingChunks", [])
-    grounding_supports = grounding_metadata.get("groundingSupports", [])
-    web_search_queries = grounding_metadata.get("webSearchQueries", [])
+    def _parse_response(response: dict[str, Any]) -> list[WebSearchResult]:
+        grounding_metadata = response.get("groundingMetadata", {})
+        grounding_chunks = grounding_metadata.get("groundingChunks", [])
+        grounding_supports = grounding_metadata.get("groundingSupports", [])
+        web_search_queries = grounding_metadata.get("webSearchQueries", [])
 
-    if not grounding_chunks:
-        logger.debug(f"gemini-search returned no grounding chunks for: {query}")
-        return []
+        if not grounding_chunks:
+            logger.debug(f"gemini-search returned no grounding chunks for: {query}")
+            return []
 
-    # Build snippets from groundingSupports
-    support_snippets = _build_snippets_from_supports(
-        grounding_chunks, grounding_supports
+        support_snippets = _build_snippets_from_supports(
+            grounding_chunks, grounding_supports
+        )
+
+        results: list[WebSearchResult] = []
+        for idx, chunk in enumerate(grounding_chunks):
+            uri = chunk.get("uri")
+            title = chunk.get("title")
+            domain = chunk.get("domain")
+
+            if not uri or not title:
+                continue
+
+            snippet = support_snippets.get(idx, "")
+
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    link=uri,
+                    snippet=snippet,
+                    domain=domain,
+                    diagnostics=[
+                        {
+                            "grounding_chunk": {
+                                "uri": uri,
+                                "title": title,
+                                "domain": domain,
+                                "chunk_index": idx,
+                            },
+                            "web_search_queries": web_search_queries,
+                            "web_search_queries_source": "gemini_grounding",
+                            "provider": response.get("provider", "vertex-ai"),
+                        }
+                    ],
+                )
+            )
+
+        return results
+
+    results = await run_clientless_provider(
+        "gemini",
+        query,
+        num_results,
+        request=_request,
+        parse_response=_parse_response,
     )
 
-    results: list[WebSearchResult] = []
-    for idx, chunk in enumerate(grounding_chunks):
-        uri = chunk.get("uri")
-        title = chunk.get("title")
-        domain = chunk.get("domain")
-
-        if not uri or not title:
-            continue
-
-        # Get snippet from groundingSupports if available
-        snippet = support_snippets.get(idx, "")
-
-        result = WebSearchResult(
-            title=title,
-            link=uri,
-            snippet=snippet,
-            domain=domain,
-            providers=["gemini"],
-            diagnostics=[
-                {
-                    "grounding_chunk": {
-                        "uri": uri,
-                        "title": title,
-                        "domain": domain,
-                        "chunk_index": idx,
-                    },
-                    "web_search_queries": web_search_queries,
-                    "web_search_queries_source": "gemini_grounding",
-                    "provider": response.get("provider", "vertex-ai"),
-                }
-            ],
-        )
-        results.append(result)
-
-    # Resolve redirect URLs to canonical URLs
     resolved_results = await asyncio.gather(
         *[_resolve_redirect_result(r) for r in results]
     )

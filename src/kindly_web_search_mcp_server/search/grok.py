@@ -29,8 +29,8 @@ import httpx
 
 from ..models import WebSearchResult
 from ..prompts.provider_grok import build_provider_grok_prompt
-from ..retry import retry_with_backoff
 from ..settings import settings
+from .base_provider import run_provider
 
 logger = logging.getLogger(__name__)
 
@@ -255,45 +255,38 @@ async def search_grok_openrouter(
             raise GrokProviderError("OpenRouter response was not a JSON object.")
         return data
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        choices = data.get("choices", [])
+        if not choices:
+            return []
 
-            async def _request() -> dict[str, Any]:
-                return await _do_request(client)
+        message = choices[0].get("message", {})
+        citations = _extract_citations(message)
 
-            data = await retry_with_backoff(
-                _request, provider_name="grok_openrouter", max_retries=2
-            )
-    else:
+        results: list[WebSearchResult] = []
+        for c in citations:
+            title = c.get("title", "")
+            link = c.get("url", "")
+            snippet = c.get("snippet", "")
+            if not title.strip() or not link.strip():
+                continue
+            if not snippet.strip():
+                snippet = title
+            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+            if len(results) >= num_results:
+                break
 
-        async def _request_with_client() -> dict[str, Any]:
-            return await _do_request(http_client)
+        return results
 
-        data = await retry_with_backoff(
-            _request_with_client, provider_name="grok_openrouter", max_retries=2
-        )
-
-    choices = data.get("choices", [])
-    if not choices:
-        return []
-
-    message = choices[0].get("message", {})
-    citations = _extract_citations(message)
-
-    results: list[WebSearchResult] = []
-    for c in citations:
-        title = c.get("title", "")
-        link = c.get("url", "")
-        snippet = c.get("snippet", "")
-        if not title.strip() or not link.strip():
-            continue
-        if not snippet.strip():
-            snippet = title
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-        if len(results) >= num_results:
-            break
-
-    return results
+    return await run_provider(
+        "grok_openrouter",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=REQUEST_TIMEOUT,
+    )
 
 
 # ---------------------------------------------------------------------------

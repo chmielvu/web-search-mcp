@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
-from ..retry import retry_with_backoff
 from ..settings import settings
+from .base_provider import run_provider
 from .options import SearchOptions
 
 
@@ -68,47 +68,44 @@ async def search_google_cse(
             raise GoogleCseError("Google CSE response was not a JSON object.")
         return body
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=settings.google_cse_timeout_seconds) as client:
-            data = await retry_with_backoff(
-                lambda: _do_request(client),
-                provider_name="google_cse",
-                max_retries=2,
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        raw_items = data.get("items", [])
+        if not isinstance(raw_items, list):
+            return []
+
+        results: list[WebSearchResult] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title")
+            link = item.get("link")
+            snippet = item.get("snippet") or item.get("htmlSnippet") or ""
+            domain = item.get("displayLink")
+            if not isinstance(title, str) or not title.strip():
+                continue
+            if not isinstance(link, str) or not link.strip():
+                continue
+            if not isinstance(snippet, str):
+                snippet = ""
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    link=link,
+                    snippet=snippet,
+                    domain=domain if isinstance(domain, str) and domain.strip() else None,
+                )
             )
-    else:
-        data = await retry_with_backoff(
-            lambda: _do_request(http_client),
-            provider_name="google_cse",
-            max_retries=2,
-        )
+            if len(results) >= num_results:
+                break
 
-    raw_items = data.get("items", [])
-    if not isinstance(raw_items, list):
-        return []
+        return results
 
-    results: list[WebSearchResult] = []
-    for item in raw_items:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        link = item.get("link")
-        snippet = item.get("snippet") or item.get("htmlSnippet") or ""
-        domain = item.get("displayLink")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        if not isinstance(link, str) or not link.strip():
-            continue
-        if not isinstance(snippet, str):
-            snippet = ""
-        results.append(
-            WebSearchResult(
-                title=title,
-                link=link,
-                snippet=snippet,
-                domain=domain if isinstance(domain, str) and domain.strip() else None,
-            )
-        )
-        if len(results) >= num_results:
-            break
-
-    return results
+    return await run_provider(
+        "google_cse",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=settings.google_cse_timeout_seconds,
+    )

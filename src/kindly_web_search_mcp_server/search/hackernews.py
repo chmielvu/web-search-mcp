@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
+from .base_provider import run_provider
 
 _HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 
@@ -51,49 +52,50 @@ async def search_hackernews(
             return {}
         return data
 
-    try:
-        if http_client is not None:
-            data = await _do_request(http_client)
-        else:
-            async with httpx.AsyncClient(timeout=15) as client:
-                data = await _do_request(client)
-    except Exception:
-        return []
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        hits = data.get("hits")
+        if not isinstance(hits, list):
+            return []
 
-    hits = data.get("hits")
-    if not isinstance(hits, list):
-        return []
+        results: list[WebSearchResult] = []
+        for hit in hits:
+            if not isinstance(hit, dict):
+                continue
 
-    results: list[WebSearchResult] = []
-    for hit in hits:
-        if not isinstance(hit, dict):
-            continue
+            title = hit.get("title")
+            url = hit.get("url")
+            object_id = hit.get("objectID")
+            points = hit.get("points", 0)
+            num_comments = hit.get("num_comments", 0)
+            created = hit.get("created_at", "")
 
-        title = hit.get("title")
-        url = hit.get("url")
-        object_id = hit.get("objectID")
-        points = hit.get("points", 0)
-        num_comments = hit.get("num_comments", 0)
-        created = hit.get("created_at", "")
+            if not isinstance(title, str) or not title:
+                continue
 
-        if not isinstance(title, str) or not title:
-            continue
+            link: str
+            if isinstance(url, str) and url:
+                link = url
+            elif isinstance(object_id, str) and object_id:
+                link = f"https://news.ycombinator.com/item?id={object_id}"
+            else:
+                continue
 
-        # Self-posts have no url — fall back to HN item page
-        link: str
-        if isinstance(url, str) and url:
-            link = url
-        elif isinstance(object_id, str) and object_id:
-            link = f"https://news.ycombinator.com/item?id={object_id}"
-        else:
-            continue
+            snippet = f"{points} pts | {num_comments} comments"
+            if isinstance(created, str) and created:
+                snippet += f" | {created[:10]}"
 
-        snippet = f"{points} pts | {num_comments} comments"
-        if isinstance(created, str) and created:
-            snippet += f" | {created[:10]}"
+            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+            if len(results) >= num_results:
+                break
 
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-        if len(results) >= num_results:
-            break
+        return results
 
-    return results
+    return await run_provider(
+        "hackernews",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=15.0,
+    )

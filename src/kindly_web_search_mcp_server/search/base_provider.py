@@ -1,4 +1,4 @@
-"""Shared provider execution helpers for HTTP-based search providers."""
+"""Shared provider execution helpers for search providers."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from ..retry import retry_with_backoff
 TResponse = TypeVar("TResponse")
 
 RequestFn = Callable[[httpx.AsyncClient], Awaitable[TResponse]]
+ClientlessRequestFn = Callable[[], Awaitable[TResponse]]
 ParseFn = Callable[[TResponse], list[WebSearchResult]]
 
 
@@ -58,3 +59,24 @@ async def run_provider(
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         return await _fetch(client)
+
+
+async def run_clientless_provider(
+    provider_name: str,
+    query: str,
+    num_results: int,
+    *,
+    request: ClientlessRequestFn[TResponse],
+    parse_response: ParseFn[TResponse],
+) -> list[WebSearchResult]:
+    """Execute a provider request without a shared HTTP client."""
+    if not query.strip() or num_results < 1:
+        return []
+
+    payload = await retry_with_backoff(
+        request,
+        provider_name=provider_name,
+        max_retries=2,
+    )
+    results = parse_response(payload)
+    return _attach_provider_name(results, provider_name)[:num_results]

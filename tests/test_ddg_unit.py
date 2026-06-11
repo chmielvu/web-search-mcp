@@ -81,10 +81,8 @@ class TestDDGSearch(unittest.TestCase):
                 "kindly_web_search_mcp_server.search.ddg._search_ddg_sync",
                 side_effect=Exception("DDG error"),
             ):
-                results = await search_ddg("test query", num_results=5)
-
-            # Should return empty list on error
-            self.assertEqual(results, [])
+                with self.assertRaises(Exception):
+                    await search_ddg("test query", num_results=5)
 
         asyncio.run(run())
 

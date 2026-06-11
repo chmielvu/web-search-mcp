@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Changed
+- **Provider execution unification**: the registry-backed search providers now all route through the shared provider helpers in `search/base_provider.py` and the canonical package surface no longer exposes the `search_web` alias. Migrated providers include SearXNG, DDG, Google CSE, Hacker News, Reddit, StackExchange, YouTube, GitHub GraphQL, Grok, Composio LLM Search, Qdrant, and Gemini Pollinations.
 - **Qdrant two-way search provider**: Qdrant index is now a read/write search provider. Reads use hybrid search (dense embeddings + BM25 sparse with server-side RRF fusion) via `query_points`; writes use precomputed embeddings from the rerank pipeline. Feedback loop prevention: Qdrant-sourced results are tagged with `providers=["qdrant"]` and skipped during re-indexing.
 - **Embedding reuse in rerank pipeline**: Bi-encoder embeddings from Stage 1 are now captured in `RerankEmbeddingContext` and reused for MMR diversity (Stage 3) and Qdrant indexing, eliminating 2 redundant `embed_texts` API calls per search. New Pydantic models: `CandidateEmbedding`, `RerankEmbeddingContext` (with `.find(url)` lookup), `RerankOutput` (returns results + embedding context).
 - **BM25 computation moved to index layer**: Sparse BM25 vectors computed locally inside `index_final_results` from passed `texts=` (no API call). `index_final_results` accepts `texts=` keyword instead of precomputed `sparse_embeddings`.

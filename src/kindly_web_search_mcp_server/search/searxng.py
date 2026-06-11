@@ -9,9 +9,9 @@ from urllib.parse import urlparse
 import httpx
 
 from ..models import WebSearchResult
-from ..retry import retry_with_backoff
 from .normalize import canonicalize_url
 from .options import SearchOptions
+from .base_provider import run_provider
 
 
 class SearxngError(RuntimeError):
@@ -243,10 +243,11 @@ async def search_searxng(
 
     headers = _build_headers()
     timeout_seconds = _get_request_timeout_seconds()
+    request_timeout = timeout_seconds if timeout_seconds is not None else 30.0
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         resp = await client.get(
-            url, params=params, headers=headers, timeout=timeout_seconds
+            url, params=params, headers=headers, timeout=request_timeout
         )
         try:
             resp.raise_for_status()
@@ -273,99 +274,91 @@ async def search_searxng(
             raise SearxngError("SearXNG response was not a JSON object.")
         return data
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=30) as client:
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        raw_results = data.get("results", [])
+        if not isinstance(raw_results, list):
+            raise SearxngError("SearXNG response missing `results` list.")
 
-            async def _request() -> dict[str, Any]:
-                return await _do_request(client)
+        if not raw_results:
+            LOGGER.debug("SearXNG returned empty results list for query=%r", query)
 
-            data = await retry_with_backoff(
-                _request,
-                provider_name="searxng",
-                max_retries=2,
+        results: list[WebSearchResult] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+
+            title = item.get("title")
+            link = item.get("url")
+            snippet = item.get("content")
+
+            if not isinstance(title, str) or not title.strip():
+                continue
+            if (
+                not isinstance(link, str)
+                or not link.strip()
+                or not _looks_like_url(link)
+            ):
+                continue
+            if not isinstance(snippet, str) or not snippet.strip():
+                continue
+
+            source_engines = item.get("engines")
+            if isinstance(source_engines, list):
+                engines = [
+                    str(engine).strip()
+                    for engine in source_engines
+                    if isinstance(engine, str) and engine.strip()
+                ]
+            else:
+                engines = []
+
+            raw_score = item.get("score")
+            score = None
+            if isinstance(raw_score, (int, float)):
+                score = float(raw_score)
+
+            published_date = item.get("publishedDate") or item.get("published_date")
+            category = item.get("category")
+            if not isinstance(published_date, str) or not published_date.strip():
+                published_date = None
+            if not isinstance(category, str) or not category.strip():
+                category = None
+
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    link=link,
+                    snippet=snippet,
+                    published_date=published_date,
+                    source_engines=engines or None,
+                    category=category,
+                    raw_score=score,
+                )
             )
-    else:
+            if len(results) >= num_results:
+                break
 
-        async def _request_with_client() -> dict[str, Any]:
-            return await _do_request(http_client)
+        if results:
+            engine_rrf_scores = _reciprocal_rank_fusion_by_engine(results, k=60)
+            results = _apply_engine_consensus_bonus(results, bonus_per_engine=0.05)
 
-        data = await retry_with_backoff(
-            _request_with_client,
-            provider_name="searxng",
-            max_retries=2,
-        )
+            for idx, result in enumerate(results):
+                canonical = canonicalize_url(result.link)
+                rrf_score = engine_rrf_scores.get(canonical, 0.0)
+                current_score = result.raw_score or 0.0
+                combined_score = 0.7 * rrf_score + 0.3 * current_score
+                results[idx] = result.model_copy(update={"raw_score": combined_score})
 
-    raw_results = data.get("results", [])
-    if not isinstance(raw_results, list):
-        raise SearxngError("SearXNG response missing `results` list.")
+            results = sorted(results, key=lambda r: r.raw_score or 0.0, reverse=True)
 
-    if not raw_results:
-        LOGGER.debug("SearXNG returned empty results list for query=%r", query)
+        return results
 
-    results: list[WebSearchResult] = []
-    for item in raw_results:
-        if not isinstance(item, dict):
-            continue
-
-        title = item.get("title")
-        link = item.get("url")
-        snippet = item.get("content")
-
-        if not isinstance(title, str) or not title.strip():
-            continue
-        if not isinstance(link, str) or not link.strip() or not _looks_like_url(link):
-            continue
-        if not isinstance(snippet, str) or not snippet.strip():
-            continue
-
-        source_engines = item.get("engines")
-        if isinstance(source_engines, list):
-            engines = [
-                str(engine).strip()
-                for engine in source_engines
-                if isinstance(engine, str) and engine.strip()
-            ]
-        else:
-            engines = []
-
-        raw_score = item.get("score")
-        score = None
-        if isinstance(raw_score, (int, float)):
-            score = float(raw_score)
-
-        published_date = item.get("publishedDate") or item.get("published_date")
-        category = item.get("category")
-        if not isinstance(published_date, str) or not published_date.strip():
-            published_date = None
-        if not isinstance(category, str) or not category.strip():
-            category = None
-
-        results.append(
-            WebSearchResult(
-                title=title,
-                link=link,
-                snippet=snippet,
-                published_date=published_date,
-                source_engines=engines or None,
-                category=category,
-                raw_score=score,
-                providers=["searxng"],
-            )
-        )
-        if len(results) >= num_results:
-            break
-
-    if results:
-        engine_rrf_scores = _reciprocal_rank_fusion_by_engine(results, k=60)
-        results = _apply_engine_consensus_bonus(results, bonus_per_engine=0.05)
-
-        for idx, result in enumerate(results):
-            canonical = canonicalize_url(result.link)
-            rrf_score = engine_rrf_scores.get(canonical, 0.0)
-            current_score = result.raw_score or 0.0
-            combined_score = 0.7 * rrf_score + 0.3 * current_score
-            results[idx] = result.model_copy(update={"raw_score": combined_score})
-
-        results = sorted(results, key=lambda r: r.raw_score or 0.0, reverse=True)
-
-    return results
+    return await run_provider(
+        "searxng",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=request_timeout,
+    )

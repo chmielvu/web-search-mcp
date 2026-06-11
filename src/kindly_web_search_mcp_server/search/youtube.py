@@ -9,6 +9,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
+from .base_provider import run_provider
 
 
 LOGGER = logging.getLogger(__name__)
@@ -113,80 +114,65 @@ async def search_youtube_videos(
             raise YouTubeSearchError("SearXNG response was not a JSON object")
         return data
 
-    try:
-        if http_client is None:
-            async with httpx.AsyncClient(timeout=30) as client:
-                data = await _do_request(client)
-        else:
-            data = await _do_request(http_client)
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code
-        if status == 403:
-            raise YouTubeSearchError(
-                "SearXNG returned 403 Forbidden. JSON output may be disabled."
-            ) from exc
-        if status == 429:
-            raise YouTubeSearchError(
-                "SearXNG rate limited (429 Too Many Requests)."
-            ) from exc
-        raise YouTubeSearchError(f"SearXNG returned HTTP {status}.") from exc
-    except httpx.TimeoutException:
-        raise YouTubeSearchError(f"SearXNG request timed out after {timeout_seconds}s.")
-    except Exception as exc:
-        raise YouTubeSearchError(
-            f"SearXNG request failed: {type(exc).__name__}: {exc}"
-        ) from exc
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        raw_results = data.get("results", [])
+        if not isinstance(raw_results, list):
+            raise YouTubeSearchError("SearXNG response missing `results` list.")
 
-    raw_results = data.get("results", [])
-    if not isinstance(raw_results, list):
-        raise YouTubeSearchError("SearXNG response missing `results` list.")
+        if not raw_results:
+            LOGGER.debug(
+                "SearXNG YouTube search returned empty results for query=%r", query
+            )
 
-    if not raw_results:
-        LOGGER.debug(
-            "SearXNG YouTube search returned empty results for query=%r", query
-        )
+        results: list[WebSearchResult] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
 
-    results: list[WebSearchResult] = []
-    for item in raw_results:
-        if not isinstance(item, dict):
-            continue
+            title = item.get("title")
+            link = item.get("url")
+            snippet = item.get("content")
 
-        title = item.get("title")
-        link = item.get("url")
-        snippet = item.get("content")
+            if not isinstance(title, str) or not title.strip():
+                continue
+            if not isinstance(link, str) or not link.strip():
+                continue
 
-        # Validate required fields
-        if not isinstance(title, str) or not title.strip():
-            continue
-        if not isinstance(link, str) or not link.strip():
-            continue
+            if not _YOUTUBE_DOMAIN_RE.match(link.strip()):
+                LOGGER.debug(
+                    "Skipping non-YouTube URL in YouTube search results: %s", link
+                )
+                continue
 
-        # Domain validation: only accept youtube.com / youtu.be URLs
-        if not _YOUTUBE_DOMAIN_RE.match(link.strip()):
-            LOGGER.debug("Skipping non-YouTube URL in YouTube search results: %s", link)
-            continue
+            if not isinstance(snippet, str):
+                snippet = ""
 
-        if not isinstance(snippet, str):
-            snippet = ""  # Allow empty snippets for video results
+            results.append(
+                WebSearchResult(
+                    title=title.strip(),
+                    link=link.strip(),
+                    snippet=snippet.strip() if snippet else "",
+                )
+            )
 
-        # Mark as YouTube resource type
-        result = WebSearchResult(
-            title=title.strip(),
-            link=link.strip(),
-            snippet=snippet.strip() if snippet else "",
-            providers=["searxng_youtube"],
-        )
-        results.append(result)
+            if len(results) >= num_results:
+                break
 
-        if len(results) >= num_results:
-            break
+        if raw_results and not results:
+            LOGGER.warning(
+                "All %d SearXNG YouTube results were non-YouTube URLs — "
+                "SearXNG YouTube engine may be misconfigured",
+                len(raw_results),
+            )
 
-    # Log warning if all results were filtered out
-    if raw_results and not results:
-        LOGGER.warning(
-            "All %d SearXNG YouTube results were non-YouTube URLs — "
-            "SearXNG YouTube engine may be misconfigured",
-            len(raw_results),
-        )
+        return results
 
-    return results
+    return await run_provider(
+        "searxng_youtube",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=timeout_seconds,
+    )

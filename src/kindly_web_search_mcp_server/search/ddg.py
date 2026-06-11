@@ -6,12 +6,10 @@ Free, reliable fallback provider. Uses asyncio.to_thread for blocking ddgs calls
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from ..models import WebSearchResult
-
-logger = logging.getLogger(__name__)
+from .base_provider import run_clientless_provider
 
 
 class DDGError(RuntimeError):
@@ -44,21 +42,17 @@ async def search_ddg(
     if num_results < 1:
         return []
 
-    try:
-        results = await asyncio.to_thread(
+    return await run_clientless_provider(
+        "ddg",
+        query,
+        num_results,
+        request=lambda: asyncio.to_thread(
             _search_ddg_sync,
             query,
             num_results,
-        )
-        return results
-    except ImportError:
-        logger.warning(
-            "ddgs library not installed; DDG provider disabled. Install with: pip install ddgs"
-        )
-        raise
-    except Exception as e:
-        logger.warning(f"DDG search failed: {e}")
-        return []
+        ),
+        parse_response=lambda results: results,
+    )
 
 
 def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
@@ -75,46 +69,37 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
 
     results: list[WebSearchResult] = []
 
-    try:
-        with DDGS() as ddgs:
-            raw_results = ddgs.text(
-                query,
-                max_results=num_results,
+    with DDGS() as ddgs:
+        raw_results = ddgs.text(
+            query,
+            max_results=num_results,
+        )
+
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+
+            title = item.get("title")
+            link = item.get("href") or item.get("link") or item.get("url")
+            snippet = item.get("body") or item.get("description") or item.get("snippet")
+
+            if not isinstance(title, str) or not title.strip():
+                continue
+            if not isinstance(link, str) or not link.strip():
+                continue
+            if not isinstance(snippet, str):
+                snippet = ""
+
+            results.append(
+                WebSearchResult(
+                    title=title.strip(),
+                    link=link.strip(),
+                    snippet=snippet.strip(),
+                    providers=["ddg"],
+                )
             )
 
-            for item in raw_results:
-                if not isinstance(item, dict):
-                    continue
-
-                title = item.get("title")
-                link = item.get("href") or item.get("link") or item.get("url")
-                snippet = (
-                    item.get("body") or item.get("description") or item.get("snippet")
-                )
-
-                if not isinstance(title, str) or not title.strip():
-                    continue
-                if not isinstance(link, str) or not link.strip():
-                    continue
-                if not isinstance(snippet, str):
-                    snippet = ""
-
-                results.append(
-                    WebSearchResult(
-                        title=title.strip(),
-                        link=link.strip(),
-                        snippet=snippet.strip(),
-                        providers=["ddg"],
-                    )
-                )
-
-                if len(results) >= num_results:
-                    break
-
-    except Exception as e:
-        if isinstance(e, ImportError):
-            raise
-        logger.warning(f"DDG sync search error: {e}")
-        return []
+            if len(results) >= num_results:
+                break
 
     return results

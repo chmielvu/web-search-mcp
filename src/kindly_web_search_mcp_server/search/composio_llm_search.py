@@ -6,6 +6,7 @@ from typing import Any
 
 from ..composio_client import execute_composio_tool
 from ..models import WebSearchResult
+from .base_provider import run_clientless_provider
 
 COMPOSIO_LLM_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
 
@@ -45,46 +46,55 @@ async def search_composio_llm_search(
     if not query.strip() or num_results < 1:
         return []
 
-    data = await execute_composio_tool(
-        COMPOSIO_LLM_SEARCH_SLUG,
-        {
-            "query": query,
-            "max_results": int(num_results),
-            "search_depth": "basic",
-            "include_answer": False,
-            "include_images": False,
-            "include_raw_content": False,
-        },
-        timeout_seconds=_resolve_timeout_seconds(http_client),
-    )
-
-    raw_results = data.get("results", [])
-    if not isinstance(raw_results, list):
-        raise ComposioLLMSearchError(
-            "Composio LLM Search response missing `results` list."
+    async def _request() -> dict[str, Any]:
+        return await execute_composio_tool(
+            COMPOSIO_LLM_SEARCH_SLUG,
+            {
+                "query": query,
+                "max_results": int(num_results),
+                "search_depth": "basic",
+                "include_answer": False,
+                "include_images": False,
+                "include_raw_content": False,
+            },
+            timeout_seconds=_resolve_timeout_seconds(http_client),
         )
 
-    results: list[WebSearchResult] = []
-    for item in raw_results:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        link = item.get("url")
-        snippet = item.get("content")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        if not isinstance(link, str) or not link.strip():
-            continue
-        if not isinstance(snippet, str):
-            snippet = ""
-        results.append(
-            WebSearchResult(
-                title=title.strip(),
-                link=link.strip(),
-                snippet=snippet.strip(),
-                providers=["composio_llm_search"],
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        raw_results = data.get("results", [])
+        if not isinstance(raw_results, list):
+            raise ComposioLLMSearchError(
+                "Composio LLM Search response missing `results` list."
             )
-        )
-        if len(results) >= num_results:
-            break
-    return results
+
+        results: list[WebSearchResult] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title")
+            link = item.get("url")
+            snippet = item.get("content")
+            if not isinstance(title, str) or not title.strip():
+                continue
+            if not isinstance(link, str) or not link.strip():
+                continue
+            if not isinstance(snippet, str):
+                snippet = ""
+            results.append(
+                WebSearchResult(
+                    title=title.strip(),
+                    link=link.strip(),
+                    snippet=snippet.strip(),
+                )
+            )
+            if len(results) >= num_results:
+                break
+        return results
+
+    return await run_clientless_provider(
+        "composio_llm_search",
+        query,
+        num_results,
+        request=_request,
+        parse_response=_parse_response,
+    )

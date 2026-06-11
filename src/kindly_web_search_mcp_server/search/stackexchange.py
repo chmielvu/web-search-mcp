@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
+from .base_provider import run_provider
 
 _SE_BASE = "https://api.stackexchange.com/2.3/search"
 _SITES = "stackoverflow+serverfault+superuser+askubuntu"
@@ -66,47 +67,48 @@ async def search_stackexchange(
             return {}
         return data
 
-    try:
-        if http_client is not None:
-            data = await _do_request(http_client)
-        else:
-            async with httpx.AsyncClient(timeout=15) as client:
-                data = await _do_request(client)
-    except Exception:
-        return []
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        quota_remaining = data.get("quota_remaining")
+        if quota_remaining is not None and quota_remaining <= 0:
+            return []
 
-    # Check quota
-    quota_remaining = data.get("quota_remaining")
-    if quota_remaining is not None and quota_remaining <= 0:
-        return []
+        items = data.get("items")
+        if not isinstance(items, list):
+            return []
 
-    items = data.get("items")
-    if not isinstance(items, list):
-        return []
+        results: list[WebSearchResult] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
 
-    results: list[WebSearchResult] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
+            title = item.get("title")
+            link = item.get("link")
+            score = item.get("score", 0)
+            answer_count = item.get("answer_count", 0)
+            tags = item.get("tags", [])
 
-        title = item.get("title")
-        link = item.get("link")
-        score = item.get("score", 0)
-        answer_count = item.get("answer_count", 0)
-        tags = item.get("tags", [])
+            if not isinstance(title, str) or not title:
+                continue
+            if not isinstance(link, str) or not link:
+                continue
 
-        if not isinstance(title, str) or not title:
-            continue
-        if not isinstance(link, str) or not link:
-            continue
+            tag_str = "; ".join(tags[:4]) if isinstance(tags, list) else ""
+            snippet = f"Score: {score} | {answer_count} answers"
+            if tag_str:
+                snippet += f" | [{tag_str}]"
 
-        tag_str = "; ".join(tags[:4]) if isinstance(tags, list) else ""
-        snippet = f"Score: {score} | {answer_count} answers"
-        if tag_str:
-            snippet += f" | [{tag_str}]"
+            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+            if len(results) >= num_results:
+                break
 
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-        if len(results) >= num_results:
-            break
+        return results
 
-    return results
+    return await run_provider(
+        "stackexchange",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=15.0,
+    )

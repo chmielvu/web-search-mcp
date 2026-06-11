@@ -18,6 +18,7 @@ import os
 import httpx
 
 from ..models import WebSearchResult
+from .base_provider import run_provider
 
 logger = logging.getLogger(__name__)
 
@@ -206,12 +207,12 @@ async def search_github_graphql(
 
         return merged[:num_results]
 
-    try:
-        if http_client is not None:
-            return await _run(http_client)
-        else:
-            async with httpx.AsyncClient(timeout=30) as client:
-                return await _run(client)
-    except Exception as exc:
-        logger.debug("GitHub GraphQL search failed: %s", exc)
-        return []
+    return await run_provider(
+        "github_graphql",
+        query,
+        num_results,
+        request=_run,
+        parse_response=lambda results: results,
+        http_client=http_client,
+        timeout_seconds=30.0,
+    )

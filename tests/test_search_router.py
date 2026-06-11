@@ -18,7 +18,10 @@ from kindly_web_search_mcp_server.models import WebSearchResult
 class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
     async def test_uses_searxng_when_only_searxng_config(self) -> None:
         """SearXNG is primary - always fires when configured."""
-        from kindly_web_search_mcp_server.search import search_web, _circuit_breaker
+        from kindly_web_search_mcp_server.search import (
+            _circuit_breaker,
+            search_single_query,
+        )
         from kindly_web_search_mcp_server.search import provider_config as pc
 
         _circuit_breaker._failures.clear()
@@ -49,14 +52,14 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.resolve_providers_for_search",
             side_effect=_resolve_only_searxng,
         ):
-            out = await search_web("q", num_results=1)
+            out = await search_single_query("q", num_results=1)
 
         self.assertEqual(out[0].title, "X")
         mock_searxng.assert_awaited()
 
     async def test_uses_tavily_when_only_tavily_key(self) -> None:
         """Tavily fires when SearXNG is unconfigured."""
-        from kindly_web_search_mcp_server.search import search_web
+        from kindly_web_search_mcp_server.search import search_single_query
         from kindly_web_search_mcp_server.search import provider_config as pc
 
         mock_tavily = AsyncMock(
@@ -80,14 +83,17 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.resolve_providers_for_search",
             side_effect=_resolve_only_tavily,
         ):
-            out = await search_web("q", num_results=1)
+            out = await search_single_query("q", num_results=1)
 
         self.assertEqual(len(out), 1)
         mock_tavily.assert_awaited()
 
     async def test_concurrent_providers_with_rrf_merge(self) -> None:
         """Multiple providers run concurrently, results merged via RRF."""
-        from kindly_web_search_mcp_server.search import search_web, _circuit_breaker
+        from kindly_web_search_mcp_server.search import (
+            _circuit_breaker,
+            search_single_query,
+        )
         from kindly_web_search_mcp_server.search import provider_config as pc
 
         _circuit_breaker._failures.clear()
@@ -141,7 +147,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.resolve_providers_for_search",
             side_effect=_resolve_multi,
         ):
-            out = await search_web("q", num_results=5)
+            out = await search_single_query("q", num_results=5)
 
         self.assertEqual(len(out), 2)
         mock_searxng.assert_awaited()
@@ -150,7 +156,10 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
 
     async def test_circuit_breaker_opens_on_failures(self) -> None:
         """Circuit breaker opens after 3 consecutive failures."""
-        from kindly_web_search_mcp_server.search import search_web, _circuit_breaker
+        from kindly_web_search_mcp_server.search import (
+            _circuit_breaker,
+            search_single_query,
+        )
         from kindly_web_search_mcp_server.search import provider_config as pc
 
         os.environ.pop("TAVILY_API_KEY", None)
@@ -185,7 +194,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
         ):
             for _ in range(3):
                 try:
-                    await search_web("q", num_results=1)
+                    await search_single_query("q", num_results=1)
                 except Exception:
                     pass
 
@@ -193,7 +202,10 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
 
     async def test_raises_when_no_provider_configured(self) -> None:
         """DDG free fallback succeeds even without any env keys."""
-        from kindly_web_search_mcp_server.search import search_web, _circuit_breaker
+        from kindly_web_search_mcp_server.search import (
+            _circuit_breaker,
+            search_single_query,
+        )
         from kindly_web_search_mcp_server.search import provider_config as pc
 
         _circuit_breaker._failures.clear()
@@ -220,7 +232,7 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.resolve_providers_for_search",
             side_effect=_resolve,
         ):
-            out = await search_web("q", num_results=1)
+            out = await search_single_query("q", num_results=1)
 
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0].title, "DDG")

@@ -10,8 +10,9 @@ from qdrant_client import AsyncQdrantClient, models
 from ..embeddings import embed_query
 from ..index.bm25_encoder import encode_bm25
 from ..models import WebSearchResult
-from .options import SearchOptions
 from ..settings import settings
+from .base_provider import run_clientless_provider
+from .options import SearchOptions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -41,93 +42,75 @@ async def search_qdrant(
     if num_results < 1:
         return []
 
-    # 1. Dense embedding for query
-    query_embedding: list[float] | None = None
-    try:
-        query_embedding = await embed_query(query, timeout=15.0)
-    except Exception as e:
-        LOGGER.warning(f"Qdrant query embedding failed: {e}")
-        return []
-
-    if not query_embedding:
-        return []
-
-    # 2. Sparse BM25 vector for query
-    sparse = encode_bm25(query)
-    if not sparse or not sparse.get("indices"):
-        sparse = {"indices": [], "values": []}
-
-    # 3. Connect to Qdrant (no API key - public HF Space)
+    # 1. Dense embedding + sparse BM25 query vectors
+    # 2. Connect to Qdrant (no API key - public HF Space)
     url = settings.qdrant_space_url.strip()
     if not url:
         LOGGER.debug("Qdrant search disabled: KINDLY_QDRANT_SPACE_URL not set")
         return []
 
-    try:
+    async def _request() -> list[WebSearchResult]:
+        query_embedding = await embed_query(query, timeout=15.0)
+        if not query_embedding:
+            return []
+
+        sparse = encode_bm25(query)
+        if not sparse or not sparse.get("indices"):
+            sparse = {"indices": [], "values": []}
+
         client = AsyncQdrantClient(url=url, timeout=30)
-    except Exception as e:
-        LOGGER.warning(f"Qdrant client creation failed: {e}")
-        return []
-
-    # 4. Hybrid search: dense + sparse with RRF fusion
-    try:
-        sparse_vector = models.SparseVector(
-            indices=sparse["indices"],
-            values=sparse["values"],
-        )
-
-        result = await client.query_points(
-            collection_name="web_results",
-            prefetch=[
-                models.Prefetch(
-                    query=query_embedding,
-                    using="dense",
-                    limit=50,
-                ),
-                models.Prefetch(
-                    query=sparse_vector,
-                    using="sparse",
-                    limit=50,
-                ),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
-            limit=num_results,
-            with_payload=True,
-        )
-
-        # Map hits to WebSearchResult
-        results: list[WebSearchResult] = []
-        for hit in result.points:
-            payload = hit.payload or {}
-            url = payload.get("url", "")
-            if not url:
-                continue
-
-            # Tag with provider for feedback loop prevention
-            providers = ["qdrant"]
-
-            results.append(
-                WebSearchResult(
-                    title=payload.get("title", ""),
-                    link=url,
-                    snippet=payload.get("snippet", ""),
-                    domain=payload.get("domain"),
-                    providers=providers,
-                    score=hit.score,
-                    raw_score=hit.score,
-                )
+        try:
+            sparse_vector = models.SparseVector(
+                indices=sparse["indices"],
+                values=sparse["values"],
             )
 
-        return results
+            result = await client.query_points(
+                collection_name="web_results",
+                prefetch=[
+                    models.Prefetch(
+                        query=query_embedding,
+                        using="dense",
+                        limit=50,
+                    ),
+                    models.Prefetch(
+                        query=sparse_vector,
+                        using="sparse",
+                        limit=50,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                limit=num_results,
+                with_payload=True,
+            )
 
-    except Exception as e:
-        LOGGER.warning(f"Qdrant search failed: {e}")
-        return []
-    finally:
-        try:
+            results: list[WebSearchResult] = []
+            for hit in result.points:
+                payload = hit.payload or {}
+                hit_url = payload.get("url", "")
+                if not hit_url:
+                    continue
+                results.append(
+                    WebSearchResult(
+                        title=payload.get("title", ""),
+                        link=hit_url,
+                        snippet=payload.get("snippet", ""),
+                        domain=payload.get("domain"),
+                        score=hit.score,
+                        raw_score=hit.score,
+                    )
+                )
+            return results
+        finally:
             await client.close()
-        except Exception:
-            pass
+
+    return await run_clientless_provider(
+        "qdrant",
+        query,
+        num_results,
+        request=_request,
+        parse_response=lambda results: results,
+    )
 
 
 __all__ = ["search_qdrant", "QdrantSearchError", "QdrantConfigError"]

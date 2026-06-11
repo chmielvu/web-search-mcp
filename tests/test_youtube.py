@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unittest
+
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -165,29 +167,26 @@ class TestFetchTranscriptData:
         assert "disabled" in str(error).lower()
 
 
-class TestYouTubeSearch:
+class TestYouTubeSearch(unittest.IsolatedAsyncioTestCase):
     """Test YouTube search via SearXNG."""
 
-    @pytest.mark.asyncio
     async def test_empty_query(self) -> None:
         """Handle empty query."""
         results = await search_youtube_videos("", num_results=5)
         assert results == []
 
-    @pytest.mark.asyncio
     async def test_zero_results(self) -> None:
         """Handle zero results request."""
         results = await search_youtube_videos("test", num_results=0)
         assert results == []
 
-    @pytest.mark.asyncio
     async def test_missing_searxng_config(self) -> None:
         """Handle missing SEARXNG_BASE_URL."""
         with patch.dict("os.environ", {"SEARXNG_BASE_URL": ""}, clear=True):
-            with pytest.raises(YouTubeSearchError, match="not configured"):
+            with self.assertRaises(YouTubeSearchError) as context:
                 await search_youtube_videos("test query", num_results=5)
+        self.assertIn("not configured", str(context.exception))
 
-    @pytest.mark.asyncio
     async def test_successful_search(self) -> None:
         """Handle successful YouTube search."""
         mock_response_data = {
@@ -222,7 +221,6 @@ class TestYouTubeSearch:
         assert results[0].title == "Test Video Title"
         assert results[0].link == "https://www.youtube.com/watch?v=test123"
 
-    @pytest.mark.asyncio
     async def test_results_capped(self) -> None:
         """Cap results at requested number."""
         mock_response_data = {

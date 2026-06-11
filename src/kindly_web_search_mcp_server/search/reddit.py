@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
+from .base_provider import run_provider
 
 _REDDIT_BASE = "https://www.reddit.com/r/programming+MachineLearning+LocalLLaMA+Rag+Python/search.json"
 _USER_AGENT = "kindly-web-search-mcp/1.0 (research bot)"
@@ -63,50 +64,51 @@ async def search_reddit(
             return {}
         return data
 
-    try:
-        if http_client is not None:
-            data = await _do_request(http_client)
-        else:
-            async with httpx.AsyncClient(timeout=20) as client:
-                data = await _do_request(client)
-    except Exception:
-        return []
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        outer_data = data.get("data")
+        if not isinstance(outer_data, dict):
+            return []
 
-    outer_data = data.get("data")
-    if not isinstance(outer_data, dict):
-        return []
+        children = outer_data.get("children", [])
+        if not isinstance(children, list):
+            return []
 
-    children = outer_data.get("children", [])
-    if not isinstance(children, list):
-        return []
+        results: list[WebSearchResult] = []
+        for child in children:
+            if not isinstance(child, dict):
+                continue
+            child_data = child.get("data")
+            if not isinstance(child_data, dict):
+                continue
 
-    results: list[WebSearchResult] = []
-    for child in children:
-        if not isinstance(child, dict):
-            continue
-        child_data = child.get("data")
-        if not isinstance(child_data, dict):
-            continue
+            title = child_data.get("title")
+            if not isinstance(title, str) or not title:
+                continue
 
-        title = child_data.get("title")
-        if not isinstance(title, str) or not title:
-            continue
+            link = child_data.get("url_overridden_by_dest")
+            if not isinstance(link, str) or not link:
+                link = child_data.get("url")
+            if not isinstance(link, str) or not link:
+                continue
 
-        # Prefer the overridden destination URL (canonical), fall back to url
-        link = child_data.get("url_overridden_by_dest")
-        if not isinstance(link, str) or not link:
-            link = child_data.get("url")
-        if not isinstance(link, str) or not link:
-            continue
+            subreddit = child_data.get("subreddit", "unknown")
+            score = child_data.get("score", 0)
+            num_comments = child_data.get("num_comments", 0)
 
-        subreddit = child_data.get("subreddit", "unknown")
-        score = child_data.get("score", 0)
-        num_comments = child_data.get("num_comments", 0)
+            snippet = f"r/{subreddit} | {score} pts | {num_comments} comments"
 
-        snippet = f"r/{subreddit} | {score} pts | {num_comments} comments"
+            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+            if len(results) >= num_results:
+                break
 
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-        if len(results) >= num_results:
-            break
+        return results
 
-    return results
+    return await run_provider(
+        "reddit",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+        timeout_seconds=20.0,
+    )
