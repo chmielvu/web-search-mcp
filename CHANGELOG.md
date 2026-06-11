@@ -9,6 +9,23 @@
 - **Search Router provider removed** (was experimental, replaced by Qdrant native provider).
 
 ### Added
+- **Search-quality DuckDB schema implementation** — 13 specialized analytics tables across the full search pipeline lifecycle, with associated insert functions (`duckdb_store.py`):
+  - `search_runs` — Per-run metadata (query, intent, session, duration, status) with indexes on `run_key` and `recorded_at`; Python-level `tool_name` default (`web_search`) before SQL DEFAULT bypass.
+  - `query_understanding` — Intent label, confidence, decomposition flag, model/provider provenance, preserved terms (`VARCHAR[]`), time sensitivity, entity count.
+  - `query_rewrites` — Variant index, branch type/kind/target, weight, reason, max results, model provenance per rewrite variant.
+  - `provider_calls` — Per-provider branch call tracking (num_results, latency, error, http_status, tokens, cost).
+  - `provider_candidates` — Raw per-provider results at rank level (title, link, snippet, domain, score, published date).
+  - `merged_candidates` — RRF-merged candidates with rrf_score, provider_count, providers (`VARCHAR[]`), overlap_flag.
+  - `rerank_stages` — Per-stage rerank metadata (provider, model, input/output count, max/avg score, instruction presence, query type hint, entity_overlap_enabled).
+  - `rerank_candidates` — Per-candidate rank deltas through rerank (rank_before/after, score components for relevance/recency/entity, diversity_removed flag).
+  - `final_results` — Final output results with final_score, provider array, entities_count.
+  - `search_quality_scores` — Aggregate per-run quality metrics (provider_overlap_rate, domain_diversity_count/ratio, rerank_compression_ratio, avg_rrf_score, top/p95_score, pipeline volume counters) with `ON CONFLICT DO NOTHING`.
+  - 4 summary tables (`summary_provider_daily`, `summary_intent_daily`, `summary_rerank_daily`, `summary_quality_daily`) — Materialized daily aggregations with composite primary keys for Grafana/analytics queries.
+  - `judge_evaluations` — LLM-as-judge scores per run (5 quality dimensions + rationale, tokens, cost); non-unique on `run_key` (many evaluations per run across models/tools).
+  - A/B testing framework: `ab_experiments` (experiment config with `ON CONFLICT DO NOTHING`), `ab_shadow_runs` (per-run shadow trial results), `ab_experiment_variants` (variant definitions), `ab_assignments` (user/run-to-variant mapping), `ab_results` (experiment outcome metrics) — all with `TIMESTAMPTZ` defaults, JSON payload columns, and appropriate PK/constraint design.
+- 7 schema test files proving column types, round-trip inserts, defaults, index existence, primary-key conflict handling, composite-key uniqueness, and many-to-one/many-to-many relationships: `test_search_runs_schema.py`, `test_query_understanding_schema.py`, `test_query_rewrites_schema.py`, `test_judge_evaluations_schema.py`, `test_ab_schema.py`, `test_eval_schema.py`, `test_semantic_cache_schema.py`.
+- `search/understanding/schema.py` — Structured JSON schema (`QUERY_UNDERSTANDING_JSON_SCHEMA`) defining the 0.2 query-understanding output contract with draft-07 style validation for intent, confidence, entities (span-level), preserved_terms, compared_entities, time_sensitivity, domain_hints, provider_hints, rewrite_hints, rationale, and should_decompose.
+- `analytics/evals.py` — Eval schema tables (`eval_cases`, `eval_runs`, `eval_tool_calls`, `eval_candidate_sets`, `eval_scores`, `eval_judge_calls`, `eval_failures`, `eval_observations`, `analytics_sync_state`, `llm_quality_scores`) with Pydantic models (`EvalCase`, `CandidateSet`, `ExpectedToolCall`).
 - `rerank/models.py` — Pydantic models `CandidateEmbedding`, `RerankEmbeddingContext` (with `.find(url)` lookup), `RerankOutput`.
 - `search/qdrant.py` — Qdrant hybrid search provider (dense + sparse BM25 with server-side RRF). Registered as `qdrant` (ALWAYS mode, free). No API key required — uses public HF Space endpoint with HF token auth.
 - `KINDLY_QDRANT_SEARCH_ENABLED` env var (default true) to toggle Qdrant search.

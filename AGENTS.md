@@ -87,6 +87,54 @@ All `KINDLY_*` env vars documented there. Key ones:
 - `GITHUB_TOKEN` — recommended for better GitHub Issue extraction
 - `KINDLY_BROWSER_EXECUTABLE_PATH` — Chrome/Chromium/Edge path (optional, auto-detected)
 - `KINDLY_RERANKING_ENABLED`, `KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS`, `KINDLY_CLASSIFIER_TIMEOUT_SECONDS`, `KINDLY_QUERY_UNDERSTANDING_JSONL_ENABLED`
+- `KINDLY_AB_TESTING_ENABLED`, `KINDLY_AB_CONFIG_PATH`, `KINDLY_AB_SHADOW_MODE_DEFAULT`, `KINDLY_AB_ASSIGNMENT_CACHE_TTL_SECONDS` — A/B testing configuration
+- `KINDLY_JUDGE_EVALUATION_ENABLED`, `KINDLY_JUDGE_MODEL`, `KINDLY_JUDGE_TIMEOUT_SECONDS` — LLM judge configuration
+
+### Analytics & Search Quality (`analytics/`)
+- `duckdb_store.py` — 21 DuckDB tables + insert functions for the search quality pipeline
+- `views.py` — 13 human-readable SQL views for analytics queries
+- `quality_metrics.py` — `compute_search_quality()` per-run quality scoring
+- `summaries.py` — `refresh_summary_tables()` daily aggregate refresh
+- `judge_prompt.py` — LLM judge prompt construction and score parsing
+- `judge_runner.py` — Fire-and-forget LLM judge evaluation after production response
+- `judge_calibration.py` — Judge score normalization/calibration
+
+**Pipeline data flow** (all joined by `run_key`):
+1. `search_runs` → `query_understanding` → `query_rewrites` (input side)
+2. `provider_calls` → `provider_candidates` (per-provider results)
+3. `merged_candidates` (RRF merge output)
+4. `rerank_stages` → `rerank_candidates` (multi-stage reranking)
+5. `final_results` (output)
+6. `search_quality_scores` (computed quality metrics)
+7. `judge_evaluations` (LLM-as-judge scoring)
+
+Full schema reference: [docs/DuckDB_schema.md](./docs/DuckDB_schema.md)
+
+### A/B Testing (`ab_testing/`)
+- `models.py` — `ABExperiment`, `ABVariant`, `Assignment` dataclasses
+- `assignment.py` — `get_assigned_variant()` with hash-based deterministic bucketing
+- `yaml_loader.py` — `load_experiments()` / `save_experiments()` for `.kindly/experiments.yaml`
+- `wiring.py` — `get_ab_overrides(run_key, layer)` — returns variant config or None
+- `shadow_runner.py` — `run_shadow()` — fire-and-forget shadow execution
+
+**Wired pipeline layers** (via `get_ab_overrides`):
+1. `query_understanding` — model, prompt variant, decomposition settings
+2. `reranking` — provider, top_k, diversity_weight
+3. `provider_weights` — per-provider RRF weight overrides
+
+**Shadow mode:** When a variant has `shadow: True`, the override is applied to a background `asyncio.create_task()` that does not block the production path. Shadow runs auto-trigger LLM judge evaluation.
+
+**Layer mutual exclusion:** Only one running experiment per layer is allowed.
+
+**CLI management:**
+```bash
+web-search-cli experiments list
+web-search-cli experiments enable <experiment_id>
+web-search-cli experiments disable <experiment_id>
+web-search-cli experiments conclude <experiment_id> --winner <variant_key>
+web-search-cli experiments stats <experiment_id>
+web-search-cli experiments create [--config <json>]
+```
 
 ## Key Patterns
 
@@ -129,9 +177,10 @@ When making modifications:
 
 ## Current Development Focus
 
-Per `.agent/CONTINUITY.md`, ongoing refactor phases:
+Per `.agent/CONTINUITY.md`:
 - Phase 1–3: Complete (lightweight search, orchestrator extraction, query policy)
 - Phase 4: Merge/diversity/rerank refinement (next)
+- Search quality analytics: Complete — 21 DuckDB tables, 13 views, LLM judge, A/B testing framework
 - Separate track: GitHub GraphQL tuning in `plans/GraphQL-tuning.md`
 
 ## Native CLI
@@ -149,7 +198,12 @@ web-search-cli reference tools
 web-search-cli reference external-tools
 ```
 
-Operational commands are registered for discovery but return structured scaffold errors until the main implementation phase.
+Operational commands:
+- `web-search-cli experiments list|enable|disable|conclude|stats|create` — A/B experiment management
+- `web-search-cli analytics query` — run analytics queries against DuckDB
+- `web-search-cli analytics report` — run named reports
+
+Other operational commands are registered for discovery but return structured scaffold errors until the main implementation phase.
 
 ## Environment Setup
 
@@ -180,3 +234,4 @@ $env:KINDLY_YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for 
 - [docs/GETTING-STARTED.md](./docs/GETTING-STARTED.md) — Quick start guide
 - [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) — Development patterns and workflows
 - [docs/TESTING.md](./docs/TESTING.md) — Testing guide and mock patterns
+- [docs/DuckDB_schema.md](./docs/DuckDB_schema.md) — Search quality DuckDB schema reference (21 tables, 13 views)
