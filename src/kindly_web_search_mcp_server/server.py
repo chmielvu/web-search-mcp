@@ -1456,6 +1456,20 @@ async def gemini_search(
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response
     except Exception as exc:
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("uri",""), "snippet": c.get("snippet","")})()
+                    for c in (response.get("grounding_chunks", []) if isinstance(response, dict) else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="gemini_search",
+                ))
+            except Exception:
+                pass
+
         duration_seconds = time.time() - start_time
         record_gemini_search(
             grounding_queries=0,
@@ -1548,6 +1562,20 @@ async def perplexity_search(
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response
     except ValueError as e:
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": s.get("title",""), "link": s.get("url",""), "snippet": s.get("snippet","")})()
+                    for s in (response.get("sources", []) if isinstance(response, dict) else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="perplexity_search",
+                ))
+            except Exception:
+                pass
+
         duration_seconds = time.time() - start_time
         record_perplexity_search(
             depth=depth,
@@ -1668,6 +1696,20 @@ async def grok_search(
 
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response
+
+        if settings.judge_evaluation_enabled:
+            try:
+                _run_key = str(uuid.uuid4())
+                _judge_results = [
+                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("url",""), "snippet": c.get("snippet","")})()
+                    for c in (result.citations if hasattr(result, 'citations') and result.citations else [])
+                ]
+                asyncio.ensure_future(run_judge_evaluation(
+                    run_key=_run_key, query=query, intent="ai_search",
+                    results=_judge_results, tool_name="grok_search",
+                ))
+            except Exception:
+                pass
 
     except ValueError as e:
         LOGGER.warning(f"Grok search config error: {e}")
