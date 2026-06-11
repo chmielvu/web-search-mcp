@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
 
 from ..models import WebSearchResult
-from ..retry import retry_with_backoff
+from ..settings import get_env_value, settings
+from .base_provider import run_provider
 
 
 class SearchRouterError(RuntimeError):
@@ -20,10 +20,13 @@ class SearchRouterConfigError(SearchRouterError):
 
 
 def _get_search_router_api_key() -> str:
-    api_key = os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
+    api_key = get_env_value(
+        "SEARCH_ROUTER_API_KEY",
+        settings.search_router_api_key,
+    ).strip()
     if not api_key:
         raise SearchRouterConfigError(
-            "SEARCH_ROUTER_API_KEY is not set. Configure it as an environment variable."
+            "SEARCH_ROUTER_API_KEY is not set. Configure it in your runtime settings."
         )
     return api_key
 
@@ -42,12 +45,6 @@ async def search_search_router(
 
     Docs: https://search-router.com/docs
     """
-    if not query.strip():
-        return []
-
-    if num_results < 1:
-        return []
-
     api_key = _get_search_router_api_key()
     url = "https://search-router.com/api/search"
     headers = {
@@ -57,10 +54,10 @@ async def search_search_router(
     body = {"query": query, "num_results": num_results}
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.post(url, headers=headers, json=body)
-        resp.raise_for_status()
+        response = await client.post(url, headers=headers, json=body)
+        response.raise_for_status()
         try:
-            data = resp.json()
+            data = response.json()
         except ValueError as exc:
             raise SearchRouterError(
                 "Search Router response was not valid JSON."
@@ -69,63 +66,53 @@ async def search_search_router(
             raise SearchRouterError("Search Router response was not a JSON object.")
         return data
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=30) as client:
+    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+        raw_results = data.get("results", [])
+        if not isinstance(raw_results, list):
+            return []
 
-            async def _request() -> dict[str, Any]:
-                return await _do_request(client)
-
-            data = await retry_with_backoff(
-                _request,
-                provider_name="search_router",
-                max_retries=2,
+        results: list[WebSearchResult] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            title = item.get("title")
+            link = item.get("url")
+            snippet = (
+                item.get("snippet")
+                or item.get("description")
+                or item.get("content")
+                or ""
             )
-    else:
+            domain = item.get("domain")
+            if (
+                not isinstance(title, str)
+                or not title.strip()
+                or not isinstance(link, str)
+                or not link.strip()
+            ):
+                continue
+            if not isinstance(snippet, str):
+                snippet = ""
+            if not isinstance(domain, str):
+                domain = None
 
-        async def _request_with_client() -> dict[str, Any]:
-            return await _do_request(http_client)
-
-        data = await retry_with_backoff(
-            _request_with_client,
-            provider_name="search_router",
-            max_retries=2,
-        )
-
-    raw_results = data.get("results", [])
-    if not isinstance(raw_results, list):
-        return []
-
-    results: list[WebSearchResult] = []
-    for item in raw_results:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        link = item.get("url")
-        snippet = (
-            item.get("snippet") or item.get("description") or item.get("content") or ""
-        )
-        domain = item.get("domain")
-        if (
-            not isinstance(title, str)
-            or not title.strip()
-            or not isinstance(link, str)
-            or not link.strip()
-        ):
-            continue
-        if not isinstance(snippet, str):
-            snippet = ""
-        if not isinstance(domain, str):
-            domain = None
-
-        results.append(
-            WebSearchResult(
-                title=title,
-                link=link,
-                snippet=snippet,
-                domain=domain,
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    link=link,
+                    snippet=snippet,
+                    domain=domain,
+                )
             )
-        )
-        if len(results) >= num_results:
-            break
+            if len(results) >= num_results:
+                break
+        return results
 
-    return results
+    return await run_provider(
+        "search_router",
+        query,
+        num_results,
+        request=_do_request,
+        parse_response=_parse_response,
+        http_client=http_client,
+    )

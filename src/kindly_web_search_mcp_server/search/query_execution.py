@@ -18,10 +18,16 @@ from .errors import WebSearchProviderError
 from .merge import merge_search_results
 from .options import SearchOptions
 from .provider_execution import _search_single_provider
-from .provider_config import ProviderConfig, resolve_providers_for_search
+from .provider_config import ProviderConfig
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
+
+
+def _resolve_active_providers(providers: list[str] | None) -> list[ProviderConfig]:
+    from . import resolve_providers_for_search as resolve_package_providers
+
+    return resolve_package_providers(providers)
 
 
 async def search_single_query(
@@ -47,7 +53,7 @@ async def search_single_query(
         },
     ) as span:
         budget = ProviderBudget()
-        active_configs = resolve_providers_for_search(providers)
+        active_configs = _resolve_active_providers(providers)
 
         if not active_configs:
             span.set_attribute("error", "No providers available")

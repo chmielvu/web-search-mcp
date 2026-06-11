@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
-
 import httpx
+
+from ..settings import get_env_value, settings
 
 
 class JinaReaderError(RuntimeError):
@@ -22,7 +22,7 @@ async def fetch_with_jina_reader(url: str, *, timeout_seconds: float = 25.0) -> 
         response = await client.get(endpoint, headers=base_headers)
         if response.status_code == 429:
             # 2) Retry with API key only when rate-limited
-            api_key = (os.environ.get("JINA_API_KEY") or "").strip()
+            api_key = get_env_value("JINA_API_KEY", settings.jina_api_key).strip()
             if not api_key:
                 raise JinaReaderError(
                     "Jina Reader rate-limited and JINA_API_KEY is not configured"

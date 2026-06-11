@@ -302,6 +302,10 @@ class Settings:
     composio_llm_search_mode: str = os.environ.get(
         "KINDLY_COMPOSIO_LLM_SEARCH_MODE", "always"
     )
+    search_router_api_key: str = os.environ.get("SEARCH_ROUTER_API_KEY", "")
+    tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
+    brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
+    jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("KINDLY_GOOGLE_CSE_API_KEY", "")
     google_cse_engine_id: str = os.environ.get("KINDLY_GOOGLE_CSE_ENGINE_ID", "")
     google_cse_timeout_seconds: float = float(
@@ -653,3 +657,8 @@ class Settings:
 
 
 settings = Settings()
+
+
+def get_env_value(name: str, fallback: str = "") -> str:
+    """Read a current environment value with an optional fallback."""
+    return os.environ.get(name, fallback)
