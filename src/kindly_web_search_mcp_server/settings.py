@@ -88,7 +88,7 @@ class Settings:
     Note: keep this module lightweight; it is imported by tests.
     """
 
-    # Search providers (removed Serger - SearXNG is primary)
+    # Search providers (SearXNG is primary)
 
     query_rewrite_cascade_timeout_seconds: float = float(
         os.environ.get("KINDLY_QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
@@ -370,7 +370,7 @@ class Settings:
 
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
-    # Env vars retain "WEB_SEARCH" prefix for backward compatibility
+    # Rate-limit and concurrency settings for web search (prefixed with KINDLY_).
     rate_limit_cheap_rps: float = float(
         os.environ.get("KINDLY_RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
     )

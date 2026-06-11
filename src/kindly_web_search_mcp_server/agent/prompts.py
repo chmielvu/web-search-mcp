@@ -35,7 +35,7 @@ Rules:
 - Use `get_content` for one URL, `batch_get_content` for multiple URLs, and `discover_links` for site expansion.
 - Use `rerank_candidates` when you have more than a few competing candidates or conflicting sources.
 - Use `academic_search` for papers and scholarly evidence.
-- Do not use the legacy full `web_search` pipeline from this server.
+- Do not use the full `web_search` pipeline — use granular tools instead.
 - If a search tool fails because credentials are missing, move on to another tool instead of inventing results.
 
 Answering rules:
