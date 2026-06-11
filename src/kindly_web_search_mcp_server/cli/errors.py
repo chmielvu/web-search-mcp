@@ -23,13 +23,3 @@ class CliError(Exception):
                 "context": self.context,
             }
         }
-
-
-def scaffold_error(command: str) -> CliError:
-    return CliError(
-        kind="usage_error",
-        message=f"`web-search-cli {command}` is planned but not implemented in the scaffolding phase.",
-        hint="Run `web-search-cli schema` or `web-search-cli reference tools` to inspect the planned surface.",
-        exit_code=ExitCode.USAGE_ERROR,
-        context={"command": command, "phase": "scaffolding"},
-    )

@@ -17,7 +17,6 @@ from .commands import (
     getskill,
     links,
     reference,
-    scaffold,
     schema,
     search,
     server,
@@ -62,7 +61,6 @@ analytics.register(app)
 agent.register(app)
 experiments.register(app)
 server.register(app)
-scaffold.register(app)
 
 
 def main(args: list[str] | None = None) -> None:

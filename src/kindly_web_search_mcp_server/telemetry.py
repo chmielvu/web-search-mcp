@@ -134,11 +134,6 @@ def build_langfuse_otlp_headers(
 
     return headers, endpoint
 
-    # If a custom endpoint was provided via the convenience var, the caller
-    # (init_telemetry) is responsible for using it instead of OTEL_EXPORTER_OTLP_ENDPOINT.
-    # We only return the auth header here.
-    return headers
-
 
 # Logging bridge (experimental but useful)
 try:
