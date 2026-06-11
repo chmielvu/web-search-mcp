@@ -25,6 +25,7 @@ from ..analytics.duckdb_store import (
     insert_final_results as analytics_insert_final_results,
     insert_query_rewrites as analytics_insert_query_rewrites,
 )
+from ..analytics.judge_runner import run_judge_evaluation
 from ..analytics.quality_metrics import compute_search_quality
 from .branch_executor import (
     SearchBranchSpec,
@@ -432,5 +433,20 @@ async def run_search_pipeline(
         compute_search_quality(run_key)
     except Exception as exc:
         logger.debug("compute_search_quality failed: %s", exc)
+
+    # Judge evaluation (opt-in, fire-and-forget, never blocks the pipeline)
+    if settings.judge_evaluation_enabled:
+        try:
+            asyncio.ensure_future(
+                run_judge_evaluation(
+                    run_key=run_key,
+                    query=query,
+                    intent=context.intent,
+                    results=final_results,
+                    tool_name="web_search",
+                )
+            )
+        except Exception as exc:
+            logger.debug("judge evaluation fire-and-forget failed: %s", exc)
 
     return response

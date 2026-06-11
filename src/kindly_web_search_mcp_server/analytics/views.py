@@ -233,6 +233,38 @@ VIEW_DEFINITIONS: dict[str, str] = {
         GROUP BY day
         ORDER BY day DESC
     """,
+
+    "v_judge_score_distribution": """
+        SELECT
+            tool_name,
+            judge_model,
+            COUNT(*) AS evaluations,
+            AVG(relevance_score) AS avg_relevance,
+            AVG(accuracy_score) AS avg_accuracy,
+            AVG(completeness_score) AS avg_completeness,
+            AVG(source_quality_score) AS avg_source_quality,
+            AVG(overall_score) AS avg_overall,
+            approx_quantile(overall_score, 0.5) AS p50_overall,
+            approx_quantile(overall_score, 0.95) AS p95_overall
+        FROM judge_evaluations
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY tool_name, judge_model
+        ORDER BY avg_overall DESC
+    """,
+
+    "v_judge_trend": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            tool_name,
+            COUNT(*) AS evaluations,
+            AVG(overall_score) AS avg_overall,
+            AVG(duration_ms) AS avg_judge_latency_ms,
+            AVG(tokens_used) AS avg_tokens
+        FROM judge_evaluations
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, tool_name
+        ORDER BY day DESC
+    """,
 }
 
 
