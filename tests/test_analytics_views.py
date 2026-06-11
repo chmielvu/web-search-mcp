@@ -20,6 +20,7 @@ class TestAnalyticsViews:
             _ensure_provider_candidates,
             _ensure_merged_candidates,
             _ensure_rerank_stages,
+            _ensure_rerank_candidates,
             _ensure_final_results,
             _ensure_search_quality_scores,
             _ensure_judge_evaluations,
@@ -34,6 +35,7 @@ class TestAnalyticsViews:
         _ensure_provider_candidates(con)
         _ensure_merged_candidates(con)
         _ensure_rerank_stages(con)
+        _ensure_rerank_candidates(con)
         _ensure_final_results(con)
         _ensure_search_quality_scores(con)
         _ensure_judge_evaluations(con)

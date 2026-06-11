@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 import httpx
 
@@ -19,6 +20,12 @@ from ..utils.observability import emit_observability_event
 from ..search_instrumented import search_single_query
 from ..rerank import rerank_results
 from ..rerank.models import RerankEmbeddingContext
+from ..analytics.duckdb_store import (
+    insert_search_run as analytics_insert_search_run,
+    insert_final_results as analytics_insert_final_results,
+    insert_query_rewrites as analytics_insert_query_rewrites,
+)
+from ..analytics.quality_metrics import compute_search_quality
 from .branch_executor import (
     SearchBranchSpec,
     execute_search_branches,
@@ -54,12 +61,16 @@ async def run_search_pipeline(
     search_options: SearchOptions | None,
     session_id: str | None = None,
 ) -> WebSearchResponse:
+    run_key = str(uuid.uuid4())
+    pipeline_start = asyncio.get_event_loop().time()
+
     normalized_query = normalize_query(query)
     understanding = await resolve_query_understanding(
         query=query,
         research_goal=research_goal,
         intent_hint=None,
         session_id=session_id,
+        run_key=run_key,
     )
     context = build_search_context(
         query=query,
@@ -123,6 +134,28 @@ async def run_search_pipeline(
         variants=serialize_query_variants(rewrite_variants),
         providers_requested=providers or [],
     )
+
+    # Best-effort dual-write: query rewrites
+    try:
+        for index, variant in enumerate(rewrite_variants):
+            analytics_insert_query_rewrites(
+                run_key=run_key,
+                variant_index=index,
+                query=variant.query,
+                model=rewrite_model,
+                duration_ms=None,
+                payload_json={
+                    "kind": variant.kind,
+                    "target": variant.target,
+                    "weight": variant.weight,
+                    "reason": variant.why,
+                    "branch_type": variant.branch_type,
+                    "max_results": variant.max_results,
+                    "must_keep_terms": variant.must_keep_terms,
+                },
+            )
+    except Exception as exc:
+        logger.debug("analytics insert_query_rewrites failed: %s", exc)
 
     active_provider_names = list(provider_plan.provider_names)
     async with httpx.AsyncClient(
@@ -195,6 +228,7 @@ async def run_search_pipeline(
         result_lists,
         list_weights=list_weights,
         provider_weights=provider_plan.provider_weights or profile.provider_weights,
+        run_key=run_key,
     )
     record_domain_diversity(
         len(set(r.domain for r in merged if r.domain)),
@@ -214,6 +248,7 @@ async def run_search_pipeline(
                 else None,
                 research_goal=research_goal,
                 query_type_hint=context.intent,
+                run_key=run_key,
             )
             embedding_ctx_for_index = rerank_out.embedding_context
             merged = rerank_out.results
@@ -302,6 +337,7 @@ async def run_search_pipeline(
         reason=understanding.rationale,
         must_keep_terms=list(context.must_keep_terms),
     )
+    duration_ms = round((asyncio.get_event_loop().time() - pipeline_start) * 1000.0, 3)
     _, _, response = build_search_response(
         query=query,
         normalized_query=normalized_query,
@@ -336,4 +372,65 @@ async def run_search_pipeline(
         )
     except Exception as exc:
         logger.warning("query outcome JSONL write failed: %s", exc)
+
+    # Best-effort dual-write: search_run
+    try:
+        analytics_insert_search_run(
+            run_key=run_key,
+            query=query,
+            normalized_query=normalized_query,
+            research_goal=research_goal,
+            num_results_requested=num_results,
+            rewrite_enabled=rewrite,
+            session_id=session_id,
+            duration_ms=duration_ms,
+            final_result_count=len(final_results),
+            candidate_count=candidate_count,
+            has_more=has_more,
+            result_offset=result_offset,
+            status="success",
+            error_type=None,
+            payload_json={
+                "intent": context.intent,
+                "confidence": context.confidence,
+                "profile": context.profile_name,
+                "providers_requested": providers or [],
+                "providers_active": active_provider_names,
+                "rewrite_variants": len(rewrite_variants),
+                "rewrite_model": rewrite_model,
+            },
+        )
+    except Exception as exc:
+        logger.debug("analytics insert_search_run failed: %s", exc)
+
+    # Best-effort dual-write: final_results
+    try:
+        for position, result in enumerate(final_results, start=1):
+            analytics_insert_final_results(
+                run_key=run_key,
+                rank=position,
+                link=result.link,
+                title=result.title,
+                snippet=result.snippet,
+                domain=result.domain or "",
+                final_score=result.score,
+                payload_json={
+                    "provider_count": result.provider_count,
+                    "providers": result.providers or [],
+                    "entities": (
+                        [e.model_dump() for e in result.entities]
+                        if result.entities
+                        else None
+                    ),
+                },
+            )
+    except Exception as exc:
+        logger.debug("analytics insert_final_results failed: %s", exc)
+
+    # Best-effort dual-write: search quality metrics
+    try:
+        compute_search_quality(run_key)
+    except Exception as exc:
+        logger.debug("compute_search_quality failed: %s", exc)
+
     return response

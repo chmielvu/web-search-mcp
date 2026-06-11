@@ -519,6 +519,27 @@ class Settings:
         os.environ.get("KINDLY_OBSERVABILITY_MAX_ITEMS", "10")
     )
 
+    # =====================================================================
+    # LLM Judge Evaluation (opt-in, for automatic quality assessment of search runs)
+    # =====================================================================
+    judge_evaluation_enabled: bool = (
+        os.environ.get("KINDLY_JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
+    )
+    judge_model: str = os.environ.get(
+        "KINDLY_JUDGE_MODEL", "google/gemini-2.0-flash-001"
+    )
+    judge_timeout_seconds: float = float(
+        os.environ.get("KINDLY_JUDGE_TIMEOUT_SECONDS", "10.0")
+    )
+
+    # =====================================================================
+    # A/B Testing Framework (opt-in, experiment config via YAML)
+    # =====================================================================
+    ab_testing_enabled: bool = (
+        os.environ.get("KINDLY_AB_TESTING_ENABLED", "false").lower() == "true"
+    )
+    ab_config_path: str = os.environ.get("KINDLY_AB_CONFIG_PATH", "")
+
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
             # Provider weights rationale (Bruch et al. 2022: per-list weighting is more impactful than k tuning):

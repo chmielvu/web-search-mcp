@@ -27,6 +27,10 @@ from ..telemetry import (
     SEARCH_QUERY,
 )
 from ..utils.observability import emit_observability_event
+from ..analytics.duckdb_store import (
+    insert_rerank_stages as analytics_insert_rerank_stages,
+    insert_rerank_candidates as analytics_insert_rerank_candidates,
+)
 from .bi_encoder import bi_encoder_filter
 from .diversity import maximal_marginal_relevance_rank
 from .engines import rerank_with_engine_fallback
@@ -107,6 +111,7 @@ async def rerank_results(
     query_entities: list | None = None,
     research_goal: str | None = None,
     query_type_hint: str | None = None,
+    run_key: str | None = None,
 ) -> RerankOutput:
     """Rerank web search results with bi-encoder, provider, and diversity stages.
 
@@ -205,6 +210,26 @@ async def rerank_results(
                 output_count=stage1_output_count,
                 duration_seconds=stage1_duration,
             )
+
+            # Analytics dual-write: bi_encoder stage
+            if run_key:
+                try:
+                    analytics_insert_rerank_stages(
+                        run_key=run_key,
+                        stage="bi_encoder",
+                        provider=None,
+                        model=None,
+                        input_count=original_count,
+                        output_count=stage1_output_count,
+                        duration_ms=round(stage1_duration * 1000.0, 3),
+                        max_score=None,
+                        avg_score=None,
+                        query_type_hint=query_type_hint,
+                        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                        payload_json={"original_count": original_count},
+                    )
+                except Exception as exc:
+                    logger.debug("analytics insert_rerank_stages (bi_encoder) failed: %s", exc)
 
             main_span.add_event(
                 "rerank.bi_encoder",
@@ -327,6 +352,8 @@ async def rerank_results(
         logger.debug(f"After provider rerank: {len(candidates)} candidates")
 
         if relevance_scores:
+            avg_rerank_score = sum(relevance_scores) / len(relevance_scores)
+
             record_rerank_stage(
                 stage=stage2_provider,
                 input_count=stage2_input_count,
@@ -335,6 +362,30 @@ async def rerank_results(
                 relevance_scores=relevance_scores,
                 model=stage2_model,
             )
+
+            # Analytics dual-write: provider rerank stage
+            if run_key:
+                try:
+                    analytics_insert_rerank_stages(
+                        run_key=run_key,
+                        stage=stage2_provider,
+                        provider=stage2_provider,
+                        model=stage2_model,
+                        input_count=stage2_input_count,
+                        output_count=stage2_output_count,
+                        duration_ms=round(stage2_duration * 1000.0, 3),
+                        max_score=max_rerank_score,
+                        avg_score=avg_rerank_score,
+                        query_type_hint=query_type_hint,
+                        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                        payload_json={
+                            "original_count": original_count,
+                            "recency_weight": recency_weight,
+                            "apply_recency": apply_recency,
+                        },
+                    )
+                except Exception as exc:
+                    logger.debug("analytics insert_rerank_stages (rerank) failed: %s", exc)
 
             main_span.add_event(
                 f"rerank.{stage2_provider}",
@@ -420,6 +471,29 @@ async def rerank_results(
             output_count=stage3_output_count,
             duration_seconds=stage3_duration,
         )
+
+        # Analytics dual-write: diversity stage
+        if run_key:
+            try:
+                analytics_insert_rerank_stages(
+                    run_key=run_key,
+                    stage="diversity",
+                    provider=None,
+                    model=None,
+                    input_count=stage3_input_count,
+                    output_count=stage3_output_count,
+                    duration_ms=round(stage3_duration * 1000.0, 3),
+                    max_score=None,
+                    avg_score=None,
+                    query_type_hint=query_type_hint,
+                    entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+                    payload_json={
+                        "diversity_removed": diversity_removed,
+                        "mmr_lambda": settings.mmr_lambda_param,
+                    },
+                )
+            except Exception as exc:
+                logger.debug("analytics insert_rerank_stages (diversity) failed: %s", exc)
 
         main_span.add_event(
             "rerank.diversity",

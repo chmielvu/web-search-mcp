@@ -164,6 +164,59 @@ VIEW_DEFINITIONS: dict[str, str] = {
         GROUP BY rs.stage, rs.provider, rs.model
     """,
 
+    "v_query_classification_distribution": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            intent,
+            COUNT(*) AS count,
+            AVG(confidence) AS avg_confidence,
+            COUNT(*) FILTER (WHERE fallback_used) AS fallback_count,
+            COUNT(*) FILTER (WHERE should_decompose) AS decomposed_count
+        FROM query_understanding
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, intent
+        ORDER BY day DESC, count DESC
+    """,
+
+    "v_provider_quality_trend": """
+        SELECT
+            DATE_TRUNC('day', recorded_at)::DATE AS day,
+            provider,
+            COUNT(*) AS calls,
+            AVG(num_results_returned) AS avg_results,
+            AVG(duration_ms) AS avg_latency_ms,
+            approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
+            approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
+            COUNT(*) FILTER (WHERE error_code IS NOT NULL) * 1.0 / COUNT(*) AS error_rate,
+            COUNT(DISTINCT run_key) AS distinct_runs
+        FROM provider_calls
+        WHERE recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY day, provider
+        ORDER BY day DESC, calls DESC
+    """,
+
+    "v_rerank_stage_impact": """
+        SELECT
+            rs.run_key,
+            rs.stage,
+            rs.provider,
+            rs.model,
+            rs.input_count,
+            rs.output_count,
+            ROUND(rs.input_count * 1.0 / NULLIF(rs.output_count, 0), 3) AS compression_ratio,
+            rs.duration_ms AS stage_latency_ms,
+            rs.max_score,
+            rs.avg_score,
+            rs.query_type_hint,
+            COUNT(rc.link) AS candidates_tracked,
+            AVG(rc.score_after - rc.score_before) AS avg_score_delta,
+            COUNT(rc.link) FILTER (WHERE rc.diversity_removed) AS diversity_removed_count
+        FROM rerank_stages rs
+        LEFT JOIN rerank_candidates rc ON rs.run_key = rc.run_key AND rs.stage = rc.stage
+        GROUP BY rs.run_key, rs.stage, rs.provider, rs.model, rs.input_count, rs.output_count,
+                 rs.duration_ms, rs.max_score, rs.avg_score, rs.query_type_hint
+    """,
+
     "v_daily_quality_summary": """
         SELECT
             CAST(r.recorded_at AS DATE) AS day,

@@ -11,6 +11,7 @@ from ...prompts.registry import build_prompt
 from ...training.session_state import get_session_state_store
 from ...training.query_understanding_jsonl import append_query_understanding_record
 from ...utils.observability import emit_observability_event
+from ...analytics.duckdb_store import insert_query_understanding as analytics_insert_query_understanding
 from ..intents import SearchIntent, normalize_intent
 from ..normalize import normalize_query
 from ..context import SearchContext
@@ -25,6 +26,7 @@ async def resolve_query_understanding(
     research_goal: str | None,
     intent_hint: SearchIntent | None = None,
     session_id: str | None = None,
+    run_key: str | None = None,
 ) -> QueryUnderstandingResult:
     normalized_query = normalize_query(query)
     system_prompt, user_prompt = build_prompt(
@@ -118,4 +120,27 @@ async def resolve_query_understanding(
                 get_session_state_store().get(session_id).last_intent = understanding.intent
         except Exception as exc:
             logger.warning("query understanding JSONL write failed: %s", exc)
+
+    # Best-effort dual-write to analytics tables
+    if run_key:
+        try:
+            analytics_insert_query_understanding(
+                run_key=run_key,
+                intent=understanding.intent,
+                confidence=understanding.confidence,
+                should_decompose=understanding.should_decompose,
+                model=result_model_name,
+                provider=result_provider_name,
+                fallback_used=fallback_used,
+                rationale=understanding.rationale,
+                entities_count=len(understanding.entities or []),
+                preserved_terms=understanding.preserved_terms or [],
+                time_sensitivity=understanding.time_sensitivity,
+                payload_json={
+                    "query": normalized_query,
+                    "rewrite_variant_count": len(understanding.preserved_terms or []),
+                },
+            )
+        except Exception as exc:
+            logger.debug("analytics insert_query_understanding failed: %s", exc)
     return understanding

@@ -18,6 +18,7 @@ from ..telemetry import (
 )
 from .normalize import canonicalize_url
 from .merge_observability import emit_merge_summary
+from ..analytics.duckdb_store import insert_merged_candidates as analytics_insert_merged_candidates
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ def merge_search_results(
     max_per_host: int = 2,
     host_cap_top_k: int | None = None,
     enable_telemetry: bool = False,
+    run_key: str | None = None,
 ) -> list[WebSearchResult]:
     """Merge multiple ranked lists using Weighted Reciprocal Rank Fusion.
 
@@ -289,7 +291,7 @@ def merge_search_results(
                 )
 
     logger.debug(
-        "RRF merge: k=%d, %d lists → %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
+        "RRF merge: k=%d, %d lists -> %d unique results (discarded=%d, overlap=%.2f). Top 5: %s",
         k,
         len(result_lists),
         len(output),
@@ -297,5 +299,31 @@ def merge_search_results(
         overlap_rate,
         [(r.link[:50], f"{r.score:.5f}") for r in output[:5]],
     )
+
+    # Best-effort dual-write to analytics merged_candidates table
+    if run_key:
+        try:
+            for rank, result in enumerate(output, start=1):
+                analytics_insert_merged_candidates(
+                    run_key=run_key,
+                    rank=rank,
+                    link=result.link,
+                    title=result.title,
+                    snippet=result.snippet,
+                    domain=result.domain or "",
+                    rrf_score=result.score or 0.0,
+                    provider_count=result.provider_count,
+                    providers=result.providers or [],
+                    overlap_flag=(
+                        canonicalize_url(result.link) in overlapping_urls
+                    ),
+                    payload_json={
+                        "list_weights": list_weights,
+                        "k": k,
+                        "overlap_rate": round(overlap_rate, 4),
+                    },
+                )
+        except Exception as exc:
+            logger.debug("analytics insert_merged_candidates failed: %s", exc)
 
     return output
