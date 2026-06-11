@@ -227,12 +227,82 @@ async def run_search_pipeline(
         embed_query_fn=embed_query,
     )
 
+    # ------------------------------------------------------------------
+    # A/B experiment override: check if this run_key is enrolled in
+    # a provider_weights experiment
+    # ------------------------------------------------------------------
+    base_provider_weights = provider_plan.provider_weights or profile.provider_weights
+    pw_ab_overrides = get_ab_overrides(
+        run_key=run_key, layer="provider_weights"
+    ) if run_key else None
+    pw_shadow_mode = bool(pw_ab_overrides and pw_ab_overrides.get("shadow_mode"))
+
+    if pw_ab_overrides and not pw_shadow_mode:
+        # Non-shadow mode: merge variant provider_weights over the base weights
+        pw_config = pw_ab_overrides.get("config", {})
+        variant_weights = pw_config.get("provider_weights", {})
+        if variant_weights:
+            merged_weights = dict(base_provider_weights)
+            merged_weights.update(variant_weights)
+            effective_weights = merged_weights
+        else:
+            effective_weights = base_provider_weights
+    else:
+        effective_weights = base_provider_weights
+
     merged = merge_search_results(
         result_lists,
         list_weights=list_weights,
-        provider_weights=provider_plan.provider_weights or profile.provider_weights,
+        provider_weights=effective_weights,
         run_key=run_key,
     )
+
+    # Shadow mode: fire-and-forget variant merge and record comparison
+    if pw_shadow_mode and pw_ab_overrides and run_key:
+        pw_ab_config = pw_ab_overrides.get("config", {})
+        shadow_variant_weights = pw_ab_config.get("provider_weights", {})
+        if shadow_variant_weights:
+            shadow_weights = dict(base_provider_weights)
+            shadow_weights.update(shadow_variant_weights)
+        else:
+            shadow_weights = base_provider_weights
+
+        control_result_summary = {
+            "num_results": len(merged),
+            "domains": len(set(r.domain for r in merged if r.domain)),
+        }
+
+        async def _shadow_merge_fn(
+            result_lists=result_lists,
+            list_weights=list_weights,
+            shadow_weights=shadow_weights,
+            run_key=run_key,
+        ) -> dict:
+            shadow_merged = merge_search_results(
+                result_lists,
+                list_weights=list_weights,
+                provider_weights=shadow_weights,
+                run_key=run_key,
+            )
+            return {
+                "num_results": len(shadow_merged),
+                "domains": len(set(r.domain for r in shadow_merged if r.domain)),
+                "top_links": [r.link for r in shadow_merged[:5]],
+            }
+
+        asyncio.ensure_future(
+            run_shadow(
+                run_key=run_key,
+                experiment_id=pw_ab_overrides["experiment_id"],
+                variant=pw_ab_overrides["variant_key"],
+                layer="provider_weights",
+                shadow_fn=_shadow_merge_fn,
+                shadow_kwargs={},
+                control_duration_ms=0.0,
+                control_result_summary=control_result_summary,
+            )
+        )
+
     record_domain_diversity(
         len(set(r.domain for r in merged if r.domain)),
         len(merged),
