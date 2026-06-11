@@ -538,7 +538,15 @@ class Settings:
     ab_testing_enabled: bool = (
         os.environ.get("KINDLY_AB_TESTING_ENABLED", "false").lower() == "true"
     )
-    ab_config_path: str = os.environ.get("KINDLY_AB_CONFIG_PATH", "")
+    ab_config_path: str = os.environ.get(
+        "KINDLY_AB_CONFIG_PATH", ".kindly/experiments.yaml"
+    )
+    ab_shadow_mode_default: bool = (
+        os.environ.get("KINDLY_AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"
+    )
+    ab_assignment_cache_ttl_seconds: int = int(
+        os.environ.get("KINDLY_AB_ASSIGNMENT_CACHE_TTL_SECONDS", "300")
+    )
 
     def __post_init__(self) -> None:
         if self.rrf_provider_weights is None:
