@@ -32,10 +32,8 @@ _JE_TABLE_NAME = "judge_evaluations"
 _ABE_TABLE_NAME = "ab_experiments"
 _ABS_TABLE_NAME = "ab_shadow_runs"
 
-
 def _db_path(db_path: str | None = None) -> Path:
     return Path(db_path or settings.analytics_duckdb_path)
-
 
 def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
     value = payload.get(key)
@@ -43,13 +41,11 @@ def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
 
-
 def _provider_value(payload: dict[str, Any]) -> str | None:
     value = payload.get("provider")
     if value is None:
         value = payload.get("provider_name")
     return value if isinstance(value, str) else None
-
 
 def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     for key in keys:
@@ -60,7 +56,6 @@ def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
             return value
     return None
 
-
 def _run_key(payload: dict[str, Any]) -> str | None:
     trace_id = payload.get("trace_id")
     if isinstance(trace_id, str) and trace_id:
@@ -70,11 +65,9 @@ def _run_key(payload: dict[str, Any]) -> str | None:
         return fingerprint
     return None
 
-
 def _phase(event_name: str) -> str | None:
     parts = event_name.rsplit(".", 1)
     return parts[1] if len(parts) == 2 else None
-
 
 def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     value = payload.get("duration_ms")
@@ -86,7 +79,6 @@ def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     ):
         return round(float(duration_seconds) * 1000.0, 3)
     return None
-
 
 def _input_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
@@ -101,7 +93,6 @@ def _input_count_value(payload: dict[str, Any]) -> int | None:
         ),
     )
     return value
-
 
 def _output_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
@@ -118,7 +109,6 @@ def _output_count_value(payload: dict[str, Any]) -> int | None:
         ),
     )
     return value
-
 
 def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -240,7 +230,6 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
-
 def ensure_store_schema(*, db_path: str | None = None) -> None:
     path = _db_path(db_path)
     if not path.exists():
@@ -251,7 +240,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_schema(connection)
         finally:
             connection.close()
-
 
 def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
     """Create search_runs table with indexes if it doesn't exist."""
@@ -284,7 +272,6 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f"CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON {_RUNS_TABLE_NAME}(recorded_at)"
     )
-
 
 def insert_search_run(
     *,
@@ -346,7 +333,6 @@ def insert_search_run(
         finally:
             connection.close()
 
-
 def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
     """Create query_understanding table with index if it doesn't exist."""
     connection.execute(
@@ -369,10 +355,6 @@ def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_qu_run_key ON {_QU_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_query_understanding(
     *,
@@ -426,7 +408,6 @@ def insert_query_understanding(
         finally:
             connection.close()
 
-
 def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
     """Create query_rewrites table with index if it doesn't exist."""
     connection.execute(
@@ -448,10 +429,6 @@ def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_qr_run_key ON {_QR_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_query_rewrites(
     *,
@@ -504,7 +481,6 @@ def insert_query_rewrites(
         finally:
             connection.close()
 
-
 def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -520,17 +496,12 @@ def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
             error_code VARCHAR,
             error_message VARCHAR,
             http_status INTEGER,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
             payload_json JSON
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_pc_run_key ON {_PC_TABLE_NAME}(run_key)"
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_pc_provider ON {_PC_TABLE_NAME}(provider, recorded_at)"
-    )
-
 
 def insert_provider_calls(
     *,
@@ -544,7 +515,8 @@ def insert_provider_calls(
     columns = [
         "run_key", "provider", "branch_index", "branch_query",
         "num_results_requested", "num_results_returned", "duration_ms",
-        "error_code", "error_message", "http_status", "payload_json",
+        "error_code", "error_message", "http_status",
+        "tokens_used", "cost_usd", "payload_json",
     ]
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
@@ -562,9 +534,6 @@ def insert_provider_calls(
             )
         finally:
             connection.close()
-
-
-
 
 def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -584,12 +553,6 @@ def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
             payload_json JSON
         )
         '''
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_prc_run_key ON {_PRC_TABLE_NAME}(run_key)"
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_prc_provider ON {_PRC_TABLE_NAME}(provider)"
     )
 
 
@@ -623,9 +586,6 @@ def insert_provider_candidates(
         finally:
             connection.close()
 
-
-
-
 def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -645,10 +605,6 @@ def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_mc_run_key ON {_MC_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_merged_candidates(
     *,
@@ -680,9 +636,6 @@ def insert_merged_candidates(
         finally:
             connection.close()
 
-
-
-
 def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -705,12 +658,6 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
             payload_json JSON
         )
         '''
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_rs_run_key ON {_RS_TABLE_NAME}(run_key)"
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_rs_stage ON {_RS_TABLE_NAME}(stage)"
     )
 
 
@@ -746,9 +693,6 @@ def insert_rerank_stages(
         finally:
             connection.close()
 
-
-
-
 def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -771,10 +715,6 @@ def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_rc_run_key ON {_RC_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_rerank_candidates(
     *,
@@ -808,9 +748,6 @@ def insert_rerank_candidates(
         finally:
             connection.close()
 
-
-
-
 def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -830,10 +767,6 @@ def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_fr_run_key ON {_FR_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_final_results(
     *,
@@ -865,10 +798,6 @@ def insert_final_results(
         finally:
             connection.close()
 
-
-
-
-
 def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -893,10 +822,6 @@ def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_sqs_run_key ON {_SQS_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_search_quality_scores(
     *,
@@ -932,9 +857,6 @@ def insert_search_quality_scores(
         finally:
             connection.close()
 
-
-
-
 def _ensure_summary_provider_daily(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -954,7 +876,6 @@ def _ensure_summary_provider_daily(connection: duckdb.DuckDBPyConnection) -> Non
         '''
     )
 
-
 def _ensure_summary_intent_daily(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -970,7 +891,6 @@ def _ensure_summary_intent_daily(connection: duckdb.DuckDBPyConnection) -> None:
         )
         '''
     )
-
 
 def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -990,7 +910,6 @@ def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
         '''
     )
 
-
 def _ensure_summary_quality_daily(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -1005,9 +924,6 @@ def _ensure_summary_quality_daily(connection: duckdb.DuckDBPyConnection) -> None
         )
         '''
     )
-
-
-
 
 def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -1030,10 +946,6 @@ def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
         )
         '''
     )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_je_run_key ON {_JE_TABLE_NAME}(run_key)"
-    )
-
 
 def insert_judge_evaluation(
     *,
@@ -1067,9 +979,6 @@ def insert_judge_evaluation(
         finally:
             connection.close()
 
-
-
-
 def _ensure_ab_experiments(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -1089,7 +998,6 @@ def _ensure_ab_experiments(connection: duckdb.DuckDBPyConnection) -> None:
         '''
     )
 
-
 def _ensure_ab_shadow_runs(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f'''
@@ -1107,12 +1015,6 @@ def _ensure_ab_shadow_runs(connection: duckdb.DuckDBPyConnection) -> None:
             payload_json JSON
         )
         '''
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_abs_run_key ON {_ABS_TABLE_NAME}(run_key)"
-    )
-    connection.execute(
-        f"CREATE INDEX IF NOT EXISTS idx_abs_exp ON {_ABS_TABLE_NAME}(experiment_id, variant)"
     )
 
 
@@ -1148,7 +1050,6 @@ def insert_ab_experiment(
         finally:
             connection.close()
 
-
 def insert_ab_shadow_run(
     *,
     db_path: str | None = None,
@@ -1179,7 +1080,6 @@ def insert_ab_shadow_run(
             )
         finally:
             connection.close()
-
 
 def append_event(
     event_name: str,

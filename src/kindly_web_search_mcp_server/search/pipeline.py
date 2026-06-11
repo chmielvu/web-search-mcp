@@ -143,16 +143,16 @@ async def run_search_pipeline(
                 run_key=run_key,
                 variant_index=index,
                 query=variant.query,
+                kind=getattr(variant, "kind", None),
+                target=getattr(variant, "target", None),
+                weight=getattr(variant, "weight", None),
+                reason=getattr(variant, "why", None),
+                branch_type=getattr(variant, "branch_type", None),
+                max_results=getattr(variant, "max_results", None),
                 model=rewrite_model,
                 duration_ms=None,
                 payload_json={
-                    "kind": variant.kind,
-                    "target": variant.target,
-                    "weight": variant.weight,
-                    "reason": variant.why,
-                    "branch_type": variant.branch_type,
-                    "max_results": variant.max_results,
-                    "must_keep_terms": variant.must_keep_terms,
+                    "must_keep_terms": getattr(variant, "must_keep_terms", None),
                 },
             )
     except Exception as exc:

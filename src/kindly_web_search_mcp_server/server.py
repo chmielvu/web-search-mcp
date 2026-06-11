@@ -32,6 +32,7 @@ init_telemetry_background(service_name="web-search-mcp")
 
 import argparse
 import asyncio
+import uuid
 import json
 import httpx
 import logging
@@ -87,6 +88,7 @@ from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
+from .analytics.judge_runner import run_judge_evaluation
 from .tools.catalog import tool_kwargs
 from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
@@ -1454,8 +1456,6 @@ async def gemini_search(
             else None,
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
-        return response
-    except Exception as exc:
         if settings.judge_evaluation_enabled:
             try:
                 _run_key = str(uuid.uuid4())
@@ -1470,6 +1470,8 @@ async def gemini_search(
             except Exception:
                 pass
 
+        return response
+    except Exception as exc:
         duration_seconds = time.time() - start_time
         record_gemini_search(
             grounding_queries=0,
@@ -1560,8 +1562,6 @@ async def perplexity_search(
             output_content=response["answer"],
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
-        return response
-    except ValueError as e:
         if settings.judge_evaluation_enabled:
             try:
                 _run_key = str(uuid.uuid4())
@@ -1576,6 +1576,8 @@ async def perplexity_search(
             except Exception:
                 pass
 
+        return response
+    except ValueError as e:
         duration_seconds = time.time() - start_time
         record_perplexity_search(
             depth=depth,
@@ -1695,8 +1697,6 @@ async def grok_search(
         )
 
         await ctx.report_progress(progress=100, total=100, message="Done")
-        return response
-
         if settings.judge_evaluation_enabled:
             try:
                 _run_key = str(uuid.uuid4())
@@ -1710,6 +1710,8 @@ async def grok_search(
                 ))
             except Exception:
                 pass
+
+        return response
 
     except ValueError as e:
         LOGGER.warning(f"Grok search config error: {e}")

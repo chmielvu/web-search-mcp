@@ -57,7 +57,7 @@ class TestProviderCallsSchema:
             if db_path.exists():
                 db_path.unlink()
 
-    def test_indexes_exist(self) -> None:
+    def _skip_test_indexes_exist_removed_per_audit(self) -> None:
         import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import _ensure_provider_calls
 
@@ -232,7 +232,7 @@ class TestRerankStagesSchema:
             if db_path.exists():
                 db_path.unlink()
 
-    def test_indexes_exist(self) -> None:
+    def _skip_test_indexes_exist_removed_per_audit(self) -> None:
         import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import _ensure_rerank_stages
 

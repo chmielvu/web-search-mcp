@@ -61,7 +61,11 @@ async def _call_judge_llm(
         timeout=settings.judge_timeout_seconds,
     )
     content = response.choices[0].message.content or ""
-    return content.strip()
+    # Extract token usage from litellm response
+    tokens_used = None
+    if hasattr(response, "usage") and response.usage:
+        tokens_used = getattr(response.usage, "total_tokens", None)
+    return content.strip(), tokens_used
 
 
 async def run_judge_evaluation(
@@ -105,7 +109,7 @@ async def run_judge_evaluation(
             tool_name=tool_name,
         )
 
-        raw_response = await _call_judge_llm(
+        raw_response, tokens_used = await _call_judge_llm(
             system_prompt=JUDGE_SYSTEM_PROMPT,
             user_prompt=user_prompt,
         )
@@ -138,7 +142,7 @@ async def run_judge_evaluation(
             overall_score=parsed.get("overall_score"),
             rationale=parsed.get("rationale"),
             duration_ms=duration_ms,
-            tokens_used=None,
+            tokens_used=tokens_used,
             cost_usd=None,
             payload_json={
                 "scores_raw": {k: v for k, v in parsed.items() if v is not None},

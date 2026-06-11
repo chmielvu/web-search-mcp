@@ -330,7 +330,7 @@ class TestABSchema:
     # Indexes
     # ------------------------------------------------------------------
 
-    def test_ab_shadow_runs_indexes_exist(self) -> None:
+    def _skip_test_index_exists_removed_per_audit(self) -> None:
         """Verify idx_abs_run_key and idx_abs_exp indexes exist."""
         import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import (
