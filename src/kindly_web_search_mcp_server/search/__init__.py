@@ -535,21 +535,4 @@ async def search_single_query(
         return await _run(client)
 
 
-async def search_web(
-    query: str,
-    *,
-    num_results: int,
-    http_client: httpx.AsyncClient | None = None,
-    diagnostics: Diagnostics | None = None,
-    providers: list[str] | None = None,
-    search_options: SearchOptions | None = None,
-) -> list[WebSearchResult]:
-    """Backward-compatible alias for the single-query executor."""
-    return await search_single_query(
-        query,
-        num_results=num_results,
-        http_client=http_client,
-        diagnostics=diagnostics,
-        providers=providers,
-        search_options=search_options,
-    )
+
