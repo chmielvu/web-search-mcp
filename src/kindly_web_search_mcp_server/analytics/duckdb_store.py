@@ -31,6 +31,9 @@ _SUM_QD_TABLE_NAME = "summary_quality_daily"
 _JE_TABLE_NAME = "judge_evaluations"
 _ABE_TABLE_NAME = "ab_experiments"
 _ABS_TABLE_NAME = "ab_shadow_runs"
+_ABV_TABLE_NAME = "ab_experiment_variants"
+_ABA_TABLE_NAME = "ab_assignments"
+_ABR_TABLE_NAME = "ab_results"
 
 def _db_path(db_path: str | None = None) -> Path:
     return Path(db_path or settings.analytics_duckdb_path)
@@ -1012,6 +1015,54 @@ def _ensure_ab_shadow_runs(connection: duckdb.DuckDBPyConnection) -> None:
             tokens_used INTEGER,
             cost_usd DOUBLE,
             error_type VARCHAR,
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def _ensure_ab_experiment_variants(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABV_TABLE_NAME} (
+            variant_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            variant_name VARCHAR NOT NULL,
+            description VARCHAR,
+            config_json JSON,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        '''
+    )
+
+
+def _ensure_ab_assignments(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABA_TABLE_NAME} (
+            assignment_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            run_key VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def _ensure_ab_results(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABR_TABLE_NAME} (
+            result_id VARCHAR NOT NULL PRIMARY KEY,
+            experiment_id VARCHAR NOT NULL,
+            run_key VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            primary_metric DOUBLE,
+            secondary_metric DOUBLE,
+            duration_ms DOUBLE,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             payload_json JSON
         )
         '''

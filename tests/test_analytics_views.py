@@ -24,6 +24,11 @@ class TestAnalyticsViews:
             _ensure_final_results,
             _ensure_search_quality_scores,
             _ensure_judge_evaluations,
+            _ensure_ab_experiments,
+            _ensure_ab_experiment_variants,
+            _ensure_ab_assignments,
+            _ensure_ab_results,
+            _ensure_ab_shadow_runs,
         )
         from kindly_web_search_mcp_server.analytics.views import ensure_views
 
@@ -39,6 +44,11 @@ class TestAnalyticsViews:
         _ensure_final_results(con)
         _ensure_search_quality_scores(con)
         _ensure_judge_evaluations(con)
+        _ensure_ab_experiments(con)
+        _ensure_ab_experiment_variants(con)
+        _ensure_ab_assignments(con)
+        _ensure_ab_results(con)
+        _ensure_ab_shadow_runs(con)
         con.close()
 
         # Insert sample data
