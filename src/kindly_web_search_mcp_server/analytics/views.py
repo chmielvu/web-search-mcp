@@ -1,194 +1,223 @@
-"""Shared DuckDB/MotherDuck analytics event view SQL."""
+"""Human-readable analytics views for search quality inspection.
+
+All views are idempotent (CREATE OR REPLACE VIEW).
+"""
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
+from .duckdb_store import _db_path
 from ..settings import settings
-from .duckdb_store import ensure_store_schema
-from .derived_views import build_derived_view_sql
-from .candidate_views import build_candidate_view_sql
-from .evals import build_eval_view_sql, ensure_eval_tables
+
+_LOCK = threading.Lock()
 
 
-def build_base_view_sql(target: str) -> list[str]:
-    """Build common analytics views used by local DuckDB and MotherDuck."""
-    return [
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            event_name,
-            tool_name,
-            phase,
-            query,
-            normalized_query,
-            research_goal,
-            coalesce(
-                provider,
-                json_extract_string(payload_json, '$.provider'),
-                json_extract_string(payload_json, '$.provider_name')
-            ) AS provider,
-            model,
-            duration_ms,
-            input_count,
-            output_count,
-            trace_id,
-            span_id,
-            cache_hit,
-            json(payload_json) AS payload,
-            payload_json
-        FROM {target}.analytics_event_raw
-        """
-    ]
-
-
-def build_analytics_view_sql(target: str) -> list[str]:
-    """Build all analytics views used by local DuckDB and MotherDuck."""
-    return [
-        *build_base_view_sql(target),
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_quality_events AS
-        SELECT
-            event_id,
-            recorded_at,
-            run_key,
-            event_name,
-            tool_name,
-            phase,
-            query,
-            normalized_query,
-            research_goal,
-            provider,
-            model,
-            duration_ms,
-            input_count,
-            output_count,
-            trace_id,
-            span_id,
-            cache_hit,
-            json_extract(payload_json, '$.final_queries') AS final_queries_json,
-            json_extract(payload_json, '$.variants') AS rewrite_variants_json,
-            json_extract(payload_json, '$.results') AS results_json,
-            json_extract(payload_json, '$.merged_results') AS merged_results_json,
-            json_extract(payload_json, '$.input_results') AS input_results_json,
-            json_extract(payload_json, '$.top_results') AS top_results_json,
-            json_extract(payload_json, '$.branches') AS branches_json,
-            json_extract(payload_json, '$.answer') AS answer_json,
-            json_extract(payload_json, '$.sources') AS sources_json,
-            json_extract(payload_json, '$.grounding_chunks') AS grounding_chunks_json,
-            json_extract(payload_json, '$.page_content') AS page_content_json,
-            json_extract(payload_json, '$.summary') AS summary_json,
-            json_extract(payload_json, '$.metadata') AS metadata_json,
-            json_extract(payload_json, '$.links') AS links_json,
-            payload_json
-        FROM {target}.analytics_event_raw
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_run_timeline AS
-        SELECT
-            coalesce(run_key, trace_id, event_id) AS run_key,
-            min(recorded_at) AS first_seen_at,
-            max(recorded_at) AS last_seen_at,
-            count(*) AS event_count,
-            any_value(query) FILTER (WHERE query IS NOT NULL) AS query,
-            any_value(research_goal) FILTER (WHERE research_goal IS NOT NULL) AS research_goal,
-            sum(CASE WHEN event_name LIKE 'query.rewrite.%' THEN 1 ELSE 0 END) AS rewrite_events,
-            sum(CASE WHEN event_name LIKE 'search.rerank.%' THEN 1 ELSE 0 END) AS rerank_events,
-            sum(CASE WHEN event_name LIKE 'tool.get_content.%' THEN 1 ELSE 0 END) AS fetch_events,
-            sum(CASE WHEN event_name IN (
-                'tool.gemini_search.response',
-                'tool.perplexity_search.response',
-                'tool.quick_web_search.response',
-                'tool.agentic_web_research.response',
-                'agentic.research.completed'
-            ) THEN 1 ELSE 0 END) AS answer_events
-        FROM {target}.analytics_event_raw
-        GROUP BY coalesce(run_key, trace_id, event_id)
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_provider_results AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            coalesce(e.provider, json_extract_string(e.payload_json, '$.provider_name')) AS provider,
-            coalesce(e.provider, json_extract_string(e.payload_json, '$.provider_name')) AS provider_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            NULL AS branch_index,
-            NULL AS branch_query,
-            NULL AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.results')) AS r
-        WHERE e.event_name = 'provider.search.result'
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_branch_candidates AS
-        SELECT
-            e.event_id,
-            e.recorded_at,
-            coalesce(e.run_key, e.trace_id, e.event_id) AS run_key,
-            e.event_name,
-            json_extract_string(e.payload_json, '$.query') AS query,
-            CAST(json_extract_string(b.value, '$.index') AS INTEGER) AS branch_index,
-            json_extract_string(b.value, '$.query') AS branch_query,
-            json_extract(b.value, '$.providers') AS providers_json,
-            CAST(json_extract_string(b.value, '$.weight') AS DOUBLE) AS branch_weight,
-            CAST(r.key AS INTEGER) AS result_index,
-            json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
-            json_extract_string(r.value, '$.snippet') AS snippet,
-            json_extract_string(r.value, '$.domain') AS domain,
-            json_extract(r.value, '$.providers') AS result_providers_json,
-            CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
-            CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score,
-            json_extract(r.value, '$.source_engines') AS source_engines_json,
-            json_extract_string(r.value, '$.category') AS category,
-            CAST(json_extract_string(r.value, '$.raw_score') AS DOUBLE) AS raw_score,
-            json_extract_string(r.value, '$.published_date') AS published_date
-        FROM {target}.analytics_event_raw AS e,
-             json_each(json_extract(e.payload_json, '$.branches')) AS b,
-             json_each(json_extract(b.value, '$.results')) AS r
-        WHERE e.event_name = 'search.orchestrator.branches'
-        """,
-        *build_derived_view_sql(target),
-        *build_candidate_view_sql(target),
-        *build_eval_view_sql(target),
-    ]
-
-
-def ensure_local_views(*, db_path: str | None = None) -> None:
-    """Install the shared analytics views into the local DuckDB file."""
-    path = Path(db_path or settings.analytics_duckdb_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Analytics DuckDB file does not exist: {path}")
-
-    ensure_store_schema(db_path=str(path))
-    ensure_eval_tables(db_path=str(path))
-
-    connection = duckdb.connect(str(path))
-    try:
-        connection.execute(
-            "CREATE OR REPLACE VIEW analytics_event_raw AS SELECT * FROM search_events"
+VIEW_DEFINITIONS: dict[str, str] = {
+    "v_search_run_story": """
+        WITH qu AS (
+            SELECT run_key, intent, confidence FROM query_understanding
+        ),
+        qr_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM query_rewrites GROUP BY run_key
+        ),
+        pc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt, AVG(duration_ms) AS avg_latency FROM provider_calls GROUP BY run_key
+        ),
+        prc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM provider_candidates GROUP BY run_key
+        ),
+        mc_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM merged_candidates GROUP BY run_key
+        ),
+        fr_counts AS (
+            SELECT run_key, COUNT(*) AS cnt FROM final_results GROUP BY run_key
+        ),
+        rs_latency AS (
+            SELECT run_key, AVG(duration_ms) AS avg_latency FROM rerank_stages GROUP BY run_key
+        ),
+        sqs AS (
+            SELECT run_key, provider_overlap_rate, domain_diversity_count FROM search_quality_scores
         )
-        for statement in build_analytics_view_sql("main"):
-            connection.execute(statement)
-    finally:
-        connection.close()
+        SELECT
+            r.run_key,
+            r.query,
+            r.normalized_query,
+            r.research_goal,
+            r.status,
+            r.duration_ms AS total_duration_ms,
+            r.candidate_count,
+            r.rewrite_enabled,
+            r.recorded_at AS run_recorded_at,
+            COALESCE(qr.cnt, 0) AS rewrite_variant_count,
+            COALESCE(pc.cnt, 0) AS provider_call_count,
+            COALESCE(prc.cnt, 0) AS provider_candidate_count,
+            COALESCE(mc.cnt, 0) AS merged_candidate_count,
+            COALESCE(fr.cnt, 0) AS final_result_count,
+            pc.avg_latency AS avg_provider_latency_ms,
+            rs.avg_latency AS avg_rerank_latency_ms,
+            qu.intent,
+            qu.confidence,
+            sqs.provider_overlap_rate AS overlap_rate,
+            sqs.domain_diversity_count AS domain_diversity
+        FROM search_runs r
+        LEFT JOIN qu ON r.run_key = qu.run_key
+        LEFT JOIN qr_counts qr ON r.run_key = qr.run_key
+        LEFT JOIN pc_counts pc ON r.run_key = pc.run_key
+        LEFT JOIN prc_counts prc ON r.run_key = prc.run_key
+        LEFT JOIN mc_counts mc ON r.run_key = mc.run_key
+        LEFT JOIN fr_counts fr ON r.run_key = fr.run_key
+        LEFT JOIN rs_latency rs ON r.run_key = rs.run_key
+        LEFT JOIN sqs ON r.run_key = sqs.run_key
+    """,
+
+    "v_provider_survival_funnel": """
+        WITH provider_runs AS (
+            SELECT provider, run_key, COUNT(*) AS candidates
+            FROM provider_candidates
+            GROUP BY provider, run_key
+        ),
+        merged_links AS (
+            SELECT mc.run_key, mc.link
+            FROM merged_candidates mc
+        ),
+        final_links AS (
+            SELECT fr.run_key, fr.link
+            FROM final_results fr
+        ),
+        provider_merged AS (
+            SELECT
+                pr.provider,
+                pr.run_key,
+                COUNT(DISTINCT ml.link) AS merged_count
+            FROM provider_runs pr
+            LEFT JOIN merged_links ml
+                ON pr.run_key = ml.run_key
+            LEFT JOIN provider_candidates pc
+                ON pr.run_key = pc.run_key AND pr.provider = pc.provider AND pc.link = ml.link
+            WHERE pc.link IS NOT NULL
+            GROUP BY pr.provider, pr.run_key
+        ),
+        provider_final AS (
+            SELECT
+                pr.provider,
+                pr.run_key,
+                COUNT(DISTINCT fl.link) AS final_count
+            FROM provider_runs pr
+            LEFT JOIN final_links fl
+                ON pr.run_key = fl.run_key
+            LEFT JOIN provider_candidates pc
+                ON pr.run_key = pc.run_key AND pr.provider = pc.provider AND pc.link = fl.link
+            WHERE pc.link IS NOT NULL
+            GROUP BY pr.provider, pr.run_key
+        )
+        SELECT
+            pr.provider,
+            COUNT(DISTINCT pr.run_key) AS runs_with_provider,
+            SUM(pr.candidates) AS provider_candidates,
+            SUM(COALESCE(pm.merged_count, 0)) AS merged_candidates,
+            SUM(COALESCE(pf.final_count, 0)) AS final_results,
+            ROUND(
+                100.0 * SUM(COALESCE(pf.final_count, 0)) / NULLIF(COUNT(DISTINCT pr.run_key), 0),
+                2
+            ) AS survival_rate_pct
+        FROM provider_runs pr
+        LEFT JOIN provider_merged pm ON pr.provider = pm.provider AND pr.run_key = pm.run_key
+        LEFT JOIN provider_final pf ON pr.provider = pf.provider AND pr.run_key = pf.run_key
+        GROUP BY pr.provider
+        ORDER BY survival_rate_pct DESC NULLS LAST
+    """,
+
+    "v_rewrite_effectiveness": """
+        SELECT
+            r.run_key,
+            r.query,
+            r.rewrite_enabled,
+            COUNT(DISTINCT qr.variant_index) AS variant_count,
+            COUNT(DISTINCT pc.provider) AS providers_used,
+            COUNT(DISTINCT prc.link) AS distinct_candidates,
+            r.final_result_count
+        FROM search_runs r
+        LEFT JOIN query_rewrites qr ON r.run_key = qr.run_key
+        LEFT JOIN provider_calls pc ON r.run_key = pc.run_key
+        LEFT JOIN provider_candidates prc ON r.run_key = prc.run_key
+        GROUP BY r.run_key, r.query, r.rewrite_enabled, r.final_result_count
+    """,
+
+    "v_rerank_stage_performance": """
+        SELECT
+            rs.stage,
+            rs.provider,
+            rs.model,
+            COUNT(DISTINCT rs.run_key) AS runs,
+            AVG(rs.input_count) AS avg_input_count,
+            AVG(rs.output_count) AS avg_output_count,
+            AVG(rs.duration_ms) AS avg_duration_ms,
+            AVG(rs.max_score) AS avg_max_score,
+            AVG(rs.avg_score) AS avg_avg_score,
+            SUM(CASE WHEN rs.entity_overlap_enabled THEN 1 ELSE 0 END) AS entity_overlap_runs
+        FROM rerank_stages rs
+        GROUP BY rs.stage, rs.provider, rs.model
+    """,
+
+    "v_daily_quality_summary": """
+        SELECT
+            CAST(r.recorded_at AS DATE) AS day,
+            COUNT(DISTINCT r.run_key) AS query_count,
+            AVG(r.duration_ms) AS avg_total_latency_ms,
+            AVG(sqs.provider_overlap_rate) AS avg_overlap_rate,
+            AVG(sqs.domain_diversity_count) AS avg_domain_diversity,
+            AVG(sqs.rerank_compression_ratio) AS avg_compression_ratio,
+            AVG(sqs.top_score) AS avg_top_score,
+            AVG(je.overall_score) AS avg_judge_score
+        FROM search_runs r
+        LEFT JOIN search_quality_scores sqs ON r.run_key = sqs.run_key
+        LEFT JOIN judge_evaluations je ON r.run_key = je.run_key
+        GROUP BY day
+        ORDER BY day DESC
+    """,
+}
+
+
+def ensure_views(*, db_path: str | None = None) -> None:
+    """Create or replace all analytics views."""
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    if not path.exists():
+        return
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            for view_name, sql in VIEW_DEFINITIONS.items():
+                connection.execute(f"CREATE OR REPLACE VIEW {view_name} AS {sql}")
+        finally:
+            connection.close()
+
+
+def refresh_views(*, db_path: str | None = None) -> None:
+    """Recreate all views (useful after schema migrations)."""
+    ensure_views(db_path=db_path)
+
+
+# Backward-compatible alias used by analytics/__init__.py
+ensure_local_views = ensure_views
+
+
+def build_analytics_view_sql(schema: str) -> list[str]:
+    """Return list of SQL statements to create views in a target schema (e.g. MotherDuck).
+
+    Each statement is a CREATE OR REPLACE TABLE AS SELECT (materialized) since
+    MotherDuck views over remote tables can be slow.
+    """
+    statements = []
+    for view_name, sql in VIEW_DEFINITIONS.items():
+        # Materialize as table for MotherDuck performance
+        statements.append(
+            f"CREATE OR REPLACE TABLE {schema}.{view_name} AS {sql}"
+        )
+    return statements

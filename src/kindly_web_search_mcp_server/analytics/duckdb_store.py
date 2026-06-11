@@ -23,6 +23,14 @@ _MC_TABLE_NAME = "merged_candidates"
 _RS_TABLE_NAME = "rerank_stages"
 _RC_TABLE_NAME = "rerank_candidates"
 _FR_TABLE_NAME = "final_results"
+_SQS_TABLE_NAME = "search_quality_scores"
+_SUM_PVD_TABLE_NAME = "summary_provider_daily"
+_SUM_ID_TABLE_NAME = "summary_intent_daily"
+_SUM_RD_TABLE_NAME = "summary_rerank_daily"
+_SUM_QD_TABLE_NAME = "summary_quality_daily"
+_JE_TABLE_NAME = "judge_evaluations"
+_ABE_TABLE_NAME = "ab_experiments"
+_ABS_TABLE_NAME = "ab_shadow_runs"
 
 
 def _db_path(db_path: str | None = None) -> Path:
@@ -857,6 +865,320 @@ def insert_final_results(
         finally:
             connection.close()
 
+
+
+
+
+def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SQS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL PRIMARY KEY,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            provider_overlap_rate DOUBLE,
+            domain_diversity_count INTEGER,
+            domain_diversity_ratio DOUBLE,
+            rerank_compression_ratio DOUBLE,
+            avg_rrf_score DOUBLE,
+            top_score DOUBLE,
+            p95_score DOUBLE,
+            rewrite_variant_count INTEGER,
+            provider_count INTEGER,
+            branch_count INTEGER,
+            total_candidates_input INTEGER,
+            total_candidates_merged INTEGER,
+            total_candidates_reranked INTEGER,
+            total_final_results INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_sqs_run_key ON {_SQS_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_search_quality_scores(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "provider_overlap_rate", "domain_diversity_count",
+        "domain_diversity_ratio", "rerank_compression_ratio", "avg_rrf_score",
+        "top_score", "p95_score", "rewrite_variant_count", "provider_count",
+        "branch_count", "total_candidates_input", "total_candidates_merged",
+        "total_candidates_reranked", "total_final_results", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_search_quality_scores(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_SQS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ON CONFLICT DO NOTHING
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_summary_provider_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_PVD_TABLE_NAME} (
+            day DATE NOT NULL,
+            provider VARCHAR NOT NULL,
+            query_count BIGINT,
+            avg_results_returned DOUBLE,
+            p50_results_returned DOUBLE,
+            avg_latency_ms DOUBLE,
+            p50_latency_ms DOUBLE,
+            p95_latency_ms DOUBLE,
+            error_rate DOUBLE,
+            distinct_queries BIGINT,
+            PRIMARY KEY (day, provider)
+        )
+        '''
+    )
+
+
+def _ensure_summary_intent_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_ID_TABLE_NAME} (
+            day DATE NOT NULL,
+            intent VARCHAR NOT NULL,
+            query_count BIGINT,
+            avg_confidence DOUBLE,
+            decomposition_rate DOUBLE,
+            fallback_rate DOUBLE,
+            avg_rewrite_variants DOUBLE,
+            PRIMARY KEY (day, intent)
+        )
+        '''
+    )
+
+
+def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_RD_TABLE_NAME} (
+            day DATE NOT NULL,
+            stage VARCHAR NOT NULL,
+            provider VARCHAR,
+            runs_count BIGINT,
+            avg_compression_ratio DOUBLE,
+            avg_max_score DOUBLE,
+            p50_latency_ms DOUBLE,
+            p95_latency_ms DOUBLE,
+            entity_overlap_runs BIGINT,
+            PRIMARY KEY (day, stage, provider)
+        )
+        '''
+    )
+
+
+def _ensure_summary_quality_daily(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_SUM_QD_TABLE_NAME} (
+            day DATE NOT NULL,
+            avg_overlap_rate DOUBLE,
+            avg_domain_diversity DOUBLE,
+            avg_domain_diversity_ratio DOUBLE,
+            avg_compression_ratio DOUBLE,
+            avg_top_score DOUBLE,
+            PRIMARY KEY (day)
+        )
+        '''
+    )
+
+
+
+
+def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_JE_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            tool_name VARCHAR,
+            judge_model VARCHAR,
+            relevance_score DOUBLE,
+            accuracy_score DOUBLE,
+            completeness_score DOUBLE,
+            source_quality_score DOUBLE,
+            overall_score DOUBLE,
+            rationale VARCHAR,
+            duration_ms DOUBLE,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_je_run_key ON {_JE_TABLE_NAME}(run_key)"
+    )
+
+
+def insert_judge_evaluation(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "tool_name", "judge_model", "relevance_score",
+        "accuracy_score", "completeness_score", "source_quality_score",
+        "overall_score", "rationale", "duration_ms", "tokens_used",
+        "cost_usd", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_judge_evaluations(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_JE_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+
+
+def _ensure_ab_experiments(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABE_TABLE_NAME} (
+            experiment_id VARCHAR NOT NULL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            layer VARCHAR NOT NULL,
+            variant_a VARCHAR NOT NULL,
+            variant_b VARCHAR NOT NULL,
+            allocation_rate DOUBLE NOT NULL DEFAULT 0.5,
+            status VARCHAR NOT NULL DEFAULT 'active',
+            start_date DATE,
+            end_date DATE,
+            min_sample_size INTEGER,
+            payload_json JSON
+        )
+        '''
+    )
+
+
+def _ensure_ab_shadow_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        f'''
+        CREATE TABLE IF NOT EXISTS {_ABS_TABLE_NAME} (
+            run_key VARCHAR NOT NULL,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            experiment_id VARCHAR NOT NULL,
+            variant VARCHAR NOT NULL,
+            layer VARCHAR NOT NULL,
+            duration_ms DOUBLE,
+            judge_score DOUBLE,
+            tokens_used INTEGER,
+            cost_usd DOUBLE,
+            error_type VARCHAR,
+            payload_json JSON
+        )
+        '''
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_abs_run_key ON {_ABS_TABLE_NAME}(run_key)"
+    )
+    connection.execute(
+        f"CREATE INDEX IF NOT EXISTS idx_abs_exp ON {_ABS_TABLE_NAME}(experiment_id, variant)"
+    )
+
+
+def insert_ab_experiment(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "experiment_id", "layer", "variant_a", "variant_b",
+        "allocation_rate", "status", "start_date", "end_date",
+        "min_sample_size", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_ab_experiments(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_ABE_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ON CONFLICT DO NOTHING
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
+
+
+def insert_ab_shadow_run(
+    *,
+    db_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    if not settings.analytics_enabled:
+        return
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    columns = [
+        "run_key", "experiment_id", "variant", "layer",
+        "duration_ms", "judge_score", "tokens_used", "cost_usd",
+        "error_type", "payload_json",
+    ]
+    placeholders = ", ".join("?" for _ in columns)
+    col_list = ", ".join(columns)
+    values = [kwargs.get(col) for col in columns]
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_ab_shadow_runs(connection)
+            connection.execute(
+                f'''
+                INSERT INTO {_ABS_TABLE_NAME} ({col_list})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
+        finally:
+            connection.close()
 
 
 def append_event(
