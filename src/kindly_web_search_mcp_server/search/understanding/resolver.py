@@ -212,7 +212,6 @@ async def resolve_query_understanding(
                     rationale=understanding.rationale,
                     entities=tuple(understanding.entities),
                     must_keep_terms=tuple(understanding.must_keep_terms),
-                    providers=None,
                     num_results=0,
                     search_options=None,
                     profile_name=understanding.intent,

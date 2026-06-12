@@ -111,7 +111,6 @@ async def execute_search_branches(
                     num_results=spec.max_results,
                     http_client=http_client,
                     diagnostics=diagnostics,
-                    providers=spec.providers,
                     search_options=search_options,
                     provider_plan=provider_plan,
                     provider_options_by_name=provider_options_by_name,
