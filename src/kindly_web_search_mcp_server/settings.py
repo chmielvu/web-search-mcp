@@ -9,6 +9,7 @@ from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
     DEFAULT_EXPERIMENTS_YAML,
     DEFAULT_PAGE_CACHE_DB,
+    DEFAULT_PROCESS_LOGS_DB,
     DEFAULT_QUERY_UNDERSTANDING_JSONL,
 )
 
@@ -235,6 +236,18 @@ class Settings:
     analytics_duckdb_path: str = os.environ.get(
         "ANALYTICS_DUCKDB_PATH",
         DEFAULT_ANALYTICS_DB,
+    )
+
+    # Process logs DuckDB — centralized, 48h TTL, FTS enabled
+    process_logs_enabled: bool = (
+        os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
+    )
+    process_logs_duckdb_path: str = os.environ.get(
+        "PROCESS_LOGS_DUCKDB_PATH",
+        DEFAULT_PROCESS_LOGS_DB,
+    )
+    process_logs_ttl_hours: int = int(
+        os.environ.get("PROCESS_LOGS_TTL_HOURS", "48")
     )
 
     # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)

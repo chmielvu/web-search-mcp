@@ -26,6 +26,7 @@ DUCKDB_DATA_DIR = REPO_ROOT / "duckdb_data"
 ANALYTICS_DIR = DUCKDB_DATA_DIR / "analytics"
 CACHE_DIR = DUCKDB_DATA_DIR / "cache"
 EXTENSIONS_DIR = DUCKDB_DATA_DIR / "duckdb_extensions"
+LOGS_DIR = DUCKDB_DATA_DIR / "logs"
 TRAINING_DIR = DUCKDB_DATA_DIR / "training"
 EXPERIMENTS_DIR = DUCKDB_DATA_DIR / "experiments"
 
@@ -37,6 +38,7 @@ def ensure_duckdb_dirs() -> None:
         ANALYTICS_DIR,
         CACHE_DIR,
         EXTENSIONS_DIR,
+        LOGS_DIR,
         TRAINING_DIR,
         EXPERIMENTS_DIR,
     ]:
@@ -46,6 +48,7 @@ def ensure_duckdb_dirs() -> None:
 # Default file paths (fixed locations)
 DEFAULT_ANALYTICS_DB = str(ANALYTICS_DIR / "search_events.duckdb")
 DEFAULT_PAGE_CACHE_DB = str(CACHE_DIR / "page_cache.duckdb")
+DEFAULT_PROCESS_LOGS_DB = str(LOGS_DIR / "process_logs.duckdb")
 DEFAULT_QUERY_UNDERSTANDING_JSONL = str(TRAINING_DIR / "query_understanding.jsonl")
 DEFAULT_EXPERIMENTS_YAML = str(EXPERIMENTS_DIR / "experiments.yaml")
 DEFAULT_EXTENSION_DIR = str(EXTENSIONS_DIR)
