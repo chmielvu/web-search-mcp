@@ -1,6 +1,17 @@
 ## [Unreleased]
 
-### Changed
+### Added
+- **Process log handler (`utils/duckdb_log_handler.py`)** — `BatchDuckDBLogHandler` that batches Python process logs and writes them to a centralized DuckDB database:
+  - `QueueHandler` + `QueueListener` on root logger for non-blocking log emission
+  - `BatchDuckDBLogHandler(BufferingHandler)` with capacity=100, auto-flush on CRITICAL
+  - Batch insert via `executemany` (100 rows per flush)
+  - Auto TTL cleanup every 50 flushes (`DELETE WHERE recorded_at < now() - INTERVAL '48 hours'` + `CHECKPOINT`)
+  - OTEL `trace_id`/`span_id` injection from current span context
+  - Extra fields serialized as JSON in `payload_json` column
+  - Settings: `PROCESS_LOGS_ENABLED` (default true), `PROCESS_LOGS_DUCKDB_PATH`, `PROCESS_LOGS_TTL_HOURS` (default 48)
+  - DB path: `duckdb_data/logs/process_logs.duckdb` (absolute, centralized)
+  - Indexes on `recorded_at`, `level`, `logger_name`, `trace_id`
+  - Schema + query docs: `docs/logdb_schema.md`
 - **Provider execution unification**: the registry-backed search providers now all route through the shared provider helpers in `search/base_provider.py` and the canonical package surface no longer exposes the `search_web` alias. Migrated providers include SearXNG, DDG, Google CSE, Hacker News, Reddit, StackExchange, YouTube, GitHub GraphQL, Grok, Composio LLM Search, Qdrant, and Gemini Pollinations.
 - **Qdrant two-way search provider**: Qdrant index is now a read/write search provider. Reads use hybrid search (dense embeddings + BM25 sparse with server-side RRF fusion) via `query_points`; writes use precomputed embeddings from the rerank pipeline. Feedback loop prevention: Qdrant-sourced results are tagged with `providers=["qdrant"]` and skipped during re-indexing.
 - **Embedding reuse in rerank pipeline**: Bi-encoder embeddings from Stage 1 are now captured in `RerankEmbeddingContext` and reused for MMR diversity (Stage 3) and Qdrant indexing, eliminating 2 redundant `embed_texts` API calls per search. New Pydantic models: `CandidateEmbedding`, `RerankEmbeddingContext` (with `.find(url)` lookup), `RerankOutput` (returns results + embedding context).
