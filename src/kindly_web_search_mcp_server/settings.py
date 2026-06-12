@@ -452,7 +452,7 @@ class Settings:
 
     # Service identity overrides (fall back to telemetry.py defaults + package version)
     otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
-    otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp")
+    otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "web-search-mcp")
     otel_deployment_environment: str = os.environ.get(
         "DEPLOYMENT_ENV", os.environ.get("OTEL_ENVIRONMENT", "development")
     )

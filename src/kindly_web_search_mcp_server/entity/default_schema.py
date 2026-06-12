@@ -15,7 +15,7 @@ DEFAULT_QUERY_LABELS: dict[str, str] = {
     "repo_ref": "GitHub/GitLab repository reference (e.g. owner/repo, owner/repo#123)",
     "cli_flag": "Command-line flag or argument (e.g. --verbose, -rf, --port 8000)",
     "model_id": "ML model identifier (e.g. bert-base-uncased, gpt-4o, voyage-3)",
-    "file_path": "File path or module path (e.g. src/app.ts, kindly_web_search_mcp_server.server)",
+    "file_path": "File path or module path (e.g. src/app.ts, web_search_mcp_server.server)",
     "env_var": "Environment variable name (e.g. SEARXNG_BASE_URL, RERANKING_ENABLED)",
 }
 

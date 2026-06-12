@@ -394,7 +394,7 @@ _OTLP_EXPORT_TIMEOUT_SECONDS = int(
 
 def init_telemetry(
     service_name: str = "web-search-mcp",
-    service_version: str = _package_version("kindly-web-search-mcp-server"),
+    service_version: str = _package_version("web-search-mcp"),
     prometheus_port: int | None = None,
 ) -> None:
     """Initialize OpenTelemetry SDK with Grafana Cloud export.
@@ -504,7 +504,7 @@ def init_telemetry(
 
         resource_attrs = {
             SERVICE_NAME: service_name,
-            SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "kindly-mcp"),
+            SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "web-search-mcp"),
             SERVICE_VERSION: service_version,
             "service.instance.id": f"{hostname}-{pid}",
             "deployment.environment": os.environ.get(
@@ -695,7 +695,7 @@ def init_telemetry(
                 {
                     "event": "telemetry.startup",
                     "service_name": service_name,
-                    "service_namespace": "kindly-mcp",
+                    "service_namespace": "web-search-mcp",
                     "service_version": service_version,
                     "deployment_environment": os.environ.get(
                         "DEPLOYMENT_ENV", "development"
@@ -724,7 +724,7 @@ def init_telemetry(
 
 def init_telemetry_background(
     service_name: str = "web-search-mcp",
-    service_version: str = _package_version("kindly-web-search-mcp-server"),
+    service_version: str = _package_version("web-search-mcp"),
     prometheus_port: int | None = None,
 ) -> threading.Thread:
     """Run init_telemetry in a daemon thread so it never blocks startup.

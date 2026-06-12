@@ -17,7 +17,7 @@ from .evals import build_eval_table_sql, ensure_eval_tables
 from .views import build_analytics_view_sql
 
 
-DEFAULT_SCHEMA = "kindly_analytics"
+DEFAULT_SCHEMA = "web_search_analytics"
 DEFAULT_EXTENSION_DIR = DEFAULT_EXTENSION_DIR
 
 

@@ -119,7 +119,7 @@ def parse_arxiv_url(url: str) -> str:
 def _default_user_agent() -> str:
     return (
         os.environ.get("ARXIV_USER_AGENT", "").strip()
-        or "kindly-web-search-mcp-server/0.0.1 (arXiv retriever)"
+        or "web-search-mcp/0.0.1 (arXiv retriever)"
     )
 
 

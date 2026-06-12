@@ -49,7 +49,7 @@ def _analytics_connection_and_prefix(
     if scope == "motherduck":
         database = _motherduck_database()
         attach = _attach_name(database)
-        schema = _quote_ident("kindly_analytics")
+        schema = _quote_ident("web_search_analytics")
         connection = duckdb.connect(config=_duckdb_config())
         _load_motherduck(connection)
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")

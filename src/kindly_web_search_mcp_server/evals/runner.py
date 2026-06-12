@@ -49,7 +49,7 @@ def _ensure_db() -> None:
 
 def _insert_eval_run(
     suite_name: str,
-    evaluator: str = "kindly-mcp-eval-runner",
+    evaluator: str = "web-search-mcp-eval-runner",
     dataset_name: str = "joint-quality",
     notes: dict[str, Any] | None = None,
 ) -> str:

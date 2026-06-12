@@ -259,7 +259,7 @@ def _analytics_report_snapshot(
 
 
 mcp = FastMCP(
-    "kindly-web-search",
+    "web-search",
     instructions=(
         "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
         "with rewrite=true by default. Use get_content for one known URL; "
@@ -434,7 +434,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
 
     # Accept `start-mcp-server` as a no-op positional arg for compatibility
-    # with the `kindly-web-search` entry point when launched by MCP clients
+    # with the `web-search` entry point when launched by MCP clients
     # that append the subcommand from the CLI-wrapper entry point.
     parser.add_argument(
         "_start_command",

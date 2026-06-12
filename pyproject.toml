@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kindly-web-search-mcp-server"
+name = "web-search-mcp"
 version = "0.1.8"
-description = "MCP server: Multi-provider web search (SearXNG/Tavily/Brave/Jina) with RRF merge."
+description = "MCP server: Multi-provider web search with RRF merge."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -70,10 +70,11 @@ entity-extraction = [
 [project.scripts]
 mcp-server = "kindly_web_search_mcp_server.server:main"
 mcp-web-search = "kindly_web_search_mcp_server.server:main"
-kindly-web-search = "kindly_web_search_mcp_server.server:main"
-kindly-web-search-mcp-server = "kindly_web_search_mcp_server.server:main"
+web-search-mcp = "kindly_web_search_mcp_server.server:main"
 web-search-cli = "kindly_web_search_mcp_server.cli.app:main"
-websearchcli = "kindly_web_search_mcp_server.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kindly_web_search_mcp_server"]
 
 [tool.hatch.build.targets.wheel.sources]
 src = ""

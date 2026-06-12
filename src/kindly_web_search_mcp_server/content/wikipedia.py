@@ -113,7 +113,7 @@ def parse_wikipedia_url(url: str) -> WikipediaTarget:
 def _default_user_agent() -> str:
     return os.environ.get(
         "WIKIPEDIA_USER_AGENT",
-        "kindly-web-search-mcp-server/0.1 (https://github.com/)",
+        "web-search-mcp/0.1 (https://github.com/)",
     ).strip()
 
 

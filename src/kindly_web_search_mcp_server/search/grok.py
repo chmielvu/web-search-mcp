@@ -99,9 +99,9 @@ def _get_headers() -> dict[str, str]:
         "Content-Type": "application/json",
         "HTTP-Referer": (
             "https://github.com/Shelpuk-AI-Technology-Consulting/"
-            "kindly-web-search-mcp-server"
+            "web-search-mcp"
         ),
-        "X-Title": "kindly-web-search-mcp",
+        "X-Title": "web-search-mcp",
     }
 
 
