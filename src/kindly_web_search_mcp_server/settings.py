@@ -315,6 +315,7 @@ class Settings:
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
     serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
     serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "baidu")
+    serpapi_engines: str = os.environ.get("SERPAPI_ENGINES", "")  # comma-separated, e.g. "baidu,naver,google"
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
     brightdata_default_engine: str = os.environ.get("BRIGHTDATA_DEFAULT_ENGINE", "yandex")
 

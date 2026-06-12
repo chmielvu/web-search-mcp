@@ -27,6 +27,18 @@ from .provider_plan import ProviderExecutionPlan
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
 
+# Global SERP semaphore — shared across all concurrent queries so that
+# SERP_SEMAPHORE_LIMIT is a hard ceiling on paid API concurrency,
+# not per-branch. Re-created when settings change (rare at runtime).
+_serp_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_serp_semaphore() -> asyncio.Semaphore:
+    global _serp_semaphore
+    if _serp_semaphore is None or _serp_semaphore._value != settings.serp_semaphore_limit:
+        _serp_semaphore = asyncio.Semaphore(settings.serp_semaphore_limit)
+    return _serp_semaphore
+
 
 async def search_single_query(
     query: str,
@@ -125,9 +137,9 @@ async def search_single_query(
                     all_results.append(result)
                     provider_names.append(config.name)
 
-            # serp_paid group: fire all, semaphore-gated
+            # serp_paid group: fire all, gated by global SERP semaphore
             if serp_paid_configs:
-                semaphore = asyncio.Semaphore(settings.serp_semaphore_limit)
+                semaphore = _get_serp_semaphore()
 
                 async def _search_with_semaphore(
                     config: ProviderConfig,
@@ -136,13 +148,7 @@ async def search_single_query(
                         return await _provider_call(config, client)
 
                 paid_tasks = [_search_with_semaphore(c) for c in serp_paid_configs]
-                paid_results = asyncio.gather(*paid_tasks, return_exceptions=True)
-                if hasattr(paid_results, "__await__"):
-                    paid_results = await paid_results
-                else:
-                    for task in paid_tasks:
-                        if hasattr(task, "close"):
-                            task.close()
+                paid_results = await asyncio.gather(*paid_tasks, return_exceptions=True)
                 for config, result in zip(serp_paid_configs, paid_results, strict=False):
                     if isinstance(result, BaseException):
                         LOGGER.warning(
