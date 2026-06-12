@@ -285,6 +285,7 @@ future-plans/
 
 # Local analytics data (binary DuckDB files)
 .kindly/
+duckdb_data/
 
 # DuckDB binary extensions (platform-specific)
 .duckdb_extensions/
