@@ -1,7 +1,8 @@
 """BrightData SERP provider via MCP StreamableHTTP protocol.
 
 Uses BrightData's MCP endpoint to call search_engine for Google, Bing, Yandex
-in parallel, then merges results via reciprocal rank fusion.
+in parallel. All raw results are concatenated — the pipeline's global RRF
+merge handles dedup and scoring.
 """
 
 from __future__ import annotations
@@ -39,28 +40,6 @@ def _get_brightdata_api_key() -> str:
 def _get_endpoint() -> str:
     token = _get_brightdata_api_key()
     return f"https://mcp.brightdata.com/mcp?token={token}"
-
-
-def _reciprocal_rank_fusion(
-    engine_results: dict[str, list[WebSearchResult]],
-    k: int = 60,
-) -> list[WebSearchResult]:
-    """RRF merge across engines. Each engine's results contribute 1/(k+rank)."""
-    scores: dict[str, float] = {}
-    result_map: dict[str, WebSearchResult] = {}
-
-    for _engine, results in engine_results.items():
-        for rank, r in enumerate(results, start=1):
-            url = r.link.strip()
-            if url not in scores:
-                scores[url] = 0.0
-                result_map[url] = r
-            scores[url] += 1.0 / (k + rank)
-
-    merged = sorted(
-        result_map.values(), key=lambda r: scores[r.link.strip()], reverse=True
-    )
-    return merged
 
 
 async def _search_one_engine(
@@ -131,7 +110,7 @@ async def search_brightdata(
     Uses MCP StreamableHTTP protocol:
     - Endpoint: https://mcp.brightdata.com/mcp?token=<BRIGHTDATA_API_KEY>
     - Calls search_engine tool with engine=google|bing|yandex
-    - Merges results across engines via reciprocal rank fusion
+    - Results from all engines are concatenated; pipeline RRF handles the rest
 
     Free tier: https://brightdata.com/mcp
     """
@@ -147,18 +126,14 @@ async def search_brightdata(
             return_exceptions=True,
         )
 
-        engine_results: dict[str, list[WebSearchResult]] = {}
-        for engine, raw in zip(engines, engine_results_raw):
+        all_results: list[WebSearchResult] = []
+        for raw in engine_results_raw:
             if isinstance(raw, BaseException):
                 continue
             if raw:
-                engine_results[engine] = raw
+                all_results.extend(raw)
 
-        if not engine_results:
-            return []
-
-        merged = _reciprocal_rank_fusion(engine_results)
-        return merged[:num_results]
+        return all_results[:num_results]
 
     results = await retry_with_backoff(
         _do_search,

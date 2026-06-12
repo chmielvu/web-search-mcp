@@ -2,8 +2,8 @@
 
 Supports any SerpApi engine (google, baidu, naver, bing, etc.) via the
 ``engine`` query parameter.  When ``SERPAPI_ENGINES`` is a comma-separated
-list, all listed engines are queried in parallel and results are merged
-with reciprocal rank fusion — mirroring the BrightData multi-engine pattern.
+list, all listed engines are queried in parallel and their raw results are
+concatenated — the pipeline's global RRF merge handles dedup and scoring.
 
 Docs:
   - Baidu:  https://serpapi.com/baidu-search-api   (engine=baidu)
@@ -53,29 +53,7 @@ def _get_engines() -> list[str]:
             return engines
     # Fall back to single default engine
     default = settings.serpapi_default_engine.strip()
-    return [default] if default else ["google"]
-
-
-def _reciprocal_rank_fusion(
-    engine_results: dict[str, list[WebSearchResult]],
-    k: int = 60,
-) -> list[WebSearchResult]:
-    """RRF merge across engines. Each engine's results contribute 1/(k+rank)."""
-    scores: dict[str, float] = {}
-    result_map: dict[str, WebSearchResult] = {}
-
-    for _engine, results in engine_results.items():
-        for rank, r in enumerate(results, start=1):
-            url = r.link.strip()
-            if url not in scores:
-                scores[url] = 0.0
-                result_map[url] = r
-            scores[url] += 1.0 / (k + rank)
-
-    merged = sorted(
-        result_map.values(), key=lambda r: scores[r.link.strip()], reverse=True
-    )
-    return merged
+    return [default] if default else ["baidu"]
 
 
 def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
@@ -160,11 +138,11 @@ async def search_serpapi(
     num_results: int,
     http_client: Any = None,
 ) -> list[WebSearchResult]:
-    """Query SerpApi across configured engines and return merged results.
+    """Query SerpApi across configured engines and return concatenated results.
 
     When ``SERPAPI_ENGINES`` lists multiple engines (e.g. ``baidu,naver,google``),
-    all are queried in parallel and results are merged via reciprocal rank fusion.
-    With a single engine, behaves as a simple provider.
+    all are queried in parallel and results are concatenated. The pipeline's
+    global RRF merge handles dedup and scoring — no local RRF here.
 
     SerpApi endpoint:
     - GET https://serpapi.com/search
@@ -181,13 +159,13 @@ async def search_serpapi(
     api_key = _get_serpapi_api_key()
     engines = _get_engines()
 
-    # Single engine: no need for gather/RRF overhead
+    # Single engine: direct pass-through
     if len(engines) == 1:
         return await _search_one_engine(
             query, engines[0], api_key, num_results, http_client
         )
 
-    # Multi-engine: parallel gather + RRF merge
+    # Multi-engine: parallel gather, concatenate all results
     async def _do_search() -> list[WebSearchResult]:
         engine_results_raw = await asyncio.gather(
             *[
@@ -197,18 +175,14 @@ async def search_serpapi(
             return_exceptions=True,
         )
 
-        engine_results: dict[str, list[WebSearchResult]] = {}
-        for engine, raw in zip(engines, engine_results_raw):
+        all_results: list[WebSearchResult] = []
+        for raw in engine_results_raw:
             if isinstance(raw, BaseException):
                 continue
             if raw:
-                engine_results[engine] = raw
+                all_results.extend(raw)
 
-        if not engine_results:
-            return []
-
-        merged = _reciprocal_rank_fusion(engine_results)
-        return merged[:num_results]
+        return all_results[:num_results]
 
     results = await retry_with_backoff(
         _do_search,
