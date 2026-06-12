@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -7,6 +8,21 @@ from hashlib import sha256
 from typing import Any
 
 from ..observability.events import PERSISTED_EVENT_PREFIXES
+
+# Context variable to store run_key for the current search pipeline
+_run_key_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_run_key_context", default=None
+)
+
+
+def set_current_run_key(run_key: str | None) -> None:
+    """Set the run_key for the current context."""
+    _run_key_context.set(run_key)
+
+
+def get_current_run_key() -> str | None:
+    """Get the run_key for the current context."""
+    return _run_key_context.get()
 
 try:
     from opentelemetry import trace
@@ -324,11 +340,22 @@ def emit_observability_event(
     payload.update(trace_context)
     payload.update({name: _normalize_for_body(value) for name, value in fields.items()})
 
+    # Auto-inject run_key from context if not explicitly provided
+    if "run_key" not in payload:
+        ctx_run_key = get_current_run_key()
+        if ctx_run_key is not None:
+            payload["run_key"] = ctx_run_key
+
     analytics_payload = {"event": event}
     analytics_payload.update(trace_context)
     analytics_payload.update(
         {name: _normalize_for_analytics(value) for name, value in fields.items()}
     )
+    # Auto-inject run_key into analytics payload as well
+    if "run_key" not in analytics_payload:
+        ctx_run_key = get_current_run_key()
+        if ctx_run_key is not None:
+            analytics_payload["run_key"] = ctx_run_key
 
     extra = {"obs_event": event}
     for name, value in payload.items():

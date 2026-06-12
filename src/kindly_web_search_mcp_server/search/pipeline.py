@@ -16,7 +16,7 @@ from ..telemetry import record_domain_diversity
 from ..training.query_understanding_jsonl import append_query_outcome_record
 from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
-from ..utils.observability import emit_observability_event
+from ..utils.observability import emit_observability_event, set_current_run_key
 from ..rerank import rerank_results
 from ..rerank.models import RerankEmbeddingContext
 from ..ab_testing.wiring import get_ab_overrides
@@ -63,6 +63,7 @@ async def run_search_pipeline(
     session_id: str | None = None,
 ) -> WebSearchResponse:
     run_key = str(uuid.uuid4())
+    set_current_run_key(run_key)
     pipeline_start = asyncio.get_event_loop().time()
 
     normalized_query = normalize_query(query)

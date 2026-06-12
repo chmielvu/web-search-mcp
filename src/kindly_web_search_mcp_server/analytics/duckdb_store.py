@@ -60,6 +60,11 @@ def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     return None
 
 def _run_key(payload: dict[str, Any]) -> str | None:
+    # Check run_key first (explicit search run key)
+    run_key = payload.get("run_key")
+    if isinstance(run_key, str) and run_key:
+        return run_key
+    # Fallback: use trace_id or request_fingerprint
     trace_id = payload.get("trace_id")
     if isinstance(trace_id, str) and trace_id:
         return trace_id

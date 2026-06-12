@@ -50,6 +50,7 @@ async def search_single_query(
     search_options: SearchOptions | None = None,
     provider_plan: ProviderExecutionPlan | None = None,
     provider_options_by_name: dict[str, ProviderOptionBundle] | None = None,
+    run_key: str | None = None,
 ) -> list[WebSearchResult]:
     """Search with full OpenTelemetry instrumentation."""
     start_time = time.time()
@@ -188,6 +189,7 @@ async def search_single_query(
                 providers_used=provider_names,
                 merged_result_count=len(merged),
                 results=merged[:num_results],
+                run_key=run_key,
             )
 
             if diagnostics:
