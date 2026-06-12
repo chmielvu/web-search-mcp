@@ -9,6 +9,7 @@ from kindly_web_search_mcp_server.search import (
     ProviderConfig,
     search_single_query,
 )
+from kindly_web_search_mcp_server.search.provider_config import ProviderGroup
 
 
 async def _fake_provider(
@@ -34,12 +35,12 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
             name="searxng",
             env_key="",
             search_fn=_fake_provider,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             return_value=[config],
         ):
             results = await search_single_query("FastMCP docs", num_results=3)
@@ -53,7 +54,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
             name="searxng",
             env_key="",
             search_fn=_fake_provider,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
 
@@ -64,7 +65,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch(
@@ -92,16 +93,19 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
             name="searxng",
             env_key="",
             search_fn=_fake_provider,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
 
+        async def _fake_gather(*args, **kwargs):
+            return [RuntimeError("task crashed")]
+
         with (
             patch(
-                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
-            patch("asyncio.gather", return_value=[RuntimeError("task crashed")]),
+            patch("asyncio.gather", side_effect=_fake_gather),
         ):
             results = await search_single_query("FastMCP docs", num_results=3)
 
@@ -119,7 +123,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
             name="searxng",
             env_key="",
             search_fn=_fake_provider,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
 
@@ -150,7 +154,7 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+                "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
                 return_value=[config],
             ),
             patch(
@@ -175,14 +179,13 @@ class TestInstrumentedSearch(unittest.IsolatedAsyncioTestCase):
                 rationale="clear request",
                 entities=(),
                 must_keep_terms=(),
-                providers=("searxng",),
                 num_results=3,
                 search_options=SearchOptions(),
                 profile_name="general",
             )
             provider_plan = build_provider_execution_plan(
                 profile=profile,
-                context=context,
+                intent=context.intent,
                 public_options=context.search_options,
             )
             results = await search_single_query(

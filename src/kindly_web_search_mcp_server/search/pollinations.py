@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -10,12 +11,26 @@ from typing import Any
 import httpx
 
 from ..prompts.provider_perplexity import build_provider_perplexity_prompt
+from ..settings import settings
 
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
 BASE_URL = "https://gen.pollinations.ai"
 REQUEST_TIMEOUT = 30.0
+
+# Shared httpx client per event loop to avoid creating a new client (and a new
+# connection pool / TLS handshake) on every request.
+_SHARED_CLIENTS: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
+
+
+def _get_shared_client(timeout: float) -> httpx.AsyncClient:
+    loop = asyncio.get_running_loop()
+    client = _SHARED_CLIENTS.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=timeout)
+        _SHARED_CLIENTS[loop] = client
+    return client
 
 # Removed 'fast'/'gemini-fast' per user request
 MODEL_MAPPING = {
@@ -32,7 +47,7 @@ class PollinationsClient:
         timeout: float = REQUEST_TIMEOUT,
         api_key: str | None = None,
     ) -> None:
-        self.base_url = os.getenv("POLLINATIONS_BASE_URL", base_url).rstrip("/")
+        self.base_url = settings.pollinations_base_url.rstrip("/")
         self.timeout = timeout
         self.api_key = api_key or os.getenv("POLLINATIONS_API_KEY")
 
@@ -104,22 +119,22 @@ class PollinationsClient:
 
         url = f"{self.base_url}/v1/chat/completions"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.post(
-                    url, json=payload, headers=self._get_headers()
-                )
-                response.raise_for_status()
-            except httpx.TimeoutException as exc:
+        client = _get_shared_client(self.timeout)
+        try:
+            response = await client.post(
+                url, json=payload, headers=self._get_headers(), timeout=self.timeout
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise httpx.HTTPError(
+                f"Request timed out after {self.timeout}s"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
                 raise httpx.HTTPError(
-                    f"Request timed out after {self.timeout}s"
+                    "Rate limited. Please try again later."
                 ) from exc
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 429:
-                    raise httpx.HTTPError(
-                        "Rate limited. Please try again later."
-                    ) from exc
-                raise
+            raise
 
         data = response.json()
         answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -182,18 +197,23 @@ async def gemini_grounding_search(
 
     url = f"{client.base_url}/v1/chat/completions"
 
-    async with httpx.AsyncClient(timeout=GEMINI_SEARCH_TIMEOUT) as http:
-        try:
-            response = await http.post(url, json=payload, headers=client._get_headers())
-            response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise httpx.HTTPError(
-                f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
-                raise httpx.HTTPError("Rate limited. Please try again later.") from exc
-            raise
+    http = _get_shared_client(GEMINI_SEARCH_TIMEOUT)
+    try:
+        response = await http.post(
+            url,
+            json=payload,
+            headers=client._get_headers(),
+            timeout=GEMINI_SEARCH_TIMEOUT,
+        )
+        response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise httpx.HTTPError(
+            f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s"
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429:
+            raise httpx.HTTPError("Rate limited. Please try again later.") from exc
+        raise
 
     data = response.json()
 

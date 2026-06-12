@@ -120,6 +120,14 @@ class Settings:
     query_decomposition_max_concurrency: int = int(
         os.environ.get("DECOMPOSITION_MAX_CONCURRENCY", "4")
     )
+    # HTTP timeouts for the search provider client (seconds). The connect phase
+    # is kept short while read/write/pool allow slow providers to respond.
+    search_http_connect_timeout_seconds: float = float(
+        os.environ.get("SEARCH_HTTP_CONNECT_TIMEOUT_SECONDS", "10")
+    )
+    search_http_read_timeout_seconds: float = float(
+        os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
+    )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower()
         == "true"
@@ -147,13 +155,13 @@ class Settings:
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
     cerebras_rewrite_model: str = os.environ.get(
-        "CEREBRAS_REWRITE_MODEL", "cerebras/gpt-oss-120b"
+        "CEREBRAS_REWRITE_MODEL", "cerebras/openai/gpt-oss-120b"
     )
     groq_rewrite_model: str = os.environ.get(
-        "GROQ_REWRITE_MODEL", "groq/gpt-oss-120b"
+        "GROQ_REWRITE_MODEL", "groq/openai/gpt-oss-120b"
     )
     vercel_rewrite_model: str = os.environ.get(
-        "VERCEL_REWRITE_MODEL", "groq/gpt-oss-20b"
+        "VERCEL_REWRITE_MODEL", "groq/openai/gpt-oss-20b"
     )
 
     # Embeddings (Hugging Face Inference Provider)
@@ -301,6 +309,40 @@ class Settings:
     google_cse_engine_id: str = os.environ.get("GOOGLE_CSE_ENGINE_ID", "")
     google_cse_timeout_seconds: float = float(
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
+    )
+
+    # New SERP providers (Serper, SerpApi, BrightData)
+    serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
+    serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
+    serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "baidu")
+    brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
+    brightdata_default_engine: str = os.environ.get("BRIGHTDATA_DEFAULT_ENGINE", "yandex")
+
+    # SERP semaphore limit (controls concurrency for serp_paid providers)
+    serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
+
+    # SearXNG config (consolidated from raw os.environ reads in searxng.py)
+    searxng_base_url: str = os.environ.get("SEARXNG_BASE_URL", "")
+    searxng_headers_json: str = os.environ.get("SEARXNG_HEADERS_JSON", "")
+    searxng_user_agent: str = os.environ.get("SEARXNG_USER_AGENT", "")
+    searxng_language: str = os.environ.get("SEARXNG_LANGUAGE", "")
+    searxng_safesearch: str = os.environ.get("SEARXNG_SAFESEARCH", "")
+    searxng_timeout_seconds: float = float(
+        os.environ.get("SEARXNG_TIMEOUT_SECONDS", "10")
+    )
+
+    # Reddit config (consolidated from raw os.environ read in reddit.py)
+    reddit_delay_seconds: float = float(
+        os.environ.get("REDDIT_DELAY_SECONDS", "2")
+    )
+
+    # StackExchange config (consolidated from raw os.environ reads in stackexchange.py)
+    stackexchange_sites: str = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow")
+    stackexchange_app_key: str = os.environ.get("STACKEXCHANGE_APP_KEY", "")
+
+    # Pollinations/Gemini config (consolidated from raw read in gemini_pollinations.py)
+    pollinations_base_url: str = os.environ.get(
+        "POLLINATIONS_BASE_URL", "https://text.pollinations.ai/"
     )
 
     # Composio Search toolkit
@@ -568,6 +610,9 @@ class Settings:
                     "composio_llm_search": 1.15,
                     "grok_openrouter": 1.5,
                     "search_router": 1.0,
+                    "serper": 1.0,
+                    "serpapi": 1.0,
+                    "brightdata": 1.0,
                 },
             )
 

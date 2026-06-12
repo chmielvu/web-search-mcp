@@ -5,7 +5,6 @@ from typing import Any
 from langchain.tools import tool
 
 from kindly_web_search_mcp_server.composio_tools import (
-    _composio_image_search_impl,
     _composio_similarlinks_impl,
     _quick_web_search_impl,
 )
@@ -14,7 +13,6 @@ from kindly_web_search_mcp_server.search.ddg import search_ddg
 from kindly_web_search_mcp_server.search.tavily import search_tavily as _search_tavily_provider
 
 from .models import (
-    ImageSearchInput,
     SearchInput,
     SimilarLinksInput,
 )
@@ -84,11 +82,6 @@ async def _composio_similarlinks(
     return response.model_dump(exclude_none=True)
 
 
-async def _composio_image_search(query: str, num_results: int, page: int) -> dict[str, Any]:
-    response = await _composio_image_search_impl(query, num_results, page)
-    return response.model_dump(exclude_none=True)
-
-
 search_duckduckgo = tool(
     "search_duckduckgo",
     args_schema=SearchInput,
@@ -134,15 +127,6 @@ composio_similarlinks = tool(
     ),
 )(_composio_similarlinks)
 
-composio_image_search = tool(
-    "composio_image_search",
-    args_schema=ImageSearchInput,
-    description=(
-        "Search for image pages and image URLs. Use when the question needs visual "
-        "evidence or image-source discovery."
-    ),
-)(_composio_image_search)
-
 
 def get_search_tools() -> list[Any]:
     return [
@@ -151,5 +135,4 @@ def get_search_tools() -> list[Any]:
         search_brave,
         search_duckduckgo,
         composio_similarlinks,
-        composio_image_search,
     ]

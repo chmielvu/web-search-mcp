@@ -553,7 +553,7 @@ def main(argv: list[str] | None = None) -> None:
             os.environ.get("COMPOSIO_API_KEY", "").strip()
             and os.environ.get("COMPOSIO_USER_ID", "").strip()
         )
-        or settings.gemini_api_key.strip()
+        or (settings.gemini_api_key or "").strip()
     ):
         # Do not hard-fail on startup: many clients set env vars in their MCP config
         # and expect the server to at least come up for tool discovery.
@@ -710,7 +710,6 @@ async def web_search(
     query: str,
     research_goal: str,
     rewrite: bool = True,
-    providers: list[str] | None = None,
     result_offset: int = 0,
     searxng_categories: list[str] | None = None,
     searxng_engines: list[str] | None = None,
@@ -741,7 +740,7 @@ async def web_search(
         site_filters=site_filters,
         domain_filters=domain_filters,
     )
-    search_identity_key = build_search_identity_key(providers, search_options)
+    search_identity_key = build_search_identity_key(None, search_options)
 
     # Create root span for entire web_search operation
     tracer = trace.get_tracer("web-search-mcp")
@@ -752,7 +751,6 @@ async def web_search(
             SEARCH_QUERY: query[:500],
             SEARCH_NUM_RESULTS_REQUESTED: num_results,
             "search.rewrite_enabled": str(rewrite).lower(),
-            "search.providers_requested": str(providers or []),
             "search.research_goal": research_goal[:500],
             "search.result_offset": result_offset,
             "search.identity_key": search_identity_key,
@@ -775,7 +773,6 @@ async def web_search(
             num_results=num_results,
             result_offset=result_offset,
             rewrite_enabled=rewrite,
-            providers_requested=providers or [],
             providers_key=search_identity_key,
             search_options=search_options.to_dict(),
         )
@@ -884,7 +881,6 @@ async def web_search(
                 num_results=num_results,
                 rewrite=rewrite,
                 diagnostics=parent_diag,
-                providers=providers,
                 research_goal=research_goal,
                 search_options=search_options,
                 session_id=_resolve_session_id(ctx),
@@ -1460,7 +1456,7 @@ async def gemini_search(
             try:
                 _run_key = str(uuid.uuid4())
                 _judge_results = [
-                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("uri",""), "snippet": c.get("snippet","")})()
+                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("url",""), "snippet": c.get("snippet","")})()
                     for c in (response.get("grounding_chunks", []) if isinstance(response, dict) else [])
                 ]
                 asyncio.ensure_future(run_judge_evaluation(
@@ -2005,6 +2001,9 @@ async def academic_search(
         )
         if exact_cached:
             LOGGER.debug(f"Exact query cache hit for academic search: {query[:100]}")
+            # Copy before mutating so concurrent requests don't corrupt the
+            # shared cached object.
+            exact_cached = dict(exact_cached)
             exact_cached["query"] = query
             emit_tool_observability_event(
                 LOGGER,

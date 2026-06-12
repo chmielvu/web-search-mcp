@@ -58,7 +58,6 @@ async def run_search_pipeline(
     num_results: int,
     rewrite: bool,
     diagnostics: Diagnostics | None,
-    providers: list[str] | None,
     research_goal: str | None,
     search_options: SearchOptions | None,
     session_id: str | None = None,
@@ -78,7 +77,6 @@ async def run_search_pipeline(
         query=query,
         research_goal=research_goal,
         session_id=session_id,
-        providers=providers,
         num_results=num_results,
         search_options=search_options,
         understanding_intent=understanding.intent,
@@ -92,7 +90,7 @@ async def run_search_pipeline(
     search_options = apply_profile_search_options(search_options, profile)
     provider_plan = build_provider_execution_plan(
         profile=profile,
-        context=context,
+        intent=context.intent,
         public_options=search_options,
     )
     cache_identity = build_cache_identity(
@@ -134,7 +132,7 @@ async def run_search_pipeline(
         cache_identity=cache_identity,
         rewrite_model=rewrite_model,
         variants=serialize_query_variants(rewrite_variants),
-        providers_requested=providers or [],
+        providers_requested=context.profile_name,
     )
 
     # Best-effort dual-write: query rewrites
@@ -160,8 +158,14 @@ async def run_search_pipeline(
         logger.debug("analytics insert_query_rewrites failed: %s", exc)
 
     active_provider_names = list(provider_plan.provider_names)
+    read_timeout = settings.search_http_read_timeout_seconds
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=5, read=20, write=20, pool=20),
+        timeout=httpx.Timeout(
+            connect=settings.search_http_connect_timeout_seconds,
+            read=read_timeout,
+            write=read_timeout,
+            pool=read_timeout,
+        ),
         follow_redirects=True,
     ) as client:
         branch_specs = build_search_branch_specs(
@@ -304,6 +308,7 @@ async def run_search_pipeline(
             if ab_overrides and ab_overrides.get("shadow_mode"):
                 # Shadow mode: run production rerank normally, fire-and-forget variant
                 ab_config = ab_overrides.get("config", {})
+                pre_rerank_results = list(merged)
                 rerank_out = await rerank_results(
                     query=normalized_query,
                     candidates=merged,
@@ -321,7 +326,7 @@ async def run_search_pipeline(
                 # Fire-and-forget the variant rerank as a shadow
                 shadow_kwargs = {
                     "query": normalized_query,
-                    "candidates": list(merged),
+                    "candidates": pre_rerank_results,
                     "top_k": num_results,
                     "searxng_time_range": search_options.searxng_time_range
                     if search_options
@@ -393,7 +398,8 @@ async def run_search_pipeline(
 
     if session_id:
         session_state = get_session_state_store().get(session_id)
-        session_state.last_intent = context.intent
+        if session_state is not None:
+            session_state.last_intent = context.intent
         for result in final_results:
             get_session_state_store().mark_seen(session_id, result.link)
 
@@ -455,7 +461,6 @@ async def run_search_pipeline(
         unique_domains=len(set(r.domain for r in merged if r.domain)),
         merged=merged,
         final_results=final_results,
-        providers=providers,
         result_offset=result_offset,
         candidate_count=candidate_count,
         has_more=has_more,
@@ -502,7 +507,6 @@ async def run_search_pipeline(
                 "intent": context.intent,
                 "confidence": context.confidence,
                 "profile": context.profile_name,
-                "providers_requested": providers or [],
                 "providers_active": active_provider_names,
                 "rewrite_variants": len(rewrite_variants),
                 "rewrite_model": rewrite_model,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kindly_web_search_mcp_server.search.provider_config import ProviderConfig
+from kindly_web_search_mcp_server.search.provider_config import ProviderConfig, ProviderGroup
 
 
 class TestProviderConfig(unittest.TestCase):
@@ -20,11 +20,10 @@ class TestProviderConfig(unittest.TestCase):
             name="test",
             env_key="TEST_KEY",
             search_fn=lambda: [],
-            is_free=False,
+            group=ProviderGroup.free,
             requires_key=True,
         )
         self.assertTrue(config.should_fire())
-        self.assertTrue(config.should_fire(caller_providers=None))
         os.environ.pop("TEST_KEY", None)
 
     def test_provider_respects_allow_list(self) -> None:
@@ -33,13 +32,11 @@ class TestProviderConfig(unittest.TestCase):
             name="searxng",
             env_key="SEARXNG_BASE_URL",
             search_fn=lambda: [],
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
 
-        self.assertFalse(config.should_fire(caller_providers=[]))
-        self.assertFalse(config.should_fire(caller_providers=["other"]))
-        self.assertTrue(config.should_fire(caller_providers=["searxng"]))
+        self.assertTrue(config.should_fire())
 
         os.environ.pop("SEARXNG_BASE_URL", None)
 
@@ -48,7 +45,7 @@ class TestProviderConfig(unittest.TestCase):
             name="ddg",
             env_key="",
             search_fn=lambda: [],
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
         self.assertTrue(config.is_available())
@@ -59,7 +56,7 @@ class TestProviderConfig(unittest.TestCase):
             name="test",
             env_key="TEST_KEY",
             search_fn=lambda: [],
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
         self.assertTrue(config.is_available())
@@ -72,7 +69,7 @@ class TestProviderConfig(unittest.TestCase):
             name="test",
             env_key="TEST_KEY",
             search_fn=lambda: [],
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
             extra_env_keys=("EXTRA_TEST_KEY",),
         )
@@ -87,7 +84,7 @@ class TestProviderConfig(unittest.TestCase):
             name="test",
             env_key="MISSING_KEY",
             search_fn=lambda: [],
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
         self.assertFalse(config.is_available())
@@ -98,10 +95,10 @@ class TestProviderConfig(unittest.TestCase):
             name="test",
             env_key="TEST_KEY",
             search_fn=lambda: [],
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
-        self.assertFalse(config.should_fire(caller_providers=[]))
+        self.assertFalse(config.should_fire())
         os.environ.pop("TEST_KEY", None)
 
 

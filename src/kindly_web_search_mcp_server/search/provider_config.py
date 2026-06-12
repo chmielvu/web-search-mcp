@@ -4,7 +4,18 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable
+
+from .intents import INTENT_PROVIDERS, SearchIntent
+
+
+class ProviderGroup(Enum):
+    """Group a search provider belongs to for routing/priority decisions."""
+
+    free = "free"
+    serp_paid = "serp_paid"
+    other = "other"
 
 
 @dataclass
@@ -14,9 +25,14 @@ class ProviderConfig:
     name: str
     env_key: str  # Environment variable for API key/base URL
     search_fn: Callable[..., Any]  # search_X function
-    is_free: bool = False  # True for free/self-hosted providers
+    group: ProviderGroup = ProviderGroup.other  # Provider group for routing
     requires_key: bool = True  # False for SearXNG (uses base URL) and DDG (no key)
     extra_env_keys: tuple[str, ...] = ()
+
+    @property
+    def is_free(self) -> bool:
+        """Backward-compatible check: True if this provider is in the free group."""
+        return self.group == ProviderGroup.free
 
     def is_available(self) -> bool:
         """Check if provider has required credentials configured."""
@@ -27,8 +43,8 @@ class ProviderConfig:
             return False
         return all(os.environ.get(key, "").strip() for key in self.extra_env_keys)
 
-    def should_fire(self, caller_providers: list[str] | None = None) -> bool:
-        """Determine if this provider should be used for current search."""
+    def should_fire(self, intent: SearchIntent = "general") -> bool:
+        """Determine if this provider should fire for the given search intent."""
         # Health check: skip providers that are in cooldown
         # (lazy import to avoid circular dependency)
         from .provider_health import get_provider_health  # noqa: PLC0415
@@ -39,12 +55,12 @@ class ProviderConfig:
         if not self.is_available():
             return False
 
-        # When caller specifies explicit providers (including empty), treat as allow-list.
-        # Empty list [] -> allow-list with nothing allowed -> nothing fires.
-        if caller_providers is not None:
-            return self.name in caller_providers
-
-        return True
+        # Group logic
+        if self.group in (ProviderGroup.free, ProviderGroup.serp_paid):
+            return True
+        if self.group == ProviderGroup.other:
+            return self.name in INTENT_PROVIDERS.get(intent, [])
+        return False
 
 
 # Provider registry
@@ -62,12 +78,12 @@ def get_provider_configs() -> dict[str, ProviderConfig]:
 
 
 def resolve_providers_for_search(
-    caller_providers: list[str] | None = None,
+    intent: SearchIntent = "general",
 ) -> list[ProviderConfig]:
-    """Resolve which providers should fire for this search."""
+    """Resolve which providers should fire for this search intent."""
     active: list[ProviderConfig] = []
     for config in PROVIDER_REGISTRY.values():
-        if config.should_fire(caller_providers):
+        if config.should_fire(intent):
             active.append(config)
     return active
 
@@ -82,50 +98,73 @@ class ProviderDiagnosis:
 
 
 def diagnose_providers(
-    caller_providers: list[str] | None = None,
+    intent: SearchIntent = "general",
 ) -> list[ProviderDiagnosis]:
-    """Check all requested providers and explain why each cannot fire."""
-    if not caller_providers:
-        return []
-
+    """Check all registered providers and explain why each does or does not fire for the given intent."""
     from .provider_health import get_provider_health  # noqa: PLC0415
 
     diagnoses: list[ProviderDiagnosis] = []
-    for name in caller_providers:
-        config = PROVIDER_REGISTRY.get(name)
-        if config is None:
-            diagnoses.append(
-                ProviderDiagnosis(
-                    name=name,
-                    available=False,
-                    reason=f"Unknown provider '{name}'. Available: {sorted(PROVIDER_REGISTRY.keys())}",
-                )
-            )
-            continue
+    for name, config in PROVIDER_REGISTRY.items():
+        # SERP providers (free + serp_paid) always fire subject to health/availability
+        is_serp = config.group in (ProviderGroup.free, ProviderGroup.serp_paid)
 
-        if not get_provider_health().is_healthy(name):
-            diagnoses.append(
-                ProviderDiagnosis(
-                    name=name,
-                    available=False,
-                    reason=f"Provider '{name}' is in health cooldown after repeated failures.",
+        if is_serp:
+            if not get_provider_health().is_healthy(name):
+                diagnoses.append(
+                    ProviderDiagnosis(
+                        name=name,
+                        available=False,
+                        reason=f"Provider '{name}' is in health cooldown after repeated failures.",
+                    )
                 )
-            )
-            continue
-
-        if not config.is_available():
-            env_hint = (
-                f" Set {config.env_key} environment variable." if config.env_key else ""
-            )
-            diagnoses.append(
-                ProviderDiagnosis(
-                    name=name,
-                    available=False,
-                    reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+                continue
+            if not config.is_available():
+                env_hint = (
+                    f" Set {config.env_key} environment variable." if config.env_key else ""
                 )
-            )
-            continue
-
-        diagnoses.append(ProviderDiagnosis(name=name, available=True, reason="ok"))
+                diagnoses.append(
+                    ProviderDiagnosis(
+                        name=name,
+                        available=False,
+                        reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+                    )
+                )
+                continue
+            diagnoses.append(ProviderDiagnosis(name=name, available=True, reason="ok"))
+        else:
+            # Other providers: fire only if in INTENT_PROVIDERS for this intent
+            intent_providers = INTENT_PROVIDERS.get(intent, [])
+            if name not in intent_providers:
+                diagnoses.append(
+                    ProviderDiagnosis(
+                        name=name,
+                        available=False,
+                        reason=f"Provider '{name}' is not in INTENT_PROVIDERS[{intent!r}]. "
+                        f"Intent providers: {intent_providers}",
+                    )
+                )
+                continue
+            if not get_provider_health().is_healthy(name):
+                diagnoses.append(
+                    ProviderDiagnosis(
+                        name=name,
+                        available=False,
+                        reason=f"Provider '{name}' is in health cooldown after repeated failures.",
+                    )
+                )
+                continue
+            if not config.is_available():
+                env_hint = (
+                    f" Set {config.env_key} environment variable." if config.env_key else ""
+                )
+                diagnoses.append(
+                    ProviderDiagnosis(
+                        name=name,
+                        available=False,
+                        reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+                    )
+                )
+                continue
+            diagnoses.append(ProviderDiagnosis(name=name, available=True, reason="ok"))
 
     return diagnoses

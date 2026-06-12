@@ -59,16 +59,12 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 research_goal=research_goal,
                 depth=depth,
             )
-            record_mcp_tool_call(
-                "agentic_web_research", success=True
-            )  # will be overwritten on error path
-
             try:
                 result = await run_agentic_web_research(
                     AgenticResearchRequest(
                         query=query,
                         research_goal=research_goal,
-                        session_id=ctx.session_id,
+                        session_id=getattr(ctx, "session_id", None),
                         depth=depth,  # type: ignore[arg-type]
                     )
                 )
@@ -83,6 +79,9 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                     error_type=type(exc).__name__,
                 )
                 return classify_error(exc, provider="agentic_web_research").to_dict()
+
+            # Record success only after the operation actually succeeded.
+            record_mcp_tool_call("agentic_web_research", success=True)
 
             # Success path: rich emit (payload_json captures sources/tool_trace/kg etc. for DuckDB)
             sources_count = len(result.sources)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 
-from .context import SearchContext
+from .intents import SearchIntent
 from .options import SearchOptions
 from .profiles.models import SearchProfile
 from .provider_options import ProviderOptionBundle, ProviderOptionSet
@@ -23,15 +23,13 @@ class ProviderExecutionPlan:
 def build_provider_execution_plan(
     *,
     profile: SearchProfile,
-    context: SearchContext,
+    intent: SearchIntent = "general",
     public_options: SearchOptions | None,
 ) -> ProviderExecutionPlan:
     provider_names = tuple(profile.provider_names or ())
     if not provider_names:
-        provider_names = tuple(context.providers or ())
-    if not provider_names:
         provider_names = tuple(
-            config.name for config in resolve_providers_for_search(None)
+            config.name for config in resolve_providers_for_search(intent)
         )
     if not provider_names:
         provider_names = tuple(profile.provider_weights.keys()) or (
@@ -43,7 +41,6 @@ def build_provider_execution_plan(
         name: ProviderOptionBundle(
             provider_name=name,
             search_options=public_options,
-            fire=True,
             weight=provider_weights.get(name, 1.0),
             arguments=dict(profile.provider_arguments.get(name, {})),
         )

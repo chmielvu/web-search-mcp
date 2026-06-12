@@ -9,19 +9,19 @@ IMPORTANT: Uses 'intitle=' parameter (the /search endpoint requires intitle or t
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
 
 from ..models import WebSearchResult
+from ..settings import settings
 from .base_provider import run_provider
 
 _SE_BASE = "https://api.stackexchange.com/2.3/search"
 
 
 def _stackexchange_sites() -> str:
-    sites = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow").strip()
+    sites = settings.stackexchange_sites.strip()
     return sites or "stackoverflow"
 
 
@@ -56,7 +56,7 @@ async def search_stackexchange(
     }
 
     # Optional app key for higher quota
-    app_key = os.environ.get("STACKEXCHANGE_APP_KEY", "").strip()
+    app_key = settings.stackexchange_app_key.strip()
     if app_key:
         params["key"] = app_key
 

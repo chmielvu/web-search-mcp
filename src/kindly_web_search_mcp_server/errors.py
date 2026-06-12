@@ -53,9 +53,9 @@ class StructuredToolError:
             result["action"] = self.action
         if self.provider:
             result["provider"] = self.provider
-        if self.status_code:
+        if self.status_code is not None:
             result["status_code"] = self.status_code
-        if self.retry_after:
+        if self.retry_after is not None:
             result["retry_after"] = self.retry_after
         return result
 

@@ -153,6 +153,7 @@ class GetContentResponse(BaseModel):
     continuation_notice: str | None = None
     content_type: str | None = None
     error: dict[str, Any] | None = None
+    entities: list[EntitySpan] | None = None
     summary: dict[str, Any] | None = None
 
 

@@ -79,13 +79,12 @@ def build_search_response(
     unique_domains: int,
     merged: list[WebSearchResult],
     final_results: list[WebSearchResult],
-    providers: list[str] | None,
     result_offset: int,
     candidate_count: int,
     has_more: bool,
     next_offset: int | None,
 ) -> tuple[list[ProviderWarning], list[str], WebSearchResponse]:
-    provider_diagnoses = diagnose_providers(providers)
+    provider_diagnoses = diagnose_providers()
     provider_warnings = [
         ProviderWarning(provider=d.name, error=d.reason, error_type="unavailable")
         for d in provider_diagnoses
@@ -105,7 +104,6 @@ def build_search_response(
         unique_domains=unique_domains,
         merged_result_count=len(merged),
         final_result_count=len(final_results),
-        providers_requested=providers or [],
         providers_used=providers_used,
         warnings=[warning.model_dump() for warning in provider_warnings],
         results=final_results,

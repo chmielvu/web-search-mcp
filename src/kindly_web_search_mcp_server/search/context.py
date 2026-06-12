@@ -21,7 +21,6 @@ class SearchContext:
     rationale: str
     entities: tuple[EntitySpan, ...]
     must_keep_terms: tuple[str, ...]
-    providers: tuple[str, ...] | None
     num_results: int
     search_options: SearchOptions | None
     profile_name: str

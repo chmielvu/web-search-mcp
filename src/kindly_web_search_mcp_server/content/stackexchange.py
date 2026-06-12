@@ -235,7 +235,7 @@ class StackExchangeApiClient:
         return q
 
     async def fetch_all_answers(
-        self, target: StackExchangeTarget
+        self, target: StackExchangeTarget, *, max_pages: int = 10
     ) -> list[dict[str, Any]]:
         qid = target.question_id
         if qid is None and target.answer_id is not None:
@@ -243,9 +243,10 @@ class StackExchangeApiClient:
         if qid is None:
             raise StackExchangeError("Missing question id.")
 
+        max_pages = max(1, max_pages)
         page = 1
         answers: list[dict[str, Any]] = []
-        while True:
+        while page <= max_pages:
             params: dict[str, Any] = _stackexchange_params(
                 target.site, filter_id=self._filter
             )

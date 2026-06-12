@@ -126,7 +126,6 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
             num_results=1,
             rewrite=True,
             diagnostics=None,
-            providers=["searxng"],
             research_goal="testing",
             search_options=None,
         )

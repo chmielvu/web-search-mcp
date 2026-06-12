@@ -11,7 +11,6 @@ async def fetch_web_search_payload(
     *,
     num_results: int,
     rewrite: bool,
-    providers: list[str] | None,
     research_goal: str | None,
     result_offset: int = 0,
     searxng_categories: list[str] | None = None,
@@ -39,7 +38,6 @@ async def fetch_web_search_payload(
         num_results=num_results,
         rewrite=rewrite,
         diagnostics=None,
-        providers=providers,
         research_goal=research_goal,
         search_options=search_options,
     )

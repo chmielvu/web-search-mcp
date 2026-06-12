@@ -17,7 +17,11 @@ from kindly_web_search_mcp_server.search.provider_plan import (
 
 
 def test_provider_plan_uses_requested_providers_and_profile_weights() -> None:
-    profile = resolve_search_profile("general")
+    profile = SearchProfile(
+        name="general",
+        provider_weights={"searxng": 1.0, "brave": 1.0, "google_cse": 1.0},
+        provider_names=("searxng", "brave", "google_cse"),
+    )
     context = SearchContext(
         raw_query="FastAPI docs",
         normalized_query="FastAPI docs",
@@ -29,7 +33,6 @@ def test_provider_plan_uses_requested_providers_and_profile_weights() -> None:
         rationale="clear request",
         entities=(),
         must_keep_terms=(),
-        providers=("searxng", "brave", "google_cse"),
         num_results=5,
         search_options=SearchOptions(),
         profile_name="general",
@@ -37,7 +40,7 @@ def test_provider_plan_uses_requested_providers_and_profile_weights() -> None:
 
     plan = build_provider_execution_plan(
         profile=profile,
-        context=context,
+        intent=context.intent,
         public_options=context.search_options,
     )
 
@@ -70,7 +73,6 @@ def test_provider_plan_carries_profile_provider_arguments() -> None:
         rationale="clear request",
         entities=(),
         must_keep_terms=(),
-        providers=("brave",),
         num_results=5,
         search_options=SearchOptions(),
         profile_name="general",
@@ -78,7 +80,7 @@ def test_provider_plan_carries_profile_provider_arguments() -> None:
 
     plan = build_provider_execution_plan(
         profile=profile,
-        context=context,
+        intent=context.intent,
         public_options=context.search_options,
     )
 

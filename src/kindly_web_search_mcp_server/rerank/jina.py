@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -11,14 +12,18 @@ from ..settings import settings
 
 JINA_RERANK_ENDPOINT = "https://api.jina.ai/v1/rerank"
 
-_JINA_CLIENT: httpx.AsyncClient | None = None
+# Cache one client per event loop so we never reuse a client bound to a closed
+# or different loop (which raises "Event loop is closed" / cross-loop errors).
+_JINA_CLIENTS: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
 
 def _get_jina_client(timeout: float = 30.0) -> httpx.AsyncClient:
-    global _JINA_CLIENT
-    if _JINA_CLIENT is None or _JINA_CLIENT.is_closed:
-        _JINA_CLIENT = httpx.AsyncClient(timeout=timeout)
-    return _JINA_CLIENT
+    loop = asyncio.get_running_loop()
+    client = _JINA_CLIENTS.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=timeout)
+        _JINA_CLIENTS[loop] = client
+    return client
 
 
 def _parse_rerank_results(

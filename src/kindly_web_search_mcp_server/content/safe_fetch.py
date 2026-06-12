@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
-import socket
 from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import urlparse
@@ -60,8 +60,9 @@ def _validate_host_public(host: str) -> None:
         )
 
 
-def _iter_resolved_ips(hostname: str) -> Iterable[ipaddress._BaseAddress]:
-    infos = socket.getaddrinfo(hostname, None)
+def _ips_from_addrinfo(
+    infos: Iterable[tuple]
+) -> Iterable[ipaddress._BaseAddress]:
     for entry in infos:
         sockaddr = entry[4]
         if not sockaddr:
@@ -73,8 +74,14 @@ def _iter_resolved_ips(hostname: str) -> Iterable[ipaddress._BaseAddress]:
             continue
 
 
-def _validate_resolved_ips(hostname: str) -> None:
-    for ip in _iter_resolved_ips(hostname):
+async def _iter_resolved_ips(hostname: str) -> list[ipaddress._BaseAddress]:
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(hostname, None)
+    return list(_ips_from_addrinfo(infos))
+
+
+async def _validate_resolved_ips(hostname: str) -> None:
+    for ip in await _iter_resolved_ips(hostname):
         if (
             ip.is_private
             or ip.is_loopback
@@ -87,14 +94,14 @@ def _validate_resolved_ips(hostname: str) -> None:
             )
 
 
-def validate_public_url(url: str) -> None:
+async def validate_public_url(url: str) -> None:
     _validate_scheme(url)
     parsed = urlparse(url)
     host = (parsed.hostname or "").strip()
     if not host:
         raise SafeFetchError("invalid_url", "URL host is missing")
     _validate_host_public(host)
-    _validate_resolved_ips(host)
+    await _validate_resolved_ips(host)
 
 
 def _is_pdf(content_type: str | None, fetched_url: str, body: bytes) -> bool:
@@ -112,7 +119,7 @@ async def safe_fetch_url(
     timeout_seconds: float = 20.0,
     max_response_bytes: int = 8_000_000,
 ) -> SafeFetchResult:
-    validate_public_url(url)
+    await validate_public_url(url)
 
     headers = {
         "User-Agent": (
@@ -127,7 +134,7 @@ async def safe_fetch_url(
         async with client.stream("GET", url, headers=headers) as response:
             response.raise_for_status()
             fetched_url = str(response.url)
-            validate_public_url(fetched_url)
+            await validate_public_url(fetched_url)
 
             content_length = response.headers.get("content-length")
             if content_length:

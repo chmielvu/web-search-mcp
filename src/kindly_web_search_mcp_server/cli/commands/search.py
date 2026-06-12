@@ -41,7 +41,6 @@ def web_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
     num_results: Annotated[int, typer.Option("--num-results")] = 5,
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
-    provider: Annotated[list[str] | None, typer.Option("--provider")] = None,
     research_goal: Annotated[
         str | None,
         typer.Option("--research-goal"),
@@ -80,7 +79,6 @@ def web_cmd(
                 query,
                 num_results=num_results,
                 rewrite=rewrite,
-                providers=provider,
                 research_goal=research_goal,
                 result_offset=result_offset,
                 searxng_categories=searxng_category,

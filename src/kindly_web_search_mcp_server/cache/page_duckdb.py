@@ -186,6 +186,14 @@ class PageDuckDBCache:
             con = duckdb.connect(str(path))
             try:
                 self._ensure_schema(con)
+                # Upsert semantics: remove any existing rows for this URL hash so
+                # repeated stores of the same URL don't accumulate duplicate rows
+                # (unbounded disk growth). DuckDB lacks INSERT OR REPLACE without a
+                # unique constraint, so delete-then-insert under the same lock.
+                con.execute(
+                    "DELETE FROM page_cache WHERE url_hash = ?",
+                    [url_hash],
+                )
                 con.execute(
                     """
                     INSERT INTO page_cache (

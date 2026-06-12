@@ -10,13 +10,11 @@ from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..services.link_tools import (
     fetch_discover_links_payload,
-    fetch_image_search_payload,
     fetch_similar_links_payload,
 )
 
 
 links_app = typer.Typer(no_args_is_help=True)
-images_app = typer.Typer(no_args_is_help=True)
 
 
 @links_app.command("discover")
@@ -104,40 +102,5 @@ def similar_cmd(
     emit_json(payload, command="links similar")
 
 
-@images_app.command("search")
-def image_search_cmd(
-    query: Annotated[str, typer.Option("--query", help="Image search query.")],
-    num_results: Annotated[int, typer.Option("--num-results")] = 10,
-    page: Annotated[int, typer.Option("--page")] = 0,
-) -> None:
-    try:
-        payload = asyncio.run(
-            fetch_image_search_payload(
-                query,
-                num_results=num_results,
-                page=page,
-            )
-        )
-    except ValueError as exc:
-        raise CliError(
-            kind="usage_error",
-            message=str(exc),
-            hint="Check the image search options and retry.",
-            exit_code=ExitCode.USAGE_ERROR,
-            context={"command": "images search"},
-        ) from exc
-    except Exception as exc:
-        raise CliError(
-            kind="tool_error",
-            message=str(exc),
-            hint="Check Composio Search access and retry.",
-            exit_code=ExitCode.PROVIDER_ERROR,
-            context={"command": "images search"},
-        ) from exc
-    emit_json(payload, command="images search")
-
-
 def register(app: typer.Typer) -> None:
     app.add_typer(links_app, name="links")
-    app.add_typer(images_app, name="images")
-

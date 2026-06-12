@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from ...composio_tools import (
-    _composio_image_search_impl,
     _composio_similarlinks_impl,
 )
 from ...content.link_discovery import discover_links
@@ -44,14 +43,3 @@ async def fetch_similar_links_payload(
         exclude_domains,
     )
     return response.model_dump(exclude_none=True)
-
-
-async def fetch_image_search_payload(
-    query: str,
-    *,
-    num_results: int,
-    page: int,
-) -> dict[str, Any]:
-    response = await _composio_image_search_impl(query, num_results, page)
-    return response.model_dump(exclude_none=True)
-

@@ -99,6 +99,7 @@ class GetContentInput(BaseModel):
     include_links: bool = False
     max_links: int = Field(default=25, ge=1, le=200)
     strip_selectors: str | None = None
+    timeout_seconds: float = Field(default=120.0, ge=1.0)
 
 
 class BatchGetContentInput(BaseModel):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .branch_executor import SearchBranchSpec, select_providers_for_variant
+from .branch_executor import SearchBranchSpec
 from .normalize import normalize_query
 from .provider_plan import ProviderExecutionPlan
 from .query_rewrite_models import QueryVariant
@@ -30,10 +30,7 @@ def build_search_branch_specs(
 
     branch_specs: list[SearchBranchSpec] = []
     for index, variant in enumerate(planned_variants):
-        branch_providers = select_providers_for_variant(
-            variant,
-            active_provider_names,
-        )
+        branch_providers = active_provider_names
         branch_specs.append(
             SearchBranchSpec(
                 index=index,

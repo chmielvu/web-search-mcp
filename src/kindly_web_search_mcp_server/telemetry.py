@@ -31,7 +31,24 @@ SEMANTIC CONVENTIONS:
 from __future__ import annotations
 
 import os
-from importlib.metadata import version as _package_version
+from importlib.metadata import PackageNotFoundError, version as _package_version
+
+
+def _otel_sdk_version() -> str:
+    """Resolve the installed OpenTelemetry SDK version.
+
+    Reads from an explicit env override first, then package metadata, falling
+    back to ``"unknown"`` when neither is available.
+    """
+    override = os.environ.get("OTEL_SDK_VERSION")
+    if override:
+        return override
+    for dist in ("opentelemetry-sdk", "opentelemetry-api"):
+        try:
+            return _package_version(dist)
+        except PackageNotFoundError:
+            continue
+    return "unknown"
 import logging
 import json
 import platform
@@ -505,7 +522,7 @@ def init_telemetry(
             ),
             "telemetry.sdk.language": "python",
             "telemetry.sdk.name": "opentelemetry",
-            "telemetry.sdk.version": "1.20.0",
+            "telemetry.sdk.version": _otel_sdk_version(),
         }
         resource = Resource.create(resource_attrs)
 
@@ -538,9 +555,8 @@ def init_telemetry(
 
         # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
         try:
-            from .settings import Settings
+            from .settings import settings as s
 
-            s = Settings()
             lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
                 public_key=s.langfuse_public_key,
                 secret_key=s.langfuse_secret_key,

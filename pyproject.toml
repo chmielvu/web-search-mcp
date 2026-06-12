@@ -84,4 +84,5 @@ dev = [
     "opentelemetry-exporter-otlp-proto-http>=1.39.1",
     "opentelemetry-sdk>=1.39.1",
     "pytest>=9.0.3",
+    "pytest-asyncio>=1.4.0",
 ]

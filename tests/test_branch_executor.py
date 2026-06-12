@@ -25,14 +25,13 @@ def _build_provider_plan():
         rationale="clear request",
         entities=(),
         must_keep_terms=(),
-        providers=("searxng", "brave", "google_cse"),
         num_results=5,
         search_options=SearchOptions(),
         profile_name="general",
     )
     return build_provider_execution_plan(
         profile=profile,
-        context=context,
+        intent=context.intent,
         public_options=context.search_options,
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import quote
 
 import httpx
 
@@ -87,7 +88,7 @@ async def search_jina(
     Docs: https://jina.ai/search-api
     """
     api_key = _get_jina_api_key()
-    url = f"https://s.jina.ai/{query}"
+    url = f"https://s.jina.ai/{quote(query, safe='')}"
     headers = {"Authorization": f"Bearer {api_key}"}
 
     async def _do_request(client: httpx.AsyncClient) -> str:

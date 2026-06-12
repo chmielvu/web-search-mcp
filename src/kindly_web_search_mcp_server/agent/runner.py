@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolCallLimitMiddleware
@@ -31,6 +32,24 @@ except ImportError:
     _LANGFUSE_AVAILABLE = False
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _resolve_within(path_str: str, allowed_dir: Path) -> Path:
+    """Resolve ``path_str`` and ensure it is contained within ``allowed_dir``.
+
+    Guards against path traversal (e.g. ``../../etc/passwd``) by resolving the
+    real path and verifying the allowed directory is on its parent chain.
+    """
+    allowed = allowed_dir.resolve()
+    candidate = Path(path_str).expanduser()
+    if not candidate.is_absolute():
+        candidate = allowed / candidate
+    resolved = candidate.resolve()
+    if resolved != allowed and allowed not in resolved.parents:
+        raise ValueError(
+            f"Refusing to read MCP config outside allowed directory: {resolved}"
+        )
+    return resolved
 
 
 def _extract_final_answer(messages: list[object]) -> str:
@@ -87,7 +106,8 @@ async def run_agentic_web_research(
             if isinstance(raw, str) and raw.strip().startswith("{"):
                 mcp_cfg = json.loads(raw)
             elif isinstance(raw, str):
-                with open(raw, encoding="utf-8") as f:
+                config_path = _resolve_within(raw, Path.cwd())
+                with open(config_path, encoding="utf-8") as f:
                     mcp_cfg = json.load(f)
             else:
                 mcp_cfg = raw

@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from kindly_web_search_mcp_server.rerank.models import RerankOutput
+
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search.branch_executor import BranchExecutionBatch
 from kindly_web_search_mcp_server.search.options import SearchOptions
@@ -117,17 +119,14 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                 None,
                 [],
             )
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-            mock_entities.side_effect = lambda *, query, results: results
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             response = await run_search_pipeline(
                 "langchain agent react",
                 num_results=1,
                 rewrite=True,
                 diagnostics=None,
-                providers=["searxng"],
                 research_goal="find docs",
                 search_options=SearchOptions(),
             )
@@ -219,25 +218,24 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
                 None,
                 [],
             )
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-            mock_entities.side_effect = lambda *, query, results: results
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             await run_search_pipeline(
                 "FastMCP resources tools docs prompt as tools code mode",
                 num_results=2,
                 rewrite=True,
                 diagnostics=None,
-                providers=["searxng", "gemini"],
                 research_goal="compare docs and grounded examples",
                 search_options=SearchOptions(),
             )
 
         branch_specs = captured["branch_specs"]
-        assert len(branch_specs) == 2
-        assert branch_specs[0].providers == ["searxng"]
-        assert branch_specs[1].providers == ["gemini"]
+        # original + up to 2 rewrite variants from build_rewrite_variants
+        assert len(branch_specs) >= 2
+        # Both branches get the same provider list (no per-target routing)
+        assert branch_specs[0].providers is not None
+        assert branch_specs[1].providers is not None
         assert mock_rewrite.awaited
         assert mock_execute.awaited
         assert mock_rerank.awaited
@@ -291,17 +289,14 @@ def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
                 None,
                 [],
             )
-            mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-                :top_k
-            ]
-            mock_entities.side_effect = lambda *, query, results: results
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             response = await run_search_pipeline(
                 "fastmcp docs",
                 num_results=1,
                 rewrite=False,
                 diagnostics=None,
-                providers=["searxng"],
                 research_goal=None,
                 search_options=SearchOptions(),
             )

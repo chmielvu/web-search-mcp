@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import httpx
 
 from kindly_web_search_mcp_server.models import WebSearchResult
+from kindly_web_search_mcp_server.search.provider_config import ProviderGroup
 
 
 class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
@@ -37,18 +38,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_only_searxng(caller_providers=None, **kwargs):  # noqa: ARG001
+        def _resolve_only_searxng(*args, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
                 env_key="",
                 search_fn=mock_searxng,
-                is_free=True,
+                group=ProviderGroup.free,
                 requires_key=False,
             )
             return [config]
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             side_effect=_resolve_only_searxng,
         ):
             out = await search_single_query("q", num_results=1)
@@ -67,18 +68,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_only_tavily(caller_providers=None, **kwargs):  # noqa: ARG001
+        def _resolve_only_tavily(*args, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="tavily",
                 env_key="",
                 search_fn=mock_tavily,
-                is_free=False,
+                group=ProviderGroup.serp_paid,
                 requires_key=False,
             )
             return [config]
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             side_effect=_resolve_only_tavily,
         ):
             out = await search_single_query("q", num_results=1)
@@ -113,33 +114,33 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve_multi(caller_providers=None, **kwargs):  # noqa: ARG001
+        def _resolve_multi(*args, **kwargs):  # noqa: ARG001
             return [
                 pc.ProviderConfig(
                     name="searxng",
                     env_key="",
                     search_fn=mock_searxng,
-                    is_free=True,
+                    group=ProviderGroup.free,
                     requires_key=False,
                 ),
                 pc.ProviderConfig(
                     name="tavily",
                     env_key="",
                     search_fn=mock_tavily,
-                    is_free=False,
+                    group=ProviderGroup.serp_paid,
                     requires_key=False,
                 ),
                 pc.ProviderConfig(
                     name="brave",
                     env_key="",
                     search_fn=mock_brave,
-                    is_free=False,
+                    group=ProviderGroup.serp_paid,
                     requires_key=False,
                 ),
             ]
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             side_effect=_resolve_multi,
         ):
             out = await search_single_query("q", num_results=5)
@@ -172,18 +173,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
+        def _resolve(*args, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="searxng",
                 env_key="",
                 search_fn=mock_searxng,
-                is_free=True,
+                group=ProviderGroup.free,
                 requires_key=False,
             )
             return [config]
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             side_effect=_resolve,
         ):
             for _ in range(3):
@@ -211,18 +212,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
             ]
         )
 
-        def _resolve(caller_providers=None, **kwargs):  # noqa: ARG001
+        def _resolve(*args, **kwargs):  # noqa: ARG001
             config = pc.ProviderConfig(
                 name="ddg",
                 env_key="",
                 search_fn=mock_ddg,
-                is_free=True,
+                group=ProviderGroup.free,
                 requires_key=False,
             )
             return [config]
 
         with patch(
-            "kindly_web_search_mcp_server.search.resolve_providers_for_search",
+            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
             side_effect=_resolve,
         ):
             out = await search_single_query("q", num_results=1)

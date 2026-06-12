@@ -11,7 +11,6 @@ from .options import SearchOptions
 class ProviderOptionBundle:
     provider_name: str
     search_options: SearchOptions | None = None
-    fire: bool = True
     weight: float = 1.0
     arguments: dict[str, object] = field(default_factory=dict)
 

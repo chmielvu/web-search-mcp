@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain.tools import tool
 
+from kindly_web_search_mcp_server.content.artifact import ContentArtifact, ContentError
 from kindly_web_search_mcp_server.content.batch_orchestrator import (
     BatchParams,
     run_batch_fetch,
@@ -54,6 +56,7 @@ async def _get_content(
     include_links: bool,
     max_links: int,
     strip_selectors: str | None,
+    timeout_seconds: float = 120.0,
 ) -> dict[str, Any]:
     options = build_fetch_options(
         include_metadata=include_metadata,
@@ -61,7 +64,27 @@ async def _get_content(
         max_links=max_links,
         strip_selectors=strip_selectors,
     )
-    artifact = await fetch_content_artifact(url, fetch_options=options)
+    try:
+        artifact = await asyncio.wait_for(
+            fetch_content_artifact(url, fetch_options=options),
+            timeout=timeout_seconds,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        artifact = ContentArtifact(
+            input_url=url,
+            normalized_url=url,
+            fetched_url=None,
+            status="error",
+            source_type="web",
+            fetch_backend="agent_get_content",
+            content_type=None,
+            markdown="",
+            error=ContentError(
+                code="timeout",
+                message=f"get_content timed out after {timeout_seconds}s",
+                retryable=True,
+            ),
+        )
     try:
         # Light internal event for DuckDB correlation (LC callback usually captures as tool obs too)
         emit_observability_event(

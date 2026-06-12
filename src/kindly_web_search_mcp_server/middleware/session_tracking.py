@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 
 from fastmcp.server.middleware import MiddlewareContext
@@ -9,6 +10,11 @@ from fastmcp.server.middleware import MiddlewareContext
 from ..utils.observability import emit_observability_event
 
 logger = logging.getLogger(__name__)
+
+# Stable per-process fallback session id. Using a UUID generated once at import
+# time (rather than id(), whose memory addresses are reused and unstable) avoids
+# cross-request state pollution in the expensive-tool-protection middleware.
+_FALLBACK_SESSION_ID = f"local_context:{uuid.uuid4().hex}"
 
 
 def get_session_id(context: MiddlewareContext) -> str:
@@ -25,7 +31,7 @@ def get_session_id(context: MiddlewareContext) -> str:
     if request_id:
         return str(request_id)
 
-    return f"local_context:{id(fastmcp_context)}"
+    return _FALLBACK_SESSION_ID
 
 
 @dataclass

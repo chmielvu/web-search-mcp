@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..models import WebSearchResult
+from ..settings import settings
 from .normalize import canonicalize_url
 from .options import SearchOptions
 from .base_provider import run_provider
@@ -32,7 +33,7 @@ DEFAULT_SEARXNG_USER_AGENT = (
 
 
 def _get_searxng_base_url() -> str:
-    base_url = os.environ.get("SEARXNG_BASE_URL", "").strip()
+    base_url = settings.searxng_base_url.strip()
     if not base_url:
         raise SearxngConfigError(
             "SEARXNG_BASE_URL is not set. Configure it as an environment variable in your IDE/run configuration."
@@ -48,7 +49,7 @@ def _get_searxng_base_url() -> str:
 def _build_headers() -> dict[str, str]:
     headers: dict[str, str] = {}
 
-    raw_extra = (os.environ.get("SEARXNG_HEADERS_JSON") or "").strip()
+    raw_extra = (settings.searxng_headers_json).strip()
     if raw_extra:
         try:
             parsed = json.loads(raw_extra)
@@ -73,7 +74,7 @@ def _build_headers() -> dict[str, str]:
 
     if "user-agent" not in {key.lower() for key in headers.keys()}:
         headers["User-Agent"] = (
-            os.environ.get("SEARXNG_USER_AGENT", "").strip()
+            settings.searxng_user_agent.strip()
             or DEFAULT_SEARXNG_USER_AGENT
         )
 
@@ -81,15 +82,10 @@ def _build_headers() -> dict[str, str]:
 
 
 def _get_request_timeout_seconds() -> float | None:
-    raw = (os.environ.get("SEARXNG_TIMEOUT_SECONDS") or "").strip()
-    if not raw:
+    raw = settings.searxng_timeout_seconds
+    if raw is None:
         return None
-    try:
-        return float(raw)
-    except ValueError as exc:
-        raise SearxngConfigError(
-            "SEARXNG_TIMEOUT_SECONDS must be a number (seconds)."
-        ) from exc
+    return float(raw)
 
 
 def _looks_like_url(url: str) -> bool:
@@ -195,7 +191,7 @@ async def search_searxng(
         if search_options.searxng_language:
             params["language"] = search_options.searxng_language
         else:
-            env_language = (os.environ.get("SEARXNG_LANGUAGE") or "").strip()
+            env_language = settings.searxng_language.strip()
             if env_language:
                 params["language"] = env_language
 
@@ -223,7 +219,7 @@ async def search_searxng(
         if search_options.searxng_safesearch is not None:
             params["safesearch"] = search_options.searxng_safesearch
         else:
-            env_safesearch = (os.environ.get("SEARXNG_SAFESEARCH") or "").strip()
+            env_safesearch = settings.searxng_safesearch.strip()
             if env_safesearch:
                 params["safesearch"] = env_safesearch
 

@@ -74,34 +74,6 @@ def _limit_branches(branches: list[SearchBranchSpec]) -> list[SearchBranchSpec]:
     return branches[:max_branches]
 
 
-def select_providers_for_variant(
-    variant: Any,
-    active_provider_names: list[str],
-) -> list[str] | None:
-    if variant.target == "all":
-        return active_provider_names or None
-    if variant.target == "keyword":
-        selected = [
-            name
-            for name in active_provider_names
-            if name in {"searxng", "ddg", "brave", "tavily"}
-        ]
-        return selected if selected else None
-    if variant.target == "community":
-        selected = [
-            name
-            for name in active_provider_names
-            if name in {"hackernews", "reddit", "github_graphql", "stackexchange"}
-        ]
-        return selected if selected else None
-    selected = [
-        name
-        for name in active_provider_names
-        if name in {"gemini", "composio_llm_search", "jina"}
-    ]
-    return selected if selected else None
-
-
 async def execute_search_branches(
     branches: list[SearchBranchSpec],
     *,

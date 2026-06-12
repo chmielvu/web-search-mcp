@@ -10,14 +10,16 @@ import httpx
 from opentelemetry import trace
 
 from ..models import WebSearchResult
+from ..settings import settings
 from ..telemetry import add_results_to_span, get_search_total_metric, get_tracer
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from .budget import ProviderBudget
 from .errors import WebSearchProviderError
+from .intents import SearchIntent
 from .merge import merge_search_results
 from .options import SearchOptions
-from .provider_config import ProviderConfig
+from .provider_config import ProviderConfig, ProviderGroup, resolve_providers_for_search
 from .provider_execution import _search_single_provider
 from .provider_options import ProviderOptionBundle
 from .provider_plan import ProviderExecutionPlan
@@ -26,19 +28,13 @@ LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
 
 
-def _resolve_active_providers(providers: list[str] | None) -> list[ProviderConfig]:
-    from . import resolve_providers_for_search as resolve_package_providers
-
-    return resolve_package_providers(providers)
-
-
 async def search_single_query(
     query: str,
     *,
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
     diagnostics: Diagnostics | None = None,
-    providers: list[str] | None = None,
+    intent: SearchIntent = "general",
     search_options: SearchOptions | None = None,
     provider_plan: ProviderExecutionPlan | None = None,
     provider_options_by_name: dict[str, ProviderOptionBundle] | None = None,
@@ -52,17 +48,11 @@ async def search_single_query(
         attributes={
             "query": query[:200],
             "num_results_requested": num_results,
-            "providers_requested": str(providers or []),
+            "intent": intent,
         },
     ) as span:
         budget = ProviderBudget()
-        if providers is not None:
-            requested_providers = providers
-        elif provider_plan is not None:
-            requested_providers = list(provider_plan.provider_names)
-        else:
-            requested_providers = None
-        active_configs = _resolve_active_providers(requested_providers)
+        active_configs = resolve_providers_for_search(intent)
         resolved_provider_options = (
             provider_options_by_name
             if provider_options_by_name is not None
@@ -96,8 +86,6 @@ async def search_single_query(
             client: httpx.AsyncClient,
         ) -> list[WebSearchResult]:
             bundle = resolved_provider_options.get(config.name)
-            if bundle is not None and not bundle.fire:
-                return []
             provider_search_options = (
                 bundle.search_options if bundle and bundle.search_options is not None else search_options
             )
@@ -117,19 +105,16 @@ async def search_single_query(
             all_results: list[list[WebSearchResult]] = []
             provider_names: list[str] = []
 
-            free_providers = [c for c in active_configs if c.is_free]
-            paid_providers = [c for c in active_configs if not c.is_free]
+            # Group by ProviderGroup for dispatch
+            free_configs = [c for c in active_configs if c.group == ProviderGroup.free]
+            serp_paid_configs = [c for c in active_configs if c.group == ProviderGroup.serp_paid]
+            other_configs = [c for c in active_configs if c.group == ProviderGroup.other]
 
-            if free_providers:
-                free_tasks = [_provider_call(c, client) for c in free_providers]
-                free_results = asyncio.gather(*free_tasks, return_exceptions=True)
-                if hasattr(free_results, "__await__"):
-                    free_results = await free_results
-                else:
-                    for task in free_tasks:
-                        if hasattr(task, "close"):
-                            task.close()
-                for config, result in zip(free_providers, free_results, strict=False):
+            # free group: fire all concurrently (no semaphore)
+            if free_configs:
+                free_tasks = [_provider_call(c, client) for c in free_configs]
+                free_results = await asyncio.gather(*free_tasks, return_exceptions=True)
+                for config, result in zip(free_configs, free_results, strict=False):
                     if isinstance(result, BaseException):
                         LOGGER.warning(
                             "Provider task %s failed before returning results: %s",
@@ -140,8 +125,9 @@ async def search_single_query(
                     all_results.append(result)
                     provider_names.append(config.name)
 
-            if paid_providers:
-                semaphore = asyncio.Semaphore(max(2, len(paid_providers)))
+            # serp_paid group: fire all, semaphore-gated
+            if serp_paid_configs:
+                semaphore = asyncio.Semaphore(settings.serp_semaphore_limit)
 
                 async def _search_with_semaphore(
                     config: ProviderConfig,
@@ -149,7 +135,7 @@ async def search_single_query(
                     async with semaphore:
                         return await _provider_call(config, client)
 
-                paid_tasks = [_search_with_semaphore(c) for c in paid_providers]
+                paid_tasks = [_search_with_semaphore(c) for c in serp_paid_configs]
                 paid_results = asyncio.gather(*paid_tasks, return_exceptions=True)
                 if hasattr(paid_results, "__await__"):
                     paid_results = await paid_results
@@ -157,7 +143,22 @@ async def search_single_query(
                     for task in paid_tasks:
                         if hasattr(task, "close"):
                             task.close()
-                for config, result in zip(paid_providers, paid_results, strict=False):
+                for config, result in zip(serp_paid_configs, paid_results, strict=False):
+                    if isinstance(result, BaseException):
+                        LOGGER.warning(
+                            "Provider task %s failed before returning results: %s",
+                            config.name,
+                            result,
+                        )
+                        continue
+                    all_results.append(result)
+                    provider_names.append(config.name)
+
+            # other group: fire all concurrently (already filtered by intent via resolve_providers_for_search)
+            if other_configs:
+                other_tasks = [_provider_call(c, client) for c in other_configs]
+                other_results = await asyncio.gather(*other_tasks, return_exceptions=True)
+                for config, result in zip(other_configs, other_results, strict=False):
                     if isinstance(result, BaseException):
                         LOGGER.warning(
                             "Provider task %s failed before returning results: %s",

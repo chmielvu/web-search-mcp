@@ -26,7 +26,7 @@ REWRITE_TEMPERATURE_BY_INTENT: dict[SearchIntent, float] = {
 
 
 class RewriteVariantResponse(BaseModel):
-    variants: list[QueryVariant] = Field(min_length=1)
+    variants: list[QueryVariant] = Field(default_factory=list)
 
 
 def build_search_context(
@@ -34,7 +34,6 @@ def build_search_context(
     query: str,
     research_goal: str | None,
     session_id: str | None = None,
-    providers: list[str] | None,
     num_results: int,
     search_options: SearchOptions | None,
     understanding_intent: SearchIntent,
@@ -57,7 +56,6 @@ def build_search_context(
         rationale=understanding_rationale,
         entities=tuple(entities),
         must_keep_terms=tuple(must_keep_terms),
-        providers=tuple(providers) if providers else None,
         num_results=num_results,
         search_options=search_options,
         profile_name=profile_name,

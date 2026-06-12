@@ -27,7 +27,6 @@ def test_training_jsonl_writes_understanding_and_outcome() -> None:
         rationale="clear request",
         entities=(),
         must_keep_terms=("FastAPI",),
-        providers=("searxng",),
         num_results=5,
         search_options=SearchOptions(),
         profile_name="general",

@@ -28,7 +28,6 @@ class TestCliSearchService(IsolatedAsyncioTestCase):
                 "FastMCP docs",
                 num_results=3,
                 rewrite=True,
-                providers=["searxng"],
                 research_goal=None,
             )
 

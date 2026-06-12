@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import logging
 from .brave import search_brave
+from .brightdata import search_brightdata
+from .serpapi import search_serpapi
+from .serper import search_serper
 from .composio_llm_search import search_composio_llm_search
 from .ddg import search_ddg
 from .gemini_pollinations import search_gemini_pollinations
@@ -23,6 +26,7 @@ from .reddit import search_reddit
 from .stackexchange import search_stackexchange
 from .provider_config import (
     ProviderConfig,
+    ProviderGroup,
     register_provider,
     resolve_providers_for_search,
 )
@@ -51,13 +55,13 @@ __all__ = [
 
 def _init_provider_registry() -> None:
     """Initialize provider registry with configured modes."""
-    # Tier 1: Free providers (default always, configurable via env)
+    # Tier 1: Free providers (always fire, no semaphore)
     register_provider(
         ProviderConfig(
             name="searxng",
             env_key="SEARXNG_BASE_URL",
             search_fn=search_searxng,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
     )
@@ -66,7 +70,7 @@ def _init_provider_registry() -> None:
             name="ddg",
             env_key="",  # No env key needed
             search_fn=search_ddg,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
     )
@@ -75,7 +79,7 @@ def _init_provider_registry() -> None:
             name="search_router",
             env_key="SEARCH_ROUTER_API_KEY",
             search_fn=search_search_router,
-            is_free=True,
+            group=ProviderGroup.serp_paid,
             requires_key=True,
         )
     )
@@ -84,18 +88,18 @@ def _init_provider_registry() -> None:
             name="qdrant",
             env_key="QDRANT_SPACE_URL",
             search_fn=search_qdrant,
-            is_free=True,
+            group=ProviderGroup.free,
             requires_key=False,
         )
     )
 
-    # Tier 2: Paid providers (mode from settings.py defaults)
+    # Tier 2: Paid SERP providers (always fire, semaphore-gated)
     register_provider(
         ProviderConfig(
             name="tavily",
             env_key="TAVILY_API_KEY",
             search_fn=search_tavily,
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
     )
@@ -104,7 +108,34 @@ def _init_provider_registry() -> None:
             name="brave",
             env_key="BRAVE_API_KEY",
             search_fn=search_brave,
-            is_free=False,
+            group=ProviderGroup.serp_paid,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="serper",
+            env_key="SERPER_API_KEY",
+            search_fn=search_serper,
+            group=ProviderGroup.serp_paid,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="serpapi",
+            env_key="SERPAPI_API_KEY",
+            search_fn=search_serpapi,
+            group=ProviderGroup.serp_paid,
+            requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="brightdata",
+            env_key="BRIGHTDATA_API_KEY",
+            search_fn=search_brightdata,
+            group=ProviderGroup.serp_paid,
             requires_key=True,
         )
     )
@@ -113,7 +144,7 @@ def _init_provider_registry() -> None:
             name="google_cse",
             env_key="GOOGLE_CSE_API_KEY",
             search_fn=search_google_cse,
-            is_free=False,
+            group=ProviderGroup.free,
             requires_key=True,
             extra_env_keys=("GOOGLE_CSE_ENGINE_ID",),
         )
@@ -123,7 +154,7 @@ def _init_provider_registry() -> None:
             name="jina",
             env_key="JINA_API_KEY",
             search_fn=search_jina,
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
     )
@@ -132,7 +163,7 @@ def _init_provider_registry() -> None:
             name="gemini",
             env_key="POLLINATIONS_API_KEY",
             search_fn=search_gemini_pollinations,
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
     )
@@ -141,7 +172,7 @@ def _init_provider_registry() -> None:
             name="grok_openrouter",
             env_key="OPENROUTER_API_KEY",
             search_fn=search_grok_openrouter,
-            is_free=False,
+            group=ProviderGroup.other,
             requires_key=True,
         )
     )
@@ -150,19 +181,19 @@ def _init_provider_registry() -> None:
             name="composio_llm_search",
             env_key="COMPOSIO_API_KEY",
             search_fn=search_composio_llm_search,
-            is_free=False,
+            group=ProviderGroup.free,
             requires_key=True,
             extra_env_keys=("COMPOSIO_USER_ID",),
         )
     )
 
-    # Tier 3: Community providers (profile-driven, always available when configured)
+    # Tier 3: Non-SERP providers (fire when named in INTENT_PROVIDERS[intent])
     register_provider(
         ProviderConfig(
             name="hackernews",
             env_key="",
             search_fn=search_hackernews,
-            is_free=True,
+            group=ProviderGroup.other,
             requires_key=False,
         )
     )
@@ -171,7 +202,7 @@ def _init_provider_registry() -> None:
             name="reddit",
             env_key="",
             search_fn=search_reddit,
-            is_free=True,
+            group=ProviderGroup.other,
             requires_key=False,
         )
     )
@@ -180,7 +211,7 @@ def _init_provider_registry() -> None:
             name="github_graphql",
             env_key="GITHUB_TOKEN",
             search_fn=search_github_graphql,
-            is_free=True,
+            group=ProviderGroup.other,
             requires_key=True,
         )
     )
@@ -189,7 +220,7 @@ def _init_provider_registry() -> None:
             name="stackexchange",
             env_key="STACKEXCHANGE_APP_KEY",
             search_fn=search_stackexchange,
-            is_free=True,
+            group=ProviderGroup.other,
             requires_key=False,
         )
     )
