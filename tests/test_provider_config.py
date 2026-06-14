@@ -24,11 +24,13 @@ class TestProviderConfig(unittest.TestCase):
     def setUp(self) -> None:
         self._providers_enabled = settings.providers_enabled
         self._disabled_providers = settings.disabled_providers
+        self._qdrant_search_enabled = settings.qdrant_search_enabled
         self._registry_snapshot = PROVIDER_REGISTRY.copy()
 
     def tearDown(self) -> None:
         settings.providers_enabled = self._providers_enabled
         settings.disabled_providers = self._disabled_providers
+        settings.qdrant_search_enabled = self._qdrant_search_enabled
         PROVIDER_REGISTRY.clear()
         PROVIDER_REGISTRY.update(self._registry_snapshot)
 
@@ -126,6 +128,19 @@ class TestProviderConfig(unittest.TestCase):
             env_key="",
             search_fn=lambda: [],
             group=ProviderGroup.other,
+            requires_key=False,
+        )
+
+        self.assertFalse(config.is_enabled())
+        self.assertFalse(config.should_fire())
+
+    def test_qdrant_search_flag_blocks_qdrant_provider(self) -> None:
+        settings.qdrant_search_enabled = False
+        config = ProviderConfig(
+            name="qdrant",
+            env_key="QDRANT_SPACE_URL",
+            search_fn=lambda: [],
+            group=ProviderGroup.free,
             requires_key=False,
         )
 

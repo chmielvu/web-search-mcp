@@ -33,6 +33,7 @@ Rules:
 - Prefer `composio_web_search`, `search_tavily`, `search_brave`, and `search_duckduckgo` for discovery.
 - Use `composio_similarlinks` after you have a strong seed URL.
 - Use `get_content` for one URL, `batch_get_content` for multiple URLs, and `discover_links` for site expansion.
+- When you already have a URL and want a summary, prefer `summary_mode=brief` or `summary_mode=detailed` on `get_content` or `batch_get_content`.
 - Use `rerank_candidates` when you have more than a few competing candidates or conflicting sources.
 - Use `academic_search` for papers and scholarly evidence.
 - Do not use the full `web_search` pipeline — use granular tools instead.

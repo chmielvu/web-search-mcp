@@ -192,6 +192,11 @@ async def fetch_content_payload(
         windowed.content,
         mode=safe_summary_mode,
         focus_query=focus_query,
+        source_urls=[
+            artifact["fetched_url"] or artifact["normalized_url"],
+        ]
+        if artifact.get("fetched_url") or artifact.get("normalized_url")
+        else None,
     )
 
     response = GetContentResponse(

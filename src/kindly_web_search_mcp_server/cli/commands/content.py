@@ -89,6 +89,14 @@ def batch_cmd(
         float,
         typer.Option("--per-url-timeout-seconds"),
     ] = 120.0,
+    summary_mode: Annotated[
+        Literal["none", "brief", "detailed"],
+        typer.Option("--summary-mode"),
+    ] = "none",
+    focus_query: Annotated[
+        str | None,
+        typer.Option("--focus-query"),
+    ] = None,
     include_metadata: Annotated[
         bool,
         typer.Option("--include-metadata/--no-include-metadata"),
@@ -103,7 +111,11 @@ def batch_cmd(
         typer.Option("--strip-selectors"),
     ] = None,
 ) -> None:
-    """Fetch multiple URLs with a total content budget."""
+    """Fetch multiple URLs with a total content budget.
+
+    Optional summary_mode=brief|detailed adds a Gemini summary to each returned item.
+    Use focus_query to bias summaries toward a topic, term, or comparison.
+    """
     try:
         payload = asyncio.run(
             fetch_batch_content_payload(
@@ -113,6 +125,8 @@ def batch_cmd(
                 per_item_char_length=per_item_char_length,
                 total_char_budget=total_char_budget,
                 per_url_timeout_seconds=per_url_timeout_seconds,
+                summary_mode=summary_mode,
+                focus_query=focus_query,
                 include_metadata=include_metadata,
                 include_links=include_links,
                 max_links=max_links,

@@ -68,8 +68,8 @@ mcp-server --http --port 8000
 | Tool | Description |
 |------|-------------|
 | `web_search` | Multi-provider web search with RRF merge and rerank |
-| `get_content` | Extract full content from a URL (markdown) |
-| `batch_get_content` | Fetch content from multiple URLs concurrently |
+| `get_content` | Extract full content from a URL (markdown) with optional Gemini summary |
+| `batch_get_content` | Fetch content from multiple URLs concurrently with optional per-item Gemini summaries |
 | `discover_links` | Discover and categorize links from a page |
 | `gemini_search` | AI-synthesized answers via Gemini + Google Search |
 | `perplexity_search` | AI-synthesized answers via Perplexity Sonar |

@@ -173,6 +173,7 @@ class BatchContentResult(BaseModel):
     links: list[ContentLink] | None = None
     continuation_notice: str | None = None
     error: dict[str, Any] | None = None
+    summary: dict[str, Any] | None = None
 
 
 class DiscoverLinksResponse(BaseModel):

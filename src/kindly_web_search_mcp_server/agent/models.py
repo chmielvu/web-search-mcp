@@ -95,6 +95,14 @@ class GetContentInput(BaseModel):
     url: str = Field(description="Single URL to fetch.")
     char_offset: int = Field(default=0, ge=0)
     char_length: int = Field(default=12000, ge=1)
+    summary_mode: Literal["none", "brief", "detailed"] = Field(
+        default="none",
+        description="Optional Gemini summary mode for the fetched page.",
+    )
+    focus_query: str | None = Field(
+        default=None,
+        description="Optional topic to bias the summary toward.",
+    )
     include_metadata: bool = True
     include_links: bool = False
     max_links: int = Field(default=25, ge=1, le=200)
@@ -109,6 +117,14 @@ class BatchGetContentInput(BaseModel):
     per_item_char_length: int = Field(default=12000, ge=1)
     total_char_budget: int = Field(default=120000, ge=1)
     per_url_timeout_seconds: float = Field(default=120.0, ge=1.0)
+    summary_mode: Literal["none", "brief", "detailed"] = Field(
+        default="none",
+        description="Optional Gemini summary mode for each returned item.",
+    )
+    focus_query: str | None = Field(
+        default=None,
+        description="Optional topic to bias per-item summaries toward.",
+    )
     include_metadata: bool = True
     include_links: bool = False
     max_links: int = Field(default=25, ge=1, le=200)

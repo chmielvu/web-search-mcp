@@ -43,65 +43,66 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         span = _FakeSpan()
         return patch(target, return_value=_FakeSpanCM(span)), span
 
-    async def test_summary_create_summary_traces_chutes_call(self) -> None:
+    async def test_summary_create_summary_traces_gemini_call(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_summary
 
         patcher, span = self._span_patch(
-            "kindly_web_search_mcp_server.content.summary.create_llm_operation_span"
+            "kindly_web_search_mcp_server.content.summary_backend.create_llm_operation_span"
         )
 
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                return None
-
-            def json(self) -> dict[str, object]:
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": json.dumps(
-                                    {
-                                        "summary": "short",
-                                        "key_points": ["one"],
-                                        "important_entities": [],
-                                        "verbatim_terms": [],
-                                        "limitations": [],
-                                    }
-                                )
-                            }
-                        }
-                    ]
-                }
-
         class FakeClient:
-            async def __aenter__(self) -> "FakeClient":
-                return self
+            def __init__(self) -> None:
+                self.models = self
+                self.calls: list[tuple[str, str, object]] = []
 
-            async def __aexit__(self, exc_type, exc, tb) -> bool:
-                return False
+            def generate_content(
+                self, *, model: str, contents: str, config: object
+            ) -> object:
+                self.calls.append((model, contents, config))
 
-            async def post(self, *args, **kwargs) -> FakeResponse:
-                return FakeResponse()
+                class _Response:
+                    text = json.dumps(
+                        {
+                            "summary": "short",
+                            "key_points": ["one"],
+                            "important_entities": [],
+                            "verbatim_terms": [],
+                            "limitations": [],
+                        }
+                    )
 
-        with patch.dict(os.environ, {"CHUTES_API_TOKEN": "test-token"}, clear=False), patcher as mock_create, patch(
-            "kindly_web_search_mcp_server.content.summary.httpx.AsyncClient",
-            return_value=FakeClient(),
-        ) as mock_client:
+                return _Response()
+
+        fake_client = FakeClient()
+
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-token"}, clear=False),
+            patcher as mock_create,
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend.genai.Client",
+                return_value=fake_client,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend._client",
+                None,
+            ),
+        ):
             result = await create_summary(
                 "hello world",
                 mode="brief",
                 focus_query="docs",
+                source_urls=["https://example.com"],
             )
 
-        self.assertEqual(result["model"], "zai-org/GLM-5-Turbo")
+        self.assertEqual(result["model"], "gemini-3.1-flash-lite")
         self.assertEqual(span.attributes["summary.key_points_count"], 1)
         self.assertEqual(span.attributes["summary.important_entities_count"], 0)
-        self.assertEqual(mock_create.call_args.kwargs["system"], "chutes")
+        self.assertEqual(mock_create.call_args.kwargs["system"], "gemini")
         self.assertEqual(
             mock_create.call_args.kwargs["attributes"]["gen_ai.request.model"],
-            "zai-org/GLM-5-Turbo",
+            "gemini-3.1-flash-lite",
         )
-        mock_client.assert_called_once()
+        self.assertEqual(fake_client.calls[0][0], "gemini-3.1-flash-lite")
 
     async def test_pollinations_web_search_traces_request(self) -> None:
         from kindly_web_search_mcp_server.search.pollinations import PollinationsClient
@@ -116,9 +117,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
 
             def json(self) -> dict[str, object]:
                 return {
-                    "choices": [
-                        {"message": {"content": "Answer with sources"}}
-                    ],
+                    "choices": [{"message": {"content": "Answer with sources"}}],
                     "citations": ["https://example.com"],
                 }
 
@@ -127,9 +126,12 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                 return FakeResponse()
 
         client = PollinationsClient(api_key="test-key")
-        with patcher as mock_create, patch(
-            "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
-            return_value=FakeClient(),
+        with (
+            patcher as mock_create,
+            patch(
+                "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
+                return_value=FakeClient(),
+            ),
         ):
             result = await client.web_search(
                 "python tracing",
@@ -201,16 +203,23 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             async def post(self, *args, **kwargs) -> FakeResponse:
                 return FakeResponse()
 
-        with patcher as mock_create, patch(
-            "kindly_web_search_mcp_server.search.pollinations.get_pollinations_client",
-            return_value=FakeClient(),
-        ), patch(
-            "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
-            return_value=FakeHttp(),
+        with (
+            patcher as mock_create,
+            patch(
+                "kindly_web_search_mcp_server.search.pollinations.get_pollinations_client",
+                return_value=FakeClient(),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
+                return_value=FakeHttp(),
+            ),
         ):
             result = await gemini_grounding_search("python tracing", num_results=1)
 
-        self.assertEqual(result["groundingMetadata"]["groundingChunks"][0]["uri"], "https://example.com")
+        self.assertEqual(
+            result["groundingMetadata"]["groundingChunks"][0]["uri"],
+            "https://example.com",
+        )
         self.assertEqual(span.attributes["grounding.chunk_count"], 1)
         self.assertEqual(mock_create.call_args.kwargs["system"], "pollinations")
         self.assertEqual(
@@ -267,7 +276,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider_span.attributes["search.source_count"], 1)
         self.assertEqual(provider_create.call_args.kwargs["system"], "openrouter")
         self.assertEqual(
-            provider_create.call_args.kwargs["attributes"]["search.num_results_requested"],
+            provider_create.call_args.kwargs["attributes"][
+                "search.num_results_requested"
+            ],
             1,
         )
 
@@ -310,10 +321,14 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             async def post(self, *args, **kwargs) -> FakeChatResponse:
                 return FakeChatResponse()
 
-        with tool_patcher as tool_create, patch(
-            "kindly_web_search_mcp_server.search.grok.httpx.AsyncClient",
-            return_value=FakeChatClient(),
-        ), patch.object(grok_module.settings, "openrouter_api_key", "test-key"):
+        with (
+            tool_patcher as tool_create,
+            patch(
+                "kindly_web_search_mcp_server.search.grok.httpx.AsyncClient",
+                return_value=FakeChatClient(),
+            ),
+            patch.object(grok_module.settings, "openrouter_api_key", "test-key"),
+        ):
             result = await grok_search(
                 "python tracing",
                 "find current docs",
@@ -359,7 +374,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                     ],
                     grounding_supports=[
                         SimpleNamespace(
-                            segment=SimpleNamespace(text="Answer body", start_index=0, end_index=11),
+                            segment=SimpleNamespace(
+                                text="Answer body", start_index=0, end_index=11
+                            ),
                             grounding_chunk_indices=[0],
                         )
                     ],
@@ -395,15 +412,20 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         async def fake_to_thread(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with patcher as mock_create, patch(
-            "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
-            return_value=FakeClient(),
-        ), patch(
-            "kindly_web_search_mcp_server.search.gemini_search_tool._get_genai_types",
-            return_value=FakeTypes(),
-        ), patch(
-            "kindly_web_search_mcp_server.search.gemini_search_tool.asyncio.to_thread",
-            side_effect=fake_to_thread,
+        with (
+            patcher as mock_create,
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
+                return_value=FakeClient(),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool._get_genai_types",
+                return_value=FakeTypes(),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool.asyncio.to_thread",
+                side_effect=fake_to_thread,
+            ),
         ):
             result = await gemini_search_with_grounding(
                 "python tracing",

@@ -11,8 +11,14 @@ from kindly_web_search_mcp_server.content.batch_orchestrator import (
     run_batch_fetch,
 )
 from kindly_web_search_mcp_server.content.fetch_pipeline import fetch_content_artifact
-from kindly_web_search_mcp_server.content.link_discovery import discover_links as discover_page_links
+from kindly_web_search_mcp_server.content.link_discovery import (
+    discover_links as discover_page_links,
+)
 from kindly_web_search_mcp_server.content.options import build_fetch_options
+from kindly_web_search_mcp_server.content.summary import (
+    create_batch_summaries,
+    create_summary,
+)
 from kindly_web_search_mcp_server.content.windowing import slice_content
 from kindly_web_search_mcp_server.utils.observability import emit_observability_event
 
@@ -23,7 +29,9 @@ from .models import (
 )
 
 
-def _artifact_payload(artifact: Any, *, page_content: str, window: dict[str, Any]) -> dict[str, Any]:
+def _artifact_payload(
+    artifact: Any, *, page_content: str, window: dict[str, Any]
+) -> dict[str, Any]:
     payload = {
         "input_url": artifact.input_url,
         "normalized_url": artifact.normalized_url,
@@ -57,6 +65,8 @@ async def _get_content(
     max_links: int,
     strip_selectors: str | None,
     timeout_seconds: float = 120.0,
+    summary_mode: str = "none",
+    focus_query: str | None = None,
 ) -> dict[str, Any]:
     options = build_fetch_options(
         include_metadata=include_metadata,
@@ -103,6 +113,15 @@ async def _get_content(
         page_content=sliced.content,
         window=sliced.window.__dict__,
     )
+    if summary_mode in {"brief", "detailed"}:
+        payload["summary"] = await create_summary(
+            sliced.content,
+            mode=summary_mode,
+            focus_query=focus_query,
+            source_urls=[
+                artifact.fetched_url or artifact.normalized_url or artifact.input_url
+            ],
+        )
     if not include_metadata:
         payload["metadata"] = None
     if not include_links:
@@ -121,6 +140,8 @@ async def _batch_get_content(
     include_links: bool,
     max_links: int,
     strip_selectors: str | None,
+    summary_mode: str = "none",
+    focus_query: str | None = None,
 ) -> dict[str, Any]:
     options = build_fetch_options(
         include_metadata=include_metadata,
@@ -128,7 +149,7 @@ async def _batch_get_content(
         max_links=max_links,
         strip_selectors=strip_selectors,
     )
-    return await run_batch_fetch(
+    output = await run_batch_fetch(
         urls=urls,
         params=BatchParams(
             max_concurrency=max_concurrency,
@@ -139,6 +160,21 @@ async def _batch_get_content(
         cursor=cursor,
         fetch_options=options,
     )
+    if summary_mode in {"brief", "detailed"}:
+        summaries = await create_batch_summaries(
+            output["results"],
+            mode=summary_mode,
+            focus_query=focus_query,
+            max_concurrency=max_concurrency,
+        )
+        return {
+            **output,
+            "results": [
+                {**item, "summary": summaries[idx]}
+                for idx, item in enumerate(output["results"])
+            ],
+        }
+    return output
 
 
 async def _discover_links(
@@ -162,7 +198,8 @@ get_content = tool(
     args_schema=GetContentInput,
     description=(
         "Fetch and slice one known URL. Use when a search result already identified a "
-        "source and you need bounded page content, metadata, or links."
+        "source and you need bounded page content, metadata, links, or an optional "
+        "Gemini summary via summary_mode=brief|detailed."
     ),
 )(_get_content)
 
@@ -171,7 +208,8 @@ batch_get_content = tool(
     args_schema=BatchGetContentInput,
     description=(
         "Fetch multiple URLs with a total character budget. Use for a shortlist of "
-        "sources when you need cross-source evidence."
+        "sources when you need cross-source evidence and, optionally, a Gemini summary "
+        "for each returned item via summary_mode=brief|detailed."
     ),
 )(_batch_get_content)
 

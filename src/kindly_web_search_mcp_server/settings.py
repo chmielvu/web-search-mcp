@@ -140,8 +140,7 @@ class Settings:
         os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
     )
     query_understanding_jsonl_enabled: bool = (
-        os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower()
-        == "true"
+        os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
     )
     query_understanding_jsonl_path: str = os.environ.get(
         "QUERY_UNDERSTANDING_JSONL_PATH",
@@ -176,9 +175,7 @@ class Settings:
     )
 
     # Embeddings (Hugging Face Inference Provider)
-    hf_inference_provider: str = os.environ.get(
-        "HF_INFERENCE_PROVIDER", "hf-inference"
-    )
+    hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
     hf_embedding_model: str = os.environ.get(
         "HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
     )
@@ -186,9 +183,7 @@ class Settings:
     embedding_timeout_seconds: float = float(
         os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0")
     )
-    embedding_max_retries: int = int(
-        os.environ.get("EMBEDDING_MAX_RETRIES", "1")
-    )
+    embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
     embedding_retry_delay_seconds: float = float(
         os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "5.0")
     )
@@ -209,16 +204,10 @@ class Settings:
         os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "60.0")
     )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
-    voyage_rerank_model: str = os.environ.get(
-        "VOYAGE_RERANK_MODEL", "rerank-2.5"
-    )
-    jina_rerank_model: str = os.environ.get(
-        "JINA_RERANK_MODEL", "jina-reranker-v3"
-    )
+    voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
+    jina_rerank_model: str = os.environ.get("JINA_RERANK_MODEL", "jina-reranker-v3")
     cohere_api_key: str = os.environ.get("COHERE_API_KEY", "")
-    cohere_rerank_model: str = os.environ.get(
-        "COHERE_RERANK_MODEL", "rerank-v4.0-fast"
-    )
+    cohere_rerank_model: str = os.environ.get("COHERE_RERANK_MODEL", "rerank-v4.0-fast")
     cohere_rerank_base_url: str = os.environ.get(
         "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
     )
@@ -230,15 +219,11 @@ class Settings:
     rerank_gcp_model: str = os.environ.get(
         "RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3"
     )
-    rerank_gcp_timeout: float = float(
-        os.environ.get("RERANK_GCP_TIMEOUT", "30.0")
-    )
+    rerank_gcp_timeout: float = float(os.environ.get("RERANK_GCP_TIMEOUT", "30.0"))
     rerank_score_threshold: float = float(
         os.environ.get("RERANK_SCORE_THRESHOLD", "0.0")
     )
-    diversity_threshold: float = float(
-        os.environ.get("DIVERSITY_THRESHOLD", "0.85")
-    )
+    diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.5"))
     rerank_recency_weight: float = float(
         os.environ.get("RERANK_RECENCY_WEIGHT", "0.15")
@@ -252,12 +237,8 @@ class Settings:
     entity_extraction_enabled: bool = (
         os.environ.get("ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
     )
-    gliner_model: str = os.environ.get(
-        "GLINER_MODEL", "fastino/gliner2-base-v1"
-    )
-    gliner_threshold: float = float(
-        os.environ.get("GLINER_THRESHOLD", "0.5")
-    )
+    gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2-base-v1")
+    gliner_threshold: float = float(os.environ.get("GLINER_THRESHOLD", "0.5"))
 
     # Entity overlap feature for rerank (measured only; off by default)
     rerank_entity_overlap_enabled: bool = (
@@ -283,9 +264,7 @@ class Settings:
         "PROCESS_LOGS_DUCKDB_PATH",
         DEFAULT_PROCESS_LOGS_DB,
     )
-    process_logs_ttl_hours: int = int(
-        os.environ.get("PROCESS_LOGS_TTL_HOURS", "48")
-    )
+    process_logs_ttl_hours: int = int(os.environ.get("PROCESS_LOGS_TTL_HOURS", "48"))
 
     # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
     page_cache_duckdb_path: str = os.environ.get(
@@ -301,12 +280,19 @@ class Settings:
 
     # Grok Search via OpenRouter (native web_search + x_search for xAI models)
     grok_model: str = os.environ.get("GROK_MODEL", "x-ai/grok-4.3")
-    grok_timeout_seconds: float = float(
-        os.environ.get("GROK_TIMEOUT_SECONDS", "60.0")
-    )
+    grok_timeout_seconds: float = float(os.environ.get("GROK_TIMEOUT_SECONDS", "60.0"))
     # Gemini Grounding (for gemini_search MCP tool)
     gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
+
+    # Gemini summaries (for get_content / batch_get_content optional summaries)
+    summary_gemini_model: str = os.environ.get(
+        "SUMMARY_GEMINI_MODEL", "gemini-3.1-flash-lite"
+    )
+    summary_gemma_fallback_model: str = os.environ.get(
+        "SUMMARY_GEMMA_FALLBACK_MODEL", "gemma-4-26b-a4b-it"
+    )
+    summary_max_tokens: int = int(os.environ.get("SUMMARY_MAX_TOKENS", "1200"))
 
     # YouTube Transcript
     youtube_transcript_proxy_url: str = os.environ.get(
@@ -320,17 +306,13 @@ class Settings:
     )
 
     # YouTube Search (uses SearXNG with youtube engine)
-    youtube_search_engine: str = os.environ.get(
-        "YOUTUBE_SEARCH_ENGINE", "youtube"
-    )
+    youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
 
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
     s2_api_key: str = os.environ.get("S2_API_KEY", "")
     s2_timeout: int = int(os.environ.get("S2_TIMEOUT", "30"))
-    s2_max_retries: int = int(
-        os.environ.get("S2_MAX_RETRIES", "0")
-    )  # 0 = fail fast
+    s2_max_retries: int = int(os.environ.get("S2_MAX_RETRIES", "0"))  # 0 = fail fast
 
     # OpenAlex (optional, polite pool with email)
     openalex_email: str = os.environ.get("OPENALEX_EMAIL", "")
@@ -374,9 +356,13 @@ class Settings:
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
     serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
     serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "baidu")
-    serpapi_engines: str = os.environ.get("SERPAPI_ENGINES", "")  # comma-separated, e.g. "baidu,naver,google"
+    serpapi_engines: str = os.environ.get(
+        "SERPAPI_ENGINES", ""
+    )  # comma-separated, e.g. "baidu,naver,google"
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
-    brightdata_default_engine: str = os.environ.get("BRIGHTDATA_DEFAULT_ENGINE", "yandex")
+    brightdata_default_engine: str = os.environ.get(
+        "BRIGHTDATA_DEFAULT_ENGINE", "yandex"
+    )
 
     # SERP semaphore limit (controls concurrency for serp_paid providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
@@ -412,9 +398,7 @@ class Settings:
     )
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
-    reddit_delay_seconds: float = float(
-        os.environ.get("REDDIT_DELAY_SECONDS", "2")
-    )
+    reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
 
     # StackExchange config (consolidated from raw os.environ reads in stackexchange.py)
     stackexchange_sites: str = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow")
@@ -512,13 +496,13 @@ class Settings:
     otel_enabled: bool = os.environ.get("OTEL_ENABLED", "true").lower() == "true"
 
     # Sampling (head-based). 1.0 = all traces (expensive). 0.1 = 10% typical for dev/prod.
-    otel_sampling_ratio: float = float(
-        os.environ.get("OTEL_SAMPLING_RATIO", "0.15")
-    )
+    otel_sampling_ratio: float = float(os.environ.get("OTEL_SAMPLING_RATIO", "0.15"))
 
     # Service identity overrides (fall back to telemetry.py defaults + package version)
     otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
-    otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "web-search-mcp")
+    otel_service_namespace: str = os.environ.get(
+        "OTEL_SERVICE_NAMESPACE", "web-search-mcp"
+    )
     otel_deployment_environment: str = os.environ.get(
         "DEPLOYMENT_ENV", os.environ.get("OTEL_ENVIRONMENT", "development")
     )
@@ -632,9 +616,7 @@ class Settings:
     observability_max_text_chars: int = int(
         os.environ.get("OBSERVABILITY_MAX_TEXT_CHARS", "20000")
     )
-    observability_max_items: int = int(
-        os.environ.get("OBSERVABILITY_MAX_ITEMS", "10")
-    )
+    observability_max_items: int = int(os.environ.get("OBSERVABILITY_MAX_ITEMS", "10"))
 
     # =====================================================================
     # LLM Judge Evaluation (opt-in, for automatic quality assessment of search runs)
@@ -642,9 +624,7 @@ class Settings:
     judge_evaluation_enabled: bool = (
         os.environ.get("JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
     )
-    judge_model: str = os.environ.get(
-        "JUDGE_MODEL", "openai/gpt-oss-120b"
-    )
+    judge_model: str = os.environ.get("JUDGE_MODEL", "openai/gpt-oss-120b")
     judge_timeout_seconds: float = float(
         os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0")
     )
@@ -655,9 +635,7 @@ class Settings:
     ab_testing_enabled: bool = (
         os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
     )
-    ab_config_path: str = os.environ.get(
-        "AB_CONFIG_PATH", DEFAULT_EXPERIMENTS_YAML
-    )
+    ab_config_path: str = os.environ.get("AB_CONFIG_PATH", DEFAULT_EXPERIMENTS_YAML)
     ab_shadow_mode_default: bool = (
         os.environ.get("AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"
     )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import httpx
 from qdrant_client import AsyncQdrantClient, models
@@ -25,6 +26,13 @@ class QdrantConfigError(QdrantSearchError):
     pass
 
 
+def _qdrant_auth_token_provider() -> Callable[[], str] | None:
+    token = settings.hf_token.strip()
+    if not token:
+        return None
+    return lambda: token
+
+
 async def search_qdrant(
     query: str,
     *,
@@ -40,6 +48,10 @@ async def search_qdrant(
         return []
 
     if num_results < 1:
+        return []
+
+    if not settings.qdrant_search_enabled:
+        LOGGER.debug("Qdrant search disabled: QDRANT_SEARCH_ENABLED=false")
         return []
 
     # 1. Dense embedding + sparse BM25 query vectors
@@ -58,7 +70,11 @@ async def search_qdrant(
         if not sparse or not sparse.get("indices"):
             sparse = {"indices": [], "values": []}
 
-        client = AsyncQdrantClient(url=url, timeout=30)
+        client = AsyncQdrantClient(
+            url=url,
+            auth_token_provider=_qdrant_auth_token_provider(),
+            timeout=30,
+        )
         try:
             sparse_vector = models.SparseVector(
                 indices=sparse["indices"],

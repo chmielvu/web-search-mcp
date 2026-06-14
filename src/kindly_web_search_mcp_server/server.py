@@ -64,7 +64,7 @@ from .content.batch_orchestrator import BatchParams, run_batch_fetch
 from .content.fetch_pipeline import fetch_content_artifact
 from .content.link_discovery import discover_links as discover_page_links
 from .content.options import build_fetch_options
-from .content.summary import create_summary
+from .content.summary import create_batch_summaries, create_summary
 from .content.windowing import slice_content
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
@@ -266,7 +266,8 @@ mcp = FastMCP(
     instructions=(
         "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
         "with rewrite=true by default. Use get_content for one known URL; "
-        "use batch_get_content for 3+ URLs."
+        "use batch_get_content for 3+ URLs. When you need a summary, set "
+        "summary_mode=brief or summary_mode=detailed and add focus_query if helpful."
     ),
 )
 
@@ -856,7 +857,9 @@ async def web_search(
                     "BRAVE_API_KEY": os.environ.get("BRAVE_API_KEY", ""),
                     "JINA_API_KEY": os.environ.get("JINA_API_KEY", ""),
                     "COMPOSIO_API_KEY": os.environ.get("COMPOSIO_API_KEY", ""),
-                    "SEARCH_ROUTER_API_KEY": os.environ.get("SEARCH_ROUTER_API_KEY", ""),
+                    "SEARCH_ROUTER_API_KEY": os.environ.get(
+                        "SEARCH_ROUTER_API_KEY", ""
+                    ),
                     "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN", ""),
                     "TOOL_TOTAL_TIMEOUT_SECONDS": os.environ.get(
                         "TOOL_TOTAL_TIMEOUT_SECONDS", ""
@@ -966,6 +969,8 @@ async def get_content(
 ) -> GetContentResultType:
     """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
     Use when you already have a URL. Check window.has_more for pagination continuation.
+    Optional summary_mode=brief|detailed adds a Gemini URL-context summary of the fetched page.
+    Use focus_query to bias the summary toward a specific topic, term, or comparison.
     """
 
     await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
@@ -1125,7 +1130,14 @@ async def get_content(
         length=safe_length,
     )
     summary = await create_summary(
-        windowed.content, mode=safe_summary_mode, focus_query=focus_query
+        windowed.content,
+        mode=safe_summary_mode,
+        focus_query=focus_query,
+        source_urls=[
+            artifact["fetched_url"] or artifact["normalized_url"],
+        ]
+        if artifact.get("fetched_url") or artifact.get("normalized_url")
+        else None,
     )
 
     response = GetContentResponse(
@@ -1189,6 +1201,8 @@ async def batch_get_content(
     per_item_char_length: int = 8_000,
     total_char_budget: int = 120_000,
     cursor: str | None = None,
+    summary_mode: str = "none",
+    focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
     max_links: int = 25,
@@ -1197,6 +1211,8 @@ async def batch_get_content(
 ) -> BatchGetContentResponse:
     """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
     Prefer over repeated get_content calls when you have 3+ URLs. Check has_more and cursor for continuation.
+    Optional summary_mode=brief|detailed adds a Gemini URL-context summary to each returned item.
+    Use focus_query to bias per-item summaries toward a specific topic, term, or comparison.
     """
     max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
     _urls = urls or []
@@ -1224,6 +1240,8 @@ async def batch_get_content(
         per_item_char_length=safe_item_length,
         total_char_budget=safe_total_budget,
         has_cursor=bool(cursor),
+        summary_mode=summary_mode,
+        focus_query=focus_query,
         include_metadata=include_metadata,
         include_links=include_links,
         max_links=max_links,
@@ -1255,6 +1273,16 @@ async def batch_get_content(
         ),
     )
 
+    safe_summary_mode = (
+        summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    )
+    summaries = await create_batch_summaries(
+        output["results"],
+        mode=safe_summary_mode,
+        focus_query=focus_query,
+        max_concurrency=safe_concurrency,
+    )
+
     response = BatchGetContentResponse(
         results=[
             {
@@ -1271,8 +1299,9 @@ async def batch_get_content(
                 "links": item.get("links") if include_links else None,
                 "continuation_notice": item.get("continuation_notice"),
                 "error": item.get("error"),
+                "summary": summaries[idx],
             }
-            for item in output["results"]
+            for idx, item in enumerate(output["results"])
         ],
         total_requested=output["total_requested"],
         total_returned=output["total_returned"],
@@ -1459,14 +1488,31 @@ async def gemini_search(
             try:
                 _run_key = str(uuid.uuid4())
                 _judge_results = [
-                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("url",""), "snippet": c.get("snippet","")})()
-                    for c in (response.get("grounding_chunks", []) if isinstance(response, dict) else [])
+                    type(
+                        "obj",
+                        (object,),
+                        {
+                            "title": c.get("title", ""),
+                            "link": c.get("url", ""),
+                            "snippet": c.get("snippet", ""),
+                        },
+                    )()
+                    for c in (
+                        response.get("grounding_chunks", [])
+                        if isinstance(response, dict)
+                        else []
+                    )
                 ]
-                asyncio.ensure_future(run_judge_evaluation(
-                    run_key=_run_key, query=query, intent="ai_search",
-                    results=_judge_results, tool_name="gemini_search",
-                    session_id=_resolve_session_id(ctx),
-                ))
+                asyncio.ensure_future(
+                    run_judge_evaluation(
+                        run_key=_run_key,
+                        query=query,
+                        intent="ai_search",
+                        results=_judge_results,
+                        tool_name="gemini_search",
+                        session_id=_resolve_session_id(ctx),
+                    )
+                )
             except Exception:
                 pass
 
@@ -1566,14 +1612,31 @@ async def perplexity_search(
             try:
                 _run_key = str(uuid.uuid4())
                 _judge_results = [
-                    type('obj', (object,), {"title": s.get("title",""), "link": s.get("url",""), "snippet": s.get("snippet","")})()
-                    for s in (response.get("sources", []) if isinstance(response, dict) else [])
+                    type(
+                        "obj",
+                        (object,),
+                        {
+                            "title": s.get("title", ""),
+                            "link": s.get("url", ""),
+                            "snippet": s.get("snippet", ""),
+                        },
+                    )()
+                    for s in (
+                        response.get("sources", [])
+                        if isinstance(response, dict)
+                        else []
+                    )
                 ]
-                asyncio.ensure_future(run_judge_evaluation(
-                    run_key=_run_key, query=query, intent="ai_search",
-                    results=_judge_results, tool_name="perplexity_search",
-                    session_id=_resolve_session_id(ctx),
-                ))
+                asyncio.ensure_future(
+                    run_judge_evaluation(
+                        run_key=_run_key,
+                        query=query,
+                        intent="ai_search",
+                        results=_judge_results,
+                        tool_name="perplexity_search",
+                        session_id=_resolve_session_id(ctx),
+                    )
+                )
             except Exception:
                 pass
 
@@ -1702,14 +1765,31 @@ async def grok_search(
             try:
                 _run_key = str(uuid.uuid4())
                 _judge_results = [
-                    type('obj', (object,), {"title": c.get("title",""), "link": c.get("url",""), "snippet": c.get("snippet","")})()
-                    for c in (result.citations if hasattr(result, 'citations') and result.citations else [])
+                    type(
+                        "obj",
+                        (object,),
+                        {
+                            "title": c.get("title", ""),
+                            "link": c.get("url", ""),
+                            "snippet": c.get("snippet", ""),
+                        },
+                    )()
+                    for c in (
+                        result.citations
+                        if hasattr(result, "citations") and result.citations
+                        else []
+                    )
                 ]
-                asyncio.ensure_future(run_judge_evaluation(
-                    run_key=_run_key, query=query, intent="ai_search",
-                    results=_judge_results, tool_name="grok_search",
-                    session_id=_resolve_session_id(ctx),
-                ))
+                asyncio.ensure_future(
+                    run_judge_evaluation(
+                        run_key=_run_key,
+                        query=query,
+                        intent="ai_search",
+                        results=_judge_results,
+                        tool_name="grok_search",
+                        session_id=_resolve_session_id(ctx),
+                    )
+                )
             except Exception:
                 pass
 
@@ -2207,8 +2287,8 @@ Start with `quick_web_search` for initial topic scoping before deeper research.
 | Web + X/Twitter | grok_search | Real-time web and social data |
 | Deep analysis | perplexity_search | Synthesized, expensive, refine query first |
 | Scholarly papers | academic_search | 6 sources, field/venue/year filters |
-| Read one URL | get_content | 7-stage resolution, pagination-aware |
-| Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor |
+| Read one URL | get_content | 7-stage resolution, pagination-aware, optional Gemini summary |
+| Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor, per-item Gemini summaries |
 | Discover links | discover_links | Page/sitemap link extraction |
 | Find videos | youtube_search | SearXNG YouTube engine |
 | Extract captions | youtube_transcript | Timestamped/text/JSON, translation |
@@ -2231,7 +2311,9 @@ num_results: 3=fast, 5=standard, 7=broad. Max 10.
 
 ## Pagination
 - get_content: check window.has_more. If true, call again with char_offset=window.next_offset
+- get_content: summary_mode=brief|detailed adds a Gemini URL-context summary; use focus_query to bias it
 - batch_get_content: check has_more and cursor. If true, call again with cursor
+- batch_get_content: summary_mode=brief|detailed adds per-item Gemini summaries; use focus_query to bias them
 
 ## Gap analysis
 - Factual gaps: unverified claims/dates/numbers

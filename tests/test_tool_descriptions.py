@@ -64,20 +64,44 @@ def test_web_search_tool_docstring_is_agent_oriented() -> None:
     assert re.search(r"\bget_content\b", doc)
 
     # Env vars in a configuration/prerequisites context (not just mentioned).
-    assert re.search(r"(requires|prereq|config).{0,200}\bSEARXNG_BASE_URL\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert re.search(r"(requires|prereq|config).{0,200}\bTAVILY_API_KEY\b", doc, flags=re.IGNORECASE | re.DOTALL)
+    assert re.search(
+        r"(requires|prereq|config).{0,200}\bSEARXNG_BASE_URL\b",
+        doc,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"(requires|prereq|config).{0,200}\bTAVILY_API_KEY\b",
+        doc,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
 
     # num_results default + recommended range (context control).
-    assert re.search(r"\bnum_results\b.*\bdefault\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert re.search(r"\bnum_results\b.*\brecommended\b.*\brange\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert re.search(r"\brewrite=True\b.*\bnormal discovery\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert re.search(r"\brewrite=False\b.*\bexact", doc, flags=re.IGNORECASE | re.DOTALL)
+    assert re.search(
+        r"\bnum_results\b.*\bdefault\b", doc, flags=re.IGNORECASE | re.DOTALL
+    )
+    assert re.search(
+        r"\bnum_results\b.*\brecommended\b.*\brange\b",
+        doc,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"\brewrite=True\b.*\bnormal discovery\b", doc, flags=re.IGNORECASE | re.DOTALL
+    )
+    assert re.search(
+        r"\brewrite=False\b.*\bexact", doc, flags=re.IGNORECASE | re.DOTALL
+    )
 
     # Output shape and lightweight result guarantees.
     assert re.search(r"results", doc)
     assert re.search(r"lightweight", doc, flags=re.IGNORECASE)
-    assert re.search(r"\bprovider_count\b.*\bagreement signal\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert not re.search(r"page_content.*always.*string", doc, flags=re.IGNORECASE | re.DOTALL)
+    assert re.search(
+        r"\bprovider_count\b.*\bagreement signal\b",
+        doc,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert not re.search(
+        r"page_content.*always.*string", doc, flags=re.IGNORECASE | re.DOTALL
+    )
 
 
 def test_get_content_tool_docstring_is_agent_oriented() -> None:
@@ -95,11 +119,19 @@ def test_get_content_tool_docstring_is_agent_oriented() -> None:
     assert re.search(r"\bfetched_url\b", doc)
     assert re.search(r"\bsource_type\b", doc)
     assert re.search(r"\bfetch_backend\b", doc)
-    assert re.search(r"\bstatus\b.*\b(success|partial|blocked|unsupported|error)\b", doc, flags=re.IGNORECASE | re.DOTALL)
-    assert re.search(r"\bwindow\b.*\bnext_offset\b", doc, flags=re.IGNORECASE | re.DOTALL)
+    assert re.search(
+        r"\bstatus\b.*\b(success|partial|blocked|unsupported|error)\b",
+        doc,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert re.search(
+        r"\bwindow\b.*\bnext_offset\b", doc, flags=re.IGNORECASE | re.DOTALL
+    )
     assert re.search(r"\bmetadata\b", doc, flags=re.IGNORECASE)
     assert re.search(r"\blinks\b", doc, flags=re.IGNORECASE)
     assert re.search(r"\bcontinuation_notice\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"summary_mode", doc, flags=re.IGNORECASE)
+    assert re.search(r"focus_query", doc, flags=re.IGNORECASE)
 
 
 def test_batch_get_content_tool_docstring_defines_decision_boundary() -> None:
@@ -112,6 +144,8 @@ def test_batch_get_content_tool_docstring_defines_decision_boundary() -> None:
     assert re.search(r"\bhas_more\b.*\bcursor\b", doc, flags=re.IGNORECASE | re.DOTALL)
     assert re.search(r"\bmetadata\b", doc, flags=re.IGNORECASE)
     assert re.search(r"\blinks\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"summary_mode", doc, flags=re.IGNORECASE)
+    assert re.search(r"focus_query", doc, flags=re.IGNORECASE)
 
 
 def test_discover_links_tool_docstring_exposes_link_discovery_boundary() -> None:
@@ -231,7 +265,9 @@ def test_suggest_tool_prompt_encodes_tool_routing_table() -> None:
     assert "Which tool" in user_text
 
 
-def test_agentic_web_research_tool_is_registered_and_docstring_is_research_oriented() -> None:
+def test_agentic_web_research_tool_is_registered_and_docstring_is_research_oriented() -> (
+    None
+):
     """Ensure the agentic tool is present after server import and its docstring
     mentions the ReAct research agent + dedicated primitives (not the legacy pipeline).
     """
@@ -240,13 +276,19 @@ def test_agentic_web_research_tool_is_registered_and_docstring_is_research_orien
     # The server module triggers register_agentic_web_research_tools on import.
     instructions = getattr(mcp, "instructions", "") or ""
     assert "agentic_web_research" in instructions
-    assert "LangChain/LangGraph ReAct" in instructions or "ReAct research agent" in instructions.lower()
+    assert (
+        "LangChain/LangGraph ReAct" in instructions
+        or "ReAct research agent" in instructions.lower()
+    )
 
     # Also verify the source docstring in the registration module is sensible
     # (the decorator attaches the docstring to the inner function).
     from kindly_web_search_mcp_server.agent import mcp as agent_mcp_mod
+
     # The function is defined inside register_... ; we can at least check the module doc or the known string
     src = open(agent_mcp_mod.__file__, encoding="utf-8").read()
     assert "LangChain/LangGraph ReAct research agent" in src
     assert "dedicated search" in src
-    assert "legacy" in src.lower()  # "instead of calling the legacy full `web_search` pipeline"
+    assert (
+        "legacy" in src.lower()
+    )  # "instead of calling the legacy full `web_search` pipeline"

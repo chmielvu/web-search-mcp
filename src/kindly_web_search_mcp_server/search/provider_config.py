@@ -49,6 +49,8 @@ class ProviderConfig:
         """Check whether this provider is allowed by the settings master switch."""
         if not settings.providers_enabled:
             return False
+        if self.name == "qdrant" and not settings.qdrant_search_enabled:
+            return False
         return self.name not in settings.disabled_providers
 
     def should_fire(self, intent: SearchIntent = "general") -> bool:

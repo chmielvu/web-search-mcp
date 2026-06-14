@@ -86,10 +86,22 @@ class WebResultsIndex:
                 "Created Qdrant collection '%s' on %s", COLLECTION_NAME, self._url
             )
         except Exception as exc:
+            message = str(exc).lower()
+            if "already exists" in message or "409" in message:
+                self._collection_ok = True
+                logger.debug(
+                    "Qdrant collection '%s' already exists on %s",
+                    COLLECTION_NAME,
+                    self._url,
+                )
+                return
             logger.warning(
-                "Qdrant create_collection failed (may already exist): %s", exc
+                "Qdrant create_collection failed for '%s' on %s: %s",
+                COLLECTION_NAME,
+                self._url,
+                exc,
             )
-            self._collection_ok = True
+            raise
 
     async def index_results(
         self,

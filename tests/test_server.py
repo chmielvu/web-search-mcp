@@ -44,6 +44,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("results", batch_schema)
         self.assertIn("total_requested", batch_schema)
         self.assertIn("cursor", batch_schema)
+        self.assertIn("summary", batch_schema)
 
         transcript_schema = str(tools["youtube_transcript"].output_schema)
         self.assertIn("video_id", transcript_schema)
@@ -116,7 +117,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 mcp.read_resource("analytics://reports/provider-performance?days=14")
             )
 
-        self.assertEqual(run_report_mock.call_args_list[0].args, ("candidate-survival",))
+        self.assertEqual(
+            run_report_mock.call_args_list[0].args, ("candidate-survival",)
+        )
         self.assertEqual(run_report_mock.call_args_list[0].kwargs, {"days": 7})
         self.assertEqual(run_report_mock.call_args_list[1].args, ("cache-hit-rates",))
         self.assertEqual(run_report_mock.call_args_list[1].kwargs, {"days": 7})
@@ -187,13 +190,18 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        self.assertIn("Research goal: Assess GLiNER2 deployment prerequisites", str(workflow_result))
+        self.assertIn(
+            "Research goal: Assess GLiNER2 deployment prerequisites",
+            str(workflow_result),
+        )
         self.assertIn("Topic: Entity extraction benchmarks", str(academic_result))
         self.assertIn("Topic: Cloud Run GPU model serving", str(video_result))
         self.assertIn("Candidate sources already found", str(triage_result))
 
     def test_tool_timeout_budget_can_exceed_55_seconds(self) -> None:
-        from kindly_web_search_mcp_server.server import _resolve_tool_total_timeout_seconds
+        from kindly_web_search_mcp_server.server import (
+            _resolve_tool_total_timeout_seconds,
+        )
 
         with patch.dict(
             os.environ,
@@ -237,82 +245,116 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(_resolve_tool_total_timeout_seconds(), 90.0)
 
     def test_web_search_concurrency_defaults_on_windows(self) -> None:
-        from kindly_web_search_mcp_server.server import _resolve_web_search_max_concurrency
+        from kindly_web_search_mcp_server.server import (
+            _resolve_web_search_max_concurrency,
+        )
 
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "kindly_web_search_mcp_server.server.os.name", "nt"
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
         ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "3"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "3"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "0"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "0"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "-2"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "-2"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 1)
 
     def test_web_search_concurrency_limited_by_num_results_on_windows(self) -> None:
-        from kindly_web_search_mcp_server.server import _resolve_web_search_max_concurrency
+        from kindly_web_search_mcp_server.server import (
+            _resolve_web_search_max_concurrency,
+        )
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "10"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "nt"):
-            self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
-
-    def test_web_search_concurrency_defaults_on_non_windows(self) -> None:
-        from kindly_web_search_mcp_server.server import _resolve_web_search_max_concurrency
-
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "kindly_web_search_mcp_server.server.os.name", "posix"
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "10"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "nt"),
         ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "5"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
+    def test_web_search_concurrency_defaults_on_non_windows(self) -> None:
+        from kindly_web_search_mcp_server.server import (
+            _resolve_web_search_max_concurrency,
+        )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("kindly_web_search_mcp_server.server.os.name", "posix"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "7"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "5"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "posix"),
+        ):
+            self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
+
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "7"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "posix"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(5), 5)
 
-        with patch.dict(
-            os.environ,
-            {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
-            clear=True,
-        ), patch("kindly_web_search_mcp_server.server.os.name", "posix"):
+        with (
+            patch.dict(
+                os.environ,
+                {"WEB_SEARCH_MAX_CONCURRENCY": "abc"},
+                clear=True,
+            ),
+            patch("kindly_web_search_mcp_server.server.os.name", "posix"),
+        ):
             self.assertEqual(_resolve_web_search_max_concurrency(3), 3)
 
     def test_tool_timeout_defaults_to_120_seconds(self) -> None:
-        from kindly_web_search_mcp_server.server import _resolve_tool_total_timeout_seconds
+        from kindly_web_search_mcp_server.server import (
+            _resolve_tool_total_timeout_seconds,
+        )
 
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(_resolve_tool_total_timeout_seconds(), 120.0)
@@ -331,11 +373,15 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         with patch(
             "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
         ) as mock_search:
-            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
+            mock_search.return_value = WebSearchResponse(
+                query="hello", results=mocked_results
+            )
 
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", "Find information about hello", num_results=1, ctx=mock_ctx)
+            out = await tool_fn(
+                "hello", "Find information about hello", num_results=1, ctx=mock_ctx
+            )
 
         self.assertIsInstance(out, dict)
         self.assertEqual(out["query"], "hello")
@@ -357,11 +403,15 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
-        ) as mock_search, patch(
-            "kindly_web_search_mcp_server.server.get_query_cache"
-        ) as mock_get_query_cache:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.run_web_search",
+                new_callable=AsyncMock,
+            ) as mock_search,
+            patch(
+                "kindly_web_search_mcp_server.server.get_query_cache"
+            ) as mock_get_query_cache,
+        ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
             mock_query_cache.store = MagicMock()
@@ -416,12 +466,15 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.fetch_content_artifact",
-            new_callable=AsyncMock,
-        ) as mock_fetch, patch(
-            "kindly_web_search_mcp_server.server.get_page_cache"
-        ) as mock_get_page_cache:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "kindly_web_search_mcp_server.server.get_page_cache"
+            ) as mock_get_page_cache,
+        ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
@@ -456,12 +509,15 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.fetch_content_artifact",
-            new_callable=AsyncMock,
-        ) as mock_fetch, patch(
-            "kindly_web_search_mcp_server.server.get_page_cache"
-        ) as mock_get_page_cache:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "kindly_web_search_mcp_server.server.get_page_cache"
+            ) as mock_get_page_cache,
+        ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
@@ -501,18 +557,24 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Continue at offset", out["continuation_notice"])
 
     async def test_get_content_returns_structured_error_artifact(self) -> None:
-        from kindly_web_search_mcp_server.content.artifact import ContentArtifact, ContentError
+        from kindly_web_search_mcp_server.content.artifact import (
+            ContentArtifact,
+            ContentError,
+        )
         from kindly_web_search_mcp_server.server import get_content
 
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.fetch_content_artifact",
-            new_callable=AsyncMock,
-        ) as mock_fetch, patch(
-            "kindly_web_search_mcp_server.server.get_page_cache"
-        ) as mock_get_page_cache:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "kindly_web_search_mcp_server.server.get_page_cache"
+            ) as mock_get_page_cache,
+        ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
             mock_page_cache.store = MagicMock()
@@ -543,14 +605,18 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.fetch_content_artifact",
-            new_callable=AsyncMock,
-        ) as mock_fetch, patch(
-            "kindly_web_search_mcp_server.server.get_page_cache"
-        ) as mock_get_page_cache, patch(
-            "kindly_web_search_mcp_server.server._resolve_tool_total_timeout_seconds",
-            return_value=0.01,
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "kindly_web_search_mcp_server.server.get_page_cache"
+            ) as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.server._resolve_tool_total_timeout_seconds",
+                return_value=0.01,
+            ),
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -590,16 +656,22 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with patch(
-            "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
-        ) as mock_search, patch(
-            "kindly_web_search_mcp_server.server.get_query_cache"
-        ) as mock_get_query_cache:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.server.run_web_search",
+                new_callable=AsyncMock,
+            ) as mock_search,
+            patch(
+                "kindly_web_search_mcp_server.server.get_query_cache"
+            ) as mock_get_query_cache,
+        ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
             mock_query_cache.store = MagicMock()
             mock_get_query_cache.return_value = mock_query_cache
-            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
+            mock_search.return_value = WebSearchResponse(
+                query="hello", results=mocked_results
+            )
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
@@ -644,7 +716,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "metadata": {"title": "Example"},
             }
 
-            tool_fn = discover_links.fn if hasattr(discover_links, "fn") else discover_links
+            tool_fn = (
+                discover_links.fn if hasattr(discover_links, "fn") else discover_links
+            )
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
         self.assertEqual(out["source_type"], "html")
