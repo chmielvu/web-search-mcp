@@ -13,6 +13,7 @@ class StructuredLLMRequest:
     temperature: float = 0.0
     timeout_seconds: float | None = None
     response_model: type[Any] | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

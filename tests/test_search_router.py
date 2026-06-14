@@ -19,14 +19,13 @@ from kindly_web_search_mcp_server.search.provider_config import ProviderGroup
 class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
     async def test_uses_searxng_when_only_searxng_config(self) -> None:
         """SearXNG is primary - always fires when configured."""
-        from kindly_web_search_mcp_server.search import (
-            _circuit_breaker,
-            search_single_query,
-        )
+        from kindly_web_search_mcp_server.search import search_single_query
         from kindly_web_search_mcp_server.search import provider_config as pc
+        from kindly_web_search_mcp_server.search.provider_health import (
+            reset_provider_health,
+        )
 
-        _circuit_breaker._failures.clear()
-        _circuit_breaker._opened_at.clear()
+        reset_provider_health()
 
         os.environ.pop("TAVILY_API_KEY", None)
         os.environ.pop("BRAVE_API_KEY", None)
@@ -89,14 +88,13 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
 
     async def test_concurrent_providers_with_rrf_merge(self) -> None:
         """Multiple providers run concurrently, results merged via RRF."""
-        from kindly_web_search_mcp_server.search import (
-            _circuit_breaker,
-            search_single_query,
-        )
+        from kindly_web_search_mcp_server.search import search_single_query
         from kindly_web_search_mcp_server.search import provider_config as pc
+        from kindly_web_search_mcp_server.search.provider_health import (
+            reset_provider_health,
+        )
 
-        _circuit_breaker._failures.clear()
-        _circuit_breaker._opened_at.clear()
+        reset_provider_health()
 
         mock_searxng = AsyncMock(
             return_value=[
@@ -152,18 +150,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
 
     async def test_circuit_breaker_opens_on_failures(self) -> None:
         """Circuit breaker opens after 3 consecutive failures."""
-        from kindly_web_search_mcp_server.search import (
-            _circuit_breaker,
-            search_single_query,
-        )
+        from kindly_web_search_mcp_server.search import search_single_query
         from kindly_web_search_mcp_server.search import provider_config as pc
+        from kindly_web_search_mcp_server.search.provider_health import (
+            get_provider_health,
+            reset_provider_health,
+        )
 
         os.environ.pop("TAVILY_API_KEY", None)
         os.environ.pop("BRAVE_API_KEY", None)
         os.environ.pop("JINA_API_KEY", None)
 
-        _circuit_breaker._failures.clear()
-        _circuit_breaker._opened_at.clear()
+        reset_provider_health()
 
         mock_searxng = AsyncMock(
             side_effect=httpx.HTTPStatusError(
@@ -193,18 +191,18 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
                 except Exception:
                     pass
 
-        self.assertTrue(_circuit_breaker.is_open("searxng"))
+        # After 3 failures, the provider should be unhealthy (circuit open)
+        self.assertFalse(get_provider_health().is_healthy("searxng"))
 
     async def test_raises_when_no_provider_configured(self) -> None:
         """DDG free fallback succeeds even without any env keys."""
-        from kindly_web_search_mcp_server.search import (
-            _circuit_breaker,
-            search_single_query,
-        )
+        from kindly_web_search_mcp_server.search import search_single_query
         from kindly_web_search_mcp_server.search import provider_config as pc
+        from kindly_web_search_mcp_server.search.provider_health import (
+            reset_provider_health,
+        )
 
-        _circuit_breaker._failures.clear()
-        _circuit_breaker._opened_at.clear()
+        reset_provider_health()
 
         mock_ddg = AsyncMock(
             return_value=[

@@ -30,6 +30,8 @@ class TestJudgeEvaluationsSchema:
                 tool_name="web_search",
                 judge_model="gpt-4o-mini",
                 relevance_score=0.95,
+                relevance_raw=4,
+                relevance_scale="1-4",
                 accuracy_score=0.88,
                 completeness_score=0.92,
                 source_quality_score=0.85,
@@ -110,6 +112,8 @@ class TestJudgeEvaluationsSchema:
                 "tool_name": "VARCHAR",
                 "judge_model": "VARCHAR",
                 "relevance_score": "DOUBLE",
+                "relevance_raw": "INTEGER",
+                "relevance_scale": "VARCHAR",
                 "accuracy_score": "DOUBLE",
                 "completeness_score": "DOUBLE",
                 "source_quality_score": "DOUBLE",
@@ -151,6 +155,8 @@ class TestJudgeEvaluationsSchema:
                 tool_name="web_search",
                 judge_model="gpt-4o-mini",
                 relevance_score=0.9,
+                relevance_raw=3,
+                relevance_scale="1-4",
                 accuracy_score=0.8,
                 completeness_score=0.85,
                 source_quality_score=0.8,
@@ -167,6 +173,8 @@ class TestJudgeEvaluationsSchema:
                 tool_name="code_interpreter",
                 judge_model="claude-3-haiku",
                 relevance_score=0.7,
+                relevance_raw=2,
+                relevance_scale="1-4",
                 accuracy_score=0.9,
                 completeness_score=0.6,
                 source_quality_score=0.75,
@@ -216,6 +224,8 @@ class TestJudgeEvaluationsSchema:
                 tool_name="web_search",
                 judge_model="gpt-4o",
                 relevance_score=0.99,
+                relevance_raw=4,
+                relevance_scale="1-4",
                 accuracy_score=0.97,
                 completeness_score=0.96,
                 source_quality_score=0.95,
@@ -243,24 +253,28 @@ class TestJudgeEvaluationsSchema:
             assert row[3] == "gpt-4o"
             # row[4]: relevance_score
             assert row[4] == 0.99
-            # row[5]: accuracy_score
-            assert row[5] == 0.97
-            # row[6]: completeness_score
-            assert row[6] == 0.96
-            # row[7]: source_quality_score
-            assert row[7] == 0.95
-            # row[8]: overall_score
-            assert row[8] == 0.97
-            # row[9]: rationale
-            assert row[9] == "Excellent results across all dimensions."
-            # row[10]: duration_ms
-            assert row[10] == 4567.89
-            # row[11]: tokens_used
-            assert row[11] == 2345
-            # row[12]: cost_usd
-            assert row[12] == 0.0089
-            # row[13]: payload_json
-            assert json.loads(row[13]) == {"model": "gpt-4o-2024-08-06", "temperature": 0.3}
+            # row[5]: relevance_raw
+            assert row[5] == 4
+            # row[6]: relevance_scale
+            assert row[6] == "1-4"
+            # row[7]: accuracy_score
+            assert row[7] == 0.97
+            # row[8]: completeness_score
+            assert row[8] == 0.96
+            # row[9]: source_quality_score
+            assert row[9] == 0.95
+            # row[10]: overall_score
+            assert row[10] == 0.97
+            # row[11]: rationale
+            assert row[11] == "Excellent results across all dimensions."
+            # row[12]: duration_ms
+            assert row[12] == 4567.89
+            # row[13]: tokens_used
+            assert row[13] == 2345
+            # row[14]: cost_usd
+            assert row[14] == 0.0089
+            # row[15]: payload_json
+            assert json.loads(row[15]) == {"model": "gpt-4o-2024-08-06", "temperature": 0.3}
         finally:
             if db_path.exists():
                 db_path.unlink()

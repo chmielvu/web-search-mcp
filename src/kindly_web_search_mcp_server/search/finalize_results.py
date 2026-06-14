@@ -7,7 +7,14 @@ import logging
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..utils.observability import emit_observability_event
-from .provider_config import diagnose_providers
+from .provider_config import DiagnosisCategory, diagnose_providers
+
+# Categories that produce user-visible warnings.
+# "unconfigured" and "intent_excluded" are silent by design.
+_WARNING_CATEGORIES = frozenset({
+    DiagnosisCategory.cooldown,
+    DiagnosisCategory.disabled,
+})
 from .query_policy import RewritePolicy
 from .entity_extractor import extract_entities
 
@@ -86,9 +93,9 @@ def build_search_response(
 ) -> tuple[list[ProviderWarning], list[str], WebSearchResponse]:
     provider_diagnoses = diagnose_providers()
     provider_warnings = [
-        ProviderWarning(provider=d.name, error=d.reason, error_type="unavailable")
+        ProviderWarning(provider=d.name, error=d.reason, error_type=d.category.value)
         for d in provider_diagnoses
-        if not d.available
+        if not d.available and d.category in _WARNING_CATEGORIES
     ]
     providers_used = sorted(set(p for r in final_results for p in (r.providers or [])))
 

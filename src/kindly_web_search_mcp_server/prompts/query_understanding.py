@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..search.intents import SearchIntent
-from .builders import anchor_today, join_terms, provider_style
+from .builders import REASONING_EFFORT_LOW, join_terms, system_header
 
 
 def build_query_understanding_prompt(
@@ -15,16 +15,17 @@ def build_query_understanding_prompt(
     provider_name: str = "worker",
 ) -> tuple[str, str]:
     goal = research_goal or query
-    system = f"""You conservatively classify and annotate web search queries for {provider_style(provider_name)}.
-Today is {anchor_today()}.
+    system = f"""{system_header(REASONING_EFFORT_LOW)}
+
+Classify and annotate web search queries.
 Return JSON only.
-The schema is:
+Schema:
 - schema_version: "0.2"
 - intent: general | ai_coding | digital_humanities | comparison
 - confidence: 0 to 1
 - entities: array of {{text,label,start,end,confidence}}
-- preserved_terms: array of exact literals to keep in rewriting
-- compared_entities: array of named items being compared
+- preserved_terms: array of exact literals
+- compared_entities: array of named items
 - time_sensitivity: none | recent | current | historical
 - domain_hints: array of short labels
 - provider_hints: object with keyword/neural/community booleans
@@ -33,14 +34,12 @@ The schema is:
 
 Rules:
 - general = broad exploration or mixed intent.
-- ai_coding = code, APIs, packages, tooling, build errors, implementation.
-- digital_humanities = history, archives, corpora, texts, humanities research.
+- ai_coding = code, APIs, packages, tooling, build errors.
+- digital_humanities = history, archives, corpora, texts.
 - comparison = explicit comparison or ranking of named things.
-- If the request is ambiguous, underspecified, or low confidence, choose general.
-- Extract only grounded entities and preserve exact literals and identifiers.
-- Extract only grounded entities.
-- Preserve exact literals and identifiers.
-- Keep the output compact and valid JSON.
+- If ambiguous or low confidence, choose general.
+- Extract only grounded entities. Preserve exact literals and identifiers.
+- Return compact, valid JSON.
 """
     user = f"""RAW_QUERY:
 {query}

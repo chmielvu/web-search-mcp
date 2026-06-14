@@ -11,6 +11,7 @@ import pyarrow as pa
 
 from ..settings import settings
 from .formatting import json_safe_rows
+from .local_queries import run_local_analytics_query
 from .motherduck_sync import (
     _attach_name,
     _duckdb_config,
@@ -18,7 +19,6 @@ from .motherduck_sync import (
     _motherduck_database,
     _quote_ident,
 )
-from .views import ensure_local_views
 
 AnalyticsScope = Literal["local", "motherduck"]
 
@@ -265,11 +265,12 @@ def run_analytics_query(
     db_path: str | None = None,
 ) -> dict[str, object]:
     path = _db_path(db_path)
-    if scope == "local" and not path.exists():
-        raise FileNotFoundError(f"Analytics DuckDB file does not exist: {path}")
-
     if scope == "local":
-        ensure_local_views(db_path=str(path))
+        return run_local_analytics_query(
+            question,
+            max_rows=max_rows,
+            db_path=str(path),
+        )
 
     connection, view_prefix = _analytics_connection_and_prefix(path, scope=scope)
     try:

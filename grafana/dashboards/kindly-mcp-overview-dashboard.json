@@ -1,7 +1,7 @@
 {
   "title": "Kindly MCP - Overview (Golden Signals)",
   "uid": "kindly-mcp-overview-v1",
-  "version": 1,
+  "version": 3,
   "tags": ["kindly", "mcp", "web-search", "otel", "grafana-cloud"],
   "timezone": "browser",
   "schemaVersion": 41,
@@ -170,6 +170,108 @@
       "transformations": [
         { "id": "organize", "options": { "renameByName": { "Value": "Count", "error_type": "Error Type", "gen_ai_tool_name": "Tool" } } }
       ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Loki Log Lines (15m)",
+      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 4 },
+      "datasource": { "type": "loki", "uid": "grafanacloud-logs" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service_name=\"$service\"}[15m]))",
+          "refId": "A",
+          "legendFormat": "Log lines"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "green", "value": 10 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "OTLP Export 404s (1h)",
+      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 4 },
+      "datasource": { "type": "loki", "uid": "grafanacloud-logs" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service_name=\"$service\"} |= \"Failed to export span batch code\" [1h]))",
+          "refId": "A",
+          "legendFormat": "Exporter 404s"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Loki ERROR Lines (1h)",
+      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 4 },
+      "datasource": { "type": "loki", "uid": "grafanacloud-logs" },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service_name=\"$service\"} |= \"ERROR\" [1h]))",
+          "refId": "A",
+          "legendFormat": "Error lines"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      }
     }
   ]
 }

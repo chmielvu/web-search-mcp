@@ -249,6 +249,35 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
         finally:
             connection.close()
 
+
+def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
+    """Ensure the tables needed by quality scoring and judge writes exist.
+
+    This is a light bootstrap/migration pass for fresh or legacy DuckDB files.
+    It creates the pipeline tables that quality metrics query before the score
+    row is written, plus the judge table used by the background judge writer.
+    """
+
+    path = _db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        connection = duckdb.connect(str(path))
+        try:
+            _ensure_schema(connection)
+            _ensure_search_runs(connection)
+            _ensure_provider_calls(connection)
+            _ensure_provider_candidates(connection)
+            _ensure_merged_candidates(connection)
+            _ensure_rerank_stages(connection)
+            _ensure_rerank_candidates(connection)
+            _ensure_final_results(connection)
+            _ensure_query_rewrites(connection)
+            _ensure_search_quality_scores(connection)
+            _ensure_judge_evaluations(connection)
+        finally:
+            connection.close()
+
+
 def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
     """Create search_runs table with indexes if it doesn't exist."""
     connection.execute(
@@ -942,6 +971,8 @@ def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
             tool_name VARCHAR,
             judge_model VARCHAR,
             relevance_score DOUBLE,
+            relevance_raw INTEGER,
+            relevance_scale VARCHAR,
             accuracy_score DOUBLE,
             completeness_score DOUBLE,
             source_quality_score DOUBLE,
@@ -966,6 +997,7 @@ def insert_judge_evaluation(
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = [
         "run_key", "tool_name", "judge_model", "relevance_score",
+        "relevance_raw", "relevance_scale",
         "accuracy_score", "completeness_score", "source_quality_score",
         "overall_score", "rationale", "duration_ms", "tokens_used",
         "cost_usd", "payload_json",

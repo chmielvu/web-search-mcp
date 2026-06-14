@@ -6,66 +6,24 @@ so the pipeline can trigger it as a background task without blocking.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
-from litellm import acompletion
-
 from ..settings import settings
 from .duckdb_store import insert_judge_evaluation
-from .judge_prompt import (
-    JUDGE_SYSTEM_PROMPT,
-    build_judge_user_prompt,
-    parse_judge_response,
-)
+from .search_relevance_judge import SearchRelevanceJudge
 
 logger = logging.getLogger(__name__)
 
-
-def _format_results_text(results: list[Any]) -> str:
-    """Build a compact text representation of search results for the judge."""
-    lines: list[str] = []
-    for i, r in enumerate(results, start=1):
-        title = getattr(r, "title", "") or ""
-        link = getattr(r, "link", "") or ""
-        snippet = getattr(r, "snippet", "") or ""
-        lines.append(f"[{i}] {title}\n    URL: {link}\n    Snippet: {snippet}\n")
-    return "\n".join(lines) if lines else "(no results returned)"
+# Singleton judge instance
+_judge_instance: SearchRelevanceJudge | None = None
 
 
-async def _call_judge_llm(
-    system_prompt: str,
-    user_prompt: str,
-) -> str:
-    """Make a single OpenAI-compatible chat completion for the judge."""
-    model = settings.judge_model
-    api_base: str | None = None
-    api_key: str | None = None
-
-    # If Vercel AI Gateway credentials are available, route through it.
-    # Otherwise let litellm resolve the provider natively.
-    if settings.vercel_ai_gateway_api_key:
-        api_base = settings.vercel_ai_gateway_base_url
-        api_key = settings.vercel_ai_gateway_api_key
-
-    response = await acompletion(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.0,
-        api_base=api_base,
-        api_key=api_key,
-        timeout=settings.judge_timeout_seconds,
-    )
-    content = response.choices[0].message.content or ""
-    # Extract token usage from litellm response
-    tokens_used = None
-    if hasattr(response, "usage") and response.usage:
-        tokens_used = getattr(response.usage, "total_tokens", None)
-    return content.strip(), tokens_used
+def _get_judge() -> SearchRelevanceJudge:
+    global _judge_instance
+    if _judge_instance is None:
+        _judge_instance = SearchRelevanceJudge()
+    return _judge_instance
 
 
 async def run_judge_evaluation(
@@ -74,8 +32,10 @@ async def run_judge_evaluation(
     intent: str,
     results: list[Any],
     tool_name: str = "web_search",
+    research_goal: str | None = None,
+    rewrite_variants: list[Any] | None = None,
 ) -> None:
-    """Evaluate search results with an LLM judge and persist scores.
+    """Evaluate search results relevance and persist scores.
 
     Designed to be called fire-and-forget (e.g. via ``asyncio.create_task``
     or wrapped in a try/except block).  This function handles all errors
@@ -88,92 +48,54 @@ async def run_judge_evaluation(
     query : str
         The original user query.
     intent : str
-        Inferred search intent (e.g. 'informational', 'navigational').
+        Search intent: 'general', 'ai_coding', 'digital_humanities', or 'comparison'.
     results : list[WebSearchResult]
         The final result list returned to the user.
     tool_name : str
         Tool name for the analytics record (default 'web_search').
+    research_goal : str | None
+        The user's research goal, if provided.
+    rewrite_variants : list[QueryVariant] | None
+        Query rewrite variants used for multi-branch search.
     """
+    if not settings.analytics_enabled:
+        return
+
     if not results:
-        logger.debug("judge evaluation skipped: no results to evaluate")
+        logger.debug("judge evaluation skipped: no results")
         return
 
-    judge_start = asyncio.get_event_loop().time()
-    results_text = _format_results_text(results)
-
-    try:
-        user_prompt = build_judge_user_prompt(
-            query=query,
-            intent=intent,
-            results_text=results_text,
-            tool_name=tool_name,
-        )
-
-        raw_response, tokens_used = await _call_judge_llm(
-            system_prompt=JUDGE_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-        )
-    except Exception as exc:
-        logger.debug("judge LLM call failed: %s", exc)
-        # Still record a best-effort row so the run shows up in analytics
-        _insert_fallback(run_key, tool_name, error=str(exc)[:500])
-        return
-
-    if not raw_response:
-        logger.debug("judge returned empty response")
-        _insert_fallback(run_key, tool_name, error="empty response")
-        return
-
-    parsed = parse_judge_response(raw_response)
-
-    duration_ms = round(
-        (asyncio.get_event_loop().time() - judge_start) * 1000.0, 3
+    judge = _get_judge()
+    result = await judge.evaluate(
+        query=query,
+        intent=intent,
+        results=results,
+        research_goal=research_goal,
+        rewrite_variants=rewrite_variants,
     )
 
     try:
         insert_judge_evaluation(
             run_key=run_key,
             tool_name=tool_name,
-            judge_model=settings.judge_model,
-            relevance_score=parsed.get("relevance_score"),
-            accuracy_score=parsed.get("accuracy_score"),
-            completeness_score=parsed.get("completeness_score"),
-            source_quality_score=parsed.get("source_quality_score"),
-            overall_score=parsed.get("overall_score"),
-            rationale=parsed.get("rationale"),
-            duration_ms=duration_ms,
-            tokens_used=tokens_used,
+            judge_model=result.judge_model,
+            relevance_score=result.relevance_score,
+            relevance_raw=result.relevance_raw,
+            relevance_scale="1-4",
+            accuracy_score=None,
+            completeness_score=None,
+            source_quality_score=None,
+            overall_score=result.relevance_score,
+            rationale=result.reasoning,
+            duration_ms=result.duration_ms,
+            tokens_used=None,
             cost_usd=None,
             payload_json={
-                "scores_raw": {k: v for k, v in parsed.items() if v is not None},
+                "relevance_raw": result.relevance_raw,
+                "relevance_scale": "1-4",
                 "result_count": len(results),
+                "error": result.error,
             },
         )
     except Exception as exc:
         logger.debug("insert_judge_evaluation failed: %s", exc)
-
-
-def _insert_fallback(
-    run_key: str,
-    tool_name: str,
-    error: str,
-) -> None:
-    """Insert a fallback row when the judge call itself failed."""
-    try:
-        insert_judge_evaluation(
-            run_key=run_key,
-            tool_name=tool_name,
-            judge_model=settings.judge_model,
-            relevance_score=None,
-            accuracy_score=None,
-            completeness_score=None,
-            source_quality_score=None,
-            overall_score=None,
-            rationale=None,
-            duration_ms=None,
-            tokens_used=None,
-            cost_usd=None,
-            payload_json={"error": error},
-        )
-    except Exception as exc:
-        logger.debug("insert_judge_evaluation (fallback) failed: %s", exc)

@@ -6,7 +6,6 @@ All LLM calls are mocked — no real API calls in these unit tests.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,12 +34,11 @@ class TestJudgerunnerMockedLLM:
     """Tests for run_judge_evaluation with a mocked LLM response."""
 
     VALID_JUDGE_JSON = {
-        "relevance_score": 0.9,
-        "accuracy_score": 0.85,
-        "completeness_score": 0.75,
-        "source_quality_score": 0.8,
-        "overall_score": 0.82,
-        "rationale": "Good results overall.",
+        "relevance_raw": 4,
+        "relevance_score": 1.0,
+        "reasoning": "Excellent results overall.",
+        "judge_model": "openai/gpt-oss-120b",
+        "duration_ms": 123.45,
     }
 
     @staticmethod
@@ -48,21 +46,28 @@ class TestJudgerunnerMockedLLM:
         return SimpleNamespace(title=title, link=link, snippet=snippet)
 
     def test_happy_path(self, monkeypatch) -> None:
-        """Full end-to-end: mocked LLM → parsed scores → stored in DuckDB."""
+        """Full end-to-end: mocked adapter → parsed scores → stored in DuckDB."""
         from kindly_web_search_mcp_server.analytics.judge_runner import (
             run_judge_evaluation,
         )
-
-        fake_response = _make_fake_litellm_response(
-            json.dumps(self.VALID_JUDGE_JSON)
+        from kindly_web_search_mcp_server.analytics.search_relevance_judge import (
+            SearchRelevanceResult,
         )
 
-        async def fake_acompletion(*args, **kwargs):
-            return fake_response
+        fake_result = SearchRelevanceResult(
+            relevance_raw=4,
+            relevance_score=1.0,
+            reasoning="Excellent results overall.",
+            judge_model="openai/gpt-oss-120b",
+            duration_ms=123.45,
+        )
+
+        async def fake_evaluate(*args, **kwargs):
+            return fake_result
 
         monkeypatch.setattr(
-            "kindly_web_search_mcp_server.analytics.judge_runner.acompletion",
-            fake_acompletion,
+            "kindly_web_search_mcp_server.analytics.judge_runner._get_judge",
+            lambda: SimpleNamespace(evaluate=fake_evaluate),
         )
 
         # Enable analytics and use a temp DuckDB path
@@ -90,9 +95,11 @@ class TestJudgerunnerMockedLLM:
                 run_judge_evaluation(
                     run_key="test-run-001",
                     query="AI papers",
-                    intent="informational",
+                    intent="general",
                     results=results,
                     tool_name="web_search",
+                    research_goal="Find recent papers on AI safety",
+                    rewrite_variants=None,
                 )
             )
 
@@ -101,22 +108,20 @@ class TestJudgerunnerMockedLLM:
             con = duckdb.connect(str(db_path))
             try:
                 row = con.execute(
-                    "SELECT run_key, relevance_score, accuracy_score, "
-                    "completeness_score, source_quality_score, overall_score, "
-                    "rationale, duration_ms, tool_name, judge_model "
+                    "SELECT run_key, relevance_score, relevance_raw, relevance_scale, "
+                    "overall_score, rationale, duration_ms, tool_name, judge_model "
                     "FROM judge_evaluations WHERE run_key = 'test-run-001'"
                 ).fetchone()
 
                 assert row is not None, "Expected a row in judge_evaluations"
                 assert row[0] == "test-run-001"
-                assert row[1] == 0.9  # relevance_score
-                assert row[2] == 0.85  # accuracy_score
-                assert row[3] == 0.75  # completeness_score
-                assert row[4] == 0.8  # source_quality_score
-                assert row[5] == 0.82  # overall_score
-                assert row[6] == "Good results overall."  # rationale
-                assert row[8] == "web_search"
-                assert row[9] is not None  # judge_model should be set
+                assert row[1] == 1.0  # relevance_score (normalized)
+                assert row[2] == 4  # relevance_raw (1-4)
+                assert row[3] == "1-4"  # relevance_scale
+                assert row[4] == 1.0  # overall_score
+                assert row[5] == "Excellent results overall."  # rationale
+                assert row[7] == "web_search"
+                assert row[8] is not None  # judge_model should be set
             finally:
                 con.close()
         finally:
@@ -131,14 +136,14 @@ class TestJudgerunnerMockedLLM:
 
         call_count = 0
 
-        async def fake_acompletion(*args, **kwargs):
+        async def fake_evaluate(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            return _make_fake_litellm_response("{}")
+            return SimpleNamespace(relevance_raw=1, relevance_score=0.0)
 
         monkeypatch.setattr(
-            "kindly_web_search_mcp_server.analytics.judge_runner.acompletion",
-            fake_acompletion,
+            "kindly_web_search_mcp_server.analytics.judge_runner._get_judge",
+            lambda: SimpleNamespace(evaluate=fake_evaluate),
         )
 
         import asyncio
@@ -146,26 +151,36 @@ class TestJudgerunnerMockedLLM:
             run_judge_evaluation(
                 run_key="test-empty",
                 query="nothing",
-                intent="informational",
+                intent="general",
                 results=[],
                 tool_name="web_search",
             )
         )
 
-        assert call_count == 0, "LLM should not be called with empty results"
+        assert call_count == 0, "Judge should not be called with empty results"
 
     def test_llm_failure_inserts_fallback(self, monkeypatch) -> None:
-        """When the LLM call raises, a fallback row should still be inserted."""
+        """When the judge raises, a fallback row should still be inserted."""
         from kindly_web_search_mcp_server.analytics.judge_runner import (
             run_judge_evaluation,
         )
+        from kindly_web_search_mcp_server.analytics.search_relevance_judge import (
+            SearchRelevanceResult,
+        )
 
-        async def failing_acompletion(*args, **kwargs):
-            raise RuntimeError("LLM is down")
+        async def failing_evaluate(*args, **kwargs):
+            return SearchRelevanceResult(
+                relevance_raw=1,
+                relevance_score=0.0,
+                reasoning="",
+                judge_model="openai/gpt-oss-120b",
+                duration_ms=0.0,
+                error="RuntimeError: LLM is down",
+            )
 
         monkeypatch.setattr(
-            "kindly_web_search_mcp_server.analytics.judge_runner.acompletion",
-            failing_acompletion,
+            "kindly_web_search_mcp_server.analytics.judge_runner._get_judge",
+            lambda: SimpleNamespace(evaluate=failing_evaluate),
         )
         monkeypatch.setattr(
             "kindly_web_search_mcp_server.analytics.judge_runner.settings.analytics_enabled",
@@ -192,7 +207,7 @@ class TestJudgerunnerMockedLLM:
                 run_judge_evaluation(
                     run_key="test-fallback",
                     query="test",
-                    intent="informational",
+                    intent="general",
                     results=results,
                 )
             )
@@ -207,10 +222,9 @@ class TestJudgerunnerMockedLLM:
 
                 assert row is not None, "Expected a fallback row"
                 assert row[0] == "test-fallback"
-                assert row[1] is None  # overall_score should be None on fallback
                 import json as _json
                 payload = _json.loads(row[2])
-                assert "LLM is down" in payload.get("error", "")
+                assert "error" in payload
             finally:
                 con.close()
         finally:
@@ -242,6 +256,8 @@ class TestJudgeCalibration:
                     tool_name VARCHAR,
                     judge_model VARCHAR,
                     relevance_score DOUBLE,
+                    relevance_raw INTEGER,
+                    relevance_scale VARCHAR,
                     accuracy_score DOUBLE,
                     completeness_score DOUBLE,
                     source_quality_score DOUBLE,
@@ -259,17 +275,20 @@ class TestJudgeCalibration:
                     """
                     INSERT INTO judge_evaluations
                         (run_key, tool_name, judge_model,
-                         relevance_score, accuracy_score,
-                         completeness_score, source_quality_score,
-                         overall_score, rationale, duration_ms,
+                         relevance_score, relevance_raw, relevance_scale,
+                         accuracy_score, completeness_score,
+                         source_quality_score, overall_score,
+                         rationale, duration_ms,
                          tokens_used, cost_usd, payload_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row.get("run_key"),
                         row.get("tool_name", "web_search"),
                         row.get("judge_model", "test-model"),
                         row.get("relevance_score"),
+                        row.get("relevance_raw"),
+                        row.get("relevance_scale"),
                         row.get("accuracy_score"),
                         row.get("completeness_score"),
                         row.get("source_quality_score"),

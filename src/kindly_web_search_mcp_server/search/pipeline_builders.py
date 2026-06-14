@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 from ..llm.worker import build_llm_worker
 from ..llm.structured import StructuredLLMRequest
+from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
+
 from ..settings import settings
 from .context import SearchContext
 from .intents import SearchIntent
@@ -107,6 +109,7 @@ async def build_rewrite_variants(
             temperature=REWRITE_TEMPERATURE_BY_INTENT[understanding_intent],
             timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
             response_model=RewriteVariantResponse,
+            reasoning_effort=REASONING_EFFORT_LOW,
         )
     )
     payload = json.loads(generation.content)

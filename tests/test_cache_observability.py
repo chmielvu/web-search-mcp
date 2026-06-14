@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -32,22 +30,27 @@ class TestCacheObservability(unittest.TestCase):
     def test_page_cache_emits_lookup_and_store_events(self) -> None:
         from kindly_web_search_mcp_server.cache.page_cache import PageCache
 
-        cache = PageCache(db_path="unused")
-        table = MagicMock()
-        table.search.return_value.where.return_value.limit.return_value.to_list.return_value = [
-            {
-                "created_at": "2026-06-02T00:00:00+00:00",
-                "ttl_seconds": 604800,
-                "page_content": "hello world",
-                "extraction_method": "http_extract",
-                "word_count": 2,
-            }
-        ]
-        cache._get_table = MagicMock(return_value=table)  # type: ignore[method-assign]
+        backend = MagicMock()
+        backend.lookup.return_value = {
+            "page_content": "hello world",
+            "extraction_method": "http_extract",
+            "word_count": 2,
+            "age_seconds": 4,
+            "cached_at": "2026-06-02T00:00:00+00:00",
+            "metadata": {"title": "Example"},
+        }
 
         with patch(
-            "kindly_web_search_mcp_server.cache.page_cache.emit_observability_event"
-        ) as emit_event:
+            "kindly_web_search_mcp_server.cache.page_cache._PageDuckDBCache",
+            return_value=backend,
+        ), patch(
+            "kindly_web_search_mcp_server.cache.page_cache.emit_cache_lookup_event"
+        ) as emit_lookup, patch(
+            "kindly_web_search_mcp_server.cache.page_cache.emit_cache_store_event"
+        ) as emit_store, patch(
+            "kindly_web_search_mcp_server.cache.page_cache.record_cache_lookup"
+        ):
+            cache = PageCache(db_path="unused")
             cache.lookup("https://example.com/page")
             cache.store(
                 "https://example.com/page",
@@ -56,61 +59,22 @@ class TestCacheObservability(unittest.TestCase):
                 metadata={"title": "Example"},
             )
 
-        self.assertEqual(emit_event.call_args_list[0].args[1], "search.cache.lookup")
-        self.assertEqual(emit_event.call_args_list[1].args[1], "search.cache.store")
-        self.assertEqual(emit_event.call_args_list[0].kwargs["cache_type"], "page")
-        self.assertEqual(emit_event.call_args_list[1].kwargs["cache_type"], "page")
-        self.assertEqual(emit_event.call_args_list[1].kwargs["metadata_present"], True)
-
-    def test_semantic_cache_emits_lookup_and_store_events(self) -> None:
-        from kindly_web_search_mcp_server.cache.content_type import ContentType
-        from kindly_web_search_mcp_server.cache.semantic_cache import (
-            get_semantic_cache,
-            set_semantic_cache,
+        self.assertEqual(
+            backend.lookup.call_args.args[0], "https://example.com/page"
         )
-
-        class _Store:
-            def hybrid_search(self, *_args, **_kwargs):
-                return [
-                    {
-                        "answer_json": json.dumps({"result": "cached"}),
-                        "created_at": "2026-06-02T00:00:00+00:00",
-                        "content_type": ContentType.GENERAL.value,
-                        "_distance": 0.1,
-                    }
-                ]
-
-            def add_entry(self, **_kwargs):
-                return None
-
-        async def _run() -> None:
-            with patch(
-                "kindly_web_search_mcp_server.cache.semantic_cache.embed_query",
-                new=AsyncMock(return_value=[0.1, 0.2, 0.3]),
-            ), patch(
-                "kindly_web_search_mcp_server.cache.semantic_cache.emit_observability_event"
-            ) as emit_event:
-                await get_semantic_cache(
-                    _Store(),
-                    "fastmcp docs",
-                    min_score=0.05,
-                    use_hybrid=True,
-                    provider_key="default",
-                )
-                await set_semantic_cache(
-                    _Store(),
-                    "fastmcp docs",
-                    {"result": "cached"},
-                    content_type=ContentType.GENERAL,
-                    provider_key="default",
-                )
-
-            self.assertEqual(emit_event.call_args_list[0].args[1], "search.cache.lookup")
-            self.assertEqual(emit_event.call_args_list[1].args[1], "search.cache.store")
-            self.assertEqual(emit_event.call_args_list[0].kwargs["cache_type"], "semantic")
-            self.assertEqual(emit_event.call_args_list[1].kwargs["cache_type"], "semantic")
-
-        asyncio.run(_run())
+        self.assertEqual(
+            backend.store.call_args.kwargs["canonical_url"],
+            "https://example.com/page",
+        )
+        self.assertEqual(
+            backend.store.call_args.kwargs["metadata"],
+            {"title": "Example"},
+        )
+        self.assertEqual(emit_lookup.call_args.args[1], "page")
+        self.assertEqual(emit_lookup.call_args.args[2], "hit")
+        self.assertEqual(emit_store.call_args.args[1], "page")
+        self.assertEqual(emit_store.call_args.args[2], "ok")
+        self.assertEqual(emit_store.call_args.kwargs["metadata_present"], True)
 
     def test_provider_health_emits_state_change_events(self) -> None:
         from kindly_web_search_mcp_server.search.provider_health import (

@@ -203,35 +203,83 @@ Operational commands:
 - `web-search-cli analytics query` — run analytics queries against DuckDB
 - `web-search-cli analytics report` — run named reports
 
-Other operational commands are registered for discovery but return structured scaffold errors until the main implementation phase.
 
-## Environment Setup
 
-Required: at least one search provider env var.
-```powershell
-$env:SEARXNG_BASE_URL="http://localhost:8080"  # or TAVILY_API_KEY, BRAVE_API_KEY, JINA_API_KEY
-$env:GITHUB_TOKEN="..."  # recommended
+grafana otel token: REDACTED
+cc token: REDACTED
+
+
+
+## AI Coding Tools
+
+### Code Graph CLI (codegraph)
+
+`codegraph` is installed and available for dependency graph visualization.
+
+**Purpose:** Creates a graph of code to show dependencies between code entities (methods, classes, etc.). Useful for understanding call chains and impact analysis before making changes.
+
+**Install:**
+```bash
+pip install codegraph
 ```
 
-Optional for advanced features:
-```powershell
-$env:AI_GATEWAY_API_KEY="..."  # query understanding / rewrite workers
-$env:QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
-$env:CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
-$env:GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
-$env:VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
-$env:GEMINI_API_KEY="..."  # gemini_search grounding
-$env:POLLINATIONS_API_KEY="..."  # perplexity_search (Perplexity Sonar via Pollinations)
-$env:YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud IPs)
+**Usage:**
+```bash
+# Generate dependency graph for a directory
+codegraph src/kindly_web_search_mcp_server/search --object-only
+
+# Generate interactive HTML graph
+codegraph src/kindly_web_search_mcp_server --output codegraph.html
+
+# Start from a specific file
+codegraph src/kindly_web_search_mcp_server/search/pipeline.py --file-path src/kindly_web_search_mcp_server/search/pipeline.py --distance 2
+
+# Export graph data to CSV
+codegraph src/kindly_web_search_mcp_server/search --csv graph.csv
 ```
 
-## Documentation Index
+**Note:** Current version may have parsing issues with some async function patterns. If `codegraph` crashes with `AttributeError: 'NoneType' object has no attribute 'file'`, use `ccc` instead for semantic code search.
 
-- [CHANGELOG.md](./CHANGELOG.md) — Version history and changes
-- [CONTRIBUTING.md](./CONTRIBUTING.md) — Development guidelines
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — System architecture and data flows
-- [docs/CONFIGURATION.md](./docs/CONFIGURATION.md) — Environment variables and settings
-- [docs/GETTING-STARTED.md](./docs/GETTING-STARTED.md) — Quick start guide
-- [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md) — Development patterns and workflows
-- [docs/TESTING.md](./docs/TESTING.md) — Testing guide and mock patterns
-- [docs/DuckDB_schema.md](./docs/DuckDB_schema.md) — Search quality DuckDB schema reference (21 tables, 13 views)
+### CocoIndex Code CLI (ccc)
+
+`ccc` (CocoIndex Code) is the primary codebase indexing and semantic search tool for this repo.
+
+**Purpose:** Indexes the codebase into a graph-backed semantic search system. Use it to find relevant code by intent, not just filename.
+
+**Commands:**
+```bash
+# Initialize project (if needed)
+ccc init
+
+# Create/update index for the codebase
+ccc index
+
+# Show project status
+ccc status
+
+# Semantic search across codebase
+ccc search "where is query understanding implemented?"
+
+# Reset project databases
+ccc reset
+
+# Check system health
+ccc doctor
+
+# Run as MCP server
+ccc mcp
+```
+
+**Configuration:** The index is configured in `.cocoindex_code/settings.yml`. Current settings only index `**/*.py` and `**/*.toml` files to keep context focused on source code and configuration.
+
+**Why use ccc:**
+- Finds code by semantic intent, not just keyword matches
+- Maintains a graph of code relationships for dependency-aware retrieval
+- Avoids context pollution from irrelevant files
+- Works as both CLI and MCP server for AI coding agents
+
+**Workflow:**
+1. Run `ccc index` after significant code changes
+2. Use `ccc search "<intent>"` to find relevant code before editing
+3. Use `ccc status` to verify index health
+4. Use `ccc mcp` when you want Claude Code to access the codebase graph directly

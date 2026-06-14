@@ -26,6 +26,23 @@ _GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS = 300
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
+# Keys that indicate the dict is an actual tool response (not an envelope)
+_RESPONSE_KEYS = frozenset({"results", "query", "page_content", "error", "answer"})
+
+
+def _unwrap_fastmcp_result(data: dict) -> dict:
+    """Unwrap FastMCP's ``{"result": ...}`` envelope for union-typed tool returns.
+
+    FastMCP wraps non-object JSON schemas (e.g. ``WebSearchResponse | ToolErrorResponse``)
+    in ``{"result": <actual_response>}``.  The guidance generators need the inner dict.
+    """
+    if not isinstance(data, dict):
+        return data
+    inner = data.get("result")
+    if isinstance(inner, dict) and any(k in inner for k in _RESPONSE_KEYS):
+        return inner
+    return data
+
 
 def _append_enrichment(
     result: Any,
@@ -63,21 +80,36 @@ def _has_domain(urls: list[str], pattern: str) -> bool:
 # ── Per-tool guidance generators ──────────────────────────────────────
 
 
+def _gemini_is_healthy() -> bool:
+    """Check if the gemini provider is configured and not in cooldown."""
+    try:
+        from ..search.provider_health import get_provider_health  # noqa: PLC0415
+        from ..search.provider_config import PROVIDER_REGISTRY  # noqa: PLC0415
+        cfg = PROVIDER_REGISTRY.get("gemini")
+        if cfg is None or not cfg.is_available():
+            return False
+        return get_provider_health().is_healthy("gemini")
+    except Exception:
+        return False
+
+
 def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
+    data = _unwrap_fastmcp_result(data)
     results = data.get("results", [])
     providers = data.get("providers_used", [])
     urls = [r.get("link", "") for r in results]
     next_tools: list[str] = []
     next_prompts: list[str] = ["evaluate_web_results"]
     parts: list[str] = []
+    gemini_ok = _gemini_is_healthy()
 
     if not results:
-        return (
-            "Zero results. Broaden: remove specific terms, set rewrite=true, "
-            "or try gemini_search for a grounded answer without URLs.",
-            ["gemini_search"],
-            next_prompts,
-        )
+        guidance = "Zero results. Broaden: remove specific terms, set rewrite=true."
+        tools: list[str] = []
+        if gemini_ok:
+            guidance += " Or try gemini_search for a grounded answer without URLs."
+            tools.append("gemini_search")
+        return (guidance, tools, next_prompts)
 
     parts.append(f"{len(results)} results from {len(providers)} providers.")
 
@@ -96,24 +128,23 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     # Domain concentration
     domains = {_extract_domain(u) for u in urls if u}
     if len(domains) == 1 and len(results) >= 3:
-        parts.append(
-            f"All results from {list(domains)[0]}. "
-            "Try gemini_search for broader coverage."
-        )
-        next_tools.append("gemini_search")
+        parts.append(f"All results from {list(domains)[0]}.")
+        if gemini_ok:
+            parts.append("Try gemini_search for broader coverage.")
+            next_tools.append("gemini_search")
 
     # Provider agreement
     top_pc = max((r.get("provider_count", 0) for r in results[:3]), default=0)
     if top_pc <= 1 and len(providers) > 1:
-        parts.append(
-            "Top results from single provider — cross-check with gemini_search."
-        )
-        next_tools.append("gemini_search")
+        parts.append("Top results from single provider — cross-check.")
+        if gemini_ok:
+            next_tools.append("gemini_search")
 
     return (" ".join(parts), next_tools, next_prompts)
 
 
 def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
+    data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
     next_prompts: list[str] = ["evaluate_web_results"]
@@ -157,6 +188,7 @@ def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
 
 
 def _guide_batch_get_content(data: dict) -> tuple[str, list[str], list[str]]:
+    data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
     next_prompts: list[str] = ["research_gap_analysis"]

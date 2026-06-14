@@ -462,7 +462,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT json_extract_string(payload_json, \"$.profile\") AS profile, count(*) AS applications FROM kindly_analytics.analytics_event_raw WHERE event_name = \"tool_surface.profile_applied\" AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY 2 DESC",
+          "rawSql": "SELECT json_extract_string(payload_json, '$.profile') AS profile, count(*) AS applications FROM kindly_analytics.analytics_event_raw WHERE event_name = 'tool_surface.profile_applied' AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY 2 DESC",
           "format": "table",
           "refId": "A"
         }
@@ -485,7 +485,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT event_name, count(*) AS events, count(DISTINCT coalesce(run_key, trace_id)) AS distinct_runs FROM kindly_analytics.analytics_event_raw WHERE event_name LIKE \"result_memory.%\" AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY events DESC",
+          "rawSql": "SELECT event_name, count(*) AS events, count(DISTINCT coalesce(run_key, trace_id)) AS distinct_runs FROM kindly_analytics.analytics_event_raw WHERE event_name LIKE 'result_memory.%' AND $__timeFilter(recorded_at) GROUP BY 1 ORDER BY events DESC",
           "format": "table",
           "refId": "A"
         }
@@ -535,7 +535,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT round(100.0 * (coalesce(sum(judge_passes_07),0) + coalesce(sum(observed_passes),0)) / nullif( (count(*) * 2) , 0) , 1) AS pass_pct_approx FROM kindly_analytics.vw_eval_pass_rate WHERE $__timeFilter(recorded_at) ",
+          "rawSql": "SELECT round(100.0 * (coalesce(sum(judge_passes_07),0) + coalesce(sum(observed_passes),0)) / nullif((count(*) * 2), 0), 1) AS pass_pct_approx FROM kindly_analytics.vw_eval_pass_rate WHERE $__timeFilter(recorded_at)",
           "format": "table",
           "refId": "A"
         }
@@ -558,7 +558,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT approx_quantile(0.5, CAST( coalesce( json_extract_string(payload_json, \"$.duration_ms\"), json_extract_string(payload_json, \"$.latency_ms\"), \"0\" ) AS DOUBLE )) AS p50_ms FROM kindly_analytics.analytics_event_raw WHERE event_name LIKE \"entity.%\" AND $__timeFilter(recorded_at)",
+          "rawSql": "SELECT median(CAST(coalesce(json_extract_string(payload_json, '$.duration_ms'), json_extract_string(payload_json, '$.latency_ms'), '0') AS DOUBLE)) AS p50_ms FROM kindly_analytics.analytics_event_raw WHERE event_name LIKE 'entity.%' AND $__timeFilter(recorded_at)",
           "format": "table",
           "refId": "A"
         }

@@ -129,20 +129,46 @@ def error_taxonomy(*, days: int = 7, db_path: str | None = None) -> pa.Table:
 def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table:
     window = max(1, int(days))
     sql = f"""
+        WITH stage_rows AS (
+            SELECT
+                'provider' AS stage,
+                recorded_at,
+                run_key,
+                coalesce(
+                    json_extract_string(payload_json, '$.link'),
+                    json_extract_string(payload_json, '$.url')
+                ) AS url
+            FROM search_events
+            WHERE event_name = 'provider.search.result'
+              AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+            UNION ALL
+            SELECT
+                'merged' AS stage,
+                recorded_at,
+                run_key,
+                link AS url
+            FROM merged_candidates
+            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+            UNION ALL
+            SELECT
+                'final' AS stage,
+                recorded_at,
+                run_key,
+                link AS url
+            FROM final_results
+            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        )
         SELECT
             stage,
             COUNT(*) AS rows,
             COUNT(DISTINCT run_key) AS runs,
             COUNT(DISTINCT url) AS unique_urls
-        FROM main.vw_candidate_survival
-        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        FROM stage_rows
         GROUP BY 1
         ORDER BY CASE stage
             WHEN 'provider' THEN 1
-            WHEN 'branch' THEN 2
-            WHEN 'merged' THEN 3
-            WHEN 'reranked' THEN 4
-            WHEN 'final' THEN 5
+            WHEN 'merged' THEN 2
+            WHEN 'final' THEN 3
             ELSE 99
         END
     """

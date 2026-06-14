@@ -27,6 +27,16 @@ def _parse_json_dict(raw: str, default: dict) -> dict:
     return default
 
 
+def _parse_csv_env(raw: str) -> tuple[str, ...]:
+    """Parse a comma-separated environment string into a normalized tuple."""
+    items: list[str] = []
+    for item in raw.split(","):
+        value = item.strip().casefold()
+        if value:
+            items.append(value)
+    return tuple(dict.fromkeys(items))
+
+
 def _decode_langfuse_mcp_auth_header(raw: str) -> tuple[str, str]:
     """Decode Langfuse MCP Basic auth into public/secret keys.
 
@@ -173,20 +183,47 @@ class Settings:
         "HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
     )
     embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
+    embedding_timeout_seconds: float = float(
+        os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0")
+    )
+    embedding_max_retries: int = int(
+        os.environ.get("EMBEDDING_MAX_RETRIES", "1")
+    )
+    embedding_retry_delay_seconds: float = float(
+        os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "5.0")
+    )
 
-    # Reranking (Voyage primary, Jina fallback; gcp_cloudrun for custom GCP Cloud Run / TEI / FastAPI supported)
+    # Reranking (Voyage primary, Jina fallback; Cohere fast path opt-in;
+    # gcp_cloudrun for custom GCP Cloud Run / TEI / FastAPI supported)
     reranking_enabled: bool = (
         os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
     )
     rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
+    rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross").lower()
     bi_encoder_top_k: int = int(os.environ.get("BI_ENCODER_TOP_K", "100"))
     rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
+    rerank_llm_candidate_limit: int = int(
+        os.environ.get("RERANK_LLM_CANDIDATE_LIMIT", "12")
+    )
+    rerank_llm_timeout_seconds: float = float(
+        os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "60.0")
+    )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get(
         "VOYAGE_RERANK_MODEL", "rerank-2.5"
     )
     jina_rerank_model: str = os.environ.get(
         "JINA_RERANK_MODEL", "jina-reranker-v3"
+    )
+    cohere_api_key: str = os.environ.get("COHERE_API_KEY", "")
+    cohere_rerank_model: str = os.environ.get(
+        "COHERE_RERANK_MODEL", "rerank-v4.0-fast"
+    )
+    cohere_rerank_base_url: str = os.environ.get(
+        "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
+    )
+    cohere_rerank_timeout: float = float(
+        os.environ.get("COHERE_RERANK_TIMEOUT", "30.0")
     )
     # GCP Cloud Run reranker (TEI or custom FastAPI /rerank endpoint). Private by default; client handles IAM ID tokens.
     rerank_gcp_cloudrun_url: str = os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
@@ -324,6 +361,15 @@ class Settings:
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
     )
 
+    # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
+    # to turn off noisy providers like reddit without changing code.
+    providers_enabled: bool = (
+        os.environ.get("PROVIDERS_ENABLED", "true").lower() == "true"
+    )
+    disabled_providers: tuple[str, ...] = _parse_csv_env(
+        os.environ.get("DISABLED_PROVIDERS", "")
+    )
+
     # New SERP providers (Serper, SerpApi, BrightData)
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
     serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
@@ -334,6 +380,26 @@ class Settings:
 
     # SERP semaphore limit (controls concurrency for serp_paid providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
+
+    # Per-provider-group deadline — providers exceeding this are cancelled;
+    # the pipeline proceeds with whatever completed.  Set to 0 to disable.
+    provider_group_deadline_seconds: float = float(
+        os.environ.get("PROVIDER_GROUP_DEADLINE_SECONDS", "10")
+    )
+
+    # Unified provider health / circuit breaker
+    provider_failure_threshold: int = int(
+        os.environ.get("PROVIDER_FAILURE_THRESHOLD", "3")
+    )
+    provider_cooldown_cap_seconds: float = float(
+        os.environ.get("PROVIDER_COOLDOWN_CAP_SECONDS", "30.0")
+    )
+    provider_rate_limit_initial_cooldown: float = float(
+        os.environ.get("PROVIDER_RATE_LIMIT_INITIAL_COOLDOWN", "60.0")
+    )
+    provider_rate_limit_cap_seconds: float = float(
+        os.environ.get("PROVIDER_RATE_LIMIT_CAP_SECONDS", "300.0")
+    )
 
     # SearXNG config (consolidated from raw os.environ reads in searxng.py)
     searxng_base_url: str = os.environ.get("SEARXNG_BASE_URL", "")
@@ -577,7 +643,7 @@ class Settings:
         os.environ.get("JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
     )
     judge_model: str = os.environ.get(
-        "JUDGE_MODEL", "google/gemini-2.0-flash-001"
+        "JUDGE_MODEL", "openai/gpt-oss-120b"
     )
     judge_timeout_seconds: float = float(
         os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0")
@@ -644,6 +710,17 @@ class Settings:
         if not 0.0 <= self.rerank_entity_overlap_weight <= 1.0:
             raise ValueError(
                 f"rerank_entity_overlap_weight must be in [0, 1], got {self.rerank_entity_overlap_weight!r}."
+            )
+        from .rerank.stack import normalize_rerank_stack_mode
+
+        self.rerank_stack_mode = normalize_rerank_stack_mode(self.rerank_stack_mode)
+        if self.rerank_llm_candidate_limit <= 0:
+            raise ValueError(
+                f"rerank_llm_candidate_limit must be > 0, got {self.rerank_llm_candidate_limit!r}."
+            )
+        if self.rerank_llm_timeout_seconds <= 0:
+            raise ValueError(
+                f"rerank_llm_timeout_seconds must be > 0, got {self.rerank_llm_timeout_seconds!r}."
             )
         if self.rrf_k <= 0:
             raise ValueError(

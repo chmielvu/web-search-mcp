@@ -1,8 +1,8 @@
 {
-  "title": "Kindly MCP - Cache Effectiveness & Semantic Performance",
+  "title": "Kindly MCP - Cache Effectiveness",
   "uid": "kindly-mcp-cache-v1",
   "version": 1,
-  "tags": ["kindly", "mcp", "cache", "semantic", "lancedb", "otel"],
+  "tags": ["kindly", "mcp", "cache", "otel"],
   "schemaVersion": 41,
   "refresh": "1m",
   "time": { "from": "now-12h", "to": "now" },
@@ -52,12 +52,12 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Semantic Cache Hit Rate",
+      "title": "Exact Cache Hit Rate",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"semantic\", cache_hit=\"true\"}[5m])) / sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"semantic\"}[5m]))",
+          "expr": "sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"exact\", cache_hit=\"true\"}[5m])) / sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"exact\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -100,20 +100,27 @@
     },
     {
       "id": 4,
-      "type": "heatmap",
-      "title": "Semantic Similarity Score Distribution (on hit)",
+      "type": "timeseries",
+      "title": "Cache Request Rate by Type",
       "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum by (le) (rate(web_search_semantic_cache_score_distribution_bucket{service_name=\"$service\", cache_hit=\"true\"}[5m]))",
-          "format": "heatmap",
+          "expr": "sum by (cache_type) (rate(web_search_cache_requests_total{service_name=\"$service\"}[2m]))",
+          "legendFormat": "{{cache_type}} requests",
           "refId": "A"
         }
       ],
       "options": {
-        "calculate": false,
-        "yAxis": { "unit": "short" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
       }
     },
     {

@@ -6,17 +6,41 @@ import httpx
 
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search.context import SearchContext
+from kindly_web_search_mcp_server.search import provider_plan as provider_plan_module
 from kindly_web_search_mcp_server.search import _search_single_provider
 from kindly_web_search_mcp_server.search.options import SearchOptions
-from kindly_web_search_mcp_server.search.profiles.resolve import resolve_search_profile
 from kindly_web_search_mcp_server.search.profiles.models import SearchProfile
+from kindly_web_search_mcp_server.search.provider_config import ProviderConfig, ProviderGroup
 from kindly_web_search_mcp_server.search.provider_plan import (
     build_cache_identity,
     build_provider_execution_plan,
 )
 
 
-def test_provider_plan_uses_requested_providers_and_profile_weights() -> None:
+def _provider(name: str, group: ProviderGroup) -> ProviderConfig:
+    return ProviderConfig(
+        name=name,
+        env_key="",
+        search_fn=lambda *args, **kwargs: [],  # noqa: ARG005
+        group=group,
+        requires_key=False,
+    )
+
+
+def test_provider_plan_uses_requested_providers_and_profile_weights(
+    monkeypatch,
+) -> None:
+    fake_configs = [
+        _provider("searxng", ProviderGroup.free),
+        _provider("brave", ProviderGroup.serp_paid),
+        _provider("google_cse", ProviderGroup.free),
+    ]
+    monkeypatch.setattr(
+        provider_plan_module,
+        "resolve_provider_configs",
+        lambda provider_names, intent="general": fake_configs,  # noqa: ARG005
+    )
+
     profile = SearchProfile(
         name="general",
         provider_weights={"searxng": 1.0, "brave": 1.0, "google_cse": 1.0},
@@ -55,7 +79,14 @@ def test_provider_plan_uses_requested_providers_and_profile_weights() -> None:
     )
 
 
-def test_provider_plan_carries_profile_provider_arguments() -> None:
+def test_provider_plan_carries_profile_provider_arguments(monkeypatch) -> None:
+    fake_configs = [_provider("brave", ProviderGroup.serp_paid)]
+    monkeypatch.setattr(
+        provider_plan_module,
+        "resolve_provider_configs",
+        lambda provider_names, intent="general": fake_configs,  # noqa: ARG005
+    )
+
     profile = SearchProfile(
         name="general",
         provider_weights={"brave": 1.0},

@@ -52,7 +52,7 @@ async def inject_result_memory_candidates(
             _rm_mod._result_memory_store = None
         memory = get_result_memory_store_fn()
         query_embedding = await embed_query_fn(
-            normalized_query, timeout=15.0, skip_circuit_check=True
+            normalized_query, timeout=20.0, skip_circuit_check=True
         )
         raw_candidates = memory.lookup_candidates(
             query_embedding=query_embedding,
@@ -115,7 +115,7 @@ async def store_result_memory_results(
         memory = get_result_memory_store_fn()
         if query_embedding is None:
             query_embedding = await embed_query_fn(
-                normalized_query, timeout=15.0, skip_circuit_check=True
+                normalized_query, timeout=20.0, skip_circuit_check=True
             )
         memory.store_results(
             query_text=normalized_query,

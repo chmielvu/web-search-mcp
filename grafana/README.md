@@ -26,10 +26,10 @@ curl -X POST \
 - `kindly-mcp-pipeline-dashboard.json` — Rewrite, multi-provider, merge, rerank
 - `kindly-mcp-providers-dashboard.json` — Per-provider latency, success, contribution
 - `kindly-mcp-content-dashboard.json` — Extraction stages, browser vs HTTP, fallbacks
-- `kindly-mcp-cache-dashboard.json` — Hit ratios, semantic effectiveness, cost savings
+- `kindly-mcp-cache-dashboard.json` — Cache hit ratios and lookup latency by cache type
 - `kindly-mcp-quality-dashboard.json` — Developer quality loop for search result yield,
-  domain diversity, query length, RRF/rerank score distributions, rewrite mix, and
-  semantic-cache freshness signals
+  domain diversity, query length, RRF/rerank score distributions, rewrite mix, result
+  memory, eval pass rate, and entity latency
 
 All dashboards use the current metric names emitted by `telemetry.py` and the normalized Prometheus label keys exported from those attributes.
 
@@ -41,8 +41,8 @@ is broken.
 
 Use the quality dashboard for continuous improvement: are queries too long/noisy, is
 rewrite routing changing behavior, are providers producing useful candidate volume, is
-RRF/rerank producing separable scores, is diversity collapsing, and are semantic-cache
-hits fresh enough to trust.
+RRF/rerank producing separable scores, is diversity collapsing, and are result-memory,
+eval, and entity signals moving in the expected direction.
 
 Current dashboards still do not replace an evaluation harness. Answer quality, citation
 correctness, source usefulness, manual ratings, and curated known-query scorecards need

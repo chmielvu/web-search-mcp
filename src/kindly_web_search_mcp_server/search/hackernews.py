@@ -6,6 +6,8 @@ API docs: https://hn.algolia.com/api
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 import httpx
@@ -13,7 +15,132 @@ import httpx
 from ..models import WebSearchResult
 from .base_provider import run_provider
 
+logger = logging.getLogger(__name__)
+
 _HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
+_HN_DISCUSSION_MARKERS = (
+    "discussion",
+    "comment",
+    "comments",
+    "thread",
+    "debate",
+    "thoughts",
+    "opinion",
+    "compare",
+    "comparison",
+    "what do you think",
+    "ask hn",
+    "show hn",
+)
+_HN_FOCUS_MARKERS = (
+    "startup",
+    "open source",
+    "programming",
+    "developer",
+    "code",
+    "rust",
+    "python",
+    "javascript",
+    "database",
+    "linux",
+    "security",
+    "ai",
+    "llm",
+    "model",
+    "benchmark",
+    "launch",
+    "release",
+    "news",
+)
+
+
+class HackerNewsError(RuntimeError):
+    pass
+
+
+def _should_use_hackernews(query: str) -> bool:
+    normalized = query.casefold()
+    return any(marker in normalized for marker in _HN_FOCUS_MARKERS)
+
+
+def _should_search_comments(query: str) -> bool:
+    normalized = query.casefold()
+    return any(marker in normalized for marker in _HN_DISCUSSION_MARKERS)
+
+
+def _short_date(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return value[:10]
+
+
+def _format_story_title(hit: dict[str, Any]) -> str:
+    title = hit.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+
+    story_title = hit.get("story_title")
+    if isinstance(story_title, str) and story_title.strip():
+        return story_title.strip()
+
+    comment_text = hit.get("comment_text")
+    if isinstance(comment_text, str) and comment_text.strip():
+        return comment_text.strip().splitlines()[0][:120]
+
+    return "Hacker News result"
+
+
+def _format_story_link(hit: dict[str, Any]) -> str | None:
+    url = hit.get("url") or hit.get("story_url")
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+
+    object_id = hit.get("objectID") or hit.get("story_id")
+    if isinstance(object_id, str) and object_id.strip():
+        return f"https://news.ycombinator.com/item?id={object_id.strip()}"
+    return None
+
+
+def _format_story_snippet(hit: dict[str, Any], *, story_hit: bool) -> str:
+    author = hit.get("author")
+    author_text = author.strip() if isinstance(author, str) and author.strip() else "(deleted)"
+    points = hit.get("points")
+    num_comments = hit.get("num_comments")
+    created = _short_date(hit.get("created_at"))
+    parts: list[str] = []
+    if story_hit:
+        if isinstance(points, (int, float)):
+            parts.append(f"{int(points)} pts")
+        if isinstance(num_comments, (int, float)):
+            parts.append(f"{int(num_comments)} comments")
+    else:
+        story_title = hit.get("story_title")
+        if isinstance(story_title, str) and story_title.strip():
+            parts.append(f"comment on {story_title.strip()}")
+    parts.append(f"by {author_text}")
+    if created:
+        parts.append(created)
+    return " | ".join(parts)
+
+
+def _parse_hit(hit: dict[str, Any], *, story_hit: bool) -> WebSearchResult | None:
+    title = _format_story_title(hit)
+    link = _format_story_link(hit)
+    if not link:
+        return None
+    snippet = _format_story_snippet(hit, story_hit=story_hit)
+    if not story_hit:
+        story_title = hit.get("story_title")
+        if isinstance(story_title, str) and story_title.strip():
+            title = f"Comment on {story_title.strip()}"
+    return WebSearchResult(title=title, link=link, snippet=snippet)
+
+
+def _selected_tags(query: str) -> list[str]:
+    tags = ["story"]
+    if _should_search_comments(query):
+        tags.append("comment")
+    return tags
 
 
 async def search_hackernews(
@@ -22,71 +149,116 @@ async def search_hackernews(
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[WebSearchResult]:
-    """Search HackerNews stories via Algolia API.
+    """Search HackerNews stories and comments via Algolia API.
 
-    Args:
-        query: Normalized search query string.
-        num_results: Maximum number of results to return.
-        http_client: Optional shared httpx client.
-
-    Returns:
-        List of WebSearchResult objects (empty on failure).
+    The provider stays quiet for queries that are unlikely to benefit from HN.
+    When a query looks discussion-oriented, both stories and comments are
+    searched and the results are merged with de-duplication.
     """
     if not query.strip() or num_results < 1:
         return []
+    if not _should_use_hackernews(query):
+        return []
 
-    params: dict[str, Any] = {
-        "query": query,
-        "tags": "story",
-        "hitsPerPage": num_results,
-    }
+    tags = _selected_tags(query)
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.get(_HN_SEARCH_URL, params=params)
-        resp.raise_for_status()
-        try:
-            data = resp.json()
-        except ValueError:
-            return {}
-        if not isinstance(data, dict):
-            return {}
-        return data
+        responses = await asyncio.gather(
+            *[
+                client.get(
+                    _HN_SEARCH_URL,
+                    params={
+                        "query": query,
+                        "tags": tag,
+                        "hitsPerPage": num_results,
+                    },
+                )
+                for tag in tags
+            ],
+            return_exceptions=True,
+        )
+
+        payloads: list[tuple[str, dict[str, Any]]] = []
+        failures: list[str] = []
+        for tag, response in zip(tags, responses, strict=False):
+            if isinstance(response, Exception):
+                failures.append(tag)
+                logger.warning(
+                    "Hacker News %s search failed for tag=%s: %s", query, tag, response
+                )
+                continue
+            try:
+                response.raise_for_status()
+            except Exception as exc:
+                failures.append(tag)
+                logger.warning(
+                    "Hacker News %s search returned an HTTP error for tag=%s: %s",
+                    query,
+                    tag,
+                    exc,
+                )
+                continue
+            try:
+                data = response.json()
+            except ValueError as exc:
+                failures.append(tag)
+                logger.warning(
+                    "Hacker News %s search returned invalid JSON for tag=%s: %s",
+                    query,
+                    tag,
+                    exc,
+                )
+                continue
+            if not isinstance(data, dict):
+                failures.append(tag)
+                logger.warning(
+                    "Hacker News %s search returned invalid payload for tag=%s",
+                    query,
+                    tag,
+                )
+                continue
+            payloads.append((tag, data))
+
+        if not payloads:
+            raise HackerNewsError(f"Hacker News searches failed for query {query!r}")
+
+        if failures:
+            logger.warning(
+                "Hacker News returned partial results for query=%r after %d tag failure(s)",
+                query,
+                len(failures),
+            )
+
+        return {"payloads": payloads}
 
     def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
-        hits = data.get("hits")
-        if not isinstance(hits, list):
+        payloads = data.get("payloads")
+        if not isinstance(payloads, list):
             return []
 
         results: list[WebSearchResult] = []
-        for hit in hits:
-            if not isinstance(hit, dict):
+        seen_links: set[str] = set()
+        for payload_entry in payloads:
+            if not isinstance(payload_entry, tuple) or len(payload_entry) != 2:
+                continue
+            tag, payload = payload_entry
+            if not isinstance(tag, str) or not isinstance(payload, dict):
+                continue
+            hits = payload.get("hits")
+            if not isinstance(hits, list):
                 continue
 
-            title = hit.get("title")
-            url = hit.get("url")
-            object_id = hit.get("objectID")
-            points = hit.get("points", 0)
-            num_comments = hit.get("num_comments", 0)
-            created = hit.get("created_at", "")
-
-            if not isinstance(title, str) or not title:
-                continue
-
-            link: str
-            if isinstance(url, str) and url:
-                link = url
-            elif isinstance(object_id, str) and object_id:
-                link = f"https://news.ycombinator.com/item?id={object_id}"
-            else:
-                continue
-
-            snippet = f"{points} pts | {num_comments} comments"
-            if isinstance(created, str) and created:
-                snippet += f" | {created[:10]}"
-
-            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-            if len(results) >= num_results:
-                break
+            story_hit = tag == "story"
+            for hit in hits:
+                if not isinstance(hit, dict):
+                    continue
+                parsed = _parse_hit(hit, story_hit=story_hit)
+                if parsed is None or parsed.link in seen_links:
+                    continue
+                seen_links.add(parsed.link)
+                results.append(parsed)
+                if len(results) >= num_results:
+                    return results
 
         return results
 

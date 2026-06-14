@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from ..models import WebSearchResult
 from ..settings import settings
+from .cohere import cohere_rerank
 from .gcp_cloudrun import gcp_cloudrun_rerank
 from .jina import jina_rerank
 from .models import RerankCandidate, RerankEngine, RerankResult
@@ -15,7 +16,14 @@ from .voyage import voyage_rerank
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_ENGINE_IDS = {"none", "voyage", "jina", "gcp_cloudrun", "local_baseline"}
+SUPPORTED_ENGINE_IDS = {
+    "none",
+    "voyage",
+    "cohere_fast",
+    "jina",
+    "gcp_cloudrun",
+    "local_baseline",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +115,29 @@ class VoyageRerankEngine:
         return [RerankResult(index=index, score=score) for index, score in ranked]
 
 
+class CohereFastRerankEngine:
+    engine_id = "cohere_fast"
+
+    async def rerank(
+        self,
+        query: str,
+        candidates: list[RerankCandidate],
+        *,
+        model: str | None = None,
+        instruction: str | None = None,
+    ) -> list[RerankResult]:
+        ranked = await cohere_rerank(
+            query,
+            [candidate.document for candidate in candidates],
+            timeout=settings.cohere_rerank_timeout,
+            api_key=settings.cohere_api_key or None,
+            model=model or settings.cohere_rerank_model,
+            instruction=instruction,
+            base_url=settings.cohere_rerank_base_url,
+        )
+        return [RerankResult(index=index, score=score) for index, score in ranked]
+
+
 class JinaRerankEngine:
     engine_id = "jina"
 
@@ -154,6 +185,8 @@ def get_rerank_engine(engine_id: str) -> RerankEngine:
         return NoneRerankEngine()
     if normalized == "voyage":
         return VoyageRerankEngine()
+    if normalized == "cohere_fast":
+        return CohereFastRerankEngine()
     if normalized == "jina":
         return JinaRerankEngine()
     if normalized == "gcp_cloudrun":
@@ -167,6 +200,8 @@ def get_default_model(engine_id: str) -> str | None:
     normalized = engine_id.strip().lower()
     if normalized == "voyage":
         return settings.voyage_rerank_model
+    if normalized == "cohere_fast":
+        return settings.cohere_rerank_model
     if normalized == "jina":
         return settings.jina_rerank_model
     if normalized == "gcp_cloudrun":
@@ -196,6 +231,8 @@ def _fallback_order(engine_id: str) -> list[str]:
     normalized = engine_id.strip().lower()
     if normalized in {"none", "local_baseline"}:
         return [normalized]
+    if normalized == "cohere_fast":
+        return ["cohere_fast", "voyage", "jina"]
     if normalized == "voyage":
         return ["voyage", "jina"]
     if normalized == "jina":

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .snippet_normalizer import normalize_snippet
+
 WEB_SEARCH_RESULT_FIELDS = (
     "title",
     "link",
@@ -35,6 +37,9 @@ def serialize_public_web_search_result(result: Any) -> dict[str, Any]:
     for field in WEB_SEARCH_RESULT_FIELDS:
         if field in raw and raw[field] is not None:
             public[field] = raw[field]
+    # Normalize snippet: strip HTML, base64, nav chrome, cap length
+    if "snippet" in public:
+        public["snippet"] = normalize_snippet(public["snippet"])
     return public
 
 

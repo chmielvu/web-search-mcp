@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 
-def build_candidate_view_sql(target: str) -> list[str]:
+def build_candidate_view_sql(
+    target: str,
+    *,
+    source_table: str = "analytics_event_raw",
+) -> list[str]:
     """Build candidate, fetch, answer, and survival views."""
+    source = f"{target}.{source_table}"
     return [
         f"""
         CREATE OR REPLACE VIEW {target}.vw_merged_results AS
@@ -16,13 +21,16 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract_string(e.payload_json, '$.query') AS query,
             CAST(r.key AS INTEGER) AS result_index,
             json_extract_string(r.value, '$.title') AS title,
-            json_extract_string(r.value, '$.link') AS url,
+            coalesce(
+                json_extract_string(r.value, '$.link'),
+                json_extract_string(r.value, '$.url')
+            ) AS url,
             json_extract_string(r.value, '$.snippet') AS snippet,
             json_extract_string(r.value, '$.domain') AS domain,
             json_extract(r.value, '$.providers') AS providers_json,
             CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
             CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
+        FROM {source} AS e,
              json_each(json_extract(e.payload_json, '$.merged_results')) AS r
         WHERE e.event_name = 'search.orchestrator.response'
         """,
@@ -39,7 +47,7 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract_string(v.value, '$.query') AS rewritten_query,
             json_extract_string(v.value, '$.why') AS why,
             CAST(json_extract_string(v.value, '$.weight') AS DOUBLE) AS weight
-        FROM {target}.analytics_event_raw AS e,
+        FROM {source} AS e,
              json_each(json_extract(e.payload_json, '$.variants')) AS v
         WHERE e.event_name = 'query.rewrite.completed'
         """,
@@ -59,7 +67,7 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract(r.value, '$.providers') AS providers_json,
             CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
             CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
+        FROM {source} AS e,
              json_each(json_extract(e.payload_json, '$.results')) AS r
         WHERE e.event_name IN (
             'search.orchestrator.response',
@@ -85,7 +93,7 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract(r.value, '$.providers') AS providers_json,
             CAST(json_extract_string(r.value, '$.provider_count') AS INTEGER) AS provider_count,
             CAST(json_extract_string(r.value, '$.score') AS DOUBLE) AS score
-        FROM {target}.analytics_event_raw AS e,
+        FROM {source} AS e,
              json_each(json_extract(e.payload_json, '$.results')) AS r
         WHERE e.event_name = 'search.rerank.summary'
           AND json_extract(e.payload_json, '$.results') IS NOT NULL
@@ -117,7 +125,7 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract(payload_json, '$.links') AS links_json,
             json_extract(payload_json, '$.summary') AS summary_json,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name IN ('tool.get_content.response', 'tool.batch_get_content.response')
         """,
         f"""
@@ -137,7 +145,7 @@ def build_candidate_view_sql(target: str) -> list[str]:
             json_extract(payload_json, '$.structured_result') AS structured_result_json,
             json_extract(payload_json, '$.citations') AS citations_json,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name IN (
             'tool.gemini_search.response',
             'tool.perplexity_search.response',

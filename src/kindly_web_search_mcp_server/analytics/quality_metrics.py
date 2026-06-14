@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import duckdb
 
-from .duckdb_store import _db_path, insert_search_quality_scores
+from .duckdb_store import (
+    _db_path,
+    ensure_search_quality_tables,
+    insert_search_quality_scores,
+)
 
 
 def compute_search_quality(
@@ -36,6 +40,7 @@ def compute_search_quality(
         A mapping of metric name → computed value (``None`` for missing data).
     """
     path = _db_path(db_path)
+    ensure_search_quality_tables(db_path=str(path))
     con = duckdb.connect(str(path), read_only=True)
 
     try:

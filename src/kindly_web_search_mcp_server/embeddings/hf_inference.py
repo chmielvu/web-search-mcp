@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -202,7 +203,9 @@ async def embed_texts(
         or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
     )
     resolved_dim = expected_dim or settings.embedding_dim
-    resolved_timeout = timeout if timeout is not None else 30.0
+    resolved_timeout = (
+        timeout if timeout is not None else settings.embedding_timeout_seconds
+    )
 
     client = AsyncInferenceClient(
         provider=resolved_provider,  # type: ignore[arg-type]
@@ -210,26 +213,48 @@ async def embed_texts(
         timeout=resolved_timeout,
     )
 
-    try:
-        raw = await client.feature_extraction(
-            texts, model=resolved_model, normalize=True
-        )  # type: ignore[arg-type]
-        HF_CIRCUIT_BREAKER.record_success()
-    except InferenceTimeoutError as e:
-        LOGGER.error(
-            f"Embedding request timed out after {resolved_timeout}s for {len(texts)} texts"
-        )
-        HF_CIRCUIT_BREAKER.record_failure()
-        raise EmbeddingTimeoutError(
-            f"Embedding request timed out after {resolved_timeout}s"
-        ) from e
-    except Exception as e:
-        LOGGER.error(f"Embedding API request failed: {type(e).__name__}: {e}")
-        HF_CIRCUIT_BREAKER.record_failure()
-        raise EmbeddingAPIError(
-            f"Embedding API request failed: {type(e).__name__}: {e}"
-        ) from e
+    max_retries = settings.embedding_max_retries
+    retry_delay = settings.embedding_retry_delay_seconds
+    last_error: Exception | None = None
+    raw = None
 
+    for attempt in range(max_retries + 1):
+        try:
+            raw = await client.feature_extraction(
+                texts, model=resolved_model, normalize=True
+            )  # type: ignore[arg-type]
+            HF_CIRCUIT_BREAKER.record_success()
+            break
+        except InferenceTimeoutError as e:
+            last_error = e
+            HF_CIRCUIT_BREAKER.record_failure()
+            if attempt < max_retries:
+                LOGGER.warning(
+                    "Embedding timeout attempt %d/%d (%.0fs), retrying in %.1fs",
+                    attempt + 1,
+                    max_retries + 1,
+                    resolved_timeout,
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)  # type: ignore[name-defined]
+            else:
+                LOGGER.error(
+                    "Embedding timed out after %d attempts (%.0fs each)",
+                    max_retries + 1,
+                    resolved_timeout,
+                )
+                raise EmbeddingTimeoutError(
+                    f"Embedding request timed out after {resolved_timeout}s "
+                    f"({max_retries + 1} attempts)"
+                ) from e
+        except Exception as e:
+            LOGGER.error(f"Embedding API request failed: {type(e).__name__}: {e}")
+            HF_CIRCUIT_BREAKER.record_failure()
+            raise EmbeddingAPIError(
+                f"Embedding API request failed: {type(e).__name__}: {e}"
+            ) from e
+
+    assert raw is not None  # guaranteed by the loop above
     vectors = _coerce_vectors(raw, len(texts))
     _validate_dimensions(vectors, resolved_dim)
     return vectors

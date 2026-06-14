@@ -18,8 +18,11 @@ class CliError(Exception):
         return {
             "error": {
                 "kind": self.kind,
+                "code": self.kind,
                 "message": self.message,
                 "hint": self.hint,
+                "suggestion": self.hint,
+                "exit_code": int(self.exit_code),
                 "context": self.context,
             }
         }

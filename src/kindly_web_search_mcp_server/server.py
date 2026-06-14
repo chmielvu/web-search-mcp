@@ -192,8 +192,11 @@ def _public_settings_snapshot() -> dict[str, object]:
         },
         "models": {
             "rerank_provider": settings.rerank_provider,
+            "rerank_stack_mode": settings.rerank_stack_mode,
             "voyage_rerank_model": settings.voyage_rerank_model,
             "jina_rerank_model": settings.jina_rerank_model,
+            "rerank_llm_candidate_limit": settings.rerank_llm_candidate_limit,
+            "rerank_llm_timeout_seconds": settings.rerank_llm_timeout_seconds,
             "grok_model": settings.grok_model,
             "gliner_model": settings.gliner_model,
         },

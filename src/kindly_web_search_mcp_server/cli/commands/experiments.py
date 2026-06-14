@@ -9,6 +9,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..runtime import get_runtime
 from ...ab_testing.models import ABExperiment, ABVariant
 from ...ab_testing.yaml_loader import load_experiments, save_experiments
 from ...settings import settings
@@ -324,12 +325,13 @@ def create_cmd(
         str | None,
         typer.Option(
             "--config",
-            help="JSON string with experiment config. If omitted, interactive prompts are used.",
+            help="JSON string with experiment config. If omitted, interactive prompts are used when non-interactive mode is disabled.",
         ),
     ] = None,
 ) -> None:
     """Scaffold a new experiment interactively or from a JSON config."""
     config_path = _resolve_config_path()
+    runtime = get_runtime()
 
     if config:
         try:
@@ -363,6 +365,14 @@ def create_cmd(
             variants=variants,
         )
     else:
+        if runtime.non_interactive:
+            raise CliError(
+                kind="usage_error",
+                message="Interactive experiment creation is disabled in non-interactive mode.",
+                hint="Pass --config with a JSON payload, or rerun with --non-interactive=false.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "experiments create"},
+            )
         # Interactive mode
         experiment_id = typer.prompt("Experiment ID")
         layer = typer.prompt("Layer (e.g. query_understanding, reranking, provider_weights)")

@@ -125,21 +125,22 @@ class TestAnalyticsReports(unittest.TestCase):
         with patch("sys.stdout", new=stdout):
             cli.main(
                 [
-                    "analytics-report",
-                    "--report",
+                    "analytics",
+                    "report",
+                    "--report-name",
                     "provider-performance",
                     "--days",
                     "7",
-                    "--duckdb-path",
+                    "--db-path",
                     str(db_path),
                 ]
             )
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["report"], "provider-performance")
-        self.assertEqual(payload["days"], 7)
-        self.assertEqual(payload["row_count"], 1)
-        self.assertEqual(payload["rows"][0]["provider"], "searxng")
+        self.assertEqual(payload["data"]["report"], "provider-performance")
+        self.assertEqual(payload["data"]["days"], 7)
+        self.assertEqual(payload["data"]["row_count"], 1)
+        self.assertEqual(payload["data"]["rows"][0]["provider"], "searxng")
 
         if db_path.exists():
             db_path.unlink()

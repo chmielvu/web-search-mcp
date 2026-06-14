@@ -1,4 +1,11 @@
-"""Per-provider circuit breaker. Opens after N consecutive failures."""
+"""Per-provider circuit breaker. Opens after N consecutive failures.
+
+.. deprecated::
+    This module is superseded by the unified circuit breaker in
+    :mod:`provider_health.ProviderHealthTracker`.  It is kept only for
+    backward compatibility with existing tests.  New code should use
+    ``get_provider_health()`` directly.
+"""
 
 import logging
 import time

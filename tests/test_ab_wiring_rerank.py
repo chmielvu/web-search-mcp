@@ -50,6 +50,7 @@ class TestRerankCoreABOverrides:
         ) as mock_embed:
             s.reranking_enabled = True
             s.rerank_provider = "none"
+            s.rerank_stack_mode = "bi_cross"
             s.rerank_recency_weight = 0.0
             s.rerank_recency_half_life_days = 90
             s.rerank_score_threshold = -999.0
@@ -93,6 +94,7 @@ class TestRerankCoreABOverrides:
         ) as mock_embed:
             s.reranking_enabled = True
             s.rerank_provider = "none"
+            s.rerank_stack_mode = "bi_cross"
             s.rerank_recency_weight = 0.0
             s.rerank_recency_half_life_days = 90
             s.rerank_score_threshold = -999.0
@@ -236,12 +238,11 @@ class TestPipelineABWiringRerank:
                 results=[], embedding_context=None,
             )
 
-            result = await run_search_pipeline(
+            await run_search_pipeline(
                 query="test query",
                 num_results=10,
                 rewrite=False,
                 diagnostics=None,
-                providers=None,
                 research_goal=None,
                 search_options=None,
                 session_id=None,
@@ -346,7 +347,6 @@ class TestPipelineABWiringRerank:
                 num_results=10,
                 rewrite=False,
                 diagnostics=None,
-                providers=None,
                 research_goal=None,
                 search_options=None,
                 session_id=None,
@@ -371,7 +371,7 @@ class TestPipelineABWiringRerank:
         ) as mock_get_ab, patch(
             "kindly_web_search_mcp_server.search.pipeline.run_shadow",
             new_callable=AsyncMock,
-        ) as mock_shadow, patch(
+        ) as _mock_shadow, patch(
             "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
         ) as mock_exec, patch(
             "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
@@ -455,12 +455,11 @@ class TestPipelineABWiringRerank:
             )
             mock_ensure_future.return_value = None
 
-            result = await run_search_pipeline(
+            await run_search_pipeline(
                 query="test query",
                 num_results=10,
                 rewrite=False,
                 diagnostics=None,
-                providers=None,
                 research_goal=None,
                 search_options=None,
                 session_id=None,
@@ -495,6 +494,7 @@ class TestRerankResultsWithABDirectly:
             "kindly_web_search_mcp_server.rerank.core.decide_rerank"
         ) as mock_decide:
             s.rerank_provider = "none"
+            s.rerank_stack_mode = "bi_cross"
             s.rerank_recency_weight = 0.0
             s.rerank_recency_half_life_days = 90
             s.rerank_score_threshold = -999.0

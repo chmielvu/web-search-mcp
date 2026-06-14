@@ -9,6 +9,7 @@ import time as time_module
 from ...settings import settings
 from ...llm.worker import build_llm_worker
 from ...llm.structured import StructuredLLMRequest
+from ...prompts.builders import REASONING_EFFORT_LOW
 from ...prompts.registry import build_prompt
 from ...training.session_state import get_session_state_store
 from ...training.query_understanding_jsonl import append_query_understanding_record
@@ -103,6 +104,7 @@ async def resolve_query_understanding(
                 temperature=0.0,
                 timeout_seconds=timeout_seconds,
                 response_model=QueryUnderstandingResult,
+                reasoning_effort=REASONING_EFFORT_LOW,
             )
             result_model_name = generation.endpoint.model
             result_provider_name = generation.endpoint.name
@@ -119,6 +121,7 @@ async def resolve_query_understanding(
                     temperature=0.0,
                     timeout_seconds=timeout_seconds,
                     response_model=QueryUnderstandingResult,
+                    reasoning_effort=REASONING_EFFORT_LOW,
                 )
             )
             result_model_name = result.model_name
@@ -166,6 +169,7 @@ async def resolve_query_understanding(
                 temperature=0.0,
                 timeout_seconds=shadow_timeout,
                 response_model=QueryUnderstandingResult,
+                reasoning_effort=REASONING_EFFORT_LOW,
             )
             return QueryUnderstandingResult.model_validate_json(shadow_gen.content)
 

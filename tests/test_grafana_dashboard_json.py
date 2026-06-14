@@ -37,3 +37,25 @@ def test_quality_dashboard_json_parses_and_has_joint_panels():
     # Explicitly no semantic cache panels per joint plan resolution
     semantic_titles = [t for t in panels if "semantic cache" in t.lower()]
     assert not semantic_titles, f"semantic cache panels must not be present: {semantic_titles}"
+
+
+def test_overview_dashboard_json_parses_and_has_loki_panels():
+    path = Path("grafana/dashboards/kindly-mcp-overview-dashboard.json")
+    assert path.exists(), "dashboard json must exist"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    assert data.get("title"), "title required"
+
+    panels = data.get("panels", [])
+    titles = [p.get("title", "") for p in panels]
+    assert "Loki Log Lines (15m)" in titles, f"missing Loki log volume panel: {titles}"
+    assert "OTLP Export 404s (1h)" in titles, f"missing OTLP panel: {titles}"
+    assert "Loki ERROR Lines (1h)" in titles, f"missing Loki error panel: {titles}"
+
+    loki_panels = [p for p in panels if p.get("title") in titles[-3:]]
+    expressions = [
+        target.get("expr", "")
+        for panel in loki_panels
+        for target in panel.get("targets", [])
+    ]
+    assert all('service_name="$service"' in expr for expr in expressions), expressions

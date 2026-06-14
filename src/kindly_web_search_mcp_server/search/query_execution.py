@@ -12,6 +12,7 @@ from opentelemetry import trace
 from ..models import WebSearchResult
 from ..settings import settings
 from ..telemetry import add_results_to_span, get_search_total_metric, get_tracer
+from ..utils.async_helpers import gather_with_deadline, task_completed_successfully
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
 from .budget import ProviderBudget
@@ -19,7 +20,13 @@ from .errors import WebSearchProviderError
 from .intents import SearchIntent
 from .merge import merge_search_results
 from .options import SearchOptions
-from .provider_config import ProviderConfig, ProviderGroup, resolve_providers_for_search
+from .provider_config import (
+    ProviderConfig,
+    ProviderGroup,
+    resolve_provider_configs,
+    resolve_providers_for_search,
+    select_serp_paid_configs,
+)
 from .provider_execution import _search_single_provider
 from .provider_options import ProviderOptionBundle
 from .provider_plan import ProviderExecutionPlan
@@ -65,7 +72,11 @@ async def search_single_query(
         },
     ) as span:
         budget = ProviderBudget()
-        active_configs = resolve_providers_for_search(intent)
+        active_configs = (
+            resolve_provider_configs(provider_plan.provider_names, intent=intent)
+            if provider_plan is not None
+            else resolve_providers_for_search(intent)
+        )
         resolved_provider_options = (
             provider_options_by_name
             if provider_options_by_name is not None
@@ -112,7 +123,10 @@ async def search_single_query(
                 provider_search_options,
                 budget,
                 provider_arguments,
+                run_key=run_key,
             )
+
+        deadline = settings.provider_group_deadline_seconds
 
         async def _run(client: httpx.AsyncClient) -> list[WebSearchResult]:
             all_results: list[list[WebSearchResult]] = []
@@ -122,23 +136,27 @@ async def search_single_query(
             free_configs = [c for c in active_configs if c.group == ProviderGroup.free]
             serp_paid_configs = [c for c in active_configs if c.group == ProviderGroup.serp_paid]
             other_configs = [c for c in active_configs if c.group == ProviderGroup.other]
+            serp_paid_configs = select_serp_paid_configs(serp_paid_configs)
 
-            # free group: fire all concurrently (no semaphore)
+            # free group: fire all concurrently with deadline
             if free_configs:
-                free_tasks = [_provider_call(c, client) for c in free_configs]
-                free_results = await asyncio.gather(*free_tasks, return_exceptions=True)
-                for config, result in zip(free_configs, free_results, strict=False):
-                    if isinstance(result, BaseException):
-                        LOGGER.warning(
-                            "Provider task %s failed before returning results: %s",
-                            config.name,
-                            result,
-                        )
-                        continue
-                    all_results.append(result)
-                    provider_names.append(config.name)
+                free_tasks = [
+                    asyncio.create_task(_provider_call(c, client), name=c.name)
+                    for c in free_configs
+                ]
+                _, errors = await gather_with_deadline(
+                    *free_tasks, deadline_seconds=deadline,
+                )
+                for err in errors:
+                    LOGGER.warning("Provider task in free group: %s", err)
+                # Map completed results back to provider names via task names
+                for task in free_tasks:
+                    if task_completed_successfully(task):
+                        all_results.append(task.result())
+                        provider_names.append(task.get_name())
 
-            # serp_paid group: fire all, gated by global SERP semaphore
+            # serp_paid group: fire the selected round-robin subset, gated by the
+            # global SERP semaphore, with deadline
             if serp_paid_configs:
                 semaphore = _get_serp_semaphore()
 
@@ -148,33 +166,37 @@ async def search_single_query(
                     async with semaphore:
                         return await _provider_call(config, client)
 
-                paid_tasks = [_search_with_semaphore(c) for c in serp_paid_configs]
-                paid_results = await asyncio.gather(*paid_tasks, return_exceptions=True)
-                for config, result in zip(serp_paid_configs, paid_results, strict=False):
-                    if isinstance(result, BaseException):
-                        LOGGER.warning(
-                            "Provider task %s failed before returning results: %s",
-                            config.name,
-                            result,
-                        )
-                        continue
-                    all_results.append(result)
-                    provider_names.append(config.name)
+                paid_tasks = [
+                    asyncio.create_task(
+                        _search_with_semaphore(c), name=c.name,
+                    )
+                    for c in serp_paid_configs
+                ]
+                _, errors = await gather_with_deadline(
+                    *paid_tasks, deadline_seconds=deadline,
+                )
+                for err in errors:
+                    LOGGER.warning("Provider task in serp_paid group: %s", err)
+                for task in paid_tasks:
+                    if task_completed_successfully(task):
+                        all_results.append(task.result())
+                        provider_names.append(task.get_name())
 
-            # other group: fire all concurrently (already filtered by intent via resolve_providers_for_search)
+            # other group: fire all concurrently with deadline
             if other_configs:
-                other_tasks = [_provider_call(c, client) for c in other_configs]
-                other_results = await asyncio.gather(*other_tasks, return_exceptions=True)
-                for config, result in zip(other_configs, other_results, strict=False):
-                    if isinstance(result, BaseException):
-                        LOGGER.warning(
-                            "Provider task %s failed before returning results: %s",
-                            config.name,
-                            result,
-                        )
-                        continue
-                    all_results.append(result)
-                    provider_names.append(config.name)
+                other_tasks = [
+                    asyncio.create_task(_provider_call(c, client), name=c.name)
+                    for c in other_configs
+                ]
+                _, errors = await gather_with_deadline(
+                    *other_tasks, deadline_seconds=deadline,
+                )
+                for err in errors:
+                    LOGGER.warning("Provider task in other group: %s", err)
+                for task in other_tasks:
+                    if task_completed_successfully(task):
+                        all_results.append(task.result())
+                        provider_names.append(task.get_name())
 
             merged = merge_search_results(all_results) if all_results else []
             span.set_attribute("result_count", len(merged))

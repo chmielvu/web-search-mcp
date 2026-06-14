@@ -126,7 +126,7 @@ User Query
           │
           ▼
 ┌─────────────────┐
-│ Rerank          │──▶ Voyage, Jina, FlashRank, or bypass
+│ Rerank          │──▶ Cross-encoder or GPT-OSS listwise reranker
 └─────────┬───────┘
           │
           ▼
@@ -165,6 +165,10 @@ JINA_API_KEY="jina_..."                     # Jina API key
 # Optional providers
 GROK_API_KEY="..."                         # xAI/Grok
 POLLINATIONS_API_KEY="..."                 # Perplexity Sonar via Pollinations
+
+# Provider controls
+PROVIDERS_ENABLED="true"                   # Master switch for all providers
+DISABLED_PROVIDERS="reddit"                # Comma-separated provider denylist
 ```
 
 #### Content Extraction
@@ -191,6 +195,23 @@ RERANKING_ENABLED="true"           # Enable/disable reranking
 QUERY_DECOMPOSITION_ENABLED="true" # Enable query decomposition
 QDRANT_SEARCH_ENABLED="true"       # Enable Qdrant result memory
 ```
+
+#### Rerank Stack
+
+```bash
+RERANK_STACK_MODE="bi_cross"              # bi_cross | bi_llm | bi_cross_llm
+RERANK_PROVIDER="voyage"                  # voyage | cohere_fast | jina | gcp_cloudrun | local_baseline | none
+RERANK_LLM_CANDIDATE_LIMIT="12"           # Max candidates sent to the GPT-OSS worker ladder
+RERANK_LLM_TIMEOUT_SECONDS="60.0"         # Timeout for the LLM reranker stage
+VOYAGE_API_KEY="..."                       # Voyage reranker auth
+JINA_API_KEY="..."                         # Jina reranker auth
+COHERE_API_KEY="..."                       # Cohere reranker auth
+COHERE_RERANK_MODEL="rerank-v4.0-fast"     # Low-latency Cohere rerank model
+COHERE_RERANK_BASE_URL="https://api.cohere.com/v2/rerank"
+COHERE_RERANK_TIMEOUT="30.0"
+```
+
+`RERANK_STACK_MODE="bi_llm"` uses the existing GPT-OSS 120B worker ladder that is already configured for query understanding/rewrite routing. `bi_cross_llm` runs the cross-encoder first, then the GPT-OSS reranker on the narrowed candidate set.
 
 #### Observability
 

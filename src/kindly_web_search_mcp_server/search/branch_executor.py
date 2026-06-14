@@ -12,6 +12,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
+from ..utils.async_helpers import gather_with_deadline, task_completed_successfully
 from ..utils.diagnostics import Diagnostics
 from .options import SearchOptions
 from .provider_plan import ProviderExecutionPlan
@@ -83,6 +84,8 @@ async def execute_search_branches(
     provider_plan: ProviderExecutionPlan | None = None,
     search_runner: SearchRunner | None = None,
     max_concurrency: int | None = None,
+    deadline_seconds: float | None = None,
+    run_key: str | None = None,
 ) -> BranchExecutionBatch:
     selected_branches = _limit_branches(branches)
     if not selected_branches:
@@ -114,6 +117,7 @@ async def execute_search_branches(
                     search_options=search_options,
                     provider_plan=provider_plan,
                     provider_options_by_name=provider_options_by_name,
+                    run_key=run_key,
                 )
             except Exception as exc:
                 logger.warning(
@@ -126,9 +130,32 @@ async def execute_search_branches(
             latency_ms = (time.perf_counter() - start) * 1000.0
             return SearchBranchResult(spec=spec, latency_ms=latency_ms, results=results)
 
-    branch_results = await asyncio.gather(
-        *[_run_branch(spec) for spec in selected_branches]
+    # Branch deadline: 3× per-provider-group default (branches contain multiple groups)
+    branch_deadline = deadline_seconds or (settings.provider_group_deadline_seconds * 3)
+
+    branch_tasks = [
+        asyncio.create_task(_run_branch(spec), name=f"branch-{spec.index}")
+        for spec in selected_branches
+    ]
+    _, errors = await gather_with_deadline(
+        *branch_tasks, deadline_seconds=branch_deadline,
     )
+    if errors:
+        logger.warning(
+            "Branch execution: %d of %d branches exceeded deadline or failed",
+            len(errors),
+            len(selected_branches),
+        )
+    # Collect completed branch results; cancelled branches produce empty results
+    branch_results = [
+        task.result() if task_completed_successfully(task)
+        else SearchBranchResult(
+            spec=selected_branches[i],
+            latency_ms=branch_deadline * 1000,
+            results=[],
+        )
+        for i, task in enumerate(branch_tasks)
+    ]
     return BranchExecutionBatch(
         result_lists=[result.results for result in branch_results],
         branch_queries=[result.spec.query for result in branch_results],

@@ -266,6 +266,7 @@ searxng/
 
 # Repomix output files
 repomix-output*.xml
+repomix-output*.md
 
 # Cloned research repositories
 research_repos/
@@ -324,3 +325,23 @@ searxng-settings/
 # CocoIndex Code (ccc)
 .cocoindex_code/
 **/.cocoindex_code/
+
+# Generated code graph/index data (agent tools)
+.codegraph/
+graphify-out/
+
+# uv package manager cache & tools
+.uv-cache/
+.uv-tools/
+
+# Additional virtual environments (underscore variant)
+.venv_test/
+
+# Streamlit dashboard app (generated data, compiled files, local config)
+dashboard/
+
+# External API data (not project source)
+custom_search_json_api/
+
+# Evaluation test data (not source code)
+evals/

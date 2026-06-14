@@ -31,24 +31,6 @@ SEMANTIC CONVENTIONS:
 from __future__ import annotations
 
 import os
-from importlib.metadata import PackageNotFoundError, version as _package_version
-
-
-def _otel_sdk_version() -> str:
-    """Resolve the installed OpenTelemetry SDK version.
-
-    Reads from an explicit env override first, then package metadata, falling
-    back to ``"unknown"`` when neither is available.
-    """
-    override = os.environ.get("OTEL_SDK_VERSION")
-    if override:
-        return override
-    for dist in ("opentelemetry-sdk", "opentelemetry-api"):
-        try:
-            return _package_version(dist)
-        except PackageNotFoundError:
-            continue
-    return "unknown"
 import logging
 import json
 import platform
@@ -56,7 +38,9 @@ import socket
 import threading
 from typing import Any
 from urllib.parse import urlparse
+from importlib.metadata import PackageNotFoundError, version as _package_version
 
+import httpx
 from opentelemetry import trace, metrics
 
 from .utils.observability import emit_observability_event
@@ -86,6 +70,30 @@ try:
     _OTEL_SDK_AVAILABLE = True
 except ImportError:
     _OTEL_SDK_AVAILABLE = False
+
+
+def _otel_sdk_version() -> str:
+    """Resolve the installed OpenTelemetry SDK version.
+
+    Reads from an explicit env override first, then package metadata, falling
+    back to ``"unknown"`` when neither is available.
+    """
+    override = os.environ.get("OTEL_SDK_VERSION")
+    if override:
+        return override
+    for dist in ("opentelemetry-sdk", "opentelemetry-api"):
+        try:
+            return _package_version(dist)
+        except PackageNotFoundError:
+            continue
+    return "unknown"
+
+
+def _service_version() -> str:
+    try:
+        return _package_version("web-search-mcp")
+    except PackageNotFoundError:
+        return os.environ.get("WEB_SEARCH_MCP_VERSION", "dev")
 
 
 # Prometheus exporter for Alloy scraping (optional). Keep this import lazy:
@@ -151,6 +159,127 @@ def build_langfuse_otlp_headers(
         endpoint = f"{base}/api/public/otel"
 
     return headers, endpoint
+
+
+def _parse_otlp_headers(raw: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if not raw.strip():
+        return headers
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, value = part.split("=", 1)
+        elif ":" in part:
+            key, value = part.split(":", 1)
+        else:
+            continue
+        headers[key.strip()] = value.strip().replace("%20", " ")
+    return headers
+
+
+def _resolve_otlp_signal_endpoint(
+    signal: str,
+    *,
+    base_endpoint: str | None,
+) -> str | None:
+    signal_key = signal.upper()
+    per_signal = os.environ.get(f"OTEL_EXPORTER_OTLP_{signal_key}_ENDPOINT", "").strip()
+    if per_signal:
+        return per_signal.rstrip("/")
+
+    endpoint = (base_endpoint or os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")).strip()
+    if not endpoint:
+        return None
+
+    normalized = endpoint.rstrip("/")
+    signal_suffix = f"/v1/{signal}"
+    if normalized.endswith(signal_suffix):
+        return normalized
+    return f"{normalized}{signal_suffix}"
+
+
+def _resolve_otlp_headers(
+    *,
+    signal: str,
+    grafana_headers: dict[str, str] | None = None,
+) -> dict[str, str]:
+    headers = _parse_otlp_headers(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", ""))
+    headers.update(
+        _parse_otlp_headers(
+            os.environ.get(f"OTEL_EXPORTER_OTLP_{signal.upper()}_HEADERS", "")
+        )
+    )
+    if grafana_headers:
+        headers.update(grafana_headers)
+    return headers
+
+
+class _LoggingExporterProxy:
+    """Log exporter failures instead of letting them disappear in debug noise."""
+
+    def __init__(self, exporter: Any, *, signal_name: str) -> None:
+        self._exporter = exporter
+        self._signal_name = signal_name
+
+    def export(self, *args: Any, **kwargs: Any) -> Any:
+        try:
+            result = self._exporter.export(*args, **kwargs)
+        except Exception as exc:
+            logging.warning(
+                "%s OTLP export failed: %s", self._signal_name, exc, exc_info=True
+            )
+            raise
+
+        result_name = getattr(result, "name", "")
+        if result_name and result_name.upper() not in {"SUCCESS", "SUCCESS_WITH_WARNINGS"}:
+            logging.warning(
+                "%s OTLP export returned %s",
+                self._signal_name,
+                result_name,
+            )
+        return result
+
+    def shutdown(self) -> Any:
+        return self._exporter.shutdown()
+
+    def force_flush(self, *args: Any, **kwargs: Any) -> Any:
+        return self._exporter.force_flush(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._exporter, name)
+
+
+def _probe_otlp_endpoint(endpoint: str, headers: dict[str, str], *, signal: str) -> bool:
+    """Return False when the configured endpoint looks like an HTML page."""
+
+    try:
+        with httpx.Client(timeout=3.0, follow_redirects=True) as client:
+            response = client.get(
+                endpoint,
+                headers={**headers, "Accept": "text/html,application/json,*/*"},
+            )
+    except Exception as exc:
+        logging.warning(
+            "OTLP %s endpoint probe could not reach %s: %s",
+            signal,
+            endpoint,
+            exc,
+        )
+        return True
+
+    content_type = response.headers.get("content-type", "").casefold()
+    body = response.text.lstrip().casefold() if response.text else ""
+    if "text/html" in content_type or body.startswith("<!doctype html") or body.startswith("<html"):
+        logging.warning(
+            "OTLP %s endpoint looks like HTML (%s %s); telemetry export disabled",
+            signal,
+            response.status_code,
+            content_type or "unknown",
+        )
+        return False
+    return True
 
 
 # Logging bridge (experimental but useful)
@@ -255,13 +384,6 @@ RERANK_MODEL = "rerank.model"
 RERANK_DIVERSITY_THRESHOLD = "rerank.diversity_threshold"
 RERANK_SIMILARITY_SCORE = "rerank.similarity_score"
 RERANK_BI_ENCODER_SCORE = "rerank.bi_encoder_score"
-
-# --- Semantic Cache Attributes ---
-CACHE_SIMILARITY_SCORE = "cache.similarity_score"
-CACHE_CONTENT_TYPE = "cache.content_type"
-CACHE_TTL_SECONDS = "cache.ttl_seconds"
-CACHE_SEARCH_TYPE = "cache.search_type"
-CACHE_VECTOR_DISTANCE = "cache.vector_distance"
 
 # --- Circuit Breaker Attributes ---
 CIRCUIT_STATE = "circuit.state"
@@ -394,7 +516,7 @@ _OTLP_EXPORT_TIMEOUT_SECONDS = int(
 
 def init_telemetry(
     service_name: str = "web-search-mcp",
-    service_version: str = _package_version("web-search-mcp"),
+    service_version: str | None = None,
     prometheus_port: int | None = None,
 ) -> None:
     """Initialize OpenTelemetry SDK with Grafana Cloud export.
@@ -436,7 +558,9 @@ def init_telemetry(
 
     # Allow overrides from env
     service_name = os.environ.get("OTEL_SERVICE_NAME", service_name)
-    service_version = os.environ.get("OTEL_SERVICE_VERSION", service_version)
+    service_version = os.environ.get(
+        "OTEL_SERVICE_VERSION", service_version or _service_version()
+    )
 
     try:
         # ------------------------------------------------------------------
@@ -493,6 +617,22 @@ def init_telemetry(
             )
             return
 
+        trace_endpoint = _resolve_otlp_signal_endpoint("traces", base_endpoint=endpoint)
+        trace_headers = _resolve_otlp_headers(signal="traces", grafana_headers=headers)
+        metrics_endpoint = _resolve_otlp_signal_endpoint(
+            "metrics", base_endpoint=endpoint
+        )
+        metrics_headers = _resolve_otlp_headers(
+            signal="metrics", grafana_headers=headers
+        )
+        logs_endpoint = _resolve_otlp_signal_endpoint("logs", base_endpoint=endpoint)
+        logs_headers = _resolve_otlp_headers(signal="logs", grafana_headers=headers)
+
+        if trace_endpoint and not _probe_otlp_endpoint(
+            trace_endpoint, trace_headers, signal="traces"
+        ):
+            return
+
         # Allow port override from env
         if prometheus_port is None:
             port_env = os.environ.get("PROMETHEUS_PORT", "0")
@@ -504,7 +644,7 @@ def init_telemetry(
 
         resource_attrs = {
             SERVICE_NAME: service_name,
-            SERVICE_NAMESPACE: os.environ.get("OTEL_SERVICE_NAMESPACE", "web-search-mcp"),
+            SERVICE_NAMESPACE: service_name,
             SERVICE_VERSION: service_version,
             "service.instance.id": f"{hostname}-{pid}",
             "deployment.environment": os.environ.get(
@@ -538,10 +678,13 @@ def init_telemetry(
         # === TRACES ===
         tracer_provider = TracerProvider(resource=resource, sampler=sampler)
 
-        trace_exporter = OTLPSpanExporter(
-            endpoint=f"{endpoint}/v1/traces",
-            headers=headers,
-            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+        trace_exporter = _LoggingExporterProxy(
+            OTLPSpanExporter(
+                endpoint=trace_endpoint,
+                headers=trace_headers,
+                timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+            ),
+            signal_name="traces",
         )
         tracer_provider.add_span_processor(
             BatchSpanProcessor(
@@ -572,12 +715,13 @@ def init_telemetry(
                     lf_pk, lf_sk, lf_base
                 )
                 if lf_endpoint:
-                    lf_exporter = OTLPSpanExporter(
-                        endpoint=f"{lf_endpoint}/v1/traces"
-                        if not lf_endpoint.endswith("/otel")
-                        else lf_endpoint,
-                        headers=lf_headers,
-                        timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                    lf_exporter = _LoggingExporterProxy(
+                        OTLPSpanExporter(
+                            endpoint=lf_endpoint,
+                            headers=lf_headers,
+                            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                        ),
+                        signal_name="langfuse",
                     )
                     tracer_provider.add_span_processor(
                         BatchSpanProcessor(
@@ -591,7 +735,7 @@ def init_telemetry(
                         "Langfuse OTLP span processor added (hybrid export enabled)"
                     )
             except Exception as exc:  # pragma: no cover - best effort
-                logging.debug("Failed to add Langfuse OTLP processor: %s", exc)
+                logging.warning("Failed to add Langfuse OTLP processor: %s", exc)
 
         # === AUTO-INSTRUMENTATION ===
         try:
@@ -618,10 +762,13 @@ def init_telemetry(
                 f"Prometheus metrics endpoint started on port {prometheus_port}"
             )
         else:
-            metric_exporter = OTLPMetricExporter(
-                endpoint=f"{endpoint}/v1/metrics",
-                headers=headers,
-                timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+            metric_exporter = _LoggingExporterProxy(
+                OTLPMetricExporter(
+                    endpoint=metrics_endpoint,
+                    headers=metrics_headers,
+                    timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                ),
+                signal_name="metrics",
             )
             metric_reader = PeriodicExportingMetricReader(
                 exporter=metric_exporter,
@@ -638,10 +785,13 @@ def init_telemetry(
         # === LOGS (experimental) ===
         if LOGS_AVAILABLE:
             try:
-                log_exporter = OTLPLogExporter(
-                    endpoint=f"{endpoint}/v1/logs",
-                    headers=headers,
-                    timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                log_exporter = _LoggingExporterProxy(
+                    OTLPLogExporter(
+                        endpoint=logs_endpoint,
+                        headers=logs_headers,
+                        timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                    ),
+                    signal_name="logs",
                 )
                 logger_provider = LoggerProvider(resource=resource)
                 logger_provider.add_log_record_processor(
@@ -695,7 +845,7 @@ def init_telemetry(
                 {
                     "event": "telemetry.startup",
                     "service_name": service_name,
-                    "service_namespace": "web-search-mcp",
+                    "service_namespace": service_name,
                     "service_version": service_version,
                     "deployment_environment": os.environ.get(
                         "DEPLOYMENT_ENV", "development"
@@ -724,7 +874,7 @@ def init_telemetry(
 
 def init_telemetry_background(
     service_name: str = "web-search-mcp",
-    service_version: str = _package_version("web-search-mcp"),
+    service_version: str | None = None,
     prometheus_port: int | None = None,
 ) -> threading.Thread:
     """Run init_telemetry in a daemon thread so it never blocks startup.
@@ -2308,11 +2458,6 @@ __all__ = [
     "CACHE_TYPE",
     "CACHE_HIT",
     "CACHE_LOOKUP_DURATION_MS",
-    "CACHE_SIMILARITY_SCORE",
-    "CACHE_CONTENT_TYPE",
-    "CACHE_TTL_SECONDS",
-    "CACHE_SEARCH_TYPE",
-    "CACHE_VECTOR_DISTANCE",
     "CONTENT_STAGE",
     "CONTENT_STATUS",
     "CONTENT_SIZE_BYTES",

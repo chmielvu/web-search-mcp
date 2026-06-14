@@ -54,6 +54,8 @@ dependencies = [
     "networkx>=3.6.1",
     "prefab-ui>=0.20.2",
     "typer>=0.16.0",
+    "judges>=0.1.1",  # LLM-as-Judge evaluators (ReliableCIRelevance, etc.)
+    "instructor>=1.0.0",  # Structured output for judge responses
 ]
 
 [project.optional-dependencies]

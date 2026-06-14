@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 
-def build_cache_view_sql(target: str) -> list[str]:
+def build_cache_view_sql(
+    target: str,
+    *,
+    source_table: str = "analytics_event_raw",
+) -> list[str]:
+    source = f"{target}.{source_table}"
     return [
         f"""
         CREATE OR REPLACE VIEW {target}.vw_cache_lookups AS
@@ -25,7 +30,7 @@ def build_cache_view_sql(target: str) -> list[str]:
             query,
             normalized_query,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name = 'search.cache.lookup'
         """,
         f"""
@@ -46,13 +51,18 @@ def build_cache_view_sql(target: str) -> list[str]:
             query,
             normalized_query,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name = 'search.cache.store'
         """,
     ]
 
 
-def build_middleware_view_sql(target: str) -> list[str]:
+def build_middleware_view_sql(
+    target: str,
+    *,
+    source_table: str = "analytics_event_raw",
+) -> list[str]:
+    source = f"{target}.{source_table}"
     return [
         f"""
         CREATE OR REPLACE VIEW {target}.vw_middleware_events AS
@@ -76,7 +86,7 @@ def build_middleware_view_sql(target: str) -> list[str]:
             json_extract_string(payload_json, '$.error_type') AS error_type,
             json_extract_string(payload_json, '$.action') AS action,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name LIKE 'middleware.%'
         """,
         f"""
@@ -97,13 +107,18 @@ def build_middleware_view_sql(target: str) -> list[str]:
             CAST(json_extract_string(payload_json, '$.session_timeout_seconds') AS DOUBLE) AS session_timeout_seconds,
             json_extract_string(payload_json, '$.scope') AS scope,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name LIKE 'session.%'
         """,
     ]
 
 
-def build_content_and_error_view_sql(target: str) -> list[str]:
+def build_content_and_error_view_sql(
+    target: str,
+    *,
+    source_table: str = "analytics_event_raw",
+) -> list[str]:
+    source = f"{target}.{source_table}"
     return [
         f"""
         CREATE OR REPLACE VIEW {target}.vw_content_events AS
@@ -132,7 +147,7 @@ def build_content_and_error_view_sql(target: str) -> list[str]:
             CAST(json_extract_string(payload_json, '$.bad_char_ratio') AS DOUBLE) AS bad_char_ratio,
             CAST(json_extract_string(payload_json, '$.cookie_ratio') AS DOUBLE) AS cookie_ratio,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name LIKE 'content.%'
         """,
         f"""
@@ -149,15 +164,19 @@ def build_content_and_error_view_sql(target: str) -> list[str]:
             json_extract_string(payload_json, '$.retry_after') AS retry_after,
             json_extract_string(payload_json, '$.action') AS action,
             payload_json
-        FROM {target}.analytics_event_raw
+        FROM {source}
         WHERE event_name LIKE '%.error' OR event_name = 'tool.error.classified'
         """,
     ]
 
 
-def build_derived_view_sql(target: str) -> list[str]:
+def build_derived_view_sql(
+    target: str,
+    *,
+    source_table: str = "analytics_event_raw",
+) -> list[str]:
     return [
-        *build_cache_view_sql(target),
-        *build_middleware_view_sql(target),
-        *build_content_and_error_view_sql(target),
+        *build_cache_view_sql(target, source_table=source_table),
+        *build_middleware_view_sql(target, source_table=source_table),
+        *build_content_and_error_view_sql(target, source_table=source_table),
     ]

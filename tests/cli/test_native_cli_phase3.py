@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+import pytest
 from typer.testing import CliRunner
 
 from kindly_web_search_mcp_server.agent.models import AgenticResearchResult
-from kindly_web_search_mcp_server.cli.app import app
+from kindly_web_search_mcp_server.cli.app import app, main as cli_main
 
 
 runner = CliRunner()
@@ -77,7 +78,7 @@ def test_content_batch_emits_json_payload(monkeypatch) -> None:
 
 def test_ai_gemini_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.ai.fetch_gemini_search_payload",
+        "kindly_web_search_mcp_server.cli.services.ai.fetch_gemini_search_payload",
         AsyncMock(
             return_value={
                 "query": "what is fastmcp",
@@ -100,7 +101,7 @@ def test_ai_gemini_emits_json_payload(monkeypatch) -> None:
 
 def test_ai_perplexity_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.ai.fetch_perplexity_search_payload",
+        "kindly_web_search_mcp_server.cli.services.ai.fetch_perplexity_search_payload",
         AsyncMock(
             return_value={
                 "query": "what is fastmcp",
@@ -124,7 +125,7 @@ def test_ai_perplexity_emits_json_payload(monkeypatch) -> None:
 
 def test_ai_grok_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.ai.fetch_grok_search_payload",
+        "kindly_web_search_mcp_server.cli.services.ai.fetch_grok_search_payload",
         AsyncMock(
             return_value={
                 "query": "what is fastmcp",
@@ -258,9 +259,19 @@ def test_analytics_report_emits_json_payload(monkeypatch) -> None:
     assert payload["data"]["row_count"] == 1
 
 
+def test_experiments_create_requires_config_when_non_interactive(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main(["--non-interactive", "experiments", "create"])
+
+    assert exc.value.code == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["error"]["kind"] == "usage_error"
+    assert "non-interactive mode" in payload["error"]["message"]
+
+
 def test_agent_research_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.agent.run_agentic_web_research",
+        "kindly_web_search_mcp_server.agent.runner.run_agentic_web_research",
         AsyncMock(
             return_value=AgenticResearchResult(
                 query="test",
@@ -282,7 +293,7 @@ def test_agent_research_emits_json_payload(monkeypatch) -> None:
     assert payload["data"]["model"] == "mock"
 
 
-def test_links_similar_and_images_search_emit_json_payload(monkeypatch) -> None:
+def test_links_similar_and_quick_search_emit_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.commands.links.fetch_similar_links_payload",
         AsyncMock(
@@ -294,13 +305,12 @@ def test_links_similar_and_images_search_emit_json_payload(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.links.fetch_image_search_payload",
+        "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
         AsyncMock(
             return_value={
-                "query": "example image",
+                "query": "example quick search",
                 "results": [],
                 "total_results": 0,
-                "page": 0,
             }
         ),
     )
@@ -311,15 +321,15 @@ def test_links_similar_and_images_search_emit_json_payload(monkeypatch) -> None:
             ["links", "similar", "--url", "https://example.com"],
         )
     )
-    images = _payload(
+    quick = _payload(
         runner.invoke(
             app,
-            ["images", "search", "--query", "example image"],
+            ["search", "quick", "--query", "example quick search"],
         )
     )
 
     assert similar["meta"]["command"] == "links similar"
-    assert images["meta"]["command"] == "images search"
+    assert quick["meta"]["command"] == "search quick"
 
 
 def test_server_start_delegates(monkeypatch) -> None:
@@ -329,7 +339,7 @@ def test_server_start_delegates(monkeypatch) -> None:
         called["args"] = args
 
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.server.server_main",
+        "kindly_web_search_mcp_server.server.main",
         _fake_server_main,
     )
 

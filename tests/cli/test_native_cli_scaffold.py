@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock
 from typer.testing import CliRunner
 
-from kindly_web_search_mcp_server.cli.app import app
+from kindly_web_search_mcp_server.cli.app import app, main as cli_main
 from kindly_web_search_mcp_server.cli.skill_paths import DEV_SKILL_PATH, USER_SKILL_PATH
 
 
@@ -18,22 +18,26 @@ def _payload(result) -> dict:
 
 def test_schema_lists_planned_commands() -> None:
     payload = _payload(runner.invoke(app, ["schema"]))
-    commands = {item["path"] for item in payload["data"]["commands"]}
+    schema = payload["data"]
+    commands = {item["path"] for item in schema["commands"]}
 
+    assert schema["command"] == "web-search-cli"
+    assert schema["command_tree"]["path"] == "web-search-cli"
     assert "search web" in commands
     assert "links similar" in commands
-    assert "images search" in commands
+    assert "analytics query" in commands
     assert "getskill" in commands
+    assert any(item["path"] == "search web" and item["params"] for item in schema["commands"])
 
 
 def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    assert len(tools) == 16
+    assert len(tools) == 15
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
-    assert "composio_image_search" in tools
+    assert "grok_search" in tools
 
 
 def test_reference_tools_rejects_invalid_profile() -> None:
@@ -49,6 +53,45 @@ def test_reference_external_tools_lists_companion_clis() -> None:
     assert "duckdb" in commands
     assert "wsl gcx" in commands
     assert "langfuse" in commands
+
+
+def test_global_profile_flows_into_json_meta() -> None:
+    payload = _payload(runner.invoke(app, ["--profile", "research", "doctor"]))
+
+    assert payload["meta"]["profile"] == "research"
+    assert payload["meta"]["output_mode"] == "agent"
+
+
+def test_version_prints_project_version(capsys) -> None:
+    cli_main(["--version"])
+    assert capsys.readouterr().out.strip() == "0.1.8"
+
+
+def test_brief_prints_one_paragraph(capsys) -> None:
+    cli_main(["--brief"])
+    brief = capsys.readouterr().out.strip()
+
+    assert brief.startswith("web-search-cli is the native, JSON-first command-line surface")
+    assert "\n\n" not in brief
+
+
+def test_root_help_emits_structured_json(capsys) -> None:
+    cli_main(["--help"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["meta"]["command"] == "web-search-cli --help"
+    assert payload["data"]["command"] == "web-search-cli"
+    assert payload["data"]["brief"].startswith("web-search-cli is the native")
+    assert payload["data"]["skills"]
+
+
+def test_subcommand_help_emits_structured_json(capsys) -> None:
+    cli_main(["search", "web", "--help"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["meta"]["command"] == "search web --help"
+    assert payload["data"]["command"] == "search web"
+    assert any(param["name"] == "query" for param in payload["data"]["params"])
 
 
 def test_getskill_prints_user_skill_verbatim() -> None:
@@ -67,7 +110,7 @@ def test_getskill_dev_prints_dev_skill_verbatim() -> None:
 
 def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.search.fetch_web_search_payload",
+        "kindly_web_search_mcp_server.cli.services.search_web.fetch_web_search_payload",
         AsyncMock(
             return_value={
                 "query": "web search query",

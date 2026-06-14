@@ -8,6 +8,7 @@ import logging
 from ..entity.models import EntitySpan
 from ..llm.structured import StructuredLLMRequest
 from ..llm.worker import build_llm_worker
+from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
+            reasoning_effort=REASONING_EFFORT_LOW,
         )
     )
     payload = json.loads(result.content)

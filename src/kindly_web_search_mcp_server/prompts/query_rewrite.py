@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from ..search.intents import SearchIntent
-from .builders import anchor_today, join_terms, provider_style
+from .builders import (
+    REASONING_EFFORT_LOW,
+    anchor_today,
+    join_terms,
+    system_header,
+)
 
 
 def build_query_rewrite_prompt(
@@ -16,24 +21,20 @@ def build_query_rewrite_prompt(
 ) -> tuple[str, str]:
     goal = research_goal or query
     must_keep = join_terms(must_keep_terms)
-    system = {
-        "general": """You rewrite search queries for broad research.
-Create concise variants that improve retrieval without changing meaning.""",
-        "ai_coding": """You rewrite technical search queries for code and API lookup.
-Prefer docs, issues, release notes, and exact technical terms.""",
-        "digital_humanities": """You rewrite humanities research queries.
-Prefer archives, primary sources, editions, corpora, and scholarly context.""",
-        "comparison": """You rewrite comparison queries.
-Preserve the compared items and produce contrastive search variants.""",
+    intent_directives = {
+        "general": "Create concise variants that improve retrieval without changing meaning.",
+        "ai_coding": "Prefer docs, issues, release notes, and exact technical terms.",
+        "digital_humanities": "Prefer archives, primary sources, editions, corpora, and scholarly context.",
+        "comparison": "Preserve compared items. Produce contrastive search variants.",
     }[intent]
-    system += f"""
+    system = f"""{system_header(REASONING_EFFORT_LOW)}
 
+Rewrite search queries. {intent_directives}
 Today is {anchor_today()}.
 Return JSON only with a top-level `variants` array.
 Each variant has: kind, target, query, why, weight.
 Target must be keyword, community, or neural.
 Preserve every must-keep term exactly.
-This prompt is tuned for {provider_style(provider_name)} and GPT-OSS-style workers.
 """
     user = f"""RAW_QUERY:
 {query}

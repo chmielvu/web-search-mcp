@@ -9,18 +9,31 @@ from typing import Any, Mapping
 import httpx
 from opentelemetry import trace
 
+from ..analytics.duckdb_store import insert_provider_calls as analytics_insert_provider_calls
 from ..models import WebSearchResult
 from ..telemetry import add_results_to_span, get_tracer, record_provider_call
 from ..utils.observability import emit_observability_event
 from .budget import ProviderBudget
-from .circuit_breaker import CircuitBreaker
 from .options import SearchOptions, build_search_query
 from .provider_call import build_provider_call_kwargs
 from .provider_health import get_provider_health
 
 LOGGER = logging.getLogger(__name__)
 tracer = get_tracer("web-search-mcp")
-_circuit_breaker = CircuitBreaker()
+
+
+def _extract_retry_after(exc: Exception) -> float | None:
+    """Extract Retry-After seconds from an HTTP exception, if present."""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    raw = getattr(response, "headers", {}).get("retry-after")
+    if raw is None:
+        return None
+    try:
+        return min(float(raw), 300.0)  # cap at 5 min
+    except (ValueError, TypeError):
+        return None
 
 
 async def _search_single_provider(
@@ -32,10 +45,11 @@ async def _search_single_provider(
     search_options: SearchOptions | None = None,
     budget: ProviderBudget | None = None,
     provider_arguments: Mapping[str, object] | None = None,
+    run_key: str | None = None,
 ) -> list[WebSearchResult]:
-    """Search a single provider with circuit breaker, budget tracking, and spans."""
-    if _circuit_breaker.is_open(provider_name):
-        LOGGER.debug("Circuit breaker open for %s, skipping", provider_name)
+    """Search a single provider with unified health tracking, budget, and spans."""
+    if not get_provider_health().is_healthy(provider_name):
+        LOGGER.debug("Provider %s unhealthy (circuit open/cooldown), skipping", provider_name)
         return []
 
     if budget is not None and not budget.can_spend(provider_name):
@@ -75,7 +89,6 @@ async def _search_single_provider(
             ]
             duration = time.time() - start_time
 
-            _circuit_breaker.record_success(provider_name)
             if budget is not None:
                 budget.record_call(provider_name, success=True)
 
@@ -86,6 +99,22 @@ async def _search_single_provider(
                 result_count=len(results),
                 status_code=200,
             )
+            # Best-effort dual-write: provider call to DuckDB analytics
+            try:
+                analytics_insert_provider_calls(
+                    run_key=run_key or "",
+                    provider=provider_name,
+                    branch_index=None,
+                    branch_query=query,
+                    num_results_requested=num_results,
+                    num_results_returned=len(results),
+                    duration_ms=round(duration * 1000, 3),
+                    error_code=None,
+                    error_message=None,
+                    http_status=200,
+                )
+            except Exception as db_exc:
+                LOGGER.debug("analytics insert_provider_calls failed: %s", db_exc)
             span.set_attribute("result_count", len(results))
             span.set_attribute("duration_ms", duration * 1000)
             span.set_attribute("status", "success")
@@ -110,11 +139,20 @@ async def _search_single_provider(
         except Exception as exc:
             duration = time.time() - start_time
 
-            _circuit_breaker.record_failure(provider_name)
             if budget is not None:
                 budget.record_call(provider_name, success=False)
 
-            get_provider_health().mark_failure(provider_name)
+            is_rate_limit = (
+                isinstance(exc, httpx.HTTPStatusError)
+                and exc.response.status_code == 429
+            )
+            error_type = "rate_limit" if is_rate_limit else type(exc).__name__
+            retry_after = _extract_retry_after(exc) if is_rate_limit else None
+            get_provider_health().mark_failure_with_type(
+                provider_name,
+                error_type=error_type,
+                retry_after_seconds=retry_after,
+            )
             record_provider_call(
                 provider=provider_name,
                 duration_seconds=duration,
@@ -122,6 +160,22 @@ async def _search_single_provider(
                 status_code=500,
                 error_type=type(exc).__name__,
             )
+            # Best-effort dual-write: provider call to DuckDB analytics
+            try:
+                analytics_insert_provider_calls(
+                    run_key=run_key or "",
+                    provider=provider_name,
+                    branch_index=None,
+                    branch_query=query,
+                    num_results_requested=num_results,
+                    num_results_returned=0,
+                    duration_ms=round(duration * 1000, 3),
+                    error_code=type(exc).__name__,
+                    error_message=str(exc)[:500],
+                    http_status=500,
+                )
+            except Exception as db_exc:
+                LOGGER.debug("analytics insert_provider_calls failed: %s", db_exc)
             span.set_attribute("status", "error")
             span.set_attribute("error_type", type(exc).__name__)
             span.set_attribute("error_message", str(exc)[:500])

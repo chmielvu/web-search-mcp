@@ -11,7 +11,7 @@ USAGE:
     Default: plain text logs (for local development)
 
 GRAFANA LOGQL CORRELATION:
-    {job="web-search-mcp"} | json | trace_id="<TRACE_ID>"
+    {service_name="web-search-mcp"} | json | trace_id="<TRACE_ID>"
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ from ..training.query_understanding_jsonl import append_query_outcome_record
 from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event, set_current_run_key
-from ..rerank import rerank_results
+from ..rerank.core import rerank_results
 from ..rerank.models import RerankEmbeddingContext
 from ..ab_testing.wiring import get_ab_overrides
 from ..ab_testing.shadow_runner import run_shadow
@@ -160,7 +160,12 @@ async def run_search_pipeline(
 
     active_provider_names = list(provider_plan.provider_names)
     read_timeout = settings.search_http_read_timeout_seconds
-    async with httpx.AsyncClient(
+    # Explicit client lifecycle: keep the client alive until all branches
+    # (including cancelled stragglers) have fully unwound.  The previous
+    # ``async with`` pattern closed the client while in-flight provider
+    # requests were still pending after deadline cancellation, producing
+    # "Cannot send a request, as the client has been closed" errors.
+    client = httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=settings.search_http_connect_timeout_seconds,
             read=read_timeout,
@@ -168,7 +173,8 @@ async def run_search_pipeline(
             pool=read_timeout,
         ),
         follow_redirects=True,
-    ) as client:
+    )
+    try:
         branch_specs = build_search_branch_specs(
             normalized_query=normalized_query,
             rewrite_variants=rewrite_variants,
@@ -184,7 +190,10 @@ async def run_search_pipeline(
             provider_plan=provider_plan,
             search_runner=search_single_query,
             max_concurrency=settings.query_decomposition_max_concurrency,
+            run_key=run_key,
         )
+    finally:
+        await client.aclose()
 
     result_lists = branch_batch.result_lists
     branch_queries = branch_batch.branch_queries
@@ -542,9 +551,15 @@ async def run_search_pipeline(
 
     # Best-effort dual-write: search quality metrics
     try:
-        compute_search_quality(run_key)
+        compute_search_quality(run_key, db_path=settings.analytics_duckdb_path)
     except Exception as exc:
-        logger.debug("compute_search_quality failed: %s", exc)
+        logger.warning(
+            "compute_search_quality failed for run_key=%s db_path=%s: %s",
+            run_key,
+            settings.analytics_duckdb_path,
+            exc,
+            exc_info=True,
+        )
 
     # Judge evaluation (opt-in, fire-and-forget, never blocks the pipeline)
     if settings.judge_evaluation_enabled:
@@ -556,6 +571,8 @@ async def run_search_pipeline(
                     intent=context.intent,
                     results=final_results,
                     tool_name="web_search",
+                    research_goal=research_goal,
+                    rewrite_variants=rewrite_variants,
                 )
             )
         except Exception as exc:

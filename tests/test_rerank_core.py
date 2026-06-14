@@ -59,13 +59,14 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
                 query_type_hint="comparison",
             )
 
-        self.assertEqual(len(reranked), 2)
-        self.assertEqual([item.title for item in reranked], ["A", "B"])
+        self.assertEqual(len(reranked.results), 2)
+        self.assertEqual([item.title for item in reranked.results], ["A", "B"])
         self.assertEqual(
             mock_voyage_rerank.await_args.kwargs["instruction"],
             (
-                "Prioritize benchmarks, comparison tables, and primary-source evidence. "
-                "Goal: Find authoritative docs for the deployment flow"
+                "Query: \n"
+                "Query type: comparison\n"
+                "Research goal: Find authoritative docs for the deployment flow"
             ),
         )
         completed_calls = [

@@ -21,26 +21,31 @@ class LLMRouter:
 
     endpoints: tuple[LLMEndpoint, ...]
 
-    async def complete_json(
+    async def _complete(
         self,
         *,
         messages: list[dict[str, str]],
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
-        response_model: type[Any] | None = None,
+        response_format: Any | None = None,
+        reasoning_effort: str | None = None,
     ) -> LLMGeneration:
         errors: list[Exception] = []
         for endpoint in self.endpoints:
             try:
-                response = await acompletion(
-                    model=endpoint.model,
-                    messages=messages,
-                    temperature=temperature,
-                    response_format=response_model or {"type": "json_object"},
-                    api_base=endpoint.base_url,
-                    api_key=endpoint.api_key,
-                    timeout=timeout_seconds or endpoint.timeout_seconds,
-                )
+                request_kwargs: dict[str, Any] = {
+                    "model": endpoint.model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "api_base": endpoint.base_url,
+                    "api_key": endpoint.api_key,
+                    "timeout": timeout_seconds or endpoint.timeout_seconds,
+                }
+                if response_format is not None:
+                    request_kwargs["response_format"] = response_format
+                if reasoning_effort is not None:
+                    request_kwargs["reasoning_effort"] = reasoning_effort
+                response = await acompletion(**request_kwargs)
                 content = response.choices[0].message.content or ""
                 if content.strip():
                     return LLMGeneration(endpoint=endpoint, content=content)
@@ -50,6 +55,39 @@ class LLMRouter:
         raise RuntimeError(
             "All LLM endpoints failed: "
             + "; ".join(f"{type(error).__name__}: {error}" for error in errors)
+        )
+
+    async def complete_json(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+        response_model: type[Any] | None = None,
+        reasoning_effort: str | None = None,
+    ) -> LLMGeneration:
+        return await self._complete(
+            messages=messages,
+            temperature=temperature,
+            timeout_seconds=timeout_seconds,
+            response_format=response_model or {"type": "json_object"},
+            reasoning_effort=reasoning_effort,
+        )
+
+    async def complete_text(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+        reasoning_effort: str | None = None,
+    ) -> LLMGeneration:
+        return await self._complete(
+            messages=messages,
+            temperature=temperature,
+            timeout_seconds=timeout_seconds,
+            response_format=None,
+            reasoning_effort=reasoning_effort,
         )
 
 
