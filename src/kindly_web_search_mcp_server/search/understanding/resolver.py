@@ -7,6 +7,7 @@ import logging
 import time as time_module
 
 from ...settings import settings
+from ...llm.langfuse_tracing import LangfuseTraceContext
 from ...llm.worker import build_llm_worker
 from ...llm.structured import StructuredLLMRequest
 from ...prompts.builders import REASONING_EFFORT_LOW
@@ -25,7 +26,7 @@ from .models import QueryUnderstandingResult
 logger = logging.getLogger(__name__)
 
 
-def _build_ab_router(ab_overrides: dict) -> "LLMRouter":
+def _build_ab_router(ab_overrides: dict) -> object:
     """Build a custom LLM router from experiment variant config.
 
     The variant config may contain ``model`` and/or ``timeout_seconds``
@@ -91,6 +92,16 @@ async def resolve_query_understanding(
     result_provider_name = "fallback"
     fallback_used = False
     control_start = time_module.monotonic()
+    langfuse_trace = LangfuseTraceContext(
+        trace_name="query_understanding",
+        session_id=session_id or run_key,
+        metadata={
+            "task": "query_understanding",
+            "run_key": run_key,
+            "intent_hint": intent_hint or "",
+            "research_goal": research_goal or "",
+        },
+    )
 
     try:
         if use_ab_router:
@@ -105,6 +116,7 @@ async def resolve_query_understanding(
                 timeout_seconds=timeout_seconds,
                 response_model=QueryUnderstandingResult,
                 reasoning_effort=REASONING_EFFORT_LOW,
+                langfuse=langfuse_trace,
             )
             result_model_name = generation.endpoint.model
             result_provider_name = generation.endpoint.name
@@ -122,6 +134,7 @@ async def resolve_query_understanding(
                     timeout_seconds=timeout_seconds,
                     response_model=QueryUnderstandingResult,
                     reasoning_effort=REASONING_EFFORT_LOW,
+                    langfuse=langfuse_trace,
                 )
             )
             result_model_name = result.model_name
@@ -170,6 +183,7 @@ async def resolve_query_understanding(
                 timeout_seconds=shadow_timeout,
                 response_model=QueryUnderstandingResult,
                 reasoning_effort=REASONING_EFFORT_LOW,
+                langfuse=langfuse_trace,
             )
             return QueryUnderstandingResult.model_validate_json(shadow_gen.content)
 

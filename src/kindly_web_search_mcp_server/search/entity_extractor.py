@@ -6,6 +6,7 @@ import json
 import logging
 
 from ..entity.models import EntitySpan
+from ..llm.langfuse_tracing import LangfuseTraceContext
 from ..llm.structured import StructuredLLMRequest
 from ..llm.worker import build_llm_worker
 from ..prompts.builders import REASONING_EFFORT_LOW
@@ -14,7 +15,12 @@ from ..prompts.registry import build_prompt
 logger = logging.getLogger(__name__)
 
 
-async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[EntitySpan]:
+async def extract_entities(
+    text: str,
+    *,
+    provider_name: str = "vercel",
+    session_id: str | None = None,
+) -> list[EntitySpan]:
     if not text.strip():
         return []
 
@@ -25,6 +31,14 @@ async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[
         provider_name=provider_name,
     )
     worker = build_llm_worker()
+    langfuse_trace = LangfuseTraceContext(
+        trace_name="entity_extraction",
+        session_id=session_id,
+        metadata={
+            "task": "structure_extract",
+            "provider_name": provider_name,
+        },
+    )
     result = await worker.complete_structured(
         StructuredLLMRequest(
             task="structure_extract",
@@ -34,6 +48,7 @@ async def extract_entities(text: str, *, provider_name: str = "vercel") -> list[
             ],
             temperature=0.0,
             reasoning_effort=REASONING_EFFORT_LOW,
+            langfuse=langfuse_trace,
         )
     )
     payload = json.loads(result.content)

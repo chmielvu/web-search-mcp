@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..llm.worker import build_llm_worker
 from ..llm.structured import StructuredLLMRequest
+from ..llm.langfuse_tracing import LangfuseTraceContext
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
 
@@ -99,6 +100,16 @@ async def build_rewrite_variants(
         provider_name="worker",
     )
     worker = build_llm_worker()
+    langfuse_trace = LangfuseTraceContext(
+        trace_name="query_rewrite",
+        session_id=context.session_id,
+        metadata={
+            "task": "worker_rewrite",
+            "intent": understanding_intent,
+            "profile": context.profile_name,
+            "research_goal": context.research_goal or "",
+        },
+    )
     generation = await worker.complete_structured(
         StructuredLLMRequest(
             task="worker_rewrite",
@@ -110,6 +121,7 @@ async def build_rewrite_variants(
             timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
             response_model=RewriteVariantResponse,
             reasoning_effort=REASONING_EFFORT_LOW,
+            langfuse=langfuse_trace,
         )
     )
     payload = json.loads(generation.content)

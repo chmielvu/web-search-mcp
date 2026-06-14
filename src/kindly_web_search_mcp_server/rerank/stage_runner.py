@@ -167,6 +167,7 @@ async def run_llm_stage(
     run_key: str | None,
     main_span,
     logger: logging.Logger,
+    session_id: str | None = None,
     ab_entity_boost: float | None = None,
     entity_boost: float = 0.15,
 ) -> RankedStageOutcome:
@@ -181,6 +182,7 @@ async def run_llm_stage(
             research_goal=research_goal,
             instruction=instruction,
             timeout_seconds=settings.rerank_llm_timeout_seconds,
+            session_id=session_id,
         )
     except Exception as exc:
         duration_seconds = time.time() - stage_start

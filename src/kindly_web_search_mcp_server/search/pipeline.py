@@ -71,13 +71,13 @@ async def run_search_pipeline(
         query=query,
         research_goal=research_goal,
         intent_hint=None,
-        session_id=session_id,
+        session_id=session_id or run_key,
         run_key=run_key,
     )
     context = build_search_context(
         query=query,
         research_goal=research_goal,
-        session_id=session_id,
+        session_id=session_id or run_key,
         num_results=num_results,
         search_options=search_options,
         understanding_intent=understanding.intent,
@@ -329,6 +329,7 @@ async def run_search_pipeline(
                     research_goal=research_goal,
                     query_type_hint=context.intent,
                     run_key=run_key,
+                    session_id=session_id or run_key,
                 )
                 embedding_ctx_for_index = rerank_out.embedding_context
                 merged = rerank_out.results
@@ -371,6 +372,7 @@ async def run_search_pipeline(
                     research_goal=research_goal,
                     query_type_hint=context.intent,
                     run_key=run_key,
+                    session_id=session_id or run_key,
                     ab_overrides=ab_config,
                 )
                 embedding_ctx_for_index = rerank_out.embedding_context
@@ -404,7 +406,11 @@ async def run_search_pipeline(
     candidate_count = len(merged)
     has_more = result_offset + len(final_results) < candidate_count
     next_offset = result_offset + len(final_results) if has_more else None
-    final_results = await maybe_extract_entities(query=query, results=final_results)
+    final_results = await maybe_extract_entities(
+        query=query,
+        results=final_results,
+        session_id=session_id or run_key,
+    )
 
     if session_id:
         session_state = get_session_state_store().get(session_id)
@@ -573,6 +579,7 @@ async def run_search_pipeline(
                     tool_name="web_search",
                     research_goal=research_goal,
                     rewrite_variants=rewrite_variants,
+                    session_id=session_id or run_key,
                 )
             )
         except Exception as exc:

@@ -159,6 +159,57 @@ class TestJudgerunnerMockedLLM:
 
         assert call_count == 0, "Judge should not be called with empty results"
 
+    def test_langfuse_context_is_forwarded_to_judge(self, monkeypatch) -> None:
+        from kindly_web_search_mcp_server.analytics.judge_runner import (
+            run_judge_evaluation,
+        )
+
+        captured: dict[str, object] = {}
+
+        async def fake_evaluate(*args, **kwargs):
+            captured["langfuse"] = kwargs.get("langfuse")
+            return SimpleNamespace(
+                relevance_raw=4,
+                relevance_score=1.0,
+                reasoning="ok",
+                judge_model="openai/gpt-oss-120b",
+                duration_ms=1.0,
+            )
+
+        monkeypatch.setattr(
+            "kindly_web_search_mcp_server.analytics.judge_runner._get_judge",
+            lambda: SimpleNamespace(evaluate=fake_evaluate),
+        )
+        monkeypatch.setattr(
+            "kindly_web_search_mcp_server.analytics.judge_runner.settings.analytics_enabled",
+            True,
+        )
+        monkeypatch.setattr(
+            "kindly_web_search_mcp_server.analytics.judge_runner.insert_judge_evaluation",
+            lambda *args, **kwargs: None,
+        )
+
+        import asyncio
+        asyncio.run(
+            run_judge_evaluation(
+                run_key="test-run-002",
+                query="AI papers",
+                intent="general",
+                results=[
+                    self._make_result("Paper A", "https://a.example", "Great paper")
+                ],
+                tool_name="web_search",
+                session_id="session-999",
+            )
+        )
+
+        langfuse = captured["langfuse"]
+        assert langfuse is not None
+        assert langfuse.trace_name == "judge:web_search"
+        assert langfuse.session_id == "session-999"
+        assert langfuse.metadata["task"] == "judge"
+        assert langfuse.metadata["run_key"] == "test-run-002"
+
     def test_llm_failure_inserts_fallback(self, monkeypatch) -> None:
         """When the judge raises, a fallback row should still be inserted."""
         from kindly_web_search_mcp_server.analytics.judge_runner import (

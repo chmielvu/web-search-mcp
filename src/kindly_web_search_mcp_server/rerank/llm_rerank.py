@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from ..llm.langfuse_tracing import LangfuseTraceContext
 from ..llm import StructuredLLMRequest, build_llm_worker
 from ..models import WebSearchResult
 from ..prompts.builders import REASONING_EFFORT_LOW
@@ -64,6 +65,7 @@ async def rerank_with_llm(
     research_goal: str | None = None,
     instruction: str | None = None,
     timeout_seconds: float | None = None,
+    session_id: str | None = None,
 ) -> LLMRerankOutcome:
     window = _build_candidate_window(
         candidates,
@@ -79,6 +81,17 @@ async def rerank_with_llm(
         temperature=0.0,
         timeout_seconds=timeout_seconds,
         reasoning_effort=REASONING_EFFORT_LOW,
+        langfuse=LangfuseTraceContext(
+            trace_name="llm_rerank",
+            session_id=session_id,
+            metadata={
+                "task": "rerank",
+                "candidate_count": len(window),
+                "top_k": top_k,
+                "query_type_hint": query_type_hint or "",
+                "research_goal": research_goal or "",
+            },
+        ),
     )
     response = await worker.complete_text_messages(
         task=request.task,
@@ -86,6 +99,7 @@ async def rerank_with_llm(
         temperature=request.temperature,
         timeout_seconds=request.timeout_seconds,
         reasoning_effort=request.reasoning_effort,
+        langfuse=request.langfuse,
     )
     ranked_ids = _parse_ranked_ids(response.content, len(window))
     ranked = [

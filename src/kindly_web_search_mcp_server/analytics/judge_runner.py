@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from ..settings import settings
+from ..llm.langfuse_tracing import LangfuseTraceContext
 from .duckdb_store import insert_judge_evaluation
 from .search_relevance_judge import SearchRelevanceJudge
 
@@ -34,6 +35,7 @@ async def run_judge_evaluation(
     tool_name: str = "web_search",
     research_goal: str | None = None,
     rewrite_variants: list[Any] | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Evaluate search results relevance and persist scores.
 
@@ -66,12 +68,24 @@ async def run_judge_evaluation(
         return
 
     judge = _get_judge()
+    langfuse_trace = LangfuseTraceContext(
+        trace_name=f"judge:{tool_name}",
+        session_id=session_id or run_key,
+        metadata={
+            "task": "judge",
+            "run_key": run_key,
+            "tool_name": tool_name,
+            "intent": intent,
+            "research_goal": research_goal or "",
+        },
+    )
     result = await judge.evaluate(
         query=query,
         intent=intent,
         results=results,
         research_goal=research_goal,
         rewrite_variants=rewrite_variants,
+        langfuse=langfuse_trace,
     )
 
     try:

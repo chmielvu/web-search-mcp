@@ -7,7 +7,9 @@ import logging
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..settings import settings
 from ..utils.observability import emit_observability_event
+from .entity_extractor import extract_entities
 from .provider_config import DiagnosisCategory, diagnose_providers
+from .query_policy import RewritePolicy
 
 # Categories that produce user-visible warnings.
 # "unconfigured" and "intent_excluded" are silent by design.
@@ -15,8 +17,6 @@ _WARNING_CATEGORIES = frozenset({
     DiagnosisCategory.cooldown,
     DiagnosisCategory.disabled,
 })
-from .query_policy import RewritePolicy
-from .entity_extractor import extract_entities
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ async def maybe_extract_entities(
     *,
     query: str,
     results: list[WebSearchResult],
+    session_id: str | None = None,
 ) -> list[WebSearchResult]:
     enabled = bool(getattr(settings, "entity_extraction_enabled", False))
     if not enabled or not results:
@@ -40,7 +41,10 @@ async def maybe_extract_entities(
             if not text:
                 updated_results.append(result)
                 continue
-            entities = await extract_entities(text)
+            entities = await extract_entities(
+                text,
+                session_id=session_id,
+            )
             if isinstance(result, dict):
                 result["entities"] = entities or None
                 updated_results.append(result)

@@ -60,12 +60,18 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
             fake_worker.complete_text_messages.await_args.kwargs["task"],
             "rerank",
         )
+        langfuse = fake_worker.complete_text_messages.await_args.kwargs["langfuse"]
+        self.assertIsNotNone(langfuse)
+        self.assertEqual(langfuse.trace_name, "llm_rerank")
+        self.assertEqual(langfuse.metadata["task"], "rerank")
+        self.assertEqual(langfuse.metadata["candidate_count"], 2)
+        self.assertEqual(langfuse.metadata["top_k"], 2)
         self.assertEqual(
             fake_worker.complete_text_messages.await_args.kwargs["messages"][0]["role"],
             "system",
         )
         self.assertIn(
-            "RankGPT",
+            "Rank passages by relevance",
             fake_worker.complete_text_messages.await_args.kwargs["messages"][0]["content"],
         )
         prompt = fake_worker.complete_text_messages.await_args.kwargs["messages"][1]["content"]

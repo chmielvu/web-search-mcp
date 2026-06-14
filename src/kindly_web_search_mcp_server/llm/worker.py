@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .langfuse_tracing import LangfuseTraceContext
 from .router import build_classifier_router, build_worker_router
 from .structured import StructuredLLMRequest, StructuredLLMResponse
 
@@ -13,7 +14,8 @@ class LLMWorker:
     """Small task router for the 0.2 backend."""
 
     async def complete_structured(
-        self, request: StructuredLLMRequest
+        self,
+        request: StructuredLLMRequest,
     ) -> StructuredLLMResponse:
         router = (
             build_classifier_router()
@@ -26,6 +28,7 @@ class LLMWorker:
             timeout_seconds=request.timeout_seconds,
             response_model=request.response_model,
             reasoning_effort=request.reasoning_effort,
+            langfuse=request.langfuse,
         )
         return StructuredLLMResponse(
             endpoint_name=generation.endpoint.name,
@@ -41,6 +44,7 @@ class LLMWorker:
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
+        langfuse: LangfuseTraceContext | None = None,
     ) -> StructuredLLMResponse:
         return await self.complete_structured(
             StructuredLLMRequest(
@@ -49,6 +53,7 @@ class LLMWorker:
                 temperature=temperature,
                 timeout_seconds=timeout_seconds,
                 reasoning_effort=reasoning_effort,
+                langfuse=langfuse,
             )
         )
 
@@ -68,6 +73,7 @@ class LLMWorker:
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
+        langfuse: LangfuseTraceContext | None = None,
     ) -> StructuredLLMResponse:
         router = (
             build_classifier_router()
@@ -79,6 +85,7 @@ class LLMWorker:
             temperature=temperature,
             timeout_seconds=timeout_seconds,
             reasoning_effort=reasoning_effort,
+            langfuse=langfuse,
         )
         return StructuredLLMResponse(
             endpoint_name=generation.endpoint.name,

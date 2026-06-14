@@ -1465,6 +1465,7 @@ async def gemini_search(
                 asyncio.ensure_future(run_judge_evaluation(
                     run_key=_run_key, query=query, intent="ai_search",
                     results=_judge_results, tool_name="gemini_search",
+                    session_id=_resolve_session_id(ctx),
                 ))
             except Exception:
                 pass
@@ -1571,6 +1572,7 @@ async def perplexity_search(
                 asyncio.ensure_future(run_judge_evaluation(
                     run_key=_run_key, query=query, intent="ai_search",
                     results=_judge_results, tool_name="perplexity_search",
+                    session_id=_resolve_session_id(ctx),
                 ))
             except Exception:
                 pass
@@ -1706,6 +1708,7 @@ async def grok_search(
                 asyncio.ensure_future(run_judge_evaluation(
                     run_key=_run_key, query=query, intent="ai_search",
                     results=_judge_results, tool_name="grok_search",
+                    session_id=_resolve_session_id(ctx),
                 ))
             except Exception:
                 pass

@@ -64,6 +64,7 @@ async def rerank_results(
     research_goal: str | None = None,
     query_type_hint: str | None = None,
     run_key: str | None = None,
+    session_id: str | None = None,
     ab_overrides: dict | None = None,
 ) -> RerankOutput:
     """Rerank web search results with stack-selected rerank stages."""
@@ -191,6 +192,7 @@ async def rerank_results(
                 searxng_time_range=searxng_time_range,
                 original_count=original_count,
                 run_key=run_key,
+                session_id=session_id or run_key,
                 main_span=main_span,
                 logger=logger,
                 ab_entity_boost=float(ab_overrides["entity_boost"]) if ab_overrides and "entity_boost" in ab_overrides else None,
@@ -218,6 +220,7 @@ async def rerank_results(
                 query_entities=query_entities,
                 searxng_time_range=searxng_time_range,
                 run_key=run_key,
+                session_id=session_id or run_key,
                 main_span=main_span,
                 logger=logger,
                 ab_entity_boost=float(ab_overrides["entity_boost"]) if ab_overrides and "entity_boost" in ab_overrides else None,
