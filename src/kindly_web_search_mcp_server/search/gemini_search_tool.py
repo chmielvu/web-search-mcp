@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from ..prompts.provider_gemini import build_provider_gemini_prompt
 from ..settings import settings
+from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 
 logger = logging.getLogger(__name__)
 _gemini_client: Any | None = None
@@ -224,215 +225,252 @@ async def gemini_search_with_grounding(
 
     fallback_chain: list[str] = []
     fallback_reason: str | None = None
+    with create_llm_operation_span(
+        "grounded_search",
+        system="google",
+        attributes={
+            "gen_ai.request.model": GEMINI_GROUNDING_TIER[0],
+            "search.query": query[:500],
+            "search.structured_output": structured_output,
+            "search.research_goal": (research_goal or "")[:500],
+            "search.fallback_tier_count": len(GEMINI_GROUNDING_TIER),
+        },
+    ) as span:
+        for model_id in GEMINI_GROUNDING_TIER:
+            fallback_chain.append(model_id)
 
-    for model_id in GEMINI_GROUNDING_TIER:
-        fallback_chain.append(model_id)
+            # Build config with model-specific system instruction handling
+            config_dict = base_config.copy()
 
-        # Build config with model-specific system instruction handling
-        config_dict = base_config.copy()
+            # CRITICAL: Only Gemini models accept system_instruction
+            if _is_gemini_model(model_id):
+                config_dict["system_instruction"] = formatted_system_prompt
+                contents = query
+            else:
+                # Gemma: prepend system prompt to contents
+                contents = f"{formatted_system_prompt}\n\n{query}"
 
-        # CRITICAL: Only Gemini models accept system_instruction
-        if _is_gemini_model(model_id):
-            config_dict["system_instruction"] = formatted_system_prompt
-            contents = query
-        else:
-            # Gemma: prepend system prompt to contents
-            contents = f"{formatted_system_prompt}\n\n{query}"
+            # Create config before try block so it's available in retry
+            config = types.GenerateContentConfig(**config_dict)
 
-        # Create config before try block so it's available in retry
-        config = types.GenerateContentConfig(**config_dict)
-
-        try:
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_id,
-                contents=contents,
-                config=config,
-            )
-
-            # Separate thought parts from answer parts
-            answer_parts: list[str] = []
-            thought_parts: list[str] = []
-
-            if response.candidates and response.candidates[0].content.parts:
-                for part in response.candidates[0].content.parts:
-                    if part.thought:
-                        thought_parts.append(part.text or "")
-                    else:
-                        answer_parts.append(part.text or "")
-
-            answer = "\n".join(answer_parts)
-            thoughts = "\n".join(thought_parts) if thought_parts else None
-
-            # Parse structured output if requested
-            # When response_schema is used, response.parsed contains validated Pydantic instance
-            structured_result = None
-            if structured_output:
-                try:
-                    # Use response.parsed for SDK-validated Pydantic model
-                    parsed_response = getattr(response, "parsed", None)
-                    if parsed_response:
-                        structured_result = parsed_response.model_dump()
-                    elif answer:
-                        # Fallback: parse text manually if response.parsed unavailable
-                        parsed = GeminiResearchOutput.model_validate_json(answer)
-                        structured_result = parsed.model_dump()
-                except Exception as exc:
-                    logger.warning(
-                        "Structured Gemini grounding output failed to parse: %s", exc
-                    )
-
-            # Extract grounding metadata
-            web_search_queries: list[str] = []
-            grounding_chunks: list[dict[str, str]] = []
-            grounding_supports: list[dict[str, Any]] = []
-            search_widget_html: str | None = None
-
-            if response.candidates and response.candidates[0].grounding_metadata:
-                metadata = response.candidates[0].grounding_metadata
-                web_search_queries = list(metadata.web_search_queries or [])
-                grounding_chunks = [
-                    {"url": chunk.web.uri, "title": chunk.web.title}
-                    for chunk in metadata.grounding_chunks or []
-                    if chunk.web
-                ]
-                grounding_supports = [
-                    {
-                        "segment_text": support.segment.text,
-                        "start_index": support.segment.start_index,
-                        "end_index": support.segment.end_index,
-                        "source_indices": list(support.grounding_chunk_indices),
-                    }
-                    for support in metadata.grounding_supports or []
-                ]
-                if (
-                    metadata.search_entry_point
-                    and metadata.search_entry_point.rendered_content
-                ):
-                    search_widget_html = metadata.search_entry_point.rendered_content
-
-            return GeminiGroundingResult(
-                query=query,
-                answer=answer,
-                thoughts=thoughts,
-                structured_result=structured_result,
-                model_used=model_id,
-                structured_output=structured_output,
-                web_search_queries=web_search_queries,
-                grounding_chunks=grounding_chunks,
-                grounding_supports=grounding_supports,
-                search_widget_html=search_widget_html,
-                fallback_chain=fallback_chain,
-                fallback_reason=fallback_reason,
-            )
-
-        except Exception as exc:
-            error_type, should_fallback, should_retry = _classify_gemini_error(exc)
-
-            logger.warning(
-                "Gemini grounding attempt failed for %s: %s (type=%s, fallback=%s, retry=%s)",
-                model_id,
-                exc,
-                error_type,
-                should_fallback,
-                should_retry,
-            )
-
-            fallback_reason = f"{error_type}: {str(exc)}"
-
-            # Rate limit: retry once with backoff, then continue to next tier
-            if should_retry:
-                logger.info(
-                    "Rate limit hit for %s, retrying once with 1s backoff", model_id
+            try:
+                response = await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=model_id,
+                    contents=contents,
+                    config=config,
                 )
-                await asyncio.sleep(1)
 
-                try:
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=model_id,
-                        contents=contents,
-                        config=config,
-                    )
-                    # Process the successful retry response
-                    answer_parts, thought_parts = [], []
-                    if response.candidates and response.candidates[0].content.parts:
-                        for part in response.candidates[0].content.parts:
-                            if part.thought:
-                                thought_parts.append(part.text or "")
-                            else:
-                                answer_parts.append(part.text or "")
-                    answer = "\n".join(answer_parts)
-                    # Build result from retry success
-                    web_search_queries, grounding_chunks, grounding_supports = (
-                        [],
-                        [],
-                        [],
-                    )
-                    search_widget_html = None
-                    if (
-                        response.candidates
-                        and response.candidates[0].grounding_metadata
-                    ):
-                        md = response.candidates[0].grounding_metadata
-                        web_search_queries = list(md.web_search_queries or [])
-                        grounding_chunks = [
-                            {"url": chunk.web.uri, "title": chunk.web.title}
-                            for chunk in md.grounding_chunks or []
-                            if chunk.web
-                        ]
-                        grounding_supports = [
-                            {
-                                "segment_text": s.segment.text,
-                                "start_index": s.segment.start_index,
-                                "end_index": s.segment.end_index,
-                                "source_indices": list(s.grounding_chunk_indices),
-                            }
-                            for s in md.grounding_supports or []
-                        ]
-                        if (
-                            md.search_entry_point
-                            and md.search_entry_point.rendered_content
-                        ):
-                            search_widget_html = md.search_entry_point.rendered_content
+                # Separate thought parts from answer parts
+                answer_parts: list[str] = []
+                thought_parts: list[str] = []
 
-                    # Parse structured output if requested
-                    structured_result = None
-                    if structured_output and answer:
-                        try:
+                if response.candidates and response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        if part.thought:
+                            thought_parts.append(part.text or "")
+                        else:
+                            answer_parts.append(part.text or "")
+
+                answer = "\n".join(answer_parts)
+                thoughts = "\n".join(thought_parts) if thought_parts else None
+
+                # Parse structured output if requested
+                # When response_schema is used, response.parsed contains validated Pydantic instance
+                structured_result = None
+                if structured_output:
+                    try:
+                        # Use response.parsed for SDK-validated Pydantic model
+                        parsed_response = getattr(response, "parsed", None)
+                        if parsed_response:
+                            structured_result = parsed_response.model_dump()
+                        elif answer:
+                            # Fallback: parse text manually if response.parsed unavailable
                             parsed = GeminiResearchOutput.model_validate_json(answer)
                             structured_result = parsed.model_dump()
-                        except Exception:
-                            pass
+                    except Exception as exc:
+                        logger.warning(
+                            "Structured Gemini grounding output failed to parse: %s", exc
+                        )
 
-                    return GeminiGroundingResult(
-                        query=query,
-                        answer=answer,
-                        thoughts="\n".join(thought_parts) if thought_parts else None,
-                        structured_result=structured_result,
-                        model_used=model_id,
-                        structured_output=structured_output,
-                        web_search_queries=web_search_queries,
-                        grounding_chunks=grounding_chunks,
-                        grounding_supports=grounding_supports,
-                        search_widget_html=search_widget_html,
-                        fallback_chain=fallback_chain,
-                        fallback_reason=f"Retry after rate limit succeeded for {model_id}",
+                # Extract grounding metadata
+                web_search_queries: list[str] = []
+                grounding_chunks: list[dict[str, str]] = []
+                grounding_supports: list[dict[str, Any]] = []
+                search_widget_html: str | None = None
+
+                if response.candidates and response.candidates[0].grounding_metadata:
+                    metadata = response.candidates[0].grounding_metadata
+                    web_search_queries = list(metadata.web_search_queries or [])
+                    grounding_chunks = [
+                        {"url": chunk.web.uri, "title": chunk.web.title}
+                        for chunk in metadata.grounding_chunks or []
+                        if chunk.web
+                    ]
+                    grounding_supports = [
+                        {
+                            "segment_text": support.segment.text,
+                            "start_index": support.segment.start_index,
+                            "end_index": support.segment.end_index,
+                            "source_indices": list(support.grounding_chunk_indices),
+                        }
+                        for support in metadata.grounding_supports or []
+                    ]
+                    if (
+                        metadata.search_entry_point
+                        and metadata.search_entry_point.rendered_content
+                    ):
+                        search_widget_html = metadata.search_entry_point.rendered_content
+
+                span.set_attribute("gen_ai.response.model", model_id)
+                span.set_attribute("search.model_used", model_id)
+                span.set_attribute("search.web_search_query_count", len(web_search_queries))
+                span.set_attribute("search.grounding_chunk_count", len(grounding_chunks))
+                span.set_attribute(
+                    "search.grounding_support_count", len(grounding_supports)
+                )
+                if fallback_chain:
+                    span.set_attribute("search.fallback_chain", ",".join(fallback_chain))
+                set_span_success(span, result_count=len(grounding_chunks))
+                return GeminiGroundingResult(
+                    query=query,
+                    answer=answer,
+                    thoughts=thoughts,
+                    structured_result=structured_result,
+                    model_used=model_id,
+                    structured_output=structured_output,
+                    web_search_queries=web_search_queries,
+                    grounding_chunks=grounding_chunks,
+                    grounding_supports=grounding_supports,
+                    search_widget_html=search_widget_html,
+                    fallback_chain=fallback_chain,
+                    fallback_reason=fallback_reason,
+                )
+
+            except Exception as exc:
+                error_type, should_fallback, should_retry = _classify_gemini_error(exc)
+
+                logger.warning(
+                    "Gemini grounding attempt failed for %s: %s (type=%s, fallback=%s, retry=%s)",
+                    model_id,
+                    exc,
+                    error_type,
+                    should_fallback,
+                    should_retry,
+                )
+
+                fallback_reason = f"{error_type}: {str(exc)}"
+
+                # Rate limit: retry once with backoff, then continue to next tier
+                if should_retry:
+                    logger.info(
+                        "Rate limit hit for %s, retrying once with 1s backoff", model_id
                     )
-                except Exception as retry_exc:
-                    logger.warning("Retry also failed for %s: %s", model_id, retry_exc)
+                    await asyncio.sleep(1)
 
-            # Continue to next model in tier
-            continue
+                    try:
+                        response = await asyncio.to_thread(
+                            client.models.generate_content,
+                            model=model_id,
+                            contents=contents,
+                            config=config,
+                        )
+                        # Process the successful retry response
+                        answer_parts, thought_parts = [], []
+                        if response.candidates and response.candidates[0].content.parts:
+                            for part in response.candidates[0].content.parts:
+                                if part.thought:
+                                    thought_parts.append(part.text or "")
+                                else:
+                                    answer_parts.append(part.text or "")
+                        answer = "\n".join(answer_parts)
+                        # Build result from retry success
+                        web_search_queries, grounding_chunks, grounding_supports = (
+                            [],
+                            [],
+                            [],
+                        )
+                        search_widget_html = None
+                        if (
+                            response.candidates
+                            and response.candidates[0].grounding_metadata
+                        ):
+                            md = response.candidates[0].grounding_metadata
+                            web_search_queries = list(md.web_search_queries or [])
+                            grounding_chunks = [
+                                {"url": chunk.web.uri, "title": chunk.web.title}
+                                for chunk in md.grounding_chunks or []
+                                if chunk.web
+                            ]
+                            grounding_supports = [
+                                {
+                                    "segment_text": s.segment.text,
+                                    "start_index": s.segment.start_index,
+                                    "end_index": s.segment.end_index,
+                                    "source_indices": list(s.grounding_chunk_indices),
+                                }
+                                for s in md.grounding_supports or []
+                            ]
+                            if (
+                                md.search_entry_point
+                                and md.search_entry_point.rendered_content
+                            ):
+                                search_widget_html = md.search_entry_point.rendered_content
 
-    # All tiers exhausted
-    logger.error("All Gemini grounding tiers exhausted for query: %s", query)
-    return GeminiGroundingResult(
-        query=query,
-        answer="",
-        model_used=GEMINI_GROUNDING_TIER[-1],
-        structured_output=structured_output,
-        fallback_chain=fallback_chain,
-        fallback_reason=fallback_reason or "All tiers exhausted",
-        error=f"All fallback models failed. Tried: {', '.join(fallback_chain)}",
-    )
+                        # Parse structured output if requested
+                        structured_result = None
+                        if structured_output and answer:
+                            try:
+                                parsed = GeminiResearchOutput.model_validate_json(answer)
+                                structured_result = parsed.model_dump()
+                            except Exception:
+                                pass
+
+                        span.set_attribute("gen_ai.response.model", model_id)
+                        span.set_attribute("search.model_used", model_id)
+                        span.set_attribute(
+                            "search.web_search_query_count", len(web_search_queries)
+                        )
+                        span.set_attribute(
+                            "search.grounding_chunk_count", len(grounding_chunks)
+                        )
+                        span.set_attribute(
+                            "search.grounding_support_count", len(grounding_supports)
+                        )
+                        span.set_attribute("search.retry_after_rate_limit", True)
+                        if fallback_chain:
+                            span.set_attribute("search.fallback_chain", ",".join(fallback_chain))
+                        set_span_success(span, result_count=len(grounding_chunks))
+                        return GeminiGroundingResult(
+                            query=query,
+                            answer=answer,
+                            thoughts="\n".join(thought_parts) if thought_parts else None,
+                            structured_result=structured_result,
+                            model_used=model_id,
+                            structured_output=structured_output,
+                            web_search_queries=web_search_queries,
+                            grounding_chunks=grounding_chunks,
+                            grounding_supports=grounding_supports,
+                            search_widget_html=search_widget_html,
+                            fallback_chain=fallback_chain,
+                            fallback_reason=f"Retry after rate limit succeeded for {model_id}",
+                        )
+                    except Exception as retry_exc:
+                        logger.warning("Retry also failed for %s: %s", model_id, retry_exc)
+
+                # Continue to next model in tier
+                continue
+
+        # All tiers exhausted
+        logger.error("All Gemini grounding tiers exhausted for query: %s", query)
+        final_error = fallback_reason or "All tiers exhausted"
+        set_span_error(span, RuntimeError(final_error))
+        return GeminiGroundingResult(
+            query=query,
+            answer="",
+            model_used=GEMINI_GROUNDING_TIER[-1],
+            structured_output=structured_output,
+            fallback_chain=fallback_chain,
+            fallback_reason=final_error,
+            error=f"All fallback models failed. Tried: {', '.join(fallback_chain)}",
+        )

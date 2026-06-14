@@ -30,6 +30,7 @@ import httpx
 from ..models import WebSearchResult
 from ..prompts.provider_grok import build_provider_grok_prompt
 from ..settings import settings
+from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 from .base_provider import run_provider
 
 logger = logging.getLogger(__name__)
@@ -278,15 +279,32 @@ async def search_grok_openrouter(
 
         return results
 
-    return await run_provider(
-        "grok_openrouter",
-        query,
-        num_results,
-        request=_do_request,
-        parse_response=_parse_response,
-        http_client=http_client,
-        timeout_seconds=REQUEST_TIMEOUT,
-    )
+    with create_llm_operation_span(
+        "search",
+        system="openrouter",
+        attributes={
+            "gen_ai.request.model": model,
+            "search.query": query[:500],
+            "search.num_results_requested": num_results,
+        },
+    ) as span:
+        try:
+            results = await run_provider(
+                "grok_openrouter",
+                query,
+                num_results,
+                request=_do_request,
+                parse_response=_parse_response,
+                http_client=http_client,
+                timeout_seconds=REQUEST_TIMEOUT,
+            )
+        except Exception as exc:
+            set_span_error(span, exc)
+            raise
+
+        span.set_attribute("search.source_count", len(results))
+        set_span_success(span, result_count=len(results))
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -367,47 +385,67 @@ async def grok_search(
     }
 
     headers = _get_headers()
+    with create_llm_operation_span(
+        "chat",
+        system="openrouter",
+        attributes={
+            "gen_ai.request.model": resolved_model,
+            "search.query": query[:500],
+            "search.research_goal": research_goal[:500],
+            "search.num_results_requested": max_results,
+        },
+    ) as span:
+        async with httpx.AsyncClient(timeout=resolved_timeout) as client:
+            try:
+                resp = await client.post(
+                    f"{OPENROUTER_BASE}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=resolved_timeout,
+                )
+                resp.raise_for_status()
+            except httpx.TimeoutException as e:
+                set_span_error(span, e)
+                raise httpx.HTTPError(
+                    f"Grok search timed out after {resolved_timeout}s"
+                ) from e
+            except httpx.HTTPStatusError as e:
+                set_span_error(span, e)
+                raise e
 
-    async with httpx.AsyncClient(timeout=resolved_timeout) as client:
-        try:
-            resp = await client.post(
-                f"{OPENROUTER_BASE}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=resolved_timeout,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException as e:
-            raise httpx.HTTPError(
-                f"Grok search timed out after {resolved_timeout}s"
-            ) from e
-        except httpx.HTTPStatusError as e:
-            raise e
+            try:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    set_span_success(span, result_count=0)
+                    return GrokSearchResult(
+                        query=query,
+                        answer="",
+                        citations=[],
+                        model=resolved_model,
+                        search_queries_used=0,
+                        error="No response from model",
+                    )
 
-    data = resp.json()
-    choices = data.get("choices", [])
-    if not choices:
-        return GrokSearchResult(
-            query=query,
-            answer="",
-            citations=[],
-            model=resolved_model,
-            search_queries_used=0,
-            error="No response from model",
-        )
+                message = choices[0].get("message", {})
+                answer = _extract_text(message)
+                citations = _extract_citations(message)
+                usage = data.get("usage", {})
+                server_tool_use = usage.get("server_tool_use", {})
 
-    message = choices[0].get("message", {})
-    answer = _extract_text(message)
-    citations = _extract_citations(message)
-    usage = data.get("usage", {})
-    server_tool_use = usage.get("server_tool_use", {})
+                search_queries = server_tool_use.get("web_search_requests", 0)
 
-    search_queries = server_tool_use.get("web_search_requests", 0)
-
-    return GrokSearchResult(
-        query=query,
-        answer=answer,
-        citations=citations,
-        model=data.get("model", resolved_model),
-        search_queries_used=search_queries,
-    )
+                span.set_attribute("search.citation_count", len(citations))
+                span.set_attribute("search.answer_chars", len(answer))
+                span.set_attribute("search.web_search_requests", search_queries)
+                set_span_success(span, result_count=len(citations))
+                return GrokSearchResult(
+                    query=query,
+                    answer=answer,
+                    citations=citations,
+                    model=data.get("model", resolved_model),
+                    search_queries_used=search_queries,
+                )
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise

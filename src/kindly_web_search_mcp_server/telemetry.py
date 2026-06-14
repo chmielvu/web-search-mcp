@@ -36,7 +36,7 @@ import json
 import platform
 import socket
 import threading
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlparse
 from importlib.metadata import PackageNotFoundError, version as _package_version
 
@@ -2022,6 +2022,31 @@ def create_provider_span(
     )
 
 
+def create_llm_operation_span(
+    operation: str,
+    *,
+    system: str,
+    attributes: Mapping[str, Any] | None = None,
+) -> trace.Span:
+    """Create a client span for an LLM or AI-search operation.
+
+    Use this for outbound model calls that should appear as first-class
+    Langfuse observations rather than just transport-level HTTP spans.
+    """
+    tracer = get_tracer()
+    span_attributes: dict[str, Any] = {
+        GEN_AI_SYSTEM: system,
+        GEN_AI_OPERATION_NAME: operation,
+    }
+    if attributes:
+        span_attributes.update(attributes)
+    return tracer.start_as_current_span(
+        f"ai.{system}.{operation}",
+        kind=trace.SpanKind.CLIENT,
+        attributes=span_attributes,
+    )
+
+
 def create_mcp_tool_span(
     tool_name: str,
     method: str = "tools/call",
@@ -2412,6 +2437,7 @@ __all__ = [
     # Span creation
     "create_search_span",
     "create_provider_span",
+    "create_llm_operation_span",
     "create_mcp_tool_span",
     "create_content_span",
     "create_merge_span",

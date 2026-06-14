@@ -12,6 +12,7 @@ import httpx
 
 from ..prompts.provider_perplexity import build_provider_perplexity_prompt
 from ..settings import settings
+from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 
 logger = logging.getLogger(__name__)
 
@@ -83,69 +84,87 @@ class PollinationsClient:
             raise ValueError("POLLINATIONS_API_KEY not configured")
 
         model = self._resolve_model(depth)
-
-        # Default research_goal if not provided
-        goal = research_goal or "General information gathering"
-        system_content, user_content = build_provider_perplexity_prompt(
-            query=query.strip(),
-            research_goal=goal,
-            provider_name="perplexity",
-        )
-        if depth == "deep":
-            user_content += (
-                "\n\nRequirements:\n"
-                "- Provide step-by-step analysis with reasoning for each conclusion.\n"
-                "- Include numbered citations [1], [2], etc. for each factual claim.\n"
-                "- If specific information cannot be found, state which aspects were unavailable.\n"
-                "- Distinguish between verified facts and analytical interpretations.\n"
-                "- Keep the research context in mind when prioritizing analysis depth.\n"
+        with create_llm_operation_span(
+            "web_search",
+            system="pollinations",
+            attributes={
+                "gen_ai.request.model": model,
+                "search.query": query[:500],
+                "search.depth": depth,
+                "search.research_goal": (research_goal or "")[:500],
+            },
+        ) as span:
+            # Default research_goal if not provided
+            goal = research_goal or "General information gathering"
+            system_content, user_content = build_provider_perplexity_prompt(
+                query=query.strip(),
+                research_goal=goal,
+                provider_name="perplexity",
             )
-        else:
-            user_content += (
-                "\n\nRequirements:\n"
-                "- Provide factual information with numbered citations [1], [2], etc.\n"
-                "- If specific information cannot be found from reliable sources, state this clearly.\n"
-                "- Focus on verifiable facts from authoritative sources.\n"
-                "- Keep the research context in mind when prioritizing information.\n"
-            )
+            if depth == "deep":
+                user_content += (
+                    "\n\nRequirements:\n"
+                    "- Provide step-by-step analysis with reasoning for each conclusion.\n"
+                    "- Include numbered citations [1], [2], etc. for each factual claim.\n"
+                    "- If specific information cannot be found, state which aspects were unavailable.\n"
+                    "- Distinguish between verified facts and analytical interpretations.\n"
+                    "- Keep the research context in mind when prioritizing analysis depth.\n"
+                )
+            else:
+                user_content += (
+                    "\n\nRequirements:\n"
+                    "- Provide factual information with numbered citations [1], [2], etc.\n"
+                    "- If specific information cannot be found from reliable sources, state this clearly.\n"
+                    "- Focus on verifiable facts from authoritative sources.\n"
+                    "- Keep the research context in mind when prioritizing information.\n"
+                )
 
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content},
-            ],
-        }
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+            }
 
-        url = f"{self.base_url}/v1/chat/completions"
+            url = f"{self.base_url}/v1/chat/completions"
 
-        client = _get_shared_client(self.timeout)
-        try:
-            response = await client.post(
-                url, json=payload, headers=self._get_headers(), timeout=self.timeout
-            )
-            response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise httpx.HTTPError(
-                f"Request timed out after {self.timeout}s"
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 429:
+            client = _get_shared_client(self.timeout)
+            try:
+                response = await client.post(
+                    url, json=payload, headers=self._get_headers(), timeout=self.timeout
+                )
+                response.raise_for_status()
+            except httpx.TimeoutException as exc:
+                set_span_error(span, exc)
                 raise httpx.HTTPError(
-                    "Rate limited. Please try again later."
+                    f"Request timed out after {self.timeout}s"
                 ) from exc
-            raise
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    set_span_error(span, exc)
+                    raise httpx.HTTPError(
+                        "Rate limited. Please try again later."
+                    ) from exc
+                set_span_error(span, exc)
+                raise
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise
 
-        data = response.json()
-        answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            data = response.json()
+            answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-        # Extract citations from response
-        sources = data.get("citations", [])
-        if not sources and isinstance(answer, str):
-            sources = re.findall(r'https?://[^\s<>"\']+', answer)
-            sources = list(dict.fromkeys(sources))
+            # Extract citations from response
+            sources = data.get("citations", [])
+            if not sources and isinstance(answer, str):
+                sources = re.findall(r'https?://[^\s<>"\']+', answer)
+                sources = list(dict.fromkeys(sources))
 
-        return {"answer": answer, "sources": sources, "model": model, "query": query}
+            span.set_attribute("search.source_count", len(sources))
+            span.set_attribute("search.answer_chars", len(answer) if isinstance(answer, str) else 0)
+            set_span_success(span, result_count=len(sources))
+            return {"answer": answer, "sources": sources, "model": model, "query": query}
 
 
 # Singleton client (lazy init)
@@ -189,78 +208,97 @@ async def gemini_grounding_search(
     client = get_pollinations_client()
     if not client.api_key:
         raise ValueError("POLLINATIONS_API_KEY not configured")
+    with create_llm_operation_span(
+        "grounding_search",
+        system="pollinations",
+        attributes={
+            "gen_ai.request.model": GEMINI_SEARCH_MODEL,
+            "search.query": query[:500],
+            "search.num_results_requested": num_results,
+        },
+    ) as span:
+        payload = {
+            "model": GEMINI_SEARCH_MODEL,
+            "messages": [{"role": "user", "content": query}],
+        }
 
-    payload = {
-        "model": GEMINI_SEARCH_MODEL,
-        "messages": [{"role": "user", "content": query}],
-    }
+        url = f"{client.base_url}/v1/chat/completions"
 
-    url = f"{client.base_url}/v1/chat/completions"
+        http = _get_shared_client(GEMINI_SEARCH_TIMEOUT)
+        try:
+            response = await http.post(
+                url,
+                json=payload,
+                headers=client._get_headers(),
+                timeout=GEMINI_SEARCH_TIMEOUT,
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            set_span_error(span, exc)
+            raise httpx.HTTPError(
+                f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                set_span_error(span, exc)
+                raise httpx.HTTPError("Rate limited. Please try again later.") from exc
+            set_span_error(span, exc)
+            raise
+        except Exception as exc:
+            set_span_error(span, exc)
+            raise
 
-    http = _get_shared_client(GEMINI_SEARCH_TIMEOUT)
-    try:
-        response = await http.post(
-            url,
-            json=payload,
-            headers=client._get_headers(),
-            timeout=GEMINI_SEARCH_TIMEOUT,
-        )
-        response.raise_for_status()
-    except httpx.TimeoutException as exc:
-        raise httpx.HTTPError(
-            f"gemini-search timed out after {GEMINI_SEARCH_TIMEOUT}s"
-        ) from exc
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 429:
-            raise httpx.HTTPError("Rate limited. Please try again later.") from exc
-        raise
+        data = response.json()
 
-    data = response.json()
+        # Extract groundingMetadata from choices
+        choices = data.get("choices", [])
+        if not choices:
+            span.set_attribute("grounding.chunk_count", 0)
+            set_span_success(span, result_count=0)
+            return {"groundingMetadata": {}, "model": GEMINI_SEARCH_MODEL, "query": query}
 
-    # Extract groundingMetadata from choices
-    choices = data.get("choices", [])
-    if not choices:
-        return {"groundingMetadata": {}, "model": GEMINI_SEARCH_MODEL, "query": query}
+        choice = choices[0]
+        grounding_metadata = choice.get("groundingMetadata", {})
 
-    choice = choices[0]
-    grounding_metadata = choice.get("groundingMetadata", {})
+        # Normalize groundingChunks structure
+        grounding_chunks = grounding_metadata.get("groundingChunks", [])
+        normalized_chunks = []
+        for chunk in grounding_chunks:
+            web = chunk.get("web", {})
+            if web.get("uri") and web.get("title"):
+                normalized_chunks.append(
+                    {
+                        "uri": web.get("uri"),
+                        "title": web.get("title"),
+                        "domain": web.get("domain"),
+                    }
+                )
 
-    # Normalize groundingChunks structure
-    grounding_chunks = grounding_metadata.get("groundingChunks", [])
-    normalized_chunks = []
-    for chunk in grounding_chunks:
-        web = chunk.get("web", {})
-        if web.get("uri") and web.get("title"):
-            normalized_chunks.append(
+        # Normalize groundingSupports for snippet extraction
+        grounding_supports = grounding_metadata.get("groundingSupports", [])
+        normalized_supports = []
+        for support in grounding_supports:
+            segment = support.get("segment", {})
+            normalized_supports.append(
                 {
-                    "uri": web.get("uri"),
-                    "title": web.get("title"),
-                    "domain": web.get("domain"),
+                    "text": segment.get("text", ""),
+                    "start_index": segment.get("startIndex"),
+                    "end_index": segment.get("endIndex"),
+                    "chunk_indices": support.get("groundingChunkIndices", []),
                 }
             )
 
-    # Normalize groundingSupports for snippet extraction
-    grounding_supports = grounding_metadata.get("groundingSupports", [])
-    normalized_supports = []
-    for support in grounding_supports:
-        segment = support.get("segment", {})
-        normalized_supports.append(
-            {
-                "text": segment.get("text", ""),
-                "start_index": segment.get("startIndex"),
-                "end_index": segment.get("endIndex"),
-                "chunk_indices": support.get("groundingChunkIndices", []),
-            }
-        )
-
-    return {
-        "groundingMetadata": {
-            "webSearchQueries": grounding_metadata.get("webSearchQueries", []),
-            "groundingChunks": normalized_chunks[:num_results],
-            "groundingSupports": normalized_supports,
-        },
-        "model": data.get("model", GEMINI_SEARCH_MODEL),
-        "provider": data.get("provider", "vertex-ai"),
-        "usage": data.get("usage", {}),
-        "query": query,
-    }
+        span.set_attribute("grounding.chunk_count", len(normalized_chunks[:num_results]))
+        span.set_attribute("grounding.support_count", len(normalized_supports))
+        set_span_success(span, result_count=len(normalized_chunks[:num_results]))
+        return {
+            "groundingMetadata": {
+                "webSearchQueries": grounding_metadata.get("webSearchQueries", []),
+                "groundingChunks": normalized_chunks[:num_results],
+                "groundingSupports": normalized_supports,
+            },
+            "model": data.get("model", GEMINI_SEARCH_MODEL),
+            "provider": data.get("provider", "vertex-ai"),
+            "usage": data.get("usage", {}),
+            "query": query,
+        }

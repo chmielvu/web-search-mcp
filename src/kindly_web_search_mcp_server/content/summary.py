@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 import httpx
 
+from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
+
 
 SummaryMode = Literal["none", "brief", "detailed"]
 
@@ -121,15 +123,38 @@ async def create_summary(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-        response = await client.post(
-            "https://llm.chutes.ai/v1/chat/completions",
-            headers=headers,
-            json=body,
-        )
-        response.raise_for_status()
-        summary = _parse_summary_json(_extract_message_content(response.json()))
+    with create_llm_operation_span(
+        "summarize",
+        system="chutes",
+        attributes={
+            "gen_ai.request.model": model,
+            "summary.mode": mode,
+            "summary.focus_query": (focus_query or "")[:500],
+            "summary.input_chars": len(markdown),
+            "summary.max_tokens": max_tokens,
+        },
+    ) as span:
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                response = await client.post(
+                    "https://llm.chutes.ai/v1/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+                response.raise_for_status()
+                summary = _parse_summary_json(
+                    _extract_message_content(response.json())
+                )
+        except Exception as exc:
+            set_span_error(span, exc)
+            raise
 
     summary["mode"] = mode
     summary["model"] = model
+    span.set_attribute("summary.key_points_count", len(summary.get("key_points", [])))
+    span.set_attribute(
+        "summary.important_entities_count",
+        len(summary.get("important_entities", [])),
+    )
+    set_span_success(span)
     return summary
