@@ -27,9 +27,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("web_search", tools)
         self.assertIn("get_content", tools)
         self.assertIn("batch_get_content", tools)
+        self.assertIn("generate_semantic_sitemap", tools)
         self.assertIn("youtube_transcript", tools)
         self.assertIn("youtube_search", tools)
-        self.assertIn("academic_search", tools)
 
         web_schema = str(tools["web_search"].output_schema)
         self.assertIn("query", web_schema)
@@ -53,11 +53,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         youtube_search_schema = str(tools["youtube_search"].output_schema)
         self.assertIn("query", youtube_search_schema)
         self.assertIn("total_results", youtube_search_schema)
-
-        academic_schema = str(tools["academic_search"].output_schema)
-        self.assertIn("query", academic_schema)
-        self.assertIn("sources_used", academic_schema)
-        self.assertIn("total_results", academic_schema)
 
     def test_public_resource_list_includes_native_resources(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
@@ -106,7 +101,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "kindly_web_search_mcp_server.server.run_report",
+            "kindly_web_search_mcp_server.analytics.reports.run_report",
             return_value=report_table,
         ) as run_report_mock:
             candidate_result = asyncio.run(
@@ -150,53 +145,21 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         prompts = asyncio.run(mcp.list_prompts())
         names = {getattr(prompt, "name", "") for prompt in prompts}
 
-        self.assertIn("plan_web_research", names)
-        self.assertIn("evaluate_web_results", names)
-        self.assertIn("research_gap_analysis", names)
-        self.assertIn("suggest_tool", names)
-        self.assertIn("research_workflow", names)
-        self.assertIn("academic_deep_dive", names)
-        self.assertIn("video_research", names)
-        self.assertIn("source_triage", names)
+        self.assertEqual(names, {"web_search_workflow"})
 
     def test_public_render_prompt_renders_native_prompts(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
 
         workflow_result = asyncio.run(
             mcp.render_prompt(
-                "research_workflow",
-                {"goal": "Assess GLiNER2 deployment prerequisites", "depth": "deep"},
-            )
-        )
-        academic_result = asyncio.run(
-            mcp.render_prompt(
-                "academic_deep_dive",
-                {"topic": "Entity extraction benchmarks", "focus": "GLiNER2"},
-            )
-        )
-        video_result = asyncio.run(
-            mcp.render_prompt(
-                "video_research",
-                {"topic": "Cloud Run GPU model serving"},
-            )
-        )
-        triage_result = asyncio.run(
-            mcp.render_prompt(
-                "source_triage",
-                {
-                    "goal": "Select authoritative sources for a FastMCP upgrade",
-                    "candidate_sources": "docs, GitHub releases, blog posts",
-                },
+                "web_search_workflow",
             )
         )
 
         self.assertIn(
-            "Research goal: Assess GLiNER2 deployment prerequisites",
+            "Placeholder",
             str(workflow_result),
         )
-        self.assertIn("Topic: Entity extraction benchmarks", str(academic_result))
-        self.assertIn("Topic: Cloud Run GPU model serving", str(video_result))
-        self.assertIn("Candidate sources already found", str(triage_result))
 
     def test_tool_timeout_budget_can_exceed_55_seconds(self) -> None:
         from kindly_web_search_mcp_server.server import (
@@ -380,7 +343,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn(
-                "hello", "Find information about hello", num_results=1, ctx=mock_ctx
+                "hello", "Find information about hello", ctx=mock_ctx
             )
 
         self.assertIsInstance(out, dict)
@@ -432,7 +395,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             out = await tool_fn(
                 "hello",
                 "Find information about hello",
-                num_results=1,
                 result_offset=2,
                 searxng_categories=["general"],
                 searxng_engines=["google"],
@@ -735,6 +697,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("providers_configured", out)
         self.assertIn("timeouts_seconds", out)
         self.assertIn("models", out)
+        self.assertIn("judge_evaluation_enabled", out["features"])
+        self.assertIn("judge_model", out["models"])
+        self.assertIn("judge", out["timeouts_seconds"])
         self.assertNotIn("api_key", str(out).lower())
         self.assertNotIn("secret", str(out).lower())
 

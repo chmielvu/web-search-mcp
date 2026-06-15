@@ -15,8 +15,8 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
     {"tool": "analytics_query", "command": "analytics query", "profiles": ["diagnostic", "experimental", "full"], "required": ["question"]},
     {"tool": "analytics_report", "command": "analytics report", "profiles": ["diagnostic", "experimental", "full"], "required": ["report_name"]},
     {"tool": "agentic_web_research", "command": "agent research", "profiles": ["research", "experimental", "full"], "required": ["query"]},
-    {"tool": "youtube_search", "command": "youtube search", "profiles": ["media", "experimental", "full"], "required": ["query"]},
-    {"tool": "youtube_transcript", "command": "youtube transcript", "profiles": ["media", "experimental", "full"], "required": ["video_id_or_url"]},
+    {"tool": "youtube_search", "command": "youtube search", "profiles": ["default", "media", "experimental", "full"], "required": ["query"]},
+    {"tool": "youtube_transcript", "command": "youtube transcript", "profiles": ["default", "media", "experimental", "full"], "required": ["video_id_or_url"]},
 )
 
 EXTERNAL_TOOLS: tuple[dict[str, str], ...] = (

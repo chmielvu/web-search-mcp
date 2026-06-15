@@ -24,6 +24,7 @@ class TestToolCatalog(unittest.TestCase):
         from kindly_web_search_mcp_server.tools.catalog import TOOL_CATALOG
 
         entry = TOOL_CATALOG["generate_semantic_sitemap"]
+        self.assertIn("regular", entry.profiles)
         self.assertIn("research", entry.profiles)
         self.assertIn("full", entry.profiles)
 

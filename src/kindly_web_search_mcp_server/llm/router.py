@@ -51,7 +51,7 @@ class LLMRouter:
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format
-                if reasoning_effort is not None:
+                if reasoning_effort is not None and endpoint.name != "groq":
                     request_kwargs["reasoning_effort"] = reasoning_effort
                 request_kwargs.update(
                     build_langfuse_litellm_kwargs(

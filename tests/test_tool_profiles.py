@@ -14,7 +14,18 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
     )
 
     assert DEFAULT_PROFILE_TOOLS == frozenset(
-        {"web_search", "get_content", "batch_get_content", "discover_links"}
+        {
+            "quick_web_search",
+            "web_search",
+            "get_content",
+            "batch_get_content",
+            "discover_links",
+            "gemini_search",
+            "perplexity_search",
+            "generate_semantic_sitemap",
+            "youtube_search",
+            "youtube_transcript",
+        }
     )
 
     for name, entry in TOOL_CATALOG.items():
@@ -34,71 +45,42 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
     assert TOOL_CATALOG["perplexity_search"].expensive is True
     assert TOOL_CATALOG["grok_search"].expensive is True
     assert TOOL_CATALOG["agentic_web_research"].experimental is True
-    assert TOOL_CATALOG["analytics_query"].open_world is False
-    assert TOOL_CATALOG["analytics_report"].open_world is False
-    assert TOOL_CATALOG["quick_web_search"].open_world is True
-    assert TOOL_CATALOG["composio_similarlinks"].open_world is True
-    assert TOOL_CATALOG["composio_image_search"].open_world is True
+    assert TOOL_CATALOG["generate_semantic_sitemap"].expensive is True
+    assert TOOL_CATALOG["youtube_search"].open_world is True
+    assert TOOL_CATALOG["youtube_transcript"].open_world is True
 
 
 def test_profile_membership_matches_visibility_requirements() -> None:
     from kindly_web_search_mcp_server.tools.profiles import tools_for_profile
 
-    assert tools_for_profile("default") == frozenset(
-        {"web_search", "get_content", "batch_get_content", "discover_links"}
-    )
-    assert tools_for_profile("research") == frozenset(
+    assert tools_for_profile("regular") == frozenset(
         {
             "web_search",
+            "quick_web_search",
             "get_content",
             "batch_get_content",
             "discover_links",
             "gemini_search",
             "perplexity_search",
-            "academic_search",
-            "grok_search",
-            "quick_web_search",
-            "composio_similarlinks",
-            "agentic_web_research",
-        }
-    )
-    assert tools_for_profile("media") == frozenset(
-        {
-            "web_search",
-            "get_content",
-            "batch_get_content",
-            "discover_links",
             "youtube_search",
             "youtube_transcript",
-            "composio_image_search",
-        }
-    )
-    assert tools_for_profile("diagnostic") == frozenset(
-        {
-            "web_search",
-            "get_content",
-            "batch_get_content",
-            "discover_links",
-            "analytics_query",
-            "analytics_report",
+            "generate_semantic_sitemap",
         }
     )
     assert tools_for_profile("full") == frozenset(
         {
-            "web_search",
-            "get_content",
+            "academic_search",
+            "agentic_web_research",
             "batch_get_content",
+            "composio_similarlinks",
             "discover_links",
             "gemini_search",
-            "perplexity_search",
-            "academic_search",
+            "generate_semantic_sitemap",
+            "get_content",
             "grok_search",
+            "perplexity_search",
             "quick_web_search",
-            "composio_similarlinks",
-            "composio_image_search",
-            "analytics_query",
-            "analytics_report",
-            "agentic_web_research",
+            "web_search",
             "youtube_search",
             "youtube_transcript",
         }
@@ -111,10 +93,8 @@ def test_profile_validation_rejects_unknown_values() -> None:
         normalize_tool_profile,
     )
 
-    assert ALLOWED_TOOL_PROFILES == frozenset(
-        {"default", "research", "media", "diagnostic", "experimental", "full"}
-    )
-    assert normalize_tool_profile(" Research ") == "research"
+    assert ALLOWED_TOOL_PROFILES == frozenset({"regular", "full"})
+    assert normalize_tool_profile(" Full ") == "full"
     with pytest.raises(ValueError, match="tool_profile"):
         normalize_tool_profile("unknown")
 
@@ -135,12 +115,12 @@ def test_apply_tool_profile_uses_fastmcp_tag_visibility() -> None:
             return self
 
     mcp = DummyMCP()
-    apply_tool_profile(mcp, "default")
+    apply_tool_profile(mcp, "regular")
 
     assert mcp.calls[0] == (
         "enable",
         {
-            "tags": {"profile:default"},
+            "tags": {"profile:regular"},
             "only": True,
             "components": {"tool"},
         },
@@ -174,10 +154,6 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     def composio_similarlinks() -> str:
         return "ok"
 
-    @mcp.tool(**tool_kwargs("analytics_query"))
-    def analytics_query() -> str:
-        return "ok"
-
     @mcp.tool(**tool_kwargs("grok_search"))
     def grok_search() -> str:
         return "ok"
@@ -186,6 +162,10 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     def agentic_web_research() -> str:
         return "ok"
 
-    apply_tool_profile(mcp, "default")
+    apply_tool_profile(mcp, "regular")
 
-    assert {tool.name for tool in asyncio.run(mcp.list_tools())} == {"web_search"}
+    tool_names = {tool.name for tool in asyncio.run(mcp.list_tools())}
+    assert {"web_search", "quick_web_search"}.issubset(tool_names)
+    assert "composio_similarlinks" not in tool_names
+    assert "grok_search" not in tool_names
+    assert "agentic_web_research" not in tool_names

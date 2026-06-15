@@ -195,7 +195,7 @@ class Settings:
         os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
     )
     rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
-    rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross").lower()
+    rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross_llm").lower()
     bi_encoder_top_k: int = int(os.environ.get("BI_ENCODER_TOP_K", "100"))
     rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
     rerank_llm_candidate_limit: int = int(

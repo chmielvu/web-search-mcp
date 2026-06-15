@@ -241,11 +241,11 @@ class _LoggingExporterProxy:
             )
         return result
 
-    def shutdown(self) -> Any:
-        return self._exporter.shutdown()
+    def shutdown(self, **kwargs: Any) -> Any:
+        return self._exporter.shutdown(**kwargs)
 
-    def force_flush(self, *args: Any, **kwargs: Any) -> Any:
-        return self._exporter.force_flush(*args, **kwargs)
+    def force_flush(self, **kwargs: Any) -> Any:
+        return self._exporter.force_flush(**kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._exporter, name)

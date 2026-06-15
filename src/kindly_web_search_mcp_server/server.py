@@ -168,6 +168,7 @@ def _public_settings_snapshot() -> dict[str, object]:
         },
         "features": {
             "reranking_enabled": settings.reranking_enabled,
+            "judge_evaluation_enabled": settings.judge_evaluation_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
             "result_memory_enabled": settings.result_memory_enabled,
             "analytics_enabled": settings.analytics_enabled,
@@ -187,22 +188,24 @@ def _public_settings_snapshot() -> dict[str, object]:
             "search_router": bool(os.environ.get("SEARCH_ROUTER_API_KEY")),
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
+        "models": {
+            "rerank_provider": settings.rerank_provider,
+            "rerank_stack_mode": settings.rerank_stack_mode,
+            "voyage_rerank_model": settings.voyage_rerank_model,
+            "jina_rerank_model": settings.jina_rerank_model,
+            "judge_model": settings.judge_model,
+            "rerank_llm_candidate_limit": settings.rerank_llm_candidate_limit,
+            "rerank_llm_timeout_seconds": settings.rerank_llm_timeout_seconds,
+            "grok_model": settings.grok_model,
+            "gliner_model": settings.gliner_model,
+        },
         "timeouts_seconds": {
             "tool_total": _resolve_tool_total_timeout_seconds(),
             "query_understanding": settings.query_classifier_timeout_seconds,
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,
-        },
-        "models": {
-            "rerank_provider": settings.rerank_provider,
-            "rerank_stack_mode": settings.rerank_stack_mode,
-            "voyage_rerank_model": settings.voyage_rerank_model,
-            "jina_rerank_model": settings.jina_rerank_model,
-            "rerank_llm_candidate_limit": settings.rerank_llm_candidate_limit,
-            "rerank_llm_timeout_seconds": settings.rerank_llm_timeout_seconds,
-            "grok_model": settings.grok_model,
-            "gliner_model": settings.gliner_model,
+            "judge": settings.judge_timeout_seconds,
         },
     }
 
@@ -733,6 +736,19 @@ async def web_search(
 ) -> WebSearchResultType:
     """Multi-provider web search returning lightweight results (title, link, snippet, provider_count).
     Default discovery tool. Set rewrite=False only for exact-literals: errors, URLs, versions, hashes.
+    Uses provider_count as an agreement signal across multiple sources.
+
+    When to use:
+    - Initial research and discovery before deeper content extraction
+    - Fact-checking with multi-source verification
+    - Finding authoritative sources on any topic
+
+    When not to use:
+    - Use get_content to extract full page content from a known URL
+    - Use gemini_search or perplexity_search for AI-synthesized answers
+
+    Configuration requires SEARXNG_BASE_URL and TAVILY_API_KEY environment variables.
+    num_results default is 10; recommended range is 5-25. rewrite=True enables normal discovery (best for most queries). rewrite=False is for exact lookups.
     """
 
     start_time = time.time()
@@ -2080,7 +2096,16 @@ async def generate_semantic_sitemap(
 
     from .content.sitemap import SitemapConfig, crawl_and_extract_pages
 
-    emit_tool_observability_event(LOGGER, "generate_semantic_sitemap", url=url)
+    emit_tool_observability_event(
+        LOGGER,
+        "generate_semantic_sitemap",
+        "request",
+        url=url,
+        max_pages=max_pages,
+        max_depth=max_depth,
+        heading_preview_chars=heading_preview_chars,
+        generate_llms_txt=generate_llms_txt,
+    )
 
     config = SitemapConfig(
         max_pages=max(1, min(max_pages, 500)),

@@ -15,6 +15,9 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "discover_links",
         "gemini_search",
         "perplexity_search",
+        "generate_semantic_sitemap",
+        "youtube_search",
+        "youtube_transcript",
     }
 )
 
@@ -114,15 +117,15 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         idempotent=False,
     ),
     "youtube_search": _entry(
-        "youtube_search", "YouTube Search", {"full"}
+        "youtube_search", "YouTube Search", {"regular", "full"}
     ),
     "youtube_transcript": _entry(
-        "youtube_transcript", "YouTube Transcript", {"full"}
+        "youtube_transcript", "YouTube Transcript", {"regular", "full"}
     ),
     "generate_semantic_sitemap": _entry(
         "generate_semantic_sitemap",
         "Generate Semantic Sitemap",
-        {"research", "full"},
+        {"regular", "research", "full"},
         expensive=True,
     ),
 }
