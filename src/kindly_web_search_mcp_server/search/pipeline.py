@@ -12,7 +12,7 @@ from ..cache.result_memory import get_result_memory_store
 from ..embeddings import embed_query
 from ..models import WebSearchResponse
 from ..settings import settings
-from ..telemetry import record_domain_diversity
+from ..telemetry import record_domain_diversity, record_search_request
 from ..training.query_understanding_jsonl import append_query_outcome_record
 from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
@@ -102,7 +102,12 @@ async def run_search_pipeline(
         rewrite_enabled=rewrite,
     )
     if rewrite:
-        rewrite_variants, rewrite_model = await build_rewrite_variants(
+        (
+            rewrite_variants,
+            rewrite_model,
+            rewrite_input_tokens,
+            rewrite_output_tokens,
+        ) = await build_rewrite_variants(
             context=context,
             understanding_intent=context.intent,
             must_keep_terms=list(context.must_keep_terms),
@@ -120,6 +125,8 @@ async def run_search_pipeline(
             )
         ]
         rewrite_model = "disabled"
+        rewrite_input_tokens = None
+        rewrite_output_tokens = None
 
     emit_observability_event(
         logger,
@@ -150,7 +157,10 @@ async def run_search_pipeline(
                 branch_type=getattr(variant, "branch_type", None),
                 max_results=getattr(variant, "max_results", None),
                 model=rewrite_model,
+                model_used=rewrite_model,
                 duration_ms=None,
+                input_tokens=rewrite_input_tokens,
+                output_tokens=rewrite_output_tokens,
                 payload_json={
                     "must_keep_terms": getattr(variant, "must_keep_terms", None),
                 },
@@ -481,6 +491,11 @@ async def run_search_pipeline(
         candidate_count=candidate_count,
         has_more=has_more,
         next_offset=next_offset,
+    )
+    record_search_request(
+        providers_used=response.providers_used or [],
+        duration_seconds=duration_ms / 1000.0,
+        result_count=len(final_results),
     )
 
     try:

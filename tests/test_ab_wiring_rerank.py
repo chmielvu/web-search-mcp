@@ -211,7 +211,7 @@ class TestPipelineABWiringRerank:
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"
-            mock_rewrite.return_value = ([], "none")
+            mock_rewrite.return_value = ([], "none", None, None)
             mock_exec.return_value = MagicMock(
                 result_lists=[],
                 branch_queries=[],
@@ -233,6 +233,7 @@ class TestPipelineABWiringRerank:
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_client.return_value.__aenter__.return_value = MagicMock()
+            mock_client.return_value.aclose = AsyncMock()
 
             mock_rerank.return_value = RerankOutput(
                 results=[], embedding_context=None,
@@ -315,7 +316,7 @@ class TestPipelineABWiringRerank:
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"
-            mock_rewrite.return_value = ([], "none")
+            mock_rewrite.return_value = ([], "none", None, None)
             mock_exec.return_value = MagicMock(
                 result_lists=[],
                 branch_queries=[],
@@ -337,6 +338,7 @@ class TestPipelineABWiringRerank:
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_client.return_value.__aenter__.return_value = MagicMock()
+            mock_client.return_value.aclose = AsyncMock()
 
             mock_rerank.return_value = RerankOutput(
                 results=[], embedding_context=None,
@@ -427,7 +429,7 @@ class TestPipelineABWiringRerank:
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"
-            mock_rewrite.return_value = ([], "none")
+            mock_rewrite.return_value = ([], "none", None, None)
             mock_exec.return_value = MagicMock(
                 result_lists=[],
                 branch_queries=[],
@@ -449,11 +451,12 @@ class TestPipelineABWiringRerank:
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_client.return_value.__aenter__.return_value = MagicMock()
+            mock_client.return_value.aclose = AsyncMock()
 
             mock_rerank.return_value = RerankOutput(
                 results=[], embedding_context=None,
             )
-            mock_ensure_future.return_value = None
+            mock_ensure_future.side_effect = lambda coro: coro.close()
 
             await run_search_pipeline(
                 query="test query",

@@ -34,6 +34,7 @@ class LLMWorker:
             endpoint_name=generation.endpoint.name,
             model_name=generation.endpoint.model,
             content=generation.content,
+            usage=generation.usage,
         )
 
     async def complete_json(
@@ -91,6 +92,7 @@ class LLMWorker:
             endpoint_name=generation.endpoint.name,
             model_name=generation.endpoint.model,
             content=generation.content,
+            usage=generation.usage,
         )
 
 

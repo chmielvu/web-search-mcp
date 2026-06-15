@@ -100,6 +100,38 @@ class TestDuckDBAnalytics(unittest.TestCase):
         if db_path.exists():
             db_path.unlink()
 
+    def test_append_event_normalizes_model_used_and_token_aliases(self) -> None:
+        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+
+        import duckdb
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        if db_path.exists():
+            db_path.unlink()
+
+        append_event(
+            "tool.gemini_search.response",
+            {
+                "tool_name": "gemini_search",
+                "query": "FastMCP docs",
+                "model_used": "gemini-2.5-flash",
+                "input_tokens": 37,
+                "output_tokens": 19,
+            },
+            db_path=str(db_path),
+        )
+
+        con = duckdb.connect(str(db_path), read_only=True)
+        row = con.execute(
+            "SELECT model, model_used, input_tokens, output_tokens FROM search_events"
+        ).fetchone()
+        con.close()
+
+        self.assertEqual(row, ("gemini-2.5-flash", "gemini-2.5-flash", 37, 19))
+
+        if db_path.exists():
+            db_path.unlink()
+
     def test_append_event_normalizes_agentic_completion_shape(self) -> None:
         from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
 

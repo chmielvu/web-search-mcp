@@ -18,7 +18,13 @@ class LLMRerankOutcome:
     endpoint_name: str
     model: str
     ranked: list[RerankResult]
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     error: Exception | None = None
+
+    @property
+    def model_used(self) -> str:
+        return self.model
 
 
 def _build_candidate_window(
@@ -72,7 +78,11 @@ async def rerank_with_llm(
         len(candidates) if candidate_limit is None else candidate_limit,
     )
     if not window:
-        return LLMRerankOutcome(endpoint_name="gpt-oss-worker", model="gpt-oss-120b", ranked=[])
+        return LLMRerankOutcome(
+            endpoint_name="gpt-oss-worker",
+            model="gpt-oss-120b",
+            ranked=[],
+        )
 
     worker = build_llm_worker()
     request = StructuredLLMRequest(
@@ -110,4 +120,6 @@ async def rerank_with_llm(
         endpoint_name=response.endpoint_name,
         model=response.model_name,
         ranked=ranked,
+        input_tokens=getattr(response, "input_tokens", None),
+        output_tokens=getattr(response, "output_tokens", None),
     )

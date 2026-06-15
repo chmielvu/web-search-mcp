@@ -264,6 +264,7 @@ class YouTubeSearchResponse(BaseModel):
     query: str
     results: list[WebSearchResult] = Field(default_factory=list)
     total_results: int = 0
+    search_backend: str | None = None  # "api" or "searxng"
 
 
 class SimilarLinkResult(BaseModel):

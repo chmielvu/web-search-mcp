@@ -29,6 +29,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..prompts.provider_grok import build_provider_grok_prompt
+from ..llm.usage import extract_llm_usage
 from ..settings import settings
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 from .base_provider import run_provider
@@ -321,7 +322,13 @@ class GrokSearchResult:
     citations: list[dict[str, str]]
     model: str
     search_queries_used: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     error: str | None = None
+
+    @property
+    def model_used(self) -> str:
+        return self.model
 
 
 # ---------------------------------------------------------------------------
@@ -432,12 +439,26 @@ async def grok_search(
                 citations = _extract_citations(message)
                 usage = data.get("usage", {})
                 server_tool_use = usage.get("server_tool_use", {})
+                token_usage = extract_llm_usage(usage)
 
                 search_queries = server_tool_use.get("web_search_requests", 0)
 
                 span.set_attribute("search.citation_count", len(citations))
                 span.set_attribute("search.answer_chars", len(answer))
                 span.set_attribute("search.web_search_requests", search_queries)
+                if token_usage:
+                    if token_usage.input_tokens is not None:
+                        span.set_attribute(
+                            "gen_ai.usage.prompt_tokens", token_usage.input_tokens
+                        )
+                    if token_usage.output_tokens is not None:
+                        span.set_attribute(
+                            "gen_ai.usage.completion_tokens", token_usage.output_tokens
+                        )
+                    if token_usage.total_tokens is not None:
+                        span.set_attribute(
+                            "gen_ai.usage.total_tokens", token_usage.total_tokens
+                        )
                 set_span_success(span, result_count=len(citations))
                 return GrokSearchResult(
                     query=query,
@@ -445,6 +466,8 @@ async def grok_search(
                     citations=citations,
                     model=data.get("model", resolved_model),
                     search_queries_used=search_queries,
+                    input_tokens=token_usage.input_tokens if token_usage else None,
+                    output_tokens=token_usage.output_tokens if token_usage else None,
                 )
             except Exception as exc:
                 set_span_error(span, exc)

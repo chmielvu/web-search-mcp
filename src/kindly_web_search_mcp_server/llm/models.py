@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .usage import LLMUsage
+
 
 @dataclass(frozen=True, slots=True)
 class LLMEndpoint:
@@ -22,3 +24,8 @@ class LLMGeneration:
 
     endpoint: LLMEndpoint
     content: str
+    usage: LLMUsage | None = None
+
+    @property
+    def model_used(self) -> str:
+        return self.endpoint.model

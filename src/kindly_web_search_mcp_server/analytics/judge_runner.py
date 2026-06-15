@@ -89,10 +89,14 @@ async def run_judge_evaluation(
     )
 
     try:
+        tokens_used = None
+        if result.input_tokens is not None or result.output_tokens is not None:
+            tokens_used = (result.input_tokens or 0) + (result.output_tokens or 0)
         insert_judge_evaluation(
             run_key=run_key,
             tool_name=tool_name,
             judge_model=result.judge_model,
+            model_used=result.model_used,
             relevance_score=result.relevance_score,
             relevance_raw=result.relevance_raw,
             relevance_scale="1-4",
@@ -102,7 +106,9 @@ async def run_judge_evaluation(
             overall_score=result.relevance_score,
             rationale=result.reasoning,
             duration_ms=result.duration_ms,
-            tokens_used=None,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            tokens_used=tokens_used,
             cost_usd=None,
             payload_json={
                 "relevance_raw": result.relevance_raw,

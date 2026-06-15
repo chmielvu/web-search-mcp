@@ -49,6 +49,10 @@ def transcript_cmd(
         Literal["text", "timestamped", "json"],
         typer.Option("--format"),
     ] = "text",
+    backend: Annotated[
+        str | None,
+        typer.Option("--backend", help="Transcript backend: auto, ytdlp, api."),
+    ] = None,
 ) -> None:
     try:
         payload = asyncio.run(
@@ -57,6 +61,7 @@ def transcript_cmd(
                 language=language,
                 translate_to=translate_to,
                 format=format,
+                backend=backend,
             )
         )
     except asyncio.TimeoutError as exc:

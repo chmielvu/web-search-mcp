@@ -91,6 +91,9 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                 "kindly_web_search_mcp_server.search.pipeline.maybe_extract_entities",
                 new_callable=AsyncMock,
             ) as mock_entities,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.record_search_request",
+            ) as mock_record_search,
         ):
             mock_understanding.return_value = _understanding()
             mock_rewrite.return_value = (
@@ -111,6 +114,8 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                     ),
                 ],
                 "vercel",
+                None,
+                None,
             )
             mock_execute.return_value = batch
             mock_memory_inject.return_value = (
@@ -139,6 +144,7 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
         assert mock_rerank.awaited
         assert mock_memory_store.awaited
         assert mock_entities.awaited
+        mock_record_search.assert_called_once()
 
     asyncio.run(_run())
 
@@ -205,6 +211,8 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
                     ),
                 ],
                 "vercel",
+                None,
+                None,
             )
 
             async def _execute(branch_specs, **kwargs):  # noqa: ANN001

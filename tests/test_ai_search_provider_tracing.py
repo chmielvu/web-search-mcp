@@ -61,6 +61,11 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                 self.calls.append((model, contents, config))
 
                 class _Response:
+                    usage_metadata = SimpleNamespace(
+                        prompt_token_count=14,
+                        response_token_count=8,
+                        total_token_count=22,
+                    )
                     text = json.dumps(
                         {
                             "summary": "short",
@@ -95,6 +100,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result["model"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["model_used"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["input_tokens"], 14)
+        self.assertEqual(result["output_tokens"], 8)
         self.assertEqual(span.attributes["summary.key_points_count"], 1)
         self.assertEqual(span.attributes["summary.important_entities_count"], 0)
         self.assertEqual(mock_create.call_args.kwargs["system"], "gemini")
@@ -119,6 +127,11 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                 return {
                     "choices": [{"message": {"content": "Answer with sources"}}],
                     "citations": ["https://example.com"],
+                    "usage": {
+                        "prompt_tokens": 12,
+                        "completion_tokens": 6,
+                        "total_tokens": 18,
+                    },
                 }
 
         class FakeClient:
@@ -140,6 +153,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result["sources"], ["https://example.com"])
+        self.assertEqual(result["model_used"], "perplexity-fast")
+        self.assertEqual(result["input_tokens"], 12)
+        self.assertEqual(result["output_tokens"], 6)
         self.assertEqual(span.attributes["search.source_count"], 1)
         self.assertEqual(mock_create.call_args.kwargs["system"], "pollinations")
         self.assertEqual(
@@ -189,7 +205,11 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                     ],
                     "model": "gemini-search",
                     "provider": "vertex-ai",
-                    "usage": {},
+                    "usage": {
+                        "prompt_tokens": 18,
+                        "completion_tokens": 9,
+                        "total_tokens": 27,
+                    },
                 }
 
         class FakeClient:
@@ -226,6 +246,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             mock_create.call_args.kwargs["attributes"]["search.num_results_requested"],
             1,
         )
+        self.assertEqual(result["model_used"], "gemini-search")
+        self.assertEqual(result["input_tokens"], 18)
+        self.assertEqual(result["output_tokens"], 9)
 
     async def test_grok_paths_trace_request(self) -> None:
         from kindly_web_search_mcp_server.search.grok import (
@@ -307,7 +330,12 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                             }
                         }
                     ],
-                    "usage": {"server_tool_use": {"web_search_requests": 1}},
+                    "usage": {
+                        "server_tool_use": {"web_search_requests": 1},
+                        "prompt_tokens": 20,
+                        "completion_tokens": 11,
+                        "total_tokens": 31,
+                    },
                     "model": "x-ai/grok-4.3",
                 }
 
@@ -343,6 +371,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             tool_create.call_args.kwargs["attributes"]["gen_ai.request.model"],
             "x-ai/grok-4.3",
         )
+        self.assertEqual(result.model_used, "x-ai/grok-4.3")
+        self.assertEqual(result.input_tokens, 20)
+        self.assertEqual(result.output_tokens, 11)
 
     async def test_gemini_search_with_grounding_traces_request(self) -> None:
         from kindly_web_search_mcp_server.search.gemini_search_tool import (
@@ -387,6 +418,11 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             def __init__(self) -> None:
                 self.candidates = [FakeCandidate()]
                 self.parsed = None
+                self.usage_metadata = SimpleNamespace(
+                    prompt_token_count=15,
+                    response_token_count=7,
+                    total_token_count=22,
+                )
 
         class FakeTypes:
             @staticmethod
@@ -434,6 +470,8 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.model_used, "gemini-2.5-flash")
+        self.assertEqual(result.input_tokens, 15)
+        self.assertEqual(result.output_tokens, 7)
         self.assertEqual(span.attributes["search.grounding_chunk_count"], 1)
         self.assertEqual(span.attributes["search.model_used"], "gemini-2.5-flash")
         self.assertEqual(mock_create.call_args.kwargs["system"], "google")

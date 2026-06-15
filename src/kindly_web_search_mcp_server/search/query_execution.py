@@ -11,7 +11,7 @@ from opentelemetry import trace
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..telemetry import add_results_to_span, get_search_total_metric, get_tracer
+from ..telemetry import add_results_to_span, get_tracer
 from ..utils.async_helpers import gather_with_deadline, task_completed_successfully
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
@@ -236,7 +236,6 @@ async def search_single_query(
 
             total_duration = time.time() - start_time
             span.set_attribute("total_duration_ms", total_duration * 1000)
-            get_search_total_metric().add(1)
             return results
         except Exception as exc:
             span.record_exception(exc)

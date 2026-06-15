@@ -23,7 +23,13 @@ class SearchRelevanceResult:
     reasoning: str
     judge_model: str
     duration_ms: float
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     error: str | None = None
+
+    @property
+    def model_used(self) -> str:
+        return self.judge_model
 
 
 _RELEVANCE_SYSTEM_PROMPT = """You are an information retrieval evaluation expert.
@@ -136,6 +142,8 @@ class SearchRelevanceJudge:
                 reasoning="No results to evaluate",
                 judge_model=self.model,
                 duration_ms=0.0,
+                input_tokens=None,
+                output_tokens=None,
                 error="no_results",
             )
 
@@ -190,6 +198,8 @@ class SearchRelevanceJudge:
                 reasoning=reasoning,
                 judge_model=self.model,
                 duration_ms=duration_ms,
+                input_tokens=generation.input_tokens,
+                output_tokens=generation.output_tokens,
             )
 
         except Exception as exc:
@@ -203,6 +213,8 @@ class SearchRelevanceJudge:
                 reasoning="",
                 judge_model=self.model,
                 duration_ms=duration_ms,
+                input_tokens=None,
+                output_tokens=None,
                 error=f"{type(exc).__name__}: {exc}",
             )
 

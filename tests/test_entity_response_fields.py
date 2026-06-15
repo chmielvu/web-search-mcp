@@ -109,6 +109,8 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
                 )
             ],
             "vercel",
+            None,
+            None,
         )
         mock_execute.return_value = batch
         mock_memory_inject.return_value = (

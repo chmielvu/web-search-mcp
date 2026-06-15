@@ -7,6 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -19,6 +20,9 @@ from kindly_web_search_mcp_server.search.gemini_search_tool import (
     _is_gemini_model,
     get_system_prompt,
     gemini_search_with_grounding,
+)
+from kindly_web_search_mcp_server.prompts.provider_gemini import (
+    build_provider_gemini_prompt,
 )
 
 
@@ -60,7 +64,12 @@ def _fake_grounding_response() -> SimpleNamespace:
                     ),
                 ),
             )
-        ]
+        ],
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=15,
+            response_token_count=7,
+            total_token_count=22,
+        ),
     )
 
 
@@ -76,21 +85,21 @@ class TestGeminiFallbackTier(unittest.TestCase):
         """Verify hardcoded fallback tier order."""
         self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-2.5-flash")
         self.assertEqual(GEMINI_GROUNDING_TIER[1], "gemini-2.5-flash-lite")
-        self.assertEqual(GEMINI_GROUNDING_TIER[2], "gemma-4-31b-it")
+        self.assertEqual(GEMINI_GROUNDING_TIER[2], "gemini-3.1-flash-lite")
         self.assertEqual(len(GEMINI_GROUNDING_TIER), 3)
 
     def test_primary_is_gemini_flash(self) -> None:
         """Primary model should be Gemini 2.5 Flash."""
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[0]))
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[1]))
-        self.assertFalse(_is_gemini_model(GEMINI_GROUNDING_TIER[2]))
+        self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[2]))
 
 
 class TestGeminiStructuredSchema(unittest.TestCase):
     def test_structured_output_schema_has_no_additional_properties(self) -> None:
         """Gemini rejects structured schemas containing additionalProperties."""
         schema = GeminiResearchOutput.model_json_schema()
-        self.assertNotIn("additionalProperties", str(schema))
+        self.assertNotIn("additionalProperties", schema)
 
 
 class TestGeminiSystemInstructionHandling(unittest.TestCase):
@@ -101,7 +110,7 @@ class TestGeminiSystemInstructionHandling(unittest.TestCase):
         self.assertTrue(_is_gemini_model("gemini-1.5-pro"))
 
     def test_gemma_models_do_not_accept_system_instruction(self) -> None:
-        """Gemma models should NOT be identified for system_instruction."""
+        """Non-Gemini models should NOT be identified for system_instruction."""
         self.assertFalse(_is_gemini_model("gemma-4-31b-it"))
         self.assertFalse(_is_gemini_model("gemma-3"))
 
@@ -109,23 +118,23 @@ class TestGeminiSystemInstructionHandling(unittest.TestCase):
         """System prompt should include current date."""
         prompt = get_system_prompt()
         self.assertIn("Today is", prompt)
-        # Date format: "May 11, 2026" style
         import re
-        date_pattern = r"Today is [A-Z][a-z]+ \d{1,2}, \d{4}"
+        date_pattern = r"Today is \d{4}-\d{2}-\d{2}\."
         self.assertTrue(re.search(date_pattern, prompt) is not None)
 
     def test_system_prompt_with_research_goal(self) -> None:
-        """System prompt should incorporate research goal."""
+        """The provider prompt should incorporate research goal in the user message."""
         goal = "Focus on security vulnerabilities in Log4j"
-        prompt = get_system_prompt(research_goal=goal)
-        self.assertIn(goal, prompt)
+        _, user_prompt = build_provider_gemini_prompt(
+            query="", research_goal=goal, provider_name="gemini"
+        )
+        self.assertIn(goal, user_prompt)
 
     def test_system_prompt_citation_instructions(self) -> None:
         """System prompt should instruct on inline citations."""
         prompt = get_system_prompt()
-        self.assertIn("[1]", prompt)
-        self.assertIn("[2]", prompt)
-        self.assertIn("cite", prompt.lower())
+        self.assertIn("inline citations", prompt.lower())
+        self.assertIn("Prefer current, official, and primary sources.", prompt)
 
 
 class TestGeminiErrorClassification(unittest.TestCase):
@@ -187,6 +196,8 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.query, "fastmcp middleware docs")
         self.assertIn("middleware", result.answer.lower())
         self.assertEqual(result.model_used, "gemini-2.5-flash")
+        self.assertEqual(result.input_tokens, 15)
+        self.assertEqual(result.output_tokens, 7)
         self.assertEqual(len(result.grounding_chunks), 1)
         self.assertEqual(result.grounding_chunks[0]["url"], "https://gofastmcp.com/docs/middleware")
         self.assertIsNone(result.error)
@@ -230,7 +241,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIsNotNone(result.error)
-        self.assertIn("GEMINI_API_KEY", result.error)
+        self.assertIn("environment variable", result.fallback_reason or "")
 
     async def test_gemini_search_fallback_on_rate_limit(self) -> None:
         """Verify fallback on rate limit error."""
@@ -259,24 +270,38 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.model_used, "gemini-2.5-flash-lite")
         self.assertIn("gemini-2.5-flash", result.fallback_chain)
 
-    async def test_gemini_search_fallback_to_gemma(self) -> None:
-        """Verify fallback to Gemma when all Gemini models fail."""
-        client = MagicMock()
-        # Both Gemini models fail
+    async def test_gemini_search_fallback_to_second_key_model(self) -> None:
+        """Verify fallback to the second API key and Gemini 3.1 Flash Lite."""
+        primary_client = MagicMock()
+        secondary_client = MagicMock()
         exc1 = _create_mock_error(503)
         exc2 = _create_mock_error(503)
-        # Gemma succeeds
-        client.models.generate_content.side_effect = [
-            exc1,  # gemini-2.5-flash fails
-            exc2,  # gemini-2.5-flash-lite fails
-            _fake_grounding_response(),  # gemma succeeds
-        ]
+        primary_client.models.generate_content.side_effect = [exc1, exc2]
+        secondary_client.models.generate_content.return_value = _fake_grounding_response()
+
+        seen_api_keys: list[str | None] = []
+
+        def _get_client(api_key: str | None = None) -> Any | None:
+            seen_api_keys.append(api_key)
+            if api_key == "primary-key":
+                return primary_client
+            if api_key == "secondary-key":
+                return secondary_client
+            return None
 
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=False),
             patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool.settings.gemini_api_key",
+                "primary-key",
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool.settings.gemini_second_api_key",
+                "secondary-key",
+            ),
+            patch(
                 "kindly_web_search_mcp_server.search.gemini_search_tool.get_gemini_client",
-                return_value=client,
+                side_effect=_get_client,
             ),
         ):
             result = await gemini_search_with_grounding(
@@ -284,9 +309,9 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
                 structured_output=False,
             )
 
-        self.assertEqual(result.model_used, "gemma-4-31b-it")
+        self.assertEqual(result.model_used, "gemini-3.1-flash-lite")
         self.assertEqual(len(result.fallback_chain), 3)
-        # Handle optional fallback_reason
+        self.assertEqual(seen_api_keys, ["primary-key", "primary-key", "secondary-key"])
         if result.fallback_reason:
             self.assertIn("service_unavailable", result.fallback_reason)
 

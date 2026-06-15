@@ -25,6 +25,8 @@ class RankedStageOutcome:
     duration_seconds: float
     relevance_scores: list[float]
     max_score: float
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     error: Exception | None = None
 
 
@@ -33,6 +35,8 @@ def _apply_ranked_stage(
     stage_name: str,
     provider: str,
     model: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
     input_candidates: list[WebSearchResult],
     ranked_results: list,
     duration_seconds: float,
@@ -68,6 +72,8 @@ def _apply_ranked_stage(
         stage_name=stage_name,
         provider=provider,
         model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         input_count=len(input_candidates),
         output_count=len(candidates),
         duration_seconds=duration_seconds,
@@ -89,6 +95,8 @@ def _apply_ranked_stage(
         duration_seconds=duration_seconds,
         relevance_scores=relevance_scores,
         max_score=max_score,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -127,6 +135,8 @@ async def run_cross_encoder_stage(
             duration_seconds=duration_seconds,
             relevance_scores=[],
             max_score=0.0,
+            input_tokens=None,
+            output_tokens=None,
             error=outcome.error,
         )
     payload_json = {
@@ -139,6 +149,8 @@ async def run_cross_encoder_stage(
         stage_name=outcome.engine_id,
         provider=outcome.engine_id,
         model=outcome.model,
+        input_tokens=None,
+        output_tokens=None,
         input_candidates=candidates,
         ranked_results=outcome.ranked,
         duration_seconds=duration_seconds,
@@ -197,6 +209,8 @@ async def run_llm_stage(
             duration_seconds=duration_seconds,
             relevance_scores=[],
             max_score=0.0,
+            input_tokens=None,
+            output_tokens=None,
             error=exc,
         )
     duration_seconds = time.time() - stage_start
@@ -211,6 +225,8 @@ async def run_llm_stage(
             duration_seconds=duration_seconds,
             relevance_scores=[],
             max_score=0.0,
+            input_tokens=outcome.input_tokens,
+            output_tokens=outcome.output_tokens,
         )
     payload_json = {
         "original_count": len(candidates),
@@ -221,6 +237,8 @@ async def run_llm_stage(
         stage_name="llm_rerank",
         provider=outcome.endpoint_name,
         model=outcome.model,
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
         input_candidates=candidates,
         ranked_results=outcome.ranked,
         duration_seconds=duration_seconds,

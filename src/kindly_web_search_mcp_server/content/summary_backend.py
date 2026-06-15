@@ -10,6 +10,7 @@ from google import genai
 from google.genai import types
 
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
+from ..llm.usage import extract_llm_usage, llm_usage_fields
 from .summary_models import SummaryError, SummaryMode, SummaryOutput
 
 
@@ -197,7 +198,7 @@ async def _generate_summary(
     mode: SummaryMode,
     focus_query: str | None,
     use_url_context: bool,
-) -> SummaryOutput:
+) -> tuple[SummaryOutput, Any | None]:
     client = _get_client()
     config = _make_config(
         use_url_context=use_url_context,
@@ -216,7 +217,7 @@ async def _generate_summary(
         contents=contents,
         config=config,
     )
-    return _parse_summary(_response_text(response))
+    return _parse_summary(_response_text(response)), extract_llm_usage(response)
 
 
 async def summarize_with_fallback(
@@ -246,7 +247,7 @@ async def summarize_with_fallback(
         },
     ) as span:
         try:
-            summary = await _generate_summary(
+            summary, usage = await _generate_summary(
                 model_id=primary_model,
                 source_text=source_text,
                 source_urls=source_urls_list or None,
@@ -264,7 +265,7 @@ async def summarize_with_fallback(
                 primary_exc,
             )
             try:
-                summary = await _generate_summary(
+                summary, usage = await _generate_summary(
                     model_id=fallback_model,
                     source_text=source_text,
                     source_urls=source_urls_list or None,
@@ -281,8 +282,16 @@ async def summarize_with_fallback(
     payload = summary.model_dump()
     payload["mode"] = mode
     payload["model"] = model_used
+    payload.update(llm_usage_fields(model_used=model_used, usage=usage))
     payload["backend"] = backend
     span.set_attribute("gen_ai.response.model", model_used)
+    if usage:
+        if usage.input_tokens is not None:
+            span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+        if usage.output_tokens is not None:
+            span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+        if usage.total_tokens is not None:
+            span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
     span.set_attribute("summary.backend", backend)
     span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
     span.set_attribute(

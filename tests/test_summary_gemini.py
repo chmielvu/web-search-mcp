@@ -5,6 +5,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -55,6 +56,11 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         )
+        fake_client.models.effects[0].usage_metadata = SimpleNamespace(
+            prompt_token_count=14,
+            response_token_count=8,
+            total_token_count=22,
+        )
 
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "token"}, clear=False),
@@ -76,6 +82,9 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["summary"], "Test summary")
         self.assertEqual(result["model"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["model_used"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["input_tokens"], 14)
+        self.assertEqual(result["output_tokens"], 8)
         self.assertEqual(result["backend"], "gemini-api")
 
         model, contents, config = fake_client.models.calls[0]
@@ -104,6 +113,11 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
                 ),
             ]
         )
+        fake_client.models.effects[1].usage_metadata = SimpleNamespace(
+            prompt_token_count=13,
+            response_token_count=6,
+            total_token_count=19,
+        )
 
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "token"}, clear=False),
@@ -125,6 +139,9 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["summary"], "Fallback summary")
         self.assertEqual(result["model"], "gemma-4-26b-a4b-it")
+        self.assertEqual(result["model_used"], "gemma-4-26b-a4b-it")
+        self.assertEqual(result["input_tokens"], 13)
+        self.assertEqual(result["output_tokens"], 6)
         self.assertEqual(result["backend"], "gemma-fallback")
         self.assertEqual(len(fake_client.models.calls), 2)
         self.assertEqual(fake_client.models.calls[0][0], "gemini-3.1-flash-lite")

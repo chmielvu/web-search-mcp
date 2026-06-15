@@ -90,6 +90,8 @@ async def resolve_query_understanding(
     fallback_reason = "Query classifier unavailable; defaulting to general."
     result_model_name = "fallback-general"
     result_provider_name = "fallback"
+    result_input_tokens: int | None = None
+    result_output_tokens: int | None = None
     fallback_used = False
     control_start = time_module.monotonic()
     langfuse_trace = LangfuseTraceContext(
@@ -120,6 +122,8 @@ async def resolve_query_understanding(
             )
             result_model_name = generation.endpoint.model
             result_provider_name = generation.endpoint.name
+            result_input_tokens = generation.input_tokens
+            result_output_tokens = generation.output_tokens
             content = generation.content
         else:
             # Production path: use the standard LLMWorker
@@ -139,6 +143,8 @@ async def resolve_query_understanding(
             )
             result_model_name = result.model_name
             result_provider_name = result.endpoint_name
+            result_input_tokens = result.input_tokens
+            result_output_tokens = result.output_tokens
             content = result.content
 
         control_duration_ms = (time_module.monotonic() - control_start) * 1000
@@ -211,7 +217,10 @@ async def resolve_query_understanding(
         confidence=understanding.confidence,
         should_decompose=understanding.should_decompose,
         model=result_model_name,
+        model_used=result_model_name,
         provider=result_provider_name,
+        input_tokens=result_input_tokens,
+        output_tokens=result_output_tokens,
         entities=[entity.model_dump() for entity in understanding.entities],
         preserved_terms=understanding.preserved_terms,
         fallback=fallback_used,
@@ -254,10 +263,13 @@ async def resolve_query_understanding(
                 confidence=understanding.confidence,
                 should_decompose=understanding.should_decompose,
                 model=result_model_name,
+                model_used=result_model_name,
                 provider=result_provider_name,
                 fallback_used=fallback_used,
                 rationale=understanding.rationale,
                 entities_count=len(understanding.entities or []),
+                input_tokens=result_input_tokens,
+                output_tokens=result_output_tokens,
                 preserved_terms=understanding.preserved_terms or [],
                 time_sensitivity=understanding.time_sensitivity,
                 payload_json={

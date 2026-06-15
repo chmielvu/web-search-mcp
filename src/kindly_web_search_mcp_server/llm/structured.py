@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .langfuse_tracing import LangfuseTraceContext
+from .usage import LLMUsage
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,3 +25,16 @@ class StructuredLLMResponse:
     endpoint_name: str
     model_name: str
     content: str
+    usage: LLMUsage | None = None
+
+    @property
+    def model_used(self) -> str:
+        return self.model_name
+
+    @property
+    def input_tokens(self) -> int | None:
+        return self.usage.input_tokens if self.usage else None
+
+    @property
+    def output_tokens(self) -> int | None:
+        return self.usage.output_tokens if self.usage else None

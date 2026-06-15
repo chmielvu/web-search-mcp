@@ -10,6 +10,7 @@ from typing import Any
 
 import duckdb
 
+from ..llm.usage import extract_llm_usage
 from ..settings import settings
 
 _LOCK = threading.Lock()
@@ -48,6 +49,12 @@ def _provider_value(payload: dict[str, Any]) -> str | None:
     value = payload.get("provider")
     if value is None:
         value = payload.get("provider_name")
+    return value if isinstance(value, str) else None
+
+def _model_used_value(payload: dict[str, Any]) -> str | None:
+    value = payload.get("model_used")
+    if value is None:
+        value = payload.get("model")
     return value if isinstance(value, str) else None
 
 def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
@@ -118,6 +125,27 @@ def _output_count_value(payload: dict[str, Any]) -> int | None:
     )
     return value
 
+def _input_tokens_value(payload: dict[str, Any]) -> int | None:
+    usage = extract_llm_usage(payload)
+    return usage.input_tokens if usage else None
+
+def _output_tokens_value(payload: dict[str, Any]) -> int | None:
+    usage = extract_llm_usage(payload)
+    return usage.output_tokens if usage else None
+
+def _ensure_columns(
+    connection: duckdb.DuckDBPyConnection,
+    table_name: str,
+    additions: dict[str, str],
+) -> None:
+    existing = {
+        row[1]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column, column_type in additions.items():
+        if column not in existing:
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {column_type}")
+
 def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f"""
@@ -133,9 +161,12 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             research_goal VARCHAR,
             provider VARCHAR,
             model VARCHAR,
+            model_used VARCHAR,
             duration_ms DOUBLE,
             input_count INTEGER,
             output_count INTEGER,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
             trace_id VARCHAR,
             span_id VARCHAR,
             cache_hit VARCHAR,
@@ -153,6 +184,9 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
         "tool_name": "VARCHAR",
         "phase": "VARCHAR",
         "cache_hit": "VARCHAR",
+        "model_used": "VARCHAR",
+        "input_tokens": "INTEGER",
+        "output_tokens": "INTEGER",
     }
     for column, column_type in additions.items():
         if column not in existing:
@@ -197,6 +231,18 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         f"""
         UPDATE {_TABLE_NAME}
+        SET model_used = coalesce(
+            model_used,
+            model,
+            json_extract_string(payload_json, '$.model_used'),
+            json_extract_string(payload_json, '$.model')
+        )
+        WHERE model_used IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
         SET input_count = coalesce(
             input_count,
             CAST(json_extract_string(payload_json, '$.input_count') AS INTEGER),
@@ -224,6 +270,32 @@ def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
             CAST(json_extract_string(payload_json, '$.sources_count') AS INTEGER)
         )
         WHERE output_count IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET input_tokens = coalesce(
+            input_tokens,
+            CAST(json_extract_string(payload_json, '$.input_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.input_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.prompt_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.prompt_token_count') AS INTEGER)
+        )
+        WHERE input_tokens IS NULL
+        """
+    )
+    connection.execute(
+        f"""
+        UPDATE {_TABLE_NAME}
+        SET output_tokens = coalesce(
+            output_tokens,
+            CAST(json_extract_string(payload_json, '$.output_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.output_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.completion_tokens') AS INTEGER),
+            CAST(json_extract_string(payload_json, '$.usage.response_token_count') AS INTEGER)
+        )
+        WHERE output_tokens IS NULL
         """
     )
     connection.execute(
@@ -382,15 +454,27 @@ def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
             should_decompose BOOLEAN,
             rationale VARCHAR,
             model VARCHAR,
+            model_used VARCHAR,
             provider VARCHAR,
             duration_ms DOUBLE,
             fallback_used BOOLEAN,
             entities_count INTEGER,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
             preserved_terms VARCHAR[],
             time_sensitivity VARCHAR,
             payload_json JSON
         )
         """
+    )
+    _ensure_columns(
+        connection,
+        _QU_TABLE_NAME,
+        {
+            "model_used": "VARCHAR",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+        },
     )
 
 def insert_query_understanding(
@@ -417,10 +501,13 @@ def insert_query_understanding(
         "should_decompose",
         "rationale",
         "model",
+        "model_used",
         "provider",
         "duration_ms",
         "fallback_used",
         "entities_count",
+        "input_tokens",
+        "output_tokens",
         "preserved_terms",
         "time_sensitivity",
         "payload_json",
@@ -461,10 +548,22 @@ def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
             reason VARCHAR,
             max_results INTEGER,
             model VARCHAR,
+            model_used VARCHAR,
             duration_ms DOUBLE,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
             payload_json JSON
         )
         """
+    )
+    _ensure_columns(
+        connection,
+        _QR_TABLE_NAME,
+        {
+            "model_used": "VARCHAR",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+        },
     )
 
 def insert_query_rewrites(
@@ -495,7 +594,10 @@ def insert_query_rewrites(
         "reason",
         "max_results",
         "model",
+        "model_used",
         "duration_ms",
+        "input_tokens",
+        "output_tokens",
         "payload_json",
     ]
 
@@ -682,8 +784,11 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
             stage VARCHAR NOT NULL,
             provider VARCHAR,
             model VARCHAR,
+            model_used VARCHAR,
             input_count INTEGER,
             output_count INTEGER,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
             duration_ms DOUBLE,
             max_score DOUBLE,
             avg_score DOUBLE,
@@ -695,6 +800,15 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
             payload_json JSON
         )
         '''
+    )
+    _ensure_columns(
+        connection,
+        _RS_TABLE_NAME,
+        {
+            "model_used": "VARCHAR",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+        },
     )
 
 
@@ -708,8 +822,8 @@ def insert_rerank_stages(
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = [
-        "run_key", "stage", "provider", "model", "input_count", "output_count",
-        "duration_ms", "max_score", "avg_score", "score_threshold",
+        "run_key", "stage", "provider", "model", "model_used", "input_count", "output_count",
+        "input_tokens", "output_tokens", "duration_ms", "max_score", "avg_score", "score_threshold",
         "instruction_present", "instruction_length", "query_type_hint",
         "entity_overlap_enabled", "payload_json",
     ]
@@ -970,6 +1084,7 @@ def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
             recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             tool_name VARCHAR,
             judge_model VARCHAR,
+            model_used VARCHAR,
             relevance_score DOUBLE,
             relevance_raw INTEGER,
             relevance_scale VARCHAR,
@@ -979,11 +1094,23 @@ def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
             overall_score DOUBLE,
             rationale VARCHAR,
             duration_ms DOUBLE,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
             tokens_used INTEGER,
             cost_usd DOUBLE,
             payload_json JSON
         )
         '''
+    )
+    _ensure_columns(
+        connection,
+        _JE_TABLE_NAME,
+        {
+            "model_used": "VARCHAR",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+            "tokens_used": "INTEGER",
+        },
     )
 
 def insert_judge_evaluation(
@@ -996,10 +1123,11 @@ def insert_judge_evaluation(
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     columns = [
-        "run_key", "tool_name", "judge_model", "relevance_score",
+        "run_key", "tool_name", "judge_model", "model_used", "relevance_score",
         "relevance_raw", "relevance_scale",
         "accuracy_score", "completeness_score", "source_quality_score",
-        "overall_score", "rationale", "duration_ms", "tokens_used",
+        "overall_score", "rationale", "duration_ms", "input_tokens",
+        "output_tokens", "tokens_used",
         "cost_usd", "payload_json",
     ]
     placeholders = ", ".join("?" for _ in columns)
@@ -1186,6 +1314,8 @@ def append_event(
 
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    usage = extract_llm_usage(payload)
+    model_used = _model_used_value(payload)
 
     record = (
         str(uuid.uuid4()),
@@ -1197,10 +1327,13 @@ def append_event(
         _event_value(payload, "normalized_query"),
         _event_value(payload, "research_goal"),
         _provider_value(payload),
-        _event_value(payload, "model"),
+        model_used,
+        model_used,
         _duration_ms_value(payload),
         _input_count_value(payload),
         _output_count_value(payload),
+        usage.input_tokens if usage else _input_tokens_value(payload),
+        usage.output_tokens if usage else _output_tokens_value(payload),
         _event_value(payload, "trace_id"),
         _event_value(payload, "span_id"),
         _event_value(payload, "cache_hit"),
@@ -1225,9 +1358,12 @@ def append_event(
                     research_goal,
                     provider,
                     model,
+                    model_used,
                     duration_ms,
                     input_count,
                     output_count,
+                    input_tokens,
+                    output_tokens,
                     trace_id,
                     span_id,
                     cache_hit,
@@ -1236,6 +1372,9 @@ def append_event(
                     ?,
                     ?,
                     CURRENT_TIMESTAMP,
+                    ?,
+                    ?,
+                    ?,
                     ?,
                     ?,
                     ?,

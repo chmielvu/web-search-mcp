@@ -16,6 +16,7 @@ from ..settings import settings
 from ..telemetry import (
     RERANK_INPUT_COUNT,
     SEARCH_QUERY,
+    record_rerank_stage,
 )
 from ..utils.observability import emit_observability_event
 from .bi_encoder import bi_encoder_filter
@@ -69,9 +70,21 @@ async def rerank_results(
 ) -> RerankOutput:
     """Rerank web search results with stack-selected rerank stages."""
     if not candidates:
+        record_rerank_stage(
+            stage="empty",
+            input_count=0,
+            output_count=0,
+            duration_seconds=0.0,
+        )
         return RerankOutput(results=[], embedding_context=None)
     if len(candidates) <= top_k:
         logger.debug("Candidates (%s) <= top_k (%s), skipping rerank", len(candidates), top_k)
+        record_rerank_stage(
+            stage="bypass",
+            input_count=len(candidates),
+            output_count=len(candidates),
+            duration_seconds=0.0,
+        )
         return RerankOutput(results=candidates, embedding_context=None)
 
     if ab_overrides:
@@ -102,6 +115,12 @@ async def rerank_results(
             "Rerank bypassed by policy: reason=%s count=%s",
             decision.reason,
             len(candidates),
+        )
+        record_rerank_stage(
+            stage="policy_bypass",
+            input_count=len(candidates),
+            output_count=len(candidates),
+            duration_seconds=0.0,
         )
         emit_observability_event(
             logger,
@@ -192,7 +211,6 @@ async def rerank_results(
                 searxng_time_range=searxng_time_range,
                 original_count=original_count,
                 run_key=run_key,
-                session_id=session_id or run_key,
                 main_span=main_span,
                 logger=logger,
                 ab_entity_boost=float(ab_overrides["entity_boost"]) if ab_overrides and "entity_boost" in ab_overrides else None,

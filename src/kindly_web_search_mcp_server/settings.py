@@ -290,6 +290,7 @@ class Settings:
     grok_timeout_seconds: float = float(os.environ.get("GROK_TIMEOUT_SECONDS", "60.0"))
     # Gemini Grounding (for gemini_search MCP tool)
     gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
+    gemini_second_api_key: str = os.environ.get("GEMINI_SECOND_API_KEY", "")
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
 
     # Gemini summaries (for get_content / batch_get_content optional summaries)

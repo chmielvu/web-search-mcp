@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from ..prompts.provider_perplexity import build_provider_perplexity_prompt
+from ..llm.usage import extract_llm_usage
 from ..settings import settings
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 
@@ -48,7 +49,12 @@ class PollinationsClient:
         timeout: float = REQUEST_TIMEOUT,
         api_key: str | None = None,
     ) -> None:
-        self.base_url = settings.pollinations_base_url.rstrip("/")
+        resolved_base_url = (
+            settings.pollinations_base_url
+            if base_url == BASE_URL
+            else base_url
+        )
+        self.base_url = resolved_base_url.rstrip("/")
         self.timeout = timeout
         self.api_key = api_key or os.getenv("POLLINATIONS_API_KEY")
 
@@ -154,6 +160,7 @@ class PollinationsClient:
 
             data = response.json()
             answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = extract_llm_usage(data)
 
             # Extract citations from response
             sources = data.get("citations", [])
@@ -161,10 +168,25 @@ class PollinationsClient:
                 sources = re.findall(r'https?://[^\s<>"\']+', answer)
                 sources = list(dict.fromkeys(sources))
 
+            if usage:
+                if usage.input_tokens is not None:
+                    span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+                if usage.output_tokens is not None:
+                    span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+                if usage.total_tokens is not None:
+                    span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
             span.set_attribute("search.source_count", len(sources))
             span.set_attribute("search.answer_chars", len(answer) if isinstance(answer, str) else 0)
             set_span_success(span, result_count=len(sources))
-            return {"answer": answer, "sources": sources, "model": model, "query": query}
+            return {
+                "answer": answer,
+                "sources": sources,
+                "model": model,
+                "model_used": data.get("model", model),
+                "input_tokens": usage.input_tokens if usage else None,
+                "output_tokens": usage.output_tokens if usage else None,
+                "query": query,
+            }
 
 
 # Singleton client (lazy init)
@@ -249,6 +271,7 @@ async def gemini_grounding_search(
             raise
 
         data = response.json()
+        usage = extract_llm_usage(data)
 
         # Extract groundingMetadata from choices
         choices = data.get("choices", [])
@@ -290,6 +313,13 @@ async def gemini_grounding_search(
 
         span.set_attribute("grounding.chunk_count", len(normalized_chunks[:num_results]))
         span.set_attribute("grounding.support_count", len(normalized_supports))
+        if usage:
+            if usage.input_tokens is not None:
+                span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+            if usage.output_tokens is not None:
+                span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+            if usage.total_tokens is not None:
+                span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
         set_span_success(span, result_count=len(normalized_chunks[:num_results]))
         return {
             "groundingMetadata": {
@@ -298,7 +328,10 @@ async def gemini_grounding_search(
                 "groundingSupports": normalized_supports,
             },
             "model": data.get("model", GEMINI_SEARCH_MODEL),
+            "model_used": data.get("model", GEMINI_SEARCH_MODEL),
             "provider": data.get("provider", "vertex-ai"),
             "usage": data.get("usage", {}),
+            "input_tokens": usage.input_tokens if usage else None,
+            "output_tokens": usage.output_tokens if usage else None,
             "query": query,
         }

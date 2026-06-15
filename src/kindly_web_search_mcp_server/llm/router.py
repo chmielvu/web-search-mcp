@@ -18,6 +18,7 @@ from .config import (
     build_worker_endpoints,
 )
 from .models import LLMEndpoint, LLMGeneration
+from .usage import extract_llm_usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,11 @@ class LLMRouter:
                 response = await acompletion(**request_kwargs)
                 content = response.choices[0].message.content or ""
                 if content.strip():
-                    return LLMGeneration(endpoint=endpoint, content=content)
+                    return LLMGeneration(
+                        endpoint=endpoint,
+                        content=content,
+                        usage=extract_llm_usage(response),
+                    )
                 raise RuntimeError(f"{endpoint.name} returned empty content")
             except Exception as exc:  # sequential provider ladder, no hidden fallback
                 errors.append(exc)

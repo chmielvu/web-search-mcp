@@ -90,7 +90,7 @@ async def build_rewrite_variants(
     context: SearchContext,
     understanding_intent: SearchIntent,
     must_keep_terms: list[str],
-) -> tuple[list[QueryVariant], str]:
+) -> tuple[list[QueryVariant], str, int | None, int | None]:
     system_prompt, user_prompt = build_prompt(
         "worker_rewrite",
         query=context.normalized_query,
@@ -125,4 +125,9 @@ async def build_rewrite_variants(
         )
     )
     payload = json.loads(generation.content)
-    return parse_variant_payload(payload), generation.endpoint_name
+    return (
+        parse_variant_payload(payload),
+        generation.model_name,
+        generation.input_tokens,
+        generation.output_tokens,
+    )

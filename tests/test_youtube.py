@@ -7,7 +7,7 @@ import unittest
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from kindly_web_search_mcp_server.content.youtube import (
+from kindly_web_search_mcp_server.youtube import (
     YouTubeError,
     parse_youtube_url,
     extract_video_id,
@@ -16,9 +16,16 @@ from kindly_web_search_mcp_server.content.youtube import (
     format_transcript_timestamped,
     calculate_total_duration,
 )
-from kindly_web_search_mcp_server.search.youtube import (
+from kindly_web_search_mcp_server.youtube.models import TranscriptBackendError
+from kindly_web_search_mcp_server.youtube.search import (
     YouTubeSearchError,
     search_youtube_videos,
+)
+from kindly_web_search_mcp_server.youtube.cascade import (
+    fetch_transcript_cascade,
+)
+from kindly_web_search_mcp_server.youtube.yt_dlp_backend import (
+    _parse_json3,
 )
 
 
@@ -139,7 +146,6 @@ class TestFetchTranscriptData:
 
     def test_import_error(self) -> None:
         """Handle missing youtube-transcript-api."""
-        # Simulate ImportError by mocking the import inside the function
         import builtins
         real_import = builtins.__import__
 
@@ -154,17 +160,208 @@ class TestFetchTranscriptData:
 
     def test_transcripts_disabled(self) -> None:
         """Handle transcripts disabled error."""
-        # This test verifies the error message is correct
-        # The actual exception handling is tested via integration tests
         from youtube_transcript_api._errors import TranscriptsDisabled
 
-        # Verify the exception exists and our code handles it
         exc = TranscriptsDisabled("test_video_id")
         assert "transcripts" in str(exc).lower() or "disabled" in str(exc).lower()
 
-        # Verify our error message is formatted correctly
         error = YouTubeError("Transcripts are disabled for this video")
         assert "disabled" in str(error).lower()
+
+
+class TestParseYtdlpJson3:
+    """Test yt-dlp json3 subtitle parsing."""
+
+    def test_parse_valid_events(self) -> None:
+        """Parse standard json3 event structure."""
+        import json
+        data = {
+            "events": [
+                {
+                    "tStartMs": 0,
+                    "dDurationMs": 2000,
+                    "segs": [{"utf8": "Hello "}, {"utf8": "world"}],
+                },
+                {
+                    "tStartMs": 2000,
+                    "dDurationMs": 1500,
+                    "segs": [{"utf8": "Testing"}],
+                },
+            ]
+        }
+        raw = json.dumps(data)
+        result = _parse_json3(raw)
+        assert len(result) == 2
+        assert result[0]["text"] == "Hello world"
+        assert result[0]["start"] == 0.0
+        assert result[0]["duration"] == 2.0
+        assert result[1]["text"] == "Testing"
+        assert result[1]["start"] == 2.0
+
+    def test_parse_empty_events(self) -> None:
+        """Handle empty events list."""
+        import json
+        raw = json.dumps({"events": []})
+        assert _parse_json3(raw) == []
+
+    def test_parse_skip_empty_segments(self) -> None:
+        """Skip events with only whitespace text."""
+        import json
+        data = {
+            "events": [
+                {"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": " "}]},
+                {"tStartMs": 1000, "dDurationMs": 1000, "segs": [{"utf8": "Real text"}]},
+            ]
+        }
+        raw = json.dumps(data)
+        result = _parse_json3(raw)
+        assert len(result) == 1
+        assert result[0]["text"] == "Real text"
+
+    def test_parse_invalid_json(self) -> None:
+        """Handle invalid JSON gracefully."""
+        assert _parse_json3("not json") == []
+
+    def test_parse_none_input(self) -> None:
+        """Handle None input."""
+        assert _parse_json3(None) == []
+
+
+class TestTranscriptCascade:
+    """Test the cascade transcript orchestrator."""
+
+    def test_invalid_backend_raises(self) -> None:
+        """Reject unknown backend names."""
+        with pytest.raises(ValueError, match="Unknown backend"):
+            # Use sync wrapper since fetch_transcript_cascade is sync
+            import asyncio
+            asyncio.run(fetch_transcript_cascade("dQw4w9WgXcQ", backend="invalid"))
+
+    def test_ytdlp_backend_only_success(self) -> None:
+        """backend='ytdlp' uses only yt-dlp path."""
+        mock_segments = [{"text": "Hello", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            return_value=mock_segments,
+        ) as mock_ytdlp:
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="ytdlp"
+            )
+            assert segments == mock_segments
+            assert backend_used == "ytdlp"
+            mock_ytdlp.assert_called_once()
+
+    def test_api_backend_only_success(self) -> None:
+        """backend='api' uses only legacy path."""
+        mock_segments = [{"text": "Hello", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            return_value=mock_segments,
+        ) as mock_api:
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="api"
+            )
+            assert segments == mock_segments
+            assert backend_used == "api"
+            mock_api.assert_called_once()
+
+    def test_auto_cascade_falls_to_api(self) -> None:
+        """auto mode: yt-dlp fails → falls to legacy api."""
+        mock_segments = [{"text": "Fallback", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            side_effect=YouTubeError("blocked"),
+        ), patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            return_value=mock_segments,
+        ):
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="auto"
+            )
+            assert segments == mock_segments
+            assert backend_used == "api"
+
+    def test_auto_cascade_ytdlp_success(self) -> None:
+        """auto mode: yt-dlp succeeds on first try."""
+        mock_segments = [{"text": "Direct", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            return_value=mock_segments,
+        ):
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="auto"
+            )
+            assert segments == mock_segments
+            assert backend_used == "ytdlp"
+
+    def test_all_backends_fail_raises(self) -> None:
+        """All backends fail → TranscriptBackendError."""
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            side_effect=YouTubeError("yt-dlp failed"),
+        ), patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            side_effect=YouTubeError("api failed"),
+        ):
+            with pytest.raises(TranscriptBackendError, match="All transcript backends failed"):
+                fetch_transcript_cascade("dQw4w9WgXcQ", backend="auto")
+
+    def test_ytdlp_empty_subtitles_falls_to_api(self) -> None:
+        """yt-dlp returns empty subtitles → falls to api in auto mode."""
+        mock_segments = [{"text": "From API", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            return_value=[],  # empty = no subtitles
+        ), patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            return_value=mock_segments,
+        ):
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="auto"
+            )
+            assert segments == mock_segments
+            assert backend_used == "api"
+
+    def test_ytdlp_empty_subtitles_only_raises(self) -> None:
+        """backend='ytdlp' with empty subtitles → TranscriptBackendError."""
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            return_value=[],
+        ):
+            with pytest.raises(TranscriptBackendError, match="All transcript backends failed"):
+                fetch_transcript_cascade("dQw4w9WgXcQ", backend="ytdlp")
+
+    def test_ytdlp_import_error_falls_to_api(self) -> None:
+        """yt-dlp not installed → falls to api gracefully."""
+        mock_segments = [{"text": "Fallback", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            side_effect=YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp"),
+        ), patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            return_value=mock_segments,
+        ):
+            segments, backend_used = fetch_transcript_cascade(
+                "dQw4w9WgXcQ", backend="auto"
+            )
+            assert backend_used == "api"
+
+    def test_translation_passthrough(self) -> None:
+        """translate_to is passed through to legacy api."""
+        mock_segments = [{"text": "Hola", "start": 0.0, "duration": 1.0}]
+        with patch(
+            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+            side_effect=YouTubeError("fail"),
+        ), patch(
+            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            return_value=mock_segments,
+        ) as mock_api:
+            fetch_transcript_cascade(
+                "dQw4w9WgXcQ", language="es", translate_to="es", backend="auto"
+            )
+            mock_api.assert_called_once_with(
+                "dQw4w9WgXcQ", language="es", translate_to="es"
+            )
 
 
 class TestYouTubeSearch(unittest.IsolatedAsyncioTestCase):
@@ -204,7 +401,6 @@ class TestYouTubeSearch(unittest.IsolatedAsyncioTestCase):
             ]
         }
 
-        # Create proper mock response
         mock_response = MagicMock()
         mock_response.json.return_value = mock_response_data
         mock_response.raise_for_status = MagicMock()

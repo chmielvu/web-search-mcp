@@ -1482,6 +1482,9 @@ async def gemini_search(
             structured_output=structured_output,
             research_goal=research_goal,
             answer=response.get("answer"),
+            model_used=response.get("model_used"),
+            input_tokens=response.get("input_tokens"),
+            output_tokens=response.get("output_tokens"),
             structured_result=response.get("structured_result"),
             web_search_queries=response.get("web_search_queries", []),
             grounding_chunks=response.get("grounding_chunks", []),
@@ -1587,6 +1590,9 @@ async def perplexity_search(
             "answer": result["answer"],
             "sources": result["sources"],
             "model": result["model"],
+            "model_used": result.get("model_used", result["model"]),
+            "input_tokens": result.get("input_tokens"),
+            "output_tokens": result.get("output_tokens"),
             "error": None,
         }
         duration_seconds = time.time() - start_time
@@ -1611,6 +1617,9 @@ async def perplexity_search(
             answer=response["answer"],
             sources=response["sources"],
             model=response["model"],
+            model_used=response["model_used"],
+            input_tokens=response["input_tokens"],
+            output_tokens=response["output_tokens"],
             error=None,
         )
         _record_tool_success(
@@ -1750,6 +1759,9 @@ async def grok_search(
             "answer": result.answer,
             "citations": result.citations,
             "model": result.model,
+            "model_used": result.model_used,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
             "search_queries_used": result.search_queries_used,
             "error": result.error,
         }
@@ -1763,6 +1775,9 @@ async def grok_search(
             answer_preview=result.answer[:200],
             citations_count=len(result.citations),
             model=result.model,
+            model_used=result.model_used,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
             duration_seconds=duration_seconds,
         )
         _record_tool_success(

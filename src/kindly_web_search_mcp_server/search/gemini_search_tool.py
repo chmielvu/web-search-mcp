@@ -4,8 +4,8 @@ This module implements the dedicated gemini_search MCP tool, which provides
 AI-synthesized answers with inline citations via Gemini + Google Search grounding.
 
 Key features:
-- Hardcoded fallback tier: gemini-2.5-flash -> gemini-2.5-flash-lite -> gemma-4-31b-it
-- System instruction handling: Gemini models accept system_instruction, Gemma does not
+- Hardcoded fallback tier: gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-3.1-flash-lite
+- System instruction handling: all tiers are Gemini models and accept system_instruction
 - Practitioner-tested temperature: 0.7 with top_p=0.95
 """
 
@@ -18,11 +18,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..prompts.provider_gemini import build_provider_gemini_prompt
+from ..llm.usage import extract_llm_usage
 from ..settings import settings
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 
 logger = logging.getLogger(__name__)
-_gemini_client: Any | None = None
+_gemini_clients: dict[str, Any] = {}
 _genai_module: Any | None = None
 _genai_types: Any | None = None
 
@@ -30,7 +31,7 @@ _genai_types: Any | None = None
 GEMINI_GROUNDING_TIER = [
     "gemini-2.5-flash",  # PRIMARY - best grounding quality
     "gemini-2.5-flash-lite",  # FAST FALLBACK - low latency
-    "gemma-4-31b-it",  # COST FALLBACK - current default
+    "gemini-3.1-flash-lite",  # SECOND-KEY FALLBACK - lower-cost Gemini tier
 ]
 
 
@@ -78,6 +79,8 @@ class GeminiGroundingResult(BaseModel):
         default=None, description="Parsed structured output"
     )
     model_used: str = Field(description="Model ID used for generation")
+    input_tokens: int | None = Field(default=None, description="Input token count")
+    output_tokens: int | None = Field(default=None, description="Output token count")
     structured_output: bool = Field(
         description="Whether structured output was requested"
     )
@@ -120,13 +123,23 @@ def _get_genai_types() -> Any:
     return _genai_types
 
 
-def get_gemini_client() -> Any | None:
-    """Lazy-init Gemini client."""
-    global _gemini_client
-    if _gemini_client is None and settings.gemini_api_key:
+def _api_key_for_model(model_id: str) -> str:
+    if model_id == GEMINI_GROUNDING_TIER[-1]:
+        return settings.gemini_second_api_key
+    return settings.gemini_api_key
+
+
+def get_gemini_client(api_key: str | None = None) -> Any | None:
+    """Lazy-init Gemini client, cached per API key."""
+    resolved_api_key = (api_key or settings.gemini_api_key).strip()
+    if not resolved_api_key:
+        return None
+    client = _gemini_clients.get(resolved_api_key)
+    if client is None:
         genai = _get_genai_module()
-        _gemini_client = genai.Client(api_key=settings.gemini_api_key)
-    return _gemini_client
+        client = genai.Client(api_key=resolved_api_key)
+        _gemini_clients[resolved_api_key] = client
+    return client
 
 
 def _classify_gemini_error(exc: Exception) -> tuple[str, bool, bool]:
@@ -180,16 +193,6 @@ async def gemini_search_with_grounding(
     Returns:
         GeminiGroundingResult with answer, metadata, and grounding information
     """
-    client = get_gemini_client()
-    if not client:
-        return GeminiGroundingResult(
-            query=query,
-            answer="",
-            model_used=GEMINI_GROUNDING_TIER[0],
-            structured_output=structured_output,
-            error="Set GEMINI_API_KEY environment variable",
-        )
-
     # Format system prompt with research goal
     formatted_system_prompt = get_system_prompt(research_goal)
 
@@ -237,6 +240,16 @@ async def gemini_search_with_grounding(
         },
     ) as span:
         for model_id in GEMINI_GROUNDING_TIER:
+            api_key = _api_key_for_model(model_id)
+            client = get_gemini_client(api_key)
+            if not client:
+                fallback_reason = (
+                    f"Set {'GEMINI_SECOND_API_KEY' if model_id == GEMINI_GROUNDING_TIER[-1] else 'GEMINI_API_KEY'} "
+                    f"environment variable for {model_id}"
+                )
+                logger.warning("Skipping Gemini grounding tier %s: %s", model_id, fallback_reason)
+                continue
+
             fallback_chain.append(model_id)
 
             # Build config with model-specific system instruction handling
@@ -247,7 +260,7 @@ async def gemini_search_with_grounding(
                 config_dict["system_instruction"] = formatted_system_prompt
                 contents = query
             else:
-                # Gemma: prepend system prompt to contents
+                # Non-Gemini fallback: prepend system prompt to contents
                 contents = f"{formatted_system_prompt}\n\n{query}"
 
             # Create config before try block so it's available in retry
@@ -322,8 +335,19 @@ async def gemini_search_with_grounding(
                     ):
                         search_widget_html = metadata.search_entry_point.rendered_content
 
+                usage = extract_llm_usage(response)
+
                 span.set_attribute("gen_ai.response.model", model_id)
                 span.set_attribute("search.model_used", model_id)
+                if usage:
+                    if usage.input_tokens is not None:
+                        span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+                    if usage.output_tokens is not None:
+                        span.set_attribute(
+                            "gen_ai.usage.completion_tokens", usage.output_tokens
+                        )
+                    if usage.total_tokens is not None:
+                        span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
                 span.set_attribute("search.web_search_query_count", len(web_search_queries))
                 span.set_attribute("search.grounding_chunk_count", len(grounding_chunks))
                 span.set_attribute(
@@ -338,6 +362,8 @@ async def gemini_search_with_grounding(
                     thoughts=thoughts,
                     structured_result=structured_result,
                     model_used=model_id,
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
                     structured_output=structured_output,
                     web_search_queries=web_search_queries,
                     grounding_chunks=grounding_chunks,
@@ -391,15 +417,19 @@ async def gemini_search_with_grounding(
                             [],
                         )
                         search_widget_html = None
-                        if (
-                            response.candidates
+                        grounding_metadata = (
+                            response.candidates[0].grounding_metadata
+                            if response.candidates
                             and response.candidates[0].grounding_metadata
-                        ):
-                            md = response.candidates[0].grounding_metadata
-                            web_search_queries = list(md.web_search_queries or [])
+                            else None
+                        )
+                        if grounding_metadata:
+                            web_search_queries = list(
+                                grounding_metadata.web_search_queries or []
+                            )
                             grounding_chunks = [
                                 {"url": chunk.web.uri, "title": chunk.web.title}
-                                for chunk in md.grounding_chunks or []
+                                for chunk in grounding_metadata.grounding_chunks or []
                                 if chunk.web
                             ]
                             grounding_supports = [
@@ -409,13 +439,15 @@ async def gemini_search_with_grounding(
                                     "end_index": s.segment.end_index,
                                     "source_indices": list(s.grounding_chunk_indices),
                                 }
-                                for s in md.grounding_supports or []
+                                for s in grounding_metadata.grounding_supports or []
                             ]
                             if (
-                                md.search_entry_point
-                                and md.search_entry_point.rendered_content
+                                grounding_metadata.search_entry_point
+                                and grounding_metadata.search_entry_point.rendered_content
                             ):
-                                search_widget_html = md.search_entry_point.rendered_content
+                                search_widget_html = (
+                                    grounding_metadata.search_entry_point.rendered_content
+                                )
 
                         # Parse structured output if requested
                         structured_result = None
@@ -426,8 +458,24 @@ async def gemini_search_with_grounding(
                             except Exception:
                                 pass
 
+                        usage = extract_llm_usage(response)
+
                         span.set_attribute("gen_ai.response.model", model_id)
                         span.set_attribute("search.model_used", model_id)
+                        if usage:
+                            if usage.input_tokens is not None:
+                                span.set_attribute(
+                                    "gen_ai.usage.prompt_tokens", usage.input_tokens
+                                )
+                            if usage.output_tokens is not None:
+                                span.set_attribute(
+                                    "gen_ai.usage.completion_tokens",
+                                    usage.output_tokens,
+                                )
+                            if usage.total_tokens is not None:
+                                span.set_attribute(
+                                    "gen_ai.usage.total_tokens", usage.total_tokens
+                                )
                         span.set_attribute(
                             "search.web_search_query_count", len(web_search_queries)
                         )
@@ -447,6 +495,8 @@ async def gemini_search_with_grounding(
                             thoughts="\n".join(thought_parts) if thought_parts else None,
                             structured_result=structured_result,
                             model_used=model_id,
+                            input_tokens=usage.input_tokens if usage else None,
+                            output_tokens=usage.output_tokens if usage else None,
                             structured_output=structured_output,
                             web_search_queries=web_search_queries,
                             grounding_chunks=grounding_chunks,
