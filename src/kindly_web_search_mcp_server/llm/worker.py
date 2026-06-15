@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .langfuse_tracing import LangfuseTraceContext
+from .phoenix_tracing import LLMTraceContext
 from .router import build_classifier_router, build_worker_router
 from .structured import StructuredLLMRequest, StructuredLLMResponse
 
@@ -45,7 +45,7 @@ class LLMWorker:
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> StructuredLLMResponse:
         return await self.complete_structured(
             StructuredLLMRequest(
@@ -74,7 +74,7 @@ class LLMWorker:
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> StructuredLLMResponse:
         router = (
             build_classifier_router()

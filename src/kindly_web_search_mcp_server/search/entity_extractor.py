@@ -6,7 +6,7 @@ import json
 import logging
 
 from ..entity.models import EntitySpan
-from ..llm.langfuse_tracing import LangfuseTraceContext
+from ..llm.phoenix_tracing import LLMTraceContext
 from ..llm.structured import StructuredLLMRequest
 from ..llm.worker import build_llm_worker
 from ..prompts.builders import REASONING_EFFORT_LOW
@@ -31,7 +31,7 @@ async def extract_entities(
         provider_name=provider_name,
     )
     worker = build_llm_worker()
-    langfuse_trace = LangfuseTraceContext(
+    langfuse_trace = LLMTraceContext(
         trace_name="entity_extraction",
         session_id=session_id,
         metadata={

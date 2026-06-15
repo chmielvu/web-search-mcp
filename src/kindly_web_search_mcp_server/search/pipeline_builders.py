@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..llm.worker import build_llm_worker
 from ..llm.structured import StructuredLLMRequest
-from ..llm.langfuse_tracing import LangfuseTraceContext
+from ..llm.phoenix_tracing import LLMTraceContext
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
 
@@ -100,7 +100,7 @@ async def build_rewrite_variants(
         provider_name="worker",
     )
     worker = build_llm_worker()
-    langfuse_trace = LangfuseTraceContext(
+    langfuse_trace = LLMTraceContext(
         trace_name="query_rewrite",
         session_id=context.session_id,
         metadata={

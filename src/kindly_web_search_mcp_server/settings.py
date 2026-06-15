@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import json as _json
 import os
 from dataclasses import dataclass
@@ -36,67 +35,6 @@ def _parse_csv_env(raw: str) -> tuple[str, ...]:
         if value:
             items.append(value)
     return tuple(dict.fromkeys(items))
-
-
-def _decode_langfuse_mcp_auth_header(raw: str) -> tuple[str, str]:
-    """Decode Langfuse MCP Basic auth into public/secret keys.
-
-    Expected input is either ``Basic <base64(pk:sk)>`` or the base64 token
-    itself. Returns ``("", "")`` when the input is empty or malformed.
-    """
-    token = raw.strip().strip('"').strip("'")
-    if not token:
-        return "", ""
-    if token.lower().startswith("basic "):
-        token = token.split(None, 1)[1].strip()
-    if not token:
-        return "", ""
-    padding = (-len(token)) % 4
-    if padding:
-        token = f"{token}{'=' * padding}"
-    try:
-        decoded = base64.b64decode(token.encode("ascii"), validate=False).decode(
-            "utf-8"
-        )
-    except (ValueError, UnicodeDecodeError):
-        return "", ""
-    if ":" not in decoded:
-        return "", ""
-    public_key, secret_key = decoded.split(":", 1)
-    return public_key.strip(), secret_key.strip()
-
-
-def resolve_langfuse_credentials(
-    *,
-    public_key: str = "",
-    secret_key: str = "",
-    base_url: str = "",
-    mcp_auth_header: str = "",
-) -> tuple[str, str, str]:
-    """Resolve Langfuse credentials from standard envs or MCP auth header."""
-    resolved_public_key = public_key or os.environ.get(
-        "LANGFUSE_PUBLIC_KEY", os.environ.get("LANGFUSE_PUBLIC_KEY", "")
-    )
-    resolved_secret_key = secret_key or os.environ.get(
-        "LANGFUSE_SECRET_KEY", os.environ.get("LANGFUSE_SECRET_KEY", "")
-    )
-    resolved_base_url = base_url or os.environ.get(
-        "LANGFUSE_BASE_URL",
-        os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
-    )
-    resolved_header = mcp_auth_header or os.environ.get(
-        "LANGFUSE_MCP_AUTH_HEADER",
-        os.environ.get("LANGFUSE_MCP_AUTH_HEADER", ""),
-    )
-
-    if not resolved_public_key or not resolved_secret_key:
-        header_public_key, header_secret_key = _decode_langfuse_mcp_auth_header(
-            resolved_header
-        )
-        resolved_public_key = resolved_public_key or header_public_key
-        resolved_secret_key = resolved_secret_key or header_secret_key
-
-    return resolved_public_key, resolved_secret_key, resolved_base_url
 
 
 @dataclass
@@ -543,22 +481,10 @@ class Settings:
     grafana_cloud_api_key: str = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
     grafana_cloud_otlp_endpoint: str = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
-    # Langfuse (hybrid observability for agentic ReAct module)
-    # Primary: standard LANGFUSE_* envs (Langfuse SDK + OTLP client read them directly).
-    # * are Windows/pwsh convenience fallbacks (mirrors GRAFANA_CLOUD_* pattern).
-    langfuse_public_key: str = os.environ.get(
-        "LANGFUSE_PUBLIC_KEY", os.environ.get("LANGFUSE_PUBLIC_KEY", "")
-    )
-    langfuse_secret_key: str = os.environ.get(
-        "LANGFUSE_SECRET_KEY", os.environ.get("LANGFUSE_SECRET_KEY", "")
-    )
-    langfuse_base_url: str = os.environ.get(
-        "LANGFUSE_BASE_URL",
-        os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com"),
-    )
-    langfuse_mcp_auth_header: str = os.environ.get(
-        "LANGFUSE_MCP_AUTH_HEADER",
-        os.environ.get("LANGFUSE_MCP_AUTH_HEADER", ""),
+    # Phoenix (Arize) observability via OTLP
+    phoenix_collector_endpoint: str = os.environ.get(
+        "PHOENIX_COLLECTOR_ENDPOINT",
+        "https://chmielvu-phoenix-observability.hf.space/v1/traces",
     )
 
     # =====================================================================
@@ -776,11 +702,7 @@ class Settings:
                 "observability_max_text_chars must be >= 1024 to avoid truncating useful debug info."
             )
 
-        # Langfuse (optional, for agentic hybrid tracing). Standard LANGFUSE_* preferred.
-        # If only one of public/secret is set, Langfuse client will surface a clear error on use.
-        if bool(self.langfuse_public_key) != bool(self.langfuse_secret_key):
-            # Non-fatal here; telemetry/agent code guards usage.
-            pass
+        # Phoenix collector endpoint is optional — when set, OTLP traces go to Phoenix.
 
         # Agentic research validation (run limits and timeouts must be positive)
         for name, val in [

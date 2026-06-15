@@ -345,3 +345,5 @@ custom_search_json_api/
 
 # Evaluation test data (not source code)
 evals/
+# CocoIndex Code (ccc)
+/.cocoindex_code/

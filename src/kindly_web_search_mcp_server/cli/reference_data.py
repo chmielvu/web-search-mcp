@@ -22,7 +22,7 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
 EXTERNAL_TOOLS: tuple[dict[str, str], ...] = (
     {"tool": "DuckDB", "command": "duckdb", "purpose": "Inspect local analytics DuckDB files directly."},
     {"tool": "Grafana", "command": "wsl gcx", "purpose": "Use the existing WSL Grafana CLI path for dashboard and cloud context work."},
-    {"tool": "Langfuse", "command": "langfuse", "purpose": "Use Langfuse CLI for trace and project operations. Run `langfuse get-skill` first."},
+    {"tool": "Phoenix", "command": "arize-phoenix", "purpose": "Use Phoenix CLI for local dev tracing. Point OTEL_EXPORTER_OTLP_ENDPOINT to your Phoenix instance."},
 )
 
 COMMANDS: tuple[str, ...] = (

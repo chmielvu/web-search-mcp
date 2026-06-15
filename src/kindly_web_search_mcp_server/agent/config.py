@@ -77,16 +77,9 @@ class AgenticResearchConfig:
         default_factory=lambda: Settings().agentic_research_default_num_results
     )
 
-    # Langfuse support (delegated to central settings for consistency)
-    langfuse_public_key: str = field(
-        default_factory=lambda: Settings().langfuse_public_key
-    )
-    langfuse_secret_key: str = field(
-        default_factory=lambda: Settings().langfuse_secret_key
-    )
-    langfuse_base_url: str = field(default_factory=lambda: Settings().langfuse_base_url)
-    langfuse_mcp_auth_header: str = field(
-        default_factory=lambda: Settings().langfuse_mcp_auth_header
+    # Phoenix OTLP endpoint (delegated to central settings for consistency)
+    phoenix_collector_endpoint: str = field(
+        default_factory=lambda: Settings().phoenix_collector_endpoint
     )
 
     # External MCP support (best-effort load when config provided; requires langchain-mcp-adapters package at runtime)

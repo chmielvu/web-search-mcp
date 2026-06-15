@@ -19,7 +19,7 @@ def register(app: typer.Typer) -> None:
             {"name": "user_skill", "ok": USER_SKILL_PATH.exists(), "path": str(USER_SKILL_PATH)},
             {"name": "dev_skill", "ok": DEV_SKILL_PATH.exists(), "path": str(DEV_SKILL_PATH)},
             {"name": "duckdb_cli", "ok": shutil.which("duckdb") is not None, "required": False},
-            {"name": "langfuse_cli", "ok": shutil.which("langfuse") is not None, "required": False},
+            {"name": "phoenix_instrumentor", "ok": importlib.util.find_spec("openinference.instrumentation.litellm") is not None, "required": False},
             {"name": "repo_root", "ok": REPO_ROOT.exists(), "path": str(REPO_ROOT)},
         ]
         emit_json({"checks": checks}, command="doctor")

@@ -44,7 +44,7 @@ import httpx
 from opentelemetry import trace, metrics
 
 from .utils.observability import emit_observability_event
-from .settings import resolve_langfuse_credentials
+
 
 # SDK imports are part of the default runtime dependencies.
 try:
@@ -131,34 +131,7 @@ def build_grafana_cloud_headers(
     return headers
 
 
-def build_langfuse_otlp_headers(
-    public_key: str = "", secret_key: str = "", base_url: str = ""
-) -> tuple[dict[str, str], str | None]:
-    """Build OTLP headers + endpoint for Langfuse (OTel backend ingest).
 
-    Langfuse accepts OTLP at <base>/api/public/otel (or /v1/traces for signal-specific).
-    Uses Basic auth with base64(pk:sk). Adds x-langfuse-ingestion-version:4 for Fast Preview.
-    Returns (headers_dict, endpoint_or_None).
-    """
-    if not public_key or not secret_key:
-        return {}, None
-
-    import base64
-
-    token = base64.b64encode(f"{public_key}:{secret_key}".encode("utf-8")).decode(
-        "ascii"
-    )
-    headers = {
-        "Authorization": f"Basic {token}",
-        "x-langfuse-ingestion-version": "4",
-    }
-
-    endpoint = None
-    if base_url:
-        base = base_url.rstrip("/")
-        endpoint = f"{base}/api/public/otel"
-
-    return headers, endpoint
 
 
 def _parse_otlp_headers(raw: str) -> dict[str, str]:
@@ -699,46 +672,33 @@ def init_telemetry(
         )
         trace.set_tracer_provider(tracer_provider)
 
-        # === LANGFUSE OTLP (hybrid for agentic ReAct + general spans) ===
+        # === PHOENIX OTLP (Arize Phoenix on HF Spaces) ===
         try:
             from .settings import settings as s
 
-            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
-                public_key=s.langfuse_public_key,
-                secret_key=s.langfuse_secret_key,
-                base_url=s.langfuse_base_url,
-                mcp_auth_header=s.langfuse_mcp_auth_header,
-            )
-        except Exception:
-            lf_pk, lf_sk, lf_base = resolve_langfuse_credentials()
-
-        if lf_pk and lf_sk:
-            try:
-                lf_headers, lf_endpoint = build_langfuse_otlp_headers(
-                    lf_pk, lf_sk, lf_base
+            phoenix_endpoint = getattr(s, "phoenix_collector_endpoint", "")
+            if phoenix_endpoint:
+                phoenix_exporter = _LoggingExporterProxy(
+                    OTLPSpanExporter(
+                        endpoint=phoenix_endpoint,
+                        timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
+                    ),
+                    signal_name="phoenix",
                 )
-                if lf_endpoint:
-                    lf_exporter = _LoggingExporterProxy(
-                        OTLPSpanExporter(
-                            endpoint=lf_endpoint,
-                            headers=lf_headers,
-                            timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
-                        ),
-                        signal_name="langfuse",
+                tracer_provider.add_span_processor(
+                    BatchSpanProcessor(
+                        phoenix_exporter,
+                        max_queue_size=2048,
+                        schedule_delay_millis=5000,
+                        max_export_batch_size=512,
                     )
-                    tracer_provider.add_span_processor(
-                        BatchSpanProcessor(
-                            lf_exporter,
-                            max_queue_size=2048,
-                            schedule_delay_millis=5000,
-                            max_export_batch_size=512,
-                        )
-                    )
-                    logging.info(
-                        "Langfuse OTLP span processor added (hybrid export enabled)"
-                    )
-            except Exception as exc:  # pragma: no cover - best effort
-                logging.warning("Failed to add Langfuse OTLP processor: %s", exc)
+                )
+                logging.info(
+                    "Phoenix OTLP span processor added (endpoint: %s)",
+                    phoenix_endpoint,
+                )
+        except Exception as exc:  # pragma: no cover - best effort
+            logging.warning("Failed to add Phoenix OTLP processor: %s", exc)
 
         # === AUTO-INSTRUMENTATION ===
         try:
@@ -750,6 +710,17 @@ def init_telemetry(
             logging.info(
                 "opentelemetry-instrumentation-httpx not installed - "
                 "HTTP calls not auto-traced. Install: uv pip install opentelemetry-instrumentation-httpx"
+            )
+
+        try:
+            from openinference.instrumentation.litellm import LiteLLMInstrumentor
+
+            LiteLLMInstrumentor().instrument(skip_dep_check=True)
+            logging.info("LiteLLM auto-instrumentation enabled - all LLM calls traced to Phoenix")
+        except ImportError:
+            logging.info(
+                "openinference-instrumentation-litellm not installed - "
+                "LLM calls not auto-traced. Install: uv pip install openinference-instrumentation-litellm"
             )
 
         # === METRICS ===

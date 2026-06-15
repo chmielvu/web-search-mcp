@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..settings import settings
-from ..llm.langfuse_tracing import LangfuseTraceContext
+from ..llm.phoenix_tracing import LLMTraceContext
 from ..llm.router import build_worker_router
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class SearchRelevanceJudge:
         results: list[Any],
         research_goal: str | None = None,
         rewrite_variants: list[Any] | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> SearchRelevanceResult:
         """Evaluate relevance of search result set to query."""
         if not results:

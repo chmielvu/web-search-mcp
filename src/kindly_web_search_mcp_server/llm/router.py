@@ -7,11 +7,7 @@ from typing import Any
 
 from litellm import acompletion
 
-from .langfuse_tracing import (
-    LangfuseTraceContext,
-    build_langfuse_litellm_kwargs,
-    ensure_langfuse_litellm_callbacks,
-)
+from .phoenix_tracing import LLMTraceContext, set_trace_context_attributes
 from .config import (
     build_classifier_endpoint,
     build_vercel_gpt_oss_endpoint,
@@ -35,9 +31,8 @@ class LLMRouter:
         timeout_seconds: float | None = None,
         response_format: Any | None = None,
         reasoning_effort: str | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> LLMGeneration:
-        ensure_langfuse_litellm_callbacks()
         errors: list[Exception] = []
         for endpoint in self.endpoints:
             try:
@@ -53,12 +48,7 @@ class LLMRouter:
                     request_kwargs["response_format"] = response_format
                 if reasoning_effort is not None and endpoint.name != "groq":
                     request_kwargs["reasoning_effort"] = reasoning_effort
-                request_kwargs.update(
-                    build_langfuse_litellm_kwargs(
-                        generation_name=f"{endpoint.name}:{endpoint.model}",
-                        trace_context=langfuse,
-                    )
-                )
+                set_trace_context_attributes(langfuse)
                 response = await acompletion(**request_kwargs)
                 content = response.choices[0].message.content or ""
                 if content.strip():
@@ -83,7 +73,7 @@ class LLMRouter:
         timeout_seconds: float | None = None,
         response_model: type[Any] | None = None,
         reasoning_effort: str | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> LLMGeneration:
         return await self._complete(
             messages=messages,
@@ -101,7 +91,7 @@ class LLMRouter:
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
-        langfuse: LangfuseTraceContext | None = None,
+        langfuse: LLMTraceContext | None = None,
     ) -> LLMGeneration:
         return await self._complete(
             messages=messages,

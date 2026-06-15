@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from ..settings import settings
-from ..llm.langfuse_tracing import LangfuseTraceContext
+from ..llm.phoenix_tracing import LLMTraceContext
 from .duckdb_store import insert_judge_evaluation
 from .search_relevance_judge import SearchRelevanceJudge
 
@@ -68,7 +68,7 @@ async def run_judge_evaluation(
         return
 
     judge = _get_judge()
-    langfuse_trace = LangfuseTraceContext(
+    langfuse_trace = LLMTraceContext(
         trace_name=f"judge:{tool_name}",
         session_id=session_id or run_key,
         metadata={

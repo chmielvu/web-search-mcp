@@ -7,7 +7,7 @@ import logging
 import time as time_module
 
 from ...settings import settings
-from ...llm.langfuse_tracing import LangfuseTraceContext
+from ...llm.phoenix_tracing import LLMTraceContext
 from ...llm.worker import build_llm_worker
 from ...llm.structured import StructuredLLMRequest
 from ...prompts.builders import REASONING_EFFORT_LOW
@@ -94,7 +94,7 @@ async def resolve_query_understanding(
     result_output_tokens: int | None = None
     fallback_used = False
     control_start = time_module.monotonic()
-    langfuse_trace = LangfuseTraceContext(
+    langfuse_trace = LLMTraceContext(
         trace_name="query_understanding",
         session_id=session_id or run_key,
         metadata={

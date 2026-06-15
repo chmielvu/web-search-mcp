@@ -16,20 +16,14 @@ from .model import build_chat_model
 from .models import AgenticResearchRequest, AgenticResearchResult
 from .prompts import build_system_prompt
 from .toolset import build_agent_tools
-from ..settings import resolve_langfuse_credentials
 
 # Telemetry reuse for records + dual OTel (must be top-level imports)
 from ..telemetry import record_agentic_research
 from ..utils.observability import emit_observability_event
 
-# Langfuse (best-effort, for rich ReAct agent tracing to Langfuse while keeping Grafana/DuckDB)
-try:
-    from langfuse.langchain import CallbackHandler
-    from langfuse import get_client as get_langfuse_client
-
-    _LANGFUSE_AVAILABLE = True
-except ImportError:
-    _LANGFUSE_AVAILABLE = False
+# Phoenix tracing is handled via OTel auto-instrumentation (openinference-instrumentation-litellm)
+# No LangChain callback handler needed — OTel spans are exported to Phoenix via telemetry.py
+_LANGFUSE_AVAILABLE = False
 
 LOGGER = logging.getLogger(__name__)
 
@@ -142,47 +136,10 @@ async def run_agentic_web_research(
         "Use the available tools to collect evidence, rerank when needed, and then answer."
     )
 
-    # === Langfuse hybrid (CallbackHandler for rich ReAct structure, costs, evals) ===
-    # Complements OTel (to Grafana + best-effort Langfuse OTLP) + DuckDB emits.
-    # Uses keys from AgenticResearchConfig (env-driven) or standard LANGFUSE_*.
-    langfuse_handler = None
+    # === OTel tracing (Phoenix via auto-instrumentation) ===
+    # No LangChain callback handler needed — openinference-instrumentation-litellm
+    # captures agent traces automatically via OTel context propagation.
     invoke_config: dict[str, object] = {}
-    if _LANGFUSE_AVAILABLE:
-        lf_pk, lf_sk, lf_base = resolve_langfuse_credentials(
-            public_key=cfg.langfuse_public_key,
-            secret_key=cfg.langfuse_secret_key,
-            base_url=cfg.langfuse_base_url,
-            mcp_auth_header=getattr(cfg, "langfuse_mcp_auth_header", ""),
-        )
-        if lf_pk and lf_sk:
-            try:
-                langfuse_handler = CallbackHandler(
-                    public_key=lf_pk,
-                    secret_key=lf_sk,
-                    host=lf_base,
-                )
-                invoke_config["callbacks"] = [langfuse_handler]
-                # Propagate agentic metadata (depth, model, goal) for filtering in Langfuse
-                invoke_config.setdefault("metadata", {})
-                invoke_config["metadata"].update(
-                    {
-                        "agent.depth": request.depth,
-                        "agent.model": cfg.model_name,
-                        "agent.research_goal": request.research_goal or request.query,
-                        "agent.run_limit": profile.run_limit,
-                        "langfuse_session_id": request.session_id or "",
-                        "langfuse_tags": [
-                            "agentic_web_research",
-                            f"depth:{request.depth}",
-                            f"model:{cfg.model_name}",
-                        ],
-                    }
-                )
-                LOGGER.debug(
-                    "Langfuse CallbackHandler attached for agentic_web_research"
-                )
-            except Exception as exc:  # pragma: no cover - best effort
-                LOGGER.debug("Langfuse handler creation skipped: %s", exc)
 
     start = time.perf_counter()
     result = await asyncio.wait_for(
@@ -290,34 +247,22 @@ async def run_agentic_web_research(
     except Exception as exc:  # pragma: no cover - best effort, never break the agent
         LOGGER.debug("agentic observability emit/record skipped: %s", exc)
 
-    # === Langfuse post-processing scores (using result + kg signals) ===
-    if langfuse_handler and _LANGFUSE_AVAILABLE:
-        try:
-            lf = get_langfuse_client()
+    # === Post-run scoring (set as OTel span attributes for Phoenix) ===
+    # Scores are attached as OTel span attributes rather than Langfuse-specific API calls.
+    try:
+        from opentelemetry import trace as otel_trace
+        span = otel_trace.get_current_span()
+        if span.is_recording():
             coverage = min(1.0, len(sources_list) / 5.0) if sources_list else 0.0
-            lf.score_current_trace(
-                name="agentic_source_coverage",
-                value=coverage,
-                data_type="NUMERIC",
-                comment=f"depth={request.depth} model={cfg.model_name}",
-            )
+            span.set_attribute("agentic.source_coverage", coverage)
+            span.set_attribute("agentic.depth", request.depth)
+            span.set_attribute("agentic.model", cfg.model_name)
+            span.set_attribute("agentic.sources_count", len(sources_list))
             if summary.potential_conflicts:
-                lf.score_current_trace(
-                    name="agentic_has_uncertainties",
-                    value=1,
-                    data_type="BOOLEAN",
-                    comment=f"{len(summary.potential_conflicts)} conflicts flagged by kg",
-                )
-            # Optional: trace-level I/O for the whole research (answer + sources sample)
-            # (handler usually captures via LC; this augments)
-            lf.update_current_trace(
-                output={
-                    "answer_preview": (answer or "")[:300],
-                    "sources_count": len(sources_list),
-                },
-            )
-        except Exception as exc:  # pragma: no cover
-            LOGGER.debug("Langfuse post-run score skipped: %s", exc)
+                span.set_attribute("agentic.has_uncertainties", True)
+                span.set_attribute("agentic.uncertainties_count", len(summary.potential_conflicts))
+    except Exception as exc:  # pragma: no cover
+        LOGGER.debug("OTel post-run scoring skipped: %s", exc)
 
     return AgenticResearchResult(
         query=request.query,

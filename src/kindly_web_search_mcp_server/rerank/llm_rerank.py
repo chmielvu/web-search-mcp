@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from ..llm.langfuse_tracing import LangfuseTraceContext
+from ..llm.phoenix_tracing import LLMTraceContext
 from ..llm import StructuredLLMRequest, build_llm_worker
 from ..models import WebSearchResult
 from ..prompts.builders import REASONING_EFFORT_LOW
@@ -91,7 +91,7 @@ async def rerank_with_llm(
         temperature=0.0,
         timeout_seconds=timeout_seconds,
         reasoning_effort=REASONING_EFFORT_LOW,
-        langfuse=LangfuseTraceContext(
+        langfuse=LLMTraceContext(
             trace_name="llm_rerank",
             session_id=session_id,
             metadata={

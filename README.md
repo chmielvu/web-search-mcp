@@ -216,9 +216,7 @@ COHERE_RERANK_TIMEOUT="30.0"
 #### Observability
 
 ```bash
-LANGFUSE_PUBLIC_KEY="..."
-LANGFUSE_SECRET_KEY="..."
-LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+PHOENIX_COLLECTOR_ENDPOINT="https://chmielvu-phoenix-observability.hf.space/v1/traces"
 ```
 
 See `src/kindly_web_search_mcp_server/settings.py` for all 100+ configuration options.

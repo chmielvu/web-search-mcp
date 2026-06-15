@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .langfuse_tracing import LangfuseTraceContext
+from .phoenix_tracing import LLMTraceContext
 from .usage import LLMUsage
 
 
@@ -17,7 +17,7 @@ class StructuredLLMRequest:
     timeout_seconds: float | None = None
     response_model: type[Any] | None = None
     reasoning_effort: str | None = None
-    langfuse: LangfuseTraceContext | None = None
+    langfuse: LLMTraceContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
