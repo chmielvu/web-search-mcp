@@ -1,4 +1,4 @@
-"""Backward-compat shim — cascade logic moved to youtube/transcript.py.
+"""Backward-compat shim — cascade logic moved to youtube/cascade.py.
 
 Import fetch_transcript_cascade from kindly_web_search_mcp_server.youtube instead.
 This module will be removed in a future version.
@@ -15,7 +15,7 @@ warnings.warn(
     stacklevel=2,
 )
 
-from ..youtube.transcript import fetch_transcript_cascade
+from ..youtube.cascade import fetch_transcript_cascade
 from ..youtube.models import TranscriptBackendError
 
 __all__ = [

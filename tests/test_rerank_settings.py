@@ -18,6 +18,8 @@ class TestRerankSettings(unittest.TestCase):
             reloaded = importlib.reload(settings_module)
 
         self.assertEqual(reloaded.settings.rerank_stack_mode, "bi_cross_llm")
+        self.assertEqual(reloaded.settings.rerank_llm_candidate_limit, 20)
+        self.assertEqual(reloaded.settings.rerank_llm_timeout_seconds, 20.0)
 
     def test_rerank_stack_mode_reads_env(self) -> None:
         with patch.dict(os.environ, {"RERANK_STACK_MODE": "bi_cross_llm"}, clear=False):

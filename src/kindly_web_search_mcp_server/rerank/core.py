@@ -228,8 +228,8 @@ async def rerank_results(
 
         if plan.use_llm_reranker:
             llm_outcome = await run_llm_stage(
-                query,
-                candidates,
+                query=query,
+                candidates=candidates,
                 top_k=top_k,
                 candidate_limit=settings.rerank_llm_candidate_limit,
                 query_type_hint=query_type_hint,

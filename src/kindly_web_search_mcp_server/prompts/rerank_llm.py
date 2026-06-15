@@ -50,6 +50,13 @@ def _format_candidate(candidate: WebSearchResult) -> str:
     return "\n".join(parts)
 
 
+def _render_template(template: str, **values: str) -> str:
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace(f"{{{key}}}", value)
+    return rendered
+
+
 def build_llm_rerank_messages(
     *,
     query: str,
@@ -57,14 +64,18 @@ def build_llm_rerank_messages(
 ) -> list[dict[str, str]]:
     template = load_rerank_prompt_template()
     candidate_blocks = [
-        template.body.format(rank=rank, candidate=_format_candidate(candidate))
+        _render_template(
+            template.body,
+            rank=str(rank),
+            candidate=_format_candidate(candidate),
+        )
         for rank, candidate in candidates
     ]
     user_content = "\n\n".join(
         [
-            template.prefix.format(query=query),
+            _render_template(template.prefix, query=query),
             *candidate_blocks,
-            template.suffix.format(query=query),
+            _render_template(template.suffix, query=query),
         ]
     )
     system_content = (

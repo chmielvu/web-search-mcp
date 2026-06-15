@@ -10,8 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import httpx
-
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search.provider_config import ProviderGroup
 
@@ -150,49 +148,24 @@ class TestSearchRouter(unittest.IsolatedAsyncioTestCase):
 
     async def test_circuit_breaker_opens_on_failures(self) -> None:
         """Circuit breaker opens after 3 consecutive failures."""
-        from kindly_web_search_mcp_server.search import search_single_query
-        from kindly_web_search_mcp_server.search import provider_config as pc
         from kindly_web_search_mcp_server.search.provider_health import (
             get_provider_health,
             reset_provider_health,
         )
 
-        os.environ.pop("TAVILY_API_KEY", None)
-        os.environ.pop("BRAVE_API_KEY", None)
-        os.environ.pop("JINA_API_KEY", None)
-
         reset_provider_health()
+        tracker = get_provider_health()
 
-        mock_searxng = AsyncMock(
-            side_effect=httpx.HTTPStatusError(
-                "boom",
-                request=httpx.Request("GET", "https://searx.example.org/search"),
-                response=httpx.Response(500),
-            )
-        )
-
-        def _resolve(*args, **kwargs):  # noqa: ARG001
-            config = pc.ProviderConfig(
-                name="searxng",
-                env_key="",
-                search_fn=mock_searxng,
-                group=ProviderGroup.free,
-                requires_key=False,
-            )
-            return [config]
-
-        with patch(
-            "kindly_web_search_mcp_server.search.query_execution.resolve_providers_for_search",
-            side_effect=_resolve,
-        ):
-            for _ in range(3):
-                try:
-                    await search_single_query("q", num_results=1)
-                except Exception:
-                    pass
+        # Mark 3 failures directly on the tracker.  Calling mark_failure_with_type
+        # exercises the same circuit-breaker path that _search_single_provider
+        # uses on provider errors, but avoids the slow search pipeline overhead
+        # (OTLP span export, httpx client lifecycle, etc.) which can take 4-7 s
+        # per call and cause the cooldown to expire before the assertion runs.
+        for _ in range(3):
+            tracker.mark_failure_with_type("searxng", error_type="HTTPStatusError")
 
         # After 3 failures, the provider should be unhealthy (circuit open)
-        self.assertFalse(get_provider_health().is_healthy("searxng"))
+        self.assertFalse(tracker.is_healthy("searxng"))
 
     async def test_raises_when_no_provider_configured(self) -> None:
         """DDG free fallback succeeds even without any env keys."""

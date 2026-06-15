@@ -2,12 +2,12 @@ method: singleturn_listwise
 system_message: >
   Rank passages by relevance to the query. Prefer direct, precise answers.
   Ignore length or style unless they reduce clarity.
-  Return only the ranking format. No commentary.
+  Return only a JSON object with a ranked_candidate_ids array. No commentary.
 prefix: |
   For the query [querystart] {query} [queryend], rank the passages from most to
   least relevant. Focus on whether each passage actually helps answer the query.
 body: |
   [{rank}] {candidate}
-suffix: "Given the query [querystart] {query} [queryend], return only the ranking in the format [rankstart] [most relevant passage ID] > ... > [least relevant passage ID] [rankend]. Do not add commentary."
-output_validation_regex: "^\\[rankstart\\] \\[\\d+\\]( > \\[\\d+\\])* \\[rankend\\]$"
+suffix: "Given the query [querystart] {query} [queryend], return only JSON in the format {\"ranked_candidate_ids\": [most relevant passage ID, ...]}. Do not add commentary."
+output_validation_regex: "^(\\{.*\\}|\\[rankstart\\] \\[\\d+\\]( > \\[\\d+\\])* \\[rankend\\])$"
 output_extraction_regex: "\\[(\\d+)\\]"

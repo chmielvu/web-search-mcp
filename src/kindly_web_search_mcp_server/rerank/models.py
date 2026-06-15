@@ -24,6 +24,17 @@ class RerankResult:
     score: float
 
 
+class RerankLLMOutput(BaseModel):
+    """Structured response schema for listwise LLM reranking."""
+
+    ranked_candidate_ids: list[int] = Field(
+        default_factory=list,
+        description="Ordered candidate ids from most relevant to least relevant",
+    )
+
+    model_config = {"frozen": True}
+
+
 class RerankEngine(Protocol):
     """Async rerank provider boundary."""
 

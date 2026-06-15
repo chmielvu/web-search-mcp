@@ -41,13 +41,13 @@ class TestRerankCoreABOverrides:
     @pytest.mark.asyncio
     async def test_ab_overrides_passed_through(self, mock_candidates):
         """ab_overrides=dict should not raise and top_k override should be visible."""
-        with patch(
-            "kindly_web_search_mcp_server.rerank.core.settings"
-        ) as s, patch(
-            "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-        ) as mock_decide, patch(
-            "kindly_web_search_mcp_server.rerank.core.embed_query"
-        ) as mock_embed:
+        with (
+            patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
+            patch(
+                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
+            ) as mock_decide,
+            patch("kindly_web_search_mcp_server.rerank.core.embed_query") as mock_embed,
+        ):
             s.reranking_enabled = True
             s.rerank_provider = "none"
             s.rerank_stack_mode = "bi_cross"
@@ -58,7 +58,9 @@ class TestRerankCoreABOverrides:
             s.rerank_entity_overlap_enabled = False
 
             mock_decide.return_value = MagicMock(
-                should_rerank=True, reason="test", query_type="general",
+                should_rerank=True,
+                reason="test",
+                query_type="general",
                 candidate_count=20,
             )
             mock_embed.side_effect = Exception("embedding disabled for test")
@@ -85,13 +87,13 @@ class TestRerankCoreABOverrides:
     @pytest.mark.asyncio
     async def test_ab_overrides_none_is_noop(self, mock_candidates):
         """ab_overrides=None should behave exactly like normal call."""
-        with patch(
-            "kindly_web_search_mcp_server.rerank.core.settings"
-        ) as s, patch(
-            "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-        ) as mock_decide, patch(
-            "kindly_web_search_mcp_server.rerank.core.embed_query"
-        ) as mock_embed:
+        with (
+            patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
+            patch(
+                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
+            ) as mock_decide,
+            patch("kindly_web_search_mcp_server.rerank.core.embed_query") as mock_embed,
+        ):
             s.reranking_enabled = True
             s.rerank_provider = "none"
             s.rerank_stack_mode = "bi_cross"
@@ -102,7 +104,9 @@ class TestRerankCoreABOverrides:
             s.rerank_entity_overlap_enabled = False
 
             mock_decide.return_value = MagicMock(
-                should_rerank=True, reason="test", query_type="general",
+                should_rerank=True,
+                reason="test",
+                query_type="general",
                 candidate_count=20,
             )
             mock_embed.side_effect = Exception("embedding disabled for test")
@@ -139,9 +143,7 @@ class TestPipelineABWiringRerank:
 
     @pytest.fixture
     def mock_settings(self):
-        with patch(
-            "kindly_web_search_mcp_server.search.pipeline.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.search.pipeline.settings") as s:
             s.reranking_enabled = True
             s.ab_testing_enabled = True
             s.ab_config_path = "/dev/null/nonexistent"
@@ -154,52 +156,77 @@ class TestPipelineABWiringRerank:
     @pytest.mark.asyncio
     async def test_get_ab_overrides_called_when_run_key_set(self, mock_settings):
         """When run_key is available, get_ab_overrides should be called."""
-        with patch(
-            "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
-            return_value=None,
-        ) as mock_get_ab, patch(
-            "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
-        ) as mock_exec, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
-        ) as mock_rewrite, patch(
-            "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
-        ) as mock_merge, patch(
-            "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-        ) as mock_norm, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
-        ) as mock_qu, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-        ) as mock_profile, patch(
-            "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-        ) as mock_apply, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
-        ) as mock_plan, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
-        ) as mock_cache, patch(
-            "kindly_web_search_mcp_server.search.pipeline.httpx.AsyncClient"
-        ) as mock_client, patch(
-            "kindly_web_search_mcp_server.search.pipeline.rerank_results",
-            new_callable=AsyncMock,
-        ) as mock_rerank, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_context"
-        ) as mock_ctx_builder, patch(
-            "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-        ) as mock_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-        ) as mock_store_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_response"
-        ) as mock_response:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
+                return_value=None,
+            ) as mock_get_ab,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
+            ) as mock_exec,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
+            ) as mock_merge,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
+            ) as mock_norm,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
+            ) as mock_qu,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
+            ) as mock_profile,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
+            ) as mock_apply,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
+            ) as mock_plan,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
+            ) as mock_cache,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_http_client",
+                new_callable=AsyncMock,
+            ) as mock_get_client,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_context"
+            ) as mock_ctx_builder,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
+            ) as mock_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
+            ) as mock_store_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_response"
+            ) as mock_response,
+        ):
             from kindly_web_search_mcp_server.models import WebSearchResult
             from kindly_web_search_mcp_server.rerank.models import RerankOutput
 
             mock_norm.return_value = "normalized query"
             mock_qu.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                rationale="test", entities=[], must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                rationale="test",
+                entities=[],
+                must_keep_terms=set(),
             )
             mock_ctx_builder.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                profile_name="default", must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                profile_name="default",
+                must_keep_terms=set(),
             )
             mock_profile.return_value = MagicMock(
                 provider_weights={},
@@ -221,22 +248,28 @@ class TestPipelineABWiringRerank:
             )
             mock_merge.return_value = [
                 WebSearchResult(
-                    title="R1", link="https://r1.com", snippet="S1",
-                    score=0.9, domain="r1.com",
+                    title="R1",
+                    link="https://r1.com",
+                    snippet="S1",
+                    score=0.9,
+                    domain="r1.com",
                 ),
                 WebSearchResult(
-                    title="R2", link="https://r2.com", snippet="S2",
-                    score=0.8, domain="r2.com",
+                    title="R2",
+                    link="https://r2.com",
+                    snippet="S2",
+                    score=0.8,
+                    domain="r2.com",
                 ),
             ]
             mock_mem.return_value = ([], [], None, None)
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
-            mock_client.return_value.__aenter__.return_value = MagicMock()
-            mock_client.return_value.aclose = AsyncMock()
+            mock_get_client.return_value = MagicMock()
 
             mock_rerank.return_value = RerankOutput(
-                results=[], embedding_context=None,
+                results=[],
+                embedding_context=None,
             )
 
             await run_search_pipeline(
@@ -252,7 +285,8 @@ class TestPipelineABWiringRerank:
             # get_ab_overrides is called for both provider_weights and reranking layers
             assert mock_get_ab.call_count >= 1
             reranking_calls = [
-                c for c in mock_get_ab.call_args_list
+                c
+                for c in mock_get_ab.call_args_list
                 if c.kwargs.get("layer") == "reranking"
             ]
             assert len(reranking_calls) >= 1, "Expected reranking layer call"
@@ -260,51 +294,76 @@ class TestPipelineABWiringRerank:
     @pytest.mark.asyncio
     async def test_no_ab_check_when_run_key_none(self, mock_settings):
         """When the pipeline doesn't have a run_key context, skip AB check."""
-        with patch(
-            "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
-        ) as mock_get_ab, patch(
-            "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
-        ) as mock_exec, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
-        ) as mock_rewrite, patch(
-            "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
-        ) as mock_merge, patch(
-            "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-        ) as mock_norm, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
-        ) as mock_qu, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-        ) as mock_profile, patch(
-            "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-        ) as mock_apply, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
-        ) as mock_plan, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
-        ) as mock_cache, patch(
-            "kindly_web_search_mcp_server.search.pipeline.httpx.AsyncClient"
-        ) as mock_client, patch(
-            "kindly_web_search_mcp_server.search.pipeline.rerank_results",
-            new_callable=AsyncMock,
-        ) as mock_rerank, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_context"
-        ) as mock_ctx_builder, patch(
-            "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-        ) as mock_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-        ) as mock_store_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_response"
-        ) as mock_response:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
+            ) as mock_get_ab,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
+            ) as mock_exec,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
+            ) as mock_merge,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
+            ) as mock_norm,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
+            ) as mock_qu,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
+            ) as mock_profile,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
+            ) as mock_apply,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
+            ) as mock_plan,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
+            ) as mock_cache,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_http_client",
+                new_callable=AsyncMock,
+            ) as mock_get_client,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_context"
+            ) as mock_ctx_builder,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
+            ) as mock_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
+            ) as mock_store_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_response"
+            ) as mock_response,
+        ):
             from kindly_web_search_mcp_server.models import WebSearchResult
             from kindly_web_search_mcp_server.rerank.models import RerankOutput
 
             mock_norm.return_value = "normalized query"
             mock_qu.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                rationale="test", entities=[], must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                rationale="test",
+                entities=[],
+                must_keep_terms=set(),
             )
             mock_ctx_builder.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                profile_name="default", must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                profile_name="default",
+                must_keep_terms=set(),
             )
             mock_profile.return_value = MagicMock(
                 provider_weights={},
@@ -326,22 +385,28 @@ class TestPipelineABWiringRerank:
             )
             mock_merge.return_value = [
                 WebSearchResult(
-                    title="R1", link="https://r1.com", snippet="S1",
-                    score=0.9, domain="r1.com",
+                    title="R1",
+                    link="https://r1.com",
+                    snippet="S1",
+                    score=0.9,
+                    domain="r1.com",
                 ),
                 WebSearchResult(
-                    title="R2", link="https://r2.com", snippet="S2",
-                    score=0.8, domain="r2.com",
+                    title="R2",
+                    link="https://r2.com",
+                    snippet="S2",
+                    score=0.8,
+                    domain="r2.com",
                 ),
             ]
             mock_mem.return_value = ([], [], None, None)
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
-            mock_client.return_value.__aenter__.return_value = MagicMock()
-            mock_client.return_value.aclose = AsyncMock()
+            mock_get_client.return_value = MagicMock()
 
             mock_rerank.return_value = RerankOutput(
-                results=[], embedding_context=None,
+                results=[],
+                embedding_context=None,
             )
 
             result = await run_search_pipeline(
@@ -362,62 +427,89 @@ class TestPipelineABWiringRerank:
     @pytest.mark.asyncio
     async def test_shadow_mode_fires_background_task(self, mock_settings):
         """When AB override has shadow_mode=True, run_shadow should be called."""
-        with patch(
-            "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
-            return_value={
-                "experiment_id": "rerank-shadow-1",
-                "variant_key": "test",
-                "shadow_mode": True,
-                "config": {"provider": "jina"},
-            },
-        ) as mock_get_ab, patch(
-            "kindly_web_search_mcp_server.search.pipeline.run_shadow",
-            new_callable=AsyncMock,
-        ) as _mock_shadow, patch(
-            "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
-        ) as mock_exec, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
-        ) as mock_rewrite, patch(
-            "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
-        ) as mock_merge, patch(
-            "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-        ) as mock_norm, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
-        ) as mock_qu, patch(
-            "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-        ) as mock_profile, patch(
-            "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-        ) as mock_apply, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
-        ) as mock_plan, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
-        ) as mock_cache, patch(
-            "kindly_web_search_mcp_server.search.pipeline.httpx.AsyncClient"
-        ) as mock_client, patch(
-            "kindly_web_search_mcp_server.search.pipeline.rerank_results",
-            new_callable=AsyncMock,
-        ) as mock_rerank, patch(
-            "kindly_web_search_mcp_server.search.pipeline.asyncio.ensure_future",
-        ) as mock_ensure_future, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_context"
-        ) as mock_ctx_builder, patch(
-            "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-        ) as mock_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-        ) as mock_store_mem, patch(
-            "kindly_web_search_mcp_server.search.pipeline.build_search_response"
-        ) as mock_response:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_ab_overrides",
+                return_value={
+                    "experiment_id": "rerank-shadow-1",
+                    "variant_key": "test",
+                    "shadow_mode": True,
+                    "config": {"provider": "jina"},
+                },
+            ) as mock_get_ab,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.run_shadow",
+                new_callable=AsyncMock,
+            ) as _mock_shadow,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
+            ) as mock_exec,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_rewrite_variants"
+            ) as mock_rewrite,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
+            ) as mock_merge,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
+            ) as mock_norm,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
+            ) as mock_qu,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
+            ) as mock_profile,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
+            ) as mock_apply,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
+            ) as mock_plan,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_cache_identity"
+            ) as mock_cache,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.get_http_client",
+                new_callable=AsyncMock,
+            ) as mock_get_client,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.rerank_results",
+                new_callable=AsyncMock,
+            ) as mock_rerank,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.asyncio.ensure_future",
+            ) as mock_ensure_future,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_context"
+            ) as mock_ctx_builder,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
+            ) as mock_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
+            ) as mock_store_mem,
+            patch(
+                "kindly_web_search_mcp_server.search.pipeline.build_search_response"
+            ) as mock_response,
+        ):
             from kindly_web_search_mcp_server.models import WebSearchResult
             from kindly_web_search_mcp_server.rerank.models import RerankOutput
 
             mock_norm.return_value = "normalized query"
             mock_qu.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                rationale="test", entities=[], must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                rationale="test",
+                entities=[],
+                must_keep_terms=set(),
             )
             mock_ctx_builder.return_value = MagicMock(
-                intent="general", confidence=0.9, should_decompose=False,
-                profile_name="default", must_keep_terms=set(),
+                intent="general",
+                confidence=0.9,
+                should_decompose=False,
+                profile_name="default",
+                must_keep_terms=set(),
             )
             mock_profile.return_value = MagicMock(
                 provider_weights={},
@@ -439,22 +531,28 @@ class TestPipelineABWiringRerank:
             )
             mock_merge.return_value = [
                 WebSearchResult(
-                    title="R1", link="https://r1.com", snippet="S1",
-                    score=0.9, domain="r1.com",
+                    title="R1",
+                    link="https://r1.com",
+                    snippet="S1",
+                    score=0.9,
+                    domain="r1.com",
                 ),
                 WebSearchResult(
-                    title="R2", link="https://r2.com", snippet="S2",
-                    score=0.8, domain="r2.com",
+                    title="R2",
+                    link="https://r2.com",
+                    snippet="S2",
+                    score=0.8,
+                    domain="r2.com",
                 ),
             ]
             mock_mem.return_value = ([], [], None, None)
             mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
-            mock_client.return_value.__aenter__.return_value = MagicMock()
-            mock_client.return_value.aclose = AsyncMock()
+            mock_get_client.return_value = MagicMock()
 
             mock_rerank.return_value = RerankOutput(
-                results=[], embedding_context=None,
+                results=[],
+                embedding_context=None,
             )
             mock_ensure_future.side_effect = lambda coro: coro.close()
 
@@ -471,8 +569,9 @@ class TestPipelineABWiringRerank:
             # verify that get_ab_overrides was called for multiple layers
             assert mock_get_ab.call_count >= 1
             # verify that asyncio.ensure_future was called (for shadow task)
-            assert mock_ensure_future.called, \
+            assert mock_ensure_future.called, (
                 "asyncio.ensure_future should be called for shadow mode"
+            )
 
 
 class TestRerankResultsWithABDirectly:
@@ -485,17 +584,21 @@ class TestRerankResultsWithABDirectly:
 
         candidates = [
             WebSearchResult(
-                title=f"R{i}", link=f"https://e.com/{i}",
-                snippet=f"S{i}", score=0.9, domain="e.com",
+                title=f"R{i}",
+                link=f"https://e.com/{i}",
+                snippet=f"S{i}",
+                score=0.9,
+                domain="e.com",
             )
             for i in range(5)
         ]
 
-        with patch(
-            "kindly_web_search_mcp_server.rerank.core.settings"
-        ) as s, patch(
-            "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-        ) as mock_decide:
+        with (
+            patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
+            patch(
+                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
+            ) as mock_decide,
+        ):
             s.rerank_provider = "none"
             s.rerank_stack_mode = "bi_cross"
             s.rerank_recency_weight = 0.0
@@ -505,7 +608,9 @@ class TestRerankResultsWithABDirectly:
             s.rerank_entity_overlap_enabled = False
 
             mock_decide.return_value = MagicMock(
-                should_rerank=True, reason="test", query_type="general",
+                should_rerank=True,
+                reason="test",
+                query_type="general",
                 candidate_count=5,
             )
 

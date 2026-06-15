@@ -1,4 +1,9 @@
-"""Bounded concurrent execution for decomposed search branches."""
+"""Bounded concurrent execution for decomposed search branches.
+
+Each branch fires ``dispatch_providers`` with its own query and provider set.
+All branches run concurrently; the branch-level deadline collects partial
+results from branches that finish in time.
+"""
 
 from __future__ import annotations
 
@@ -6,25 +11,19 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..utils.async_helpers import gather_with_deadline, task_completed_successfully
-from ..utils.diagnostics import Diagnostics
+from ..utils.async_helpers import task_completed_successfully
 from .options import SearchOptions
+from .provider_dispatch import dispatch_providers
 from .provider_plan import ProviderExecutionPlan
 from .provider_options import ProviderOptionBundle
-from . import search_single_query
 
 logger = logging.getLogger(__name__)
-
-SearchRunner = Callable[
-    ...,
-    Awaitable[list[WebSearchResult]],
-]
 
 
 @dataclass(frozen=True)
@@ -79,19 +78,24 @@ async def execute_search_branches(
     branches: list[SearchBranchSpec],
     *,
     http_client: httpx.AsyncClient,
-    diagnostics: Diagnostics | None,
     search_options: SearchOptions | None,
     provider_plan: ProviderExecutionPlan | None = None,
-    search_runner: SearchRunner | None = None,
     max_concurrency: int | None = None,
     deadline_seconds: float | None = None,
     run_key: str | None = None,
 ) -> BranchExecutionBatch:
+    """Fire all branches concurrently, collect results within deadline.
+
+    Each branch calls ``dispatch_providers`` which handles the per-provider
+    deadline internally.  The branch-level deadline is a hard wall that
+    collects whatever completed.
+    """
+    from ..utils.diagnostics import Diagnostics  # noqa: PLC0415
+
     selected_branches = _limit_branches(branches)
     if not selected_branches:
         return BranchExecutionBatch([], [], [], [], [])
 
-    runner = search_runner or search_single_query
     concurrency = max(
         1,
         min(
@@ -101,6 +105,9 @@ async def execute_search_branches(
     )
     semaphore = asyncio.Semaphore(concurrency)
 
+    # Branch deadline: provider_group_deadline × 3 (branches fan out further).
+    branch_deadline = deadline_seconds or (settings.provider_group_deadline_seconds * 3)
+
     async def _run_branch(spec: SearchBranchSpec) -> SearchBranchResult:
         async with semaphore:
             start = time.perf_counter()
@@ -108,14 +115,21 @@ async def execute_search_branches(
                 spec.provider_options_by_name
                 or (provider_plan.options.bundles if provider_plan else None)
             )
+            # Resolve ProviderConfig objects for this branch's provider names.
+            resolved_configs: list = []
+            if spec.providers and provider_plan:
+                from .provider_config import resolve_provider_configs  # noqa: PLC0415
+
+                resolved_configs = list(
+                    resolve_provider_configs(spec.providers, intent="general")
+                )
             try:
-                results = await runner(
+                results = await dispatch_providers(
                     spec.query,
-                    num_results=spec.max_results,
-                    http_client=http_client,
-                    diagnostics=diagnostics,
+                    resolved_configs,
+                    http_client,
+                    deadline_seconds=settings.provider_group_deadline_seconds,
                     search_options=search_options,
-                    provider_plan=provider_plan,
                     provider_options_by_name=provider_options_by_name,
                     run_key=run_key,
                 )
@@ -130,32 +144,41 @@ async def execute_search_branches(
             latency_ms = (time.perf_counter() - start) * 1000.0
             return SearchBranchResult(spec=spec, latency_ms=latency_ms, results=results)
 
-    # Branch deadline: 3× per-provider-group default (branches contain multiple groups)
-    branch_deadline = deadline_seconds or (settings.provider_group_deadline_seconds * 3)
-
     branch_tasks = [
         asyncio.create_task(_run_branch(spec), name=f"branch-{spec.index}")
         for spec in selected_branches
     ]
-    _, errors = await gather_with_deadline(
-        *branch_tasks, deadline_seconds=branch_deadline,
-    )
-    if errors:
+
+    done, pending = await asyncio.wait(branch_tasks, timeout=branch_deadline)
+
+    if pending:
         logger.warning(
-            "Branch execution: %d of %d branches exceeded deadline or failed",
-            len(errors),
-            len(selected_branches),
+            "%d of %d branches exceeded %.1fs deadline, cancelling",
+            len(pending),
+            len(branch_tasks),
+            branch_deadline,
         )
-    # Collect completed branch results; cancelled branches produce empty results
+        for t in pending:
+            t.cancel()
+        await asyncio.wait(pending, timeout=2.0)
+
+    # Collect completed branch results; timed-out branches produce empty results.
     branch_results = [
-        task.result() if task_completed_successfully(task)
-        else SearchBranchResult(
+        t.result() if task_completed_successfully(t) else SearchBranchResult(
             spec=selected_branches[i],
             latency_ms=branch_deadline * 1000,
             results=[],
         )
-        for i, task in enumerate(branch_tasks)
+        for i, t in enumerate(branch_tasks)
     ]
+
+    if pending:
+        logger.warning(
+            "Branch execution: %d of %d branches exceeded deadline",
+            len(pending),
+            len(selected_branches),
+        )
+
     return BranchExecutionBatch(
         result_lists=[result.results for result in branch_results],
         branch_queries=[result.spec.query for result in branch_results],

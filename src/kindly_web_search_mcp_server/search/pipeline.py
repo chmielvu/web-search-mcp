@@ -6,8 +6,6 @@ import asyncio
 import logging
 import uuid
 
-import httpx
-
 from ..cache.result_memory import get_result_memory_store
 from ..embeddings import embed_query
 from ..models import WebSearchResponse
@@ -16,7 +14,9 @@ from ..telemetry import record_domain_diversity, record_search_request
 from ..training.query_understanding_jsonl import append_query_outcome_record
 from ..training.session_state import get_session_state_store
 from ..utils.diagnostics import Diagnostics
+from ..utils.http_client import get_http_client
 from ..utils.observability import emit_observability_event, set_current_run_key
+from ..utils.background_tasks import fire_and_forget
 from ..rerank.core import rerank_results
 from ..rerank.models import RerankEmbeddingContext
 from ..ab_testing.wiring import get_ab_overrides
@@ -36,7 +36,6 @@ from .finalize_results import build_search_response, maybe_extract_entities
 from .flow_observability import emit_result_lists_summary, serialize_query_variants
 from .merge import merge_search_results
 from .options import SearchOptions
-from . import search_single_query
 from .pipeline_builders import build_rewrite_variants, build_search_context
 from .profiles.registry import apply_profile_search_options
 from .profiles.resolve import resolve_search_profile
@@ -169,41 +168,23 @@ async def run_search_pipeline(
         logger.debug("analytics insert_query_rewrites failed: %s", exc)
 
     active_provider_names = list(provider_plan.provider_names)
-    read_timeout = settings.search_http_read_timeout_seconds
-    # Explicit client lifecycle: keep the client alive until all branches
-    # (including cancelled stragglers) have fully unwound.  The previous
-    # ``async with`` pattern closed the client while in-flight provider
-    # requests were still pending after deadline cancellation, producing
-    # "Cannot send a request, as the client has been closed" errors.
-    client = httpx.AsyncClient(
-        timeout=httpx.Timeout(
-            connect=settings.search_http_connect_timeout_seconds,
-            read=read_timeout,
-            write=read_timeout,
-            pool=read_timeout,
-        ),
-        follow_redirects=True,
+    # Use the server-level shared client (created lazily, closed on shutdown).
+    client = await get_http_client()
+    branch_specs = build_search_branch_specs(
+        normalized_query=normalized_query,
+        rewrite_variants=rewrite_variants,
+        num_results=num_results,
+        active_provider_names=active_provider_names,
+        provider_plan=provider_plan,
     )
-    try:
-        branch_specs = build_search_branch_specs(
-            normalized_query=normalized_query,
-            rewrite_variants=rewrite_variants,
-            num_results=num_results,
-            active_provider_names=active_provider_names,
-            provider_plan=provider_plan,
-        )
-        branch_batch = await execute_search_branches(
-            branch_specs,
-            http_client=client,
-            diagnostics=diagnostics,
-            search_options=search_options,
-            provider_plan=provider_plan,
-            search_runner=search_single_query,
-            max_concurrency=settings.query_decomposition_max_concurrency,
-            run_key=run_key,
-        )
-    finally:
-        await client.aclose()
+    branch_batch = await execute_search_branches(
+        branch_specs,
+        http_client=client,
+        search_options=search_options,
+        provider_plan=provider_plan,
+        max_concurrency=settings.query_decomposition_max_concurrency,
+        run_key=run_key,
+    )
 
     result_lists = branch_batch.result_lists
     branch_queries = branch_batch.branch_queries
@@ -240,13 +221,12 @@ async def run_search_pipeline(
     # a provider_weights experiment
     # ------------------------------------------------------------------
     base_provider_weights = provider_plan.provider_weights or profile.provider_weights
-    pw_ab_overrides = get_ab_overrides(
-        run_key=run_key, layer="provider_weights"
-    ) if run_key else None
+    pw_ab_overrides = (
+        get_ab_overrides(run_key=run_key, layer="provider_weights") if run_key else None
+    )
     pw_shadow_mode = bool(pw_ab_overrides and pw_ab_overrides.get("shadow_mode"))
 
     if pw_ab_overrides and not pw_shadow_mode:
-        # Non-shadow mode: merge variant provider_weights over the base weights
         pw_config = pw_ab_overrides.get("config", {})
         variant_weights = pw_config.get("provider_weights", {})
         if variant_weights:
@@ -298,7 +278,7 @@ async def run_search_pipeline(
                 "top_links": [r.link for r in shadow_merged[:5]],
             }
 
-        asyncio.ensure_future(
+        fire_and_forget(
             run_shadow(
                 run_key=run_key,
                 experiment_id=pw_ab_overrides["experiment_id"],
@@ -308,7 +288,8 @@ async def run_search_pipeline(
                 shadow_kwargs={},
                 control_duration_ms=0.0,
                 control_result_summary=control_result_summary,
-            )
+            ),
+            name=f"shadow-merge-{run_key[:8]}",
         )
 
     record_domain_diversity(
@@ -320,13 +301,13 @@ async def run_search_pipeline(
     embedding_ctx_for_index: RerankEmbeddingContext | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
-            # Check A/B testing overrides for the reranking layer
-            ab_overrides = get_ab_overrides(
-                run_key=run_key, layer="reranking"
-            ) if run_key else None
+            ab_overrides = (
+                get_ab_overrides(run_key=run_key, layer="reranking")
+                if run_key
+                else None
+            )
 
             if ab_overrides and ab_overrides.get("shadow_mode"):
-                # Shadow mode: run production rerank normally, fire-and-forget variant
                 ab_config = ab_overrides.get("config", {})
                 pre_rerank_results = list(merged)
                 rerank_out = await rerank_results(
@@ -344,7 +325,6 @@ async def run_search_pipeline(
                 embedding_ctx_for_index = rerank_out.embedding_context
                 merged = rerank_out.results
 
-                # Fire-and-forget the variant rerank as a shadow
                 shadow_kwargs = {
                     "query": normalized_query,
                     "candidates": pre_rerank_results,
@@ -357,7 +337,7 @@ async def run_search_pipeline(
                     "run_key": run_key,
                     "ab_overrides": ab_config or None,
                 }
-                asyncio.ensure_future(
+                fire_and_forget(
                     run_shadow(
                         run_key=run_key,
                         experiment_id=ab_overrides["experiment_id"],
@@ -367,10 +347,10 @@ async def run_search_pipeline(
                         shadow_kwargs=shadow_kwargs,
                         control_duration_ms=0.0,
                         control_result_summary=None,
-                    )
+                    ),
+                    name=f"shadow-rerank-{run_key[:8]}",
                 )
             else:
-                # Normal / A/B override mode: pass ab_overrides config directly
                 ab_config = ab_overrides.get("config") if ab_overrides else None
                 rerank_out = await rerank_results(
                     query=normalized_query,
@@ -441,7 +421,6 @@ async def run_search_pipeline(
             indexed_results: list = []
             texts: list[str] = []
             for r in final_results:
-                # Skip results that originated from Qdrant to prevent feedback loop
                 if r.providers and "qdrant" in r.providers:
                     continue
                 emb = embedding_ctx_for_index.find(r.link.strip())
@@ -459,7 +438,7 @@ async def run_search_pipeline(
             ] or None
 
             if indexed_results:
-                asyncio.ensure_future(
+                fire_and_forget(
                     index_final_results(
                         normalized_query,
                         indexed_results,
@@ -467,7 +446,8 @@ async def run_search_pipeline(
                         texts=texts,
                         intent=context.intent,
                         entities=entity_dicts,
-                    )
+                    ),
+                    name=f"index-{run_key[:8]}",
                 )
         except Exception as exc:
             logger.debug("index_final_results fire-and-forget failed: %s", exc)
@@ -515,7 +495,7 @@ async def run_search_pipeline(
             session_id=session_id,
         )
     except Exception as exc:
-        logger.warning("query outcome JSONL write failed: %s", exc)
+        logger.debug("query outcome JSONL write failed: %s", exc)
 
     # Best-effort dual-write: search_run
     try:
@@ -585,7 +565,7 @@ async def run_search_pipeline(
     # Judge evaluation (opt-in, fire-and-forget, never blocks the pipeline)
     if settings.judge_evaluation_enabled:
         try:
-            asyncio.ensure_future(
+            fire_and_forget(
                 run_judge_evaluation(
                     run_key=run_key,
                     query=query,
@@ -595,7 +575,8 @@ async def run_search_pipeline(
                     research_goal=research_goal,
                     rewrite_variants=rewrite_variants,
                     session_id=session_id or run_key,
-                )
+                ),
+                name=f"judge-{run_key[:8]}",
             )
         except Exception as exc:
             logger.debug("judge evaluation fire-and-forget failed: %s", exc)

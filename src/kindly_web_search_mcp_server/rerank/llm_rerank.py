@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import re
 
 from ..llm.phoenix_tracing import LLMTraceContext
@@ -10,7 +11,7 @@ from ..llm import StructuredLLMRequest, build_llm_worker
 from ..models import WebSearchResult
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.rerank_llm import build_llm_rerank_messages, load_rerank_prompt_template
-from .models import RerankResult
+from .models import RerankLLMOutput, RerankResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +37,43 @@ def _build_candidate_window(
 
 
 def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
+    def _coerce_ranked_ids(raw_ids: object) -> list[int]:
+        if not isinstance(raw_ids, list):
+            return []
+        ordered_ids: list[int] = []
+        seen: set[int] = set()
+        for raw_id in raw_ids:
+            try:
+                candidate_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if candidate_id < 1 or candidate_id > candidate_count:
+                raise ValueError(
+                    f"LLM rerank returned out-of-range index {candidate_id}."
+                )
+            if candidate_id in seen:
+                continue
+            seen.add(candidate_id)
+            ordered_ids.append(candidate_id)
+        for candidate_id in range(1, candidate_count + 1):
+            if candidate_id not in seen:
+                ordered_ids.append(candidate_id)
+        return ordered_ids
+
+    stripped = output.strip()
+    if stripped:
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            for key in ("ranked_candidate_ids", "ranked_ids", "ranking"):
+                ranked_ids = _coerce_ranked_ids(payload.get(key))
+                if ranked_ids:
+                    return ranked_ids
+
     template = load_rerank_prompt_template()
-    cleaned = " ".join(output.split())
+    cleaned = " ".join(stripped.split())
     if not re.fullmatch(template.output_validation_regex, cleaned):
         raise ValueError(f"Unexpected listwise rerank output: {output!r}")
 
@@ -90,6 +126,7 @@ async def rerank_with_llm(
         messages=build_llm_rerank_messages(query=query, candidates=window),
         temperature=0.0,
         timeout_seconds=timeout_seconds,
+        response_model=RerankLLMOutput,
         reasoning_effort=REASONING_EFFORT_LOW,
         langfuse=LLMTraceContext(
             trace_name="llm_rerank",
@@ -103,14 +140,7 @@ async def rerank_with_llm(
             },
         ),
     )
-    response = await worker.complete_text_messages(
-        task=request.task,
-        messages=request.messages,
-        temperature=request.temperature,
-        timeout_seconds=request.timeout_seconds,
-        reasoning_effort=request.reasoning_effort,
-        langfuse=request.langfuse,
-    )
+    response = await worker.complete_structured(request)
     ranked_ids = _parse_ranked_ids(response.content, len(window))
     ranked = [
         RerankResult(index=candidate_id - 1, score=1.0 / position)

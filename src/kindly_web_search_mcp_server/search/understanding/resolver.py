@@ -7,6 +7,7 @@ import logging
 import time as time_module
 
 from ...settings import settings
+from ...utils.background_tasks import fire_and_forget
 from ...llm.phoenix_tracing import LLMTraceContext
 from ...llm.worker import build_llm_worker
 from ...llm.structured import StructuredLLMRequest
@@ -193,7 +194,7 @@ async def resolve_query_understanding(
             )
             return QueryUnderstandingResult.model_validate_json(shadow_gen.content)
 
-        asyncio.ensure_future(
+        fire_and_forget(
             run_shadow(
                 run_key=run_key,
                 experiment_id=ab_overrides["experiment_id"],
@@ -207,7 +208,8 @@ async def resolve_query_understanding(
                     "confidence": understanding.confidence,
                     "model": result_model_name,
                 },
-            )
+            ),
+            name=f"shadow-qu-{run_key[:8]}",
         )
     emit_observability_event(
         logger,

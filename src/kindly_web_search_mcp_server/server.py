@@ -36,12 +36,14 @@ import asyncio
 import time
 import uuid
 import json
-import httpx
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from types import MethodType
-from typing import Literal
+from typing import AsyncIterator, Literal
+
+import httpx
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import NotFoundError
@@ -62,6 +64,7 @@ from .models import (
     YouTubeSearchResponse,
 )
 from .errors import format_tool_error
+from .utils.background_tasks import fire_and_forget, cancel_all_background_tasks
 from .content.batch_orchestrator import BatchParams, run_batch_fetch
 from .content.fetch_pipeline import fetch_content_artifact
 from .content.link_discovery import discover_links as discover_page_links
@@ -102,6 +105,7 @@ from .utils.diagnostics import (
     mask_env_values,
     new_request_id,
 )
+from .utils.http_client import close_http_client
 from .utils.logging import configure_logging
 from .utils.observability import (
     emit_tool_observability_event,
@@ -179,6 +183,8 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tavily": bool(os.environ.get("TAVILY_API_KEY")),
             "brave": bool(os.environ.get("BRAVE_API_KEY")),
             "jina": bool(os.environ.get("JINA_API_KEY")),
+            "cohere": bool(settings.cohere_api_key),
+            "openrouter": bool(settings.openrouter_api_key),
             "gemini": bool(settings.gemini_api_key),
             "voyage": bool(settings.voyage_api_key),
             "composio": bool(
@@ -191,6 +197,8 @@ def _public_settings_snapshot() -> dict[str, object]:
         "models": {
             "rerank_provider": settings.rerank_provider,
             "rerank_stack_mode": settings.rerank_stack_mode,
+            "cohere_rerank_model": settings.cohere_rerank_model,
+            "openrouter_rerank_model": settings.openrouter_rerank_model,
             "voyage_rerank_model": settings.voyage_rerank_model,
             "jina_rerank_model": settings.jina_rerank_model,
             "judge_model": settings.judge_model,
@@ -205,6 +213,8 @@ def _public_settings_snapshot() -> dict[str, object]:
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,
+            "cohere_rerank": settings.cohere_rerank_timeout,
+            "openrouter_rerank": settings.openrouter_rerank_timeout,
             "judge": settings.judge_timeout_seconds,
         },
     }
@@ -268,8 +278,23 @@ def _analytics_report_snapshot(
     }
 
 
+@asynccontextmanager
+async def _app_lifespan(app: FastMCP) -> AsyncIterator[dict]:
+    """Server lifespan: startup yields an empty state, shutdown closes shared clients."""
+    yield {}
+    try:
+        await close_http_client()
+    except Exception as exc:
+        LOGGER.warning("Error closing shared HTTP client during shutdown: %s", exc)
+    try:
+        await cancel_all_background_tasks()
+    except Exception as exc:
+        LOGGER.warning("Error cancelling background tasks during shutdown: %s", exc)
+
+
 mcp = FastMCP(
     "web-search",
+    lifespan=_app_lifespan,
     instructions=(
         "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
         "with rewrite=true by default. Use get_content for one known URL; "
@@ -1533,7 +1558,7 @@ async def gemini_search(
                         else []
                     )
                 ]
-                asyncio.ensure_future(
+                fire_and_forget(
                     run_judge_evaluation(
                         run_key=_run_key,
                         query=query,
@@ -1541,7 +1566,8 @@ async def gemini_search(
                         results=_judge_results,
                         tool_name="gemini_search",
                         session_id=_resolve_session_id(ctx),
-                    )
+                    ),
+                    name=f"judge-gemini-{_run_key[:8]}",
                 )
             except Exception:
                 pass
@@ -1663,7 +1689,7 @@ async def perplexity_search(
                         else []
                     )
                 ]
-                asyncio.ensure_future(
+                fire_and_forget(
                     run_judge_evaluation(
                         run_key=_run_key,
                         query=query,
@@ -1671,7 +1697,8 @@ async def perplexity_search(
                         results=_judge_results,
                         tool_name="perplexity_search",
                         session_id=_resolve_session_id(ctx),
-                    )
+                    ),
+                    name=f"judge-perplexity-{_run_key[:8]}",
                 )
             except Exception:
                 pass
@@ -1822,7 +1849,7 @@ async def grok_search(
                         else []
                     )
                 ]
-                asyncio.ensure_future(
+                fire_and_forget(
                     run_judge_evaluation(
                         run_key=_run_key,
                         query=query,
@@ -1830,7 +1857,8 @@ async def grok_search(
                         results=_judge_results,
                         tool_name="grok_search",
                         session_id=_resolve_session_id(ctx),
-                    )
+                    ),
+                    name=f"judge-grok-{_run_key[:8]}",
                 )
             except Exception:
                 pass
@@ -2325,6 +2353,8 @@ def get_providers_status() -> str:
         f"**Brave**: {'✓ Configured' if os.environ.get('BRAVE_API_KEY') else '✗ Not configured'}",
         f"**Search Router**: {'✓ Configured' if os.environ.get('SEARCH_ROUTER_API_KEY') else '✗ Not configured'}",
         f"**Jina**: {'✓ Configured' if os.environ.get('JINA_API_KEY') else '✗ Not configured'}",
+        f"**Cohere Reranker**: {'✓ Configured' if settings.cohere_api_key else '✗ Not configured'}",
+        f"**OpenRouter Reranker**: {'✓ Configured' if settings.openrouter_api_key else '✗ Not configured'}",
         f"**Voyage Reranker**: {'✓ Configured' if settings.voyage_api_key else '✗ Not configured'}",
         f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('COMPOSIO_USER_ID') else '✗ Not configured'}",
         "",

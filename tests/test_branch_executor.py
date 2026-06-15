@@ -60,6 +60,7 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
             search_options,
             provider_plan=None,
             provider_options_by_name=None,
+            run_key=None,
         ) -> list[WebSearchResult]:
             nonlocal active, peak
             queries.append((query, num_results, provider_options_by_name))
@@ -161,6 +162,7 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
             search_options,
             provider_plan=None,
             provider_options_by_name=None,
+            run_key=None,
         ) -> list[WebSearchResult]:
             if query == "slow branch":
                 await asyncio.sleep(0.2)
