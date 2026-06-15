@@ -20,6 +20,7 @@ from .telemetry import (
     SEARCH_QUERY,
     SEARCH_NUM_RESULTS_REQUESTED,
     record_mcp_tool_call,
+    record_search_request,
     record_tool_details,
     record_gemini_search,
     record_perplexity_search,
@@ -32,6 +33,7 @@ init_telemetry_background(service_name="web-search-mcp")
 
 import argparse
 import asyncio
+import time
 import uuid
 import json
 import httpx
@@ -68,15 +70,17 @@ from .content.summary import create_batch_summaries, create_summary
 from .content.windowing import slice_content
 from .composio_tools import register_composio_tools
 from .agent.mcp import register_agentic_web_research_tools
-from .content.youtube import (
+from .youtube import (
     YouTubeError,
+    YouTubeSearchError,
+    YouTubeApiError,
     parse_youtube_url,
-    fetch_transcript_data,
+    fetch_transcript_with_cache,
     format_transcript_text,
     format_transcript_timestamped,
     calculate_total_duration,
+    search_youtube,
 )
-from .search.youtube import search_youtube_videos, YouTubeSearchError
 from .search.pipeline import run_search_pipeline as run_web_search
 from .cache import (
     get_query_cache,
@@ -731,6 +735,8 @@ async def web_search(
     Default discovery tool. Set rewrite=False only for exact-literals: errors, URLs, versions, hashes.
     """
 
+    start_time = time.time()
+
     # Enforce bounds
     num_results = max(1, min(int(os.environ.get("DEFAULT_NUM_RESULTS", "10")), 25))
     search_options = build_search_options(
@@ -816,6 +822,11 @@ async def web_search(
                     "web_search",
                     input_query=query,
                     output_result_count=len(exact_response.get("results", [])),
+                )
+                record_search_request(
+                    providers_used=exact_response.get("providers_used", []),
+                    duration_seconds=time.time() - start_time,
+                    result_count=len(exact_response.get("results", [])),
                 )
                 return exact_response
         except Exception as e:
@@ -1842,13 +1853,16 @@ async def youtube_transcript(
     language: str | None = None,
     translate_to: str | None = None,
     format: str = "text",
+    backend: str | None = None,
 ) -> YouTubeTranscriptResultType:
     """Extract captions from a YouTube video. Supports multiple URL formats, language selection, translation, and timestamped/text/JSON output.
     Use after youtube_search to get video content.
+    backend: "auto" (cascade), "ytdlp" (yt-dlp only), "api" (legacy youtube-transcript-api). Default: server setting.
     """
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
+    effective_backend = backend or settings.youtube_transcript_backend
 
     try:
         # Parse URL/ID
@@ -1856,13 +1870,14 @@ async def youtube_transcript(
         video_id = target.video_id
         canonical_url = target.canonical_url
 
-        # Fetch transcript with timeout
-        segments = await asyncio.wait_for(
+        # Fetch transcript (cache-first, then cascade backends)
+        segments, backend_used = await asyncio.wait_for(
             asyncio.to_thread(
-                fetch_transcript_data,
+                fetch_transcript_with_cache,
                 video_id,
                 language=language,
                 translate_to=translate_to,
+                backend=effective_backend,
             ),
             timeout=timeout_seconds,
         )
@@ -1894,12 +1909,13 @@ async def youtube_transcript(
             language=actual_language,
             is_translated=is_translated,
             duration_seconds=int(duration_seconds),
+            backend_used=backend_used,
         )
 
         return YouTubeTranscriptResponse(
             video_id=video_id,
             video_url=canonical_url,
-            title=None,  # Title requires separate YouTube Data API call
+            title=None,  # Title requires separate YouTube Data API call (Phase 2)
             transcript_text=transcript_text,
             language=actual_language,
             is_translated=is_translated,
@@ -1914,6 +1930,7 @@ async def youtube_transcript(
             language=language or "en",
             is_translated=bool(translate_to),
             duration_seconds=None,
+            backend_used=effective_backend,
         )
         error_msg = f"Transcript fetch timed out after {timeout_seconds}s"
         return {
@@ -1933,6 +1950,7 @@ async def youtube_transcript(
             language=language or "en",
             is_translated=bool(translate_to),
             duration_seconds=None,
+            backend_used=effective_backend,
         )
         return {
             "video_id": "",
@@ -1951,6 +1969,7 @@ async def youtube_transcript(
             language=language or "en",
             is_translated=bool(translate_to),
             duration_seconds=None,
+            backend_used=effective_backend,
         )
         LOGGER.warning(f"YouTube transcript unexpected error: {e}")
         structured = format_tool_error(e, provider="youtube")
@@ -1981,26 +2000,29 @@ async def youtube_search(
     start_time = time.time()
 
     try:
-        results = await search_youtube_videos(query, num_results=num_results)
+        results, search_backend = await search_youtube(query, num_results=num_results)
         duration_seconds = time.time() - start_time
 
         # Record YouTube search telemetry
         record_youtube_search(
             num_results=len(results),
             duration_seconds=duration_seconds,
+            search_backend=search_backend,
         )
 
         return YouTubeSearchResponse(
             query=query,
             results=results,
             total_results=len(results),
+            search_backend=search_backend,
         ).model_dump(exclude_none=True)
 
-    except YouTubeSearchError as e:
+    except (YouTubeSearchError, YouTubeApiError) as e:
         duration_seconds = time.time() - start_time
         record_youtube_search(
             num_results=0,
             duration_seconds=duration_seconds,
+            search_backend="error",
         )
         return {
             "query": query,
@@ -2019,6 +2041,59 @@ async def youtube_search(
         )
         LOGGER.warning(f"YouTube search unexpected error: {e}")
         return format_tool_error(e, provider="youtube")
+
+
+@mcp.tool(**tool_kwargs("generate_semantic_sitemap"))
+async def generate_semantic_sitemap(
+    url: str,
+    max_pages: int = 100,
+    max_depth: int = 3,
+    heading_preview_chars: int = 200,
+    generate_llms_txt: bool = False,
+    ctx: Context = CurrentContext(),
+) -> dict:
+    """Discover and crawl pages from a website, extracting a structured
+    hierarchical outline of each page based on headings (H1–H6).
+
+    Uses Crawl4AI for sitemap/XML discovery and browser-based page crawling.
+    Returns a JSON structure with page URLs, titles, heading-based sections
+    with text previews, and crawl statistics.
+
+    Set generate_llms_txt=true to also return an llms.txt-formatted markdown
+    summary suitable for direct LLM consumption.
+    """
+
+    from .content.sitemap import SitemapConfig, crawl_and_extract_pages
+
+    emit_tool_observability_event(LOGGER, "generate_semantic_sitemap", url=url)
+
+    config = SitemapConfig(
+        max_pages=max(1, min(max_pages, 500)),
+        max_depth=max(1, min(max_depth, 10)),
+        heading_preview_chars=max(50, min(heading_preview_chars, 1000)),
+        generate_llms_txt=generate_llms_txt,
+        crawl_timeout_seconds=settings.crawl4ai_timeout_seconds,
+        headless=settings.crawl4ai_headless,
+    )
+
+    try:
+        await ctx.report_progress(progress=0, total=100, message="Discovering URLs...")
+        result = await crawl_and_extract_pages(url, config=config)
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        await ctx.info(
+            f"Crawled {result['stats']['pages_crawled']} pages, "
+            f"{result['stats']['total_sections']} sections"
+        )
+        _record_tool_success(
+            "generate_semantic_sitemap",
+            input_url_count=1,
+            output_result_count=result["stats"]["pages_crawled"],
+        )
+        return result
+    except Exception as e:
+        LOGGER.warning("generate_semantic_sitemap error: %s", e, exc_info=True)
+        _record_tool_failure("generate_semantic_sitemap")
+        return format_tool_error(e, provider="crawl4ai_sitemap")
 
 
 @mcp.tool(**tool_kwargs("academic_search"))

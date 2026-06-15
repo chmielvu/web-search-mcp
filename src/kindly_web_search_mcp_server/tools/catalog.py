@@ -119,6 +119,12 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     "youtube_transcript": _entry(
         "youtube_transcript", "YouTube Transcript", {"full"}
     ),
+    "generate_semantic_sitemap": _entry(
+        "generate_semantic_sitemap",
+        "Generate Semantic Sitemap",
+        {"research", "full"},
+        expensive=True,
+    ),
 }
 
 

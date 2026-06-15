@@ -11,6 +11,7 @@ from .utils.paths import (
     DEFAULT_PAGE_CACHE_DB,
     DEFAULT_PROCESS_LOGS_DB,
     DEFAULT_QUERY_UNDERSTANDING_JSONL,
+    DEFAULT_TRANSCRIPT_CACHE_DB,
 )
 
 
@@ -272,6 +273,12 @@ class Settings:
         DEFAULT_PAGE_CACHE_DB,
     )
 
+    # Transcript cache (separate DuckDB file for YouTube transcript caching)
+    transcript_cache_duckdb_path: str = os.environ.get(
+        "TRANSCRIPT_CACHE_DUCKDB_PATH",
+        DEFAULT_TRANSCRIPT_CACHE_DB,
+    )
+
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
 
@@ -305,8 +312,30 @@ class Settings:
         os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
     )
 
+    # YouTube Transcript Backend (auto|ytdlp|api)
+    youtube_transcript_backend: str = os.environ.get(
+        "YOUTUBE_TRANSCRIPT_BACKEND", "auto"
+    )
+
+    # Whisper ASR (HF Space) for videos without captions
+    whisper_space_url: str = os.environ.get("WHISPER_SPACE_URL", "")
+    whisper_space_timeout_seconds: float = float(
+        os.environ.get("WHISPER_SPACE_TIMEOUT_SECONDS", "300")
+    )
+
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
+
+    # YouTube Data API v3 (optional, enables enriched search)
+    youtube_api_key: str = os.environ.get("YOUTUBE_API_KEY", "")
+    youtube_api_timeout_seconds: float = float(
+        os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", "15")
+    )
+    youtube_api_daily_quota: int = int(
+        os.environ.get("YOUTUBE_API_DAILY_QUOTA", "10000")
+    )
+    youtube_api_language: str = os.environ.get("YOUTUBE_API_LANGUAGE", "")
+    youtube_api_region: str = os.environ.get("YOUTUBE_API_REGION", "")
 
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
@@ -627,6 +656,19 @@ class Settings:
     judge_model: str = os.environ.get("JUDGE_MODEL", "openai/gpt-oss-120b")
     judge_timeout_seconds: float = float(
         os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0")
+    )
+
+    # =====================================================================
+    # Crawl4AI browser automation (replaces nodriver for Stage 7 fallback)
+    # =====================================================================
+    crawl4ai_timeout_seconds: float = float(
+        os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "60")
+    )
+    crawl4ai_max_pages_sitemap: int = int(
+        os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100")
+    )
+    crawl4ai_headless: bool = (
+        os.environ.get("CRAWL4AI_HEADLESS", "true").lower() == "true"
     )
 
     # =====================================================================

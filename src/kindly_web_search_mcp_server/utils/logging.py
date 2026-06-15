@@ -33,6 +33,9 @@ def configure_logging() -> None:
         "asyncio",
         "nodriver",
         "undetected_chromedriver",
+        "crawl4ai",
+        "playwright",
+        "patchright",
     )
     for name in noisy_loggers:
         # `asyncio` can emit noisy warnings about slow callbacks in some environments.

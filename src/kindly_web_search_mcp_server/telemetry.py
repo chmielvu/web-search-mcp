@@ -415,6 +415,8 @@ YOUTUBE_FORMAT = "youtube.format"
 YOUTUBE_LANGUAGE = "youtube.language"
 YOUTUBE_IS_TRANSLATED = "youtube.is_translated"
 YOUTUBE_DURATION_SECONDS = "youtube.duration_seconds"
+YOUTUBE_BACKEND_USED = "youtube.backend_used"
+YOUTUBE_SEARCH_BACKEND = "youtube.search_backend"
 
 # --- Agentic Performance Attributes ---
 TASK_SUCCESS = "task.success"
@@ -441,7 +443,8 @@ CONTENT_STAGE_GITHUB = "github_issue"
 CONTENT_STAGE_WIKIPEDIA = "wikipedia"
 CONTENT_STAGE_ARXIV = "arxiv"
 CONTENT_STAGE_HTTP_EXTRACT = "http_extract"
-CONTENT_STAGE_NODRIVER = "nodriver"
+CONTENT_STAGE_NODRIVER = "nodriver"  # Deprecated: kept for backward compat
+CONTENT_STAGE_CRAWL4AI = "crawl4ai"
 
 
 # ============================================================================
@@ -1855,6 +1858,7 @@ def record_youtube_transcript(
     language: str,
     is_translated: bool,
     duration_seconds: int | None = None,
+    backend_used: str = "api",
 ) -> None:
     """Record YouTube transcript specifics."""
     transcript_counter, _ = get_youtube_metrics()
@@ -1865,6 +1869,7 @@ def record_youtube_transcript(
             YOUTUBE_LANGUAGE: language,
             YOUTUBE_IS_TRANSLATED: str(is_translated).lower(),
             YOUTUBE_DURATION_SECONDS: duration_seconds or 0,
+            YOUTUBE_BACKEND_USED: backend_used,
         },
     )
 
@@ -1872,6 +1877,7 @@ def record_youtube_transcript(
 def record_youtube_search(
     num_results: int,
     duration_seconds: float | None = None,
+    search_backend: str = "searxng",
 ) -> None:
     """Record YouTube search specifics."""
     _, search_counter = get_youtube_metrics()
@@ -1879,6 +1885,7 @@ def record_youtube_search(
         1,
         {
             SEARCH_NUM_RESULTS_RETURNED: num_results,
+            YOUTUBE_SEARCH_BACKEND: search_backend,
         },
     )
 
@@ -2540,6 +2547,8 @@ __all__ = [
     "YOUTUBE_LANGUAGE",
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_DURATION_SECONDS",
+    "YOUTUBE_BACKEND_USED",
+    "YOUTUBE_SEARCH_BACKEND",
     "STATUS_SUCCESS",
     "STATUS_ERROR",
     "STATUS_TIMEOUT",

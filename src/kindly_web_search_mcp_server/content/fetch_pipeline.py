@@ -410,12 +410,12 @@ async def fetch_content_artifact(
     if browser_markdown:
         browser_cls = classify_markdown(browser_markdown)
         record_content_resolution(
-            stage="browser_nodriver",
+            stage="browser_crawl4ai",
             url=url,
             success=browser_cls.status == "success",
             size_bytes=len(browser_markdown.encode("utf-8")),
             word_count=len(browser_markdown.split()),
-            extraction_method="nodriver",
+            extraction_method="crawl4ai",
         )
         return ContentArtifact(
             input_url=url,

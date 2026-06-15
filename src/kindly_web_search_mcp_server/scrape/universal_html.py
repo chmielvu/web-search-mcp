@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .chromium_pool import get_chromium_pool, reuse_enabled
-from .chromium_pool import ChromiumSlot
 from .extract import extract_content_as_markdown
 from .sanitize import sanitize_markdown
 from ..utils.diagnostics import (
@@ -529,7 +527,7 @@ async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:
         await proc.wait()
 
 
-async def fetch_html_via_nodriver(
+async def fetch_html_via_browser(
     url: str,
     *,
     referer: str | None = None,
@@ -537,21 +535,22 @@ async def fetch_html_via_nodriver(
     diagnostics: Diagnostics | None = None,
 ) -> str:
     """
-    Fetch a rendered HTML snapshot via headless Nodriver.
+    Fetch a rendered HTML snapshot via Crawl4AI (Playwright-backed).
 
     Design constraints:
     - Keep the MCP stdio stream clean (no third-party debug prints).
     - Avoid Windows shutdown-time asyncio transport noise seen with in-process browser automation.
 
     Implementation detail:
-    - A dedicated subprocess runs `kindly_web_search_mcp_server.scrape.nodriver_worker`.
+    - A dedicated subprocess runs `kindly_web_search_mcp_server.scrape.crawl4ai_worker`.
     - The worker writes only HTML to stdout; all incidental output is discarded in the worker.
+    - Crawl4AI/Playwright manages its own browser lifecycle (no ChromiumPool needed).
     """
 
-    base_cmd = [
+    cmd = [
         sys.executable,
         "-m",
-        "kindly_web_search_mcp_server.scrape.nodriver_worker",
+        "kindly_web_search_mcp_server.scrape.crawl4ai_worker",
         "--url",
         url,
         "--user-agent",
@@ -560,113 +559,28 @@ async def fetch_html_via_nodriver(
         str(config.wait_seconds),
     ]
     if referer:
-        base_cmd.extend(["--referer", referer])
-
-    pool = None
-    slot = None
-    use_pool = reuse_enabled()
-    if use_pool:
-        try:
-            pool = await get_chromium_pool(diagnostics=diagnostics)
-            slot = await pool.acquire(
-                user_agent=config.user_agent, diagnostics=diagnostics
-            )
-        except Exception as exc:
-            if diagnostics:
-                diagnostics.emit(
-                    "pool.error",
-                    "Failed to acquire pooled Chromium",
-                    {"error": type(exc).__name__},
-                )
-            slot = None
-    if slot is None:
-        use_pool = False
-
-    def _compose_cmd(active_slot: ChromiumSlot | None) -> list[str]:
-        cmd = list(base_cmd)
-        if active_slot is not None:
-            cmd.extend(
-                [
-                    "--remote-host",
-                    active_slot.host,
-                    "--remote-port",
-                    str(active_slot.port or 0),
-                    "--reuse-browser",
-                ]
-            )
-            if active_slot.user_data_dir is not None:
-                cmd.extend(["--user-data-dir", active_slot.user_data_dir.name])
-        if browser_executable_path:
-            cmd.extend(["--browser-executable-path", browser_executable_path])
-        return cmd
-
-    browser_executable_path = _resolve_browser_executable_path()
-    cmd = _compose_cmd(slot)
+        cmd.extend(["--referer", referer])
 
     env = _maybe_add_src_to_pythonpath(dict(os.environ))
-
-    # Ensure nodriver can find the browser: if we have a resolved browser path,
-    # propagate it via environment variables that nodriver recognizes.
-    if browser_executable_path:
-        env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
-        env["BROWSER_EXECUTABLE_PATH"] = browser_executable_path
-        env["CHROME_BIN"] = browser_executable_path
 
     if diagnostics and diagnostics.enabled:
         env["DIAGNOSTICS"] = "1"
         env["REQUEST_ID"] = diagnostics.request_id
-    _ensure_no_proxy_localhost_env(env)
-
-    if diagnostics and diagnostics.enabled:
         env["PYTHONUNBUFFERED"] = "1"
-        diagnostics.emit(
-            "worker.diagnostics_state",
-            "Diagnostics state check",
-            {
-                "enabled": diagnostics.enabled,
-                "type": diagnostics.__class__.__name__,
-                "probe_will_run": diagnostics.enabled,
-            },
-        )
-        await _run_pipe_probe(
-            executable=sys.executable,
-            env=env,
-            diagnostics=diagnostics,
-        )
+
+    _ensure_no_proxy_localhost_env(env)
 
     def _emit_worker_spawn(active_cmd: list[str]) -> None:
         if diagnostics is None:
             return
         env_snapshot = {
-            "BROWSER_EXECUTABLE_PATH": env.get(
-                "BROWSER_EXECUTABLE_PATH", ""
-            ),
-            "HTML_TOTAL_TIMEOUT_SECONDS": env.get(
-                "HTML_TOTAL_TIMEOUT_SECONDS", ""
-            ),
-            "NODRIVER_RETRY_ATTEMPTS": env.get(
-                "NODRIVER_RETRY_ATTEMPTS", ""
-            ),
-            "NODRIVER_RETRY_BACKOFF_SECONDS": env.get(
-                "NODRIVER_RETRY_BACKOFF_SECONDS", ""
-            ),
-            "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS": env.get(
-                "NODRIVER_DEVTOOLS_READY_TIMEOUT_SECONDS", ""
-            ),
-            "NODRIVER_SNAP_BACKOFF_MULTIPLIER": env.get(
-                "NODRIVER_SNAP_BACKOFF_MULTIPLIER", ""
-            ),
-            "NODRIVER_ENSURE_NO_PROXY_LOCALHOST": env.get(
-                "NODRIVER_ENSURE_NO_PROXY_LOCALHOST", ""
-            ),
+            "HTML_TOTAL_TIMEOUT_SECONDS": env.get("HTML_TOTAL_TIMEOUT_SECONDS", ""),
             "NO_PROXY": env.get("NO_PROXY", ""),
             "no_proxy": env.get("no_proxy", ""),
-            "HTTP_PROXY": env.get("HTTP_PROXY", ""),
-            "HTTPS_PROXY": env.get("HTTPS_PROXY", ""),
         }
         diagnostics.emit(
             "worker.spawn",
-            "Launching nodriver worker",
+            "Launching Crawl4AI worker",
             {
                 "url": url,
                 "referer": referer or "",
@@ -709,9 +623,7 @@ async def fetch_html_via_nodriver(
             )
 
         try:
-            raw_timeout = (
-                os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or ""
-            ).strip()
+            raw_timeout = (os.environ.get("HTML_TOTAL_TIMEOUT_SECONDS") or "").strip()
             used_default = False
             invalid = False
             parsed_value = config.total_timeout_seconds
@@ -802,7 +714,7 @@ async def fetch_html_via_nodriver(
                 )
                 diagnostics.emit(
                     "worker.timeout",
-                    "Nodriver worker timed out",
+                    "Crawl4AI worker timed out",
                     {
                         "timeout_seconds": timeout_seconds,
                         "runtime_ms": int((time.monotonic() - started) * 1000),
@@ -824,11 +736,11 @@ async def fetch_html_via_nodriver(
                     await task
             await _terminate_process_tree(proc)
             if diagnostics:
-                diagnostics.emit("worker.cancelled", "Nodriver worker cancelled", {})
+                diagnostics.emit("worker.cancelled", "Crawl4AI worker cancelled", {})
             raise
 
         if stderr_state is None or stdout_state is None:
-            raise RuntimeError("nodriver worker streams unavailable")
+            raise RuntimeError("Crawl4AI worker streams unavailable")
 
         _finalize_stderr_state(stderr_state, tail_limit=MAX_STDERR_CHARS)
         if diagnostics and stderr_state.worker_entries:
@@ -848,7 +760,7 @@ async def fetch_html_via_nodriver(
                 )
                 diagnostics.emit(
                     "worker.exit",
-                    "Nodriver worker failed",
+                    "Crawl4AI worker failed",
                     {
                         "exit_code": proc.returncode,
                         "stderr_len": stderr_len,
@@ -858,7 +770,7 @@ async def fetch_html_via_nodriver(
                     },
                 )
             raise RuntimeError(
-                f"nodriver worker failed (exit={proc.returncode}): {detail or 'unknown error'}"
+                f"Crawl4AI worker failed (exit={proc.returncode}): {detail or 'unknown error'}"
             )
 
         if diagnostics:
@@ -868,7 +780,7 @@ async def fetch_html_via_nodriver(
                 )
                 diagnostics.emit(
                     "worker.stderr",
-                    "Nodriver worker stderr output",
+                    "Crawl4AI worker stderr output",
                     {
                         "stderr_len": stderr_len,
                         "stderr_sample": stderr_sample,
@@ -878,7 +790,7 @@ async def fetch_html_via_nodriver(
                 )
             diagnostics.emit(
                 "worker.stdout",
-                "Nodriver worker completed",
+                "Crawl4AI worker completed",
                 {
                     "stdout_len": stdout_state.bytes_read,
                     "runtime_ms": int((time.monotonic() - started) * 1000),
@@ -887,60 +799,11 @@ async def fetch_html_via_nodriver(
 
         return bytes(stdout_state.buffer).decode("utf-8", errors="ignore")
 
-    def _exception_message_chain(exc: Exception) -> str:
-        parts: list[str] = []
-        seen: set[int] = set()
-        current: BaseException | None = exc
-        while current is not None and id(current) not in seen:
-            seen.add(id(current))
-            detail = str(current)
-            if detail:
-                parts.append(detail)
-            current = current.__cause__ or current.__context__
-        return " | ".join(parts).lower()
+    return await _run_worker()
 
-    def _pool_error_requires_restart(exc: Exception) -> bool:
-        message = _exception_message_chain(exc)
-        patterns = (
-            "nodriver worker failed",
-            "protocol exception",
-            "no browser is open",
-            "failed to open new tab",
-            "failed to create pooled target",
-            "failed to connect to pooled browser",
-            "devtools endpoint did not become ready",
-            "connection refused",
-        )
-        return any(pattern in message for pattern in patterns)
 
-    try:
-        return await _run_worker()
-    except Exception as exc:
-        if slot is None or pool is None:
-            raise
-        if not _pool_error_requires_restart(exc):
-            raise
-        if diagnostics:
-            diagnostics.emit(
-                "pool.slot_restart",
-                "Restarting pooled Chromium after worker failure",
-                {
-                    "slot_id": slot.slot_id,
-                    "error": type(exc).__name__,
-                    "detail": _exception_message_chain(exc),
-                },
-            )
-        await slot.terminate()
-        await pool.release(slot, diagnostics=diagnostics)
-        slot = await pool.acquire(user_agent=config.user_agent, diagnostics=diagnostics)
-        if slot is None:
-            raise
-        cmd = _compose_cmd(slot)
-        _emit_worker_spawn(cmd)
-        return await _run_worker()
-    finally:
-        if slot is not None and pool is not None:
-            await pool.release(slot, diagnostics=diagnostics)
+# Backward compatibility alias
+fetch_html_via_nodriver = fetch_html_via_browser
 
 
 def html_to_markdown(
@@ -969,34 +832,37 @@ async def load_url_as_markdown(
     diagnostics: Diagnostics | None = None,
 ) -> str | None:
     """
-    Universal fallback: fetch HTML via headless Nodriver and return Markdown.
+    Universal fallback: fetch HTML via Crawl4AI (Playwright) and return Markdown.
 
     This is Stage 7 in the extraction pipeline, used only when HTTP extraction
-    (trafilatura) fails. Requires browser for JS-rendered pages.
+    (trafilatura) fails. Requires Crawl4AI and Playwright browsers.
 
     Returns `None` for obvious non-HTML targets (e.g., PDFs).
-    Soft-fails if browser not available (returns message instead of crashing).
+    Soft-fails if Crawl4AI not available (returns message instead of crashing).
     """
     if _is_probably_pdf_url(url):
         if diagnostics:
             diagnostics.emit("content.skip", "Skipping probable PDF", {"url": url})
         return None
 
-    # Check browser availability before attempting nodriver
-    from .nodriver_worker import _resolve_browser_executable_path as resolve_browser
-
-    browser_path = resolve_browser(None)
-    if browser_path is None:
+    # Check Crawl4AI availability before attempting browser fetch
+    try:
+        import crawl4ai  # noqa: F401
+    except ImportError:
         if diagnostics:
             diagnostics.emit(
                 "content.browser_missing",
-                "No browser available for nodriver",
+                "Crawl4AI not installed",
                 {"url": url},
             )
-        return f"_Browser-based extraction unavailable (no Chrome detected). Set BROWSER_EXECUTABLE_PATH._\n\nSource: {url}\n"
+        return (
+            "_Browser-based extraction unavailable (crawl4ai not installed). "
+            "Install with: pip install crawl4ai && crawl4ai-setup_\n\n"
+            f"Source: {url}\n"
+        )
 
     try:
-        html = await fetch_html_via_nodriver(
+        html = await fetch_html_via_browser(
             url, referer=referer, config=config, diagnostics=diagnostics
         )
     except Exception as exc:

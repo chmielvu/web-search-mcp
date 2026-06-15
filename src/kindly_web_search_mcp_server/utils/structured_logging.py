@@ -113,6 +113,9 @@ def configure_structlog(json_output: bool = True) -> None:
         "asyncio",
         "nodriver",
         "undetected_chromedriver",
+        "crawl4ai",
+        "playwright",
+        "patchright",
     )
     for name in noisy_loggers:
         level = logging.ERROR if name == "asyncio" else logging.WARNING

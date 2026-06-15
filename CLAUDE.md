@@ -46,7 +46,7 @@ ruff format src/
 ### Entry points
 - `server.py` — MCP server entry point for `start-mcp-server`
 - `cli/` — native Typer package for `web-search-cli`
-- `server.py` — FastMCP server exposing 6 tools: `web_search`, `get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`
+- `server.py` — FastMCP server exposing tools: `web_search`, `get_content`, `gemini_search`, `perplexity_search`, `youtube_transcript`, `youtube_search`, `generate_semantic_sitemap`, and more
 
 ### Search pipeline (`search/`)
 - `pipeline.py` — coordinates understanding → profiled rewrite → multi-provider search → merge → rerank
@@ -57,6 +57,19 @@ ruff format src/
 - `provider_plan.py` / `provider_options.py` / `provider_call.py` — profile-derived provider weights, allow-lists, and provider arguments
 - `query_policy.py` — lightweight rewrite policy model used by the live pipeline response
 
+### YouTube integration (`youtube/`)
+- `models.py` — YouTubeError, YouTubeTarget, TranscriptBackendError, YouTubeSearchError, YouTubeApiError, WhisperClientError
+- `url_parser.py` — parse_youtube_url(), extract_video_id()
+- `transcript.py` — legacy youtube-transcript-api backend, formatting, rendering
+- `yt_dlp_backend.py` — yt-dlp subtitle extraction with 7-client InnerTube rotation
+- `whisper_client.py` — HF ZeroGPU Whisper Space client (sync + async)
+- `cascade.py` — cascade orchestrator (yt-dlp → Whisper → legacy), cache integration
+- `search.py` — YouTube search router (API → SearXNG fallback)
+- `api_search.py` — YouTube Data API v3 search.list provider with enrichment
+- `api_enrichment.py` — videos.list metadata enrichment (duration, views, likes, captions)
+- `api_quota.py` — daily quota tracker for YouTube Data API
+- `content/youtube.py` and `search/youtube.py` — backward-compat re-export shims
+
 ### Content resolution (`content/resolver.py`)
 Staged fallback pipeline:
 1. StackExchange API (full thread: question + answers + comments)
@@ -65,11 +78,12 @@ Staged fallback pipeline:
 4. Wikipedia API (MediaWiki Action API)
 5. arXiv (Atom API + PDF → Markdown)
 6. HTTP extraction (trafilatura)
-7. Universal HTML (nodriver headless browser for JS-heavy sites)
+7. Universal HTML (Crawl4AI/Playwright headless browser for JS-heavy sites)
 
 ### Scraping (`scrape/`)
-- `universal_html.py` — nodriver-based browser extraction
-- `chromium_pool.py` — pooled browser instances for reuse
+- `universal_html.py` — Crawl4AI-based browser extraction (Stage 7 fallback)
+- `crawl4ai_worker.py` — subprocess entry point for Crawl4AI/Playwright (MCP-stdio-safe)
+- `chromium_pool.py` — deprecated (Crawl4AI manages its own browser lifecycle)
 - `http_extract.py` — trafilatura primary, no browser
 
 ### Caching (`cache/`)
@@ -114,7 +128,8 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
 - `perplexity_search` returns **AI-synthesized answers with citations** (uses Perplexity Sonar)
 - `gemini_search` returns **grounded answers with citations** (uses Gemini + Google Search)
 - `youtube_transcript` returns **video transcripts** with optional translation/formatting
-- `youtube_search` returns **YouTube video results** via SearXNG YouTube engine
+- `youtube_search` returns **YouTube video results** via YouTube Data API v3 (when `YOUTUBE_API_KEY` set) or SearXNG fallback
+- `generate_semantic_sitemap` returns **structured heading hierarchy per page** from crawled documentation sites (uses Crawl4AI AsyncUrlSeeder + AsyncWebCrawler); optional llms.txt generation
 - Separation is intentional: search discovers, fetch extracts, AI search synthesizes
 
 ## Changelog
