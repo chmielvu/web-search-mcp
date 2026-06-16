@@ -20,6 +20,7 @@ from .commands import (
     schema,
     search,
     server,
+    sitemap,
     youtube,
 )
 from .errors import CliError
@@ -90,6 +91,7 @@ analytics.register(app)
 agent.register(app)
 experiments.register(app)
 server.register(app)
+sitemap.register(app)
 
 
 def _contains_flag(args: list[str], *flags: str) -> bool:

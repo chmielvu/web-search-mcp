@@ -132,10 +132,6 @@ def merge_search_results(
         max_per_host: Maximum results per host in the top-k diversification window.
         host_cap_top_k: Size of the diversification window. Defaults to all ranked results.
         enable_telemetry: If True, record RRF metrics (default True).
-
-    Phase 7.2 note: result_memory candidates are passed as an extra list with
-    providers=["result_memory"] and low list_weight; dedup + pick_better already
-    handle URL canonicalization and weight preference correctly.
     """
     tracer = trace.get_tracer("web-search-mcp") if enable_telemetry else None
 

@@ -200,12 +200,6 @@ class TestPipelineABWiringRerank:
                 "kindly_web_search_mcp_server.search.pipeline.build_search_context"
             ) as mock_ctx_builder,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-            ) as mock_mem,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-            ) as mock_store_mem,
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_search_response"
             ) as mock_response,
         ):
@@ -262,8 +256,6 @@ class TestPipelineABWiringRerank:
                     domain="r2.com",
                 ),
             ]
-            mock_mem.return_value = ([], [], None, None)
-            mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_get_client.return_value = MagicMock()
 
@@ -337,12 +329,6 @@ class TestPipelineABWiringRerank:
                 "kindly_web_search_mcp_server.search.pipeline.build_search_context"
             ) as mock_ctx_builder,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-            ) as mock_mem,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-            ) as mock_store_mem,
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_search_response"
             ) as mock_response,
         ):
@@ -399,8 +385,6 @@ class TestPipelineABWiringRerank:
                     domain="r2.com",
                 ),
             ]
-            mock_mem.return_value = ([], [], None, None)
-            mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_get_client.return_value = MagicMock()
 
@@ -477,17 +461,11 @@ class TestPipelineABWiringRerank:
                 new_callable=AsyncMock,
             ) as mock_rerank,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.asyncio.ensure_future",
-            ) as mock_ensure_future,
+                "kindly_web_search_mcp_server.search.pipeline.fire_and_forget",
+            ) as mock_fire_and_forget,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_search_context"
             ) as mock_ctx_builder,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates"
-            ) as mock_mem,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results"
-            ) as mock_store_mem,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_search_response"
             ) as mock_response,
@@ -545,8 +523,6 @@ class TestPipelineABWiringRerank:
                     domain="r2.com",
                 ),
             ]
-            mock_mem.return_value = ([], [], None, None)
-            mock_store_mem.return_value = None
             mock_response.return_value = (None, None, MagicMock())
             mock_get_client.return_value = MagicMock()
 
@@ -554,7 +530,6 @@ class TestPipelineABWiringRerank:
                 results=[],
                 embedding_context=None,
             )
-            mock_ensure_future.side_effect = lambda coro: coro.close()
 
             await run_search_pipeline(
                 query="test query",
@@ -568,9 +543,9 @@ class TestPipelineABWiringRerank:
 
             # verify that get_ab_overrides was called for multiple layers
             assert mock_get_ab.call_count >= 1
-            # verify that asyncio.ensure_future was called (for shadow task)
-            assert mock_ensure_future.called, (
-                "asyncio.ensure_future should be called for shadow mode"
+            # verify that fire_and_forget was called (for shadow task)
+            assert mock_fire_and_forget.called, (
+                "fire_and_forget should be called for shadow mode"
             )
 
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-
-import httpx
+from unittest.mock import patch
 
 
 def _build_provider_plan():
@@ -49,21 +48,25 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
         release = asyncio.Event()
         active = 0
         peak = 0
-        queries: list[tuple[str, int, dict[str, object] | None]] = []
+        captured_calls: list[dict] = []
 
-        async def _runner(
+        async def _mock_dispatch(
             query: str,
+            providers: list,
+            http_client,
             *,
             num_results: int,
-            http_client: httpx.AsyncClient,
-            diagnostics,
-            search_options,
-            provider_plan=None,
+            deadline_seconds: float,
+            search_options=None,
             provider_options_by_name=None,
             run_key=None,
-        ) -> list[WebSearchResult]:
+        ) -> list:
             nonlocal active, peak
-            queries.append((query, num_results, provider_options_by_name))
+            captured_calls.append({
+                "query": query,
+                "num_results": num_results,
+                "provider_options_by_name": provider_options_by_name,
+            })
             active += 1
             peak = max(peak, active)
             if peak >= 2:
@@ -79,20 +82,23 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
                 )
             ]
 
-        async with httpx.AsyncClient() as client:
+        with patch(
+            "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
+            side_effect=_mock_dispatch,
+        ):
             task = asyncio.create_task(
                 execute_search_branches(
                     [
                         SearchBranchSpec(
-                        index=0,
-                        query="branch one",
-                        branch_type="related",
-                        weight=1.2,
-                        providers=["searxng"],
-                        provider_options_by_name=provider_plan.options.bundles,
-                        max_results=2,
-                        reason="first",
-                    ),
+                            index=0,
+                            query="branch one",
+                            branch_type="related",
+                            weight=1.2,
+                            providers=["searxng"],
+                            provider_options_by_name=provider_plan.options.bundles,
+                            max_results=2,
+                            reason="first",
+                        ),
                         SearchBranchSpec(
                             index=1,
                             query="branch two",
@@ -114,11 +120,9 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
                             reason="third",
                         ),
                     ],
-                    http_client=client,
-                    diagnostics=None,
+                    http_client=None,  # type: ignore[arg-type]
                     search_options=None,
                     provider_plan=provider_plan,
-                    search_runner=_runner,
                     max_concurrency=2,
                 )
             )
@@ -128,7 +132,7 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
             release.set()
             batch = await asyncio.wait_for(task, timeout=1.0)
 
-        assert [query for query, _, _ in queries] == [
+        assert [c["query"] for c in captured_calls] == [
             "branch one",
             "branch two",
             "branch three",
@@ -138,7 +142,7 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
         assert batch.branch_metadata[0]["branch_index"] == 0
         assert batch.branch_metadata[1]["branch_type"] == "comparative"
         assert batch.branch_metadata[2]["branch_result_count"] == 1
-        assert queries[0][2]["searxng"].provider_name == "searxng"
+        assert captured_calls[0]["provider_options_by_name"]["searxng"].provider_name == "searxng"
 
     asyncio.run(_run())
 
@@ -153,17 +157,17 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
     async def _run() -> None:
         provider_plan = _build_provider_plan()
 
-        async def _runner(
+        async def _mock_dispatch(
             query: str,
+            providers: list,
+            http_client,
             *,
             num_results: int,
-            http_client: httpx.AsyncClient,
-            diagnostics,
-            search_options,
-            provider_plan=None,
+            deadline_seconds: float,
+            search_options=None,
             provider_options_by_name=None,
             run_key=None,
-        ) -> list[WebSearchResult]:
+        ) -> list:
             if query == "slow branch":
                 await asyncio.sleep(0.2)
                 return [
@@ -183,7 +187,10 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
                 )
             ]
 
-        async with httpx.AsyncClient() as client:
+        with patch(
+            "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
+            side_effect=_mock_dispatch,
+        ):
             batch = await execute_search_branches(
                 [
                     SearchBranchSpec(
@@ -207,19 +214,15 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
                         reason="fast",
                     ),
                 ],
-                http_client=client,
-                diagnostics=None,
+                http_client=None,  # type: ignore[arg-type]
                 search_options=None,
                 provider_plan=provider_plan,
-                search_runner=_runner,
                 max_concurrency=2,
                 deadline_seconds=0.01,
             )
 
         assert batch.branch_queries == ["slow branch", "fast branch"]
         assert batch.result_lists[0] == []
-        assert [result.title for result in batch.result_lists[1]] == [
-            "fast branch"
-        ]
+        assert [result.title for result in batch.result_lists[1]] == ["fast branch"]
 
     asyncio.run(_run())

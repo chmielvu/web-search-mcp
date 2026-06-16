@@ -142,6 +142,85 @@ def _extract_domain(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def _extract_path(url: str) -> str:
+    """Extract the path from a URL, normalizing trailing slash."""
+    parsed = urlparse(url)
+    path = parsed.path.rstrip("/")
+    return path if path else "/"
+
+
+def _path_match_score(candidate_url: str, input_path: str) -> int:
+    """Score how well a candidate URL's path matches the input path prefix.
+
+    Returns the number of matching path segments from the root, higher = better match.
+    """
+    candidate_path = _extract_path(candidate_url)
+    if candidate_path == input_path:
+        return 1000  # exact match
+    input_segments = input_path.strip("/").split("/")
+    candidate_segments = candidate_path.strip("/").split("/")
+    score = 0
+    for i, (s, cs) in enumerate(zip(input_segments, candidate_segments)):
+        if s == cs:
+            score = i + 1
+        else:
+            break
+    # Bonus: candidate path starts with input path prefix
+    if candidate_path.startswith(input_path + "/") or candidate_path.startswith(input_path + "#"):
+        score = max(score, len(input_segments) + 1)
+    return score
+
+
+# Common language-code path prefixes to de-prioritize vs default/English
+_NON_DEFAULT_LANG_PREFIXES = frozenset({
+    "ar", "de", "es", "fr", "he", "hi", "id", "it", "ja", "ko",
+    "nl", "pl", "pt", "pt-br", "ru", "sv", "th", "tr", "uk", "vi",
+    "zh", "zh-cn", "zh-tw",
+})
+
+
+def _is_preferred_path_variant(candidate_url: str, input_path: str) -> bool:
+    """Check if a candidate URL is a preferred path variant.
+
+    Deprioritizes non-English language path prefixes when the input URL
+    doesn't specify a language.
+    """
+    candidate_path = _extract_path(candidate_url)
+    segments = candidate_path.strip("/").split("/")
+    first_segment = segments[0].lower() if segments and segments[0] else ""
+
+    # If input already has a language prefix, respect it
+    input_segments = input_path.strip("/").split("/")
+    input_first = input_segments[0].lower() if input_segments and input_segments[0] else ""
+
+    if input_first in _NON_DEFAULT_LANG_PREFIXES:
+        # User asked for a specific language — accept it
+        return True
+
+    # If input has no language prefix, deprioritize non-English variants
+    if first_segment in _NON_DEFAULT_LANG_PREFIXES:
+        return False
+
+    return True
+
+
+def _sort_discovered_urls(
+    urls: list[str],
+    *,
+    input_url: str,
+) -> list[str]:
+    """Sort discovered URLs: prefer path-matching variants, de-prioritize non-English."""
+    input_path = _extract_path(input_url)
+
+    def sort_key(u: str) -> tuple[int, int]:
+        # Higher match score = better, preferred language = better
+        score = _path_match_score(u, input_path)
+        preferred = 0 if _is_preferred_path_variant(u, input_path) else 1
+        return (-score, preferred)
+
+    return sorted(urls, key=sort_key)
+
+
 def _looks_like_sitemap_url(url: str) -> bool:
     lower = url.lower()
     return lower.endswith(".xml") or "sitemap" in lower
@@ -232,6 +311,15 @@ async def discover_urls(
     ]
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+        # Resolve the input URL's effective path by following redirects
+        # (e.g., /introduction → /en/introduction)
+        resolved_url = url
+        try:
+            head_resp = await client.head(url)
+            resolved_url = str(head_resp.url)
+        except Exception:
+            pass
+
         discovered: list[str] = []
         seen_sitemaps: set[str] = set()
         for sitemap_url in sitemap_candidates:
@@ -246,7 +334,8 @@ async def discover_urls(
                 break
 
     if discovered:
-        return [{"url": discovered_url} for discovered_url in discovered[: config.max_pages]]
+        sorted_urls = _sort_discovered_urls(discovered, input_url=resolved_url)
+        return [{"url": u} for u in sorted_urls[: config.max_pages]]
     return []
 
 
@@ -308,7 +397,10 @@ async def crawl_and_extract_pages(
             urls=urls_to_crawl,
             config=run_config,
         )
-        for result in results:
+        # arun_many returns results in completion order, re-sort to input order
+        result_by_url: dict[str, Any] = {r.url: r for r in results}
+        ordered_results = [result_by_url.get(u) for u in urls_to_crawl]
+        for result in ordered_results:
             if not result.success:
                 stats["pages_failed"] += 1
                 continue

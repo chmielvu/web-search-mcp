@@ -84,8 +84,8 @@ class TestYouTubeApiSearch(unittest.IsolatedAsyncioTestCase):
         assert results == []
 
     async def test_missing_key_raises(self) -> None:
-        """Missing YOUTUBE_API_KEY raises YouTubeApiError."""
-        with patch.dict("os.environ", {"YOUTUBE_API_KEY": ""}, clear=False):
+        """Missing GOOGLE_API_KEY raises YouTubeApiError."""
+        with patch.dict("os.environ", {"GOOGLE_API_KEY": ""}, clear=False):
             # Force settings reload
             with patch(
                 "kindly_web_search_mcp_server.youtube.api_search.settings"
@@ -175,7 +175,7 @@ class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
     """Test the search router logic."""
 
     async def test_router_prefers_api_when_key_set(self) -> None:
-        """Router uses YouTube API when YOUTUBE_API_KEY is set."""
+        """Router uses YouTube API when GOOGLE_API_KEY is set."""
         mock_results = [
             MagicMock(title="Video 1", link="https://youtube.com/watch?v=abc"),
         ]
@@ -234,3 +234,4 @@ class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
             results, backend = await search_youtube("test query", num_results=5)
             assert backend == "searxng"
             mock_searxng.assert_called_once()
+

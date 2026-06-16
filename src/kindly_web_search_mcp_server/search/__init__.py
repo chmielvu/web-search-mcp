@@ -141,7 +141,7 @@ def _init_provider_registry() -> None:
     register_provider(
         ProviderConfig(
             name="google_cse",
-            env_key="GOOGLE_CSE_API_KEY",
+            env_key="GOOGLE_API_KEY",
             search_fn=search_google_cse,
             group=ProviderGroup.free,
             requires_key=True,

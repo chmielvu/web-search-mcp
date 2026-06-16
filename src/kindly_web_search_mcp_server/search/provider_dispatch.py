@@ -18,7 +18,10 @@ from typing import Mapping
 import httpx
 
 from ..models import WebSearchResult
-from ..utils.async_helpers import task_completed_successfully
+from ..utils.async_helpers import (
+    DEFAULT_DRAIN_TIMEOUT_SECONDS,
+    task_completed_successfully,
+)
 from .merge import merge_search_results
 from .options import SearchOptions
 from .provider_config import ProviderConfig, ProviderGroup
@@ -47,6 +50,7 @@ async def dispatch_providers(
     providers: list[ProviderConfig],
     http_client: httpx.AsyncClient,
     *,
+    num_results: int,
     deadline_seconds: float,
     search_options: SearchOptions | None = None,
     provider_options_by_name: Mapping[str, ProviderOptionBundle] | None = None,
@@ -84,7 +88,7 @@ async def dispatch_providers(
                     cfg.name,
                     cfg.search_fn,
                     query,
-                    len(providers),  # num_results hint
+                    num_results,
                     http_client,
                     provider_search_options,
                     None,  # budget — handled upstream
@@ -95,7 +99,7 @@ async def dispatch_providers(
             cfg.name,
             cfg.search_fn,
             query,
-            len(providers),
+            num_results,
             http_client,
             provider_search_options,
             None,
@@ -111,19 +115,8 @@ async def dispatch_providers(
 
     done, pending = await asyncio.wait(tasks, timeout=deadline_seconds)
 
-    if pending:
-        LOGGER.warning(
-            "%d of %d providers exceeded %.1fs deadline, cancelling",
-            len(pending),
-            len(tasks),
-            deadline_seconds,
-        )
-        for t in pending:
-            t.cancel()
-        # Brief wait for cancelled tasks to release resources (2s drain).
-        await asyncio.wait(pending, timeout=2.0)
-
-    # Collect results from successfully completed tasks.
+    # Collect results from fast providers first (before any drain) so
+    # that they survive even if the caller's own deadline fires.
     all_results: list[list[WebSearchResult]] = []
     for t in done:
         if t.cancelled():
@@ -133,6 +126,22 @@ async def dispatch_providers(
             LOGGER.debug("Provider %s failed: %s", t.get_name(), exc)
             continue
         all_results.append(t.result())
+
+    # Cancel stragglers in the background — don't block result return.
+    if pending:
+        LOGGER.warning(
+            "%d of %d providers exceeded %.1fs deadline, cancelling",
+            len(pending),
+            len(tasks),
+            deadline_seconds,
+        )
+        for t in pending:
+            t.cancel()
+
+        async def _drain() -> None:
+            await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
+
+        asyncio.create_task(_drain(), name="provider-drain")
 
     if not all_results:
         return []

@@ -277,7 +277,7 @@ class Settings:
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
 
     # YouTube Data API v3 (optional, enables enriched search)
-    youtube_api_key: str = os.environ.get("YOUTUBE_API_KEY", "")
+    youtube_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     youtube_api_timeout_seconds: float = float(
         os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", "15")
     )
@@ -316,7 +316,7 @@ class Settings:
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
     brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
-    google_cse_api_key: str = os.environ.get("GOOGLE_CSE_API_KEY", "")
+    google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     google_cse_engine_id: str = os.environ.get("GOOGLE_CSE_ENGINE_ID", "")
     google_cse_timeout_seconds: float = float(
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
@@ -349,7 +349,7 @@ class Settings:
     # Per-provider-group deadline — providers exceeding this are cancelled;
     # the pipeline proceeds with whatever completed.  Set to 0 to disable.
     provider_group_deadline_seconds: float = float(
-        os.environ.get("PROVIDER_GROUP_DEADLINE_SECONDS", "10")
+        os.environ.get("PROVIDER_GROUP_DEADLINE_SECONDS", "15")
     )
 
     # Unified provider health / circuit breaker
@@ -402,27 +402,6 @@ class Settings:
     # RRF tuning
     rrf_k: int = int(os.environ.get("RRF_K", "60"))
     rrf_provider_weights: dict = None  # type: ignore[assignment]  # set in __post_init__
-
-    # =====================================================================
-    # Result Memory (Qdrant local store) - Phase 7
-    # =====================================================================
-    # Injects historical candidates (from semantically similar past queries)
-    # as a lower-weight virtual provider list into RRF merge.
-    # Uses Qdrant :memory: or persistent path. Collection per (embed model, dim).
-    # No LanceDB/semantic cache semantics.
-    result_memory_path: str = os.environ.get("RESULT_MEMORY_PATH", "")
-    result_memory_enabled: bool = (
-        os.environ.get("RESULT_MEMORY_ENABLED", "true").lower() == "true"
-    )
-    result_memory_candidate_weight: float = float(
-        os.environ.get("RESULT_MEMORY_CANDIDATE_WEIGHT", "0.5")
-    )
-    result_memory_candidate_limit: int = int(
-        os.environ.get("RESULT_MEMORY_CANDIDATE_LIMIT", "5")
-    )
-    result_memory_min_similarity: float = float(
-        os.environ.get("RESULT_MEMORY_MIN_SIMILARITY", "0.65")
-    )
 
     # Remote web results index (Qdrant on HF Space)
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
@@ -600,7 +579,7 @@ class Settings:
     # Crawl4AI browser automation (replaces nodriver for Stage 7 fallback)
     # =====================================================================
     crawl4ai_timeout_seconds: float = float(
-        os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "60")
+        os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120")
     )
     crawl4ai_max_pages_sitemap: int = int(
         os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100")
@@ -684,22 +663,6 @@ class Settings:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. "
                 "Set RRF_K env var to a positive integer."
-            )
-
-        # Result memory validation (Phase 7)
-        if not (0.0 <= self.result_memory_candidate_weight <= 5.0):
-            raise ValueError(
-                f"result_memory_candidate_weight must be in [0, 5], got {self.result_memory_candidate_weight!r}. "
-                "Set RESULT_MEMORY_CANDIDATE_WEIGHT env var."
-            )
-        if self.result_memory_candidate_limit < 0:
-            raise ValueError(
-                f"result_memory_candidate_limit must be >= 0, got {self.result_memory_candidate_limit!r}."
-            )
-        if not (0.0 <= self.result_memory_min_similarity <= 1.0):
-            raise ValueError(
-                f"result_memory_min_similarity must be in [0, 1], got {self.result_memory_min_similarity!r}. "
-                "Set RESULT_MEMORY_MIN_SIMILARITY env var."
             )
 
         # OTel / Observability validation

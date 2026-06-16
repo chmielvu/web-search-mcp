@@ -163,5 +163,69 @@ class TestExtractDomain(unittest.TestCase):
         )
 
 
+class TestPathMatching(unittest.TestCase):
+    def test_exact_path_match(self) -> None:
+        from kindly_web_search_mcp_server.content.sitemap import _path_match_score
+
+        self.assertEqual(
+            _path_match_score("https://example.com/a/b", "/a/b"),
+            1000,
+        )
+
+    def test_partial_prefix_match(self) -> None:
+        from kindly_web_search_mcp_server.content.sitemap import _path_match_score
+
+        self.assertEqual(
+            _path_match_score("https://example.com/a/b/c", "/a/b"),
+            3,
+        )
+
+    def test_no_match(self) -> None:
+        from kindly_web_search_mcp_server.content.sitemap import _path_match_score
+
+        self.assertEqual(
+            _path_match_score("https://example.com/x/y", "/a/b"),
+            0,
+        )
+
+    def test_language_prefix_detected(self) -> None:
+        from kindly_web_search_mcp_server.content.sitemap import (
+            _is_preferred_path_variant,
+            _NON_DEFAULT_LANG_PREFIXES,
+        )
+
+        self.assertTrue("ar" in _NON_DEFAULT_LANG_PREFIXES)
+        self.assertFalse(
+            _is_preferred_path_variant(
+                "https://docs.crewai.com/ar/api-reference",
+                "/introduction",
+            )
+        )
+        self.assertTrue(
+            _is_preferred_path_variant(
+                "https://docs.crewai.com/en/introduction",
+                "/introduction",
+            )
+        )
+
+    def test_sort_prefers_matching_paths(self) -> None:
+        from kindly_web_search_mcp_server.content.sitemap import _sort_discovered_urls
+
+        urls = [
+            "https://crewai.com/ar/api",
+            "https://crewai.com/en/intro",
+            "https://crewai.com/intro",
+            "https://crewai.com/en/guide",
+        ]
+        sorted_urls = _sort_discovered_urls(urls, input_url="https://crewai.com/intro")
+        # Exact match first
+        self.assertEqual(sorted_urls[0], "https://crewai.com/intro")
+        # English /en/ prefix before Arabic /ar/
+        self.assertTrue(
+            sorted_urls.index("https://crewai.com/en/intro")
+            < sorted_urls.index("https://crewai.com/ar/api"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

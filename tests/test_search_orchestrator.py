@@ -76,14 +76,6 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                 new_callable=AsyncMock,
             ) as mock_execute,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
-                new_callable=AsyncMock,
-            ) as mock_memory_inject,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
-                new_callable=AsyncMock,
-            ) as mock_memory_store,
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.rerank_results",
                 new_callable=AsyncMock,
             ) as mock_rerank,
@@ -118,12 +110,6 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                 None,
             )
             mock_execute.return_value = batch
-            mock_memory_inject.return_value = (
-                batch.result_lists,
-                batch.list_weights,
-                None,
-                [],
-            )
             mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
@@ -142,7 +128,6 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
         assert mock_rewrite.awaited
         assert mock_execute.awaited
         assert mock_rerank.awaited
-        assert mock_memory_store.awaited
         assert mock_entities.awaited
         mock_record_search.assert_called_once()
 
@@ -175,14 +160,6 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
                 "kindly_web_search_mcp_server.search.pipeline.execute_search_branches",
                 new_callable=AsyncMock,
             ) as mock_execute,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
-                new_callable=AsyncMock,
-            ) as mock_memory_inject,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
-                new_callable=AsyncMock,
-            ),
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.rerank_results",
                 new_callable=AsyncMock,
@@ -220,12 +197,6 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
                 return batch
 
             mock_execute.side_effect = _execute
-            mock_memory_inject.return_value = (
-                batch.result_lists,
-                batch.list_weights,
-                None,
-                [],
-            )
             mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
@@ -273,14 +244,6 @@ def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
                 new_callable=AsyncMock,
             ) as mock_execute,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
-                new_callable=AsyncMock,
-            ) as mock_memory_inject,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
-                new_callable=AsyncMock,
-            ),
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.rerank_results",
                 new_callable=AsyncMock,
             ) as mock_rerank,
@@ -291,12 +254,6 @@ def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
         ):
             mock_understanding.return_value = _understanding()
             mock_execute.return_value = batch
-            mock_memory_inject.return_value = (
-                batch.result_lists,
-                batch.list_weights,
-                None,
-                [],
-            )
             mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 

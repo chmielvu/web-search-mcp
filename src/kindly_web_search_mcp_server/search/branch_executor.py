@@ -17,7 +17,10 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..utils.async_helpers import task_completed_successfully
+from ..utils.async_helpers import (
+    DEFAULT_DRAIN_TIMEOUT_SECONDS,
+    task_completed_successfully,
+)
 from .options import SearchOptions
 from .provider_dispatch import dispatch_providers
 from .provider_plan import ProviderExecutionPlan
@@ -105,8 +108,7 @@ async def execute_search_branches(
     )
     semaphore = asyncio.Semaphore(concurrency)
 
-    # Branch deadline: provider_group_deadline × 3 (branches fan out further).
-    branch_deadline = deadline_seconds or (settings.provider_group_deadline_seconds * 3)
+    branch_deadline = deadline_seconds or settings.provider_group_deadline_seconds
 
     async def _run_branch(spec: SearchBranchSpec) -> SearchBranchResult:
         async with semaphore:
@@ -128,6 +130,7 @@ async def execute_search_branches(
                     spec.query,
                     resolved_configs,
                     http_client,
+                    num_results=spec.max_results,
                     deadline_seconds=settings.provider_group_deadline_seconds,
                     search_options=search_options,
                     provider_options_by_name=provider_options_by_name,
@@ -160,7 +163,7 @@ async def execute_search_branches(
         )
         for t in pending:
             t.cancel()
-        await asyncio.wait(pending, timeout=2.0)
+        await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
 
     # Collect completed branch results; timed-out branches produce empty results.
     branch_results = [

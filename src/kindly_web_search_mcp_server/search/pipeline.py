@@ -6,7 +6,6 @@ import asyncio
 import logging
 import uuid
 
-from ..cache.result_memory import get_result_memory_store
 from ..embeddings import embed_query
 from ..models import WebSearchResponse
 from ..settings import settings
@@ -41,10 +40,6 @@ from .profiles.registry import apply_profile_search_options
 from .profiles.resolve import resolve_search_profile
 from .provider_plan import build_cache_identity, build_provider_execution_plan
 from .query_policy import RewritePolicy
-from .result_memory_pipeline import (
-    inject_result_memory_candidates,
-    store_result_memory_results,
-)
 from .understanding.resolver import resolve_query_understanding
 from .normalize import normalize_query
 
@@ -202,20 +197,6 @@ async def run_search_pipeline(
         branch_metadata=branch_batch.branch_metadata,
     )
 
-    (
-        result_lists,
-        list_weights,
-        query_vec_for_mem,
-        memory_injected,
-    ) = await inject_result_memory_candidates(
-        query=query,
-        normalized_query=normalized_query,
-        result_lists=result_lists,
-        list_weights=list_weights,
-        get_result_memory_store_fn=get_result_memory_store,
-        embed_query_fn=embed_query,
-    )
-
     # ------------------------------------------------------------------
     # A/B experiment override: check if this run_key is enrolled in
     # a provider_weights experiment
@@ -370,27 +351,6 @@ async def run_search_pipeline(
         except Exception as exc:
             logger.warning("Reranking failed in search pipeline: %s", exc)
 
-    await store_result_memory_results(
-        normalized_query=normalized_query,
-        results=merged,
-        query_embedding=query_vec_for_mem,
-        get_result_memory_store_fn=get_result_memory_store,
-        embed_query_fn=embed_query,
-    )
-
-    if memory_injected:
-        injected_urls = {result.link for result in memory_injected}
-        survived = [result for result in merged if result.link in injected_urls]
-        if survived:
-            emit_observability_event(
-                logger,
-                "result_memory.candidate_survived",
-                query=query,
-                injected_count=len(memory_injected),
-                survived_count=len(survived),
-                survived_urls=[result.link for result in survived][:5],
-            )
-
     result_offset = search_options.result_offset if search_options else 0
     final_results = merged[result_offset : result_offset + num_results]
     candidate_count = len(merged)
@@ -412,45 +372,45 @@ async def run_search_pipeline(
     if (
         settings.web_results_index_enabled
         and final_results
-        and embedding_ctx_for_index is not None
     ):
         try:
             from ..index import index_final_results
+            from ..embeddings import embed_texts
 
-            dense_embeddings: list[list[float]] = []
             indexed_results: list = []
             texts: list[str] = []
             for r in final_results:
                 if r.providers and "qdrant" in r.providers:
                     continue
-                emb = embedding_ctx_for_index.find(r.link.strip())
-                if emb is None:
-                    continue
-                dense_embeddings.append(emb.dense)
-                texts.append(emb.text)
+                t = f"{r.title}. {r.snippet}" if r.title and r.snippet else (r.title or r.snippet or r.link)
+                texts.append(t)
                 indexed_results.append(r)
 
-            entity_dicts = [
-                {"text": e.text, "label": e.label}
-                for r in final_results
-                if r.entities
-                for e in r.entities
-            ] or None
-
             if indexed_results:
-                fire_and_forget(
-                    index_final_results(
+                dense_embeddings = await embed_texts(texts, timeout=30.0)
+                if not dense_embeddings:
+                    logger.debug("embed_texts returned empty for index write")
+                elif len(dense_embeddings) != len(indexed_results):
+                    logger.debug("embed_texts count mismatch: %d vs %d", len(dense_embeddings), len(indexed_results))
+                else:
+                    entity_dicts = [
+                        {"text": e.text, "label": e.label}
+                        for r in final_results
+                        if r.entities
+                        for e in r.entities
+                    ] or None
+
+
+                    await index_final_results(
                         normalized_query,
                         indexed_results,
                         dense_embeddings,
                         texts=texts,
                         intent=context.intent,
                         entities=entity_dicts,
-                    ),
-                    name=f"index-{run_key[:8]}",
-                )
+                    )
         except Exception as exc:
-            logger.debug("index_final_results fire-and-forget failed: %s", exc)
+            logger.debug("index_final_results failed (non-fatal): %s", exc)
 
     rewrite_policy = RewritePolicy(
         mode="expand" if rewrite else "bypass",

@@ -74,6 +74,9 @@ async def search_qdrant(
             url=url,
             auth_token_provider=_qdrant_auth_token_provider(),
             timeout=30,
+            prefer_grpc=False,
+            port=443,
+            https=True,
         )
         try:
             sparse_vector = models.SparseVector(

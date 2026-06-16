@@ -146,7 +146,7 @@ User Query
 - **Content Resolver** (`content/`) - Extracts content from URLs (GitHub, StackExchange, Wikipedia, arXiv, etc.)
 - **Rerank Engine** (`rerank/`) - Multi-engine reranking with bypass policy
 - **Entity Extraction** (`entity/`) - GLiNER2-based entity extraction for query understanding
-- **Result Memory** (`cache/result_memory.py`) - Qdrant-backed semantic cache
+- **Remote Web Index** (`index/`) - Qdrant HF Space index for web search results
 - **Query Understanding** (`search/understanding/`) - LLM-backed intent classification and query rewrite
 
 ## Configuration

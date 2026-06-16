@@ -11,6 +11,5 @@ PERSISTED_EVENT_PREFIXES = (
     "session.",
     "rerank.",
     "entity.",
-    "result_memory.",
     "eval.",
 )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import logging
 import re
 
 from ..llm.phoenix_tracing import LLMTraceContext
@@ -12,6 +13,8 @@ from ..models import WebSearchResult
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.rerank_llm import build_llm_rerank_messages, load_rerank_prompt_template
 from .models import RerankLLMOutput, RerankResult
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +51,12 @@ def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
             except (TypeError, ValueError):
                 continue
             if candidate_id < 1 or candidate_id > candidate_count:
-                raise ValueError(
-                    f"LLM rerank returned out-of-range index {candidate_id}."
+                _logger.warning(
+                    "LLM rerank returned out-of-range index %d (candidate_count=%d), skipping.",
+                    candidate_id,
+                    candidate_count,
                 )
+                continue
             if candidate_id in seen:
                 continue
             seen.add(candidate_id)
@@ -77,15 +83,20 @@ def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
     if not re.fullmatch(template.output_validation_regex, cleaned):
         raise ValueError(f"Unexpected listwise rerank output: {output!r}")
 
-    extracted_ids = [int(match) for match in re.findall(template.output_extraction_regex, cleaned)]
-    if not extracted_ids:
+    extracted_ids_raw = [int(match) for match in re.findall(template.output_extraction_regex, cleaned)]
+    if not extracted_ids_raw:
         raise ValueError("LLM rerank returned no ranked candidate ids.")
 
     ordered_ids: list[int] = []
     seen: set[int] = set()
-    for candidate_id in extracted_ids:
+    for candidate_id in extracted_ids_raw:
         if candidate_id < 1 or candidate_id > candidate_count:
-            raise ValueError(f"LLM rerank returned out-of-range index {candidate_id}.")
+            _logger.warning(
+                "LLM rerank returned out-of-range index %d (candidate_count=%d), skipping.",
+                candidate_id,
+                candidate_count,
+            )
+            continue
         if candidate_id in seen:
             continue
         seen.add(candidate_id)

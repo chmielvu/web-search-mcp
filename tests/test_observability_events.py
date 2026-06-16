@@ -28,7 +28,6 @@ class TestObservabilityEventPrefixes(unittest.TestCase):
                 "session.",
                 "rerank.",
                 "entity.",
-                "result_memory.",
                 "eval.",
             ),
         )
@@ -51,7 +50,6 @@ class TestObservabilityEventPrefixes(unittest.TestCase):
             "session.started",
             "rerank.provider.completed",
             "entity.extraction.completed",
-            "result_memory.lookup.completed",
             "eval.case.completed",
         ]
 

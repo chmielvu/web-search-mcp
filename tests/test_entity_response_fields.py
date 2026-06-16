@@ -81,14 +81,6 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
             new_callable=AsyncMock,
         ) as mock_execute,
         patch(
-            "kindly_web_search_mcp_server.search.pipeline.inject_result_memory_candidates",
-            new_callable=AsyncMock,
-        ) as mock_memory_inject,
-        patch(
-            "kindly_web_search_mcp_server.search.pipeline.store_result_memory_results",
-            new_callable=AsyncMock,
-        ) as _mock_memory_store,
-        patch(
             "kindly_web_search_mcp_server.search.pipeline.rerank_results",
             new_callable=AsyncMock,
         ) as mock_rerank,
@@ -113,12 +105,6 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
             None,
         )
         mock_execute.return_value = batch
-        mock_memory_inject.return_value = (
-            batch.result_lists,
-            batch.list_weights,
-            None,
-            [],
-        )
         mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
             :top_k
         ]

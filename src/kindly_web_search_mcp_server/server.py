@@ -174,7 +174,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "reranking_enabled": settings.reranking_enabled,
             "judge_evaluation_enabled": settings.judge_evaluation_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
-            "result_memory_enabled": settings.result_memory_enabled,
             "analytics_enabled": settings.analytics_enabled,
             "query_decomposition_enabled": settings.query_decomposition_enabled,
         },
@@ -238,14 +237,6 @@ def _cache_stats_snapshot() -> dict[str, object]:
             "backend": "duckdb",
             "path": settings.page_cache_duckdb_path,
             "ttl_seconds": PAGE_CACHE_DEFAULT_TTL_SECONDS,
-        },
-        "result_memory": {
-            "backend": "qdrant",
-            "enabled": settings.result_memory_enabled,
-            "path": settings.result_memory_path or ":memory:",
-            "candidate_weight": settings.result_memory_candidate_weight,
-            "candidate_limit": settings.result_memory_candidate_limit,
-            "min_similarity": settings.result_memory_min_similarity,
         },
     }
 
@@ -2401,7 +2392,6 @@ def get_features_status() -> str:
         f"**Current Tool Profile**: {settings.tool_profile}",
         f"**Entity Extraction**: {'✓ Enabled' if settings.entity_extraction_enabled else '✗ Disabled'}",
         f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
-        f"**Result Memory**: {'✓ Enabled' if settings.result_memory_enabled else '✗ Disabled'}",
         "",
         f"**Reranking**: {'✓ Enabled' if settings.reranking_enabled else '✗ Disabled'}",
         "",

@@ -26,7 +26,7 @@ def _get_google_cse_credentials() -> tuple[str, str]:
     engine_id = settings.google_cse_engine_id.strip()
     if not api_key:
         raise GoogleCseConfigError(
-            "GOOGLE_CSE_API_KEY is not set. Configure it as an environment variable."
+            "GOOGLE_API_KEY is not set. Configure it as an environment variable."
         )
     if not engine_id:
         raise GoogleCseConfigError(

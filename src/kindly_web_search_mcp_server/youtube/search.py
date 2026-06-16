@@ -1,7 +1,7 @@
 """YouTube search — router + SearXNG fallback.
 
 search_youtube() is the primary entrypoint. It routes to the YouTube Data API
-search provider when YOUTUBE_API_KEY is set, falling back to SearXNG otherwise.
+search provider when GOOGLE_API_KEY is set, falling back to SearXNG otherwise.
 """
 
 from __future__ import annotations

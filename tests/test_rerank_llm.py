@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import unittest
@@ -114,3 +115,39 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[20]", prompt)
         self.assertNotIn("[21]", prompt)
         self.assertEqual([item.index for item in outcome.ranked[:3]], [19, 18, 17])
+
+    async def test_llm_reranker_skips_hallucinated_out_of_range_ids(self) -> None:
+        from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
+
+        candidates = _build_candidates(10)
+
+        fake_worker = SimpleNamespace(
+            complete_structured=AsyncMock(
+                return_value=SimpleNamespace(
+                    endpoint_name="groq",
+                    model_name="groq/gpt-oss-120b",
+                    content='{"ranked_candidate_ids": [135246, 3, 5, 99999, 2, 1]}',
+                )
+            )
+        )
+
+        with patch(
+            "kindly_web_search_mcp_server.rerank.llm_rerank.build_llm_worker",
+            return_value=fake_worker,
+        ):
+            with self.assertLogs(
+                "kindly_web_search_mcp_server.rerank.llm_rerank", level=logging.WARNING
+            ) as captured:
+                outcome = await rerank_with_llm(
+                    query="find docs",
+                    candidates=candidates,
+                    top_k=5,
+                )
+
+        # Valid IDs preserved in order: 3, 5, 2, 1 → indices 2, 4, 1, 0
+        self.assertEqual([item.index for item in outcome.ranked[:4]], [2, 4, 1, 0])
+        # Hallucinated IDs 135246 and 99999 were skipped with warnings
+        warning_msgs = [r.getMessage() for r in captured.records]
+        self.assertEqual(len(warning_msgs), 2)
+        self.assertIn("135246", warning_msgs[0])
+        self.assertIn("99999", warning_msgs[1])

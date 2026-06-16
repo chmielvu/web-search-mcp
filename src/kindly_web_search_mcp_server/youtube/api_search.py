@@ -58,7 +58,7 @@ async def search_youtube_api(
     api_key = settings.youtube_api_key.strip()
     if not api_key:
         raise YouTubeApiError(
-            "YOUTUBE_API_KEY is not configured. "
+            "GOOGLE_API_KEY is not configured. "
             "YouTube Data API search requires a valid API key."
         )
 

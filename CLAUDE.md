@@ -128,7 +128,7 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
 - `perplexity_search` returns **AI-synthesized answers with citations** (uses Perplexity Sonar)
 - `gemini_search` returns **grounded answers with citations** (uses Gemini + Google Search)
 - `youtube_transcript` returns **video transcripts** with optional translation/formatting
-- `youtube_search` returns **YouTube video results** via YouTube Data API v3 (when `YOUTUBE_API_KEY` set) or SearXNG fallback
+- `youtube_search` returns **YouTube video results** via YouTube Data API v3 (when `GOOGLE_API_KEY` set) or SearXNG fallback
 - `generate_semantic_sitemap` returns **structured heading hierarchy per page** from crawled documentation sites (uses Crawl4AI AsyncUrlSeeder + AsyncWebCrawler); optional llms.txt generation
 - Separation is intentional: search discovers, fetch extracts, AI search synthesizes
 
