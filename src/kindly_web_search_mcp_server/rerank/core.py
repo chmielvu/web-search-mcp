@@ -14,6 +14,8 @@ from ..models import WebSearchResult
 from ..prompts.rerank import build_rerank_instruction
 from ..settings import settings
 from ..telemetry import (
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
     RERANK_INPUT_COUNT,
     SEARCH_QUERY,
     record_rerank_stage,
@@ -160,6 +162,9 @@ async def rerank_results(
         "rerank.pipeline",
         kind=trace.SpanKind.INTERNAL,
         attributes={
+            "openinference.span.kind": "RERANKER",
+            INPUT_VALUE: query[:500],
+            INPUT_MIME_TYPE: "text/plain",
             SEARCH_QUERY: query[:500],
             RERANK_INPUT_COUNT: original_count,
             "rerank.top_k": top_k,

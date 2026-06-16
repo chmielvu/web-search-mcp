@@ -94,7 +94,7 @@ class PollinationsClient:
             "web_search",
             system="pollinations",
             attributes={
-                "gen_ai.request.model": model,
+                "llm.model_name": model,
                 "search.query": query[:500],
                 "search.depth": depth,
                 "search.research_goal": (research_goal or "")[:500],
@@ -170,11 +170,11 @@ class PollinationsClient:
 
             if usage:
                 if usage.input_tokens is not None:
-                    span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+                    span.set_attribute("llm.token_count.prompt", usage.input_tokens)
                 if usage.output_tokens is not None:
-                    span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+                    span.set_attribute("llm.token_count.completion", usage.output_tokens)
                 if usage.total_tokens is not None:
-                    span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
+                    span.set_attribute("llm.token_count.total", usage.total_tokens)
             span.set_attribute("search.source_count", len(sources))
             span.set_attribute("search.answer_chars", len(answer) if isinstance(answer, str) else 0)
             set_span_success(span, result_count=len(sources))
@@ -234,7 +234,7 @@ async def gemini_grounding_search(
         "grounding_search",
         system="pollinations",
         attributes={
-            "gen_ai.request.model": GEMINI_SEARCH_MODEL,
+            "llm.model_name": GEMINI_SEARCH_MODEL,
             "search.query": query[:500],
             "search.num_results_requested": num_results,
         },
@@ -315,11 +315,11 @@ async def gemini_grounding_search(
         span.set_attribute("grounding.support_count", len(normalized_supports))
         if usage:
             if usage.input_tokens is not None:
-                span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+                span.set_attribute("llm.token_count.prompt", usage.input_tokens)
             if usage.output_tokens is not None:
-                span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+                span.set_attribute("llm.token_count.completion", usage.output_tokens)
             if usage.total_tokens is not None:
-                span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
+                span.set_attribute("llm.token_count.total", usage.total_tokens)
         set_span_success(span, result_count=len(normalized_chunks[:num_results]))
         return {
             "groundingMetadata": {

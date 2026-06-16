@@ -7,7 +7,7 @@ from typing import Any
 
 from litellm import acompletion
 
-from .phoenix_tracing import LLMTraceContext, set_trace_context_attributes
+from .phoenix_tracing import LLMTraceContext, openinference_context_scope
 from .config import (
     build_classifier_endpoint,
     build_vercel_gpt_oss_endpoint,
@@ -48,8 +48,8 @@ class LLMRouter:
                     request_kwargs["response_format"] = response_format
                 if reasoning_effort is not None and endpoint.name != "groq":
                     request_kwargs["reasoning_effort"] = reasoning_effort
-                set_trace_context_attributes(langfuse)
-                response = await acompletion(**request_kwargs)
+                with openinference_context_scope(langfuse):
+                    response = await acompletion(**request_kwargs)
                 content = response.choices[0].message.content or ""
                 if content.strip():
                     return LLMGeneration(

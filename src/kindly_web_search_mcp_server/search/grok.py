@@ -284,7 +284,7 @@ async def search_grok_openrouter(
         "search",
         system="openrouter",
         attributes={
-            "gen_ai.request.model": model,
+            "llm.model_name": model,
             "search.query": query[:500],
             "search.num_results_requested": num_results,
         },
@@ -396,7 +396,7 @@ async def grok_search(
         "chat",
         system="openrouter",
         attributes={
-            "gen_ai.request.model": resolved_model,
+            "llm.model_name": resolved_model,
             "search.query": query[:500],
             "search.research_goal": research_goal[:500],
             "search.num_results_requested": max_results,
@@ -448,17 +448,11 @@ async def grok_search(
                 span.set_attribute("search.web_search_requests", search_queries)
                 if token_usage:
                     if token_usage.input_tokens is not None:
-                        span.set_attribute(
-                            "gen_ai.usage.prompt_tokens", token_usage.input_tokens
-                        )
+                        span.set_attribute("llm.token_count.prompt", token_usage.input_tokens)
                     if token_usage.output_tokens is not None:
-                        span.set_attribute(
-                            "gen_ai.usage.completion_tokens", token_usage.output_tokens
-                        )
+                        span.set_attribute("llm.token_count.completion", token_usage.output_tokens)
                     if token_usage.total_tokens is not None:
-                        span.set_attribute(
-                            "gen_ai.usage.total_tokens", token_usage.total_tokens
-                        )
+                        span.set_attribute("llm.token_count.total", token_usage.total_tokens)
                 set_span_success(span, result_count=len(citations))
                 return GrokSearchResult(
                     query=query,

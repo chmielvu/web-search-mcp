@@ -8,6 +8,7 @@ from opentelemetry import trace
 
 from kindly_web_search_mcp_server.errors import classify_error
 from kindly_web_search_mcp_server.telemetry import (
+    create_chain_span,
     record_mcp_tool_call,
     record_tool_details,
 )
@@ -35,11 +36,10 @@ def register_agentic_web_research_tools(mcp: object) -> None:
         """
         # Outer MCP boundary instrumentation (Grafana/DuckDB + OTel)
         # Mirrors patterns from server.py for other complex tools (web_search, gemini, etc.)
-        tracer = trace.get_tracer("web-search-mcp")
-        with tracer.start_as_current_span(
+        with create_chain_span(
             "mcp.tool.agentic_web_research",
-            kind=trace.SpanKind.SERVER,
             attributes={
+                "search.query": query[:500],
                 "gen_ai.tool.name": "agentic_web_research",
                 "agent.depth": depth,
             },

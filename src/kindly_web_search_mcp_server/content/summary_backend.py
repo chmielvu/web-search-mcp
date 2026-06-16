@@ -238,7 +238,7 @@ async def summarize_with_fallback(
         "summarize",
         system="gemini",
         attributes={
-            "gen_ai.request.model": primary_model,
+            "llm.model_name": primary_model,
             "summary.mode": mode,
             "summary.focus_query": (focus_query or "")[:500],
             "summary.input_chars": len(source_text),
@@ -284,14 +284,14 @@ async def summarize_with_fallback(
     payload["model"] = model_used
     payload.update(llm_usage_fields(model_used=model_used, usage=usage))
     payload["backend"] = backend
-    span.set_attribute("gen_ai.response.model", model_used)
+    span.set_attribute("llm.model_name", model_used)
     if usage:
         if usage.input_tokens is not None:
-            span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+            span.set_attribute("llm.token_count.prompt", usage.input_tokens)
         if usage.output_tokens is not None:
-            span.set_attribute("gen_ai.usage.completion_tokens", usage.output_tokens)
+            span.set_attribute("llm.token_count.completion", usage.output_tokens)
         if usage.total_tokens is not None:
-            span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
+            span.set_attribute("llm.token_count.total", usage.total_tokens)
     span.set_attribute("summary.backend", backend)
     span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
     span.set_attribute(

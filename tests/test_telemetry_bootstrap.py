@@ -53,6 +53,31 @@ def test_otlp_endpoint_resolution_and_header_parsing() -> None:
     ) == {"Authorization": "Basic abc", "x-trace-id": "123"}
 
 
+def test_phoenix_headers_use_hf_token_when_present(monkeypatch) -> None:
+    from kindly_web_search_mcp_server import telemetry
+
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_HEADERS", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", raising=False)
+    monkeypatch.delenv("HUGGINGFACEHUB_API_TOKEN", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+
+    assert telemetry.build_hf_space_headers(hf_token="hf_test_token") == {
+        "Authorization": "Bearer hf_test_token"
+    }
+    assert telemetry._resolve_phoenix_headers() == {
+        "Authorization": "Bearer hf_test_token"
+    }
+
+
+def test_phoenix_headers_preserve_explicit_authorization(monkeypatch) -> None:
+    from kindly_web_search_mcp_server import telemetry
+
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Basic test")
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+
+    assert telemetry._resolve_phoenix_headers() == {"Authorization": "Basic test"}
+
+
 def test_otlp_endpoint_probe_rejects_html(monkeypatch, caplog) -> None:
     from kindly_web_search_mcp_server import telemetry
 

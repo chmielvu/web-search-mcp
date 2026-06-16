@@ -232,7 +232,7 @@ async def gemini_search_with_grounding(
         "grounded_search",
         system="google",
         attributes={
-            "gen_ai.request.model": GEMINI_GROUNDING_TIER[0],
+            "llm.model_name": GEMINI_GROUNDING_TIER[0],
             "search.query": query[:500],
             "search.structured_output": structured_output,
             "search.research_goal": (research_goal or "")[:500],
@@ -337,17 +337,15 @@ async def gemini_search_with_grounding(
 
                 usage = extract_llm_usage(response)
 
-                span.set_attribute("gen_ai.response.model", model_id)
+                span.set_attribute("llm.model_name", model_id)
                 span.set_attribute("search.model_used", model_id)
                 if usage:
                     if usage.input_tokens is not None:
-                        span.set_attribute("gen_ai.usage.prompt_tokens", usage.input_tokens)
+                        span.set_attribute("llm.token_count.prompt", usage.input_tokens)
                     if usage.output_tokens is not None:
-                        span.set_attribute(
-                            "gen_ai.usage.completion_tokens", usage.output_tokens
-                        )
+                        span.set_attribute("llm.token_count.completion", usage.output_tokens)
                     if usage.total_tokens is not None:
-                        span.set_attribute("gen_ai.usage.total_tokens", usage.total_tokens)
+                        span.set_attribute("llm.token_count.total", usage.total_tokens)
                 span.set_attribute("search.web_search_query_count", len(web_search_queries))
                 span.set_attribute("search.grounding_chunk_count", len(grounding_chunks))
                 span.set_attribute(
@@ -460,22 +458,15 @@ async def gemini_search_with_grounding(
 
                         usage = extract_llm_usage(response)
 
-                        span.set_attribute("gen_ai.response.model", model_id)
+                        span.set_attribute("llm.model_name", model_id)
                         span.set_attribute("search.model_used", model_id)
                         if usage:
                             if usage.input_tokens is not None:
-                                span.set_attribute(
-                                    "gen_ai.usage.prompt_tokens", usage.input_tokens
-                                )
+                                span.set_attribute("llm.token_count.prompt", usage.input_tokens)
                             if usage.output_tokens is not None:
-                                span.set_attribute(
-                                    "gen_ai.usage.completion_tokens",
-                                    usage.output_tokens,
-                                )
+                                span.set_attribute("llm.token_count.completion", usage.output_tokens)
                             if usage.total_tokens is not None:
-                                span.set_attribute(
-                                    "gen_ai.usage.total_tokens", usage.total_tokens
-                                )
+                                span.set_attribute("llm.token_count.total", usage.total_tokens)
                         span.set_attribute(
                             "search.web_search_query_count", len(web_search_queries)
                         )

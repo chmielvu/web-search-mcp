@@ -107,7 +107,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(span.attributes["summary.important_entities_count"], 0)
         self.assertEqual(mock_create.call_args.kwargs["system"], "gemini")
         self.assertEqual(
-            mock_create.call_args.kwargs["attributes"]["gen_ai.request.model"],
+            mock_create.call_args.kwargs["attributes"]["llm.model_name"],
             "gemini-3.1-flash-lite",
         )
         self.assertEqual(fake_client.calls[0][0], "gemini-3.1-flash-lite")
@@ -368,7 +368,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_span.attributes["search.web_search_requests"], 1)
         self.assertEqual(tool_create.call_args.kwargs["system"], "openrouter")
         self.assertEqual(
-            tool_create.call_args.kwargs["attributes"]["gen_ai.request.model"],
+            tool_create.call_args.kwargs["attributes"]["llm.model_name"],
             "x-ai/grok-4.3",
         )
         self.assertEqual(result.model_used, "x-ai/grok-4.3")

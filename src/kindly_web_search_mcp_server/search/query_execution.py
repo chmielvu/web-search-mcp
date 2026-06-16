@@ -11,7 +11,14 @@ from opentelemetry import trace
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..telemetry import add_results_to_span, get_tracer
+from ..telemetry import (
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
+    OPENINFERENCE_SPAN_KIND,
+    OPENINFERENCE_SPAN_KIND_CHAIN,
+    add_results_to_span,
+    get_tracer,
+)
 from ..utils.async_helpers import gather_with_deadline, task_completed_successfully
 from ..utils.diagnostics import Diagnostics
 from ..utils.observability import emit_observability_event
@@ -66,6 +73,9 @@ async def search_single_query(
         "web_search",
         kind=trace.SpanKind.SERVER,
         attributes={
+            OPENINFERENCE_SPAN_KIND: OPENINFERENCE_SPAN_KIND_CHAIN,
+            INPUT_VALUE: query[:200],
+            INPUT_MIME_TYPE: "text/plain",
             "query": query[:200],
             "num_results_requested": num_results,
             "intent": intent,

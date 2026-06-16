@@ -11,7 +11,14 @@ from opentelemetry import trace
 
 from ..analytics.duckdb_store import insert_provider_calls as analytics_insert_provider_calls
 from ..models import WebSearchResult
-from ..telemetry import add_results_to_span, get_tracer, record_provider_call
+from ..telemetry import (
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
+    OPENINFERENCE_SPAN_KIND,
+    add_results_to_span,
+    get_tracer,
+    record_provider_call,
+)
 from ..utils.observability import emit_observability_event
 from .budget import ProviderBudget
 from .options import SearchOptions, build_search_query
@@ -61,9 +68,12 @@ async def _search_single_provider(
         f"provider.{provider_name}",
         kind=trace.SpanKind.CLIENT,
         attributes={
+            OPENINFERENCE_SPAN_KIND: "RETRIEVER",
             "provider": provider_name,
             "query": query[:200],
             "num_results_requested": num_results,
+            INPUT_VALUE: query[:200],
+            INPUT_MIME_TYPE: "text/plain",
         },
     ) as span:
         try:

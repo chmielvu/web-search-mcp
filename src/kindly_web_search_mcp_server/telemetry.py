@@ -44,11 +44,23 @@ import httpx
 from opentelemetry import trace, metrics
 
 from .utils.observability import emit_observability_event
+from .llm.phoenix_tracing import (
+    current_openinference_attributes,
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
+    LLM_INVOCATION_PARAMETERS,
+    LLM_MODEL_NAME,
+    LLM_SYSTEM,
+    OPENINFERENCE_SPAN_KIND,
+    OPENINFERENCE_SPAN_KIND_CHAIN,
+    OPENINFERENCE_SPAN_KIND_LLM,
+)
 
 
 # SDK imports are part of the default runtime dependencies.
 try:
     from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace import SpanProcessor
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import (
         ParentBased,
@@ -131,7 +143,11 @@ def build_grafana_cloud_headers(
     return headers
 
 
-
+def build_hf_space_headers(*, hf_token: str = "") -> dict[str, str]:
+    """Build Authorization headers for a private Hugging Face Space."""
+    if not hf_token:
+        return {}
+    return {"Authorization": f"Bearer {hf_token.strip()}"}
 
 
 def _parse_otlp_headers(raw: str) -> dict[str, str]:
@@ -189,6 +205,24 @@ def _resolve_otlp_headers(
     return headers
 
 
+def _resolve_phoenix_headers() -> dict[str, str]:
+    """Resolve OTLP headers for the Phoenix Space exporter."""
+    headers = _parse_otlp_headers(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", ""))
+    headers.update(
+        _parse_otlp_headers(os.environ.get("OTEL_EXPORTER_OTLP_TRACES_HEADERS", ""))
+    )
+    if "Authorization" not in headers:
+        headers.update(
+            build_hf_space_headers(
+                hf_token=(
+                    os.environ.get("HF_TOKEN", "")
+                    or os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
+                )
+            )
+        )
+    return headers
+
+
 class _LoggingExporterProxy:
     """Log exporter failures instead of letting them disappear in debug noise."""
 
@@ -222,6 +256,27 @@ class _LoggingExporterProxy:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._exporter, name)
+
+
+class _OpenInferenceFilteringSpanProcessor(SpanProcessor):
+    """Forward only OpenInference-classified spans to the wrapped processor."""
+
+    def __init__(self, processor: BatchSpanProcessor) -> None:
+        self._processor = processor
+
+    def on_start(self, span: Any, parent_context: Any | None = None) -> None:
+        return None
+
+    def on_end(self, span: Any) -> None:
+        attributes = getattr(span, "attributes", None) or {}
+        if attributes.get(OPENINFERENCE_SPAN_KIND):
+            self._processor.on_end(span)
+
+    def shutdown(self) -> None:
+        self._processor.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._processor.force_flush(timeout_millis=timeout_millis)
 
 
 def _probe_otlp_endpoint(endpoint: str, headers: dict[str, str], *, signal: str) -> bool:
@@ -681,20 +736,22 @@ def init_telemetry(
                 phoenix_exporter = _LoggingExporterProxy(
                     OTLPSpanExporter(
                         endpoint=phoenix_endpoint,
+                        headers=_resolve_phoenix_headers(),
                         timeout=_OTLP_EXPORT_TIMEOUT_SECONDS,
                     ),
                     signal_name="phoenix",
                 )
+                phoenix_processor = BatchSpanProcessor(
+                    phoenix_exporter,
+                    max_queue_size=2048,
+                    schedule_delay_millis=5000,
+                    max_export_batch_size=512,
+                )
                 tracer_provider.add_span_processor(
-                    BatchSpanProcessor(
-                        phoenix_exporter,
-                        max_queue_size=2048,
-                        schedule_delay_millis=5000,
-                        max_export_batch_size=512,
-                    )
+                    _OpenInferenceFilteringSpanProcessor(phoenix_processor)
                 )
                 logging.info(
-                    "Phoenix OTLP span processor added (endpoint: %s)",
+                    "Phoenix OTLP span processor added (OpenInference-only, endpoint: %s)",
                     phoenix_endpoint,
                 )
         except Exception as exc:  # pragma: no cover - best effort
@@ -1954,11 +2011,13 @@ def create_search_span(
         "web_search",
         kind=trace.SpanKind.INTERNAL,
         attributes={
+            OPENINFERENCE_SPAN_KIND: OPENINFERENCE_SPAN_KIND_CHAIN,
             SEARCH_QUERY: query[:500],
             SEARCH_NUM_RESULTS_REQUESTED: num_results,
             SEARCH_PROVIDERS_REQUESTED: str(providers_requested or []),
             MCP_SERVER_NAME: "web-search-mcp",
-            GEN_AI_SYSTEM: "mcp",
+            INPUT_VALUE: query[:500],
+            INPUT_MIME_TYPE: "text/plain",
         },
     )
 
@@ -1988,6 +2047,7 @@ def create_provider_span(
         f"provider.{provider}",
         kind=trace.SpanKind.CLIENT,
         attributes={
+            OPENINFERENCE_SPAN_KIND: "RETRIEVER",
             PROVIDER_NAME: provider,
             HTTP_REQUEST_METHOD: "GET",
             URL_FULL: url[:500],
@@ -1995,7 +2055,6 @@ def create_provider_span(
             SERVER_PORT: parsed.port or 80,
             SEARCH_QUERY: query[:500],
             SEARCH_NUM_RESULTS_REQUESTED: num_results,
-            GEN_AI_SYSTEM: "mcp",
         },
     )
 
@@ -2013,14 +2072,64 @@ def create_llm_operation_span(
     """
     tracer = get_tracer()
     span_attributes: dict[str, Any] = {
-        GEN_AI_SYSTEM: system,
-        GEN_AI_OPERATION_NAME: operation,
+        **current_openinference_attributes(),
+        OPENINFERENCE_SPAN_KIND: OPENINFERENCE_SPAN_KIND_LLM,
+        LLM_SYSTEM: system,
+        "llm.operation.name": operation,
     }
     if attributes:
         span_attributes.update(attributes)
+        invocation_parameters = {
+            key: value
+            for key, value in attributes.items()
+            if key
+            not in {
+                INPUT_VALUE,
+                INPUT_MIME_TYPE,
+                LLM_MODEL_NAME,
+                LLM_SYSTEM,
+                OPENINFERENCE_SPAN_KIND,
+            }
+        }
+        if invocation_parameters:
+            span_attributes[LLM_INVOCATION_PARAMETERS] = json.dumps(
+                invocation_parameters,
+                default=str,
+                sort_keys=True,
+            )
+        if INPUT_VALUE not in span_attributes and "search.query" in attributes:
+            span_attributes[INPUT_VALUE] = attributes["search.query"]
+            span_attributes[INPUT_MIME_TYPE] = "text/plain"
+    if LLM_MODEL_NAME not in span_attributes:
+        raise ValueError(f"{operation} span requires {LLM_MODEL_NAME}")
     return tracer.start_as_current_span(
         f"ai.{system}.{operation}",
         kind=trace.SpanKind.CLIENT,
+        attributes=span_attributes,
+    )
+
+
+def create_chain_span(
+    name: str,
+    *,
+    attributes: Mapping[str, Any] | None = None,
+) -> trace.Span:
+    """Create a chain/root span for end-to-end orchestration."""
+    tracer = get_tracer()
+    span_attributes: dict[str, Any] = {
+        **current_openinference_attributes(),
+        OPENINFERENCE_SPAN_KIND: OPENINFERENCE_SPAN_KIND_CHAIN,
+    }
+    if attributes:
+        span_attributes.update(attributes)
+        if INPUT_VALUE not in span_attributes:
+            query_like = attributes.get("search.query") or attributes.get("query")
+            if query_like is not None:
+                span_attributes[INPUT_VALUE] = str(query_like)[:500]
+                span_attributes[INPUT_MIME_TYPE] = "text/plain"
+    return tracer.start_as_current_span(
+        name,
+        kind=trace.SpanKind.SERVER,
         attributes=span_attributes,
     )
 
@@ -2036,6 +2145,7 @@ def create_mcp_tool_span(
     """
     tracer = get_tracer()
     attributes = {
+        OPENINFERENCE_SPAN_KIND: "TOOL",
         MCP_METHOD_NAME: method,
         MCP_SERVER_NAME: "web-search-mcp",
         GEN_AI_TOOL_NAME: tool_name,
@@ -2068,6 +2178,7 @@ def create_content_span(
         f"content.{stage}",
         kind=trace.SpanKind.CLIENT,
         attributes={
+            OPENINFERENCE_SPAN_KIND: "RETRIEVER",
             CONTENT_STAGE: stage,
             CONTENT_URL: url[:500],
             URL_FULL: url[:500],
@@ -2101,6 +2212,7 @@ def create_query_rewrite_span(
         "query.rewrite",
         kind=trace.SpanKind.INTERNAL,
         attributes={
+            OPENINFERENCE_SPAN_KIND: OPENINFERENCE_SPAN_KIND_CHAIN,
             SEARCH_QUERY: query[:500],
             REWRITE_POLICY: policy,
             REWRITE_MODEL: "cascade",
@@ -2124,6 +2236,7 @@ def create_rerank_span(
         f"rerank.{stage}",
         kind=trace.SpanKind.INTERNAL,
         attributes={
+            OPENINFERENCE_SPAN_KIND: "RERANKER",
             RERANK_STAGE: stage,
             RERANK_INPUT_COUNT: input_count,
             RERANK_MODEL: "jina-reranker-v3" if stage == "jina" else "bi-encoder",
@@ -2416,6 +2529,7 @@ __all__ = [
     "create_search_span",
     "create_provider_span",
     "create_llm_operation_span",
+    "create_chain_span",
     "create_mcp_tool_span",
     "create_content_span",
     "create_merge_span",

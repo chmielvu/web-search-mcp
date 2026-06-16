@@ -1,6 +1,8 @@
 ## [Unreleased]
 
 ### Fixed
+- **Phoenix tracing rewrite** — reworked the Phoenix tracing path to use OpenInference context propagation and OpenInference span kinds instead of the old `gen_ai.*` shim. LiteLLM-backed calls now receive session/user/metadata context via `using_attributes`, manual LLM spans now emit `llm.model_name` and `llm.token_count.*`, and the Phoenix exporter now filters out non-OpenInference transport spans so raw HTTP noise stops polluting the Space.
+- **Phoenix private Space auth** — added Hugging Face token support to the Phoenix OTLP exporter so private Spaces can receive traces. The exporter now sends `Authorization: Bearer <HF_TOKEN>` when `HF_TOKEN` or `HUGGINGFACEHUB_API_TOKEN` is present, while still respecting any explicit OTLP authorization header already configured.
 - **Qdrant web results index write path** — the pipeline used `fire_and_forget` to schedule the Qdrant upsert as a background task, but `asyncio.run()` (used by the CLI) kills the event loop immediately after the coroutine completes, cancelling the background task before it executes. Fixed by awaiting `index_final_results` directly instead of fire-and-forget. Also fixed multiple connection/auth issues: `AsyncQdrantClient` defaulted to gRPC but HF Space only exposes HTTP (`prefer_grpc=False`, explicit `port=443`), HF Space auth requires `auth_token_provider` returning a `Bearer` token rather than `api_key`, and `index_final_results` was not exported from `index/__init__.py` so the import failed silently.
 
 ### Added

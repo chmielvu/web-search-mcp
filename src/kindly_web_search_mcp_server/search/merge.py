@@ -250,6 +250,7 @@ def merge_search_results(
             "rrf_merge",
             kind=trace.SpanKind.INTERNAL,
             attributes={
+                "openinference.span.kind": "CHAIN",
                 RRF_INPUT_LISTS: len(result_lists),
                 RRF_INPUT_TOTAL: total_input,
                 "merge.k": k,

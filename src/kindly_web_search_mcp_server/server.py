@@ -16,6 +16,7 @@ load_dotenv()  # Also try cwd as fallback
 # init_telemetry_background runs in a daemon thread so that an unreachable
 # OTLP endpoint (Grafana Cloud) never blocks MCP startup (~70s hang).
 from .telemetry import (
+    create_chain_span,
     init_telemetry_background,
     SEARCH_QUERY,
     SEARCH_NUM_RESULTS_REQUESTED,
@@ -785,10 +786,8 @@ async def web_search(
     search_identity_key = build_search_identity_key(None, search_options)
 
     # Create root span for entire web_search operation
-    tracer = trace.get_tracer("web-search-mcp")
-    with tracer.start_as_current_span(
+    with create_chain_span(
         "mcp.tool.web_search",
-        kind=trace.SpanKind.SERVER,
         attributes={
             SEARCH_QUERY: query[:500],
             SEARCH_NUM_RESULTS_REQUESTED: num_results,
