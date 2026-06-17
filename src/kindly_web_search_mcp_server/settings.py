@@ -413,11 +413,6 @@ class Settings:
         "QDRANT_SPACE_URL", "https://chmielvu-web-index.hf.space"
     )
 
-    # Qdrant search provider (reads from the same index)
-    qdrant_search_enabled: bool = (
-        os.environ.get("QDRANT_SEARCH_ENABLED", "true").lower() == "true"
-    )
-
     # FastMCP tool visibility profile
     tool_profile: str = os.environ.get("TOOL_PROFILE", "regular")
 

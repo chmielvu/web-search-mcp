@@ -50,10 +50,6 @@ async def search_qdrant(
     if num_results < 1:
         return []
 
-    if not settings.qdrant_search_enabled:
-        LOGGER.debug("Qdrant search disabled: QDRANT_SEARCH_ENABLED=false")
-        return []
-
     # 1. Dense embedding + sparse BM25 query vectors
     # 2. Connect to Qdrant (no API key - public HF Space)
     url = settings.qdrant_space_url.strip()

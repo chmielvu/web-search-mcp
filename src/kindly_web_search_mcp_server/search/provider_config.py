@@ -44,8 +44,6 @@ class ProviderConfig:
     def is_enabled(self) -> bool:
         if not settings.providers_enabled:
             return False
-        if self.name == "qdrant" and not settings.qdrant_search_enabled:
-            return False
         return self.name not in settings.disabled_providers
 
 
@@ -64,17 +62,12 @@ def get_provider_configs() -> dict[str, ProviderConfig]:
 
 def resolve_provider_configs(provider_names: Iterable[str]) -> list[ProviderConfig]:
     active: list[ProviderConfig] = []
-    from .provider_health import get_provider_health  # noqa: PLC0415
 
     for provider_name in provider_names:
         config = PROVIDER_REGISTRY.get(provider_name)
         if config is None:
             continue
         if not config.is_enabled():
-            continue
-        if not get_provider_health().is_healthy(config.name):
-            continue
-        if not config.is_available():
             continue
         active.append(config)
     return active
@@ -120,8 +113,6 @@ class ProviderDiagnosis:
 
 
 def diagnose_providers() -> list[ProviderDiagnosis]:
-    from .provider_health import get_provider_health  # noqa: PLC0415
-
     diagnoses: list[ProviderDiagnosis] = []
     for name, config in PROVIDER_REGISTRY.items():
         if not config.is_enabled():
@@ -139,24 +130,14 @@ def diagnose_providers() -> list[ProviderDiagnosis]:
             )
             continue
 
-        if not get_provider_health().is_healthy(name):
-            diagnoses.append(
-                ProviderDiagnosis(
-                    name=name,
-                    available=False,
-                    reason=f"Provider '{name}' is in health cooldown after repeated failures.",
-                    category=DiagnosisCategory.cooldown,
-                )
-            )
-            continue
-
         if not config.is_available():
             env_hint = f" Set {config.env_key} environment variable." if config.env_key else ""
+            reason = f"Provider '{name}' is not configured (missing credentials).{env_hint}"
             diagnoses.append(
                 ProviderDiagnosis(
                     name=name,
                     available=False,
-                    reason=f"Provider '{name}' is not configured (missing credentials).{env_hint}",
+                    reason=reason,
                     category=DiagnosisCategory.unconfigured,
                 )
             )

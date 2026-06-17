@@ -41,7 +41,6 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
             return FakeClient()
 
         with (
-            patch.object(qdrant_module.settings, "qdrant_search_enabled", True),
             patch.object(
                 qdrant_module.settings,
                 "qdrant_space_url",
