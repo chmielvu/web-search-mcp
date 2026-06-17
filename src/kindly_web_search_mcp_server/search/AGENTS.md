@@ -7,13 +7,13 @@ This directory contains the core search pipeline for the Kindly Web Search MCP S
 search/
 |-- pipeline.py              # Main orchestration: understanding -> rewrite -> search -> merge -> rerank
 |-- merge.py                 # RRF (k=60) merge across providers
-|-- provider_plan.py         # Profile-derived provider weights & allow-lists
+|-- intent_policy.py         # Intent-owned provider weights, overrides, rewrite policy
+|-- provider_plan.py         # Intent-owned provider selection and execution bundles
 |-- provider_options.py      # Provider-specific argument construction
 |-- provider_call.py         # Individual provider execution
 |-- provider_config.py       # Provider registry & configuration
 |-- query_policy.py          # Lightweight rewrite policy model
 |-- query_execution.py       # Query execution coordination
-|-- profiles/                # Search profiles (intent-specific configs)
 -- understanding/           # Query understanding & intent resolution
     -- resolver.py          # LLM-backed query understanding
 
@@ -22,12 +22,12 @@ search/
 ### Adding a New Search Provider
 1. Create module in search/ with search_provider(query, num_results, http_client, diagnostics) returning normalized results
 2. Register in search/__init__.py and search/provider_config.py
-3. Add profile hooks in search/provider_plan.py if provider needs intent-specific weights/arguments
+3. Add intent policy entries in search/intent_policy.py if provider needs intent-specific weights/arguments
 4. Add env var config in settings.py if needed
 
-### Provider Weights & Profiles
-- Provider weights are derived from SearchProfile (see provider_plan.py)
-- Profiles map intents to provider configurations
+### Provider Weights & Intents
+- Provider weights are derived from IntentSearchPolicy (see intent_policy.py)
+- Intents map to provider configurations and downstream knobs
 - RRF merge uses k=60 by default
 
 ### Query Understanding

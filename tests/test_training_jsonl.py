@@ -29,7 +29,6 @@ def test_training_jsonl_writes_understanding_and_outcome() -> None:
         must_keep_terms=("FastAPI",),
         num_results=5,
         search_options=SearchOptions(),
-        profile_name="general",
     )
     understanding = QueryUnderstandingResult(
         intent="general",

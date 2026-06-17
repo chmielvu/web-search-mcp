@@ -1,4 +1,4 @@
-"""Search providers: SearXNG (primary) + DDG (free fallback) → profile-driven providers.
+"""Search providers: SearXNG (primary) + DDG (free fallback) → intent-owned providers.
 
 Uses Reciprocal Rank Fusion (RRF) for multi-provider result merging.
 Includes circuit breaker and budget tracking for provider health.
@@ -23,12 +23,10 @@ from .google_cse import search_google_cse
 from .jina import search_jina
 from .qdrant import search_qdrant
 from .reddit import search_reddit
-from .stackexchange import search_stackexchange
 from .provider_config import (
     ProviderConfig,
     ProviderGroup,
     register_provider,
-    resolve_providers_for_search,
 )
 from .searxng import search_searxng
 from .search_router import search_search_router
@@ -37,7 +35,6 @@ from .budget import ProviderBudget
 
 from .errors import WebSearchProviderError
 from .provider_execution import _search_single_provider
-from .query_execution import search_single_query
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,8 +43,6 @@ __all__ = [
     "ProviderConfig",
     "WebSearchProviderError",
     "_search_single_provider",
-    "resolve_providers_for_search",
-    "search_single_query",
 ]
 
 
@@ -77,7 +72,7 @@ def _init_provider_registry() -> None:
             name="search_router",
             env_key="SEARCH_ROUTER_API_KEY",
             search_fn=search_search_router,
-            group=ProviderGroup.serp_paid,
+            group=ProviderGroup.paid_serp,
             requires_key=True,
         )
     )
@@ -97,7 +92,7 @@ def _init_provider_registry() -> None:
             name="tavily",
             env_key="TAVILY_API_KEY",
             search_fn=search_tavily,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=True,
         )
     )
@@ -106,7 +101,7 @@ def _init_provider_registry() -> None:
             name="brave",
             env_key="BRAVE_API_KEY",
             search_fn=search_brave,
-            group=ProviderGroup.serp_paid,
+            group=ProviderGroup.paid_serp,
             requires_key=True,
         )
     )
@@ -115,7 +110,7 @@ def _init_provider_registry() -> None:
             name="serper",
             env_key="SERPER_API_KEY",
             search_fn=search_serper,
-            group=ProviderGroup.serp_paid,
+            group=ProviderGroup.paid_serp,
             requires_key=True,
         )
     )
@@ -124,7 +119,7 @@ def _init_provider_registry() -> None:
             name="serpapi",
             env_key="SERPAPI_API_KEY",
             search_fn=search_serpapi,
-            group=ProviderGroup.serp_paid,
+            group=ProviderGroup.paid_serp,
             requires_key=True,
         )
     )
@@ -133,7 +128,7 @@ def _init_provider_registry() -> None:
             name="brightdata",
             env_key="BRIGHTDATA_API_KEY",
             search_fn=search_brightdata,
-            group=ProviderGroup.serp_paid,
+            group=ProviderGroup.paid_serp,
             requires_key=True,
         )
     )
@@ -152,7 +147,7 @@ def _init_provider_registry() -> None:
             name="jina",
             env_key="JINA_API_KEY",
             search_fn=search_jina,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=True,
         )
     )
@@ -161,7 +156,7 @@ def _init_provider_registry() -> None:
             name="gemini",
             env_key="POLLINATIONS_API_KEY",
             search_fn=search_gemini_pollinations,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=True,
         )
     )
@@ -170,7 +165,7 @@ def _init_provider_registry() -> None:
             name="grok_openrouter",
             env_key="OPENROUTER_API_KEY",
             search_fn=search_grok_openrouter,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=True,
         )
     )
@@ -185,13 +180,13 @@ def _init_provider_registry() -> None:
         )
     )
 
-    # Tier 3: Non-SERP providers (fire when named in INTENT_PROVIDERS[intent])
+    # Tier 3: Specialized providers (fire when named in intent policy)
     register_provider(
         ProviderConfig(
             name="hackernews",
             env_key="",
             search_fn=search_hackernews,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=False,
         )
     )
@@ -200,7 +195,7 @@ def _init_provider_registry() -> None:
             name="reddit",
             env_key="",
             search_fn=search_reddit,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=False,
         )
     )
@@ -209,17 +204,8 @@ def _init_provider_registry() -> None:
             name="github_graphql",
             env_key="GITHUB_TOKEN",
             search_fn=search_github_graphql,
-            group=ProviderGroup.other,
+            group=ProviderGroup.specialized,
             requires_key=True,
-        )
-    )
-    register_provider(
-        ProviderConfig(
-            name="stackexchange",
-            env_key="STACKEXCHANGE_APP_KEY",
-            search_fn=search_stackexchange,
-            group=ProviderGroup.other,
-            requires_key=False,
         )
     )
 

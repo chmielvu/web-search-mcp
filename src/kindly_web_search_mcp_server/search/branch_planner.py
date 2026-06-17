@@ -1,8 +1,9 @@
-"""Build branch specs for the profiled search pipeline."""
+"""Build branch specs for the intent-owned search pipeline."""
 
 from __future__ import annotations
 
 from .branch_executor import SearchBranchSpec
+from .intents import SearchIntent
 from .normalize import normalize_query
 from .provider_plan import ProviderExecutionPlan
 from .query_rewrite_models import QueryVariant
@@ -10,6 +11,7 @@ from .query_rewrite_models import QueryVariant
 
 def build_search_branch_specs(
     *,
+    intent: SearchIntent,
     normalized_query: str,
     rewrite_variants: list[QueryVariant],
     num_results: int,
@@ -34,6 +36,7 @@ def build_search_branch_specs(
         branch_specs.append(
             SearchBranchSpec(
                 index=index,
+                intent=intent,
                 query=variant.query,
                 branch_type=variant.branch_type or variant.kind,
                 weight=variant.weight,

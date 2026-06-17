@@ -5,33 +5,24 @@ from unittest.mock import patch
 
 
 def _build_provider_plan():
-    from kindly_web_search_mcp_server.search.context import SearchContext
     from kindly_web_search_mcp_server.search.options import SearchOptions
-    from kindly_web_search_mcp_server.search.profiles.resolve import resolve_search_profile
-    from kindly_web_search_mcp_server.search.provider_plan import (
-        build_provider_execution_plan,
+    from kindly_web_search_mcp_server.search.provider_options import (
+        ProviderOptionBundle,
+        ProviderOptionSet,
     )
+    from kindly_web_search_mcp_server.search.provider_plan import ProviderExecutionPlan
 
-    profile = resolve_search_profile("general")
-    context = SearchContext(
-        raw_query="FastAPI docs",
-        normalized_query="FastAPI docs",
-        research_goal=None,
-        session_id="session-1",
+    bundles = {
+        "searxng": ProviderOptionBundle(provider_name="searxng"),
+        "brave": ProviderOptionBundle(provider_name="brave"),
+    }
+    return ProviderExecutionPlan(
         intent="general",
-        confidence=0.9,
-        should_decompose=False,
-        rationale="clear request",
-        entities=(),
-        must_keep_terms=(),
-        num_results=5,
+        policy_version="1.0",
+        provider_names=("searxng", "brave"),
+        provider_weights={"searxng": 1.0, "brave": 1.0},
         search_options=SearchOptions(),
-        profile_name="general",
-    )
-    return build_provider_execution_plan(
-        profile=profile,
-        intent=context.intent,
-        public_options=context.search_options,
+        options=ProviderOptionSet(bundles=bundles),
     )
 
 
@@ -62,11 +53,13 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
             run_key=None,
         ) -> list:
             nonlocal active, peak
-            captured_calls.append({
-                "query": query,
-                "num_results": num_results,
-                "provider_options_by_name": provider_options_by_name,
-            })
+            captured_calls.append(
+                {
+                    "query": query,
+                    "num_results": num_results,
+                    "provider_options_by_name": provider_options_by_name,
+                }
+            )
             active += 1
             peak = max(peak, active)
             if peak >= 2:
@@ -91,6 +84,7 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
                     [
                         SearchBranchSpec(
                             index=0,
+                            intent="general",
                             query="branch one",
                             branch_type="related",
                             weight=1.2,
@@ -101,16 +95,18 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
                         ),
                         SearchBranchSpec(
                             index=1,
+                            intent="general",
                             query="branch two",
                             branch_type="comparative",
                             weight=0.9,
-                            providers=["gemini"],
+                            providers=["brave"],
                             provider_options_by_name=provider_plan.options.bundles,
                             max_results=2,
                             reason="second",
                         ),
                         SearchBranchSpec(
                             index=2,
+                            intent="general",
                             query="branch three",
                             branch_type="entity_expanded",
                             weight=0.8,
@@ -195,6 +191,7 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
                 [
                     SearchBranchSpec(
                         index=0,
+                        intent="general",
                         query="slow branch",
                         branch_type="related",
                         weight=1.0,
@@ -205,6 +202,7 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
                     ),
                     SearchBranchSpec(
                         index=1,
+                        intent="general",
                         query="fast branch",
                         branch_type="related",
                         weight=1.0,

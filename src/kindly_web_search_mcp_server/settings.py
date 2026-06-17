@@ -343,7 +343,7 @@ class Settings:
         "BRIGHTDATA_DEFAULT_ENGINE", "yandex"
     )
 
-    # SERP semaphore limit (controls concurrency for serp_paid providers)
+    # SERP semaphore limit (controls concurrency for paid_serp providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
 
     # Per-provider-group deadline — providers exceeding this are cancelled;

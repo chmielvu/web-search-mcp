@@ -1,6 +1,6 @@
 """Unified concurrent provider dispatch.
 
-All selected providers (free, serp_paid, other) fire concurrently in a single
+All selected providers (free, paid_serp, specialized) fire concurrently in a single
 asyncio.wait() call. The deadline applies to the whole batch.
 
 Provider selection and SERP round-robin happen upstream in
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Mapping
 
 import httpx
@@ -26,7 +25,6 @@ from .merge import merge_search_results
 from .options import SearchOptions
 from .provider_config import ProviderConfig, ProviderGroup
 from .provider_execution import _search_single_provider
-from .provider_health import get_provider_health
 from .provider_options import ProviderOptionBundle
 
 LOGGER = logging.getLogger(__name__)
@@ -81,8 +79,8 @@ async def dispatch_providers(
         )
         provider_arguments = bundle.arguments if bundle is not None else None
 
-        # SERP-paid providers are semaphore-gated; free/other providers are not.
-        if cfg.group == ProviderGroup.serp_paid:
+        # SERP-paid providers are semaphore-gated; free/specialized providers are not.
+        if cfg.group == ProviderGroup.paid_serp:
             async with semaphore:
                 return await _search_single_provider(
                     cfg.name,

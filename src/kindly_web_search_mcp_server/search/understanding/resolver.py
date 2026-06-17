@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time as time_module
 
@@ -243,7 +242,6 @@ async def resolve_query_understanding(
                     must_keep_terms=tuple(understanding.must_keep_terms),
                     num_results=0,
                     search_options=None,
-                    profile_name=understanding.intent,
                 ),
                 understanding=understanding,
                 model_name=result_model_name,

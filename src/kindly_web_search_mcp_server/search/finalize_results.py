@@ -12,7 +12,7 @@ from .provider_config import DiagnosisCategory, diagnose_providers
 from .query_policy import RewritePolicy
 
 # Categories that produce user-visible warnings.
-# "unconfigured" and "intent_excluded" are silent by design.
+# "unconfigured" is silent by design.
 _WARNING_CATEGORIES = frozenset({
     DiagnosisCategory.cooldown,
     DiagnosisCategory.disabled,

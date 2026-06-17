@@ -1,6 +1,10 @@
 ## [Unreleased]
 
+### Added
+- **Provider routing clean-cut refactor plan** — added `plans/provider-routing-clean-cut-refactor-2026-06-17.md`, mapping the removal of backend search profiles and the replacement with intent-owned provider policy across free, paid SERP, and specialized provider groups.
+
 ### Changed
+- **Intent-owned web-search routing** — backend provider selection now uses `IntentSearchPolicy` instead of `SearchProfile`. Providers are classified as `free`, `paid_serp`, or `specialized`; free providers always fire, exactly two paid SERP providers are selected by shared round robin, specialized providers are owned per intent, and `TOOL_PROFILE` remains MCP-only exposure metadata.
 - **Crawl4AI remote server integration** — content extraction now uses a remote Crawl4AI Docker server as the primary backend instead of local Playwright subprocess. New env var `CRAWL4AI_BASE_URL` (e.g. `http://vps:11235`) enables remote mode. When unset, falls back to Jina Reader → trafilatura. This eliminates the `crawl4ai`, `playwright`, and `nodriver` dependencies from the MCP package.
 
 - **Content/scrape module consolidation** — merged `scrape/` directory into `content/`. The split between `scrape/` and `content/` served no purpose. `extract.py`, `sanitize.py`, and `html_tools.py` moved to `content/`. All cross-module imports updated.
@@ -16,6 +20,10 @@
 - **New env vars** — `CRAWL4AI_BASE_URL` (remote server URL), `CRAWL4AI_HEALTH_CACHE_SECONDS` (health check cache TTL, default 30s).
 
 ### Removed
+- **Backend search profiles** — deleted `src/kindly_web_search_mcp_server/search/profiles/` and the `INTENT_PROVIDERS` mapping. The old profile inheritance, `profile_name` plumbing, and profile-based backend routing are gone.
+- **Legacy query_execution.py** — removed orphaned `search/query_execution.py` (duplicate provider grouping, replaced by `pipeline.py` → `branch_planner.py` → `branch_executor.py`).
+- **Stale stackexchange search provider** — removed `search/stackexchange.py` (unregistered dead code; content resolver in `content/` handles StackExchange separately).
+- **Orphaned test files** — removed `test_search_router.py`, `test_search_instrumented.py`, `test_stackexchange_unit.py`, and the `test_search_single_query_*` function from `test_search_orchestrator.py` (all tested the deleted `search_single_query`).
 - **`scrape/` directory** — deleted entirely (8 files, ~3,000 lines). Includes `nodriver_worker.py`, `crawl4ai_worker.py`, `universal_html.py`, `fetch.py` (dead code), `chromium_pool.py` reference, and all subprocess browser automation.
 - **`crawl4ai_headless` setting** — no longer needed; VPS manages browser config.
 - **`test_universal_html_loader.py`** and **`test_nodriver_worker_sandbox.py`** — tests for deleted subsystems.

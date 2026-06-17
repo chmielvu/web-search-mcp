@@ -15,17 +15,6 @@ INTENT_ALIASES: dict[str, SearchIntent] = {
     "digital_humanities": "digital_humanities",
 }
 
-INTENT_PROVIDERS: dict[SearchIntent, list[str]] = {
-    "general":              ["gemini", "hackernews", "reddit",
-                             "github_graphql", "stackexchange"],
-    "ai_coding":            ["gemini", "hackernews", "reddit",
-                             "github_graphql", "stackexchange"],
-    "digital_humanities":   ["gemini", "hackernews", "reddit",
-                             "github_graphql", "stackexchange"],
-    "comparison":           ["gemini", "hackernews", "reddit",
-                             "github_graphql", "stackexchange"],
-}
-
 
 def normalize_intent(value: str | None) -> SearchIntent:
     if not value:

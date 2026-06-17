@@ -6,78 +6,109 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from .intents import SearchIntent
+from .intent_policy import resolve_intent_policy
 from .options import SearchOptions
-from .profiles.models import SearchProfile
-from .provider_options import ProviderOptionBundle, ProviderOptionSet
 from .provider_config import (
     ProviderGroup,
-    resolve_providers_for_search,
+    get_provider_configs,
     resolve_provider_configs,
-    select_serp_paid_configs,
+    select_paid_serp_configs,
 )
+from .provider_options import ProviderOptionBundle, ProviderOptionSet
 
 
 @dataclass(frozen=True, slots=True)
 class ProviderExecutionPlan:
+    intent: SearchIntent
+    policy_version: str
     provider_names: tuple[str, ...]
     provider_weights: dict[str, float]
+    search_options: SearchOptions | None
     options: ProviderOptionSet
-    plan_version: str = "0.2"
+    plan_version: str = "1.0"
+
+
+def _merge_provider_names(*groups: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    names: list[str] = []
+    for group in groups:
+        for name in group:
+            if name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+    return tuple(names)
+
+
+def _build_bundles(
+    *,
+    provider_names: tuple[str, ...],
+    provider_weights: dict[str, float],
+    provider_arguments: dict[str, dict[str, object]],
+    search_options: SearchOptions | None,
+) -> ProviderOptionSet:
+    bundles = {
+        name: ProviderOptionBundle(
+            provider_name=name,
+            search_options=search_options,
+            weight=provider_weights.get(name, 1.0),
+            arguments=dict(provider_arguments.get(name, {})),
+        )
+        for name in provider_names
+    }
+    return ProviderOptionSet(bundles=bundles)
 
 
 def build_provider_execution_plan(
     *,
-    profile: SearchProfile,
     intent: SearchIntent = "general",
     public_options: SearchOptions | None,
 ) -> ProviderExecutionPlan:
-    provider_configs = (
-        list(resolve_provider_configs(profile.provider_names or (), intent=intent))
-        if profile.provider_names
-        else []
+    policy = resolve_intent_policy(intent)
+    registry = get_provider_configs()
+    free_names = [
+        name
+        for name, config in registry.items()
+        if config.group == ProviderGroup.free
+    ]
+    paid_names = [
+        name
+        for name, config in registry.items()
+        if config.group == ProviderGroup.paid_serp
+    ]
+
+    free_configs = resolve_provider_configs(free_names)
+    paid_configs = resolve_provider_configs(paid_names)
+    selected_paid = select_paid_serp_configs(paid_configs, limit=2)
+    specialized_configs = resolve_provider_configs(policy.specialized_providers)
+
+    provider_names = _merge_provider_names(
+        [config.name for config in free_configs],
+        [config.name for config in selected_paid],
+        [config.name for config in specialized_configs],
     )
-    if not provider_configs:
-        provider_configs = resolve_providers_for_search(intent)
-    provider_names_list: list[str] = []
-    if provider_configs:
-        selected_serp_paid = select_serp_paid_configs(provider_configs)
-        inserted_paid = False
-        for config in provider_configs:
-            if config.group == ProviderGroup.serp_paid:
-                if not inserted_paid:
-                    provider_names_list.extend(
-                        config.name for config in selected_serp_paid
-                    )
-                    inserted_paid = True
-                continue
-            provider_names_list.append(config.name)
-    if not provider_configs:
-        provider_names_list = list(profile.provider_weights.keys()) or [
-            "searxng",
-            "brave",
-        ]
-    provider_names = tuple(provider_names_list)
-    provider_weights = dict(profile.provider_weights)
-    bundles = {
-        name: ProviderOptionBundle(
-            provider_name=name,
-            search_options=public_options,
-            weight=provider_weights.get(name, 1.0),
-            arguments=dict(profile.provider_arguments.get(name, {})),
-        )
-        for name in provider_names
-    }
-    return ProviderExecutionPlan(
+    provider_weights = dict(policy.provider_weights)
+    effective_options = policy.apply_search_options(public_options)
+    options = _build_bundles(
         provider_names=provider_names,
         provider_weights=provider_weights,
-        options=ProviderOptionSet(bundles=bundles),
+        provider_arguments=policy.provider_arguments,
+        search_options=effective_options,
+    )
+    return ProviderExecutionPlan(
+        intent=policy.intent,
+        policy_version=policy.policy_version,
+        provider_names=provider_names,
+        provider_weights=provider_weights,
+        search_options=effective_options,
+        options=options,
     )
 
 
 def build_cache_identity(
     *,
     query: str,
-    profile: SearchProfile,
+    intent: SearchIntent,
     provider_plan: ProviderExecutionPlan,
     search_options: SearchOptions | None,
     rewrite_enabled: bool,
@@ -85,7 +116,8 @@ def build_cache_identity(
     payload = "|".join(
         [
             query,
-            profile.name,
+            intent,
+            provider_plan.policy_version,
             provider_plan.plan_version,
             ",".join(provider_plan.provider_names),
             str(search_options.cache_fingerprint() if search_options else ""),

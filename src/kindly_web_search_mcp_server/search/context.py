@@ -23,7 +23,6 @@ class SearchContext:
     must_keep_terms: tuple[str, ...]
     num_results: int
     search_options: SearchOptions | None
-    profile_name: str
 
     @property
     def original_query(self) -> str:

@@ -6,7 +6,6 @@ import asyncio
 import logging
 import uuid
 
-from ..embeddings import embed_query
 from ..models import WebSearchResponse
 from ..settings import settings
 from ..telemetry import record_domain_diversity, record_search_request
@@ -36,8 +35,6 @@ from .flow_observability import emit_result_lists_summary, serialize_query_varia
 from .merge import merge_search_results
 from .options import SearchOptions
 from .pipeline_builders import build_rewrite_variants, build_search_context
-from .profiles.registry import apply_profile_search_options
-from .profiles.resolve import resolve_search_profile
 from .provider_plan import build_cache_identity, build_provider_execution_plan
 from .query_policy import RewritePolicy
 from .understanding.resolver import resolve_query_understanding
@@ -81,16 +78,14 @@ async def run_search_pipeline(
         entities=understanding.entities,
         must_keep_terms=understanding.must_keep_terms,
     )
-    profile = resolve_search_profile(context.intent)
-    search_options = apply_profile_search_options(search_options, profile)
     provider_plan = build_provider_execution_plan(
-        profile=profile,
         intent=context.intent,
         public_options=search_options,
     )
+    search_options = provider_plan.search_options or search_options
     cache_identity = build_cache_identity(
         query=normalized_query,
-        profile=profile,
+        intent=context.intent,
         provider_plan=provider_plan,
         search_options=search_options,
         rewrite_enabled=rewrite,
@@ -130,11 +125,11 @@ async def run_search_pipeline(
         intent=context.intent,
         confidence=context.confidence,
         should_decompose=context.should_decompose,
-        profile=context.profile_name,
+        policy_version=provider_plan.policy_version,
         cache_identity=cache_identity,
         rewrite_model=rewrite_model,
         variants=serialize_query_variants(rewrite_variants),
-        providers_requested=context.profile_name,
+        providers_requested=list(provider_plan.provider_names),
     )
 
     # Best-effort dual-write: query rewrites
@@ -166,6 +161,7 @@ async def run_search_pipeline(
     # Use the server-level shared client (created lazily, closed on shutdown).
     client = await get_http_client()
     branch_specs = build_search_branch_specs(
+        intent=context.intent,
         normalized_query=normalized_query,
         rewrite_variants=rewrite_variants,
         num_results=num_results,
@@ -201,7 +197,7 @@ async def run_search_pipeline(
     # A/B experiment override: check if this run_key is enrolled in
     # a provider_weights experiment
     # ------------------------------------------------------------------
-    base_provider_weights = provider_plan.provider_weights or profile.provider_weights
+    base_provider_weights = provider_plan.provider_weights
     pw_ab_overrides = (
         get_ab_overrides(run_key=run_key, layer="provider_weights") if run_key else None
     )
@@ -474,7 +470,7 @@ async def run_search_pipeline(
             payload_json={
                 "intent": context.intent,
                 "confidence": context.confidence,
-                "profile": context.profile_name,
+                "policy_version": provider_plan.policy_version,
                 "providers_active": active_provider_names,
                 "rewrite_variants": len(rewrite_variants),
                 "rewrite_model": rewrite_model,

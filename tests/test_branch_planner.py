@@ -7,13 +7,10 @@ def test_branch_planner_keeps_original_and_caps_rewrites() -> None:
     )
     from kindly_web_search_mcp_server.search.context import SearchContext
     from kindly_web_search_mcp_server.search.options import SearchOptions
-    from kindly_web_search_mcp_server.search.profiles.resolve import resolve_search_profile
-    from kindly_web_search_mcp_server.search.provider_plan import (
-        build_provider_execution_plan,
-    )
+    from kindly_web_search_mcp_server.search.provider_options import ProviderOptionSet
+    from kindly_web_search_mcp_server.search.provider_plan import ProviderExecutionPlan
     from kindly_web_search_mcp_server.search.query_rewrite_models import QueryVariant
 
-    profile = resolve_search_profile("general")
     context = SearchContext(
         raw_query="FastAPI docs",
         normalized_query="FastAPI docs",
@@ -27,12 +24,14 @@ def test_branch_planner_keeps_original_and_caps_rewrites() -> None:
         must_keep_terms=(),
         num_results=5,
         search_options=SearchOptions(),
-        profile_name="general",
     )
-    provider_plan = build_provider_execution_plan(
-        profile=profile,
-        intent=context.intent,
-        public_options=context.search_options,
+    provider_plan = ProviderExecutionPlan(
+        intent="general",
+        policy_version="1.0",
+        provider_names=("searxng", "brave"),
+        provider_weights={"searxng": 1.0, "brave": 1.0},
+        search_options=SearchOptions(),
+        options=ProviderOptionSet(bundles={}),
     )
     rewrite_variants = [
         QueryVariant(
@@ -62,6 +61,7 @@ def test_branch_planner_keeps_original_and_caps_rewrites() -> None:
     ]
 
     specs = build_search_branch_specs(
+        intent=context.intent,
         normalized_query=context.normalized_query,
         rewrite_variants=rewrite_variants,
         num_results=5,
@@ -77,4 +77,4 @@ def test_branch_planner_keeps_original_and_caps_rewrites() -> None:
     assert specs[0].branch_type == "original"
     assert specs[0].weight == 1.0
     assert specs[0].max_results == 5
-    assert specs[0].provider_options_by_name is provider_plan.options.bundles
+    assert specs[0].intent == "general"

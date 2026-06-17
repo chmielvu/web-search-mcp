@@ -15,17 +15,10 @@ from ..prompts.registry import build_prompt
 from ..settings import settings
 from .context import SearchContext
 from .intents import SearchIntent
+from .intent_policy import resolve_intent_policy
 from .normalize import normalize_query
 from .options import SearchOptions
-from .profiles.registry import resolve_profile_name
 from .query_rewrite_models import QueryVariant
-
-REWRITE_TEMPERATURE_BY_INTENT: dict[SearchIntent, float] = {
-    "general": 0.35,
-    "ai_coding": 0.15,
-    "digital_humanities": 0.25,
-    "comparison": 0.2,
-}
 
 
 class RewriteVariantResponse(BaseModel):
@@ -47,7 +40,6 @@ def build_search_context(
     must_keep_terms: list[str],
 ) -> SearchContext:
     normalized_query = normalize_query(query)
-    profile_name = resolve_profile_name(understanding_intent)
     return SearchContext(
         raw_query=query,
         normalized_query=normalized_query,
@@ -61,7 +53,6 @@ def build_search_context(
         must_keep_terms=tuple(must_keep_terms),
         num_results=num_results,
         search_options=search_options,
-        profile_name=profile_name,
     )
 
 
@@ -91,6 +82,7 @@ async def build_rewrite_variants(
     understanding_intent: SearchIntent,
     must_keep_terms: list[str],
 ) -> tuple[list[QueryVariant], str, int | None, int | None]:
+    policy = resolve_intent_policy(understanding_intent)
     system_prompt, user_prompt = build_prompt(
         "worker_rewrite",
         query=context.normalized_query,
@@ -106,7 +98,7 @@ async def build_rewrite_variants(
         metadata={
             "task": "worker_rewrite",
             "intent": understanding_intent,
-            "profile": context.profile_name,
+            "policy_version": policy.policy_version,
             "research_goal": context.research_goal or "",
         },
     )
@@ -117,7 +109,7 @@ async def build_rewrite_variants(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=REWRITE_TEMPERATURE_BY_INTENT[understanding_intent],
+            temperature=policy.rewrite_temperature,
             timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
             response_model=RewriteVariantResponse,
             reasoning_effort=REASONING_EFFORT_LOW,

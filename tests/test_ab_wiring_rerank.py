@@ -177,12 +177,6 @@ class TestPipelineABWiringRerank:
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-            ) as mock_profile,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-            ) as mock_apply,
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
             ) as mock_plan,
             patch(
@@ -219,16 +213,14 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 confidence=0.9,
                 should_decompose=False,
-                profile_name="default",
                 must_keep_terms=set(),
             )
-            mock_profile.return_value = MagicMock(
-                provider_weights={},
-            )
-            mock_apply.return_value = _make_search_options()
             mock_plan.return_value = MagicMock(
+                intent="general",
+                policy_version="1.0",
                 provider_names=["web"],
                 provider_weights={},
+                search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"
@@ -306,12 +298,6 @@ class TestPipelineABWiringRerank:
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
             patch(
-                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-            ) as mock_profile,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-            ) as mock_apply,
-            patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
             ) as mock_plan,
             patch(
@@ -348,16 +334,14 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 confidence=0.9,
                 should_decompose=False,
-                profile_name="default",
                 must_keep_terms=set(),
             )
-            mock_profile.return_value = MagicMock(
-                provider_weights={},
-            )
-            mock_apply.return_value = _make_search_options()
             mock_plan.return_value = MagicMock(
+                intent="general",
+                policy_version="1.0",
                 provider_names=["web"],
                 provider_weights={},
+                search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"
@@ -423,7 +407,7 @@ class TestPipelineABWiringRerank:
             ) as mock_get_ab,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.run_shadow",
-                new_callable=AsyncMock,
+                new_callable=MagicMock,
             ) as _mock_shadow,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.execute_search_branches"
@@ -440,12 +424,6 @@ class TestPipelineABWiringRerank:
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.resolve_search_profile"
-            ) as mock_profile,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.apply_profile_search_options"
-            ) as mock_apply,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.build_provider_execution_plan"
             ) as mock_plan,
@@ -486,16 +464,14 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 confidence=0.9,
                 should_decompose=False,
-                profile_name="default",
                 must_keep_terms=set(),
             )
-            mock_profile.return_value = MagicMock(
-                provider_weights={},
-            )
-            mock_apply.return_value = _make_search_options()
             mock_plan.return_value = MagicMock(
+                intent="general",
+                policy_version="1.0",
                 provider_names=["web"],
                 provider_weights={},
+                search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
             mock_cache.return_value = "cache-identity"

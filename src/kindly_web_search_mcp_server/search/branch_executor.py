@@ -17,6 +17,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
+from .intents import SearchIntent
 from ..utils.async_helpers import (
     DEFAULT_DRAIN_TIMEOUT_SECONDS,
     task_completed_successfully,
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class SearchBranchSpec:
     index: int
+    intent: SearchIntent
     query: str
     branch_type: str
     weight: float
@@ -52,6 +54,7 @@ class SearchBranchResult:
     def metadata(self) -> dict[str, Any]:
         return {
             "branch_index": self.spec.index,
+            "branch_intent": self.spec.intent,
             "branch_query": self.spec.query,
             "branch_type": self.spec.branch_type,
             "branch_weight": self.spec.weight,
@@ -93,8 +96,6 @@ async def execute_search_branches(
     deadline internally.  The branch-level deadline is a hard wall that
     collects whatever completed.
     """
-    from ..utils.diagnostics import Diagnostics  # noqa: PLC0415
-
     selected_branches = _limit_branches(branches)
     if not selected_branches:
         return BranchExecutionBatch([], [], [], [], [])
@@ -122,9 +123,7 @@ async def execute_search_branches(
             if spec.providers and provider_plan:
                 from .provider_config import resolve_provider_configs  # noqa: PLC0415
 
-                resolved_configs = list(
-                    resolve_provider_configs(spec.providers, intent="general")
-                )
+                resolved_configs = list(resolve_provider_configs(spec.providers))
             try:
                 results = await dispatch_providers(
                     spec.query,
