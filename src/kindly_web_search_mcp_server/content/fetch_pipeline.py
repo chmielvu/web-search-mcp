@@ -1,42 +1,38 @@
+"""Content fetch pipeline — two-tier architecture.
+
+Tier 1: Specialized resolvers (StackExchange, GitHub, Wikipedia, arXiv).
+Tier 2: Crawl4AI remote (primary) → fallback.py (Jina Reader → trafilatura).
+"""
+
 from __future__ import annotations
 
-import asyncio
 import logging
-import os
-from functools import partial
-from typing import Callable, Awaitable
-
-import httpx
 from dataclasses import replace
+from typing import Any, Awaitable, Callable
+
+from opentelemetry import trace
 
 from ..errors import classify_error
-from ..scrape.extract import extract_content_as_markdown
-from ..scrape.html_tools import (
-    extract_html_links,
-    extract_html_metadata,
-    strip_html_selectors,
-)
-from ..scrape.universal_html import load_url_as_markdown
 from ..search.normalize import canonicalize_url
+from ..settings import settings
+from ..telemetry import (
+    record_content_error,
+    record_content_resolution,
+)
 from .arxiv import (
     ArxivError,
-    _pdf_bytes_to_markdown_best_effort,
     fetch_arxiv_paper_markdown,
     parse_arxiv_url,
 )
 from .artifact import ContentArtifact, ContentError
+from .crawl4ai_client import Crawl4AIClientError, get_crawl4ai_client
+from .fallback import fallback_fetch_content
+from .html_tools import (
+    extract_html_links,
+    extract_html_metadata,
+    strip_html_selectors,
+)
 from .options import FetchOptions
-from ..settings import settings
-from .github_discussions import (
-    fetch_github_discussion_thread_markdown,
-    parse_github_discussion_url,
-)
-from .github_issues import (
-    fetch_github_issue_thread_markdown,
-    parse_github_issue_url,
-)
-from .jina_reader import fetch_with_jina_reader
-from .safe_fetch import SafeFetchError, safe_fetch_url
 from .stackexchange import (
     fetch_stackexchange_thread_markdown,
     parse_stackexchange_url,
@@ -46,29 +42,32 @@ from .wikipedia import (
     fetch_wikipedia_article_markdown,
     parse_wikipedia_url,
 )
-
-from ..telemetry import (
-    record_content_resolution,
-    record_content_fallback,
-    record_content_error,
+from .github_discussions import (
+    fetch_github_discussion_thread_markdown,
+    parse_github_discussion_url,
 )
-from opentelemetry import trace
+from .github_issues import (
+    fetch_github_issue_thread_markdown,
+    parse_github_issue_url,
+)
+
+LOGGER = logging.getLogger(__name__)
 
 _content_tracer = trace.get_tracer(
     "kindly_web_search_mcp_server.content.fetch_pipeline"
 )
 
 
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+
 def _to_content_error(
     exc: Exception, code: str, provider: str | None = None
 ) -> ContentError:
-    """Convert any exception to a ContentError with proper error_type and retryable flag.
-
-    Delegates to errors.classify_error() for HTTP/network-aware classification,
-    falling back to generic ContentError for unknown exceptions.
-    """
+    """Convert any exception to a ContentError with proper error_type and retryable flag."""
     structured = classify_error(exc, provider=provider)
-    # Determine retryability: rate_limit and server errors (5xx) are retryable
     retryable = structured.error_type in ("rate_limit", "network")
     return ContentError(
         code=code,
@@ -84,6 +83,7 @@ async def _maybe_specialized(
     fetcher: Callable[[str], Awaitable[str]],
     source_type: str,
 ) -> ContentArtifact | None:
+    """Try a specialized resolver. Returns None if the URL doesn't match."""
     try:
         parser(url)
     except Exception:
@@ -142,15 +142,140 @@ async def _maybe_specialized(
     )
 
 
-def _render_generic_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str:
-    max_pages = int((os.environ.get("GENERIC_PDF_MAX_PAGES") or "20").strip())
-    rendered = _pdf_bytes_to_markdown_best_effort(pdf_bytes, max_pages=max_pages)
-    return (
-        "# PDF Document\n\n"
-        f"Source: {source_url}\n\n"
-        f"_Pages extracted: {rendered.pages_rendered}/{rendered.page_count}_\n\n"
-        f"{rendered.markdown}".strip()
+def _merge_crawl4ai_links(
+    links_data: dict[str, Any],
+    *,
+    base_url: str,
+) -> list[dict[str, Any]]:
+    """Convert Crawl4AI links format to our standard link list.
+
+    Crawl4AI returns: {"internal": [{"href": ..., "text": ...}], "external": [...]}
+    We return: [{"url": ..., "text": ..., "domain": ..., "internal": bool}]
+    """
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    from urllib.parse import urlparse
+
+    base_domain = urlparse(base_url).netloc.lower()
+
+    for internal in (links_data.get("internal") or []):
+        href = (internal.get("href") or "").strip()
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        parsed = urlparse(href)
+        result.append({
+            "url": href,
+            "text": internal.get("text") or href,
+            "domain": parsed.netloc.lower(),
+            "internal": True,
+        })
+
+    for external in (links_data.get("external") or []):
+        href = (external.get("href") or "").strip()
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        parsed = urlparse(href)
+        result.append({
+            "url": href,
+            "text": external.get("text") or href,
+            "domain": parsed.netloc.lower(),
+            "internal": False,
+        })
+
+    return result
+
+
+# ------------------------------------------------------------------
+# Crawl4AI remote extraction
+# ------------------------------------------------------------------
+
+
+async def _fetch_via_crawl4ai(
+    url: str,
+    options: FetchOptions,
+) -> ContentArtifact:
+    """Fetch content via Crawl4AI remote server.
+
+    Uses /crawl endpoint which returns markdown + html + links in one call.
+    """
+    client = get_crawl4ai_client()
+    if client is None:
+        raise Crawl4AIClientError("Crawl4AI client not configured", retryable=False)
+
+    results = await client.crawl(url)
+    result = results[0]
+
+    if not result.get("success"):
+        error_msg = result.get("error_message") or "Crawl4AI crawl failed"
+        raise Crawl4AIClientError(error_msg)
+
+    # Extract markdown — prefer fit_markdown (PruningContentFilter)
+    md_data = result.get("markdown", {})
+    if isinstance(md_data, dict):
+        markdown = md_data.get("fit_markdown") or md_data.get("raw_markdown") or ""
+    elif isinstance(md_data, str):
+        markdown = md_data
+    else:
+        markdown = ""
+
+    if not markdown.strip():
+        raise Crawl4AIClientError("Crawl4AI returned empty markdown")
+
+    # Extract metadata from returned HTML
+    html = result.get("cleaned_html") or result.get("html") or ""
+    metadata = None
+    if options.include_metadata and html:
+        metadata = extract_html_metadata(
+            html, page_url=url, fetched_url=result.get("url", url)
+        )
+
+    # Extract links from Crawl4AI response
+    links = None
+    if options.include_links:
+        links_data = result.get("links", {})
+        if isinstance(links_data, dict):
+            links = _merge_crawl4ai_links(links_data, base_url=url)
+
+    cls = classify_markdown(markdown)
+    canonical = canonicalize_url(url)
+
+    record_content_resolution(
+        stage="crawl4ai_remote",
+        url=url,
+        success=cls.status == "success",
+        size_bytes=len(markdown.encode("utf-8")),
+        word_count=len(markdown.split()),
+        extraction_method="crawl4ai_remote",
     )
+
+    return ContentArtifact(
+        input_url=url,
+        normalized_url=canonical,
+        fetched_url=result.get("url", url),
+        status=cls.status,
+        source_type="html",
+        fetch_backend="crawl4ai_remote",
+        content_type="text/markdown",
+        markdown=markdown,
+        metadata=metadata,
+        links=links,
+        word_count=len(markdown.split()),
+        quality_score=1.0 if cls.status == "success" else 0.6,
+        error=None
+        if cls.status == "success"
+        else ContentError(
+            code=cls.reason or "crawl4ai_low_quality",
+            message=cls.reason or "crawl4ai_low_quality",
+        ),
+    )
+
+
+# ------------------------------------------------------------------
+# Main pipeline
+# ------------------------------------------------------------------
 
 
 async def fetch_content_artifact(
@@ -158,12 +283,30 @@ async def fetch_content_artifact(
     *,
     fetch_options: FetchOptions | None = None,
 ) -> ContentArtifact:
+    """Fetch content for a URL using the two-tier pipeline.
+
+    Tier 1 — Specialized resolvers (domain-specific, high quality):
+      1. StackExchange API (full thread: Q + A + comments)
+      2. GitHub Issues API (GraphQL)
+      3. GitHub Discussions API (GraphQL)
+      4. Wikipedia API (MediaWiki Action API)
+      5. arXiv (Atom API + PDF → Markdown)
+
+    Tier 2 — Generic extraction (any URL):
+      6. Crawl4AI remote: /crawl → fit_markdown + html + links
+         Falls back to Stage 7 if VPS unreachable or fails.
+      7. fallback.py: Jina Reader (free) → trafilatura (offline)
+    """
     with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
         span.set_attribute("content.url", url)
 
         canonical = canonicalize_url(url)
         options = fetch_options or FetchOptions()
         options.validate()
+
+        # ----------------------------------------------------------
+        # Tier 1: Specialized resolvers
+        # ----------------------------------------------------------
 
         specialized = await _maybe_specialized(
             url,
@@ -201,6 +344,7 @@ async def fetch_content_artifact(
     if specialized is not None:
         return specialized
 
+    # arXiv (special handling for PDF)
     try:
         parse_arxiv_url(url)
     except ArxivError:
@@ -240,226 +384,27 @@ async def fetch_content_artifact(
                 ),
             )
 
-    try:
-        fetched = await safe_fetch_url(url)
-        record_content_resolution(
-            stage="safe_http",
-            url=url,
-            success=True,
-            size_bytes=len(fetched.body) if fetched else 0,
-            extraction_method="trafilatura_safe",
-        )
-    except SafeFetchError as exc:
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=None,
-            status="blocked" if exc.code.startswith("private") else "error",
-            source_type="web",
-            fetch_backend="safe_http",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(code=exc.code, message=str(exc), retryable=False),
-        )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
-        error_code = f"http_{status_code}"
-        retryable = status_code >= 500 or status_code == 429
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=None,
-            status="error",
-            source_type="web",
-            fetch_backend="safe_http",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(
-                code=error_code,
-                message=f"HTTP {status_code}: {str(exc)[:100]}",
-                retryable=retryable,
-            ),
-        )
-    except Exception as exc:
-        record_content_fallback(stage="jina_reader", url=url, from_stage="safe_http")
+    # ----------------------------------------------------------
+    # Tier 2: Generic extraction
+    # ----------------------------------------------------------
+
+    # Stage 6: Crawl4AI remote (primary)
+    client = get_crawl4ai_client()
+    if client is not None:
         try:
-            jina_markdown = await fetch_with_jina_reader(url)
-            jina_cls = classify_markdown(jina_markdown)
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonical,
-                fetched_url=None,
-                status=jina_cls.status,
-                source_type="html",
-                fetch_backend="jina_reader",
-                content_type="text/markdown",
-                markdown=jina_markdown,
-                word_count=len(jina_markdown.split()),
-                quality_score=0.9 if jina_cls.status == "success" else 0.3,
-                error=None
-                if jina_cls.status == "success"
-                else ContentError(
-                    code=jina_cls.reason or "jina_low_quality",
-                    message=jina_cls.reason or "jina_low_quality",
-                ),
+            return await _fetch_via_crawl4ai(url, options)
+        except Crawl4AIClientError as exc:
+            LOGGER.warning("Crawl4AI remote failed for %s: %s", url, exc)
+            record_content_error(
+                stage="crawl4ai_remote", url=url, error_type="crawl4ai_failed"
             )
-        except Exception:
-            pass
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=None,
-            status="error",
-            source_type="web",
-            fetch_backend="safe_http",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=_to_content_error(exc, code="http_fetch_failed"),
-        )
+            # fall through to fallback
 
-    if fetched.is_pdf:
-        try:
-            markdown = _render_generic_pdf_markdown(fetched.body, fetched.fetched_url)
-        except Exception:
-            markdown = None
-        if markdown:
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonical,
-                fetched_url=fetched.fetched_url,
-                status="success",
-                source_type="pdf",
-                fetch_backend="pdf_extract",
-                content_type=fetched.content_type,
-                markdown=markdown,
-                word_count=len(markdown.split()),
-                quality_score=1.0,
-            )
-        # PDF extraction failed — fall through to Jina/browser stages
-        # which may handle the PDF URL directly
+    # Stage 7: Fallback — Jina Reader → trafilatura
+    artifact = await fallback_fetch_content(url, options=options)
 
-    html = fetched.text
-    if options.strip_selectors:
-        html = strip_html_selectors(html, options.strip_selectors)
-
-    metadata = (
-        extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
-        if options.include_metadata
-        else None
-    )
-    links = (
-        extract_html_links(
-            html,
-            base_url=fetched.fetched_url or url,
-            max_links=options.max_links,
-            include_external=True,
-            same_domain_only=False,
-        )
-        if options.include_links
-        else None
-    )
-
-    direct_markdown = await asyncio.to_thread(
-        partial(extract_content_as_markdown, html, url=fetched.fetched_url)
-    )
-    direct_cls = classify_markdown(direct_markdown)
-    if direct_cls.status == "success":
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=fetched.fetched_url,
-            status="success",
-            source_type="html",
-            fetch_backend="safe_http_extract",
-            content_type=fetched.content_type,
-            markdown=direct_markdown,
-            metadata=metadata,
-            links=links,
-            word_count=len(direct_markdown.split()),
-            quality_score=0.85,
-        )
-
-    try:
-        jina_markdown = await fetch_with_jina_reader(fetched.fetched_url)
-        jina_cls = classify_markdown(jina_markdown)
-        if jina_cls.status == "success":
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonical,
-                fetched_url=fetched.fetched_url,
-                status="success",
-                source_type="html",
-                fetch_backend="jina_reader",
-                content_type="text/markdown",
-                markdown=jina_markdown,
-                metadata=metadata,
-                links=links,
-                word_count=len(jina_markdown.split()),
-                quality_score=0.9,
-            )
-    except Exception:
-        pass
-
-    browser_markdown = await load_url_as_markdown(fetched.fetched_url)
-    if browser_markdown:
-        browser_cls = classify_markdown(browser_markdown)
-        record_content_resolution(
-            stage="browser_crawl4ai",
-            url=url,
-            success=browser_cls.status == "success",
-            size_bytes=len(browser_markdown.encode("utf-8")),
-            word_count=len(browser_markdown.split()),
-            extraction_method="crawl4ai",
-        )
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonical,
-            fetched_url=fetched.fetched_url,
-            status=browser_cls.status,
-            source_type="html",
-            fetch_backend="browser_fallback",
-            content_type="text/markdown",
-            markdown=browser_markdown,
-            metadata=metadata,
-            links=links,
-            word_count=len(browser_markdown.split()),
-            quality_score=0.6 if browser_cls.status == "success" else 0.2,
-            error=None
-            if browser_cls.status == "success"
-            else ContentError(
-                code=browser_cls.reason or "browser_low_quality",
-                message=browser_cls.reason or "browser_low_quality",
-            ),
-        )
-
-    artifact = ContentArtifact(
-        input_url=url,
-        normalized_url=canonical,
-        fetched_url=fetched.fetched_url,
-        status=direct_cls.status,
-        source_type="html",
-        fetch_backend="safe_http_extract",
-        content_type=fetched.content_type,
-        markdown=direct_markdown,
-        metadata=metadata,
-        links=links,
-        word_count=len(direct_markdown.split()),
-        quality_score=0.25,
-        error=ContentError(
-            code=direct_cls.reason or "extract_low_quality",
-            message=direct_cls.reason or "extract_low_quality",
-            retryable=False,
-        ),
-    )
-
-    # Entity extraction hook for content (plan 8.2): after clean markdown, before return to caller.
-    # Only when enabled; uses the shared LLM-backed extractor; emits entity.content_extracted.
+    # Entity extraction hook: after clean markdown, before return to caller.
+    # Only when enabled; uses the shared LLM-backed extractor.
     if settings.entity_extraction_enabled and artifact.markdown:
         try:
             from ..search.entity_extractor import extract_entities
@@ -469,7 +414,7 @@ async def fetch_content_artifact(
             if ents:
                 artifact = replace(artifact, entities=ents)
             emit_observability_event(
-                logging.getLogger(__name__),
+                LOGGER,
                 "entity.content_extracted",
                 url=url,
                 count=len(ents or []),
@@ -477,7 +422,7 @@ async def fetch_content_artifact(
             )
         except Exception as exc:
             emit_observability_event(
-                logging.getLogger(__name__),
+                LOGGER,
                 "entity.extraction.error",
                 url=url,
                 error=str(exc)[:300],
@@ -485,4 +430,5 @@ async def fetch_content_artifact(
                 component="fetch_pipeline",
             )
             # do not fail the fetch
+
     return artifact

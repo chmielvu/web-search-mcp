@@ -576,16 +576,20 @@ class Settings:
     )
 
     # =====================================================================
-    # Crawl4AI browser automation (replaces nodriver for Stage 7 fallback)
+    # Crawl4AI remote server (Docker on VPS)
     # =====================================================================
+    crawl4ai_base_url: str = os.environ.get("CRAWL4AI_BASE_URL", "")
+    # When set (e.g. http://vps-ip:11235), all Crawl4AI calls go remote.
+    # When empty, Crawl4AI is skipped; fallback to Jina Reader → trafilatura.
+
     crawl4ai_timeout_seconds: float = float(
         os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120")
     )
     crawl4ai_max_pages_sitemap: int = int(
         os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100")
     )
-    crawl4ai_headless: bool = (
-        os.environ.get("CRAWL4AI_HEADLESS", "true").lower() == "true"
+    crawl4ai_health_cache_seconds: float = float(
+        os.environ.get("CRAWL4AI_HEALTH_CACHE_SECONDS", "30")
     )
 
     # =====================================================================

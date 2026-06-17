@@ -1,5 +1,31 @@
 ## [Unreleased]
 
+### Changed
+- **Crawl4AI remote server integration** — content extraction now uses a remote Crawl4AI Docker server as the primary backend instead of local Playwright subprocess. New env var `CRAWL4AI_BASE_URL` (e.g. `http://vps:11235`) enables remote mode. When unset, falls back to Jina Reader → trafilatura. This eliminates the `crawl4ai`, `playwright`, and `nodriver` dependencies from the MCP package.
+
+- **Content/scrape module consolidation** — merged `scrape/` directory into `content/`. The split between `scrape/` and `content/` served no purpose. `extract.py`, `sanitize.py`, and `html_tools.py` moved to `content/`. All cross-module imports updated.
+
+- **Simplified fetch pipeline** — the 7-stage content resolution pipeline (StackExchange → GitHub → Wikipedia → arXiv → trafilatura → Jina → browser subprocess) is now a clean 2-tier architecture:
+  - Tier 1: Specialized resolvers (StackExchange, GitHub Issues/Discussions, Wikipedia, arXiv) — unchanged
+  - Tier 2: Crawl4AI remote `/crawl` (primary) → `fallback.py` (Jina Reader → trafilatura)
+
+- **`batch_get_content` Crawl4AI batch mode** — batches of 2+ URLs now use a single Crawl4AI `/crawl` request instead of N individual fetches. Falls back to per-URL mode if VPS is unavailable.
+
+- **`generate_semantic_sitemap` deep crawl rewrite** — now uses Crawl4AI's `BestFirstCrawlingStrategy` for intelligent URL discovery and crawling in one operation, replacing the old sitemap.xml discovery + local Playwright batch crawl. New `keywords` parameter enables keyword-relevance scoring for page prioritization.
+
+- **New env vars** — `CRAWL4AI_BASE_URL` (remote server URL), `CRAWL4AI_HEALTH_CACHE_SECONDS` (health check cache TTL, default 30s).
+
+### Removed
+- **`scrape/` directory** — deleted entirely (8 files, ~3,000 lines). Includes `nodriver_worker.py`, `crawl4ai_worker.py`, `universal_html.py`, `fetch.py` (dead code), `chromium_pool.py` reference, and all subprocess browser automation.
+- **`crawl4ai_headless` setting** — no longer needed; VPS manages browser config.
+- **`test_universal_html_loader.py`** and **`test_nodriver_worker_sandbox.py`** — tests for deleted subsystems.
+- **Subprocess worker pattern** — no more per-URL Playwright subprocess spawning.
+- **Jina Reader as middle fallback** — moved from inline fallback chain to `fallback.py` as primary fallback after Crawl4AI.
+
+### Added
+- **`content/crawl4ai_client.py`** — thin async HTTP client for Crawl4AI Docker REST API (`/crawl`, `/md`, `/health`). Singleton pattern with connection pooling and health check caching.
+- **`content/fallback.py`** — consolidated fallback chain: Jina Reader (free, no API key) → trafilatura (offline). Used when Crawl4AI remote is unavailable.
+
 ### Fixed
 - **Phoenix tracing rewrite** — reworked the Phoenix tracing path to use OpenInference context propagation and OpenInference span kinds instead of the old `gen_ai.*` shim. LiteLLM-backed calls now receive session/user/metadata context via `using_attributes`, manual LLM spans now emit `llm.model_name` and `llm.token_count.*`, and the Phoenix exporter now filters out non-OpenInference transport spans so raw HTTP noise stops polluting the Space.
 - **Phoenix private Space auth** — added Hugging Face token support to the Phoenix OTLP exporter so private Spaces can receive traces. The exporter now sends `Authorization: Bearer <HF_TOKEN>` when `HF_TOKEN` or `HUGGINGFACEHUB_API_TOKEN` is present, while still respecting any explicit OTLP authorization header already configured.

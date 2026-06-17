@@ -64,13 +64,16 @@ Staged fallback pipeline:
 3. GitHub Discussions API (GraphQL)
 4. Wikipedia API (MediaWiki Action API)
 5. arXiv (Atom API + PDF → Markdown)
-6. HTTP extraction (trafilatura)
-7. Universal HTML (nodriver headless browser for JS-heavy sites)
+6. Crawl4AI remote (`/crawl` → fit_markdown)
+7. Fallback (Jina Reader → trafilatura)
 
-### Scraping (`scrape/`)
-- `universal_html.py` — nodriver-based browser extraction
-- `chromium_pool.py` — pooled browser instances for reuse
-- `http_extract.py` — trafilatura primary, no browser
+### Content Extraction (`content/`)
+- `crawl4ai_client.py` — remote HTTP client for Crawl4AI Docker API
+- `fallback.py` — Jina Reader → trafilatura fallback chain
+- `fetch_pipeline.py` — 2-tier pipeline orchestrator
+- `extract.py` — trafilatura two-pass extraction
+- `sanitize.py` — markdown cleanup
+- `html_tools.py` — BeautifulSoup metadata/links extraction
 
 ### Caching (`cache/`)
 - `query_cache.py` — exact query cache (SQLite-backed, deterministic)

@@ -10,8 +10,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import anyio
 import httpx
 
-from ..scrape.extract import extract_content_as_markdown
-from ..scrape.sanitize import sanitize_markdown
+from .extract import extract_content_as_markdown
+from .sanitize import sanitize_markdown
 
 
 class WikipediaError(RuntimeError):

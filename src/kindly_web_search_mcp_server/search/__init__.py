@@ -34,7 +34,7 @@ from .searxng import search_searxng
 from .search_router import search_search_router
 from .tavily import search_tavily
 from .budget import ProviderBudget
-from .circuit_breaker import CircuitBreaker  # deprecated, kept for test compat
+
 from .errors import WebSearchProviderError
 from .provider_execution import _search_single_provider
 from .query_execution import search_single_query
@@ -42,7 +42,6 @@ from .query_execution import search_single_query
 LOGGER = logging.getLogger(__name__)
 
 __all__ = [
-    "CircuitBreaker",
     "ProviderBudget",
     "ProviderConfig",
     "WebSearchProviderError",

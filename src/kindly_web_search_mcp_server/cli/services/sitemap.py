@@ -19,7 +19,5 @@ async def fetch_semantic_sitemap_payload(
         max_depth=max_depth,
         heading_preview_chars=heading_preview_chars,
         generate_llms_txt=generate_llms_txt,
-        crawl_timeout_seconds=settings.crawl4ai_timeout_seconds,
-        headless=settings.crawl4ai_headless,
     )
     return await crawl_and_extract_pages(url, config=config)

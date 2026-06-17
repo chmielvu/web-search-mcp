@@ -17,7 +17,7 @@ from ..utils.http_client import get_http_client
 from ..utils.observability import emit_observability_event, set_current_run_key
 from ..utils.background_tasks import fire_and_forget
 from ..rerank.core import rerank_results
-from ..rerank.models import RerankEmbeddingContext
+
 from ..ab_testing.wiring import get_ab_overrides
 from ..ab_testing.shadow_runner import run_shadow
 from ..analytics.duckdb_store import (
@@ -279,7 +279,6 @@ async def run_search_pipeline(
         active_provider_names,
     )
 
-    embedding_ctx_for_index: RerankEmbeddingContext | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
             ab_overrides = (
@@ -303,7 +302,6 @@ async def run_search_pipeline(
                     run_key=run_key,
                     session_id=session_id or run_key,
                 )
-                embedding_ctx_for_index = rerank_out.embedding_context
                 merged = rerank_out.results
 
                 shadow_kwargs = {
@@ -346,7 +344,6 @@ async def run_search_pipeline(
                     session_id=session_id or run_key,
                     ab_overrides=ab_config,
                 )
-                embedding_ctx_for_index = rerank_out.embedding_context
                 merged = rerank_out.results
         except Exception as exc:
             logger.warning("Reranking failed in search pipeline: %s", exc)

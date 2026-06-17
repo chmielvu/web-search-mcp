@@ -55,32 +55,6 @@ class WebSearchResult(BaseModel):
     diagnostics: list[dict[str, Any]] | None = None
 
 
-class CandidateResult(BaseModel):
-    """A historical candidate retrieved from result memory for injection into merge.
-
-    Used internally by result memory + orchestrator (Phase 7). Not part of public tool output.
-    """
-
-    url: str = Field(description="The result URL (used as dedup key).")
-    title: str = Field(description="Title from past result.")
-    snippet: str = Field(description="Snippet from past result.")
-    similarity: float = Field(
-        default=0.0, description="Raw vector similarity from Qdrant lookup."
-    )
-    entity_overlap: float = Field(
-        default=0.0, description="Entity overlap boost factor (0 if no entities)."
-    )
-    adjusted_score: float = Field(
-        default=0.0, description="Similarity after age decay + entity boost."
-    )
-    cached_at: str | None = Field(
-        default=None, description="ISO timestamp when originally stored."
-    )
-    source_query: str | None = Field(
-        default=None, description="The past query that produced this result."
-    )
-
-
 class ProviderWarning(BaseModel):
     """Warning about a partial failure from a provider."""
 

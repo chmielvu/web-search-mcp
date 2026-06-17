@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from ..search.normalize import canonicalize_url
 from .safe_fetch import SafeFetchError, safe_fetch_url
-from ..scrape.html_tools import (
+from .html_tools import (
     extract_html_links,
     extract_html_metadata,
     extract_sitemap_links,

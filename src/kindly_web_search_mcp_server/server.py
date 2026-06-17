@@ -538,14 +538,13 @@ def _resolve_host_port(host: str | None, port: int | None) -> tuple[str, int]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """
-    Entrypoint for running the MCP server.
+    # Set high recursion limit for deep query trees if needed
+    sys.setrecursionlimit(2000)
 
-    Notes:
-    - Many MCP clients run servers via stdio by default.
-    - HTTP/SSE transports are useful for containerized and gateway deployments.
-    - FastMCP does not parse CLI args by itself; we do it here.
-    """
+    # Force all logs to stderr immediately to avoid stdout corruption
+    import logging
+    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -561,43 +560,18 @@ def main(argv: list[str] | None = None) -> None:
             "Error: `--stdio` transport is intended to be launched by an MCP client (stdin/stdout JSON-RPC).",
             file=sys.stderr,
         )
-        print(
-            "Tip: for manual testing, run with `--http` (Streamable HTTP) instead.",
-            file=sys.stderr,
-        )
-        print(
-            "Override: set MCP_ALLOW_TTY_STDIO=1 to force stdio even when stdin is a TTY.",
-            file=sys.stderr,
-        )
         raise SystemExit(2)
 
-    if not (
-        os.environ.get("SEARXNG_BASE_URL", "").strip()
-        or os.environ.get("TAVILY_API_KEY", "").strip()
-        or os.environ.get("BRAVE_API_KEY", "").strip()
-        or os.environ.get("JINA_API_KEY", "").strip()
-        or os.environ.get("SEARCH_ROUTER_API_KEY", "").strip()
-        or (
-            os.environ.get("COMPOSIO_API_KEY", "").strip()
-            and os.environ.get("COMPOSIO_USER_ID", "").strip()
-        )
-        or (settings.gemini_api_key or "").strip()
-    ):
-        # Do not hard-fail on startup: many clients set env vars in their MCP config
-        # and expect the server to at least come up for tool discovery.
-        LOGGER.warning(
-            "No search provider configured (SEARXNG_BASE_URL, TAVILY_API_KEY, BRAVE_API_KEY, "
-            "JINA_API_KEY, SEARCH_ROUTER_API_KEY, "
-            "COMPOSIO_API_KEY + COMPOSIO_USER_ID, "
-            "or GEMINI_API_KEY); "
-            "`web_search` calls will fail until one is provided."
-        )
+    # Disable FastMCP banner via environment
+    os.environ["FASTMCP_BANNER"] = "false"
+    os.environ["FASTMCP_LOG_LEVEL"] = "WARNING"
+
+    # Fast-path background telemetry init doesn't block
+    from .telemetry import init_telemetry_background
+    init_telemetry_background(service_name="web-search-mcp")
 
     if transport in ("sse", "streamable-http"):
         host, port = _resolve_host_port(args.host, args.port)
-        # FastMCP settings are the source of truth for host/port in HTTP transports.
-        # We mutate them at runtime to allow env/CLI overrides even if defaults were
-        # passed during FastMCP initialization.
         for key, value in (("host", host), ("port", port)):
             if hasattr(mcp, "settings") and hasattr(mcp.settings, key):
                 setattr(mcp.settings, key, value)
@@ -605,7 +579,6 @@ def main(argv: list[str] | None = None) -> None:
     try:
         mcp.run(transport=transport, mount_path=args.mount_path)
     except TypeError:
-        # Backward-compat: older MCP SDKs may not accept `mount_path`.
         mcp.run(transport=transport)
 
 
@@ -2099,12 +2072,16 @@ async def generate_semantic_sitemap(
     max_depth: int = 3,
     heading_preview_chars: int = 200,
     generate_llms_txt: bool = False,
+    keywords: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
     """Discover and crawl pages from a website, extracting a structured
-    hierarchical outline of each page based on headings (H1–H6).
+    hierarchical outline of each page based on headings (H1-H6).
 
-    Uses Crawl4AI for sitemap/XML discovery and browser-based page crawling.
+    Uses Crawl4AI remote deep crawl with BestFirstCrawlingStrategy for
+    intelligent page discovery and prioritization. When keywords are provided,
+    pages are ranked by keyword relevance; otherwise, path depth scoring is used.
+
     Returns a JSON structure with page URLs, titles, heading-based sections
     with text previews, and crawl statistics.
 
@@ -2123,6 +2100,7 @@ async def generate_semantic_sitemap(
         max_depth=max_depth,
         heading_preview_chars=heading_preview_chars,
         generate_llms_txt=generate_llms_txt,
+        keywords=keywords,
     )
 
     config = SitemapConfig(
@@ -2130,8 +2108,7 @@ async def generate_semantic_sitemap(
         max_depth=max(1, min(max_depth, 10)),
         heading_preview_chars=max(50, min(heading_preview_chars, 1000)),
         generate_llms_txt=generate_llms_txt,
-        crawl_timeout_seconds=settings.crawl4ai_timeout_seconds,
-        headless=settings.crawl4ai_headless,
+        keywords=keywords,
     )
 
     try:
@@ -2476,7 +2453,7 @@ def get_public_settings_resource() -> dict[str, object]:
 
 @mcp.resource("cache://stats")
 def get_cache_stats_resource() -> dict[str, object]:
-    """Public cache topology and configured limits for exact/page/result-memory layers."""
+    """Public cache topology and configured limits for exact/page layers."""
     return _cache_stats_snapshot()
 
 
