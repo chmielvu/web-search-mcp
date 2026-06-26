@@ -4,15 +4,25 @@ from __future__ import annotations
 
 from typing import Literal
 
-SearchIntent = Literal["general", "ai_coding", "digital_humanities", "comparison"]
+SearchIntent = Literal[
+    "general",
+    "ai_coding_and_infrastructure",
+    "digital_humanities",
+    "comparison",
+    "social_media",
+    "news",
+]
 
 INTENT_ALIASES: dict[str, SearchIntent] = {
-    "code": "ai_coding",
+    "code": "ai_coding_and_infrastructure",
+    "ai_coding": "ai_coding_and_infrastructure",
+    "ai_coding_and_infrastructure": "ai_coding_and_infrastructure",
     "general_research": "general",
     "comparison": "comparison",
     "general": "general",
-    "ai_coding": "ai_coding",
     "digital_humanities": "digital_humanities",
+    "social_media": "social_media",
+    "news": "news",
 }
 
 

@@ -35,61 +35,64 @@ class IntentSearchPolicy:
         base = search_options or SearchOptions()
         if not self.search_options_overrides:
             return base
-        return replace(base, **self.search_options_overrides).validate()
+        overrides = dict(self.search_options_overrides)
+        # User-specified categories take priority over intent defaults.
+        if base.searxng_categories:
+            overrides.pop("searxng_categories", None)
+        return replace(base, **overrides).validate()
 
+
+# Base shared policy kwargs (no category overrides — each intent sets its own).
+_BASE_POLICY_KWARGS = dict(
+    specialized_providers=(),
+    provider_weights=_merge_weights(),
+    provider_arguments={},
+    rewrite_temperature=0.0,
+)
+
+# SearXNG category → intent mapping:
+#   general (11 engines): bing, brave, yacy, encyclosearch, crowdview, wiby,
+#     hackernews, reddit, wolframalpha, openmeteo, ddg_definitions, marginalia, mwmbl
+#   it (12 engines): github, github code, stackoverflow, askubuntu, superuser,
+#     npm, huggingface, repology, docker hub, codeberg, gitlab, pypi
+#   science (4 engines): arxiv, semantic scholar, openalex, pubmed
+#
+# Intent routing:
+#   general           → general + it        (broad discovery across web + tech)
+#   ai_coding_and_infrastructure → it                  (targeted code/docs/package search)
+#   digital_humanities → it + science        (scholarly + tech infrastructure)
+#   comparison        → general + it        (broad coverage for comparing options)
 
 _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "general": IntentSearchPolicy(
         intent="general",
-        specialized_providers=("gemini", "hackernews", "reddit"),
-        provider_weights=_merge_weights(),
-        provider_arguments={},
-        search_options_overrides={},
-        rewrite_temperature=0.35,
+        search_options_overrides={"searxng_categories": ("general", "it")},
+        **_BASE_POLICY_KWARGS,
     ),
-    "ai_coding": IntentSearchPolicy(
-        intent="ai_coding",
-        specialized_providers=("github_graphql", "gemini", "grok_openrouter", "jina"),
-        provider_weights=_merge_weights(
-            {
-                "github_graphql": 1.2,
-                "gemini": 1.1,
-                "grok_openrouter": 1.05,
-                "jina": 1.05,
-            }
-        ),
-        provider_arguments={},
-        search_options_overrides={},
-        rewrite_temperature=0.15,
+    "ai_coding_and_infrastructure": IntentSearchPolicy(
+        intent="ai_coding_and_infrastructure",
+        search_options_overrides={"searxng_categories": ("it",)},
+        **_BASE_POLICY_KWARGS,
     ),
     "digital_humanities": IntentSearchPolicy(
         intent="digital_humanities",
-        specialized_providers=("hackernews", "reddit", "tavily"),
-        provider_weights=_merge_weights(
-            {
-                "hackernews": 1.15,
-                "reddit": 1.1,
-                "tavily": 1.05,
-            }
-        ),
-        provider_arguments={},
-        search_options_overrides={},
-        rewrite_temperature=0.25,
+        search_options_overrides={"searxng_categories": ("it", "science")},
+        **_BASE_POLICY_KWARGS,
     ),
     "comparison": IntentSearchPolicy(
         intent="comparison",
-        specialized_providers=("gemini", "github_graphql", "grok_openrouter", "reddit"),
-        provider_weights=_merge_weights(
-            {
-                "gemini": 1.15,
-                "github_graphql": 1.1,
-                "grok_openrouter": 1.05,
-                "reddit": 1.05,
-            }
-        ),
-        provider_arguments={},
-        search_options_overrides={},
-        rewrite_temperature=0.2,
+        search_options_overrides={"searxng_categories": ("general", "it")},
+        **_BASE_POLICY_KWARGS,
+    ),
+    "social_media": IntentSearchPolicy(
+        intent="social_media",
+        search_options_overrides={"searxng_categories": ("general",)},
+        **_BASE_POLICY_KWARGS,
+    ),
+    "news": IntentSearchPolicy(
+        intent="news",
+        search_options_overrides={"searxng_categories": ("news", "general")},
+        **_BASE_POLICY_KWARGS,
     ),
 }
 

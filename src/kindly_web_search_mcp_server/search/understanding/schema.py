@@ -9,7 +9,14 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
         "schema_version": {"type": "string", "enum": ["0.2"]},
         "intent": {
             "type": "string",
-            "enum": ["general", "ai_coding", "digital_humanities", "comparison"],
+            "enum": [
+                "general",
+                "ai_coding_and_infrastructure",
+                "digital_humanities",
+                "comparison",
+                "social_media",
+                "news",
+            ],
         },
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "entities": {

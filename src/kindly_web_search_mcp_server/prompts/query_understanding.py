@@ -21,7 +21,7 @@ Classify and annotate web search queries.
 Return JSON only.
 Schema:
 - schema_version: "0.2"
-- intent: general | ai_coding | digital_humanities | comparison
+- intent: general | ai_coding_and_infrastructure | digital_humanities | comparison | social_media | news
 - confidence: 0 to 1
 - entities: array of {{text,label,start,end,confidence}}
 - preserved_terms: array of exact literals
@@ -34,9 +34,11 @@ Schema:
 
 Rules:
 - general = broad exploration or mixed intent.
-- ai_coding = code, APIs, packages, tooling, build errors.
+- ai_coding_and_infrastructure = code, APIs, packages, tooling, build errors.
 - digital_humanities = history, archives, corpora, texts.
 - comparison = explicit comparison or ranking of named things.
+- social_media = platforms like TikTok, Instagram, YouTube, Reddit, trends, influencers.
+- news = current events, breaking news, journalism, media coverage.
 - If ambiguous or low confidence, choose general.
 - Extract only grounded entities. Preserve exact literals and identifiers.
 - Return compact, valid JSON.

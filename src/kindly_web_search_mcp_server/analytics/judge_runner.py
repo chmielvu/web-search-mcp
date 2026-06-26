@@ -50,7 +50,7 @@ async def run_judge_evaluation(
     query : str
         The original user query.
     intent : str
-        Search intent: 'general', 'ai_coding', 'digital_humanities', or 'comparison'.
+        Search intent: 'general', 'ai_coding_and_infrastructure', 'digital_humanities', 'comparison', 'social_media', or 'news'.
     results : list[WebSearchResult]
         The final result list returned to the user.
     tool_name : str

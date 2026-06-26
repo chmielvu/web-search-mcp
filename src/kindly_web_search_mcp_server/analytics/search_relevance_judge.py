@@ -37,7 +37,7 @@ Your task is to evaluate how relevant a set of search results is to a user's que
 
 Consider:
 - The user's original query and their research goal (if provided)
-- The search intent: general research, ai_coding, digital_humanities, or comparison
+- The search intent: general research, ai_coding_and_infrastructure, digital_humanities, comparison, social_media, or news
 - The rewritten query variants used for multi-branch search
 - How well each result matches the query topic
 - Whether the results collectively address the user's information need
