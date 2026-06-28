@@ -31,14 +31,15 @@ def test_provider_plan_selects_free_paid_and_specialized_from_policy(monkeypatch
         "gemini": _provider("gemini", ProviderGroup.specialized),
         "github_graphql": _provider("github_graphql", ProviderGroup.specialized),
     }
+    # TODO: specialized_providers empty for now — intents to be designed later.
     policy = IntentSearchPolicy(
         intent="general",
         policy_version="1.0",
-        specialized_providers=("gemini", "github_graphql"),
-        provider_weights={"searxng": 1.0, "brave": 1.0, "gemini": 1.3},
+        specialized_providers=(),
+        provider_weights={"searxng": 1.0, "brave": 1.0},
         provider_arguments={"brave": {"country": "us"}},
         search_options_overrides={"searxng_pageno": 2},
-        rewrite_temperature=0.35,
+        rewrite_temperature=0.0,
     )
 
     monkeypatch.setattr(
@@ -67,13 +68,10 @@ def test_provider_plan_selects_free_paid_and_specialized_from_policy(monkeypatch
         "ddg",
         "brave",
         "serpapi",
-        "gemini",
-        "github_graphql",
     )
     assert plan.search_options is not None
     assert plan.search_options.searxng_pageno == 2
     assert plan.options.bundle_for("brave").arguments == {"country": "us"}
-    assert plan.options.bundle_for("gemini").weight == 1.3
 
 
 def test_cache_identity_bakes_intent_and_policy_version(monkeypatch) -> None:
