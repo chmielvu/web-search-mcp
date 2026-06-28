@@ -1,0 +1,14 @@
+services:
+  intent-classifier:
+    build: .
+    container_name: intent-classifier
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8686:8686"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1"
+        reservations:
+          memory: 256M
