@@ -21,6 +21,8 @@ MAX_LENGTH = 64
 DATA_DIR = Path(__file__).parent / "data"
 OUTPUT_DIR = Path(__file__).parent / "tinybert-intent-classifier"
 
+from collections import Counter
+
 LABEL2ID = {
     "general": 0,
     "ai_coding_and_infrastructure": 1,
@@ -33,8 +35,22 @@ ID2LABEL = {v: k for k, v in LABEL2ID.items()}
 
 print(f"Loading tokenizer + model from {MODEL_ID}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+# Compute class weights from training data to handle imbalance
+train_labels_raw = [json.loads(l)["label"] for l in open(DATA_DIR / "train.jsonl") if l.strip()]
+label_counts = Counter(train_labels_raw)
+total = len(train_labels_raw)
+# Weight = total / (n_classes * count) — inverse frequency
+class_weights = [
+    total / (NUM_LABELS * label_counts[ID2LABEL[i]])
+    for i in range(NUM_LABELS)
+]
+print(f"Class weights: {class_weights}")
+
 model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_ID, num_labels=NUM_LABELS
+    MODEL_ID,
+    num_labels=NUM_LABELS,
+    ignore_mismatched_sizes=True,
 )
 model.config.label2id = LABEL2ID
 model.config.id2label = ID2LABEL
@@ -80,6 +96,22 @@ def compute_metrics(eval_pred):
     }
 
 
+import torch
+
+class WeightedTrainer(Trainer):
+    def __init__(self, class_weights_tensor, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights_tensor
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+        loss_fct = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+        loss = loss_fct(logits.view(-1, model.config.num_labels), labels.view(-1))
+        return (loss, outputs) if return_outputs else loss
+
+
 training_args = TrainingArguments(
     output_dir=str(OUTPUT_DIR),
     num_train_epochs=15,
@@ -97,13 +129,16 @@ training_args = TrainingArguments(
     logging_steps=10,
 )
 
-trainer = Trainer(
+class_weights_tensor = torch.tensor(class_weights, dtype=torch.float32)
+
+trainer = WeightedTrainer(
     model=model,
     args=training_args,
     train_dataset=train_ds,
     eval_dataset=val_ds,
     data_collator=data_collator,
     compute_metrics=compute_metrics,
+    class_weights_tensor=class_weights_tensor,
 )
 
 print("\n=== Starting training ===")
