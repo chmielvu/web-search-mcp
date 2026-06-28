@@ -55,6 +55,19 @@ class Settings:
     query_classifier_timeout_seconds: float = float(
         os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
+    # ONNX intent classifier (primary path, replaces LLM for intent resolution)
+    intent_classifier_url: str = os.environ.get(
+        "INTENT_CLASSIFIER_URL", "http://127.0.0.1:18686"
+    )
+    intent_classifier_timeout_seconds: float = float(
+        os.environ.get("INTENT_CLASSIFIER_TIMEOUT_SECONDS", "3")
+    )
+    intent_classifier_confidence_threshold: float = float(
+        os.environ.get("INTENT_CLASSIFIER_CONFIDENCE_THRESHOLD", "0.50")
+    )
+    intent_classifier_enabled: bool = (
+        os.environ.get("INTENT_CLASSIFIER_ENABLED", "true").lower() == "true"
+    )
     query_decomposition_enabled: bool = (
         os.environ.get("QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
     )

@@ -62,6 +62,98 @@ async def resolve_query_understanding(
     run_key: str | None = None,
 ) -> QueryUnderstandingResult:
     normalized_query = normalize_query(query)
+
+    # ------------------------------------------------------------------
+    # Primary path: ONNX intent classifier (fast, ~5ms)
+    # ------------------------------------------------------------------
+    from .onnx_classifier import classify_intent
+
+    onnx_result = await classify_intent(normalized_query)
+    if onnx_result is not None:
+        label, confidence = onnx_result
+        # Even at moderate confidence we trust the classifier — it's
+        # the primary path. The LLM fallback only triggers if the
+        # classifier service is down (onnx_result is None).
+        understanding = QueryUnderstandingResult(
+            intent=normalize_intent(label),
+            confidence=confidence,
+            rationale="onnx-classifier",
+            should_decompose=False,
+        )
+
+        # Emit observability + write JSONL + analytics (same as LLM path)
+        emit_observability_event(
+            logger,
+            "search.query_understanding.resolved",
+            query=normalized_query,
+            intent=understanding.intent,
+            confidence=understanding.confidence,
+            should_decompose=False,
+            model="tinybert-4l-onnx-int8",
+            model_used="tinybert-4l-onnx-int8",
+            provider="onnx",
+            fallback=False,
+        )
+        if settings.query_understanding_jsonl_enabled:
+            try:
+                await append_query_understanding_record(
+                    context=SearchContext(
+                        raw_query=query,
+                        normalized_query=normalized_query,
+                        research_goal=research_goal,
+                        session_id=session_id,
+                        intent=understanding.intent,
+                        confidence=understanding.confidence,
+                        should_decompose=False,
+                        rationale="onnx-classifier",
+                        entities=tuple(),
+                        must_keep_terms=tuple(),
+                        num_results=0,
+                        search_options=None,
+                    ),
+                    understanding=understanding,
+                    model_name="tinybert-4l-onnx-int8",
+                    prompt_name="onnx-classifier",
+                    path=settings.query_understanding_jsonl_path,
+                    session_id=session_id,
+                )
+                if session_id:
+                    get_session_state_store().get(session_id).last_intent = (
+                        understanding.intent
+                    )
+            except Exception as exc:
+                logger.warning("query understanding JSONL write failed: %s", exc)
+
+        if run_key:
+            try:
+                analytics_insert_query_understanding(
+                    run_key=run_key,
+                    intent=understanding.intent,
+                    confidence=understanding.confidence,
+                    should_decompose=False,
+                    model="tinybert-4l-onnx-int8",
+                    model_used="tinybert-4l-onnx-int8",
+                    provider="onnx",
+                    fallback_used=False,
+                    rationale="onnx-classifier",
+                    entities_count=0,
+                    input_tokens=None,
+                    output_tokens=None,
+                    preserved_terms=[],
+                    time_sensitivity="none",
+                    payload_json={"query": normalized_query},
+                )
+            except Exception as exc:
+                logger.debug("analytics insert_query_understanding failed: %s", exc)
+
+        return understanding
+
+    # ------------------------------------------------------------------
+    # Fallback path: LLM-backed query understanding (slow, ~1-10s)
+    # Only reached if the ONNX classifier service is unavailable.
+    # ------------------------------------------------------------------
+    logger.warning("ONNX classifier unavailable, falling back to LLM query understanding")
+
     system_prompt, user_prompt = build_prompt(
         "query_understanding",
         query=normalized_query,

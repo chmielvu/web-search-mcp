@@ -34,6 +34,11 @@ class TestQueryUnderstanding(IsolatedAsyncioTestCase):
 
         with (
             patch.object(settings, "query_understanding_jsonl_enabled", False),
+            patch(  # ONNX classifier returns None → forces LLM fallback
+                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
             patch(
                 "kindly_web_search_mcp_server.search.understanding.resolver.build_llm_worker",
                 return_value=_BrokenWorker(),
@@ -69,6 +74,11 @@ class TestQueryUnderstanding(IsolatedAsyncioTestCase):
         with (
             patch.object(settings, "query_understanding_jsonl_enabled", False),
             patch.object(settings, "analytics_enabled", False),
+            patch(  # ONNX classifier returns None → forces LLM fallback
+                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
             patch(
                 "kindly_web_search_mcp_server.search.understanding.resolver.get_ab_overrides",
                 return_value=None,
