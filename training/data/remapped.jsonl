@@ -1,0 +1,122 @@
+{"text": "langchain agent react", "label": "general"}
+{"text": "FastMCP resources tools docs prompt as tools code mode", "label": "general"}
+{"text": "fastmcp docs", "label": "general"}
+{"text": "python httpx async", "label": "ai_coding_and_infrastructure"}
+{"text": "python httpx async client best practices", "label": "ai_coding_and_infrastructure"}
+{"text": "FastAPI", "label": "general"}
+{"text": "Python logging.Handler DuckDB insert structured logs TTL cleanup", "label": "ai_coding_and_infrastructure"}
+{"text": "test", "label": "general"}
+{"text": "Python FastMCP tutorial", "label": "general"}
+{"text": "test query", "label": "general"}
+{"text": "fastapi latest release version 2026", "label": "ai_coding_and_infrastructure"}
+{"text": "python 3.14 release", "label": "general"}
+{"text": "async python best practices 2026", "label": "general"}
+{"text": "python asyncio patterns", "label": "ai_coding_and_infrastructure"}
+{"text": "python asyncio best practices", "label": "ai_coding_and_infrastructure"}
+{"text": "kubernetes pods", "label": "general"}
+{"text": "rust async tokio", "label": "ai_coding_and_infrastructure"}
+{"text": "golang goroutines", "label": "general"}
+{"text": "golang", "label": "ai_coding_and_infrastructure"}
+{"text": "golang", "label": "general"}
+{"text": "test123", "label": "general"}
+{"text": "python async context managers", "label": "ai_coding_and_infrastructure"}
+{"text": "test1234", "label": "general"}
+{"text": "python", "label": "ai_coding_and_infrastructure"}
+{"text": "python typing", "label": "general"}
+{"text": "crawl4ai v0.8 LLM extraction strategy pydantic schema example", "label": "ai_coding_and_infrastructure"}
+{"text": "Crawl4AI v0.8 \"LiteLLM\" integration extraction strategy instruction schema example", "label": "ai_coding_and_infrastructure"}
+{"text": "Crawl4AI \"BM25ContentFilter\" vs \"PruningContentFilter\" comparison usage", "label": "comparison"}
+{"text": "crawl4ai docker api server deployment vps guide documentation", "label": "ai_coding_and_infrastructure"}
+{"text": "crawl4ai docker API documentation endpoints schema POST /crawl example", "label": "ai_coding_and_infrastructure"}
+{"text": "crawl4ai docker API server swagger openapi spec endpoints", "label": "ai_coding_and_infrastructure"}
+{"text": "crawl4ai cookbooks tutorials advanced usage patterns", "label": "ai_coding_and_infrastructure"}
+{"text": "unclecode/crawl4ai GitHub repository extraction strategies", "label": "ai_coding_and_infrastructure"}
+{"text": "crawl4ai", "label": "general"}
+{"text": "vectorize-io/hindsight retain LLM response_format structured output configuration", "label": "ai_coding_and_infrastructure"}
+{"text": "Vercel AI Gateway documentation routing providers response_format", "label": "ai_coding_and_infrastructure"}
+{"text": "vectorize-io/hindsight GitHub issues response_format rejected models", "label": "general"}
+{"text": "vectorize-io/hindsight environment variables structured output JSON mode", "label": "ai_coding_and_infrastructure"}
+{"text": "Vercel AI Gateway documentation", "label": "general"}
+{"text": "vectorize-io/hindsight disable JSON mode fact extraction configuration", "label": "ai_coding_and_infrastructure"}
+{"text": "site:vercel.com ai gateway response_format structured output", "label": "general"}
+{"text": "Vercel AI Gateway base URL endpoint format ai-gateway.vercel.sh", "label": "ai_coding_and_infrastructure"}
+{"text": "Vercel AI Gateway model name format provider/model", "label": "ai_coding_and_infrastructure"}
+{"text": "Vercel AI Gateway response_format structured output support", "label": "general"}
+{"text": "vectorize-io hindsight gemini model support issues", "label": "ai_coding_and_infrastructure"}
+{"text": "hindsight memory gemini thought_signature function call error fix", "label": "ai_coding_and_infrastructure"}
+{"text": "Hindsight vectorize-io memory retention AI coding agent integration", "label": "ai_coding_and_infrastructure"}
+{"text": "Hindsight vectorize-io Hermes Agent integration SOUL.md", "label": "ai_coding_and_infrastructure"}
+{"text": "Hindsight memory tool MCP configuration AI agent", "label": "general"}
+{"text": "site:reddit.com Hindsight vectorize-io AI agent memory", "label": "general"}
+{"text": "Hindsight memory multiple AI agents shared memory bank schema", "label": "general"}
+{"text": "Hindsight memory isolation vs shared memory across Claude Code Hermes Codex agents", "label": "comparison"}
+{"text": "site:reddit.com Hindsight memory multi-agent bank separation", "label": "general"}
+{"text": "hindsight memory bank separation multi-agent", "label": "ai_coding_and_infrastructure"}
+{"text": "hindsight memory agent github banks schemas isolation", "label": "ai_coding_and_infrastructure"}
+{"text": "hermes agent hindsight integration setup configuration best practices", "label": "ai_coding_and_infrastructure"}
+{"text": "vectorize hindsight hermes agent memory skills SOUL.md hooks auto retain recall", "label": "ai_coding_and_infrastructure"}
+{"text": "LlamaIndex pypi latest version 2025 2026", "label": "ai_coding_and_infrastructure"}
+{"text": "llama-index-core pypi latest version", "label": "ai_coding_and_infrastructure"}
+{"text": "llama-index ReActAgent deprecated AgentWorkflow migration 2025", "label": "ai_coding_and_infrastructure"}
+{"text": "llama-index 0.13 breaking changes changelog release notes", "label": "general"}
+{"text": "RAG document ingestion quality control pre-embedding content filtering deduplication chunk validation best practices", "label": "general"}
+{"text": "RAG documentation indexing scrape website vs clone GitHub repo tradeoffs best practices", "label": "comparison"}
+{"text": "LlamaIndex documentation ingestion pipeline GitHub repo scraping website quality control", "label": "comparison"}
+{"text": "LlamaIndex LangChain Haystack chunk quality filtering pipeline before indexing RAG", "label": "comparison"}
+{"text": "LLM-based quality gate chunk filtering RAG production prompt template binary classification", "label": "ai_coding_and_infrastructure"}
+{"text": "statistical heuristic quality signals chunk filtering RAG token entropy information density code-to-text ratio", "label": "general"}
+{"text": "GitHub open source RAG chunk quality filtering implementation production pipeline", "label": "general"}
+{"text": "autogenerated API stub detection Sphinx material-mkdocs autogenerated reference documentation filtering RAG", "label": "ai_coding_and_infrastructure"}
+{"text": "site:github.com chunk quality filter RAG ingestion pipeline python", "label": "ai_coding_and_infrastructure"}
+{"text": "RAG ingestion chunk quality filtering pipeline production patterns", "label": "general"}
+{"text": "Unstructured.io chunking quality filter elements auto-generated content detection", "label": "general"}
+{"text": "LlamaIndex node postprocessor quality filter ingestion pipeline", "label": "ai_coding_and_infrastructure"}
+{"text": "unstructured.io element type filtering NarrativeText Title ListItem quality partition", "label": "general"}
+{"text": "RAGFlow document parsing chunk quality evaluation score filter", "label": "ai_coding_and_infrastructure"}
+{"text": "unstructured python library element types filter NarrativeText Uncategorized Header Footer", "label": "comparison"}
+{"text": "github RAG ingestion chunk quality filter dedup boilerplate detection python implementation", "label": "ai_coding_and_infrastructure"}
+{"text": "LlamaIndex IngestionPipeline transformations filter nodes during ingestion quality filtering", "label": "general"}
+{"text": "LlamaIndex MetadataExtractor QuestionsAnsweredExtractor KeywordExtractor SummaryExtractor production patterns", "label": "ai_coding_and_infrastructure"}
+{"text": "SearXNG datacenter IP VPS engines blocked CAPTCHA 2025 2026", "label": "comparison"}
+{"text": "searxng outgoing proxies residential proxy configuration settings.yml 2025 2026", "label": "ai_coding_and_infrastructure"}
+{"text": "SearXNG settings.yml engine configuration working engines VPS self-hosted 2025", "label": "general"}
+{"text": "searxng anti-detection stealth datacenter IP blocked google captcha", "label": "ai_coding_and_infrastructure"}
+{"text": "site:reddit.com SearXNG engine working VPS datacenter IP 2025", "label": "general"}
+{"text": "searxng curl-cffi browser impersonation PR 5476", "label": "ai_coding_and_infrastructure"}
+{"text": "SearXNG Bing Brave Qwant engine config API key VPS 2025", "label": "comparison"}
+{"text": "searxng per-engine proxy routing settings.yml outgoing proxies", "label": "ai_coding_and_infrastructure"}
+{"text": "searxng proxy configuration residential ip blocked search engines", "label": "general"}
+{"text": "SearXNG engines that work without API key self-hosted", "label": "general"}
+{"text": "site:github.com/searxng/searxng issues proxy", "label": "general"}
+{"text": "SearXNG engine list documentation all engines 2025", "label": "general"}
+{"text": "searxng searx.space public instances engine status", "label": "general"}
+{"text": "searxng settings.yml brave search api key configuration", "label": "ai_coding_and_infrastructure"}
+{"text": "searxng gigablast yacy wiby crowdview engine setup", "label": "general"}
+{"text": "llama_index OpenAI llms custom base_url model name not in ALL_AVAILABLE_MODELS ValueError fix", "label": "ai_coding_and_infrastructure"}
+{"text": "llama_index llms openai custom model context_window override is_function_calling_model 2025 2026", "label": "ai_coding_and_infrastructure"}
+{"text": "NVIDIA NIM rerank API endpoint /rerank request format", "label": "ai_coding_and_infrastructure"}
+{"text": "LlamaIndex CodeActAgent system prompt tool description format best practices 2024 2025", "label": "ai_coding_and_infrastructure"}
+{"text": "RAG agent system prompt engineering reduce hallucination retrieval quality best practices", "label": "general"}
+{"text": "self-reflective RAG CRAG corrective RAG implementation LlamaIndex", "label": "ai_coding_and_infrastructure"}
+{"text": "multi-tool agent orchestration chain of thought tool routing strategies code execution RAG", "label": "general"}
+{"text": "code-heavy RAG agent prompt engineering code examples vs prose documentation evaluation", "label": "comparison"}
+{"text": "agentic RAG prompt engineering best practices 2024 2025 system prompt design", "label": "general"}
+{"text": "LlamaIndex CodeActAgent prompt template RAG agent", "label": "ai_coding_and_infrastructure"}
+{"text": "ReAct agent RAG context injection patterns prompt engineering 2024", "label": "ai_coding_and_infrastructure"}
+{"text": "agentic RAG failure modes hallucination over-reliance retrieved context prompt strategies", "label": "general"}
+{"text": "LlamaIndex CodeActAgent source code github run-llama llama_index core agent workflow", "label": "ai_coding_and_infrastructure"}
+{"text": "site:github.com run-llama/llama_index \"CodeActAgent\" \"core/agent/workflow\"", "label": "general"}
+{"text": "LiteLLM provider prefixes list openai/ azure/ bedrock/ gemini/ anthropic/ site:docs.litellm.ai", "label": "general"}
+{"text": "LlamaIndex AgentWorkflow architecture @step events state context", "label": "ai_coding_and_infrastructure"}
+{"text": "LlamaIndex CodeActAgent source code system prompt tool integration", "label": "ai_coding_and_infrastructure"}
+{"text": "LlamaIndex FunctionAgent vs CodeActAgent differences tool handling", "label": "comparison"}
+{"text": "LlamaIndex FunctionTool QueryEngineTool tool design patterns descriptions prompts", "label": "ai_coding_and_infrastructure"}
+{"text": "site:docs.llamaindex.ai understanding agent workflow", "label": "ai_coding_and_infrastructure"}
+{"text": "site:github.com/run-llama/llama_index agent_workflow_basic.ipynb", "label": "general"}
+{"text": "langchain-ai langgraph-codeact src agent.py sandbox.py code_execute_fn E2B", "label": "ai_coding_and_infrastructure"}
+{"text": "litellm config.yaml model_list \"model_alias\" site:github.com", "label": "general"}
+{"text": "e2b-dev e2b-cookbook examples together-ai-code-interpreter-python main.py source code", "label": "ai_coding_and_infrastructure"}
+{"text": "litellm proxy config.yaml docker-compose \"model_list\" github", "label": "ai_coding_and_infrastructure"}
+{"text": "site:github.com langchain-ai/langgraph-codeact/src code_execute_fn e2b", "label": "ai_coding_and_infrastructure"}
+{"text": "distilabel vs synthetic data generation Python library text classification LLM", "label": "comparison"}
+{"text": "distilabel GenerateTextClassificationData Python synthetic dataset generation", "label": "ai_coding_and_infrastructure"}
