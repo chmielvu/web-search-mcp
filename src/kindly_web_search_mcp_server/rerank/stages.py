@@ -164,12 +164,17 @@ async def run_diversity_pruning(
                 timeout=10.0,
             )
         if embeddings and len(embeddings) == len(stage_input):
+            relevance_scores = [
+                candidate.score if candidate.score is not None else 0.0
+                for candidate in stage_input
+            ]
             diversified_rank = maximal_marginal_relevance_rank(
                 query_embedding,
                 embeddings,
                 [candidate.link for candidate in stage_input],
                 lambda_param=mmr_lambda,
                 max_per_host=2,
+                relevance_scores=relevance_scores,
             )
             candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[top_k * 2 :]
             stage_output_count = len(candidates)

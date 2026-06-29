@@ -4,7 +4,7 @@ system_message: >
   Ignore length or style unless they reduce clarity.
   Return only a JSON object with a ranked_candidate_ids array. No commentary.
 prefix: |
-  For the query [querystart] {query} [queryend], rank the passages from most to
+  {context}For the query [querystart] {query} [queryend], rank the passages from most to
   least relevant. Focus on whether each passage actually helps answer the query.
 body: |
   [{rank}] {candidate}

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import math
 import re
 
 from ..llm.phoenix_tracing import LLMTraceContext
@@ -134,7 +135,12 @@ async def rerank_with_llm(
     worker = build_llm_worker()
     request = StructuredLLMRequest(
         task="rerank",
-        messages=build_llm_rerank_messages(query=query, candidates=window),
+        messages=build_llm_rerank_messages(
+            query=query,
+            candidates=window,
+            research_goal=research_goal,
+            query_type_hint=query_type_hint,
+        ),
         temperature=0.0,
         timeout_seconds=timeout_seconds,
         response_model=RerankLLMOutput,
@@ -154,7 +160,7 @@ async def rerank_with_llm(
     response = await worker.complete_structured(request)
     ranked_ids = _parse_ranked_ids(response.content, len(window))
     ranked = [
-        RerankResult(index=candidate_id - 1, score=1.0 / position)
+        RerankResult(index=candidate_id - 1, score=math.exp(-0.3 * (position - 1)))
         for position, candidate_id in enumerate(ranked_ids, start=1)
     ]
     return LLMRerankOutcome(

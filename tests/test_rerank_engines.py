@@ -40,8 +40,6 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
             get_rerank_engine("cohere_fast_openrouter").engine_id,
             "cohere_fast_openrouter",
         )
-        self.assertEqual(get_rerank_engine("jina").engine_id, "jina")
-        self.assertEqual(get_rerank_engine("gcp_cloudrun").engine_id, "gcp_cloudrun")
         self.assertEqual(
             get_rerank_engine("local_baseline").engine_id, "local_baseline"
         )
@@ -85,12 +83,17 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ) as voyage,
             patch(
-                "kindly_web_search_mcp_server.rerank.engines.jina_rerank",
+                "kindly_web_search_mcp_server.rerank.engines.cohere_rerank",
                 new_callable=AsyncMock,
-            ) as jina,
+            ) as cohere,
+            patch(
+                "kindly_web_search_mcp_server.rerank.engines.openrouter_cohere_rerank",
+                new_callable=AsyncMock,
+            ) as openrouter,
         ):
             voyage.side_effect = RuntimeError("voyage down")
-            jina.side_effect = RuntimeError("jina down")
+            cohere.side_effect = RuntimeError("cohere down")
+            openrouter.side_effect = RuntimeError("openrouter down")
 
             result = await rerank_with_engine_fallback(
                 query="query",

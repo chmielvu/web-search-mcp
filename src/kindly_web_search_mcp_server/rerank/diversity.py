@@ -29,11 +29,15 @@ def maximal_marginal_relevance_rank(
     lambda_param: float = 0.7,
     max_per_host: int = 2,
     host_saturation_penalty: float = 0.2,
+    relevance_scores: list[float] | None = None,
 ) -> list[int]:
     """Return deterministic true-MMR ranking with host saturation control.
 
     MMR objective per candidate i:
       λ * sim(q, d_i) - (1-λ) * max_{j in S} sim(d_i, d_j) - host_penalty(i)
+
+    When *relevance_scores* is provided, it is min-max normalised to [0,1]
+    and used as the relevance term instead of query-candidate cosine similarity.
     """
     n = len(candidate_embeddings)
     if n == 0:
@@ -84,6 +88,17 @@ def maximal_marginal_relevance_rank(
         ]
         query_similarities = [cosine(query, vectors[i]) for i in range(n)]
 
+    # When external relevance_scores are provided, min-max normalise to [0,1]
+    # and use them as the relevance term instead of query-candidate cosine similarity.
+    if relevance_scores is not None and len(relevance_scores) == n:
+        rmin, rmax = min(relevance_scores), max(relevance_scores)
+        if rmax - rmin < 1e-9:
+            query_relevance = [0.5] * n
+        else:
+            query_relevance = [(s - rmin) / (rmax - rmin) for s in relevance_scores]
+    else:
+        query_relevance = query_similarities
+
     hosts = [_normalize_host(url) for url in urls]
     host_counts: dict[str, int] = {}
     selected: list[int] = []
@@ -111,7 +126,7 @@ def maximal_marginal_relevance_rank(
                 ),
                 default=0.0,
             )
-            relevance = float(query_similarities[idx])
+            relevance = float(query_relevance[idx])
             objective = (
                 lambda_param * relevance
                 - (1.0 - lambda_param) * redundancy

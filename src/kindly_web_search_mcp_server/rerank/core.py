@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Any
 
@@ -173,7 +174,7 @@ async def rerank_results(
     ) as main_span:
         stage1_output_count = original_count
         if query_embedding and len(candidates) > top_k * 2:
-            bi_encoder_top_k = top_k * 2
+            bi_encoder_top_k = top_k * 3
             stage1_start = time.time()
             try:
                 candidates, embedding_ctx = await bi_encoder_filter(
@@ -265,6 +266,16 @@ async def rerank_results(
             searxng_time_range=searxng_time_range,
         )
         candidates = diversity_result.candidates
+
+        # Update scores to reflect MMR ordering so final scores match final rank.
+        # MMR reorders candidates by relevance+diversity, but candidate.score still
+        # holds the pre-MMR reranker score. Assign decaying scores by MMR rank
+        # position so downstream consumers (analytics, threshold filter) see
+        # score-order consistency.
+        for position, candidate in enumerate(candidates):
+            candidates[position] = candidate.model_copy(
+                update={"score": math.exp(-0.3 * position)}
+            )
         record_diversity_stage(
             input_count=diversity_result.input_count,
             output_count=diversity_result.output_count,

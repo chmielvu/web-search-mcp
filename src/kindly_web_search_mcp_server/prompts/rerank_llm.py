@@ -61,8 +61,16 @@ def build_llm_rerank_messages(
     *,
     query: str,
     candidates: list[tuple[int, WebSearchResult]],
+    research_goal: str | None = None,
+    query_type_hint: str | None = None,
 ) -> list[dict[str, str]]:
     template = load_rerank_prompt_template()
+    context_parts = []
+    if query_type_hint and query_type_hint != "general":
+        context_parts.append(f"Query type: {query_type_hint}.")
+    if research_goal:
+        context_parts.append(f"Research goal: {research_goal}.")
+    context = " ".join(context_parts) + " " if context_parts else ""
     candidate_blocks = [
         _render_template(
             template.body,
@@ -73,7 +81,7 @@ def build_llm_rerank_messages(
     ]
     user_content = "\n\n".join(
         [
-            _render_template(template.prefix, query=query),
+            _render_template(template.prefix, query=query, context=context),
             *candidate_blocks,
             _render_template(template.suffix, query=query),
         ]

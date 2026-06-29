@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from ..models import WebSearchResult
 from ..settings import settings
 from .cohere import cohere_rerank
-from .gcp_cloudrun import gcp_cloudrun_rerank
-from .jina import jina_rerank
 from .models import RerankCandidate, RerankEngine, RerankResult
 from .openrouter import openrouter_cohere_rerank
 from .voyage import voyage_rerank
@@ -19,11 +17,9 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_ENGINE_IDS = {
     "none",
-    "voyage",
     "cohere_fast",
     "cohere_fast_openrouter",
-    "jina",
-    "gcp_cloudrun",
+    "voyage",
     "local_baseline",
 }
 
@@ -94,29 +90,6 @@ class LocalBaselineRerankEngine(NoneRerankEngine):
             return []
 
 
-
-class VoyageRerankEngine:
-    engine_id = "voyage"
-
-    async def rerank(
-        self,
-        query: str,
-        candidates: list[RerankCandidate],
-        *,
-        model: str | None = None,
-        instruction: str | None = None,
-    ) -> list[RerankResult]:
-        ranked = await voyage_rerank(
-            query,
-            [candidate.document for candidate in candidates],
-            timeout=30.0,
-            api_key=settings.voyage_api_key or None,
-            model=model or settings.voyage_rerank_model,
-            instruction=instruction,
-        )
-        return [RerankResult(index=index, score=score) for index, score in ranked]
-
-
 class CohereFastRerankEngine:
     engine_id = "cohere_fast"
 
@@ -163,8 +136,8 @@ class CohereFastOpenRouterRerankEngine:
         return [RerankResult(index=index, score=score) for index, score in ranked]
 
 
-class JinaRerankEngine:
-    engine_id = "jina"
+class VoyageRerankEngine:
+    engine_id = "voyage"
 
     async def rerank(
         self,
@@ -174,32 +147,13 @@ class JinaRerankEngine:
         model: str | None = None,
         instruction: str | None = None,
     ) -> list[RerankResult]:
-        ranked = await jina_rerank(
+        ranked = await voyage_rerank(
             query,
             [candidate.document for candidate in candidates],
             timeout=30.0,
-            api_key=None,
-            model=model or settings.jina_rerank_model,
-        )
-        return [RerankResult(index=index, score=score) for index, score in ranked]
-
-
-class GcpCloudRunRerankEngine:
-    engine_id = "gcp_cloudrun"
-
-    async def rerank(
-        self,
-        query: str,
-        candidates: list[RerankCandidate],
-        *,
-        model: str | None = None,
-        instruction: str | None = None,
-    ) -> list[RerankResult]:
-        ranked = await gcp_cloudrun_rerank(
-            query,
-            [candidate.document for candidate in candidates],
-            url=settings.rerank_gcp_cloudrun_url,
-            timeout=settings.rerank_gcp_timeout,
+            api_key=settings.voyage_api_key or None,
+            model=model or settings.voyage_rerank_model,
+            instruction=instruction,
         )
         return [RerankResult(index=index, score=score) for index, score in ranked]
 
@@ -208,16 +162,12 @@ def get_rerank_engine(engine_id: str) -> RerankEngine:
     normalized = engine_id.strip().lower()
     if normalized == "none":
         return NoneRerankEngine()
-    if normalized == "voyage":
-        return VoyageRerankEngine()
     if normalized == "cohere_fast":
         return CohereFastRerankEngine()
     if normalized == "cohere_fast_openrouter":
         return CohereFastOpenRouterRerankEngine()
-    if normalized == "jina":
-        return JinaRerankEngine()
-    if normalized == "gcp_cloudrun":
-        return GcpCloudRunRerankEngine()
+    if normalized == "voyage":
+        return VoyageRerankEngine()
     if normalized == "local_baseline":
         return LocalBaselineRerankEngine()
     raise ValueError(f"Unsupported rerank provider: {normalized}")
@@ -225,16 +175,12 @@ def get_rerank_engine(engine_id: str) -> RerankEngine:
 
 def get_default_model(engine_id: str) -> str | None:
     normalized = engine_id.strip().lower()
-    if normalized == "voyage":
-        return settings.voyage_rerank_model
     if normalized == "cohere_fast":
         return settings.cohere_rerank_model
     if normalized == "cohere_fast_openrouter":
         return settings.openrouter_rerank_model
-    if normalized == "jina":
-        return settings.jina_rerank_model
-    if normalized == "gcp_cloudrun":
-        return settings.rerank_gcp_model
+    if normalized == "voyage":
+        return settings.voyage_rerank_model
     if normalized == "local_baseline":
         return LocalBaselineRerankEngine.default_model
     return None
@@ -248,29 +194,27 @@ def build_rerank_candidates(
             index=index,
             document=(
                 f"Title: {candidate.title}\n"
+                f"Snippet: {candidate.snippet}\n"
                 f"URL: {candidate.link}\n"
-                f"Snippet: {candidate.snippet}"
+                f"Domain: {candidate.domain or 'unknown'}\n"
+                f"Providers: {', '.join(candidate.providers or [])}\n"
+                f"ProviderCount: {candidate.provider_count or 1}"
             ),
         )
         for index, candidate in enumerate(candidates)
     ]
 
 
+# The single fallback chain: cohere_fast -> cohere_fast_openrouter -> voyage.
+# Used regardless of which engine is configured — always try in this order.
+_FALLBACK_CHAIN = ["cohere_fast", "cohere_fast_openrouter", "voyage"]
+
+
 def _fallback_order(engine_id: str) -> list[str]:
     normalized = engine_id.strip().lower()
     if normalized in {"none", "local_baseline"}:
         return [normalized]
-    if normalized == "cohere_fast":
-        return ["cohere_fast", "cohere_fast_openrouter", "voyage"]
-    if normalized == "cohere_fast_openrouter":
-        return ["cohere_fast_openrouter", "voyage"]
-    if normalized == "voyage":
-        return ["voyage", "jina"]
-    if normalized == "jina":
-        return ["jina", "voyage"]
-    if normalized == "gcp_cloudrun":
-        return ["gcp_cloudrun", "voyage"]
-    return [normalized]
+    return list(_FALLBACK_CHAIN)
 
 
 async def rerank_with_engine_fallback(

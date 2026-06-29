@@ -187,7 +187,7 @@ class Settings:
         os.environ.get("RERANK_SCORE_THRESHOLD", "0.0")
     )
     diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))
-    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.5"))
+    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.7"))
     rerank_recency_weight: float = float(
         os.environ.get("RERANK_RECENCY_WEIGHT", "0.15")
     )
