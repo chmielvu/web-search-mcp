@@ -22,8 +22,8 @@ from collections import Counter
 
 warnings.filterwarnings("ignore")
 
-# Hardcode the user-provided key — .env has a different key that doesn't work
-GEMINI_API_KEY = "os.environ.get("GEMINI_API_KEY", "")"
+# The user-provided key for Gemini API — set via env var GEMINI_API_KEY
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
 # Clear conflicting env vars so google-genai uses our key

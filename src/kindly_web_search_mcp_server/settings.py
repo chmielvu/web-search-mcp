@@ -405,7 +405,7 @@ class Settings:
     composio_api_key: str = os.environ.get("COMPOSIO_API_KEY", "")
     composio_user_id: str = os.environ.get("COMPOSIO_USER_ID", "")
     composio_search_toolkit_version: str = os.environ.get(
-        "COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260424_00"
+        "COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260618_00"
     )
     composio_timeout_seconds: float = float(
         os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25")

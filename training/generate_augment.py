@@ -6,7 +6,7 @@ from pathlib import Path
 from collections import Counter
 warnings.filterwarnings("ignore")
 
-GEMINI_API_KEY = "os.environ.get("GEMINI_API_KEY", "")"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 os.environ.pop("GOOGLE_API_KEY", None)
 

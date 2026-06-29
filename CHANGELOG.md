@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Critical: branch deadline race causing 0 results on every non-cached search.** `branch_executor.py` set `branch_deadline = provider_group_deadline_seconds` (15s), identical to the `dispatch_providers` internal deadline. Due to `asyncio.wait` timer scheduling order, the branch timer (scheduled first) fires before the provider timer, cancelling the branch task before `dispatch_providers` can return partial results. Fix: `branch_deadline = provider_deadline + DEFAULT_DRAIN_TIMEOUT_SECONDS + 2.0` (20s), giving dispatch_providers time to return fast-provider results before the branch cancels.
+- **Branch drain now non-blocking.** Changed `await asyncio.wait(pending, timeout=drain)` to `asyncio.create_task(_branch_drain())`, matching the pattern already used in `provider_dispatch.py`. Saves up to 3s on branch timeout.
+- **Composio search toolkit version updated** from `20260424_00` to `20260618_00`. The old version required external TAVILY/EXA/SERPAPI API keys on the Composio platform. The new version uses Composio's managed auth (`NO_AUTH` scheme).
+
 ## [0.4.0] — 2026-06-28
 
 ### Added

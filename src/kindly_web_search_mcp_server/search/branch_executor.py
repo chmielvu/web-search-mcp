@@ -109,7 +109,17 @@ async def execute_search_branches(
     )
     semaphore = asyncio.Semaphore(concurrency)
 
-    branch_deadline = deadline_seconds or settings.provider_group_deadline_seconds
+    # Branch deadline must be strictly greater than the provider deadline.
+    # dispatch_providers uses provider_group_deadline_seconds internally and
+    # returns at that point with partial results. The branch needs additional
+    # time to process the return value. If both deadlines are equal, the
+    # asyncio.wait timers fire simultaneously and the branch timer (scheduled
+    # first) cancels the branch task before dispatch_providers can return.
+    branch_deadline = deadline_seconds or (
+        settings.provider_group_deadline_seconds
+        + DEFAULT_DRAIN_TIMEOUT_SECONDS
+        + 2.0
+    )
 
     async def _run_branch(spec: SearchBranchSpec) -> SearchBranchResult:
         async with semaphore:
@@ -162,7 +172,10 @@ async def execute_search_branches(
         )
         for t in pending:
             t.cancel()
-        await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
+        # Non-blocking drain — don't delay result collection for stuck branches.
+        async def _branch_drain() -> None:
+            await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
+        asyncio.create_task(_branch_drain(), name="branch-drain")
 
     # Collect completed branch results; timed-out branches produce empty results.
     branch_results = [
