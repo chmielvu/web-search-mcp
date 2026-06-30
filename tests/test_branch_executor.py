@@ -186,6 +186,9 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
         with patch(
             "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
             side_effect=_mock_dispatch,
+        ), patch(
+            "kindly_web_search_mcp_server.search.branch_executor.DEFAULT_DRAIN_TIMEOUT_SECONDS",
+            0.0,
         ):
             batch = await execute_search_branches(
                 [
@@ -222,5 +225,73 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
         assert batch.branch_queries == ["slow branch", "fast branch"]
         assert batch.result_lists[0] == []
         assert [result.title for result in batch.result_lists[1]] == ["fast branch"]
+
+    asyncio.run(_run())
+
+
+def test_execute_search_branches_keeps_provider_partials_after_inner_deadline() -> None:
+    from kindly_web_search_mcp_server.models import WebSearchResult
+    from kindly_web_search_mcp_server.search import branch_executor
+    from kindly_web_search_mcp_server.search.branch_executor import (
+        SearchBranchSpec,
+        execute_search_branches,
+    )
+
+    async def _run() -> None:
+        provider_plan = _build_provider_plan()
+        captured_deadlines: list[float] = []
+
+        async def _mock_dispatch(
+            query: str,
+            providers: list,
+            http_client,
+            *,
+            num_results: int,
+            deadline_seconds: float,
+            search_options=None,
+            provider_options_by_name=None,
+            run_key=None,
+        ) -> list:
+            captured_deadlines.append(deadline_seconds)
+            await asyncio.sleep(0.015)
+            return [
+                WebSearchResult(
+                    title="partial branch",
+                    link="https://example.com/partial-branch",
+                    snippet="partial branch",
+                    providers=["searxng"],
+                )
+            ]
+
+        with (
+            patch.object(branch_executor.settings, "provider_group_deadline_seconds", 0.01),
+            patch.object(branch_executor, "DEFAULT_DRAIN_TIMEOUT_SECONDS", 0.05),
+            patch(
+                "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
+                side_effect=_mock_dispatch,
+            ),
+        ):
+            batch = await execute_search_branches(
+                [
+                    SearchBranchSpec(
+                        index=0,
+                        intent="general",
+                        query="partial branch",
+                        branch_type="related",
+                        weight=1.0,
+                        providers=["searxng"],
+                        provider_options_by_name=provider_plan.options.bundles,
+                        max_results=2,
+                        reason="partial",
+                    )
+                ],
+                http_client=None,  # type: ignore[arg-type]
+                search_options=None,
+                provider_plan=provider_plan,
+                max_concurrency=1,
+            )
+
+        assert captured_deadlines == [0.01]
+        assert [result.title for result in batch.result_lists[0]] == ["partial branch"]
 
     asyncio.run(_run())

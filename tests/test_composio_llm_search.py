@@ -61,6 +61,43 @@ class TestComposioLLMSearch(unittest.TestCase):
 
         anyio.run(run)
 
+    def test_search_composio_llm_search_maps_web_search_citations(self) -> None:
+        async def run() -> None:
+            from kindly_web_search_mcp_server.search.composio_llm_search import (
+                COMPOSIO_LLM_SEARCH_SLUG,
+                search_composio_llm_search,
+            )
+
+            payload = {
+                "results": {
+                    "answer": "Ignored answer",
+                    "citations": [
+                        {
+                            "title": "Middleware - FastMCP",
+                            "url": "https://gofastmcp.com/servers/middleware",
+                            "snippet": "Add cross-cutting functionality.",
+                        }
+                    ],
+                }
+            }
+
+            with patch(
+                "kindly_web_search_mcp_server.search.composio_llm_search.execute_composio_tool",
+                new_callable=AsyncMock,
+            ) as mock_execute:
+                mock_execute.return_value = payload
+                results = await search_composio_llm_search("fastmcp", num_results=3)
+
+            slug, arguments = mock_execute.await_args.args
+            self.assertEqual(slug, COMPOSIO_LLM_SEARCH_SLUG)
+            self.assertEqual(arguments["query"], "fastmcp")
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].title, "Middleware - FastMCP")
+            self.assertEqual(results[0].link, "https://gofastmcp.com/servers/middleware")
+            self.assertEqual(results[0].snippet, "Add cross-cutting functionality.")
+
+        anyio.run(run)
+
     def test_search_composio_llm_search_rejects_malformed_results(self) -> None:
         async def run() -> None:
             from kindly_web_search_mcp_server.search.composio_llm_search import (

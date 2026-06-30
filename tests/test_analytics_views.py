@@ -91,6 +91,129 @@ class TestAnalyticsViews:
                 db_path,
             )
 
+            from kindly_web_search_mcp_server.analytics.duckdb_store import (
+                insert_final_results,
+                insert_merged_candidates,
+                insert_provider_candidates,
+                insert_rerank_candidates,
+            )
+            from kindly_web_search_mcp_server.analytics.observability_store import (
+                insert_branch_candidates,
+                insert_web_search_response_results,
+            )
+
+            insert_provider_candidates(
+                run_key="run-001",
+                provider="searxng",
+                branch_index=0,
+                rank=1,
+                title="FastMCP",
+                link="https://fastmcp.dev",
+                snippet="FastMCP docs",
+                domain="fastmcp.dev",
+                score=0.95,
+                published_date=None,
+                payload_json={
+                    "query": "FastMCP Python SDK",
+                    "branch_query": "FastMCP Python SDK",
+                    "candidate_id": "candidate-1",
+                    "canonical_result_id": "result-1",
+                    "tool_call_id": "tool-001",
+                },
+                db_path=str(db_path),
+            )
+            insert_branch_candidates(
+                run_key="run-001",
+                branch_attempt_id="branch-001",
+                branch_index=0,
+                candidate_rank=1,
+                title="FastMCP",
+                link="https://fastmcp.dev",
+                snippet="FastMCP docs",
+                domain="fastmcp.dev",
+                providers=["searxng"],
+                provider_count=1,
+                score=0.95,
+                candidate_id="candidate-1",
+                canonical_result_id="result-1",
+                payload_json={
+                    "query": "FastMCP Python SDK",
+                    "branch_query": "FastMCP Python SDK",
+                    "tool_call_id": "tool-001",
+                },
+                db_path=str(db_path),
+            )
+            insert_merged_candidates(
+                run_key="run-001",
+                rank=1,
+                title="FastMCP",
+                link="https://fastmcp.dev",
+                snippet="FastMCP docs",
+                domain="fastmcp.dev",
+                rrf_score=0.95,
+                provider_count=1,
+                providers=["searxng"],
+                overlap_flag=False,
+                payload_json={"tool_call_id": "tool-001"},
+                db_path=str(db_path),
+            )
+            insert_rerank_candidates(
+                run_key="run-001",
+                stage="cross_encoder",
+                link="https://fastmcp.dev",
+                rank_before=1,
+                rank_after=1,
+                score_before=0.95,
+                score_after=0.95,
+                score_after_relevance=0.95,
+                score_after_recency=None,
+                score_after_entity=None,
+                recency_boost=None,
+                entity_overlap_score=None,
+                diversity_removed=False,
+                payload_json={
+                    "candidate_id": "candidate-1",
+                    "canonical_result_id": "result-1",
+                    "tool_call_id": "tool-001",
+                },
+                db_path=str(db_path),
+            )
+            insert_final_results(
+                run_key="run-001",
+                rank=1,
+                title="FastMCP",
+                link="https://fastmcp.dev",
+                snippet="FastMCP docs",
+                domain="fastmcp.dev",
+                final_score=0.95,
+                providers=["searxng"],
+                provider_count=1,
+                entities_count=0,
+                payload_json={
+                    "candidate_id": "candidate-1",
+                    "canonical_result_id": "result-1",
+                    "tool_call_id": "tool-001",
+                },
+                db_path=str(db_path),
+            )
+            insert_web_search_response_results(
+                tool_call_id="tool-001",
+                run_key="run-001",
+                cache_hit="miss",
+                result_rank=1,
+                title="FastMCP",
+                link="https://fastmcp.dev",
+                snippet="FastMCP docs",
+                domain="fastmcp.dev",
+                providers=["searxng"],
+                provider_count=1,
+                score=0.95,
+                candidate_id="candidate-1",
+                canonical_result_id="result-1",
+                payload_json={"tool_call_id": "tool-001"},
+                db_path=str(db_path),
+            )
+
             self._ensure_local_views(db_path)
 
             con = duckdb.connect(str(db_path), read_only=True)
@@ -115,10 +238,11 @@ class TestAnalyticsViews:
             assert branch_rows == [(0, "FastMCP Python SDK", 0, "https://fastmcp.dev")]
             assert survival_rows == [
                 ("branch", 1),
+                ("cross_encoder", 1),
                 ("final", 1),
                 ("merged", 1),
                 ("provider", 1),
-                ("reranked", 1),
+                ("returned", 1),
             ]
         finally:
             if db_path.exists():

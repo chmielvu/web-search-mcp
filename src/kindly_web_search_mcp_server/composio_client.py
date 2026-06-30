@@ -6,7 +6,7 @@ import asyncio
 import threading
 from typing import Any
 
-from .settings import settings
+from .settings import get_env_value, settings
 
 COMPOSIO_SEARCH_TOOLKIT = "composio_search"
 
@@ -29,8 +29,8 @@ _CACHED_CLIENT_CONFIG: tuple[str, float, int, str] | None = None
 
 
 def _require_composio_config() -> tuple[str, str]:
-    api_key = settings.composio_api_key.strip()
-    user_id = settings.composio_user_id.strip()
+    api_key = get_env_value("COMPOSIO_API_KEY", settings.composio_api_key).strip()
+    user_id = get_env_value("COMPOSIO_USER_ID", settings.composio_user_id).strip()
     if not api_key:
         raise ComposioConfigError("COMPOSIO_API_KEY is not set.")
     if not user_id:

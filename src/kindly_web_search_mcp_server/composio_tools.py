@@ -17,7 +17,8 @@ from .models import (
 from .tools.catalog import tool_kwargs
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
-WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_WEB"
+WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
+WEB_SEARCH_MAX_RESULTS = 5
 
 
 def _string_list(values: list[str] | None) -> list[str] | None:
@@ -47,35 +48,52 @@ def _parse_float(value: Any) -> float | None:
 def _extract_web_search_results(
     data: dict[str, Any],
 ) -> tuple[str | None, list[dict[str, Any]]]:
-    """Extract answer and citations from COMPOSIO_SEARCH_WEB response.
+    """Extract answer and sources from the Composio Tavily search response.
 
-    The Composio SEARCH_WEB tool returns a nested structure:
-    - results.answer: narrative summary
-    - results.citations: list of source objects with title/url/snippet
+    The current Composio Tavily tool returns a top-level `answer` plus a
+    `results` list. Keep the older nested citation shape accepted so historical
+    mocks and cached payloads remain parseable.
     """
-    results_container = data.get("results", data)
-    if not isinstance(results_container, dict):
-        return None, []
-
-    answer = results_container.get("answer")
+    answer = data.get("answer")
     if not isinstance(answer, str):
-        answer = None
+        nested = data.get("results")
+        if isinstance(nested, dict) and isinstance(nested.get("answer"), str):
+            answer = nested["answer"]
+        else:
+            answer = None
 
-    citations_raw = results_container.get("citations", [])
-    if not isinstance(citations_raw, list):
-        citations_raw = []
+    sources = data.get("results")
+    if isinstance(sources, list):
+        return answer, sources
 
-    return answer, citations_raw
+    if isinstance(sources, dict):
+        citations = sources.get("citations")
+        if isinstance(citations, list):
+            return answer, citations
+        nested_results = sources.get("results")
+        if isinstance(nested_results, list):
+            return answer, nested_results
+
+    return answer, []
 
 
 async def _quick_web_search_impl(query: str) -> QuickWebSearchResponse:
-    """Execute COMPOSIO_SEARCH_WEB and parse the response.
+    """Execute Composio Tavily search and parse the response.
 
-    Composio SEARCH_WEB returns:
-    - results.answer: narrative summary (can be vague, prioritize citations)
-    - results.citations: list of sources with title/url/snippet
+    Composio SEARCH_TAVILY returns a concise answer and a `results` list with
+    source title, URL, and content/snippet fields.
     """
-    data = await execute_composio_tool(WEB_SEARCH_SLUG, {"query": query})
+    data = await execute_composio_tool(
+        WEB_SEARCH_SLUG,
+        {
+            "query": query,
+            "max_results": WEB_SEARCH_MAX_RESULTS,
+            "search_depth": "basic",
+            "include_answer": True,
+            "include_images": False,
+            "include_raw_content": False,
+        },
+    )
 
     answer, citations_raw = _extract_web_search_results(data)
     citations: list[QuickWebSearchCitation] = []
@@ -85,7 +103,7 @@ async def _quick_web_search_impl(query: str) -> QuickWebSearchResponse:
             continue
         title = item.get("title")
         url = item.get("url")
-        snippet = item.get("snippet")
+        snippet = item.get("snippet") or item.get("content")
         citations.append(
             QuickWebSearchCitation(
                 title=title.strip() if isinstance(title, str) else None,

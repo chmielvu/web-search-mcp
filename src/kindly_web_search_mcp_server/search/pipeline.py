@@ -24,6 +24,11 @@ from ..analytics.duckdb_store import (
     insert_final_results as analytics_insert_final_results,
     insert_query_rewrites as analytics_insert_query_rewrites,
 )
+from ..analytics.observability_store import (
+    _candidate_id,
+    _canonical_result_id,
+    insert_pipeline_heartbeat as analytics_insert_pipeline_heartbeat,
+)
 from ..analytics.judge_runner import run_judge_evaluation
 from ..analytics.quality_metrics import compute_search_quality
 from .branch_executor import (
@@ -52,9 +57,11 @@ async def run_search_pipeline(
     research_goal: str | None,
     search_options: SearchOptions | None,
     session_id: str | None = None,
+    tool_call_id: str | None = None,
 ) -> WebSearchResponse:
     run_key = str(uuid.uuid4())
     set_current_run_key(run_key)
+    tool_call_id = tool_call_id or run_key
     pipeline_start = asyncio.get_event_loop().time()
 
     normalized_query = normalize_query(query)
@@ -175,6 +182,7 @@ async def run_search_pipeline(
         provider_plan=provider_plan,
         max_concurrency=settings.query_decomposition_max_concurrency,
         run_key=run_key,
+        tool_call_id=tool_call_id,
     )
 
     result_lists = branch_batch.result_lists
@@ -474,6 +482,7 @@ async def run_search_pipeline(
                 "providers_active": active_provider_names,
                 "rewrite_variants": len(rewrite_variants),
                 "rewrite_model": rewrite_model,
+                "tool_call_id": tool_call_id,
             },
         )
     except Exception as exc:
@@ -493,6 +502,9 @@ async def run_search_pipeline(
                 payload_json={
                     "provider_count": result.provider_count,
                     "providers": result.providers or [],
+                    "candidate_id": _candidate_id(result.link, result.title, result.snippet),
+                    "canonical_result_id": _canonical_result_id(result.link),
+                    "tool_call_id": tool_call_id,
                     "entities": (
                         [e.model_dump() for e in result.entities]
                         if result.entities
@@ -514,6 +526,30 @@ async def run_search_pipeline(
             exc,
             exc_info=True,
         )
+
+    try:
+        analytics_insert_pipeline_heartbeat(
+            run_key=run_key,
+            tool_call_id=tool_call_id,
+            stage="pipeline_complete",
+            duration_ms=duration_ms,
+            branch_count=len(branch_batch.branch_metadata),
+            provider_count=len(active_provider_names),
+            merged_count=len(merged),
+            reranked_count=len(merged),
+            final_count=len(final_results),
+            returned_count=len(final_results),
+            cache_hit="miss",
+            payload_json={
+                "intent": context.intent,
+                "candidate_count": candidate_count,
+                "has_more": has_more,
+                "rewrite_enabled": rewrite,
+                "search_options": search_options.to_dict() if search_options else None,
+            },
+        )
+    except Exception as exc:
+        logger.debug("analytics insert_pipeline_heartbeat failed: %s", exc)
 
     # Judge evaluation (opt-in, fire-and-forget, never blocks the pipeline)
     if settings.judge_evaluation_enabled:

@@ -285,7 +285,7 @@ class QuickWebSearchCitation(BaseModel):
 
 
 class QuickWebSearchResponse(BaseModel):
-    """Response from Composio Quick Web Search (COMPOSIO_SEARCH_WEB)."""
+    """Response from Composio Quick Web Search (COMPOSIO_SEARCH_TAVILY)."""
 
     query: str
     answer: str | None = None

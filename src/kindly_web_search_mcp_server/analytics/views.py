@@ -9,6 +9,10 @@ import duckdb
 from .base_views import build_raw_view_sql
 from .candidate_views import build_candidate_view_sql
 from .derived_views import build_derived_view_sql
+from .observability_store import (
+    build_observability_view_sql,
+    ensure_pipeline_observability_tables,
+)
 from .duckdb_store import (
     _db_path,
     _ensure_ab_assignments,
@@ -160,6 +164,7 @@ def _build_view_sql(
         *build_raw_view_sql(target, source_table=source_table),
         *build_candidate_view_sql(target, source_table=source_table),
         *build_derived_view_sql(target, source_table=source_table),
+        *build_observability_view_sql(target),
         *build_eval_view_sql(target),
         *(_build_ab_view_sql(target) if include_ab_views else []),
     ]
@@ -187,6 +192,7 @@ def ensure_views(*, db_path: str | None = None) -> None:
             _ensure_final_results(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
+            ensure_pipeline_observability_tables(db_path=db_path)
             for statement in build_eval_table_sql("main"):
                 connection.execute(statement)
             _ensure_ab_experiments(connection)

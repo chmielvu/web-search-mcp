@@ -17,6 +17,11 @@ from typing import Mapping
 import httpx
 
 from ..models import WebSearchResult
+from ..analytics.observability_store import (
+    _candidate_id,
+    _canonical_result_id,
+    insert_branch_candidates as analytics_insert_branch_candidates,
+)
 from ..utils.async_helpers import (
     DEFAULT_DRAIN_TIMEOUT_SECONDS,
     task_completed_successfully,
@@ -53,6 +58,9 @@ async def dispatch_providers(
     search_options: SearchOptions | None = None,
     provider_options_by_name: Mapping[str, ProviderOptionBundle] | None = None,
     run_key: str | None = None,
+    branch_index: int | None = None,
+    branch_attempt_id: str | None = None,
+    tool_call_id: str | None = None,
 ) -> list[WebSearchResult]:
     """Fire all providers concurrently, collect results within *deadline_seconds*.
 
@@ -92,6 +100,9 @@ async def dispatch_providers(
                     None,  # budget — handled upstream
                     provider_arguments,
                     run_key=run_key,
+                    branch_index=branch_index,
+                    branch_attempt_id=branch_attempt_id,
+                    tool_call_id=tool_call_id,
                 )
         return await _search_single_provider(
             cfg.name,
@@ -103,6 +114,9 @@ async def dispatch_providers(
             None,
             provider_arguments,
             run_key=run_key,
+            branch_index=branch_index,
+            branch_attempt_id=branch_attempt_id,
+            tool_call_id=tool_call_id,
         )
 
     # Create all tasks at once — they all fire concurrently.
@@ -144,4 +158,31 @@ async def dispatch_providers(
     if not all_results:
         return []
 
-    return merge_search_results(all_results)
+    merged = merge_search_results(all_results)
+    if run_key and branch_attempt_id and branch_index is not None:
+        try:
+            for rank, result in enumerate(merged, start=1):
+                analytics_insert_branch_candidates(
+                    run_key=run_key,
+                    branch_attempt_id=branch_attempt_id,
+                    branch_index=branch_index,
+                    candidate_rank=rank,
+                    title=result.title,
+                    link=result.link,
+                    snippet=result.snippet,
+                    domain=result.domain or "",
+                    providers=result.providers or [],
+                    provider_count=result.provider_count,
+                    score=result.score,
+                    candidate_id=_candidate_id(result.link, result.title, result.snippet),
+                    canonical_result_id=_canonical_result_id(result.link),
+                    payload_json={
+                        "query": query,
+                        "tool_call_id": tool_call_id,
+                        "branch_query": query,
+                        "branch_provider_count": len(result.providers or []),
+                    },
+                )
+        except Exception as exc:
+            LOGGER.debug("analytics insert_branch_candidates failed: %s", exc)
+    return merged

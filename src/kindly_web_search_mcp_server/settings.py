@@ -330,7 +330,7 @@ class Settings:
     brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
-    google_cse_engine_id: str = os.environ.get("GOOGLE_CSE_ENGINE_ID", "")
+    google_cse_engine_id: str = "771d303cf528e4b7c"
     google_cse_timeout_seconds: float = float(
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
     )

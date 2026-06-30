@@ -42,7 +42,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from types import MethodType
-from typing import AsyncIterator, Literal
+from typing import Any, AsyncIterator, Literal
 
 import httpx
 
@@ -97,6 +97,10 @@ from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
 from .settings import settings
 from .analytics.judge_runner import run_judge_evaluation
+from .analytics.observability_store import (
+    build_response_result_rows,
+    insert_web_search_tool_call,
+)
 from .tools.catalog import tool_kwargs
 from .tools.profiles import apply_tool_profile
 from .utils.public_output import serialize_public_web_search_response
@@ -111,6 +115,8 @@ from .utils.logging import configure_logging
 from .utils.observability import (
     emit_tool_observability_event,
     emit_observability_event,
+    current_trace_context,
+    get_current_run_key,
 )
 from .utils.singleflight import SingleFlight
 
@@ -706,6 +712,64 @@ def _apply_domain_filters(
     return results
 
 
+def _record_web_search_return(
+    *,
+    tool_call_id: str,
+    cache_hit: str,
+    query: str,
+    normalized_query: str,
+    research_goal: str,
+    rewrite_enabled: bool,
+    result_offset: int,
+    num_results_requested: int,
+    search_identity_key: str,
+    search_options: Any,
+    response: dict[str, Any],
+    domain_boost: list[str] | None = None,
+    domain_block: list[str] | None = None,
+) -> None:
+    run_key = get_current_run_key()
+    trace_context = current_trace_context()
+    try:
+        search_options_json = (
+            search_options.to_dict() if hasattr(search_options, "to_dict") else search_options
+        )
+        insert_web_search_tool_call(
+            tool_call_id=tool_call_id,
+            run_key=run_key,
+            cache_hit=cache_hit,
+            query=query,
+            normalized_query=normalized_query,
+            research_goal=research_goal,
+            rewrite_enabled=rewrite_enabled,
+            result_offset=result_offset,
+            num_results_requested=num_results_requested,
+            num_results_returned=len(response.get("results", [])),
+            cache_identity=search_identity_key,
+            providers_requested=search_options_json.get("providers")
+            if isinstance(search_options_json, dict)
+            else None,
+            providers_used=response.get("providers_used", []),
+            search_options_json=search_options_json,
+            response_json=response,
+            trace_id=trace_context.get("trace_id"),
+            span_id=trace_context.get("span_id"),
+            payload_json={
+                "domain_boost": domain_boost,
+                "domain_block": domain_block,
+            },
+        )
+        build_response_result_rows(
+            tool_call_id=tool_call_id,
+            run_key=run_key,
+            cache_hit=cache_hit,
+            results=response.get("results", []),
+            db_path=settings.analytics_duckdb_path,
+        )
+    except Exception as exc:
+        LOGGER.debug("web_search observability write failed: %s", exc)
+
+
 @mcp.tool(**tool_kwargs("web_search"))
 async def web_search(
     query: str,
@@ -742,6 +806,7 @@ async def web_search(
     """
 
     start_time = time.time()
+    tool_call_id = str(uuid.uuid4())
 
     # Enforce bounds
     num_results = max(1, min(int(os.environ.get("DEFAULT_NUM_RESULTS", "10")), 25))
@@ -821,6 +886,21 @@ async def web_search(
                     warnings=exact_response.get("warnings", []),
                     results=exact_response.get("results", []),
                     result_window=exact_response.get("result_window"),
+                )
+                _record_web_search_return(
+                    tool_call_id=tool_call_id,
+                    cache_hit="exact",
+                    query=query,
+                    normalized_query=normalized_query,
+                    research_goal=research_goal,
+                    rewrite_enabled=rewrite,
+                    result_offset=result_offset,
+                    num_results_requested=num_results,
+                    search_identity_key=search_identity_key,
+                    search_options=search_options,
+                    response=exact_response,
+                    domain_boost=domain_boost,
+                    domain_block=domain_block,
                 )
                 _record_tool_success(
                     "web_search",
@@ -905,6 +985,7 @@ async def web_search(
                 research_goal=research_goal,
                 search_options=search_options,
                 session_id=_resolve_session_id(ctx),
+                tool_call_id=tool_call_id,
             )
             _response = _normalize_lightweight_search_response(
                 response_model.model_dump(exclude_none=True),
@@ -936,6 +1017,22 @@ async def web_search(
             response["results"] = _apply_domain_filters(
                 response.get("results", []), domain_boost, domain_block
             )
+
+        _record_web_search_return(
+            tool_call_id=tool_call_id,
+            cache_hit="miss",
+            query=query,
+            normalized_query=normalized_query,
+            research_goal=research_goal,
+            rewrite_enabled=rewrite,
+            result_offset=result_offset,
+            num_results_requested=num_results,
+            search_identity_key=search_identity_key,
+            search_options=search_options,
+            response=response,
+            domain_boost=domain_boost,
+            domain_block=domain_block,
+        )
 
         # Add final span attributes
         root_span.set_attribute(

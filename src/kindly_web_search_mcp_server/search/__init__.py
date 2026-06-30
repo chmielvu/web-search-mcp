@@ -19,7 +19,6 @@ from .gemini_pollinations import search_gemini_pollinations
 from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
-from .google_cse import search_google_cse
 from .jina import search_jina
 from .qdrant import search_qdrant
 from .reddit import search_reddit
@@ -130,16 +129,6 @@ def _init_provider_registry() -> None:
             search_fn=search_brightdata,
             group=ProviderGroup.paid_serp,
             requires_key=True,
-        )
-    )
-    register_provider(
-        ProviderConfig(
-            name="google_cse",
-            env_key="GOOGLE_API_KEY",
-            search_fn=search_google_cse,
-            group=ProviderGroup.free,
-            requires_key=True,
-            extra_env_keys=("GOOGLE_CSE_ENGINE_ID",),
         )
     )
     register_provider(

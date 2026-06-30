@@ -24,7 +24,7 @@ from ..telemetry import (
 from ..utils.observability import emit_observability_event
 from .bi_encoder import bi_encoder_filter
 from .models import RerankEmbeddingContext, RerankOutput
-from .observability import emit_rerank_summary
+from .observability import emit_rerank_summary, record_rerank_candidate_rows
 from .policy import decide_rerank
 from .reporting import record_bi_encoder_stage, record_diversity_stage
 from .stack import build_rerank_stack_plan
@@ -176,6 +176,7 @@ async def rerank_results(
         if query_embedding and len(candidates) > top_k * 2:
             bi_encoder_top_k = top_k * 3
             stage1_start = time.time()
+            before_bi_encoder = list(candidates)
             try:
                 candidates, embedding_ctx = await bi_encoder_filter(
                     query_embedding,
@@ -192,6 +193,17 @@ async def rerank_results(
                 candidates = candidates[:bi_encoder_top_k]
                 stage1_output_count = len(candidates)
             stage1_duration = time.time() - stage1_start
+            record_rerank_candidate_rows(
+                logger,
+                run_key=run_key,
+                stage="bi_encoder",
+                before_candidates=before_bi_encoder,
+                after_candidates=candidates,
+                payload_json={
+                    "original_count": original_count,
+                    "bi_encoder_top_k": bi_encoder_top_k,
+                },
+            )
             record_bi_encoder_stage(
                 original_count=original_count,
                 output_count=stage1_output_count,
@@ -263,6 +275,7 @@ async def rerank_results(
             embedding_ctx=embedding_ctx,
             mmr_lambda=float(ab_overrides["diversity_weight"]) if ab_overrides and "diversity_weight" in ab_overrides else settings.mmr_lambda_param,
             logger=logger,
+            run_key=run_key,
             searxng_time_range=searxng_time_range,
         )
         candidates = diversity_result.candidates

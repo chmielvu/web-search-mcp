@@ -113,7 +113,7 @@ composio_web_search = tool(
     "composio_web_search",
     args_schema=SearchInput,
     description=(
-        "Composio Exa-backed web search that returns an answer and citations. Use when "
+        "Composio-backed web search that returns an answer and citations. Use when "
         "you want a strong broad-search starting point plus source pointers."
     ),
 )(_composio_web_search)

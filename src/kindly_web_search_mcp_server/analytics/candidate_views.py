@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .candidate_survival_views import build_candidate_survival_view_sql
+
 
 def build_candidate_view_sql(
     target: str,
@@ -152,49 +154,6 @@ def build_candidate_view_sql(
             'tool.quick_web_search.response'
         )
         """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_candidate_survival AS
-        SELECT
-            run_key, recorded_at, 'provider' AS stage, event_name,
-            provider_name AS source_provider, query, url, title, snippet, domain,
-            providers_json, provider_count, score, raw_score, source_engines_json,
-            category, published_date, branch_index, branch_query, branch_weight,
-            result_index
-        FROM {target}.vw_provider_results
-        UNION ALL
-        SELECT
-            run_key, recorded_at, 'branch' AS stage, event_name,
-            NULL AS source_provider, query, url, title, snippet, domain,
-            result_providers_json AS providers_json, provider_count, score, raw_score,
-            source_engines_json, category, published_date, branch_index, branch_query,
-            branch_weight, result_index
-        FROM {target}.vw_branch_candidates
-        UNION ALL
-        SELECT
-            run_key, recorded_at, 'merged' AS stage, event_name,
-            NULL AS source_provider, query, url, title, snippet, domain,
-            providers_json, provider_count, score, NULL AS raw_score,
-            NULL AS source_engines_json, NULL AS category, NULL AS published_date,
-            NULL AS branch_index, NULL AS branch_query, NULL AS branch_weight,
-            result_index
-        FROM {target}.vw_merged_results
-        UNION ALL
-        SELECT
-            run_key, recorded_at, 'reranked' AS stage, event_name,
-            provider AS source_provider, query, url, title, snippet, domain,
-            providers_json, provider_count, score, NULL AS raw_score,
-            NULL AS source_engines_json, NULL AS category, NULL AS published_date,
-            NULL AS branch_index, NULL AS branch_query, NULL AS branch_weight,
-            rerank_rank AS result_index
-        FROM {target}.vw_rerank_results
-        UNION ALL
-        SELECT
-            run_key, recorded_at, 'final' AS stage, event_name,
-            NULL AS source_provider, query, url, title, snippet, domain,
-            providers_json, provider_count, score, NULL AS raw_score,
-            NULL AS source_engines_json, NULL AS category, NULL AS published_date,
-            NULL AS branch_index, NULL AS branch_query, NULL AS branch_weight,
-            result_rank AS result_index
-        FROM {target}.vw_search_results
-        """,
+        build_candidate_survival_view_sql(target),
     ]
+

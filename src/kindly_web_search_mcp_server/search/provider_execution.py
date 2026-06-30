@@ -9,7 +9,9 @@ from typing import Any, Mapping
 import httpx
 from opentelemetry import trace
 
+from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..analytics.duckdb_store import insert_provider_calls as analytics_insert_provider_calls
+from ..analytics.duckdb_store import insert_provider_candidates as analytics_insert_provider_candidates
 from ..models import WebSearchResult
 from ..telemetry import (
     INPUT_MIME_TYPE,
@@ -53,6 +55,9 @@ async def _search_single_provider(
     budget: ProviderBudget | None = None,
     provider_arguments: Mapping[str, object] | None = None,
     run_key: str | None = None,
+    branch_index: int | None = None,
+    branch_attempt_id: str | None = None,
+    tool_call_id: str | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with unified health tracking, budget, and spans."""
     if not get_provider_health().is_healthy(provider_name):
@@ -114,7 +119,7 @@ async def _search_single_provider(
                 analytics_insert_provider_calls(
                     run_key=run_key or "",
                     provider=provider_name,
-                    branch_index=None,
+                    branch_index=branch_index,
                     branch_query=query,
                     num_results_requested=num_results,
                     num_results_returned=len(results),
@@ -122,9 +127,41 @@ async def _search_single_provider(
                     error_code=None,
                     error_message=None,
                     http_status=200,
+                    payload_json={
+                        "query": query,
+                        "branch_attempt_id": branch_attempt_id,
+                        "tool_call_id": tool_call_id,
+                    },
                 )
             except Exception as db_exc:
                 LOGGER.debug("analytics insert_provider_calls failed: %s", db_exc)
+            try:
+                for rank, result in enumerate(results, start=1):
+                    analytics_insert_provider_candidates(
+                        run_key=run_key or "",
+                        provider=provider_name,
+                        branch_index=branch_index,
+                        rank=rank,
+                        title=result.title,
+                        link=result.link,
+                        snippet=result.snippet,
+                        domain=result.domain or "",
+                        score=result.score,
+                        published_date=result.published_date,
+                        payload_json={
+                            "query": query,
+                            "branch_query": query,
+                            "branch_attempt_id": branch_attempt_id,
+                            "tool_call_id": tool_call_id,
+                            "candidate_id": _candidate_id(
+                                result.link, result.title, result.snippet
+                            ),
+                            "canonical_result_id": _canonical_result_id(result.link),
+                            "providers": result.providers or [],
+                        },
+                    )
+            except Exception as db_exc:
+                LOGGER.debug("analytics insert_provider_candidates failed: %s", db_exc)
             span.set_attribute("result_count", len(results))
             span.set_attribute("duration_ms", duration * 1000)
             span.set_attribute("status", "success")
@@ -175,7 +212,7 @@ async def _search_single_provider(
                 analytics_insert_provider_calls(
                     run_key=run_key or "",
                     provider=provider_name,
-                    branch_index=None,
+                    branch_index=branch_index,
                     branch_query=query,
                     num_results_requested=num_results,
                     num_results_returned=0,
@@ -183,6 +220,11 @@ async def _search_single_provider(
                     error_code=type(exc).__name__,
                     error_message=str(exc)[:500],
                     http_status=500,
+                    payload_json={
+                        "query": query,
+                        "branch_attempt_id": branch_attempt_id,
+                        "tool_call_id": tool_call_id,
+                    },
                 )
             except Exception as db_exc:
                 LOGGER.debug("analytics insert_provider_calls failed: %s", db_exc)

@@ -68,6 +68,10 @@ class TestProviderConfig(unittest.TestCase):
         self.assertEqual(active, [])
         os.environ.pop("TEST_KEY", None)
 
+    def test_google_cse_is_not_registered(self) -> None:
+        self.assertEqual(settings.google_cse_engine_id, "771d303cf528e4b7c")
+        self.assertNotIn("google_cse", PROVIDER_REGISTRY)
+
     def test_select_paid_serp_configs_uses_shared_round_robin(self) -> None:
         configs = [
             ProviderConfig(

@@ -37,8 +37,9 @@ import time
 import threading
 from dataclasses import dataclass
 
+from ..analytics.observability_store import insert_provider_health_transition
 from ..telemetry import record_circuit_breaker_event, record_circuit_breaker_state
-from ..utils.observability import emit_observability_event
+from ..utils.observability import emit_observability_event, get_current_run_key
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,26 @@ class ProviderHealthTracker:
             state.total_successes,
             state.total_failures,
         )
+        try:
+            insert_provider_health_transition(
+                provider=provider_name,
+                transition="reset" if was_open_or_half else "success",
+                run_key=get_current_run_key(),
+                status="closed",
+                consecutive_failures=state.consecutive_failures,
+                cooldown_seconds=0.0,
+                cooldown_remaining_s=0.0,
+                total_successes=state.total_successes,
+                total_failures=state.total_failures,
+                error_type=None,
+                is_rate_limit=False,
+                circuit_state="closed",
+                payload_json={
+                    "was_open_or_half": was_open_or_half,
+                },
+            )
+        except Exception as exc:
+            logger.debug("provider_health transition insert failed: %s", exc)
         _emit_provider_health_event_async(
             "provider.health.success",
             provider=provider_name,
@@ -202,6 +223,27 @@ class ProviderHealthTracker:
             cooldown_s,
             time.strftime("%H:%M:%S", time.localtime(time.time() + cooldown_s)),
         )
+        try:
+            insert_provider_health_transition(
+                provider=provider_name,
+                transition="open" if state.consecutive_failures >= self._failure_threshold else "cooldown",
+                run_key=get_current_run_key(),
+                status="open" if state.consecutive_failures >= self._failure_threshold else "closed",
+                consecutive_failures=state.consecutive_failures,
+                cooldown_seconds=round(cooldown_s, 3),
+                cooldown_remaining_s=round(max(0.0, state.cooldown_until - now), 3),
+                total_successes=state.total_successes,
+                total_failures=state.total_failures,
+                error_type=error_type or "generic",
+                is_rate_limit=is_rate_limit,
+                circuit_state=state.circuit_state,
+                payload_json={
+                    "retry_after_seconds": retry_after_seconds,
+                    "last_failure_time": state.last_failure_time,
+                },
+            )
+        except Exception as exc:
+            logger.debug("provider_health transition insert failed: %s", exc)
         _emit_provider_health_event_async(
             "provider.health.cooldown",
             provider=provider_name,

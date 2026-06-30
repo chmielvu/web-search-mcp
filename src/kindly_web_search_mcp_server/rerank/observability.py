@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..analytics.duckdb_store import insert_rerank_candidates as analytics_insert_rerank_candidates
+from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..models import WebSearchResult
 from ..utils.observability import emit_observability_event, serialize_search_results
 
@@ -82,3 +84,57 @@ def emit_rerank_policy_decision(
     **fields: Any,
 ) -> None:
     emit_observability_event(logger, f"rerank.{decision}", **fields)
+
+
+def record_rerank_candidate_rows(
+    logger: logging.Logger,
+    *,
+    run_key: str | None,
+    stage: str,
+    before_candidates: list[WebSearchResult],
+    after_candidates: list[WebSearchResult],
+    payload_json: dict[str, Any] | None = None,
+) -> None:
+    if not run_key:
+        return
+    try:
+        before_by_link = {
+            candidate.link: (index + 1, candidate)
+            for index, candidate in enumerate(before_candidates)
+        }
+        after_by_link = {
+            candidate.link: (index + 1, candidate)
+            for index, candidate in enumerate(after_candidates)
+        }
+        all_links = list(before_by_link)
+        for link in after_by_link:
+            if link not in before_by_link:
+                all_links.append(link)
+        for link in all_links:
+            before_rank, before_candidate = before_by_link.get(link, (None, None))
+            after_rank, after_candidate = after_by_link.get(link, (None, None))
+            candidate = after_candidate or before_candidate
+            if candidate is None:
+                continue
+            analytics_insert_rerank_candidates(
+                run_key=run_key,
+                stage=stage,
+                link=link,
+                rank_before=before_rank,
+                rank_after=after_rank,
+                score_before=getattr(before_candidate, "score", None),
+                score_after=getattr(after_candidate, "score", None),
+                score_after_relevance=getattr(after_candidate, "score", None),
+                score_after_recency=None,
+                score_after_entity=None,
+                recency_boost=None,
+                entity_overlap_score=None,
+                diversity_removed=after_candidate is None,
+                payload_json={
+                    **(payload_json or {}),
+                    "candidate_id": _candidate_id(link, candidate.title, candidate.snippet),
+                    "canonical_result_id": _canonical_result_id(link),
+                },
+            )
+    except Exception as exc:
+        logger.debug("analytics insert_rerank_candidates failed: %s", exc)

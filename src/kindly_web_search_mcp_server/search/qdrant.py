@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Callable
 
 import httpx
 from qdrant_client import AsyncQdrantClient, models
 
-from ..embeddings import embed_query
+from ..embeddings import BatchLimitedEmbeddings
 from ..index.bm25_encoder import encode_bm25
 from ..models import WebSearchResult
 from ..settings import settings
@@ -26,11 +28,65 @@ class QdrantConfigError(QdrantSearchError):
     pass
 
 
+_EMBEDDER = BatchLimitedEmbeddings(
+    max_batch_size=1,
+    min_delay_seconds=0.25,
+    max_concurrent=1,
+    timeout=20.0,
+)
+_EMBEDDING_CACHE_TTL_SECONDS = 600.0
+_EMBEDDING_CACHE_MAX_SIZE = 256
+_EMBEDDING_CACHE_LOCK = asyncio.Lock()
+_EMBEDDING_CACHE: dict[str, tuple[float, list[float]]] = {}
+_EMBEDDING_INFLIGHT: dict[str, asyncio.Task[list[float]]] = {}
+
+
 def _qdrant_auth_token_provider() -> Callable[[], str] | None:
     token = settings.hf_token.strip()
     if not token:
         return None
     return lambda: token
+
+
+def _embedding_cache_key(query: str) -> str:
+    return " ".join(query.casefold().split())
+
+
+async def _embed_qdrant_query(query: str) -> list[float]:
+    key = _embedding_cache_key(query)
+    now = time.monotonic()
+    async with _EMBEDDING_CACHE_LOCK:
+        cached = _EMBEDDING_CACHE.get(key)
+        if cached and now - cached[0] <= _EMBEDDING_CACHE_TTL_SECONDS:
+            return cached[1]
+        task = _EMBEDDING_INFLIGHT.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                _compute_and_cache_embedding(key, query),
+                name="qdrant-query-embedding",
+            )
+            _EMBEDDING_INFLIGHT[key] = task
+
+    return await asyncio.shield(task)
+
+
+async def _compute_and_cache_embedding(key: str, query: str) -> list[float]:
+    try:
+        embedding = await _EMBEDDER.embed_query(query)
+        async with _EMBEDDING_CACHE_LOCK:
+            if len(_EMBEDDING_CACHE) >= _EMBEDDING_CACHE_MAX_SIZE:
+                oldest_key = min(
+                    _EMBEDDING_CACHE,
+                    key=lambda item: _EMBEDDING_CACHE[item][0],
+                )
+                _EMBEDDING_CACHE.pop(oldest_key, None)
+            _EMBEDDING_CACHE[key] = (time.monotonic(), embedding)
+        return embedding
+    finally:
+        async with _EMBEDDING_CACHE_LOCK:
+            task = asyncio.current_task()
+            if task is not None and _EMBEDDING_INFLIGHT.get(key) is task:
+                _EMBEDDING_INFLIGHT.pop(key, None)
 
 
 async def search_qdrant(
@@ -58,7 +114,7 @@ async def search_qdrant(
         return []
 
     async def _request() -> list[WebSearchResult]:
-        query_embedding = await embed_query(query, timeout=15.0)
+        query_embedding = await _embed_qdrant_query(query)
         if not query_embedding:
             return []
 

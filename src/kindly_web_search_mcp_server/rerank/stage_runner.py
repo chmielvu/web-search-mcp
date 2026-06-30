@@ -10,6 +10,7 @@ from ..models import WebSearchResult
 from ..settings import settings
 from .engines import rerank_with_engine_fallback
 from .llm_rerank import rerank_with_llm
+from .observability import record_rerank_candidate_rows
 from .reporting import record_ranked_stage
 from .stages import apply_entity_overlap_boost, apply_ranked_results
 
@@ -49,6 +50,7 @@ def _apply_ranked_stage(
     logger: logging.Logger,
     preserve_raw_scores: bool = False,
 ) -> RankedStageOutcome:
+    before_candidates = [candidate.model_copy() for candidate in input_candidates]
     candidates, relevance_scores, _, _ = apply_ranked_results(
         input_candidates,
         ranked_results,
@@ -64,6 +66,14 @@ def _apply_ranked_stage(
         entity_overlap_weight=getattr(settings, "rerank_entity_overlap_weight", 0.15),
         logger=logger,
         ab_weight=float(payload_json.get("entity_boost")) if payload_json.get("entity_boost") is not None else None,
+    )
+    record_rerank_candidate_rows(
+        logger,
+        run_key=run_key,
+        stage=stage_name,
+        before_candidates=before_candidates,
+        after_candidates=candidates,
+        payload_json=payload_json,
     )
     relevance_scores = [
         candidate.score for candidate in candidates[: min(10, len(candidates))] if candidate.score is not None

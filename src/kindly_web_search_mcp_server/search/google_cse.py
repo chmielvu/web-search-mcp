@@ -21,6 +21,44 @@ class GoogleCseConfigError(GoogleCseError):
     pass
 
 
+def _format_http_status_error(error: httpx.HTTPStatusError) -> str:
+    response = error.response
+    status = response.status_code
+    try:
+        body = response.json()
+    except Exception:
+        body = {}
+
+    message = None
+    api_reason = None
+    if isinstance(body, dict):
+        error_obj = body.get("error")
+        if isinstance(error_obj, dict):
+            raw_message = error_obj.get("message")
+            if isinstance(raw_message, str) and raw_message.strip():
+                message = raw_message.strip()
+            details = error_obj.get("details", [])
+            if isinstance(details, list):
+                for detail in details:
+                    if not isinstance(detail, dict):
+                        continue
+                    if detail.get("reason") == "API_KEY_SERVICE_BLOCKED":
+                        api_reason = "API_KEY_SERVICE_BLOCKED"
+                        break
+
+    if api_reason == "API_KEY_SERVICE_BLOCKED":
+        return (
+            f"Google CSE blocked by Google Cloud API key restrictions ({api_reason}) "
+            f"for customsearch.googleapis.com. Allow the Custom Search API for the key "
+            f"or use a key already authorized for the service."
+        )
+
+    if message:
+        return f"Google CSE request failed ({status}): {message}"
+
+    return f"Google CSE request failed ({status})."
+
+
 def _get_google_cse_credentials() -> tuple[str, str]:
     api_key = settings.google_cse_api_key.strip()
     engine_id = settings.google_cse_engine_id.strip()
@@ -63,7 +101,10 @@ async def search_google_cse(
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         response = await client.get(url, params=params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise GoogleCseError(_format_http_status_error(exc)) from None
         body = response.json()
         if not isinstance(body, dict):
             raise GoogleCseError("Google CSE response was not a JSON object.")

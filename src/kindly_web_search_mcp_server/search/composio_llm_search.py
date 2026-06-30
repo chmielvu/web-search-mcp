@@ -1,18 +1,19 @@
-"""Composio LLM Search provider for the shared web_search mix."""
+"""Composio web-search provider for the shared web_search mix."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from ..composio_client import execute_composio_tool
+from ..composio_tools import WEB_SEARCH_SLUG
 from ..models import WebSearchResult
 from .base_provider import run_clientless_provider
 
-COMPOSIO_LLM_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
+COMPOSIO_LLM_SEARCH_SLUG = WEB_SEARCH_SLUG
 
 
 class ComposioLLMSearchError(RuntimeError):
-    """Composio LLM Search provider error."""
+    """Composio web-search provider error."""
 
 
 def _resolve_timeout_seconds(http_client: Any) -> float | None:
@@ -36,13 +37,35 @@ def _resolve_timeout_seconds(http_client: Any) -> float | None:
     return float(max(candidates))
 
 
+def _extract_result_items(data: dict[str, Any]) -> list[dict[str, Any]]:
+    results_container = data.get("results", data)
+    if isinstance(results_container, list):
+        return results_container
+    if not isinstance(results_container, dict):
+        raise ComposioLLMSearchError(
+            "Composio LLM Search response was not a results object."
+        )
+
+    citations = results_container.get("citations")
+    if isinstance(citations, list):
+        return citations
+
+    raw_results = results_container.get("results")
+    if isinstance(raw_results, list):
+        return raw_results
+
+    raise ComposioLLMSearchError(
+        "Composio LLM Search response missing `citations` or `results` list."
+    )
+
+
 async def search_composio_llm_search(
     query: str,
     *,
     num_results: int,
     http_client: Any = None,
 ) -> list[WebSearchResult]:
-    """Query Composio LLM Search and return lightweight provider records."""
+    """Query Composio web search and return lightweight provider records."""
     if not query.strip() or num_results < 1:
         return []
 
@@ -61,19 +84,13 @@ async def search_composio_llm_search(
         )
 
     def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
-        raw_results = data.get("results", [])
-        if not isinstance(raw_results, list):
-            raise ComposioLLMSearchError(
-                "Composio LLM Search response missing `results` list."
-            )
-
         results: list[WebSearchResult] = []
-        for item in raw_results:
+        for item in _extract_result_items(data):
             if not isinstance(item, dict):
                 continue
-            title = item.get("title")
-            link = item.get("url")
-            snippet = item.get("content")
+            title = item.get("title") or item.get("name")
+            link = item.get("url") or item.get("link")
+            snippet = item.get("snippet") or item.get("content") or ""
             if not isinstance(title, str) or not title.strip():
                 continue
             if not isinstance(link, str) or not link.strip():

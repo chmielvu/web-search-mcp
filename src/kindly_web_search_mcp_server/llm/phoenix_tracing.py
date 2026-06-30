@@ -13,10 +13,19 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from openinference.instrumentation import (
-    get_attributes_from_context,
-    using_attributes,
-)
+try:
+    from openinference.instrumentation import (
+        get_attributes_from_context,
+        using_attributes,
+    )
+except Exception:  # pragma: no cover - optional tracing dependency
+    def get_attributes_from_context() -> dict[str, Any]:
+        return {}
+
+    @contextmanager
+    def using_attributes(**attrs: Any) -> Iterator[None]:
+        yield
+
 from opentelemetry import trace
 
 OPENINFERENCE_SPAN_KIND = "openinference.span.kind"

@@ -17,7 +17,7 @@ search_app = typer.Typer(no_args_is_help=True)
 def quick_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
 ) -> None:
-    """Run the Composio/Exa-backed quick web search path."""
+    """Run the Composio-backed quick web search path."""
     from ..services.quick_search import fetch_quick_web_search_payload
 
     try:

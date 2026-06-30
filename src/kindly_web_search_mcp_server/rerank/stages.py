@@ -19,6 +19,7 @@ from ..embeddings.hf_inference import (
 from ..models import WebSearchResult
 from .diversity import maximal_marginal_relevance_rank
 from .models import RerankEmbeddingContext
+from .observability import record_rerank_candidate_rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,11 +138,13 @@ async def run_diversity_pruning(
     embedding_ctx: RerankEmbeddingContext | None,
     mmr_lambda: float,
     logger: logging.Logger,
+    run_key: str | None = None,
     searxng_time_range: str | None = None,
 ) -> DiversityStageOutcome:
     if not query_embedding:
         return DiversityStageOutcome(candidates, len(candidates), len(candidates), 0.0, 0)
 
+    before_candidates = list(candidates)
     stage_input = candidates[: top_k * 2]
     stage_input_count = len(stage_input)
     stage_output_count = stage_input_count
@@ -187,6 +190,17 @@ async def run_diversity_pruning(
             )
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
         logger.warning("Diversity embedding failed: %s: %s", type(exc).__name__, exc)
+    record_rerank_candidate_rows(
+        logger,
+        run_key=run_key,
+        stage="diversity",
+        before_candidates=before_candidates,
+        after_candidates=candidates,
+        payload_json={
+            "mmr_lambda": mmr_lambda,
+            "top_k": top_k,
+        },
+    )
     return DiversityStageOutcome(
         candidates=candidates,
         input_count=stage_input_count,
