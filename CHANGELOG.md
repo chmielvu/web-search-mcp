@@ -13,6 +13,8 @@
 - **Reranker fallback chain simplified to ONE chain**: `cohere_fast -> cohere_fast_openrouter -> voyage`. Always tries in this order regardless of configured engine. Jina and GCP CloudRun rerankers removed entirely (GCP deprecated, Jina redundant).
 
 ### Added
+- Added `plans/web_search-latency-report-2026-06-30.md` documenting the live MCP timeout analysis, provider bottlenecks, and code-path latency sources for `web_search`.
+- Corrected `plans/web_search-latency-report-2026-06-30.md` to reflect the actual root causes: missing outer timeout, repeated provider bundle across branches, and the shared paid-provider semaphore bug.
 - Added `plans/provider-root-cause-remediation-plan-2026-06-29.md` documenting the provider latency/root-cause findings and the no-new-tests remediation plan.
 - Reworked `plans/IN-DESIGN/observability/full-pipeline-observability-implementation-plan-2026-06-30.md` into a live DuckDB-backed clean-break observability design for full `web_search` coverage, including branch/provider/rerank lineage and exact returned-response analytics.
 - Added the DuckDB observability implementation for full `web_search` coverage: tool-call rows, returned-response rows, branch attempts, branch candidates, provider health transitions, and pipeline heartbeats, plus returned-object views and candidate-survival analytics.
