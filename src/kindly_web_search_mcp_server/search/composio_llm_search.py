@@ -7,6 +7,7 @@ from typing import Any
 from ..composio_client import execute_composio_tool
 from ..composio_tools import WEB_SEARCH_SLUG
 from ..models import WebSearchResult
+from ..utils.task_scope import CancellationToken
 from .base_provider import run_clientless_provider
 
 COMPOSIO_LLM_SEARCH_SLUG = WEB_SEARCH_SLUG
@@ -64,6 +65,7 @@ async def search_composio_llm_search(
     *,
     num_results: int,
     http_client: Any = None,
+    cancel_token: CancellationToken | None = None,
 ) -> list[WebSearchResult]:
     """Query Composio web search and return lightweight provider records."""
     if not query.strip() or num_results < 1:
@@ -81,6 +83,7 @@ async def search_composio_llm_search(
                 "include_raw_content": False,
             },
             timeout_seconds=_resolve_timeout_seconds(http_client),
+            cancel_token=cancel_token,
         )
 
     def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:

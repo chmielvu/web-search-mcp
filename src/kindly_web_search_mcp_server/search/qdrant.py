@@ -52,7 +52,7 @@ def _embedding_cache_key(query: str) -> str:
     return " ".join(query.casefold().split())
 
 
-async def _embed_qdrant_query(query: str) -> list[float]:
+async def _embed_qdrant_query(query: str, *, deadline: float = 15.0) -> list[float]:
     key = _embedding_cache_key(query)
     now = time.monotonic()
     async with _EMBEDDING_CACHE_LOCK:
@@ -67,7 +67,17 @@ async def _embed_qdrant_query(query: str) -> list[float]:
             )
             _EMBEDDING_INFLIGHT[key] = task
 
-    return await asyncio.shield(task)
+    # Wait for the in-flight embedding, but with a deadline so a stuck
+    # embedding service doesn't block the search pipeline indefinitely.
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=deadline)
+    except asyncio.TimeoutError:
+        LOGGER.warning(
+            "Qdrant embedding for %r timed out after %.1fs",
+            query[:80],
+            deadline,
+        )
+        raise
 
 
 async def _compute_and_cache_embedding(key: str, query: str) -> list[float]:
@@ -114,7 +124,9 @@ async def search_qdrant(
         return []
 
     async def _request() -> list[WebSearchResult]:
-        query_embedding = await _embed_qdrant_query(query)
+        query_embedding = await _embed_qdrant_query(
+            query, deadline=max(5.0, settings.provider_group_deadline_seconds * 0.8)
+        )
         if not query_embedding:
             return []
 

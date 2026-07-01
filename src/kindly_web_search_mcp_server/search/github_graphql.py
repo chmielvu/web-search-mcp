@@ -321,6 +321,10 @@ async def search_github_graphql(
         discussion_failed = isinstance(discussion_results, Exception)
         issue_failed = isinstance(issue_results, Exception)
 
+        for raw in (discussion_results, issue_results):
+            if isinstance(raw, asyncio.CancelledError):
+                raise raw
+
         if discussion_failed and issue_failed:
             raise GitHubGraphQLError("Both GitHub GraphQL searches failed")
 

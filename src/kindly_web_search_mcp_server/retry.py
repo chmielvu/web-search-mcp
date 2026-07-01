@@ -58,19 +58,9 @@ async def retry_with_backoff(
 ) -> T:
     """Execute an async function with exponential backoff retry for transient errors.
 
-    Args:
-        fn: Async function to execute (no arguments, returns Awaitable)
-        max_retries: Maximum retry attempts (default: 2, so 3 total attempts)
-        initial_delay_ms: Initial delay in milliseconds (default: 1000)
-        max_delay_ms: Maximum delay cap in milliseconds (default: 10000)
-        backoff_factor: Multiplier for each retry (default: 2.0)
-        provider_name: Optional provider name for logging
-
-    Returns:
-        Result of the function if successful
-
-    Raises:
-        The last exception if all retries exhausted or non-transient error
+    Each retry is guarded by ``asyncio.sleep`` which is a cancellation point.
+    If the task is cancelled between retries, the ``CancelledError`` propagates
+    immediately rather than being suppressed by the retry loop.
     """
     delay_ms = initial_delay_ms
     last_error: Exception | None = None
@@ -82,7 +72,6 @@ async def retry_with_backoff(
         except Exception as e:
             last_error = e
 
-            # Check if error is transient and we have retries left
             if not is_transient_error(e):
                 LOGGER.debug(
                     "%s: Non-transient error on attempt %d, not retrying: %s",
@@ -101,7 +90,6 @@ async def retry_with_backoff(
                 )
                 raise
 
-            # Calculate delay with exponential backoff
             current_delay_ms = min(delay_ms, max_delay_ms)
             delay_seconds = current_delay_ms / 1000.0
 
@@ -116,7 +104,6 @@ async def retry_with_backoff(
             await asyncio.sleep(delay_seconds)
             delay_ms = int(delay_ms * backoff_factor)
 
-    # Should never reach here, but raise last error as fallback
     if last_error:
         raise last_error
     raise RuntimeError("retry_with_backoff: unexpected state - no error captured")

@@ -19,6 +19,7 @@ def build_prompt(
     intent: SearchIntent | None = None,
     must_keep_terms: list[str] | None = None,
     provider_name: str = "worker",
+    max_variants: int = 2,
 ) -> tuple[str, str]:
     if name == "query_understanding":
         return build_query_understanding_prompt(
@@ -41,6 +42,7 @@ def build_prompt(
             intent=intent or "general",
             must_keep_terms=must_keep_terms or [],
             provider_name=provider_name,
+            max_variants=max_variants,
         )
     if name == "gemini_search":
         return build_provider_gemini_prompt(

@@ -178,6 +178,10 @@ async def search_hackernews(
             return_exceptions=True,
         )
 
+        for response in responses:
+            if isinstance(response, asyncio.CancelledError):
+                raise response
+
         payloads: list[tuple[str, dict[str, Any]]] = []
         failures: list[str] = []
         for tag, response in zip(tags, responses, strict=False):

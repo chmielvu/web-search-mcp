@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 from ..models import WebSearchResult
@@ -238,17 +239,25 @@ async def rerank_with_engine_fallback(
                 "cohere_fast",
                 "cohere_fast_openrouter",
             }
+            _engine_t0 = time.time()
             ranked = await engine.rerank(
                 query,
                 prepared,
                 model=resolved_model,
                 instruction=instruction if supports_instruction else None,
             )
+            logger.info(
+                "rerank engine %s succeeded in %.2fs (ranked=%d)",
+                candidate_engine_id,
+                time.time() - _engine_t0,
+                len(ranked),
+            )
         except Exception as exc:
             backend_error = exc
             logger.warning(
-                "%s rerank failed: %s: %s, trying fallback provider",
-                candidate_engine_id.capitalize(),
+                "rerank engine %s failed in %.2fs: %s: %s, trying next",
+                candidate_engine_id,
+                time.time() - _engine_t0,
                 type(exc).__name__,
                 exc,
             )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from typing import Any, Mapping
@@ -22,6 +23,7 @@ from ..telemetry import (
     record_provider_call,
 )
 from ..utils.observability import emit_observability_event
+from ..utils.task_scope import CancellationToken
 from .budget import ProviderBudget
 from .options import SearchOptions, build_search_query
 from .provider_call import build_provider_call_kwargs
@@ -58,6 +60,7 @@ async def _search_single_provider(
     branch_index: int | None = None,
     branch_attempt_id: str | None = None,
     tool_call_id: str | None = None,
+    cancel_token: CancellationToken | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with unified health tracking, budget, and spans."""
     if not get_provider_health().is_healthy(provider_name):
@@ -88,12 +91,19 @@ async def _search_single_provider(
                 search_options=search_options,
                 provider_arguments=provider_arguments,
             )
-            results = await provider_fn(
-                provider_query,
-                num_results=num_results,
-                http_client=http_client,
+            call_kwargs: dict[str, Any] = {
+                "num_results": num_results,
+                "http_client": http_client,
                 **provider_kwargs,
-            )
+            }
+            if cancel_token is not None:
+                sig = inspect.signature(provider_fn)
+                if "cancel_token" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                ):
+                    call_kwargs["cancel_token"] = cancel_token
+            results = await provider_fn(provider_query, **call_kwargs)
             results = [
                 result.model_copy(
                     update={

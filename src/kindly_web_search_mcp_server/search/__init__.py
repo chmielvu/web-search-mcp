@@ -47,7 +47,7 @@ __all__ = [
 
 def _init_provider_registry() -> None:
     """Initialize provider registry with configured modes."""
-    # Tier 1: Free providers (always fire, no semaphore)
+    # Tier 1: Free providers (always fire concurrently)
     register_provider(
         ProviderConfig(
             name="searxng",
@@ -85,7 +85,7 @@ def _init_provider_registry() -> None:
         )
     )
 
-    # Tier 2: Paid SERP providers (always fire, semaphore-gated)
+    # Tier 2: Paid SERP providers (always fire concurrently)
     register_provider(
         ProviderConfig(
             name="tavily",

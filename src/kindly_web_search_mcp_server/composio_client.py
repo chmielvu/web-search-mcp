@@ -52,11 +52,29 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
-def _execute_sync(slug: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def _execute_sync(
+    slug: str,
+    arguments: dict[str, Any],
+    cancel_token: Any = None,
+) -> dict[str, Any]:
+    """Execute a Composio tool synchronously, polling a cancellation token.
+
+    *cancel_token* is a ``CancellationToken`` with an ``is_cancelled``
+    attribute. When set, the function raises a ``CancelledError`` in the
+    calling thread to abort the operation early.
+    """
     _, user_id = _require_composio_config()
     client = _get_composio_client()
+
+    if cancel_token is not None and cancel_token.is_cancelled:
+        raise RuntimeError("Composio execution cancelled before start")
+
     result = client.tools.execute(slug, user_id=user_id, arguments=arguments)
     payload = _to_plain(result)
+
+    if cancel_token is not None and cancel_token.is_cancelled:
+        raise RuntimeError("Composio execution cancelled after response")
+
     if not isinstance(payload, dict):
         raise ComposioToolError(f"{slug} returned a non-object response.")
     if payload.get("successful") is False:
@@ -104,8 +122,14 @@ async def execute_composio_tool(
     arguments: dict[str, Any],
     *,
     timeout_seconds: float | None = None,
+    cancel_token: Any = None,
 ) -> dict[str, Any]:
-    """Execute a Composio tool through the Python SDK with an async timeout."""
+    """Execute a Composio tool through the Python SDK with an async timeout.
+
+    *cancel_token* is an optional ``CancellationToken`` whose ``is_cancelled``
+    flag is polled by the thread-pool worker. When set, the operation is
+    aborted as early as possible.
+    """
     if not slug.strip():
         raise ComposioToolError("Composio tool slug is required.")
     effective_timeout = (
@@ -115,6 +139,6 @@ async def execute_composio_tool(
     )
     timeout = max(1.0, effective_timeout)
     return await asyncio.wait_for(
-        asyncio.to_thread(_execute_sync, slug, arguments),
+        asyncio.to_thread(_execute_sync, slug, arguments, cancel_token),
         timeout=timeout,
     )

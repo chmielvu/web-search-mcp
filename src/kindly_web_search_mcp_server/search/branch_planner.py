@@ -2,11 +2,35 @@
 
 from __future__ import annotations
 
+from itertools import cycle
+
+from ..settings import settings
 from .branch_executor import SearchBranchSpec
 from .intents import SearchIntent
 from .normalize import normalize_query
 from .provider_plan import ProviderExecutionPlan
 from .query_rewrite_models import QueryVariant
+
+
+def _shard_providers(
+    providers: list[str],
+    branch_count: int,
+) -> list[list[str]]:
+    """Shard provider names across branches via round-robin.
+
+    Each branch gets a unique subset so the slow mix is not triplicated.
+    The last branch takes the remainder. Every branch always gets at least
+    one provider (wrapping around if branches > providers).
+    """
+    if not providers or branch_count <= 1:
+        return [providers[:]] * branch_count
+
+    shards: list[list[str]] = [[] for _ in range(branch_count)]
+    for i, provider in enumerate(cycle(providers)):
+        if all(len(s) >= 3 for s in shards):
+            break
+        shards[i % branch_count].append(provider)
+    return shards
 
 
 def build_search_branch_specs(
@@ -28,11 +52,15 @@ def build_search_branch_specs(
         reason="Original query is always preserved.",
         max_results=num_results,
     )
-    planned_variants = [original_variant, *rewrite_variants[:2]]
+    max_rewrites = max(0, settings.query_rewrite_max_variants)
+    planned_variants = [original_variant, *rewrite_variants[:max_rewrites]]
+
+    branch_count = len(planned_variants)
+    provider_shards = _shard_providers(list(active_provider_names), branch_count)
 
     branch_specs: list[SearchBranchSpec] = []
     for index, variant in enumerate(planned_variants):
-        branch_providers = active_provider_names
+        branch_providers = provider_shards[index] if index < len(provider_shards) else list(active_provider_names)
         branch_specs.append(
             SearchBranchSpec(
                 index=index,

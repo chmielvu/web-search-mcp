@@ -21,10 +21,7 @@ from ..models import WebSearchResult
 from ..settings import settings
 from ..analytics.observability_store import insert_branch_attempts as analytics_insert_branch_attempts
 from .intents import SearchIntent
-from ..utils.async_helpers import (
-    DEFAULT_DRAIN_TIMEOUT_SECONDS,
-    task_completed_successfully,
-)
+from ..utils.task_scope import TaskScope, task_completed_successfully
 from .options import SearchOptions
 from .provider_dispatch import dispatch_providers
 from .provider_plan import ProviderExecutionPlan
@@ -125,9 +122,12 @@ async def execute_search_branches(
 ) -> BranchExecutionBatch:
     """Fire all branches concurrently, collect results within deadline.
 
-    Each branch calls ``dispatch_providers`` which handles the per-provider
-    deadline internally.  The branch-level deadline is a hard wall that
-    collects whatever completed.
+    Each branch calls ``dispatch_providers`` which has its own per-provider
+    deadline enforcement via ``TaskScope``. Each branch is individually
+    deadline-guarded so that a single slow branch does not stall the others.
+
+    The branch-level deadline is the hard wall — branches that exceed it are
+    cancelled and their results are discarded.
     """
     selected_branches = _limit_branches(branches)
     if not selected_branches:
@@ -142,18 +142,11 @@ async def execute_search_branches(
     )
     semaphore = asyncio.Semaphore(concurrency)
 
-    # Branch deadline must be strictly greater than the provider deadline.
-    # dispatch_providers uses provider_group_deadline_seconds internally and
-    # returns at that point with partial results. The branch needs additional
-    # time to process the return value before outer cancellation lands.
-    base_deadline = (
+    branch_deadline = (
         deadline_seconds
         if deadline_seconds is not None
-        else settings.provider_group_deadline_seconds
+        else settings.provider_group_deadline_seconds + 2.0
     )
-    branch_deadline = base_deadline + DEFAULT_DRAIN_TIMEOUT_SECONDS
-    if deadline_seconds is None:
-        branch_deadline += 2.0
 
     branch_attempt_ids = {
         spec.index: str(uuid.uuid4()) for spec in selected_branches
@@ -167,7 +160,6 @@ async def execute_search_branches(
                 spec.provider_options_by_name
                 or (provider_plan.options.bundles if provider_plan else None)
             )
-            # Resolve ProviderConfig objects for this branch's provider names.
             resolved_configs: list = []
             if spec.providers and provider_plan:
                 from .provider_config import resolve_provider_configs  # noqa: PLC0415
@@ -193,6 +185,16 @@ async def execute_search_branches(
                 status = "completed"
                 error_type = None
                 error_message = None
+            except asyncio.CancelledError:
+                logger.warning(
+                    "Branch cancelled (index=%s type=%s)",
+                    spec.index,
+                    spec.branch_type,
+                )
+                results = []
+                status = "cancelled"
+                error_type = "CancelledError"
+                error_message = f"Branch exceeded deadline of {branch_deadline:.3f}s"
             except Exception as exc:
                 logger.warning(
                     "Branch search failed (index=%s type=%s): %s",
@@ -215,48 +217,27 @@ async def execute_search_branches(
                 error_message=error_message,
             )
 
-    branch_tasks = [
-        asyncio.create_task(_run_branch(spec), name=f"branch-{spec.index}")
-        for spec in selected_branches
-    ]
+    async with TaskScope(deadline_seconds=branch_deadline, drain_seconds=1.0) as scope:
+        for spec in selected_branches:
+            scope.create_task(_run_branch(spec))
 
-    done, pending = await asyncio.wait(branch_tasks, timeout=branch_deadline)
-
-    if pending:
-        logger.warning(
-            "%d of %d branches exceeded %.1fs deadline, cancelling",
-            len(pending),
-            len(branch_tasks),
-            branch_deadline,
-        )
-        for t in pending:
-            t.cancel()
-        # Non-blocking drain — don't delay result collection for stuck branches.
-        async def _branch_drain() -> None:
-            await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
-
-        asyncio.create_task(_branch_drain(), name="branch-drain")
-
-    # Collect completed branch results; timed-out branches produce empty results.
-    branch_results = [
-        t.result() if task_completed_successfully(t) else SearchBranchResult(
-            spec=selected_branches[i],
-            branch_attempt_id=branch_attempt_ids[selected_branches[i].index],
-            status="timed_out",
-            latency_ms=branch_deadline * 1000,
-            results=[],
-            error_type="TimeoutError",
-            error_message=f"Branch exceeded deadline of {branch_deadline:.3f}s",
-        )
-        for i, t in enumerate(branch_tasks)
-    ]
-
-    if pending:
-        logger.warning(
-            "Branch execution: %d of %d branches exceeded deadline",
-            len(pending),
-            len(selected_branches),
-        )
+    branch_results: list[SearchBranchResult] = []
+    for i, spec in enumerate(selected_branches):
+        task = scope.tasks[i] if i < len(scope.tasks) else None
+        if task is not None and task_completed_successfully(task):
+            branch_results.append(task.result())
+        else:
+            branch_results.append(
+                SearchBranchResult(
+                    spec=spec,
+                    branch_attempt_id=branch_attempt_ids[spec.index],
+                    status="timed_out" if task is not None and task.cancelled() else "failed",
+                    latency_ms=branch_deadline * 1000,
+                    results=[],
+                    error_type="TimeoutError" if task is not None and task.cancelled() else "TaskError",
+                    error_message=f"Branch exceeded deadline of {branch_deadline:.3f}s",
+                )
+            )
 
     if run_key:
         try:

@@ -175,6 +175,10 @@ async def search_serpapi(
             return_exceptions=True,
         )
 
+        for raw in engine_results_raw:
+            if isinstance(raw, asyncio.CancelledError):
+                raise raw
+
         all_results: list[WebSearchResult] = []
         for raw in engine_results_raw:
             if isinstance(raw, BaseException):

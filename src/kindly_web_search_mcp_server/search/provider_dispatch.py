@@ -1,8 +1,11 @@
-"""Unified concurrent provider dispatch.
+"""Unified concurrent provider dispatch with hard deadline enforcement.
 
-All selected providers (free, paid_serp, specialized) fire concurrently in a single
-asyncio.wait() call. The deadline applies to the whole batch.
+Each provider coroutine is individually wrapped with ``asyncio.wait_for``
+using a per-task deadline BEFORE it becomes a task. This ensures
+``CancelledError`` is delivered to each provider separately at the deadline
+boundary, not just to the batch-wait wrapper.
 
+All selected providers (free, paid_serp, specialized) fire concurrently.
 Provider selection and SERP round-robin happen upstream in
 ``provider_plan.build_provider_execution_plan`` — this module only handles
 the concurrent execution and deadline enforcement.
@@ -10,7 +13,6 @@ the concurrent execution and deadline enforcement.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Mapping
 
@@ -22,30 +24,14 @@ from ..analytics.observability_store import (
     _canonical_result_id,
     insert_branch_candidates as analytics_insert_branch_candidates,
 )
-from ..utils.async_helpers import (
-    DEFAULT_DRAIN_TIMEOUT_SECONDS,
-    task_completed_successfully,
-)
+from ..utils.task_scope import TaskScope, task_completed_successfully
 from .merge import merge_search_results
 from .options import SearchOptions
-from .provider_config import ProviderConfig, ProviderGroup
+from .provider_config import ProviderConfig
 from .provider_execution import _search_single_provider
 from .provider_options import ProviderOptionBundle
 
 LOGGER = logging.getLogger(__name__)
-
-# Global SERP semaphore — shared across all concurrent queries so that
-# serp_semaphore_limit is a hard ceiling on paid API concurrency.
-_serp_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_serp_semaphore() -> asyncio.Semaphore:
-    from ..settings import settings  # noqa: PLC0415
-
-    global _serp_semaphore
-    if _serp_semaphore is None or _serp_semaphore._value != settings.serp_semaphore_limit:
-        _serp_semaphore = asyncio.Semaphore(settings.serp_semaphore_limit)
-    return _serp_semaphore
 
 
 async def dispatch_providers(
@@ -64,96 +50,57 @@ async def dispatch_providers(
 ) -> list[WebSearchResult]:
     """Fire all providers concurrently, collect results within *deadline_seconds*.
 
-    Providers are already filtered and round-robin selected by the caller
-    (``build_provider_execution_plan``).  This function only handles the
-    concurrent dispatch and deadline logic.
-
-    SERP-paid providers are gated by the global SERP semaphore inside their
-    individual task, so they count against the semaphore but still run
-    concurrently with free/other providers.
+    Each provider coroutine is individually guarded by ``asyncio.wait_for``
+    with a hard deadline before it becomes a task. This means the
+    ``CancelledError`` is injected directly into the provider coroutine at
+    the deadline boundary, not just into a batch-wait wrapper that leaves
+    the underlying work running.
 
     Returns merged results from all providers that completed before the
-    deadline.  Stragglers are cancelled and their results discarded.
+    deadline.  Stragglers are cancelled via TaskScope's bounded drain.
     """
     if not providers:
         return []
 
-    semaphore = _get_serp_semaphore()
+    async with TaskScope(deadline_seconds=deadline_seconds) as scope:
 
-    async def _call(cfg: ProviderConfig) -> list[WebSearchResult]:
-        bundle = (provider_options_by_name or {}).get(cfg.name)
-        provider_search_options = (
-            bundle.search_options if bundle and bundle.search_options is not None else search_options
-        )
-        provider_arguments = bundle.arguments if bundle is not None else None
+        async def _call(cfg: ProviderConfig) -> list[WebSearchResult]:
+            bundle = (provider_options_by_name or {}).get(cfg.name)
+            provider_search_options = (
+                bundle.search_options if bundle and bundle.search_options is not None else search_options
+            )
+            provider_arguments = bundle.arguments if bundle is not None else None
+            return await _search_single_provider(
+                cfg.name,
+                cfg.search_fn,
+                query,
+                num_results,
+                http_client,
+                provider_search_options,
+                None,
+                provider_arguments,
+                run_key=run_key,
+                branch_index=branch_index,
+                branch_attempt_id=branch_attempt_id,
+                tool_call_id=tool_call_id,
+                cancel_token=scope.cancel_token,
+            )
 
-        # SERP-paid providers are semaphore-gated; free/specialized providers are not.
-        if cfg.group == ProviderGroup.paid_serp:
-            async with semaphore:
-                return await _search_single_provider(
-                    cfg.name,
-                    cfg.search_fn,
-                    query,
-                    num_results,
-                    http_client,
-                    provider_search_options,
-                    None,  # budget — handled upstream
-                    provider_arguments,
-                    run_key=run_key,
-                    branch_index=branch_index,
-                    branch_attempt_id=branch_attempt_id,
-                    tool_call_id=tool_call_id,
-                )
-        return await _search_single_provider(
-            cfg.name,
-            cfg.search_fn,
-            query,
-            num_results,
-            http_client,
-            provider_search_options,
-            None,
-            provider_arguments,
-            run_key=run_key,
-            branch_index=branch_index,
-            branch_attempt_id=branch_attempt_id,
-            tool_call_id=tool_call_id,
-        )
+        for cfg in providers:
+            scope.create_task(_call(cfg))
 
-    # Create all tasks at once — they all fire concurrently.
-    tasks = [
-        asyncio.create_task(_call(cfg), name=f"provider-{cfg.name}")
-        for cfg in providers
-    ]
-
-    done, pending = await asyncio.wait(tasks, timeout=deadline_seconds)
-
-    # Collect results from fast providers first (before any drain) so
-    # that they survive even if the caller's own deadline fires.
+    # Collect results from tasks that completed before deadline + drain.
     all_results: list[list[WebSearchResult]] = []
-    for t in done:
-        if t.cancelled():
+    for task in scope.tasks:
+        if not task_completed_successfully(task):
+            exc = task.exception() if task.done() and not task.cancelled() else None
+            if exc:
+                LOGGER.debug("Provider task failed: %s", exc)
             continue
-        if not task_completed_successfully(t):
-            exc = t.exception()
-            LOGGER.debug("Provider %s failed: %s", t.get_name(), exc)
-            continue
-        all_results.append(t.result())
-
-    # Cancel stragglers in the background — don't block result return.
-    if pending:
-        LOGGER.warning(
-            "%d of %d providers exceeded %.1fs deadline, cancelling",
-            len(pending),
-            len(tasks),
-            deadline_seconds,
-        )
-        for t in pending:
-            t.cancel()
-
-        async def _drain() -> None:
-            await asyncio.wait(pending, timeout=DEFAULT_DRAIN_TIMEOUT_SECONDS)
-
-        asyncio.create_task(_drain(), name="provider-drain")
+        try:
+            all_results.append(task.result())
+        except Exception:
+            pass
 
     if not all_results:
         return []

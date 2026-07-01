@@ -90,6 +90,7 @@ async def build_rewrite_variants(
         intent=understanding_intent,
         must_keep_terms=must_keep_terms,
         provider_name="worker",
+        max_variants=settings.query_rewrite_max_variants,
     )
     worker = build_llm_worker()
     langfuse_trace = LLMTraceContext(

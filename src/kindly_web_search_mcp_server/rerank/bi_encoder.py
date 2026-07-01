@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import numpy as np
 
@@ -33,18 +34,21 @@ async def bi_encoder_filter(
 
     Returns:
         Tuple of (ranked_candidates, RerankEmbeddingContext or None).
-        The context is None when no embedding was computed (fallback path).
+        The context is None when embedding failed (fallback path).
     """
-    if len(candidates) <= top_k:
-        return candidates, None
-
     # Generate candidate embeddings (title + snippet)
     candidate_texts = [
         f"{candidate.title}\n{candidate.snippet}" for candidate in candidates
     ]
 
     try:
+        _embed_t0 = time.time()
         candidate_vectors = await embed_texts(candidate_texts, timeout=60.0)
+        LOGGER.warning(
+            "bi_encoder embed_texts took %.2fs for %d texts",
+            time.time() - _embed_t0,
+            len(candidate_texts),
+        )
     except (EmbeddingTimeoutError, EmbeddingAPIError, Exception) as e:
         LOGGER.warning(
             f"Bi-encoder candidate embedding failed: {type(e).__name__}: {e}, falling back to top_k slice"
@@ -72,6 +76,11 @@ async def bi_encoder_filter(
             )
         ],
     )
+
+    # If candidates fit within top_k, skip filtering but return embedding_ctx
+    # so downstream stages (MMR diversity) can reuse the vectors.
+    if len(candidates) <= top_k:
+        return candidates, embedding_ctx
 
     # Compute cosine similarity
     query_normalized = np.array(query_embedding) / max(

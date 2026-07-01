@@ -163,6 +163,9 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
             search_options=None,
             provider_options_by_name=None,
             run_key=None,
+            branch_index=None,
+            branch_attempt_id=None,
+            tool_call_id=None,
         ) -> list:
             if query == "slow branch":
                 await asyncio.sleep(0.2)
@@ -187,7 +190,7 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
             "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
             side_effect=_mock_dispatch,
         ), patch(
-            "kindly_web_search_mcp_server.search.branch_executor.DEFAULT_DRAIN_TIMEOUT_SECONDS",
+            "kindly_web_search_mcp_server.utils.task_scope.DEFAULT_DRAIN_SECONDS",
             0.0,
         ):
             batch = await execute_search_branches(
@@ -236,6 +239,7 @@ def test_execute_search_branches_keeps_provider_partials_after_inner_deadline() 
         SearchBranchSpec,
         execute_search_branches,
     )
+    from kindly_web_search_mcp_server.utils import task_scope
 
     async def _run() -> None:
         provider_plan = _build_provider_plan()
@@ -251,9 +255,12 @@ def test_execute_search_branches_keeps_provider_partials_after_inner_deadline() 
             search_options=None,
             provider_options_by_name=None,
             run_key=None,
+            branch_index=None,
+            branch_attempt_id=None,
+            tool_call_id=None,
         ) -> list:
             captured_deadlines.append(deadline_seconds)
-            await asyncio.sleep(0.015)
+            await asyncio.sleep(0.005)
             return [
                 WebSearchResult(
                     title="partial branch",
@@ -265,7 +272,7 @@ def test_execute_search_branches_keeps_provider_partials_after_inner_deadline() 
 
         with (
             patch.object(branch_executor.settings, "provider_group_deadline_seconds", 0.01),
-            patch.object(branch_executor, "DEFAULT_DRAIN_TIMEOUT_SECONDS", 0.05),
+            patch.object(task_scope, "DEFAULT_DRAIN_SECONDS", 0.005),
             patch(
                 "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
                 side_effect=_mock_dispatch,

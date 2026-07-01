@@ -69,6 +69,8 @@ def resolve_provider_configs(provider_names: Iterable[str]) -> list[ProviderConf
             continue
         if not config.is_enabled():
             continue
+        if not config.is_available():
+            continue
         active.append(config)
     return active
 
