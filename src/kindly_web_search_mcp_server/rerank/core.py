@@ -70,6 +70,7 @@ async def rerank_results(
     run_key: str | None = None,
     session_id: str | None = None,
     ab_overrides: dict | None = None,
+    precomputed_embedding: list[float] | None = None,
 ) -> RerankOutput:
     """Rerank web search results with stack-selected rerank stages."""
     if not candidates:
@@ -79,7 +80,7 @@ async def rerank_results(
             output_count=0,
             duration_seconds=0.0,
         )
-        return RerankOutput(results=[], embedding_context=None)
+        return RerankOutput(results=[], embedding_context=None, provider=None, model=None)
     if len(candidates) <= top_k:
         logger.debug("Candidates (%s) <= top_k (%s), skipping rerank", len(candidates), top_k)
         record_rerank_stage(
@@ -88,7 +89,7 @@ async def rerank_results(
             output_count=len(candidates),
             duration_seconds=0.0,
         )
-        return RerankOutput(results=candidates, embedding_context=None)
+        return RerankOutput(results=candidates, embedding_context=None, provider="bypass", model=None)
 
     if ab_overrides:
         if "top_k" in ab_overrides:
@@ -132,7 +133,7 @@ async def rerank_results(
             query=query[:200],
             candidate_count=len(candidates),
         )
-        return RerankOutput(results=candidates, embedding_context=None)
+        return RerankOutput(results=candidates, embedding_context=None, provider="bypass", model=None)
 
     original_count = len(candidates)
     pipeline_start = time.time()
@@ -146,7 +147,10 @@ async def rerank_results(
 
     query_embedding: list[float] | None = None
     try:
-        query_embedding = await embed_query(query, timeout=15.0)
+        if precomputed_embedding is not None:
+            query_embedding = precomputed_embedding
+        else:
+            query_embedding = await embed_query(query, timeout=15.0)
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
         logger.warning(
             "Query embedding failed: %s: %s; bi-encoder and diversity will be skipped",
@@ -344,4 +348,9 @@ async def rerank_results(
             instruction_length=instruction_length,
             query_type_hint=query_type_hint,
         )
-        return RerankOutput(results=final_results, embedding_context=embedding_ctx)
+        return RerankOutput(
+            results=final_results,
+            embedding_context=embedding_ctx,
+            provider=final_provider,
+            model=final_model,
+        )

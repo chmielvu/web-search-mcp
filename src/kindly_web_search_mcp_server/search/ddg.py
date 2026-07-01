@@ -9,6 +9,7 @@ import asyncio
 from typing import Any
 
 from ..models import WebSearchResult
+from ..settings import settings
 from .base_provider import run_clientless_provider
 
 
@@ -69,7 +70,7 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
 
     results: list[WebSearchResult] = []
 
-    with DDGS() as ddgs:
+    with DDGS(timeout=settings.ddg_timeout_seconds) as ddgs:
         raw_results = ddgs.text(
             query,
             max_results=num_results,

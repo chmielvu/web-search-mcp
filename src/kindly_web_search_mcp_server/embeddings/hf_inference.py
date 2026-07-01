@@ -12,7 +12,7 @@ from huggingface_hub import AsyncInferenceClient, InferenceTimeoutError
 
 from ..settings import settings
 
-EMBEDDING_DIM = 384  # ibm-granite/granite-embedding-97m-multilingual-r2 dimension
+EMBEDDING_DIM = 1024  # intfloat/multilingual-e5-large dimension
 LOGGER = logging.getLogger(__name__)
 
 
@@ -146,6 +146,50 @@ def _validate_dimensions(vectors: list[list[float]], expected_dim: int) -> None:
             )
 
 
+# Singleton AsyncInferenceClient for connection reuse across embedding calls.
+# The HF library lazily creates an internal httpx.AsyncClient; reusing the
+# same AsyncInferenceClient instance gives us TCP/TLS connection pooling.
+_HF_CLIENT: AsyncInferenceClient | None = None
+_HF_CLIENT_LOCK = asyncio.Lock()
+
+
+async def _get_hf_client(
+    provider: str | None = None,
+    api_key: str | None = None,
+    timeout: float | None = None,
+) -> AsyncInferenceClient:
+    """Return a singleton AsyncInferenceClient, creating it if needed."""
+    global _HF_CLIENT
+    if _HF_CLIENT is not None:
+        return _HF_CLIENT
+
+    async with _HF_CLIENT_LOCK:
+        if _HF_CLIENT is not None:
+            return _HF_CLIENT
+
+        resolved_provider = provider or settings.hf_inference_provider
+        resolved_key = (
+            api_key
+            or os.environ.get("HF_TOKEN")
+            or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+        )
+        resolved_timeout = (
+            timeout if timeout is not None else settings.embedding_timeout_seconds
+        )
+
+        _HF_CLIENT = AsyncInferenceClient(
+            provider=resolved_provider,  # type: ignore[arg-type]
+            api_key=resolved_key,
+            timeout=resolved_timeout,
+        )
+        LOGGER.info(
+            "Created singleton AsyncInferenceClient (provider=%s, timeout=%.1fs)",
+            resolved_provider,
+            resolved_timeout,
+        )
+        return _HF_CLIENT
+
+
 async def embed_texts(
     texts: list[str],
     *,
@@ -195,57 +239,41 @@ async def embed_texts(
         )
 
     resolved_model = model or settings.hf_embedding_model
-    resolved_provider = provider or settings.hf_inference_provider
-    resolved_key = (
-        api_key
-        or os.environ.get("HF_TOKEN")
-        or os.environ.get("HF_TOKEN")
-        or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
-    )
     resolved_dim = expected_dim or settings.embedding_dim
-    resolved_timeout = (
-        timeout if timeout is not None else settings.embedding_timeout_seconds
-    )
 
-    client = AsyncInferenceClient(
-        provider=resolved_provider,  # type: ignore[arg-type]
-        api_key=resolved_key,
-        timeout=resolved_timeout,
-    )
+    # Use singleton client for connection reuse.  Per-call overrides for
+    # provider/api_key/timeout are ignored after the first creation to keep
+    # the singleton stable; in practice these are always set via settings.
+    client = await _get_hf_client(provider=provider, api_key=api_key, timeout=timeout)
 
     max_retries = settings.embedding_max_retries
     retry_delay = settings.embedding_retry_delay_seconds
-    last_error: Exception | None = None
     raw = None
 
     for attempt in range(max_retries + 1):
         try:
-            raw = await client.feature_extraction(
+            raw = await client.feature_extraction(  # type: ignore[arg-type]
                 texts, model=resolved_model, normalize=True
-            )  # type: ignore[arg-type]
+            )
             HF_CIRCUIT_BREAKER.record_success()
             break
         except InferenceTimeoutError as e:
-            last_error = e
             HF_CIRCUIT_BREAKER.record_failure()
             if attempt < max_retries:
                 LOGGER.warning(
-                    "Embedding timeout attempt %d/%d (%.0fs), retrying in %.1fs",
+                    "Embedding timeout attempt %d/%d, retrying in %.1fs",
                     attempt + 1,
                     max_retries + 1,
-                    resolved_timeout,
                     retry_delay,
                 )
                 await asyncio.sleep(retry_delay)  # type: ignore[name-defined]
             else:
                 LOGGER.error(
-                    "Embedding timed out after %d attempts (%.0fs each)",
+                    "Embedding timed out after %d attempts",
                     max_retries + 1,
-                    resolved_timeout,
                 )
                 raise EmbeddingTimeoutError(
-                    f"Embedding request timed out after {resolved_timeout}s "
-                    f"({max_retries + 1} attempts)"
+                    f"Embedding request timed out ({max_retries + 1} attempts)"
                 ) from e
         except Exception as e:
             LOGGER.error(f"Embedding API request failed: {type(e).__name__}: {e}")

@@ -52,6 +52,9 @@ class Settings:
     query_rewrite_cascade_timeout_seconds: float = float(
         os.environ.get("QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
+    query_rewrite_max_variants: int = int(
+        os.environ.get("QUERY_REWRITE_MAX_VARIANTS", "2")
+    )
     query_classifier_timeout_seconds: float = float(
         os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
@@ -129,9 +132,9 @@ class Settings:
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
     hf_embedding_model: str = os.environ.get(
-        "HF_EMBEDDING_MODEL", "ibm-granite/granite-embedding-97m-multilingual-r2"
+        "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large"
     )
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "1024"))
     embedding_timeout_seconds: float = float(
         os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0")
     )
@@ -333,6 +336,9 @@ class Settings:
     google_cse_engine_id: str = "771d303cf528e4b7c"
     google_cse_timeout_seconds: float = float(
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
+    )
+    ddg_timeout_seconds: float = float(
+        os.environ.get("DDG_TIMEOUT_SECONDS", "10")
     )
 
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS

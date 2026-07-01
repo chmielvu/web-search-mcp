@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- **HF Inference API connection reuse** — `embed_texts` now uses a singleton `AsyncInferenceClient` instead of creating a new instance per call. The HF library lazily creates an internal `httpx.AsyncClient`; reusing the same instance gives TCP/TLS connection pooling. Latency dropped from 5-6s to ~1s per embedding call (~5x improvement).
 - **Reranking pipeline overhaul** — MMR now uses reranker scores for relevance instead of embedding cosine similarity. The cross-encoder/LLM reranker scores are min-max normalized and used as the MMR relevance term; embeddings are only used for the diversity (document-to-document) term. This fixes the critical issue where MMR ignored expensive reranker scores and recomputed relevance from weaker embedding similarity.
 - **MMR lambda default changed from 0.5 to 0.7** — relevance-weighted for web search (was 50/50 relevance/diversity, now 70/30). Research consensus: λ=0.7-0.8 for precision search.
 - **Cross-encoder document construction enriched** — now includes Domain, Providers, ProviderCount in addition to Title, Snippet, URL. Snippet moved to second position (after Title) for better semantic importance with Cohere rerank v4.
@@ -20,6 +21,10 @@
 - Added the DuckDB observability implementation for full `web_search` coverage: tool-call rows, returned-response rows, branch attempts, branch candidates, provider health transitions, and pipeline heartbeats, plus returned-object views and candidate-survival analytics.
 
 ### Fixed
+- **HF Inference API connection reuse** — singleton `AsyncInferenceClient` eliminates per-call TCP/TLS handshake overhead. Embedding latency dropped from 5-6s to ~1s (~5x improvement).
+- **DuckDB now logs which reranker was actually used** — `search_runs` table has new `reranker_provider` and `reranker_model` columns. `RerankOutput` carries `provider`/`model` through the pipeline so the final chosen reranker (including fallback winners like `voyage` or `groq`) is recorded per run.
+- **Search provider connect timeouts fixed** — `base_provider.py` now uses `httpx.Timeout(connect=5.0, read=25.0)` instead of a single 30s total timeout. Dead/unreachable providers (like `search_router`) fail fast at ~5s instead of hanging for 54s on TCP SYN retransmissions.
+- **DuckDuckGo provider timeout now configurable** — `ddg_timeout_seconds` setting (env: `DDG_TIMEOUT_SECONDS`, default `10`) controls `DDGS(timeout=...)`. Previously hardcoded to 10s.
 - Disabled the Google CSE provider registration so the search stack no longer routes live traffic through a Google Custom Search path that is blocked for this project.
 - Redacted Google CSE 403s so `API_KEY_SERVICE_BLOCKED` now reports a clear Google Cloud authorization message instead of leaking the raw request URL.
 - Switched both the Composio `web_search` provider path and `quick_web_search` to execute `COMPOSIO_SEARCH_TAVILY`, the live-working Composio Search action, and updated quick-search parsing for Tavily's `answer` plus `results` response shape.

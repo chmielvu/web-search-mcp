@@ -101,3 +101,11 @@ class RerankOutput(BaseModel):
         default=None,
         description="Per-candidate embeddings for reuse in downstream stages (e.g. Qdrant)",
     )
+    provider: str | None = Field(
+        default=None,
+        description="Reranker provider that produced the final results (e.g. cohere_fast, voyage, groq)",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Model used by the reranker provider",
+    )

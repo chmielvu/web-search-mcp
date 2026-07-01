@@ -15,6 +15,7 @@ from ..utils.diagnostics import Diagnostics
 from ..utils.http_client import get_http_client
 from ..utils.observability import emit_observability_event, set_current_run_key
 from ..utils.background_tasks import fire_and_forget
+from ..embeddings import embed_query
 from ..rerank.core import rerank_results
 
 from ..ab_testing.wiring import get_ab_overrides
@@ -175,6 +176,10 @@ async def run_search_pipeline(
         active_provider_names=active_provider_names,
         provider_plan=provider_plan,
     )
+    # Kick off embedding concurrently with search branches
+    embedding_task = asyncio.ensure_future(
+        embed_query(normalized_query, timeout=15.0)
+    )
     branch_batch = await execute_search_branches(
         branch_specs,
         http_client=client,
@@ -283,8 +288,17 @@ async def run_search_pipeline(
         active_provider_names,
     )
 
+    # Await the concurrently-running embedding task (or cancel if reranking skipped)
+    precomputed_embedding: list[float] | None = None
+    reranker_provider: str | None = None
+    reranker_model: str | None = None
     if settings.reranking_enabled and len(merged) > 1:
         try:
+            try:
+                precomputed_embedding = await embedding_task
+            except Exception as exc:
+                logger.debug("Early embed_query failed (rerank will retry): %s", exc)
+
             ab_overrides = (
                 get_ab_overrides(run_key=run_key, layer="reranking")
                 if run_key
@@ -305,8 +319,11 @@ async def run_search_pipeline(
                     query_type_hint=context.intent,
                     run_key=run_key,
                     session_id=session_id or run_key,
+                    precomputed_embedding=precomputed_embedding,
                 )
                 merged = rerank_out.results
+                reranker_provider = getattr(rerank_out, "provider", None)
+                reranker_model = getattr(rerank_out, "model", None)
 
                 shadow_kwargs = {
                     "query": normalized_query,
@@ -347,10 +364,16 @@ async def run_search_pipeline(
                     run_key=run_key,
                     session_id=session_id or run_key,
                     ab_overrides=ab_config,
+                    precomputed_embedding=precomputed_embedding,
                 )
                 merged = rerank_out.results
+                reranker_provider = getattr(rerank_out, "provider", None)
+                reranker_model = getattr(rerank_out, "model", None)
         except Exception as exc:
             logger.warning("Reranking failed in search pipeline: %s", exc)
+    else:
+        # Reranking skipped — cancel the dangling embedding task
+        embedding_task.cancel()
 
     result_offset = search_options.result_offset if search_options else 0
     final_results = merged[result_offset : result_offset + num_results]
@@ -475,6 +498,8 @@ async def run_search_pipeline(
             result_offset=result_offset,
             status="success",
             error_type=None,
+            reranker_provider=reranker_provider,
+            reranker_model=reranker_model,
             payload_json={
                 "intent": context.intent,
                 "confidence": context.confidence,
@@ -515,17 +540,20 @@ async def run_search_pipeline(
     except Exception as exc:
         logger.debug("analytics insert_final_results failed: %s", exc)
 
-    # Best-effort dual-write: search quality metrics
-    try:
-        compute_search_quality(run_key, db_path=settings.analytics_duckdb_path)
-    except Exception as exc:
-        logger.warning(
-            "compute_search_quality failed for run_key=%s db_path=%s: %s",
-            run_key,
-            settings.analytics_duckdb_path,
-            exc,
-            exc_info=True,
-        )
+    # Best-effort dual-write: search quality metrics (fire-and-forget, non-blocking)
+    async def _compute_quality() -> None:
+        try:
+            compute_search_quality(run_key, db_path=settings.analytics_duckdb_path)
+        except Exception as exc:
+            logger.warning(
+                "compute_search_quality failed for run_key=%s db_path=%s: %s",
+                run_key,
+                settings.analytics_duckdb_path,
+                exc,
+                exc_info=True,
+            )
+
+    fire_and_forget(_compute_quality(), name=f"quality-{run_key[:8]}")
 
     try:
         analytics_insert_pipeline_heartbeat(

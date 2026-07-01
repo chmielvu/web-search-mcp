@@ -371,9 +371,19 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
             result_offset INTEGER,
             status VARCHAR,
             error_type VARCHAR,
+            reranker_provider VARCHAR,
+            reranker_model VARCHAR,
             payload_json JSON
         )
         """
+    )
+    _ensure_columns(
+        connection,
+        _RUNS_TABLE_NAME,
+        {
+            "reranker_provider": "VARCHAR",
+            "reranker_model": "VARCHAR",
+        },
     )
     connection.execute(
         f"CREATE INDEX IF NOT EXISTS idx_runs_run_key ON {_RUNS_TABLE_NAME}(run_key)"
@@ -415,6 +425,8 @@ def insert_search_run(
         "result_offset",
         "status",
         "error_type",
+        "reranker_provider",
+        "reranker_model",
         "payload_json",
     ]
 
