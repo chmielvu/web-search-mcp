@@ -1,46 +1,55 @@
 # AGENTS.md - Analytics & Search Quality
 
-This directory implements the search quality analytics pipeline with DuckDB storage.
+This directory implements the DuckDB-backed analytics and evaluation layer.
 
-## Structure
+## Current Structure
 
 analytics/
-|-- duckdb_store.py          # 21 DuckDB tables + insert functions for search quality pipeline
-|-- views.py                 # 13 human-readable SQL views for analytics queries
-|-- quality_metrics.py       # compute_search_quality() per-run quality scoring
-|-- summaries.py             # refresh_summary_tables() daily aggregate refresh
-|-- judge_prompt.py          # LLM judge prompt construction and score parsing
-|-- judge_runner.py          # Fire-and-forget LLM judge evaluation after production response
--- judge_calibration.py     # Judge score normalization/calibration
+|-- duckdb_store.py          # Storage schema and insert helpers
+|-- observability_schema.py  # Canonical observability schema definitions
+|-- observability_tables.py  # Table builders for analytics storage
+|-- observability_rows.py    # Row-shaping helpers for inserts
+|-- observability_inserts.py # Insert helpers for the pipeline events
+|-- observability_store.py   # Store facade for analytics writes
+|-- observability_views.py   # Readable observability views
+|-- candidate_views.py       # Candidate-focused views
+|-- candidate_survival_views.py # Candidate survival analysis views
+|-- derived_views.py         # Derived analytics views
+|-- base_views.py            # Shared SQL view fragments
+|-- views.py                 # Public analytics views
+|-- queries.py               # Query helpers
+|-- local_queries.py         # Local DuckDB query shortcuts
+|-- reports.py               # Named analytics reports
+|-- quality_metrics.py       # Run-level quality scoring
+|-- summaries.py             # Daily aggregate refresh
+|-- judge_prompt.py          # Judge prompt construction
+|-- judge_runner.py          # Fire-and-forget judge evaluation
+|-- judge_calibration.py     # Judge score normalization
+|-- search_relevance_judge.py # Relevance-judge helpers
+|-- evals.py                 # Evaluation helpers
+|-- tools.py                 # Analytics utility helpers
+└── motherduck_sync.py       # MotherDuck sync helpers
 
-## Pipeline Data Flow (all joined by run_key)
+## Data Flow
 
-1. search_runs -> query_understanding -> query_rewrites (input side)
-2. provider_calls -> provider_candidates (per-provider results)
-3. merged_candidates (RRF merge output)
-4. rerank_stages -> rerank_candidates (multi-stage reranking)
-5. final_results (output)
-6. search_quality_scores (computed quality metrics)
-7. judge_evaluations (LLM-as-judge scoring)
+All analytics rows join on `run_key`.
 
-## Key Components
+1. `search_runs` and query-understanding rows capture the request side
+2. `provider_calls` and `provider_candidates` capture provider fanout
+3. `merged_candidates` captures RRF output
+4. `rerank_stages` and `rerank_candidates` capture reranking
+5. `final_results` captures the public output
+6. `search_quality_scores` stores computed quality metrics
+7. `judge_evaluations` stores asynchronous judge results
 
-### DuckDB Schema (21 tables)
-See docs/DuckDB_schema.md for full reference.
+## Current Behavior
 
-### Quality Metrics
-- compute_search_quality() scores each search run
-- Metrics include precision, recall, latency, provider diversity
-
-### LLM Judge
-- judge_runner.py runs fire-and-forget evaluation after production response
-- judge_prompt.py constructs prompts for judge model
-- judge_calibration.py normalizes judge scores
+- DuckDB is the source of truth for the analytics layer.
+- Views exist for both human-friendly queries and programmatic reporting.
+- Judge evaluation is fire-and-forget and should not block the response path.
+- Report and query helpers should stay aligned with the underlying schema.
 
 ## Testing
-pytest tests/test_analytics_query_cli_prints_json.py tests/test_analytics_report_cli_prints_json.py -v
 
-## Conventions
-- All tables joined by run_key for traceability
-- Views provide human-readable query interfaces
-- Judge evaluation is async and non-blocking
+- `python -m pytest tests/test_analytics_*.py`
+- `python -m pytest tests/test_pipeline_tables.py tests/test_search_quality_scores.py`

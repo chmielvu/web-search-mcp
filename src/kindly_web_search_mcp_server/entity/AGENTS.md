@@ -1,19 +1,33 @@
 # AGENTS.md - Entity
 
-This directory contains entity extraction and resolution for search results.
+This directory contains the entity extraction core used by query handling and
+content analysis.
 
-## Structure
+## Current Structure
 
 entity/
-|-- __init__.py              # Entity exports
-|-- extractor.py             # Entity extraction from search results
-|-- resolver.py              # Entity resolution and linking
--- models.py                # Entity data models
+|-- chunk.py                 # Offset-preserving chunking helpers
+|-- default_schema.py        # Default label schemas
+|-- gliner_client.py         # Optional lazy GLiNER2 client
+|-- models.py                # Entity span models
+|-- overlap.py               # Overlap / span merging helpers
+|-- postprocess.py           # Validation, deduplication, normalization
+└── __init__.py              # Public entity surface
 
 ## Purpose
-- Extracts named entities from search results
-- Resolves entities to knowledge base entries
-- Provides entity-aware result enrichment
+
+- Extract grounded entity spans from query or content text
+- Keep the core pure Python while making GLiNER2 optional and lazy
+- Normalize, deduplicate, and merge entity spans before downstream use
+
+## Current Behavior
+
+- `chunk.py` preserves global offsets for long text
+- `postprocess.py` is the last stage before returning entity spans
+- The public surface is `EntitySpan`, the default schemas, chunking, and
+  post-processing helpers
 
 ## Testing
-pytest tests/test_entity*.py -v
+
+- `python -m pytest tests/test_entity_*.py`
+- `python -m pytest tests/test_entity_response_fields.py`

@@ -1,34 +1,28 @@
 # AGENTS.md - A/B Testing Framework
 
-This directory implements the A/B testing framework for search pipeline experiments.
+This directory implements the search-experiment A/B testing layer.
 
-## Structure
+## Current Structure
 
 ab_testing/
-|-- models.py                # ABExperiment, ABVariant, Assignment dataclasses
-|-- assignment.py            # get_assigned_variant() with hash-based deterministic bucketing
-|-- yaml_loader.py           # load_experiments() / save_experiments() for .kindly/experiments.yaml
-|-- wiring.py                # get_ab_overrides(run_key, layer) - returns variant config or None
--- shadow_runner.py         # run_shadow() - fire-and-forget shadow execution
+|-- models.py                # Experiment / variant data models
+|-- assignment.py            # Deterministic bucketing
+|-- yaml_loader.py           # YAML load/save helpers
+|-- wiring.py                # Runtime wiring / override lookup
+└── shadow_runner.py         # Shadow execution runner
 
-## Wired Pipeline Layers (via get_ab_overrides)
+## Wired Layers
 
-1. **query_understanding** - model, prompt variant, decomposition settings
-2. **reranking** - provider, top_k, diversity_weight
-3. **provider_weights** - per-provider RRF weight overrides
+1. `query_understanding`
+2. `reranking`
+3. `provider_weights`
 
-## Key Concepts
+## Current Behavior
 
-### Shadow Mode
-- Variants with shadow: True run in background via asyncio.create_task()
-- Does not block production path
-- Auto-triggers LLM judge evaluation
-
-### Layer Mutual Exclusion
-- Only one running experiment per layer allowed
-
-### CLI Management
-web-search-cli experiments list|enable|disable|conclude|stats|create
+- Shadow variants run out-of-band and should not block the production path
+- Only one active experiment per layer should be running at a time
+- The CLI manages experiments through `web-search-cli experiments ...`
 
 ## Testing
-pytest tests/test_ab*.py -v
+
+- `python -m pytest tests/test_ab_*.py`

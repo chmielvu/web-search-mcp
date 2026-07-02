@@ -1,46 +1,32 @@
 # AGENTS.md - Caching Layer
 
-This directory implements the multi-layer caching system for the search pipeline.
+This directory contains the cache layers used by search and content tools.
 
-## Structure
+## Current Structure
 
 cache/
-|-- __init__.py              # Cache exports and factory functions
-|-- query_cache.py           # Exact query cache (SQLite-backed, deterministic)
-|-- semantic_cache.py        # LanceDB-backed semantic similarity cache (embedding-based fuzzy match)
-|-- page_cache.py            # URL -> page_content cache
--- content_type.py          # Content type detection (removed in recent refactor)
+|-- exact_lru.py             # Exact query cache backend
+|-- query_cache.py           # Exact query cache facade / observability
+|-- page_duckdb.py           # DuckDB-backed page cache
+|-- page_cache.py            # Page cache facade
+|-- transcript_duckdb.py     # DuckDB-backed transcript cache
+|-- transcript_cache.py      # Transcript cache facade
+└── observability.py         # Cache event helpers
 
 ## Cache Layers
 
-### Query Cache (query_cache.py)
-- Exact match on normalized query strings
-- SQLite-backed for persistence
-- Deterministic, fast lookup
-- Used for identical repeat queries
+- Exact query cache: in-memory LRU for identical repeat queries
+- Page cache: DuckDB-backed cache for extracted page content
+- Transcript cache: DuckDB-backed cache for YouTube transcript payloads
 
-### Semantic Cache (semantic_cache.py)
-- Embedding-based fuzzy matching
-- LanceDB vector store for similarity search
-- Finds semantically similar queries
-- Configurable similarity threshold
+## Current Behavior
 
-### Page Cache (page_cache.py)
-- URL -> extracted page content mapping
-- Avoids re-fetching and re-extracting same URLs
-- TTL-based expiration
-
-## Key Patterns
-
-### Cache Invalidation
-- Query cache: manual or TTL-based
-- Semantic cache: embedding drift detection
-- Page cache: TTL + content hash comparison
+- `query_cache.py` keeps the server-facing exact-cache API stable
+- `page_cache.py` and `transcript_cache.py` delegate to DuckDB backends
+- Cache misses are expected and should return `None` rather than fabricating
+  fallback data
 
 ## Testing
-pytest tests/test_cache_observability.py -v
 
-## Conventions
-- All caches implement async get/set interfaces
-- Cache keys are deterministic hashes
-- Errors are caught and logged, cache misses return None
+- `python -m pytest tests/test_cache_observability.py`
+- `python -m pytest tests/test_exact_lru_cache.py tests/test_page_cache_duckdb.py`

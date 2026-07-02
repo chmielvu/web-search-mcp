@@ -1,29 +1,26 @@
 # AGENTS.md - Tools
 
-This directory contains the MCP tool implementations exposed by the server.
+This directory contains tool metadata and visibility helpers.
 
-## Structure
+## Current Structure
 
 tools/
-|-- __init__.py              # Tool exports
-|-- web_search.py            # web_search tool - multi-provider search
-|-- get_content.py           # get_content tool - single URL extraction
-|-- gemini_search.py         # gemini_search tool - grounded answers with citations
-|-- perplexity_search.py     # perplexity_search tool - deep AI research
-|-- youtube_transcript.py    # youtube_transcript tool - video transcripts
--- youtube_search.py        # youtube_search tool - YouTube video results
+|-- catalog.py               # Tool catalog and metadata helpers
+|-- profiles.py              # Tool profile application / visibility
+└── __init__.py              # Public tool metadata surface
 
-## Tool Contracts
+## Current Behavior
 
-- **web_search** - Returns lightweight results only (title, link, snippet, provider_count) - no page_content
-- **get_content** - Returns LLM-ready markdown for a single URL
-- **perplexity_search** - Returns AI-synthesized answers with citations (Perplexity Sonar)
-- **gemini_search** - Returns grounded answers with citations (Gemini + Google Search)
-- **youtube_transcript** - Returns video transcripts with optional translation/formatting
-- **youtube_search** - Returns YouTube video results via SearXNG YouTube engine
+- Actual MCP tool implementations live in `server.py` and the feature
+  packages, not in this directory
+- `profiles.py` controls which tools are exposed for each `TOOL_PROFILE`
+- `catalog.py` centralizes the metadata used by the server and CLI help
 
-## Separation Principle
-Search discovers, fetch extracts, AI search synthesizes. This separation is intentional.
+## Tool Surface
+
+- Core MCP tools are defined in `src/kindly_web_search_mcp_server/server.py`
+- Visibility is profile-based, not hard-coded in the tool call sites
 
 ## Testing
-pytest tests/test_tool_descriptions.py tests/test_server.py -v
+
+- `python -m pytest tests/test_tool_descriptions.py tests/test_server.py`

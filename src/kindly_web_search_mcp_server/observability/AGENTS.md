@@ -1,25 +1,24 @@
 # AGENTS.md - Observability
 
-This directory contains observability and telemetry for the search pipeline.
+This directory is intentionally small and holds shared observability events.
 
-## Structure
+## Current Structure
 
 observability/
-|-- __init__.py              # Observability exports
-|-- metrics.py               # Prometheus/OpenTelemetry metrics
-|-- tracing.py               # Distributed tracing (OpenTelemetry)
--- logging.py               # Structured logging configuration
+|-- events.py                # Event helpers / schemas for observability
+└── AGENTS.md                # Package guidance
 
-## Purpose
-- Metrics collection for search quality and performance
-- Distributed tracing for request flows
-- Structured logging for debugging
+## Notes
 
-## Key Metrics
-- Search latency (per provider, per stage)
-- Result quality scores
-- Cache hit rates
-- Error rates by type
+- The heavier telemetry plumbing lives in `src/kindly_web_search_mcp_server/telemetry.py`
+  and `src/kindly_web_search_mcp_server/utils/observability.py`
+- Analytics storage for observability events lives under `analytics/`
+
+## Use This Package For
+
+- Shared event shapes and helpers that need to stay import-light
+- Small observability primitives that are reused by server and middleware code
 
 ## Testing
-pytest tests/test_observability*.py -v (if exists)
+
+- `python -m pytest tests/test_observability_*.py`

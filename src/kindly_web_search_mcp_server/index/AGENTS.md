@@ -1,23 +1,27 @@
 # AGENTS.md - Index
 
-This directory contains the web search results indexing functionality.
+This directory contains the write-only remote results index.
 
-## Structure
+## Current Structure
 
 index/
-|-- __init__.py              # Index exports
-|-- web_results_index.py     # Remote Qdrant index for web search results (write-only)
-|-- bm25_encoder.py          # BM25 sparse vector encoding
+|-- bm25_encoder.py          # Sparse encoder for hybrid indexing
+|-- web_results_index.py     # Remote Qdrant web-results writer
+└── __init__.py              # Public index surface
 
 ## Purpose
-- Indexes final search results into remote Qdrant (HF Space)
-- Hybrid dense + sparse vectors (COSINE + BM25)
-- Write-only; used for analytics and future retrieval
 
-## Configuration
-- WEB_RESULTS_INDEX_ENABLED env var
-- QDRANT_SPACE_URL for remote endpoint
-- HF_TOKEN for authentication
+- Write final search results into the remote Qdrant space
+- Use hybrid dense + sparse representations for future retrieval experiments
+- Keep indexing separate from the primary search path
+
+## Current Behavior
+
+- `WEB_RESULTS_INDEX_ENABLED` gates the write path
+- `QDRANT_SPACE_URL` selects the remote endpoint
+- The index is write-only; do not treat it as the main search surface
 
 ## Testing
-pytest tests/test_index*.py -v (if exists)
+
+- `python -m pytest tests/test_qdrant_search.py`
+- `python -m pytest tests/test_index*.py`

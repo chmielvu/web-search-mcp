@@ -1,43 +1,65 @@
 # AGENTS.md - Search Pipeline Core
 
-This directory contains the core search pipeline for the Kindly Web Search MCP Server.
+This directory contains the live search orchestration stack.
 
-## Structure
+## Current Structure
 
 search/
-|-- pipeline.py              # Main orchestration: understanding -> rewrite -> search -> merge -> rerank
-|-- merge.py                 # RRF (k=60) merge across providers
-|-- intent_policy.py         # Intent-owned provider weights, overrides, rewrite policy
-|-- provider_plan.py         # Intent-owned provider selection and execution bundles
+|-- pipeline.py              # Top-level orchestration: understand -> plan -> fanout -> merge -> rerank -> finalize
+|-- branch_planner.py        # Query branching and rewrite variant planning
+|-- branch_executor.py       # Branch execution and deadline handling
+|-- provider_dispatch.py     # Provider dispatch and selection orchestration
+|-- provider_plan.py         # Intent-owned provider bundles and weights
 |-- provider_options.py      # Provider-specific argument construction
-|-- provider_call.py         # Individual provider execution
-|-- provider_config.py       # Provider registry & configuration
+|-- provider_call.py         # Single-provider execution wrapper
+|-- provider_execution.py    # Shared execution helpers for providers
+|-- provider_config.py       # Provider registry and configuration
+|-- provider_health.py       # Provider health / cooldown tracking
+|-- merge.py                 # RRF merge across providers
+|-- finalize_results.py      # Final result shaping and public output
+|-- intent_policy.py         # Intent-owned provider weights and overrides
 |-- query_policy.py          # Lightweight rewrite policy model
-|-- query_execution.py       # Query execution coordination
--- understanding/           # Query understanding & intent resolution
-    -- resolver.py          # LLM-backed query understanding
+|-- query_rewrite_models.py  # Query rewrite data models
+|-- search_router.py         # Router helpers for search variants
+|-- options.py               # Search option normalization
+|-- context.py               # SearchContext and request context helpers
+|-- budget.py                # Branch/result budget helpers
+|-- normalize.py             # Query and URL normalization
+|-- understanding/resolver.py # Query understanding / intent resolution
+|-- flow_observability.py    # Pipeline flow events
+|-- merge_observability.py    # Merge-stage events
+|-- academic_*.py            # Academic source adapters
+|-- brave.py, ddg.py, searxng.py, tavily.py, jina.py, brightdata.py, serper.py, serpapi.py
+|-- google_cse.py, github_graphql.py, hackernews.py, reddit.py, grok.py
+|-- gemini_search_tool.py, pollinations.py, composio_llm_search.py, qdrant.py
 
-## Key Patterns
+## Current Behavior
 
-### Adding a New Search Provider
-1. Create module in search/ with search_provider(query, num_results, http_client, diagnostics) returning normalized results
-2. Register in search/__init__.py and search/provider_config.py
-3. Add intent policy entries in search/intent_policy.py if provider needs intent-specific weights/arguments
-4. Add env var config in settings.py if needed
+- `IntentSearchPolicy` owns provider selection; backend `SearchProfile`
+  routing is no longer part of the live tree.
+- Branch planning/execution is the unit that fans queries out across provider
+  bundles and cooperatively handles deadlines.
+- `merge.py` still performs RRF merge, and reranking happens after merge in
+  the main pipeline.
+- Provider health and cooldown state are tracked separately from provider
+  registration.
 
-### Provider Weights & Intents
-- Provider weights are derived from IntentSearchPolicy (see intent_policy.py)
-- Intents map to provider configurations and downstream knobs
-- RRF merge uses k=60 by default
+## Adding or Changing a Provider
 
-### Query Understanding
-- understanding/resolver.py handles LLM-backed intent resolution
-- query_policy.py provides lightweight rewrite policy for live pipeline
+1. Implement a normalized provider module in `search/`
+2. Register it in `search/__init__.py` and `search/provider_config.py`
+3. Add intent or plan changes in `intent_policy.py` / `provider_plan.py` if
+   the provider needs different weights or args
+4. Add tests that cover the provider and the orchestrator path that uses it
 
 ## Testing
-pytest tests/test_search_orchestrator.py tests/test_search_router.py tests/test_provider_plan.py tests/test_provider_config.py -v
+
+- `python -m pytest tests/test_search_orchestrator.py tests/test_search_router.py`
+- `python -m pytest tests/test_provider_plan.py tests/test_provider_config.py`
+- `python -m pytest tests/test_branch_executor.py tests/test_branch_planner.py`
 
 ## Conventions
-- All provider implementations return normalized SearchResult objects
-- Diagnostics are collected per-provider for observability
-- Provider errors are caught and logged, not propagated (graceful degradation)
+
+- Return normalized result objects from provider code
+- Keep provider failures observable but non-fatal to the whole request
+- Treat `TOOL_PROFILE` as exposure-only, not as provider-routing logic

@@ -2,68 +2,58 @@
 
 Content acquisition, extraction, and conversion to LLM-ready Markdown.
 
-## Architecture
+## Current Pipeline
 
-Two-tier pipeline:
-- **Tier 1:** Specialized resolvers (StackExchange, GitHub Issues/Discussions, Wikipedia, arXiv)
-- **Tier 2:** Crawl4AI remote (primary) → fallback (Jina Reader → trafilatura)
+- Specialized resolvers first: `stackexchange.py`, `github_issues.py`,
+  `github_discussions.py`, `wikipedia.py`, `arxiv.py`
+- Crawl4AI remote second: `crawl4ai_client.py`, `fetch_pipeline.py`,
+  `batch_orchestrator.py`, `sitemap.py`
+- Fallback last: `fallback.py` (Jina Reader -> trafilatura)
 
 ## Structure
 
 ```
 content/
-├── crawl4ai_client.py       # Remote HTTP client for Crawl4AI Docker API
-├── fallback.py              # Jina Reader → trafilatura fallback chain
-├── fetch_pipeline.py        # Main pipeline orchestrator (2-tier)
-├── batch_orchestrator.py    # Batch fetch with Crawl4AI batch mode
-├── sitemap.py               # Semantic sitemap via Crawl4AI deep crawl
-│
-├── extract.py               # Trafilatura two-pass extraction
-├── sanitize.py              # Markdown cleanup
-├── html_tools.py            # BeautifulSoup (metadata, links, sitemap XML)
-│
-├── artifact.py              # ContentArtifact, ContentError
-├── options.py               # FetchOptions
-├── windowing.py             # Content windowing/pagination
-├── status_classifier.py     # Content quality classification
-│
-├── safe_fetch.py            # URL validation + HTTP fetch
-├── jina_reader.py           # Jina Reader client
-├── link_discovery.py        # Link extraction from pages
-│
-├── summary.py               # Gemini URL-context summaries
-├── summary_backend.py       # Summary LLM backend
-├── summary_models.py        # Summary data models
-│
-├── stackexchange.py         # StackExchange API resolver
-├── github_issues.py         # GitHub Issues GraphQL resolver
-├── github_discussions.py    # GitHub Discussions GraphQL resolver
-├── wikipedia.py             # Wikipedia MediaWiki API resolver
-└── arxiv.py                 # arXiv Atom API + PDF resolver
+|-- artifact.py              # ContentArtifact / ContentError
+|-- options.py               # FetchOptions
+|-- windowing.py             # Content slicing and pagination
+|-- status_classifier.py     # Content quality classification
+|-- safe_fetch.py            # URL validation + HTTP fetch
+|-- link_discovery.py        # Link extraction from pages
+|-- summary.py               # Gemini-backed URL/context summaries
+|-- summary_backend.py       # Summary backend plumbing
+|-- summary_models.py        # Summary models
+|-- extract.py               # Trafilatura extraction helpers
+|-- sanitize.py              # Markdown cleanup
+|-- html_tools.py            # Metadata / link parsing helpers
+|-- crawl4ai_client.py       # Remote Crawl4AI HTTP client
+|-- fetch_pipeline.py        # Single-URL orchestrator
+|-- batch_orchestrator.py    # Batch fetch orchestration
+|-- sitemap.py               # Crawl4AI semantic sitemap extraction
+|-- fallback.py              # Jina Reader -> trafilatura fallback chain
+|-- stackexchange.py         # StackExchange resolver
+|-- github_issues.py         # GitHub Issues resolver
+|-- github_discussions.py    # GitHub Discussions resolver
+|-- wikipedia.py             # Wikipedia resolver
+└── arxiv.py                 # arXiv resolver
 ```
 
-## Pipeline Flow
+## Current Behavior
 
-1. **StackExchange** — full thread (Q + A + comments) for SO/SE sites
-2. **GitHub Issues** — GraphQL-based issue extraction
-3. **GitHub Discussions** — GraphQL-based discussion extraction
-4. **Wikipedia** — MediaWiki Action API
-5. **arXiv** — Atom API + PDF → Markdown
-6. **Crawl4AI remote** — `POST /crawl` → fit_markdown + html + links
-7. **Fallback** — Jina Reader (free) → trafilatura (offline)
+- `fetch_pipeline.py` is the main single-URL path.
+- `batch_orchestrator.py` handles multi-URL fetches and batch budgets.
+- `sitemap.py` is the Crawl4AI deep-crawl path and can generate llms.txt
+  output.
+- `CRAWL4AI_BASE_URL` enables remote Crawl4AI; otherwise the stack falls back
+  to Jina Reader and then trafilatura.
 
 ## Adding a New Specialized Resolver
 
-1. Create module in `content/` with `parse_x_url()` and `fetch_x_markdown()`
-2. Add import and handler stage in `fetch_pipeline.py`
-3. Write unit tests in `tests/test_x.py` mocking the API
-
-## Key Settings
-
-- `CRAWL4AI_BASE_URL` — remote Crawl4AI server URL (enables Tier 2 primary)
-- `CRAWL4AI_TIMEOUT_SECONDS` — request timeout (default 120s)
+1. Add the resolver module in `content/`
+2. Wire the URL parsing and fetch stage into `fetch_pipeline.py`
+3. Add tests that mock the upstream API or HTML payload
 
 ## Testing
-```
-pytest tests/test_page_content_resolver.py -v
-```
+
+- `python -m pytest tests/test_page_content_resolver.py`
+- `python -m pytest tests/test_content_*.py tests/test_sitemap.py`

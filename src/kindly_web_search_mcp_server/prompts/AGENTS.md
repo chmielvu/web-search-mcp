@@ -1,21 +1,31 @@
 # AGENTS.md - Prompts
 
-This directory contains prompt templates and registry for the search pipeline.
+This directory contains prompt builders, registry helpers, and model-specific
+prompt families.
 
-## Structure
+## Current Structure
 
 prompts/
-|-- __init__.py              # Prompt exports
-|-- registry.py              # Prompt registry with versioning
+|-- registry.py              # Prompt registry and lookup
+|-- builders.py              # Prompt-building helpers
 |-- query_understanding.py   # Query understanding prompts
-|-- rewrite.py               # Query rewrite prompts
+|-- query_rewrite.py         # Query rewrite prompts
 |-- rerank.py                # Reranking prompts
--- synthesis.py             # Answer synthesis prompts
+|-- rerank_llm.py            # LLM rerank prompts / config
+|-- entity_extraction.py     # Entity extraction prompts
+|-- provider_gemini.py       # Gemini provider prompt family
+|-- provider_grok.py         # Grok provider prompt family
+|-- provider_perplexity.py    # Perplexity provider prompt family
+|-- models.py                # Prompt-related models
+└── rerank_llm.yaml          # LLM rerank prompt config
 
-## Prompt Registry
-- Centralized prompt management with versioning
-- Supports A/B testing of prompt variants
-- Templates loaded at startup, cached in memory
+## Current Behavior
+
+- Prompt registry is versioned and used by the search pipeline
+- Prompt families are separated by task and provider rather than one giant blob
+- Prompt changes should stay aligned with the tests that exercise the registry
 
 ## Testing
-pytest tests/test_prompt_registry.py -v
+
+- `python -m pytest tests/test_prompt_registry.py`
+- `python -m pytest tests/test_query_understanding.py tests/test_rerank_llm.py`

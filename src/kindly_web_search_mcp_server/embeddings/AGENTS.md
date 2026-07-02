@@ -1,19 +1,28 @@
 # AGENTS.md - Embeddings
 
-This directory implements the embedding service for semantic search and caching.
+This directory implements the embedding client used by cache and rerank code.
 
-## Structure
+## Current Structure
 
 embeddings/
-|-- __init__.py              # Embedding exports
-|-- service.py               # HF Space-based embedding service client
-|-- models.py                # Embedding model configurations
--- local.py                 # Local embedding fallback (if implemented)
+|-- hf_inference.py          # Hugging Face Inference embeddings client
+|-- rate_limiter.py          # Batched / rate-limited embedding wrapper
+└── __init__.py              # Public embedding surface
 
-## Service
-- Uses Hugging Face Space for embedding generation
-- Supports bi-encoder and cross-encoder models
-- Used by semantic_cache and rerank pipelines
+## Current Behavior
+
+- Embeddings are served through Hugging Face Inference
+- `hf_inference.py` owns the provider client, validation, and circuit breaker
+- `rate_limiter.py` batches and throttles requests so branch fanout does not
+  stampede the embedding backend
+
+## Notes
+
+- There is no local fallback module in the current tree
+- The public surface is `embed_query`, `embed_texts`, `EMBEDDING_DIM`, and
+  `BatchLimitedEmbeddings`
 
 ## Testing
-pytest tests/test_embeddings.py -v (if exists)
+
+- `python -m pytest tests/test_hf_inference_embeddings.py`
+- `python -m pytest tests/test_semantic_cache_schema.py`

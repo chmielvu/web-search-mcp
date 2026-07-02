@@ -1,43 +1,61 @@
 # AGENTS.md - CLI (web-search-cli)
 
-This directory contains the native Typer CLI application for the web-search-mcp server.
+This directory contains the native Typer CLI for the MCP server.
 
-## Structure
+## Current Structure
 
 cli/
-|-- __init__.py              # CLI exports
-|-- app.py                   # Main Typer application entry point
-|-- commands/                # Command implementations
-|   |-- __init__.py
+|-- app.py                   # Main Typer application entrypoint
+|-- commands/                # Command registration modules
 |   |-- schema.py            # schema command
 |   |-- doctor.py            # doctor command
 |   |-- getskill.py          # getskill command
 |   |-- reference.py         # reference commands
+|   |-- search.py            # search-related CLI commands
+|   |-- content.py           # content commands
+|   |-- links.py             # link-discovery commands
+|   |-- ai.py                # AI/search synthesis commands
+|   |-- youtube.py           # YouTube commands
+|   |-- analytics.py         # analytics query/report commands
+|   |-- agent.py             # agent surface commands
 |   |-- experiments.py       # A/B experiment management
-|   -- analytics.py         # analytics query/report commands
--- services/                # Shared services
-    |-- __init__.py
-    -- mcp_client.py        # MCP client for server communication
+|   |-- server.py            # server/launch helpers
+|   └── sitemap.py           # sitemap command
+└── services/               # Shared service adapters
+    |-- search_web.py        # Web search service adapter
+    |-- quick_search.py      # Quick search adapter
+    |-- content.py           # Content fetch service adapter
+    |-- content_batch.py     # Batch content adapter
+    |-- link_tools.py        # Link discovery adapter
+    |-- ai.py                # AI answer adapters
+    |-- academic.py          # Academic search adapter
+    |-- youtube.py           # YouTube adapter
+    └── sitemap.py           # Sitemap adapter
 
-## Commands
+## Current Behavior
 
-### Scaffolded Commands
-- web-search-cli schema
-- web-search-cli doctor
-- web-search-cli getskill [--dev]
-- web-search-cli reference tools
-- web-search-cli reference external-tools
+- `app.py` wires all commands into a JSON-first CLI.
+- Global runtime flags include `--agent`, `--human`, `--quiet`,
+  `--profile`, `--log-level`, and `--non-interactive`.
+- The CLI is the first-class surface; there is no `mcp2cli` compatibility
+  wrapper.
 
-### Operational Commands
-- web-search-cli experiments list|enable|disable|conclude|stats|create
-- web-search-cli analytics query
-- web-search-cli analytics report
+## Main Commands
 
-## Design Principles
-- JSON-first output for agent consumption
-- Structured errors with error codes
-- No mcp2cli compatibility layer
-- Designed per plans/web-search-cli-native-typer-design-2026-06-07.md
+- `web-search-cli schema`
+- `web-search-cli doctor`
+- `web-search-cli getskill`
+- `web-search-cli reference tools`
+- `web-search-cli search ...`
+- `web-search-cli content ...`
+- `web-search-cli links ...`
+- `web-search-cli ai ...`
+- `web-search-cli youtube ...`
+- `web-search-cli analytics query`
+- `web-search-cli analytics report`
+- `web-search-cli experiments list|enable|disable|conclude|stats|create`
 
 ## Testing
-pytest tests/test_cli*.py -v
+
+- `python -m pytest tests/cli/test_*.py`
+- `python -m pytest tests/test_uvx_cli.py`
