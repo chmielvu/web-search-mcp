@@ -40,6 +40,8 @@ def is_transient_error(error: Exception) -> bool:
 
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
+        if status == 429:
+            return True
         # Only retry on server errors (5xx)
         # Client errors (4xx) indicate permanent failures
         return 500 <= status < 600

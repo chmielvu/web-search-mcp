@@ -78,8 +78,13 @@ def build_provider_execution_plan(
     ]
 
     free_configs = resolve_provider_configs(free_names)
-    paid_configs = resolve_provider_configs(paid_names)
-    selected_paid = select_paid_serp_configs(paid_configs, limit=2)
+    brightdata_name = "brightdata"
+    other_paid_names = [n for n in paid_names if n != brightdata_name]
+    other_paid_configs = resolve_provider_configs(other_paid_names)
+    selected_paid = select_paid_serp_configs(other_paid_configs, limit=1)
+    brightdata_config = resolve_provider_configs([brightdata_name])
+    if brightdata_config:
+        selected_paid = [brightdata_config[0]] + selected_paid
     specialized_configs = resolve_provider_configs(policy.specialized_providers)
 
     provider_names = _merge_provider_names(

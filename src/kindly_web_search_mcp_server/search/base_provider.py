@@ -58,7 +58,7 @@ async def run_provider(
         return await _fetch(http_client)
 
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(connect=5.0, read=25.0, pool=None),
+        timeout=httpx.Timeout(30.0),
     ) as client:
         return await _fetch(client)
 

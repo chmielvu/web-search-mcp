@@ -358,9 +358,11 @@ class Settings:
         "SERPAPI_ENGINES", ""
     )  # comma-separated, e.g. "baidu,naver,google"
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
-    brightdata_default_engine: str = os.environ.get(
-        "BRIGHTDATA_DEFAULT_ENGINE", "yandex"
+    brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
+    brightdata_bing_timeout_seconds: float = float(
+        os.environ.get("BRIGHTDATA_BING_TIMEOUT_SECONDS", "10.0")
     )
+    brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
 
     # SERP semaphore limit (controls concurrency for paid_serp providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))

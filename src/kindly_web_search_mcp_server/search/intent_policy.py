@@ -46,7 +46,6 @@ class IntentSearchPolicy:
 _BASE_POLICY_KWARGS = dict(
     specialized_providers=(),
     provider_weights=_merge_weights(),
-    provider_arguments={},
     rewrite_temperature=0.0,
 )
 
@@ -67,31 +66,49 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "general": IntentSearchPolicy(
         intent="general",
         search_options_overrides={"searxng_categories": ("general", "it")},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": True},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "ai_coding_and_infrastructure": IntentSearchPolicy(
         intent="ai_coding_and_infrastructure",
         search_options_overrides={"searxng_categories": ("it",)},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "digital_humanities": IntentSearchPolicy(
         intent="digital_humanities",
         search_options_overrides={"searxng_categories": ("it", "science")},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "comparison": IntentSearchPolicy(
         intent="comparison",
         search_options_overrides={"searxng_categories": ("general", "it")},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": True},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "social_media": IntentSearchPolicy(
         intent="social_media",
         search_options_overrides={"searxng_categories": ("general",)},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "news": IntentSearchPolicy(
         intent="news",
         search_options_overrides={"searxng_categories": ("news", "general")},
+        provider_arguments={
+            "brightdata": {"search_type": "news", "language": "en", "use_bing": False},
+        },
         **_BASE_POLICY_KWARGS,
     ),
 }
