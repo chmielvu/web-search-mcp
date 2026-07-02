@@ -21,7 +21,7 @@ from ..models import WebSearchResult
 from ..settings import settings
 from ..analytics.observability_store import insert_branch_attempts as analytics_insert_branch_attempts
 from .intents import SearchIntent
-from ..utils.task_scope import TaskScope, task_completed_successfully
+
 from .options import SearchOptions
 from .provider_dispatch import dispatch_providers
 from .provider_plan import ProviderExecutionPlan
@@ -120,14 +120,17 @@ async def execute_search_branches(
     run_key: str | None = None,
     tool_call_id: str | None = None,
 ) -> BranchExecutionBatch:
-    """Fire all branches concurrently, collect results within deadline.
+    """Fire all branches concurrently, collect results from every branch.
 
-    Each branch calls ``dispatch_providers`` which has its own per-provider
-    deadline enforcement via ``TaskScope``. Each branch is individually
-    deadline-guarded so that a single slow branch does not stall the others.
+    Each branch calls ``dispatch_providers`` which enforces its own
+    per-provider deadline via ``TaskScope``.  No branch-level deadline is
+    applied — every branch returns whatever ``dispatch_providers`` collected
+    (partial results from providers that finished in time).
 
-    The branch-level deadline is the hard wall — branches that exceed it are
-    cancelled and their results are discarded.
+    Concurrency is limited by an ``asyncio.Semaphore`` rather than the outer
+    ``TaskScope`` that was previously used.  This avoids the double-deadline
+    race where the outer scope's ``CancelledError`` discarded partial results
+    from the inner ``dispatch_providers``.
     """
     selected_branches = _limit_branches(branches)
     if not selected_branches:
@@ -141,12 +144,6 @@ async def execute_search_branches(
         ),
     )
     semaphore = asyncio.Semaphore(concurrency)
-
-    branch_deadline = (
-        deadline_seconds
-        if deadline_seconds is not None
-        else settings.provider_group_deadline_seconds + 2.0
-    )
 
     branch_attempt_ids = {
         spec.index: str(uuid.uuid4()) for spec in selected_branches
@@ -194,7 +191,7 @@ async def execute_search_branches(
                 results = []
                 status = "cancelled"
                 error_type = "CancelledError"
-                error_message = f"Branch exceeded deadline of {branch_deadline:.3f}s"
+                error_message = "Branch cancelled"
             except Exception as exc:
                 logger.warning(
                     "Branch search failed (index=%s type=%s): %s",
@@ -217,27 +214,10 @@ async def execute_search_branches(
                 error_message=error_message,
             )
 
-    async with TaskScope(deadline_seconds=branch_deadline, drain_seconds=1.0) as scope:
-        for spec in selected_branches:
-            scope.create_task(_run_branch(spec))
-
-    branch_results: list[SearchBranchResult] = []
-    for i, spec in enumerate(selected_branches):
-        task = scope.tasks[i] if i < len(scope.tasks) else None
-        if task is not None and task_completed_successfully(task):
-            branch_results.append(task.result())
-        else:
-            branch_results.append(
-                SearchBranchResult(
-                    spec=spec,
-                    branch_attempt_id=branch_attempt_ids[spec.index],
-                    status="timed_out" if task is not None and task.cancelled() else "failed",
-                    latency_ms=branch_deadline * 1000,
-                    results=[],
-                    error_type="TimeoutError" if task is not None and task.cancelled() else "TaskError",
-                    error_message=f"Branch exceeded deadline of {branch_deadline:.3f}s",
-                )
-            )
+    branch_coros = [_run_branch(spec) for spec in selected_branches]
+    branch_results: list[SearchBranchResult] = list(
+        await asyncio.gather(*branch_coros)
+    )
 
     if run_key:
         try:
@@ -253,7 +233,7 @@ async def execute_search_branches(
                     provider_names=result.spec.providers or [],
                     provider_count=len(result.spec.providers or []),
                     status=result.status,
-                    deadline_seconds=branch_deadline,
+                    deadline_seconds=settings.provider_group_deadline_seconds,
                     latency_ms=round(result.latency_ms, 3),
                     result_count=len(result.results),
                     error_type=result.error_type,

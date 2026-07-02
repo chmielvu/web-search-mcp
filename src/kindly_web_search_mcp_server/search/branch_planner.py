@@ -21,26 +21,15 @@ def _shard_providers(
     Each branch gets a unique subset so the slow mix is not triplicated.
     The last branch takes the remainder. Every branch always gets at least
     one provider (wrapping around if branches > providers).
-
-    *brightdata* is excluded from sharding and included in every branch since
-    it is the primary paid provider and must contribute regardless of shard
-    assignment.
     """
     if not providers or branch_count <= 1:
         return [providers[:]] * branch_count
 
-    always_on = {"brightdata"}
-    non_brightdata = [p for p in providers if p not in always_on]
-    brightdata_providers = [p for p in providers if p in always_on]
-
     shards: list[list[str]] = [[] for _ in range(branch_count)]
-    for i, provider in enumerate(cycle(non_brightdata)):
+    for i, provider in enumerate(cycle(providers)):
         if all(len(s) >= 3 for s in shards):
             break
         shards[i % branch_count].append(provider)
-
-    for shard in shards:
-        shard.extend(brightdata_providers)
     return shards
 
 

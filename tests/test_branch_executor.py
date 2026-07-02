@@ -143,7 +143,7 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
     asyncio.run(_run())
 
 
-def test_execute_search_branches_keeps_completed_results_when_one_branch_times_out() -> None:
+def test_execute_search_branches_all_branches_return_results_regardless_of_slowness() -> None:
     from kindly_web_search_mcp_server.models import WebSearchResult
     from kindly_web_search_mcp_server.search.branch_executor import (
         SearchBranchSpec,
@@ -226,7 +226,9 @@ def test_execute_search_branches_keeps_completed_results_when_one_branch_times_o
             )
 
         assert batch.branch_queries == ["slow branch", "fast branch"]
-        assert batch.result_lists[0] == []
+        # With the double-deadline fix, the "slow branch" (0.2s) still finishes
+        # — dispatch_providers is the sole deadline enforcer now.
+        assert [result.title for result in batch.result_lists[0]] == ["slow branch"]
         assert [result.title for result in batch.result_lists[1]] == ["fast branch"]
 
     asyncio.run(_run())
