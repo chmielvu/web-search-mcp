@@ -3,6 +3,18 @@ from __future__ import annotations
 import json as _json
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+# Load .env before class definitions evaluate os.environ.get()
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    pass
+else:
+    _settings_pkg = Path(__file__).resolve().parent
+    _project_root = _settings_pkg.parent.parent
+    load_dotenv(_project_root / ".env")
+    load_dotenv()
 
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
