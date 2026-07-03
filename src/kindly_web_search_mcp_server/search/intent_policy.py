@@ -44,7 +44,6 @@ class IntentSearchPolicy:
 
 # Base shared policy kwargs (no category overrides — each intent sets its own).
 _BASE_POLICY_KWARGS = dict(
-    specialized_providers=(),
     provider_weights=_merge_weights(),
     rewrite_temperature=0.0,
 )
@@ -73,6 +72,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "ai_coding_and_infrastructure": IntentSearchPolicy(
         intent="ai_coding_and_infrastructure",
+        specialized_providers=("telegram",),
         search_options_overrides={"searxng_categories": ("it",)},
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False},
@@ -97,6 +97,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "social_media": IntentSearchPolicy(
         intent="social_media",
+        specialized_providers=("telegram",),
         search_options_overrides={"searxng_categories": ("general",)},
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False},
@@ -105,6 +106,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "news": IntentSearchPolicy(
         intent="news",
+        specialized_providers=("telegram",),
         search_options_overrides={"searxng_categories": ("news", "general")},
         provider_arguments={
             "brightdata": {"search_type": "news", "language": "en", "use_bing": False},

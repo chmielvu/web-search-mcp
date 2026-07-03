@@ -15,6 +15,7 @@ from .serpapi import search_serpapi
 from .serper import search_serper
 from .composio_llm_search import search_composio_llm_search
 from .ddg import search_ddg
+from .degoog import search_degoog
 from .gemini_pollinations import search_gemini_pollinations
 from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
@@ -22,6 +23,7 @@ from .hackernews import search_hackernews
 from .jina import search_jina
 from .qdrant import search_qdrant
 from .reddit import search_reddit
+from .telegram import search_telegram
 from .provider_config import (
     ProviderConfig,
     ProviderGroup,
@@ -62,6 +64,15 @@ def _init_provider_registry() -> None:
             name="ddg",
             env_key="",  # No env key needed
             search_fn=search_ddg,
+            group=ProviderGroup.free,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="degoog",
+            env_key="DEGOOG_BASE_URL",
+            search_fn=search_degoog,
             group=ProviderGroup.free,
             requires_key=False,
         )
@@ -195,6 +206,16 @@ def _init_provider_registry() -> None:
             search_fn=search_github_graphql,
             group=ProviderGroup.specialized,
             requires_key=True,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="telegram",
+            env_key="TELEGRAM_API_ID",
+            search_fn=search_telegram,
+            group=ProviderGroup.specialized,
+            requires_key=True,
+            extra_env_keys=("TELEGRAM_API_HASH",),
         )
     )
 

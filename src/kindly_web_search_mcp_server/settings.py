@@ -23,6 +23,7 @@ from .utils.paths import (
     DEFAULT_PROCESS_LOGS_DB,
     DEFAULT_QUERY_UNDERSTANDING_JSONL,
     DEFAULT_TRANSCRIPT_CACHE_DB,
+    TELEGRAM_DIR,
 )
 
 
@@ -256,6 +257,21 @@ class Settings:
         DEFAULT_TRANSCRIPT_CACHE_DB,
     )
 
+    # Telegram search provider (Telethon MTProto)
+    telegram_api_id: str = os.environ.get("TELEGRAM_API_ID", "")
+    telegram_api_hash: str = os.environ.get("TELEGRAM_API_HASH", "")
+    telegram_session_string: str = os.environ.get("TELEGRAM_SESSION_STRING", "")
+    telegram_public_search_daily_budget: int = int(
+        os.environ.get("TELEGRAM_PUBLIC_SEARCH_DAILY_BUDGET", "8")
+    )
+    telegram_flood_sleep_threshold: int = int(
+        os.environ.get("TELEGRAM_FLOOD_SLEEP_THRESHOLD", "60")
+    )
+    telegram_registry_duckdb_path: str = os.environ.get(
+        "TELEGRAM_REGISTRY_DUCKDB_PATH",
+        str(TELEGRAM_DIR / "registry.duckdb"),
+    )
+
     # Pollinations API (for gemini-search provider in web_search mix)
     pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
 
@@ -408,6 +424,13 @@ class Settings:
     searxng_timeout_seconds: float = float(
         os.environ.get("SEARXNG_TIMEOUT_SECONDS", "10")
     )
+
+    # DeGoog search aggregator (self-hosted)
+    degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")
+    degoog_timeout_seconds: float = float(
+        os.environ.get("DEGOOG_TIMEOUT_SECONDS", "15")
+    )
+    degoog_engines: str = os.environ.get("DEGOOG_ENGINES", "")  # comma-separated, empty=all
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
@@ -662,6 +685,7 @@ class Settings:
                     "serper": 1.0,
                     "serpapi": 1.0,
                     "brightdata": 1.0,
+                    "degoog": 1.0,
                 },
             )
 

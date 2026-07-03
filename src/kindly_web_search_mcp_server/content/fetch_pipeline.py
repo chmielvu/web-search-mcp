@@ -38,6 +38,11 @@ from .stackexchange import (
     parse_stackexchange_url,
 )
 from .status_classifier import classify_markdown
+from .telegram import (
+    TelegramContentError,
+    fetch_telegram_markdown,
+    parse_telegram_url,
+)
 from .wikipedia import (
     fetch_wikipedia_article_markdown,
     parse_wikipedia_url,
@@ -382,6 +387,57 @@ async def fetch_content_artifact(
                 error=_to_content_error(
                     exc, code="arxiv_fetch_failed", provider="arxiv"
                 ),
+            )
+
+    # Telegram (t.me URLs)
+    try:
+        parse_telegram_url(url)
+    except TelegramContentError:
+        pass
+    else:
+        try:
+            tg_md = await fetch_telegram_markdown(url)
+            cls = classify_markdown(tg_md)
+            record_content_resolution(
+                stage="telegram",
+                url=url,
+                success=cls.status == "success",
+                size_bytes=len(tg_md.encode("utf-8")),
+                word_count=len(tg_md.split()),
+                extraction_method="telethon_mtproto",
+            )
+            return ContentArtifact(
+                input_url=url,
+                normalized_url=canonical,
+                fetched_url=url,
+                status=cls.status,
+                source_type="telegram",
+                fetch_backend="telethon_mtproto",
+                content_type="text/markdown",
+                markdown=tg_md,
+                word_count=len(tg_md.split()),
+                quality_score=1.0 if cls.status == "success" else 0.4,
+                error=None if cls.status == "success" else ContentError(
+                    code="telegram_partial", message="partial content"
+                ),
+            )
+        except Exception as exc:
+            record_content_resolution(
+                stage="telegram", url=url, success=False,
+                extraction_method="telethon_mtproto",
+            )
+            return ContentArtifact(
+                input_url=url,
+                normalized_url=canonical,
+                fetched_url=url,
+                status="error",
+                source_type="telegram",
+                fetch_backend="telethon_mtproto",
+                content_type=None,
+                markdown="",
+                word_count=0,
+                quality_score=0.0,
+                error=_to_content_error(exc, code="telegram_fetch_failed", provider="telegram"),
             )
 
     # ----------------------------------------------------------

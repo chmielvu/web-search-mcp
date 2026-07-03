@@ -27,6 +27,7 @@ ANALYTICS_DIR = DUCKDB_DATA_DIR / "analytics"
 CACHE_DIR = DUCKDB_DATA_DIR / "cache"
 EXTENSIONS_DIR = DUCKDB_DATA_DIR / "duckdb_extensions"
 LOGS_DIR = DUCKDB_DATA_DIR / "logs"
+TELEGRAM_DIR = DUCKDB_DATA_DIR / "telegram"
 TRAINING_DIR = DUCKDB_DATA_DIR / "training"
 EXPERIMENTS_DIR = DUCKDB_DATA_DIR / "experiments"
 
@@ -41,6 +42,7 @@ def ensure_duckdb_dirs() -> None:
         LOGS_DIR,
         TRAINING_DIR,
         EXPERIMENTS_DIR,
+        TELEGRAM_DIR,
     ]:
         dir_path.mkdir(parents=True, exist_ok=True)
 

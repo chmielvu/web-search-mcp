@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- DeGoog search aggregator as free provider alongside SearXNG
+
 ### Changed
 - **HF Inference API connection reuse** — `embed_texts` now uses a singleton `AsyncInferenceClient` instead of creating a new instance per call. The HF library lazily creates an internal `httpx.AsyncClient`; reusing the same instance gives TCP/TLS connection pooling. Latency dropped from 5-6s to ~1s per embedding call (~5x improvement).
 - **Reranking pipeline overhaul** — MMR now uses reranker scores for relevance instead of embedding cosine similarity. The cross-encoder/LLM reranker scores are min-max normalized and used as the MMR relevance term; embeddings are only used for the diversity (document-to-document) term. This fixes the critical issue where MMR ignored expensive reranker scores and recomputed relevance from weaker embedding similarity.
@@ -49,21 +52,3 @@
 ### Changed
 - `resolve_query_understanding` in resolver.py — ONNX classifier is primary path, LLM query understanding is fallback (only when classifier service is down).
 - Added `intent_classifier_url`, `intent_classifier_timeout_seconds`, `intent_classifier_confidence_threshold`, `intent_classifier_enabled` settings.
-- Intent aliases now support both `ai_coding` (old) and `ai_coding_and_infrastructure` (new) for backward compatibility.
-- Training dataset expanded from 120 → 538 unique records across 6 labels.
-
-### Files (new)
-- `training/generate_synthetic.py` — distilabel pipeline for synthetic data generation
-- `training/generate_augment.py` — targeted augmentation for weak classes
-- `training/train_tinybert.py` — TinyBERT-4L fine-tuning script
-- `training/intent_classifier/` — Docker service files
-- `src/.../search/understanding/onnx_classifier.py` — HTTP client for ONNX service
-- `src/.../search/intent_policy.py` — intent routing to SearXNG categories
-- `tests/test_intent_policy.py`
-
-### Architecture
-```
-Pipeline: query → ONNX classifier (~5ms) → intent
-               ↓ (if service down)
-               LLM query understanding (~60s, fallback)
-```
