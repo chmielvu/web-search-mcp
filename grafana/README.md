@@ -24,8 +24,8 @@ curl -X POST \
 
 - `kindly-mcp-overview-dashboard.json` — Golden signals (rate, errors, duration) + health
 - `kindly-mcp-pipeline-dashboard.json` — Rewrite, multi-provider, merge, rerank
-- `kindly-mcp-providers-dashboard.json` — Per-provider latency, success, contribution
-- `kindly-mcp-content-dashboard.json` — Extraction stages, browser vs HTTP, fallbacks
+- `kindly-mcp-providers-dashboard.json` — Per-provider latency, success, contribution, and circuit-state visibility
+- `kindly-mcp-content-dashboard.json` — Extraction stages, crawl4ai_remote usage, fallbacks
 - `kindly-mcp-cache-dashboard.json` — Cache hit ratios and lookup latency by cache type
 - `kindly-mcp-quality-dashboard.json` — Developer quality loop for search result yield,
   domain diversity, query length, RRF/rerank score distributions, rewrite mix, result

@@ -222,7 +222,7 @@ async def _search_bing(
         return []
     except asyncio.CancelledError:
         logger.debug("BrightData Bing search cancelled")
-        return []
+        raise
     except Exception:
         logger.debug("BrightData Bing search failed", exc_info=True)
         return []

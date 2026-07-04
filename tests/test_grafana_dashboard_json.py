@@ -59,3 +59,48 @@ def test_overview_dashboard_json_parses_and_has_loki_panels():
         for target in panel.get("targets", [])
     ]
     assert all('service_name="$service"' in expr for expr in expressions), expressions
+
+
+def test_pipeline_dashboard_json_uses_current_rrf_metric_name():
+    path = Path("grafana/dashboards/kindly-mcp-pipeline-dashboard.json")
+    assert path.exists(), "dashboard json must exist"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+
+    titles = [p.get("title", "") for p in data.get("panels", [])]
+    assert "Avg Providers per Search" in titles, titles
+
+    panel = next(p for p in data["panels"] if p.get("title") == "Avg Providers per Search")
+    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
+    assert any("web_search_rrf_provider_contribution{" in expr for expr in exprs), exprs
+    assert all("web_search_rrf_provider_contribution_total" not in expr for expr in exprs), exprs
+
+
+def test_content_dashboard_json_uses_crawl4ai_remote_stage():
+    path = Path("grafana/dashboards/kindly-mcp-content-dashboard.json")
+    assert path.exists(), "dashboard json must exist"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+
+    titles = [p.get("title", "") for p in data.get("panels", [])]
+    assert "crawl4ai_remote Usage %" in titles, titles
+
+    panel = next(p for p in data["panels"] if p.get("title") == "crawl4ai_remote Usage %")
+    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
+    assert any('content_final_stage="crawl4ai_remote"' in expr for expr in exprs), exprs
+    assert all("browser_nodriver" not in expr for expr in exprs), exprs
+
+
+def test_provider_dashboard_json_includes_circuit_state_panels():
+    path = Path("grafana/dashboards/kindly-mcp-providers-dashboard.json")
+    assert path.exists(), "dashboard json must exist"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+
+    titles = [p.get("title", "") for p in data.get("panels", [])]
+    assert "Providers in Open/Half-Open State" in titles, titles
+    assert "Current Circuit States" in titles, titles
+
+    panel = next(p for p in data["panels"] if p.get("title") == "Providers in Open/Half-Open State")
+    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
+    assert any("web_search_provider_circuit_state" in expr for expr in exprs), exprs

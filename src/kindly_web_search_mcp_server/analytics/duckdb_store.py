@@ -12,6 +12,7 @@ import duckdb
 
 from ..llm.usage import extract_llm_usage
 from ..settings import settings
+from .async_writes import dispatch_duckdb_write
 
 _LOCK = threading.Lock()
 _TABLE_NAME = "search_events"
@@ -440,19 +441,22 @@ def insert_search_run(
 
     values = [kwargs.get(col) for col in columns]
 
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_search_runs(connection)
-            connection.execute(
-                f"""
-                INSERT INTO {_RUNS_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                """,
-                values,
-            )
-        finally:
-            connection.close()
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_search_runs(connection)
+                connection.execute(
+                    f"""
+                    INSERT INTO {_RUNS_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    """,
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.search_run", _write)
 
 def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
     """Create query_understanding table with index if it doesn't exist."""
@@ -530,19 +534,22 @@ def insert_query_understanding(
 
     values = [kwargs.get(col) for col in columns]
 
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_query_understanding(connection)
-            connection.execute(
-                f"""
-                INSERT INTO {_QU_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                """,
-                values,
-            )
-        finally:
-            connection.close()
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_query_understanding(connection)
+                connection.execute(
+                    f"""
+                    INSERT INTO {_QU_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    """,
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.query_understanding", _write)
 
 def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
     """Create query_rewrites table with index if it doesn't exist."""
@@ -618,19 +625,22 @@ def insert_query_rewrites(
 
     values = [kwargs.get(col) for col in columns]
 
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_query_rewrites(connection)
-            connection.execute(
-                f"""
-                INSERT INTO {_QR_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                """,
-                values,
-            )
-        finally:
-            connection.close()
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_query_rewrites(connection)
+                connection.execute(
+                    f"""
+                    INSERT INTO {_QR_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    """,
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.query_rewrites", _write)
 
 def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -672,19 +682,23 @@ def insert_provider_calls(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_provider_calls(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_PC_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_provider_calls(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_PC_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.provider_calls", _write)
 
 def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -723,19 +737,23 @@ def insert_provider_candidates(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_provider_candidates(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_PRC_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_provider_candidates(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_PRC_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.provider_candidates", _write)
 
 def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -773,19 +791,23 @@ def insert_merged_candidates(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_merged_candidates(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_MC_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_merged_candidates(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_MC_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.merged_candidates", _write)
 
 def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -842,19 +864,23 @@ def insert_rerank_stages(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_rerank_stages(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_RS_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_rerank_stages(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_RS_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.rerank_stages", _write)
 
 def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -897,19 +923,23 @@ def insert_rerank_candidates(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_rerank_candidates(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_RC_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_rerank_candidates(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_RC_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.rerank_candidates", _write)
 
 def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -947,19 +977,23 @@ def insert_final_results(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_final_results(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_FR_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_final_results(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_FR_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.final_results", _write)
 
 def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -1005,20 +1039,24 @@ def insert_search_quality_scores(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_search_quality_scores(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_SQS_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ON CONFLICT DO NOTHING
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_search_quality_scores(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_SQS_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ON CONFLICT DO NOTHING
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.search_quality_scores", _write)
 
 def _ensure_summary_provider_daily(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -1145,19 +1183,23 @@ def insert_judge_evaluation(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_judge_evaluations(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_JE_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_judge_evaluations(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_JE_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.judge_evaluation", _write)
 
 def _ensure_ab_experiments(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
@@ -1263,20 +1305,24 @@ def insert_ab_experiment(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_ab_experiments(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_ABE_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ON CONFLICT DO NOTHING
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_ab_experiments(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_ABE_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ON CONFLICT DO NOTHING
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.ab_experiment", _write)
 
 def insert_ab_shadow_run(
     *,
@@ -1295,19 +1341,23 @@ def insert_ab_shadow_run(
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
     values = [kwargs.get(col) for col in columns]
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_ab_shadow_runs(connection)
-            connection.execute(
-                f'''
-                INSERT INTO {_ABS_TABLE_NAME} ({col_list})
-                VALUES ({placeholders})
-                ''',
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_ab_shadow_runs(connection)
+                connection.execute(
+                    f'''
+                    INSERT INTO {_ABS_TABLE_NAME} ({col_list})
+                    VALUES ({placeholders})
+                    ''',
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.ab_shadow_run", _write)
 
 def append_event(
     event_name: str,
@@ -1352,59 +1402,62 @@ def append_event(
         json.dumps(payload, ensure_ascii=False, default=str),
     )
 
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_schema(connection)
-            connection.execute(
-                f"""
-                INSERT INTO {_TABLE_NAME} (
-                    event_id,
-                    event_name,
-                    recorded_at,
-                    run_key,
-                    tool_name,
-                    phase,
-                    query,
-                    normalized_query,
-                    research_goal,
-                    provider,
-                    model,
-                    model_used,
-                    duration_ms,
-                    input_count,
-                    output_count,
-                    input_tokens,
-                    output_tokens,
-                    trace_id,
-                    span_id,
-                    cache_hit,
-                    payload_json
-                ) VALUES (
-                    ?,
-                    ?,
-                    CURRENT_TIMESTAMP,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?,
-                    ?
+    def _write() -> None:
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _ensure_schema(connection)
+                connection.execute(
+                    f"""
+                    INSERT INTO {_TABLE_NAME} (
+                        event_id,
+                        event_name,
+                        recorded_at,
+                        run_key,
+                        tool_name,
+                        phase,
+                        query,
+                        normalized_query,
+                        research_goal,
+                        provider,
+                        model,
+                        model_used,
+                        duration_ms,
+                        input_count,
+                        output_count,
+                        input_tokens,
+                        output_tokens,
+                        trace_id,
+                        span_id,
+                        cache_hit,
+                        payload_json
+                    ) VALUES (
+                        ?,
+                        ?,
+                        CURRENT_TIMESTAMP,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+                        ?
+                    )
+                    """,
+                    record,
                 )
-                """,
-                record,
-            )
-        finally:
-            connection.close()
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write("analytics.search_events", _write)

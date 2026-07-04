@@ -123,14 +123,13 @@ async def execute_search_branches(
     """Fire all branches concurrently, collect results from every branch.
 
     Each branch calls ``dispatch_providers`` which enforces its own
-    per-provider deadline via ``TaskScope``.  No branch-level deadline is
-    applied — every branch returns whatever ``dispatch_providers`` collected
-    (partial results from providers that finished in time).
+    per-provider deadline. No branch-level deadline is applied — every branch
+    returns whatever ``dispatch_providers`` collected (partial results from
+    providers that finished in time).
 
-    Concurrency is limited by an ``asyncio.Semaphore`` rather than the outer
-    ``TaskScope`` that was previously used.  This avoids the double-deadline
-    race where the outer scope's ``CancelledError`` discarded partial results
-    from the inner ``dispatch_providers``.
+    Concurrency is limited by an ``asyncio.Semaphore`` and branch execution
+    uses ``asyncio.gather`` so a slow branch cannot discard results produced
+    before the provider deadline fires.
     """
     selected_branches = _limit_branches(branches)
     if not selected_branches:

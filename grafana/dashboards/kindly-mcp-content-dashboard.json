@@ -38,12 +38,12 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Browser (nodriver) Usage %",
+      "title": "crawl4ai_remote Usage %",
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_final_stage=\"browser_nodriver\", content_status=\"success\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_status=\"success\"}[5m]))",
+          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_final_stage=\"crawl4ai_remote\", content_status=\"success\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_status=\"success\"}[5m]))",
           "refId": "A"
         }
       ],

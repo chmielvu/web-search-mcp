@@ -136,13 +136,13 @@ class Settings:
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
     cerebras_rewrite_model: str = os.environ.get(
-        "CEREBRAS_REWRITE_MODEL", "cerebras/openai/gpt-oss-120b"
+        "CEREBRAS_REWRITE_MODEL", "gpt-oss-120b"
     )
     groq_rewrite_model: str = os.environ.get(
-        "GROQ_REWRITE_MODEL", "groq/openai/gpt-oss-120b"
+        "GROQ_REWRITE_MODEL", "openai/gpt-oss-120b"
     )
     vercel_rewrite_model: str = os.environ.get(
-        "VERCEL_REWRITE_MODEL", "groq/openai/gpt-oss-20b"
+        "VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b"
     )
 
     # Embeddings (Hugging Face Inference Provider)
@@ -382,10 +382,10 @@ class Settings:
     # New SERP providers (Serper, SerpApi, BrightData)
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
     serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
-    serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "baidu")
+    serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "yahoo")
     serpapi_engines: str = os.environ.get(
         "SERPAPI_ENGINES", ""
-    )  # comma-separated, e.g. "baidu,naver,google"
+    )  # comma-separated, e.g. "yahoo,baidu,naver"
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
     brightdata_bing_timeout_seconds: float = float(

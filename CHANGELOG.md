@@ -6,6 +6,8 @@
 - DeGoog search aggregator as free provider alongside SearXNG
 
 ### Changed
+- **SerpApi default engine switched to Yahoo** — the provider now defaults `SERPAPI_DEFAULT_ENGINE` to `yahoo`, keeping multi-engine support intact while broadening the default non-Google coverage.
+- **Grafana dashboards aligned to current telemetry** — the pipeline dashboard now uses `web_search_rrf_provider_contribution`, the content dashboard now tracks `crawl4ai_remote`, and the providers dashboard now includes circuit-state visibility. `grafana/README.md` and the Grafana dashboard regression tests were updated to match.
 - **HF Inference API connection reuse** — `embed_texts` now uses a singleton `AsyncInferenceClient` instead of creating a new instance per call. The HF library lazily creates an internal `httpx.AsyncClient`; reusing the same instance gives TCP/TLS connection pooling. Latency dropped from 5-6s to ~1s per embedding call (~5x improvement).
 - **Reranking pipeline overhaul** — MMR now uses reranker scores for relevance instead of embedding cosine similarity. The cross-encoder/LLM reranker scores are min-max normalized and used as the MMR relevance term; embeddings are only used for the diversity (document-to-document) term. This fixes the critical issue where MMR ignored expensive reranker scores and recomputed relevance from weaker embedding similarity.
 - **MMR lambda default changed from 0.5 to 0.7** — relevance-weighted for web search (was 50/50 relevance/diversity, now 70/30). Research consensus: λ=0.7-0.8 for precision search.
@@ -17,6 +19,7 @@
 - **Reranker fallback chain simplified to ONE chain**: `cohere_fast -> cohere_fast_openrouter -> voyage`. Always tries in this order regardless of configured engine. Jina and GCP CloudRun rerankers removed entirely (GCP deprecated, Jina redundant).
 
 ### Added
+- Added `plans/grafana-observability-refresh-plan-2026-07-03.md` to reconcile the live Grafana setup with the current app telemetry, including the crawl4ai content stage, provider health visibility, branch/result lineage, and MotherDuck-backed quality panels.
 - Added `plans/web_search-latency-report-2026-06-30.md` documenting the live MCP timeout analysis, provider bottlenecks, and code-path latency sources for `web_search`.
 - Corrected `plans/web_search-latency-report-2026-06-30.md` to reflect the actual root causes: missing outer timeout, repeated provider bundle across branches, and the shared paid-provider semaphore bug.
 - Added `plans/provider-root-cause-remediation-plan-2026-06-29.md` documenting the provider latency/root-cause findings and the no-new-tests remediation plan.
@@ -25,7 +28,10 @@
 - Added the repo-doc consolidation note and simplified `CLAUDE.md` to point at `AGENTS.md` as the single workspace guidance source.
 
 ### Fixed
+- **Query rewrite model IDs now match the documented providers** — the rewrite/classifier LLM router now uses the documented Cerebras, Groq, and Vercel model IDs directly instead of inventing nested provider-prefixed strings. This restores the intended Cerebras → Groq → Vercel fallback ladder and avoids the malformed Vercel rewrite default.
+- **Async DuckDB analytics no longer blocks the event loop** — the hot observability and pipeline write paths now dispatch DuckDB inserts through a shared background-write helper, covering search events, provider calls/candidates, rerank stages, final results, search runs, and pipeline observability inserts.
 - **HF Inference API connection reuse** — singleton `AsyncInferenceClient` eliminates per-call TCP/TLS handshake overhead. Embedding latency dropped from 5-6s to ~1s (~5x improvement).
+- **Search import path cleaned up** — removed stale `task_scope` references from live provider code and tests, kept the branch executor on direct `asyncio` primitives, and made BrightData Bing cancellation re-raise instead of returning an empty result list.
 - **DuckDB now logs which reranker was actually used** — `search_runs` table has new `reranker_provider` and `reranker_model` columns. `RerankOutput` carries `provider`/`model` through the pipeline so the final chosen reranker (including fallback winners like `voyage` or `groq`) is recorded per run.
 - **Search provider connect timeouts fixed** — `base_provider.py` now uses `httpx.Timeout(connect=5.0, read=25.0)` instead of a single 30s total timeout. Dead/unreachable providers (like `search_router`) fail fast at ~5s instead of hanging for 54s on TCP SYN retransmissions.
 - **DuckDuckGo provider timeout now configurable** — `ddg_timeout_seconds` setting (env: `DDG_TIMEOUT_SECONDS`, default `10`) controls `DDGS(timeout=...)`. Previously hardcoded to 10s.

@@ -14,7 +14,6 @@ utils/
 |-- observability.py         # Observability event helpers
 |-- paths.py                 # Path helpers and defaults
 |-- public_output.py         # Public response serialization
-|-- task_scope.py            # Deadline-scoped task management for fan-out workers
 |-- singleflight.py          # Request coalescing
 |-- snippet_normalizer.py    # Snippet cleanup helpers
 └── structured_logging.py    # Structured logging helpers

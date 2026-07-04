@@ -68,7 +68,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
-          "expr": "sum(rate(web_search_rrf_provider_contribution_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
+          "expr": "sum(rate(web_search_rrf_provider_contribution{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
           "refId": "A"
         }
       ]

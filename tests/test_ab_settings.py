@@ -40,6 +40,29 @@ class TestABSettingsDefaults:
         assert s.ab_assignment_cache_ttl_seconds == 300
 
 
+class TestSerpApiSettingsDefaults:
+    """Verify SerpApi defaults use Yahoo when no env override is set."""
+
+    def setup_method(self) -> None:
+        for key in [
+            "SERPAPI_DEFAULT_ENGINE",
+            "SERPAPI_ENGINES",
+        ]:
+            os.environ.pop(key, None)
+
+    def _reload_settings(self) -> type[Settings]:
+        importlib.reload(settings_module)
+        return settings_module.Settings
+
+    def teardown_method(self) -> None:
+        importlib.reload(settings_module)
+
+    def test_serpapi_default_engine_defaults_to_yahoo(self) -> None:
+        SettingsCls = self._reload_settings()
+        s = SettingsCls()
+        assert s.serpapi_default_engine == "yahoo"
+
+
 class TestABSettingsEnvOverride:
     """Verify the new fields can be overridden via environment variables.
 

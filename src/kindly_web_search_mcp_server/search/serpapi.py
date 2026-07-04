@@ -6,6 +6,7 @@ list, all listed engines are queried in parallel and their raw results are
 concatenated — the pipeline's global RRF merge handles dedup and scoring.
 
 Docs:
+  - Yahoo:  https://serpapi.com/yahoo-search-api   (engine=yahoo)
   - Baidu:  https://serpapi.com/baidu-search-api   (engine=baidu)
   - Naver:  https://serpapi.com/naver-search-api   (engine=naver)
   - Google: https://serpapi.com/search-api         (engine=google)
@@ -140,7 +141,7 @@ async def search_serpapi(
 ) -> list[WebSearchResult]:
     """Query SerpApi across configured engines and return concatenated results.
 
-    When ``SERPAPI_ENGINES`` lists multiple engines (e.g. ``baidu,naver,google``),
+    When ``SERPAPI_ENGINES`` lists multiple engines (e.g. ``yahoo,baidu,naver``),
     all are queried in parallel and results are concatenated. The pipeline's
     global RRF merge handles dedup and scoring — no local RRF here.
 

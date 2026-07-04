@@ -6,16 +6,10 @@ from .models import LLMEndpoint
 from ..settings import settings
 
 
-def _openai_compatible_model(model: str) -> str:
-    if model.startswith("openai/"):
-        return model
-    return f"openai/{model}"
-
-
 def build_classifier_endpoint() -> LLMEndpoint:
     return LLMEndpoint(
         name="groq",
-        model=f"groq/{settings.query_understanding_model.removeprefix('groq/')}",
+        model=settings.query_understanding_model,
         base_url=settings.groq_base_url,
         api_key=settings.groq_api_key,
         timeout_seconds=20.0,
@@ -25,7 +19,7 @@ def build_classifier_endpoint() -> LLMEndpoint:
 def build_vercel_gpt_oss_endpoint(*, timeout_seconds: float) -> LLMEndpoint:
     return LLMEndpoint(
         name="vercel",
-        model=_openai_compatible_model(settings.vercel_rewrite_model),
+        model=settings.vercel_rewrite_model,
         base_url=settings.vercel_ai_gateway_base_url,
         api_key=settings.vercel_ai_gateway_api_key,
         timeout_seconds=timeout_seconds,

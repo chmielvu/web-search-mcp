@@ -5,6 +5,7 @@ from typing import Any
 import duckdb
 
 from ..settings import settings
+from .async_writes import dispatch_duckdb_write
 from .duckdb_store import _LOCK, _db_path
 from .observability_schema import (
     _BRANCH_ATTEMPTS_TABLE,
@@ -30,19 +31,23 @@ def _insert(
     path.parent.mkdir(parents=True, exist_ok=True)
     placeholders = ", ".join("?" for _ in columns)
     col_list = ", ".join(columns)
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            connection.execute(
-                f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})",
-                values,
-            )
-        finally:
-            connection.close()
+
+    def _write() -> None:
+        ensure_pipeline_observability_tables(db_path=db_path)
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                connection.execute(
+                    f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})",
+                    values,
+                )
+            finally:
+                connection.close()
+
+    dispatch_duckdb_write(f"analytics.{table}", _write)
 
 
 def insert_web_search_tool_call(*, db_path: str | None = None, **kwargs: Any) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "tool_call_id",
         "run_key",
@@ -74,7 +79,6 @@ def insert_web_search_tool_call(*, db_path: str | None = None, **kwargs: Any) ->
 def insert_web_search_response_results(
     *, db_path: str | None = None, **kwargs: Any
 ) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "tool_call_id",
         "run_key",
@@ -100,7 +104,6 @@ def insert_web_search_response_results(
 
 
 def insert_branch_attempts(*, db_path: str | None = None, **kwargs: Any) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "branch_attempt_id",
         "run_key",
@@ -128,7 +131,6 @@ def insert_branch_attempts(*, db_path: str | None = None, **kwargs: Any) -> None
 
 
 def insert_branch_candidates(*, db_path: str | None = None, **kwargs: Any) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "run_key",
         "branch_attempt_id",
@@ -156,7 +158,6 @@ def insert_branch_candidates(*, db_path: str | None = None, **kwargs: Any) -> No
 def insert_provider_health_transition(
     *, db_path: str | None = None, **kwargs: Any
 ) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "provider",
         "transition",
@@ -182,7 +183,6 @@ def insert_provider_health_transition(
 
 
 def insert_pipeline_heartbeat(*, db_path: str | None = None, **kwargs: Any) -> None:
-    ensure_pipeline_observability_tables(db_path=db_path)
     columns = [
         "run_key",
         "tool_call_id",
@@ -203,4 +203,3 @@ def insert_pipeline_heartbeat(*, db_path: str | None = None, **kwargs: Any) -> N
         values=[kwargs.get(col) for col in columns],
         db_path=db_path,
     )
-

@@ -46,7 +46,11 @@ class LLMRouter:
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format
-                if reasoning_effort is not None and endpoint.name != "groq":
+                if reasoning_effort is not None and endpoint.name not in {
+                    "groq",
+                    "cerebras",
+                    "vercel",
+                }:
                     request_kwargs["reasoning_effort"] = reasoning_effort
                 with openinference_context_scope(langfuse):
                     response = await acompletion(**request_kwargs)

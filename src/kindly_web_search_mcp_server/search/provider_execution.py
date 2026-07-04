@@ -23,7 +23,6 @@ from ..telemetry import (
     record_provider_call,
 )
 from ..utils.observability import emit_observability_event
-from ..utils.task_scope import CancellationToken
 from .budget import ProviderBudget
 from .options import SearchOptions, build_search_query
 from .provider_call import build_provider_call_kwargs
@@ -60,7 +59,7 @@ async def _search_single_provider(
     branch_index: int | None = None,
     branch_attempt_id: str | None = None,
     tool_call_id: str | None = None,
-    cancel_token: CancellationToken | None = None,
+    cancel_token: Any | None = None,
 ) -> list[WebSearchResult]:
     """Search a single provider with unified health tracking, budget, and spans."""
     if not get_provider_health().is_healthy(provider_name):

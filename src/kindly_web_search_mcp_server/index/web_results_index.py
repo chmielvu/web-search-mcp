@@ -21,7 +21,7 @@ _web_results_index: WebResultsIndex | None = None
 COLLECTION_NAME = "web_results"
 COLLECTION_VECTORS = {
     "dense": models.VectorParams(
-        size=384,
+        size=1024,
         distance=models.Distance.COSINE,
     ),
 }
@@ -73,6 +73,23 @@ class WebResultsIndex:
         try:
             info = await client.get_collection(COLLECTION_NAME)
             if info.status == "green":
+                vectors_config = info.config.params.vectors or {}
+                dense_cfg = vectors_config.get("dense")
+                if dense_cfg is not None and hasattr(dense_cfg, "size"):
+                    expected_size = COLLECTION_VECTORS["dense"].size
+                    if dense_cfg.size != expected_size:
+                        logger.warning(
+                            "Qdrant collection '%s' dense dimension mismatch "
+                            "(stored=%d, expected=%d); recreating",
+                            COLLECTION_NAME,
+                            dense_cfg.size,
+                            expected_size,
+                        )
+                        await client.delete_collection(COLLECTION_NAME)
+                else:
+                    self._collection_ok = True
+                    return
+            else:
                 self._collection_ok = True
                 return
         except Exception:

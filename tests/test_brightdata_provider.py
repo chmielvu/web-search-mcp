@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -274,6 +274,16 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
 
         results = _run_async(search_brightdata("test", num_results=0))
         self.assertEqual(results, [])
+
+    def test_search_bing_propagates_cancellation(self):
+        from kindly_web_search_mcp_server.search.brightdata import _search_bing
+
+        class _CancelledClient:
+            async def post(self, *args, **kwargs):
+                raise asyncio.CancelledError()
+
+        with self.assertRaises(asyncio.CancelledError):
+            _run_async(_search_bing("test", 5, _CancelledClient(), "key", {}, {}, "us", "en"))
 
 
 class TestRetry429(unittest.TestCase):

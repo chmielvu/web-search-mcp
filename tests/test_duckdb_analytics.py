@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
+import time
 import sys
 import unittest
 from unittest.mock import patch
@@ -99,6 +102,147 @@ class TestDuckDBAnalytics(unittest.TestCase):
 
         if db_path.exists():
             db_path.unlink()
+
+
+class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
+    async def test_append_event_returns_before_write_finishes(self) -> None:
+        from kindly_web_search_mcp_server.analytics import duckdb_store
+
+        write_started = threading.Event()
+
+        class SlowConnection:
+            def execute(self, *args, **kwargs):
+                write_started.set()
+                time.sleep(0.15)
+                return self
+
+            def close(self) -> None:
+                return None
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        with (
+            patch.object(duckdb_store.settings, "analytics_enabled", True),
+            patch.object(duckdb_store, "_ensure_schema", return_value=None),
+            patch.object(
+                duckdb_store.duckdb,
+                "connect",
+                return_value=SlowConnection(),
+            ),
+        ):
+            start = time.perf_counter()
+            duckdb_store.append_event(
+                "provider.search.result",
+                {"query": "FastMCP", "provider": "searxng"},
+                db_path=str(db_path),
+            )
+            elapsed = time.perf_counter() - start
+
+            self.assertLess(elapsed, 0.05)
+            self.assertTrue(
+                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
+            )
+            await asyncio.sleep(0.2)
+
+    async def test_insert_provider_calls_returns_before_write_finishes(self) -> None:
+        from kindly_web_search_mcp_server.analytics import duckdb_store
+
+        write_started = threading.Event()
+
+        class SlowConnection:
+            def execute(self, *args, **kwargs):
+                write_started.set()
+                time.sleep(0.15)
+                return self
+
+            def close(self) -> None:
+                return None
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        with (
+            patch.object(duckdb_store.settings, "analytics_enabled", True),
+            patch.object(duckdb_store, "_ensure_provider_calls", return_value=None),
+            patch.object(
+                duckdb_store.duckdb,
+                "connect",
+                return_value=SlowConnection(),
+            ),
+        ):
+            start = time.perf_counter()
+            duckdb_store.insert_provider_calls(
+                run_key="run-1",
+                provider="searxng",
+                branch_index=0,
+                branch_query="FastMCP",
+                num_results_requested=10,
+                num_results_returned=8,
+                duration_ms=123.4,
+                error_code=None,
+                error_message=None,
+                http_status=200,
+                payload_json=None,
+                db_path=str(db_path),
+            )
+            elapsed = time.perf_counter() - start
+
+            self.assertLess(elapsed, 0.05)
+            self.assertTrue(
+                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
+            )
+            await asyncio.sleep(0.2)
+
+    async def test_provider_health_transition_returns_before_write_finishes(self) -> None:
+        from kindly_web_search_mcp_server.analytics import observability_inserts
+
+        write_started = threading.Event()
+
+        class SlowConnection:
+            def execute(self, *args, **kwargs):
+                write_started.set()
+                time.sleep(0.15)
+                return self
+
+            def close(self) -> None:
+                return None
+
+        db_path = Path(self._testMethodName).with_suffix(".duckdb")
+        with (
+            patch.object(observability_inserts.settings, "analytics_enabled", True),
+            patch.object(
+                observability_inserts,
+                "ensure_pipeline_observability_tables",
+                return_value=None,
+            ),
+            patch.object(
+                observability_inserts.duckdb,
+                "connect",
+                return_value=SlowConnection(),
+            ),
+        ):
+            start = time.perf_counter()
+            observability_inserts.insert_provider_health_transition(
+                provider="searxng",
+                transition="cooldown",
+                run_key="run-2",
+                tool_call_id="tool-1",
+                status="closed",
+                consecutive_failures=1,
+                cooldown_seconds=1.0,
+                cooldown_remaining_s=1.0,
+                total_successes=0,
+                total_failures=1,
+                error_type="TimeoutError",
+                is_rate_limit=False,
+                circuit_state="closed",
+                payload_json=None,
+                db_path=str(db_path),
+            )
+            elapsed = time.perf_counter() - start
+
+            self.assertLess(elapsed, 0.05)
+            self.assertTrue(
+                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
+            )
+            await asyncio.sleep(0.2)
 
     def test_append_event_normalizes_model_used_and_token_aliases(self) -> None:
         from kindly_web_search_mcp_server.analytics.duckdb_store import append_event

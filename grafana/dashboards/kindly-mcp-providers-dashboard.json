@@ -80,6 +80,66 @@
           }
         }
       }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Providers in Open/Half-Open State",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum(web_search_provider_circuit_state{service_name=\"$service\", circuit_state=~\"open|half_open\"})",
+          "refId": "A",
+          "legendFormat": "Open circuits"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "graphMode": "area",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Current Circuit States",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "expr": "sum by (provider_name, circuit_state) (web_search_provider_circuit_state{service_name=\"$service\"})",
+          "refId": "A",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "provider_name": "Provider",
+              "circuit_state": "State",
+              "Value": "Current Value"
+            }
+          }
+        }
+      ]
     }
   ]
 }
