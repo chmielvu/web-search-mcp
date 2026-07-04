@@ -25,21 +25,26 @@ def _build_candidates(count: int) -> list[WebSearchResult]:
     ]
 
 
+def _make_fake_worker(content: str, endpoint: str = "cerebras", model: str = "cerebras/openai/gpt-oss-120b"):
+    """Build a fake LLMWorker that mocks complete_text_messages."""
+    return SimpleNamespace(
+        complete_text_messages=AsyncMock(
+            return_value=SimpleNamespace(
+                endpoint_name=endpoint,
+                model_name=model,
+                content=content,
+            )
+        )
+    )
+
+
 class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
     async def test_llm_reranker_uses_gpt_oss_worker_ladder(self) -> None:
         from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
 
         candidates = _build_candidates(2)
 
-        fake_worker = SimpleNamespace(
-            complete_structured=AsyncMock(
-                return_value=SimpleNamespace(
-                    endpoint_name="cerebras",
-                    model_name="cerebras/openai/gpt-oss-120b",
-                    content='{"ranked_candidate_ids":[2,1]}',
-                )
-            )
-        )
+        fake_worker = _make_fake_worker("[rankstart] [2] > [1] [rankend]")
 
         with patch(
             "kindly_web_search_mcp_server.rerank.llm_rerank.build_llm_worker",
@@ -57,43 +62,28 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome.endpoint_name, "cerebras")
         self.assertEqual(outcome.model, "cerebras/openai/gpt-oss-120b")
         mock_worker_factory.assert_called_once()
-        request = fake_worker.complete_structured.await_args.args[0]
-        self.assertEqual(request.task, "rerank")
-        self.assertEqual(request.response_model.__name__, "RerankLLMOutput")
-        langfuse = request.langfuse
+        call_kwargs = fake_worker.complete_text_messages.await_args.kwargs
+        self.assertEqual(call_kwargs["task"], "rerank")
+        langfuse = call_kwargs["langfuse"]
         self.assertIsNotNone(langfuse)
         self.assertEqual(langfuse.trace_name, "llm_rerank")
         self.assertEqual(langfuse.metadata["task"], "rerank")
         self.assertEqual(langfuse.metadata["candidate_count"], 2)
         self.assertEqual(langfuse.metadata["top_k"], 2)
-        self.assertEqual(
-            request.messages[0]["role"],
-            "system",
-        )
-        self.assertIn(
-            "Rank passages by relevance",
-            request.messages[0]["content"],
-        )
-        prompt = request.messages[1]["content"]
+        messages = call_kwargs["messages"]
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("Rank passages by relevance", messages[0]["content"])
+        prompt = messages[1]["content"]
         self.assertIn("[querystart] find docs [queryend]", prompt)
         self.assertIn("[1]", prompt)
         self.assertIn("[2]", prompt)
-        self.assertIn("ranked_candidate_ids", prompt)
 
     async def test_llm_reranker_caps_the_candidate_window_at_twenty(self) -> None:
         from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
 
         candidates = _build_candidates(25)
 
-        fake_worker = SimpleNamespace(
-            complete_structured=AsyncMock(
-                return_value=SimpleNamespace(
-                    endpoint_name="cerebras",
-                    model_name="cerebras/openai/gpt-oss-120b",
-                    content='{"ranked_candidate_ids":[20,19,18]}',
-                )
-            )
-        )
+        fake_worker = _make_fake_worker("[rankstart] [20] > [19] > [18] [rankend]")
 
         with patch(
             "kindly_web_search_mcp_server.rerank.llm_rerank.build_llm_worker",
@@ -108,9 +98,9 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
                 research_goal="Locate canonical docs",
             )
 
-        request = fake_worker.complete_structured.await_args.args[0]
-        prompt = request.messages[1]["content"]
-        self.assertEqual(request.langfuse.metadata["candidate_count"], 20)
+        call_kwargs = fake_worker.complete_text_messages.await_args.kwargs
+        prompt = call_kwargs["messages"][1]["content"]
+        self.assertEqual(call_kwargs["langfuse"].metadata["candidate_count"], 20)
         self.assertEqual(len(re.findall(r"(?m)^\[\d+\]", prompt)), 20)
         self.assertIn("[20]", prompt)
         self.assertNotIn("[21]", prompt)
@@ -121,14 +111,10 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
 
         candidates = _build_candidates(10)
 
-        fake_worker = SimpleNamespace(
-            complete_structured=AsyncMock(
-                return_value=SimpleNamespace(
-                    endpoint_name="groq",
-                    model_name="groq/gpt-oss-120b",
-                    content='{"ranked_candidate_ids": [135246, 3, 5, 99999, 2, 1]}',
-                )
-            )
+        fake_worker = _make_fake_worker(
+            "[rankstart] [135246] > [3] > [5] > [99999] > [2] > [1] [rankend]",
+            endpoint="groq",
+            model="groq/gpt-oss-120b",
         )
 
         with patch(
@@ -144,7 +130,7 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
                     top_k=5,
                 )
 
-        # Valid IDs preserved in order: 3, 5, 2, 1 → indices 2, 4, 1, 0
+        # Valid IDs preserved in order: 3, 5, 2, 1 -> indices 2, 4, 1, 0
         self.assertEqual([item.index for item in outcome.ranked[:4]], [2, 4, 1, 0])
         # Hallucinated IDs 135246 and 99999 were skipped with warnings
         warning_msgs = [r.getMessage() for r in captured.records]

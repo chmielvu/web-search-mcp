@@ -82,7 +82,6 @@ def decide_rerank(
         query=query[:200],
         candidate_count=candidate_count,
         top_k=top_k,
-        configured_provider=settings.rerank_provider,
     )
 
     # 1. low count
@@ -161,12 +160,5 @@ def decide_rerank(
         candidate_count=candidate_count,
         engine_health=health,
         details={"entity_overlap_enabled": bool(getattr(settings, "rerank_entity_overlap_enabled", False))},
-    )
-    emit_observability_event(
-        logger,
-        "rerank.engine_selected",
-        engine_id=settings.rerank_provider,
-        query=query[:200],
-        candidate_count=candidate_count,
     )
     return d

@@ -9,6 +9,7 @@ import time
 import httpx
 
 from .hf_inference import embed_texts as _embed_texts
+from .hf_inference import _format_query_with_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ class BatchLimitedEmbeddings:
         async with self._semaphore:
             await self._wait_for_rate_limit()
             results = await _embed_texts(
-                [query], timeout=self.timeout, http_client=http_client
+                [_format_query_with_instruction(query)], timeout=self.timeout, http_client=http_client
             )
             return results[0]
 

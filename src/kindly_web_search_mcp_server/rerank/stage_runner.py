@@ -8,9 +8,9 @@ import time
 
 from ..models import WebSearchResult
 from ..settings import settings
-from .engines import rerank_with_engine_fallback
+from .providers import rerank_with_provider_fallback
 from .llm_rerank import rerank_with_llm
-from .observability import record_rerank_candidate_rows
+from .observability import record_rerank_candidate_rows_async
 from .reporting import record_ranked_stage
 from .stages import apply_entity_overlap_boost, apply_ranked_results
 
@@ -31,7 +31,7 @@ class RankedStageOutcome:
     error: Exception | None = None
 
 
-def _apply_ranked_stage(
+async def _apply_ranked_stage(
     *,
     stage_name: str,
     provider: str,
@@ -67,7 +67,7 @@ def _apply_ranked_stage(
         logger=logger,
         ab_weight=float(payload_json.get("entity_boost")) if payload_json.get("entity_boost") is not None else None,
     )
-    record_rerank_candidate_rows(
+    await record_rerank_candidate_rows_async(
         logger,
         run_key=run_key,
         stage=stage_name,
@@ -114,7 +114,6 @@ async def run_cross_encoder_stage(
     *,
     query: str,
     candidates: list[WebSearchResult],
-    provider_id: str,
     instruction: str | None,
     query_type_hint: str | None,
     query_entities: list | None,
@@ -125,21 +124,20 @@ async def run_cross_encoder_stage(
     logger: logging.Logger,
     ab_entity_boost: float | None = None,
     entity_boost: float = 0.15,
-) -> RankedStageOutcome | None:
+) -> RankedStageOutcome:
     stage_start = time.time()
-    outcome = await rerank_with_engine_fallback(
+    outcome = await rerank_with_provider_fallback(
         query,
         candidates,
-        engine_id=provider_id,
         instruction=instruction,
     )
     duration_seconds = time.time() - stage_start
     if not outcome.ranked:
         return RankedStageOutcome(
             candidates=candidates,
-            provider=outcome.engine_id,
+            provider=outcome.provider_id,
             model=outcome.model,
-            stage_name=outcome.engine_id,
+            stage_name=outcome.provider_id,
             input_count=len(candidates),
             output_count=len(candidates),
             duration_seconds=duration_seconds,
@@ -155,9 +153,9 @@ async def run_cross_encoder_stage(
         "apply_recency": searxng_time_range is None and settings.rerank_recency_weight > 0,
         "entity_boost": ab_entity_boost,
     }
-    return _apply_ranked_stage(
-        stage_name=outcome.engine_id,
-        provider=outcome.engine_id,
+    return await _apply_ranked_stage(
+        stage_name=outcome.provider_id,
+        provider=outcome.provider_id,
         model=outcome.model,
         input_tokens=None,
         output_tokens=None,
@@ -171,7 +169,7 @@ async def run_cross_encoder_stage(
         run_key=run_key,
         main_span=main_span,
         logger=logger,
-        preserve_raw_scores=outcome.engine_id == "voyage",
+        preserve_raw_scores=outcome.provider_id == "voyage",
     )
 
 
@@ -243,7 +241,7 @@ async def run_llm_stage(
         "llm_candidate_limit": candidate_limit,
         "entity_boost": ab_entity_boost,
     }
-    return _apply_ranked_stage(
+    return await _apply_ranked_stage(
         stage_name="llm_rerank",
         provider=outcome.endpoint_name,
         model=outcome.model,

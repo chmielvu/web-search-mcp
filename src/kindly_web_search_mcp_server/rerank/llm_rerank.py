@@ -9,11 +9,11 @@ import math
 import re
 
 from ..llm.phoenix_tracing import LLMTraceContext
-from ..llm import StructuredLLMRequest, build_llm_worker
+from ..llm import build_llm_worker
 from ..models import WebSearchResult
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.rerank_llm import build_llm_rerank_messages, load_rerank_prompt_template
-from .models import RerankLLMOutput, RerankResult
+from .models import RerankResult
 
 _logger = logging.getLogger(__name__)
 
@@ -68,6 +68,8 @@ def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
         return ordered_ids
 
     stripped = output.strip()
+
+    # Try JSON fallback (in case some models still return JSON)
     if stripped:
         try:
             payload = json.loads(stripped)
@@ -79,14 +81,11 @@ def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
                 if ranked_ids:
                     return ranked_ids
 
+    # Extract all [N] patterns from the output — handles both wrapped and raw formats
     template = load_rerank_prompt_template()
-    cleaned = " ".join(stripped.split())
-    if not re.fullmatch(template.output_validation_regex, cleaned):
-        raise ValueError(f"Unexpected listwise rerank output: {output!r}")
-
-    extracted_ids_raw = [int(match) for match in re.findall(template.output_extraction_regex, cleaned)]
+    extracted_ids_raw = [int(match) for match in re.findall(template.output_extraction_regex, stripped)]
     if not extracted_ids_raw:
-        raise ValueError("LLM rerank returned no ranked candidate ids.")
+        raise ValueError(f"LLM rerank returned no ranked candidate ids. Output: {output!r}")
 
     ordered_ids: list[int] = []
     seen: set[int] = set()
@@ -133,7 +132,7 @@ async def rerank_with_llm(
         )
 
     worker = build_llm_worker()
-    request = StructuredLLMRequest(
+    response = await worker.complete_text_messages(
         task="rerank",
         messages=build_llm_rerank_messages(
             query=query,
@@ -143,7 +142,6 @@ async def rerank_with_llm(
         ),
         temperature=0.0,
         timeout_seconds=timeout_seconds,
-        response_model=RerankLLMOutput,
         reasoning_effort=REASONING_EFFORT_LOW,
         langfuse=LLMTraceContext(
             trace_name="llm_rerank",
@@ -157,7 +155,6 @@ async def rerank_with_llm(
             },
         ),
     )
-    response = await worker.complete_structured(request)
     ranked_ids = _parse_ranked_ids(response.content, len(window))
     ranked = [
         RerankResult(index=candidate_id - 1, score=math.exp(-0.3 * (position - 1)))

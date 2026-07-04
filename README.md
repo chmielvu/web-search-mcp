@@ -158,6 +158,8 @@ User Query
 ```bash
 # Required (at least one)
 SEARXNG_BASE_URL="http://localhost:8080"   # SearXNG instance
+DEGOOG_BASE_URL="http://localhost:4444"   # DeGoog search aggregator (type="web" auto-selects all engines)
+DEGOOG_TIMEOUT_SECONDS="15"              # DeGoog request timeout (default: 15)
 TAVILY_API_KEY="tvly-..."                   # Tavily API key
 BRAVE_API_KEY="BSA..."                      # Brave Search API key
 JINA_API_KEY="jina_..."                     # Jina API key

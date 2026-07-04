@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -138,3 +139,30 @@ def record_rerank_candidate_rows(
             )
     except Exception as exc:
         logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+
+
+async def record_rerank_candidate_rows_async(
+    logger: logging.Logger,
+    *,
+    run_key: str | None,
+    stage: str,
+    before_candidates: list[WebSearchResult],
+    after_candidates: list[WebSearchResult],
+    payload_json: dict[str, Any] | None = None,
+) -> None:
+    """Async wrapper that runs record_rerank_candidate_rows in a thread.
+
+    DuckDB has no native async support — the sync inserts block the event loop.
+    This wrapper offloads to a thread so the pipeline can continue while writes happen.
+    """
+    if not run_key:
+        return
+    await asyncio.to_thread(
+        record_rerank_candidate_rows,
+        logger,
+        run_key=run_key,
+        stage=stage,
+        before_candidates=before_candidates,
+        after_candidates=after_candidates,
+        payload_json=payload_json,
+    )

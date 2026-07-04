@@ -12,8 +12,17 @@ from huggingface_hub import AsyncInferenceClient, InferenceTimeoutError
 
 from ..settings import settings
 
-EMBEDDING_DIM = 1024  # intfloat/multilingual-e5-large dimension
+EMBEDDING_DIM = 1024  # intfloat/multilingual-e5-large-instruct dimension
 LOGGER = logging.getLogger(__name__)
+
+# E5-instruct requires a task instruction prefix for queries, NOT for passages.
+# https://huggingface.co/intfloat/multilingual-e5-large-instruct#usage
+_E5_INSTRUCT_TASK = "Given a web search query, retrieve relevant passages that answer the query"
+
+
+def _format_query_with_instruction(query: str) -> str:
+    """Wrap a query with the E5-instruct task prefix."""
+    return f"Instruct: {_E5_INSTRUCT_TASK}\nQuery: {query}"
 
 
 class EmbeddingDimensionError(ValueError):
@@ -299,9 +308,13 @@ async def embed_query(
     http_client: object | None = None,
     skip_circuit_check: bool = False,
 ) -> list[float]:
-    """Embed a single query through Hugging Face Inference Providers."""
+    """Embed a single query through Hugging Face Inference Providers.
+
+    For E5-instruct models, the query is automatically wrapped with a task
+    instruction prefix per the model card guidelines.
+    """
     vectors = await embed_texts(
-        [query],
+        [_format_query_with_instruction(query)],
         model=model,
         provider=provider,
         api_key=api_key,

@@ -38,6 +38,13 @@
 - Switched the Composio search provider parser to accept both citation-shaped and raw-result-shaped Composio payloads.
 - Made the Composio client read `COMPOSIO_API_KEY` and `COMPOSIO_USER_ID` from the live environment at call time so quick search follows the same credentials loaded by the server bootstrap.
 - Added branch-executor headroom so decomposed search branches can return provider partials before the wrapper cancels the task.
+- **Fixed provider duplication in branch planner** — `_shard_providers` no longer pads provider lists with `cycle()`, so each provider appears in exactly one branch instead of being invoked multiple times per branch.
+- **Fixed redundant branch creation when rewrite is disabled** — `pipeline.py` no longer injects an extra `QueryVariant` when `rewrite=False`; the canonical original branch from `build_search_branch_specs` is the only branch.
+- **BrightData Google search now respects a configurable timeout** — new `BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS` setting (default `20.0`) used as both the per-request and `run_provider` timeout. Google and Bing requests are now concurrent instead of sequential.
+- **BrightData per-attempt logging** — logs each Google/Bing attempt URL and timing for easier observability.
+
+### Added
+- Unit tests for branch planner: provider sharding without duplication and correct branch counts for rewrite enabled/disabled (`tests/test_branch_planner.py`).
 
 ## [0.4.0] — 2026-06-28
 

@@ -110,17 +110,11 @@ async def run_search_pipeline(
             must_keep_terms=list(context.must_keep_terms),
         )
     else:
-        from .query_rewrite_models import QueryVariant
-
-        rewrite_variants = [
-            QueryVariant(
-                kind="original",
-                target="keyword",
-                query=normalized_query,
-                why="Rewrite disabled by caller.",
-                weight=1.0,
-            )
-        ]
+        # When rewrite is disabled we must not inject an "original" variant here;
+        # branch_planner already creates the canonical original branch. Passing an
+        # extra original variant caused duplicate branches and multiplied provider
+        # calls (e.g. brightdata invoked 3x concurrently).
+        rewrite_variants = []
         rewrite_model = "disabled"
         rewrite_input_tokens = None
         rewrite_output_tokens = None
@@ -177,9 +171,7 @@ async def run_search_pipeline(
         provider_plan=provider_plan,
     )
     # Kick off embedding concurrently with search branches
-    embedding_task = asyncio.ensure_future(
-        embed_query(normalized_query, timeout=15.0)
-    )
+    embedding_task = asyncio.ensure_future(embed_query(normalized_query, timeout=15.0))
     branch_batch = await execute_search_branches(
         branch_specs,
         http_client=client,
@@ -393,10 +385,7 @@ async def run_search_pipeline(
         for result in final_results:
             get_session_state_store().mark_seen(session_id, result.link)
 
-    if (
-        settings.web_results_index_enabled
-        and final_results
-    ):
+    if settings.web_results_index_enabled and final_results:
         try:
             from ..index import index_final_results
             from ..embeddings import embed_texts
@@ -406,7 +395,11 @@ async def run_search_pipeline(
             for r in final_results:
                 if r.providers and "qdrant" in r.providers:
                     continue
-                t = f"{r.title}. {r.snippet}" if r.title and r.snippet else (r.title or r.snippet or r.link)
+                t = (
+                    f"{r.title}. {r.snippet}"
+                    if r.title and r.snippet
+                    else (r.title or r.snippet or r.link)
+                )
                 texts.append(t)
                 indexed_results.append(r)
 
@@ -415,7 +408,11 @@ async def run_search_pipeline(
                 if not dense_embeddings:
                     logger.debug("embed_texts returned empty for index write")
                 elif len(dense_embeddings) != len(indexed_results):
-                    logger.debug("embed_texts count mismatch: %d vs %d", len(dense_embeddings), len(indexed_results))
+                    logger.debug(
+                        "embed_texts count mismatch: %d vs %d",
+                        len(dense_embeddings),
+                        len(indexed_results),
+                    )
                 else:
                     entity_dicts = [
                         {"text": e.text, "label": e.label}
@@ -423,7 +420,6 @@ async def run_search_pipeline(
                         if r.entities
                         for e in r.entities
                     ] or None
-
 
                     await index_final_results(
                         normalized_query,
@@ -527,7 +523,9 @@ async def run_search_pipeline(
                 payload_json={
                     "provider_count": result.provider_count,
                     "providers": result.providers or [],
-                    "candidate_id": _candidate_id(result.link, result.title, result.snippet),
+                    "candidate_id": _candidate_id(
+                        result.link, result.title, result.snippet
+                    ),
                     "canonical_result_id": _canonical_result_id(result.link),
                     "tool_call_id": tool_call_id,
                     "entities": (

@@ -24,7 +24,7 @@ from ..telemetry import (
 from ..utils.observability import emit_observability_event
 from .bi_encoder import bi_encoder_filter
 from .models import RerankEmbeddingContext, RerankOutput
-from .observability import emit_rerank_summary, record_rerank_candidate_rows
+from .observability import emit_rerank_summary, record_rerank_candidate_rows_async
 from .policy import decide_rerank
 from .reporting import record_bi_encoder_stage, record_diversity_stage
 from .stack import build_rerank_stack_plan
@@ -159,8 +159,8 @@ async def rerank_results(
         )
 
     embedding_ctx: RerankEmbeddingContext | None = None
-    final_provider = settings.rerank_provider.strip().lower()
-    final_model: str | None = None
+    final_provider = "chain"
+    final_model: str = ""
     max_rerank_score = 0.0
 
     with tracer.start_as_current_span(
@@ -197,7 +197,7 @@ async def rerank_results(
                 candidates = candidates[:bi_encoder_top_k]
                 stage1_output_count = len(candidates)
             stage1_duration = time.time() - stage1_start
-            record_rerank_candidate_rows(
+            await record_rerank_candidate_rows_async(
                 logger,
                 run_key=run_key,
                 stage="bi_encoder",
@@ -220,13 +220,9 @@ async def rerank_results(
             )
 
         if plan.use_cross_encoder:
-            configured_provider = settings.rerank_provider.strip().lower()
-            if ab_overrides and "provider" in ab_overrides:
-                configured_provider = ab_overrides["provider"].strip().lower()
             cross_outcome = await run_cross_encoder_stage(
                 query=query,
                 candidates=candidates,
-                provider_id=configured_provider,
                 instruction=instruction,
                 query_type_hint=query_type_hint,
                 query_entities=query_entities,
@@ -246,7 +242,7 @@ async def rerank_results(
                 candidates = cross_outcome.candidates
                 max_rerank_score = cross_outcome.max_score
                 final_provider = cross_outcome.provider
-                final_model = cross_outcome.model
+                final_model = cross_outcome.model or ""
 
         if plan.use_llm_reranker:
             llm_outcome = await run_llm_stage(
@@ -269,7 +265,7 @@ async def rerank_results(
                 candidates = llm_outcome.candidates
                 max_rerank_score = llm_outcome.max_score
                 final_provider = llm_outcome.provider
-                final_model = llm_outcome.model
+                final_model = llm_outcome.model or ""
 
         diversity_result = await run_diversity_pruning(
             query=query,

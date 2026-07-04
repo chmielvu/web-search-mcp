@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Load .env before class definitions evaluate os.environ.get()
+# Use override=True so values in .env take precedence over stale shell exports.
+# Without this, a leftover `export TELEGRAM_SESSION_STRING=...` from a previous
+# session silently overrides the .env value and pinpoints the wrong account.
 try:
     from dotenv import load_dotenv
 except ImportError:
@@ -13,8 +16,8 @@ except ImportError:
 else:
     _settings_pkg = Path(__file__).resolve().parent
     _project_root = _settings_pkg.parent.parent
-    load_dotenv(_project_root / ".env")
-    load_dotenv()
+    load_dotenv(_project_root / ".env", override=True)
+    load_dotenv(override=True)
 
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
@@ -145,7 +148,7 @@ class Settings:
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
     hf_embedding_model: str = os.environ.get(
-        "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large"
+        "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large-instruct"
     )
     embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "1024"))
     embedding_timeout_seconds: float = float(
@@ -365,9 +368,7 @@ class Settings:
     google_cse_timeout_seconds: float = float(
         os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
     )
-    ddg_timeout_seconds: float = float(
-        os.environ.get("DDG_TIMEOUT_SECONDS", "10")
-    )
+    ddg_timeout_seconds: float = float(os.environ.get("DDG_TIMEOUT_SECONDS", "10"))
 
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
     # to turn off noisy providers like reddit without changing code.
@@ -389,6 +390,9 @@ class Settings:
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
     brightdata_bing_timeout_seconds: float = float(
         os.environ.get("BRIGHTDATA_BING_TIMEOUT_SECONDS", "10.0")
+    )
+    brightdata_google_timeout_seconds: float = float(
+        os.environ.get("BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS", "20.0")
     )
     brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
 
@@ -430,7 +434,6 @@ class Settings:
     degoog_timeout_seconds: float = float(
         os.environ.get("DEGOOG_TIMEOUT_SECONDS", "15")
     )
-    degoog_engines: str = os.environ.get("DEGOOG_ENGINES", "")  # comma-separated, empty=all
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))

@@ -41,7 +41,9 @@ def _get_brightdata_api_key() -> str:
 
 
 def _resolve_payload_base() -> dict:
-    zone = get_env_value("BRIGHTDATA_ZONE", settings.brightdata_zone).strip() or "sdk_serp"
+    zone = (
+        get_env_value("BRIGHTDATA_ZONE", settings.brightdata_zone).strip() or "sdk_serp"
+    )
     payload: dict = {
         "zone": zone,
         "format": "raw",
@@ -108,7 +110,9 @@ def _detect_upstream_error(data: dict) -> str | None:
     return f"BrightData upstream {status_code}: {msg or 'unknown error'}"
 
 
-def _parse_response(data: dict, search_type: str, num_results: int) -> list[WebSearchResult]:
+def _parse_response(
+    data: dict, search_type: str, num_results: int
+) -> list[WebSearchResult]:
     upstream = _detect_upstream_error(data)
     if upstream:
         raise BrightDataError(upstream)
@@ -124,14 +128,21 @@ def _parse_response(data: dict, search_type: str, num_results: int) -> list[WebS
                 title = item.get("title")
                 link = item.get("link")
                 snippet = item.get("description") or ""
-                if not (isinstance(title, str) and title.strip() and isinstance(link, str) and link.strip()):
+                if not (
+                    isinstance(title, str)
+                    and title.strip()
+                    and isinstance(link, str)
+                    and link.strip()
+                ):
                     continue
-                results.append(WebSearchResult(
-                    title=title.strip(),
-                    link=link.strip(),
-                    snippet=str(snippet).strip(),
-                    published_date=item.get("date"),
-                ))
+                results.append(
+                    WebSearchResult(
+                        title=title.strip(),
+                        link=link.strip(),
+                        snippet=str(snippet).strip(),
+                        published_date=item.get("date"),
+                    )
+                )
                 if len(results) >= num_results:
                     break
 
@@ -144,13 +155,20 @@ def _parse_response(data: dict, search_type: str, num_results: int) -> list[WebS
                 title = item.get("title")
                 link = item.get("link")
                 snippet = item.get("description") or ""
-                if not (isinstance(title, str) and title.strip() and isinstance(link, str) and link.strip()):
+                if not (
+                    isinstance(title, str)
+                    and title.strip()
+                    and isinstance(link, str)
+                    and link.strip()
+                ):
                     continue
-                results.append(WebSearchResult(
-                    title=title.strip(),
-                    link=link.strip(),
-                    snippet=str(snippet).strip(),
-                ))
+                results.append(
+                    WebSearchResult(
+                        title=title.strip(),
+                        link=link.strip(),
+                        snippet=str(snippet).strip(),
+                    )
+                )
                 if len(results) >= num_results:
                     break
 
@@ -172,13 +190,21 @@ async def _search_bing(
     bing_timeout = settings.brightdata_bing_timeout_seconds
 
     try:
+
         async def _do_bing(client: httpx.AsyncClient) -> list[WebSearchResult]:
-            response = await client.post(_REST_ENDPOINT, json=body, headers=headers)
+            response = await client.post(
+                _REST_ENDPOINT,
+                json=body,
+                headers=headers,
+                timeout=httpx.Timeout(bing_timeout),
+            )
             response.raise_for_status()
             try:
                 data = response.json()
             except ValueError as exc:
-                raise BrightDataError("BrightData Bing response was not valid JSON.") from exc
+                raise BrightDataError(
+                    "BrightData Bing response was not valid JSON."
+                ) from exc
             if not isinstance(data, dict):
                 raise BrightDataError("BrightData Bing response was not a JSON object.")
             return _parse_response(data, "web", num_results)
@@ -186,7 +212,9 @@ async def _search_bing(
         if http_client is not None:
             result = await asyncio.wait_for(_do_bing(http_client), timeout=bing_timeout)
         else:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=5.0, read=15.0)) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=bing_timeout)
+            ) as client:
                 result = await asyncio.wait_for(_do_bing(client), timeout=bing_timeout)
         return result
     except asyncio.TimeoutError:
@@ -232,14 +260,26 @@ async def search_brightdata(
 
     api_key = _get_brightdata_api_key()
     payload_base = _resolve_payload_base()
-    req_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    req_headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
     is_news = search_type == "news"
 
+    import time as _time
+
     # --- Google (primary, with retries via run_provider) ---
+    google_timeout = httpx.Timeout(settings.brightdata_google_timeout_seconds)
+
     async def _google_request(client: httpx.AsyncClient) -> dict:
-        google_url = _build_google_url(query, country, language, search_type, exact_match)
+        google_url = _build_google_url(
+            query, country, language, search_type, exact_match
+        )
         body = {**payload_base, "url": google_url}
-        response = await client.post(_REST_ENDPOINT, json=body, headers=req_headers)
+        logger.debug("BrightData Google request: %s", google_url)
+        response = await client.post(
+            _REST_ENDPOINT, json=body, headers=req_headers, timeout=google_timeout
+        )
         response.raise_for_status()
         try:
             data = response.json()
@@ -252,22 +292,49 @@ async def search_brightdata(
     def _google_parse(data: dict) -> list[WebSearchResult]:
         return _parse_response(data, search_type, num_results)
 
-    google_results = await run_provider(
-        "brightdata",
-        query,
-        num_results,
-        request=_google_request,
-        parse_response=_google_parse,
-        http_client=http_client,
+    _t0 = _time.perf_counter()
+    google_future = asyncio.ensure_future(
+        run_provider(
+            "brightdata",
+            query,
+            num_results,
+            request=_google_request,
+            parse_response=_google_parse,
+            http_client=http_client,
+            timeout_seconds=settings.brightdata_google_timeout_seconds,
+        )
     )
 
     # --- Bing (fire-and-forget, no retries; skip for news) ---
-    bing_results: list[WebSearchResult] = []
+    bing_future: asyncio.Future[list[WebSearchResult]] | None = None
     if use_bing and not is_news:
-        bing_results = await _search_bing(
-            query, num_results, http_client, api_key,
-            payload_base, req_headers, country, language,
+        bing_future = asyncio.ensure_future(
+            _search_bing(
+                query,
+                num_results,
+                http_client,
+                api_key,
+                payload_base,
+                req_headers,
+                country,
+                language,
+            )
         )
+
+    try:
+        google_results = await google_future
+    except Exception as exc:
+        google_results = []
+        logger.warning("BrightData Google failed: %s", exc)
+    _t_google = _time.perf_counter() - _t0
+    logger.info("BrightData Google: %.1fs, %d results", _t_google, len(google_results))
+
+    bing_results: list[WebSearchResult] = []
+    if bing_future is not None:
+        try:
+            bing_results = await bing_future
+        except Exception as exc:
+            logger.warning("BrightData Bing failed: %s", exc)
         bing_results = bing_results[:num_results]
 
     merged = google_results + bing_results

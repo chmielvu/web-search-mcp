@@ -19,7 +19,7 @@ from ..embeddings.hf_inference import (
 from ..models import WebSearchResult
 from .diversity import maximal_marginal_relevance_rank
 from .models import RerankEmbeddingContext
-from .observability import record_rerank_candidate_rows
+from .observability import record_rerank_candidate_rows_async
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +190,7 @@ async def run_diversity_pruning(
             )
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
         logger.warning("Diversity embedding failed: %s: %s", type(exc).__name__, exc)
-    record_rerank_candidate_rows(
+    await record_rerank_candidate_rows_async(
         logger,
         run_key=run_key,
         stage="diversity",

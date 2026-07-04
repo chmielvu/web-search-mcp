@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import cycle
-
 from ..settings import settings
 from .branch_executor import SearchBranchSpec
 from .intents import SearchIntent
@@ -16,19 +14,17 @@ def _shard_providers(
     providers: list[str],
     branch_count: int,
 ) -> list[list[str]]:
-    """Shard provider names across branches via round-robin.
+    """Shard provider names across branches via round-robin without duplication.
 
-    Each branch gets a unique subset so the slow mix is not triplicated.
-    The last branch takes the remainder. Every branch always gets at least
-    one provider (wrapping around if branches > providers).
+    Each provider appears in exactly one branch. When there are more branches
+    than providers some branches will be empty; when there are fewer branches
+    than providers each branch gets a distinct subset.
     """
     if not providers or branch_count <= 1:
-        return [providers[:]] * branch_count
+        return [providers[:]]
 
     shards: list[list[str]] = [[] for _ in range(branch_count)]
-    for i, provider in enumerate(cycle(providers)):
-        if all(len(s) >= 3 for s in shards):
-            break
+    for i, provider in enumerate(providers):
         shards[i % branch_count].append(provider)
     return shards
 
@@ -60,7 +56,11 @@ def build_search_branch_specs(
 
     branch_specs: list[SearchBranchSpec] = []
     for index, variant in enumerate(planned_variants):
-        branch_providers = provider_shards[index] if index < len(provider_shards) else list(active_provider_names)
+        branch_providers = (
+            provider_shards[index]
+            if index < len(provider_shards)
+            else list(active_provider_names)
+        )
         branch_specs.append(
             SearchBranchSpec(
                 index=index,
