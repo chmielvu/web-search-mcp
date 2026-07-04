@@ -161,11 +161,10 @@ def test_server_instructions_are_routing_policy_not_provider_readme() -> None:
     from kindly_web_search_mcp_server.server import mcp
 
     instructions = mcp.instructions
-    assert "Tool routing" in instructions
+    assert "quick_web_search" in instructions
+    assert "web_search" in instructions
     assert "rewrite=true" in instructions
-    assert "rewrite=false" in instructions
     assert "batch_get_content" in instructions
-    assert "perplexity_search only after" in instructions
 
 
 def test_workflow_resource_mentions_all_steering_tools() -> None:
@@ -178,7 +177,6 @@ def test_workflow_resource_mentions_all_steering_tools() -> None:
         "batch_get_content",
         "discover_links",
         "gemini_search",
-        "perplexity_search",
         "youtube_search",
         "youtube_transcript",
         "composio_similarlinks",
@@ -211,7 +209,7 @@ def test_workflow_prompts_encode_server_features() -> None:
     plan_text = " ".join(_message_text(m) for m in plan_msgs)
     assert "web_search" in plan_text
     assert "gemini_search" in plan_text
-    assert "perplexity_search" in plan_text
+    assert "grok_search" in plan_text
     assert "academic_search" in plan_text
     assert "batch_get_content" in plan_text
     assert "rewrite=true" in plan_text
@@ -254,7 +252,6 @@ def test_suggest_tool_prompt_encodes_tool_routing_table() -> None:
     assert "web_search" in routing_text
     assert "academic_search" in routing_text
     assert "gemini_search" in routing_text
-    assert "perplexity_search" in routing_text
     assert "get_content" in routing_text
     assert "batch_get_content" in routing_text
     assert "discover_links" in routing_text

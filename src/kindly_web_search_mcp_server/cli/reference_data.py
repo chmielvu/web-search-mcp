@@ -6,7 +6,7 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
     {"tool": "batch_get_content", "command": "content batch", "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"], "required": ["url_or_cursor"]},
     {"tool": "discover_links", "command": "links discover", "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"], "required": ["url"]},
     {"tool": "gemini_search", "command": "ai gemini", "profiles": ["research", "experimental", "full"], "required": ["query"]},
-    {"tool": "perplexity_search", "command": "ai perplexity", "profiles": ["research", "experimental", "full"], "required": ["query"]},
+    {"tool": "grok_search", "command": "ai grok", "profiles": ["research", "experimental", "full"], "required": ["query", "research_goal"]},
     {"tool": "grok_search", "command": "ai grok", "profiles": ["research", "experimental", "full"], "required": ["query", "research_goal"]},
     {"tool": "academic_search", "command": "search academic", "profiles": ["research", "experimental", "full"], "required": ["query"]},
     {"tool": "quick_web_search", "command": "search quick", "profiles": ["research", "experimental", "full"], "required": ["query"]},
@@ -28,7 +28,7 @@ EXTERNAL_TOOLS: tuple[dict[str, str], ...] = (
 COMMANDS: tuple[str, ...] = (
     "schema", "doctor", "getskill", "search web", "search quick", "search academic",
     "content get", "content batch", "links discover", "links similar",
-    "ai gemini", "ai perplexity", "ai grok", "agent research", "youtube search",
+    "ai gemini", "ai grok", "agent research", "youtube search",
     "youtube transcript", "analytics query", "analytics report", "reference tools",
     "reference external-tools", "server start",
 )

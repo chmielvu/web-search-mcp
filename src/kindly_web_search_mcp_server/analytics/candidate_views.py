@@ -150,7 +150,7 @@ def build_candidate_view_sql(
         FROM {source}
         WHERE event_name IN (
             'tool.gemini_search.response',
-            'tool.perplexity_search.response',
+            'tool.grok_search.response',
             'tool.quick_web_search.response'
         )
         """,

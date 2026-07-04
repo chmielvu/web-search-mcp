@@ -256,9 +256,6 @@ def _rate_limit_action(provider: str | None, retry_after: int | None) -> str:
     if provider == "gemini":
         return f"{base} Gemini API rate limit. Check Google AI Studio quotas. Wait {retry_after or 60}s."
 
-    if provider == "perplexity":
-        return f"{base} Perplexity Sonar rate limit. This is a premium resource. Wait {retry_after or 60}s."
-
     if retry_after:
         return f"{base} Wait {retry_after}s before retrying."
 

@@ -14,7 +14,6 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "batch_get_content",
         "discover_links",
         "gemini_search",
-        "perplexity_search",
         "generate_semantic_sitemap",
         "youtube_search",
         "youtube_transcript",
@@ -89,12 +88,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     ),
     "gemini_search": _entry(
         "gemini_search", "Gemini Search", {"regular", "full"}
-    ),
-    "perplexity_search": _entry(
-        "perplexity_search",
-        "Perplexity Search",
-        {"regular", "full"},
-        expensive=True,
     ),
     "grok_search": _entry(
         "grok_search",

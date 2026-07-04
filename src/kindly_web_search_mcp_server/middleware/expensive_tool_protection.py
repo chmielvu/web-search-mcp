@@ -22,7 +22,7 @@ from ..utils.observability import emit_observability_event
 logger = logging.getLogger(__name__)
 
 # Tools considered expensive (require query quality check)
-EXPENSIVE_TOOLS = frozenset({"perplexity_search", "grok_search"})
+EXPENSIVE_TOOLS = frozenset({"grok_search"})
 
 # Session timeout in seconds (reset attempt count after this)
 SESSION_TIMEOUT_SECONDS = 300  # 5 minutes
@@ -49,7 +49,7 @@ Perplexity Sonar is rate-limited and costly. Before retrying, refine your query:
 
 **ACTION:**
 Refine your query with: domain context + specific need + single focus.
-Then call `perplexity_search` again. Low-quality queries waste expensive resources.
+Then call it again. Low-quality queries waste expensive resources.
 """
 
 
@@ -160,7 +160,7 @@ def create_expensive_tool_middleware(
     """Factory function to create the middleware.
 
     Args:
-        protected_tools: Tools to protect (defaults to perplexity_search)
+        protected_tools: Tools to protect
         block_first_attempt: Whether to block the first attempt
 
     Returns:

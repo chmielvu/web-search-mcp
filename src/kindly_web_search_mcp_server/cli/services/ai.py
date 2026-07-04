@@ -4,7 +4,6 @@ from typing import Any
 
 from ...search.gemini_search_tool import gemini_search_with_grounding
 from ...search.grok import grok_search
-from ...search.pollinations import get_pollinations_client
 
 
 async def fetch_gemini_search_payload(
@@ -21,23 +20,6 @@ async def fetch_gemini_search_payload(
     payload = response.model_dump(exclude_none=True)
     payload.pop("search_widget_html", None)
     return payload
-
-
-async def fetch_perplexity_search_payload(
-    query: str,
-    *,
-    depth: str,
-    research_goal: str | None,
-) -> dict[str, Any]:
-    client = get_pollinations_client()
-    result = await client.web_search(query, depth=depth, research_goal=research_goal)
-    return {
-        "query": query,
-        "answer": result.get("answer"),
-        "sources": result.get("sources", []),
-        "model": result.get("model"),
-        "error": None,
-    }
 
 
 async def fetch_grok_search_payload(
@@ -62,4 +44,3 @@ async def fetch_grok_search_payload(
     payload = result.__dict__.copy()
     payload.setdefault("error", None)
     return payload
-

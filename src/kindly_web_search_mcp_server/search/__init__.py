@@ -16,7 +16,7 @@ from .serper import search_serper
 from .composio_llm_search import search_composio_llm_search
 from .ddg import search_ddg
 from .degoog import search_degoog
-from .gemini_pollinations import search_gemini_pollinations
+from .gemma_serp import search_gemma
 from .grok import search_grok_openrouter
 from .github_graphql import search_github_graphql
 from .hackernews import search_hackernews
@@ -64,6 +64,15 @@ def _init_provider_registry() -> None:
             name="ddg",
             env_key="",  # No env key needed
             search_fn=search_ddg,
+            group=ProviderGroup.free,
+            requires_key=False,
+        )
+    )
+    register_provider(
+        ProviderConfig(
+            name="gemma",
+            env_key="",  # Uses baked-in API key
+            search_fn=search_gemma,
             group=ProviderGroup.free,
             requires_key=False,
         )
@@ -147,15 +156,6 @@ def _init_provider_registry() -> None:
             name="jina",
             env_key="JINA_API_KEY",
             search_fn=search_jina,
-            group=ProviderGroup.specialized,
-            requires_key=True,
-        )
-    )
-    register_provider(
-        ProviderConfig(
-            name="gemini",
-            env_key="POLLINATIONS_API_KEY",
-            search_fn=search_gemini_pollinations,
             group=ProviderGroup.specialized,
             requires_key=True,
         )

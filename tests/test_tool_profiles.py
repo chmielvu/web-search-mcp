@@ -21,7 +21,6 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
             "batch_get_content",
             "discover_links",
             "gemini_search",
-            "perplexity_search",
             "generate_semantic_sitemap",
             "youtube_search",
             "youtube_transcript",
@@ -42,7 +41,6 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
         assert kwargs["tags"] == entry.tags
         assert kwargs["annotations"] == entry.annotations
 
-    assert TOOL_CATALOG["perplexity_search"].expensive is True
     assert TOOL_CATALOG["grok_search"].expensive is True
     assert TOOL_CATALOG["agentic_web_research"].experimental is True
     assert TOOL_CATALOG["generate_semantic_sitemap"].expensive is True
@@ -61,7 +59,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "batch_get_content",
             "discover_links",
             "gemini_search",
-            "perplexity_search",
             "youtube_search",
             "youtube_transcript",
             "generate_semantic_sitemap",
@@ -78,7 +75,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "generate_semantic_sitemap",
             "get_content",
             "grok_search",
-            "perplexity_search",
             "quick_web_search",
             "web_search",
             "youtube_search",

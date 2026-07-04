@@ -99,30 +99,6 @@ def test_ai_gemini_emits_json_payload(monkeypatch) -> None:
     assert payload["data"]["answer"] == "Mock answer"
 
 
-def test_ai_perplexity_emits_json_payload(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.ai.fetch_perplexity_search_payload",
-        AsyncMock(
-            return_value={
-                "query": "what is fastmcp",
-                "answer": "Mock perplexity answer",
-                "sources": ["https://example.com"],
-                "model": "perplexity-fast",
-            }
-        ),
-    )
-
-    payload = _payload(
-        runner.invoke(
-            app,
-            ["ai", "perplexity", "--query", "what is fastmcp"],
-        )
-    )
-
-    assert payload["meta"]["command"] == "ai perplexity"
-    assert payload["data"]["model"] == "perplexity-fast"
-
-
 def test_ai_grok_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.ai.fetch_grok_search_payload",

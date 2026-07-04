@@ -46,7 +46,7 @@ def build_raw_view_sql(target: str, *, source_table: str = "analytics_event_raw"
                                OR event_name LIKE 'tool.batch_get_content.%') AS fetch_events,
             COUNT(*) FILTER (WHERE event_name IN (
                 'tool.gemini_search.response',
-                'tool.perplexity_search.response',
+                'tool.grok_search.response',
                 'tool.quick_web_search.response'
             )) AS answer_events
         FROM {target}.vw_events

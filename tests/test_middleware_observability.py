@@ -69,7 +69,7 @@ class TestMiddlewareObservability(unittest.TestCase):
 
         middleware = ExpensiveToolProtectionMiddleware(block_first_attempt=True)
         context = SimpleNamespace(
-            message=SimpleNamespace(name="perplexity_search"),
+            message=SimpleNamespace(name="grok_search"),
             fastmcp_context=None,
         )
         call_next = AsyncMock(return_value={"ok": True})

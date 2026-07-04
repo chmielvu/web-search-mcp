@@ -8,7 +8,7 @@ Architecture:
 - Light provider: extracts structured WebSearchResult[] from url_citation
   annotations for RRF merge pipeline participation
 - Standalone tool: returns synthesized answer + citation list (like
-  gemini_search and perplexity_search)
+  gemini_search)
 
 Prompts engineered from:
 - Grok 4.3 beta system prompt leak (GitHub): XML structure, self-aware identity

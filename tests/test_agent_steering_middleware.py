@@ -113,7 +113,7 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("agent_guidance", third.structured_content)
 
     def test_expensive_tool_session_id_does_not_use_global_default_session(self) -> None:
-        context = MiddlewareContext(message=SimpleNamespace(name="perplexity_search"))
+        context = MiddlewareContext(message=SimpleNamespace(name="grok_search"))
 
         session_id = get_session_id(context)
 

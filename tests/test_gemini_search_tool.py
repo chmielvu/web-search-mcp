@@ -18,6 +18,7 @@ from kindly_web_search_mcp_server.search.gemini_search_tool import (
     GeminiResearchOutput,
     _classify_gemini_error,
     _is_gemini_model,
+    _is_gemini3_model,
     get_system_prompt,
     gemini_search_with_grounding,
 )
@@ -83,16 +84,16 @@ def _create_mock_error(status_code: int) -> Exception:
 class TestGeminiFallbackTier(unittest.TestCase):
     def test_fallback_tier_order(self) -> None:
         """Verify hardcoded fallback tier order."""
-        self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-2.5-flash")
-        self.assertEqual(GEMINI_GROUNDING_TIER[1], "gemini-2.5-flash-lite")
-        self.assertEqual(GEMINI_GROUNDING_TIER[2], "gemini-3.1-flash-lite")
+        self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-3.1-flash-lite")
+        self.assertEqual(GEMINI_GROUNDING_TIER[1], "gemini-2.5-flash")
+        self.assertEqual(GEMINI_GROUNDING_TIER[2], "gemini-2.5-flash-lite")
         self.assertEqual(len(GEMINI_GROUNDING_TIER), 3)
 
-    def test_primary_is_gemini_flash(self) -> None:
-        """Primary model should be Gemini 2.5 Flash."""
+    def test_primary_is_gemini_31_flash_lite(self) -> None:
+        """Primary model should be Gemini 3.1 Flash-Lite."""
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[0]))
-        self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[1]))
-        self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[2]))
+        self.assertTrue(_is_gemini3_model(GEMINI_GROUNDING_TIER[0]))
+        self.assertIn("flash-lite", GEMINI_GROUNDING_TIER[0])
 
 
 class TestGeminiStructuredSchema(unittest.TestCase):
@@ -107,20 +108,29 @@ class TestGeminiSystemInstructionHandling(unittest.TestCase):
         """Gemini models should be identified for system_instruction."""
         self.assertTrue(_is_gemini_model("gemini-2.5-flash"))
         self.assertTrue(_is_gemini_model("gemini-2.5-flash-lite"))
-        self.assertTrue(_is_gemini_model("gemini-1.5-pro"))
+        self.assertTrue(_is_gemini_model("gemini-3.1-flash-lite"))
 
     def test_gemma_models_do_not_accept_system_instruction(self) -> None:
         """Non-Gemini models should NOT be identified for system_instruction."""
         self.assertFalse(_is_gemini_model("gemma-4-31b-it"))
         self.assertFalse(_is_gemini_model("gemma-3"))
 
-    def test_system_prompt_includes_date(self) -> None:
-        """System prompt should include current date."""
+    def test_system_prompt_includes_search_policy(self) -> None:
+        """System prompt should include search trigger rules."""
         prompt = get_system_prompt()
-        self.assertIn("Today is", prompt)
-        import re
-        date_pattern = r"Today is \d{4}-\d{2}-\d{2}\."
-        self.assertTrue(re.search(date_pattern, prompt) is not None)
+        self.assertIn("SEARCH POLICY", prompt)
+        self.assertIn("google_search", prompt)
+
+    def test_system_prompt_includes_citation_rules(self) -> None:
+        """System prompt should instruct on inline citations."""
+        prompt = get_system_prompt()
+        self.assertIn("(domain.com)", prompt)
+        self.assertIn("numeric markers", prompt)
+
+    def test_system_prompt_includes_no_hallucination(self) -> None:
+        """System prompt should include hallucination fallback."""
+        prompt = get_system_prompt()
+        self.assertIn("No reliable sources", prompt)
 
     def test_system_prompt_with_research_goal(self) -> None:
         """The provider prompt should incorporate research goal in the user message."""
@@ -129,12 +139,6 @@ class TestGeminiSystemInstructionHandling(unittest.TestCase):
             query="", research_goal=goal, provider_name="gemini"
         )
         self.assertIn(goal, user_prompt)
-
-    def test_system_prompt_citation_instructions(self) -> None:
-        """System prompt should instruct on inline citations."""
-        prompt = get_system_prompt()
-        self.assertIn("inline citations", prompt.lower())
-        self.assertIn("Prefer current, official, and primary sources.", prompt)
 
 
 class TestGeminiErrorClassification(unittest.TestCase):
@@ -195,7 +199,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, GeminiGroundingResult)
         self.assertEqual(result.query, "fastmcp middleware docs")
         self.assertIn("middleware", result.answer.lower())
-        self.assertEqual(result.model_used, "gemini-2.5-flash")
+        self.assertEqual(result.model_used, "gemini-3.1-flash-lite")
         self.assertEqual(result.input_tokens, 15)
         self.assertEqual(result.output_tokens, 7)
         self.assertEqual(len(result.grounding_chunks), 1)
@@ -266,9 +270,9 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
                 structured_output=False,
             )
 
-        # Should have tried primary, retry failed, then succeeded on next tier
-        self.assertEqual(result.model_used, "gemini-2.5-flash-lite")
-        self.assertIn("gemini-2.5-flash", result.fallback_chain)
+        # Should have tried primary (3.1-flash-lite), retry failed, then succeeded on next tier
+        self.assertEqual(result.model_used, "gemini-2.5-flash")
+        self.assertIn("gemini-3.1-flash-lite", result.fallback_chain)
 
     async def test_gemini_search_fallback_to_second_key_model(self) -> None:
         """Verify fallback to the second API key and Gemini 3.1 Flash Lite."""
@@ -309,7 +313,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
                 structured_output=False,
             )
 
-        self.assertEqual(result.model_used, "gemini-3.1-flash-lite")
+        self.assertEqual(result.model_used, "gemini-2.5-flash-lite")
         self.assertEqual(len(result.fallback_chain), 3)
         self.assertEqual(seen_api_keys, ["primary-key", "primary-key", "secondary-key"])
         if result.fallback_reason:

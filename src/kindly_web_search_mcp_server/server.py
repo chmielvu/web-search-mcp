@@ -24,7 +24,6 @@ from .telemetry import (
     record_search_request,
     record_tool_details,
     record_gemini_search,
-    record_perplexity_search,
     record_youtube_transcript,
     record_youtube_search,
 )
@@ -91,7 +90,7 @@ from .cache import (
     provider_cache_key,
     get_page_cache,
 )
-from .search.gemini_search_tool import gemini_search_with_grounding
+from .search.gemini_search_tool import gemini_search_with_grounding_dual
 from .search.grok import grok_search as _grok_search_core
 from .search.normalize import normalize_query, canonicalize_url
 from .search.options import build_search_identity_key, build_search_options
@@ -301,7 +300,7 @@ mcp = FastMCP(
     ),
 )
 
-# Add expensive tool protection middleware for perplexity_search
+# Add expensive tool protection middleware
 # Implements "think first, then call expensive tool" pattern
 from .middleware import create_expensive_tool_middleware
 
@@ -799,7 +798,7 @@ async def web_search(
 
     When not to use:
     - Use get_content to extract full page content from a known URL
-    - Use gemini_search or perplexity_search for AI-synthesized answers
+    - Use gemini_search for AI-synthesized answers
 
     Configuration requires SEARXNG_BASE_URL and TAVILY_API_KEY environment variables.
     num_results default is 10; recommended range is 5-25. rewrite=True enables normal discovery (best for most queries). rewrite=False is for exact lookups.
@@ -1558,19 +1557,23 @@ async def gemini_search(
         progress=10, total=100, message="Querying Gemini with grounding..."
     )
     try:
-        result = await gemini_search_with_grounding(
+        result = await gemini_search_with_grounding_dual(
             query, structured_output=structured_output, research_goal=research_goal
         )
-        response = result.model_dump(exclude_none=True)
-        response.pop("search_widget_html", None)
+        response = result
+        response.pop("search_widget_html", None) if isinstance(response.get("search_widget_html"), str) else None
         duration_seconds = time.time() - start_time
 
-        # Record Gemini search telemetry
-        grounding_queries = len(response.get("web_search_queries", []))
-        grounding_chunks = len(response.get("grounding_chunks", []))
+        # Record Gemini search telemetry from overview branch
+        overview = response.get("overview", {})
+        deepdive = response.get("deepdive", {})
+        grounding_queries_ov = len(overview.get("web_search_queries", []))
+        grounding_queries_dd = len(deepdive.get("web_search_queries", []))
+        grounding_chunks_ov = len(overview.get("grounding_chunks", []))
+        grounding_chunks_dd = len(deepdive.get("grounding_chunks", []))
         record_gemini_search(
-            grounding_queries=grounding_queries,
-            grounding_chunks=grounding_chunks,
+            grounding_queries=grounding_queries_ov + grounding_queries_dd,
+            grounding_chunks=grounding_chunks_ov + grounding_chunks_dd,
             structured_output=structured_output,
             duration_seconds=duration_seconds,
         )
@@ -1582,26 +1585,28 @@ async def gemini_search(
             query=query,
             structured_output=structured_output,
             research_goal=research_goal,
-            answer=response.get("answer"),
+            overview_answer=overview.get("answer"),
+            deepdive_answer=deepdive.get("answer"),
             model_used=response.get("model_used"),
-            input_tokens=response.get("input_tokens"),
-            output_tokens=response.get("output_tokens"),
-            structured_result=response.get("structured_result"),
-            web_search_queries=response.get("web_search_queries", []),
-            grounding_chunks=response.get("grounding_chunks", []),
+            both_succeeded=response.get("both_succeeded"),
+            overview_input_tokens=overview.get("input_tokens"),
+            deepdive_input_tokens=deepdive.get("input_tokens"),
+            overview_web_search_queries=overview.get("web_search_queries", []),
+            deepdive_web_search_queries=deepdive.get("web_search_queries", []),
             error=response.get("error"),
         )
         _record_tool_success(
             "gemini_search",
             input_query=query,
-            output_content=response.get("answer")
-            if isinstance(response.get("answer"), str)
-            else None,
+            output_content=overview.get("answer")
+            if isinstance(overview.get("answer"), str)
+            else str(overview.get("answer", "")),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
             try:
                 _run_key = str(uuid.uuid4())
+                all_chunks = overview.get("grounding_chunks", []) + deepdive.get("grounding_chunks", [])
                 _judge_results = [
                     type(
                         "obj",
@@ -1612,11 +1617,7 @@ async def gemini_search(
                             "snippet": c.get("snippet", ""),
                         },
                     )()
-                    for c in (
-                        response.get("grounding_chunks", [])
-                        if isinstance(response, dict)
-                        else []
-                    )
+                    for c in all_chunks
                 ]
                 fire_and_forget(
                     run_judge_evaluation(
@@ -1654,165 +1655,6 @@ async def gemini_search(
         )
         _record_tool_failure("gemini_search")
         raise
-
-
-@mcp.tool(**tool_kwargs("perplexity_search"))
-async def perplexity_search(
-    query: str,
-    depth: str = "normal",
-    research_goal: str | None = None,
-    ctx: Context = CurrentContext(),
-) -> dict:
-    """Deep AI research via Perplexity Sonar. Returns a synthesized answer with source citations.
-    Rate-limited and expensive — refine your query to a single focused question before using.
-    """
-    from .search.pollinations import get_pollinations_client
-
-    client = get_pollinations_client()
-    emit_tool_observability_event(
-        LOGGER,
-        "perplexity_search",
-        "request",
-        query=query,
-        depth=depth,
-        research_goal=research_goal,
-    )
-    import time
-
-    start_time = time.time()
-
-    await ctx.report_progress(
-        progress=10, total=100, message="Querying Perplexity Sonar..."
-    )
-
-    try:
-        result = await client.web_search(query, depth, research_goal=research_goal)
-        response = {
-            "query": result["query"],
-            "answer": result["answer"],
-            "sources": result["sources"],
-            "model": result["model"],
-            "model_used": result.get("model_used", result["model"]),
-            "input_tokens": result.get("input_tokens"),
-            "output_tokens": result.get("output_tokens"),
-            "error": None,
-        }
-        duration_seconds = time.time() - start_time
-
-        # Record Perplexity search telemetry
-        source_count = len(response["sources"])
-        model = response["model"] or "sonar"
-        record_perplexity_search(
-            depth=depth,
-            source_count=source_count,
-            model=model,
-            duration_seconds=duration_seconds,
-        )
-
-        emit_tool_observability_event(
-            LOGGER,
-            "perplexity_search",
-            "response",
-            query=query,
-            depth=depth,
-            research_goal=research_goal,
-            answer=response["answer"],
-            sources=response["sources"],
-            model=response["model"],
-            model_used=response["model_used"],
-            input_tokens=response["input_tokens"],
-            output_tokens=response["output_tokens"],
-            error=None,
-        )
-        _record_tool_success(
-            "perplexity_search",
-            input_query=query,
-            output_content=response["answer"],
-        )
-        await ctx.report_progress(progress=100, total=100, message="Done")
-        if settings.judge_evaluation_enabled:
-            try:
-                _run_key = str(uuid.uuid4())
-                _judge_results = [
-                    type(
-                        "obj",
-                        (object,),
-                        {
-                            "title": s.get("title", ""),
-                            "link": s.get("url", ""),
-                            "snippet": s.get("snippet", ""),
-                        },
-                    )()
-                    for s in (
-                        response.get("sources", [])
-                        if isinstance(response, dict)
-                        else []
-                    )
-                ]
-                fire_and_forget(
-                    run_judge_evaluation(
-                        run_key=_run_key,
-                        query=query,
-                        intent="ai_search",
-                        results=_judge_results,
-                        tool_name="perplexity_search",
-                        session_id=_resolve_session_id(ctx),
-                    ),
-                    name=f"judge-perplexity-{_run_key[:8]}",
-                )
-            except Exception:
-                pass
-
-        return response
-    except ValueError as e:
-        duration_seconds = time.time() - start_time
-        record_perplexity_search(
-            depth=depth,
-            source_count=0,
-            model="sonar",
-            duration_seconds=duration_seconds,
-        )
-        _record_tool_failure("perplexity_search")
-        return format_tool_error(e, provider="perplexity")
-    except httpx.HTTPError as e:
-        duration_seconds = time.time() - start_time
-        record_perplexity_search(
-            depth=depth,
-            source_count=0,
-            model="sonar",
-            duration_seconds=duration_seconds,
-        )
-        LOGGER.warning(f"Perplexity search failed: {e}")
-        emit_tool_observability_event(
-            LOGGER,
-            "perplexity_search",
-            "error",
-            level=logging.WARNING,
-            query=query,
-            depth=depth,
-            research_goal=research_goal,
-            error_type=type(e).__name__,
-            error_message=str(e),
-        )
-        _record_tool_failure("perplexity_search")
-        return format_tool_error(e, provider="perplexity")
-    except Exception as e:
-        LOGGER.warning(f"Perplexity search unexpected error: {e}")
-        emit_tool_observability_event(
-            LOGGER,
-            "perplexity_search",
-            "error",
-            level=logging.WARNING,
-            query=query,
-            depth=depth,
-            research_goal=research_goal,
-            error_type=type(e).__name__,
-            error_message=str(e),
-        )
-        _record_tool_failure("perplexity_search")
-        return format_tool_error(e, provider="perplexity")
-
-
 # ============================================================================
 # grok_search — Grok 4.3 via OpenRouter (web + X/Twitter native search)
 # ============================================================================
@@ -2424,7 +2266,7 @@ def get_providers_status() -> str:
         "",
         "## AI Search",
         f"**Gemini**: {'✓ Configured' if settings.gemini_api_key else '✗ Not configured'}",
-        f"**Perplexity (Pollinations)**: {'✓ Configured' if os.environ.get('POLLINATIONS_API_KEY') else '✗ Not configured'}",
+        f"**Gemma 4**: ✓ Free provider (always available)",
         "",
         "## Academic Search",
         f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('S2_API_KEY', '').strip() else 'not set — shared rate limit'})",
@@ -2491,9 +2333,7 @@ Start with `quick_web_search` for initial topic scoping before deeper research.
 |---|---|---|
 | Initial recon | quick_web_search | Fast synthesized answer with citations |
 | Find URLs | web_search | Multi-provider merge, provider_count signal |
-| Quick answer | gemini_search | Google-grounding, [N] citations, fast |
 | Web + X/Twitter | grok_search | Real-time web and social data |
-| Deep analysis | perplexity_search | Synthesized, expensive, refine query first |
 | Scholarly papers | academic_search | 6 sources, field/venue/year filters |
 | Read one URL | get_content | 7-stage resolution, pagination-aware, optional Gemini summary |
 | Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor, per-item Gemini summaries |
@@ -2510,7 +2350,7 @@ num_results: 3=fast, 5=standard, 7=broad. Max 10.
 ## Depth
 - quick: quick_web_search or gemini_search
 - medium: web_search(5) -> batch_get_content(2-3) -> gemini_search
-- deep: web_search(7) -> batch_get_content(5) -> perplexity_search -> academic_search
+- deep: web_search(7) -> batch_get_content(5) -> academic_search
 
 ## Result evaluation
 1. provider_count: 2+ stronger signal; 1 or missing = verify

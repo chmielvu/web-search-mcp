@@ -275,9 +275,6 @@ class Settings:
         str(TELEGRAM_DIR / "registry.duckdb"),
     )
 
-    # Pollinations API (for gemini-search provider in web_search mix)
-    pollinations_api_key: str = os.environ.get("POLLINATIONS_API_KEY", "")
-
     # OpenRouter API (shared by all OpenRouter integrations)
     openrouter_api_key: str = os.environ.get("OPENROUTER_API_KEY", "")
 
@@ -441,11 +438,6 @@ class Settings:
     # StackExchange config (consolidated from raw os.environ reads in stackexchange.py)
     stackexchange_sites: str = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow")
     stackexchange_app_key: str = os.environ.get("STACKEXCHANGE_APP_KEY", "")
-
-    # Pollinations/Gemini config (consolidated from raw read in gemini_pollinations.py)
-    pollinations_base_url: str = os.environ.get(
-        "POLLINATIONS_BASE_URL", "https://text.pollinations.ai/"
-    )
 
     # Composio Search toolkit
     composio_api_key: str = os.environ.get("COMPOSIO_API_KEY", "")

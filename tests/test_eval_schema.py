@@ -121,7 +121,7 @@ def test_deterministic_eval_metrics() -> None:
 
     assert expected_tool_called(tool_calls, "get_content") == 1.0
     assert expected_tool_called(tool_calls, "gemini_search") == 0.0
-    assert forbidden_tool_not_called(tool_calls, "perplexity_search") == 1.0
+    assert forbidden_tool_not_called(tool_calls, "grok_search") == 1.0
     assert forbidden_tool_not_called(tool_calls, "web_search") == 0.0
     assert latency_within_budget(250, 500) == 1.0
     assert latency_within_budget(750, 500) == 0.0

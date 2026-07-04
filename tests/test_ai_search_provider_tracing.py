@@ -112,144 +112,6 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(fake_client.calls[0][0], "gemini-3.1-flash-lite")
 
-    async def test_pollinations_web_search_traces_request(self) -> None:
-        from kindly_web_search_mcp_server.search.pollinations import PollinationsClient
-
-        patcher, span = self._span_patch(
-            "kindly_web_search_mcp_server.search.pollinations.create_llm_operation_span"
-        )
-
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                return None
-
-            def json(self) -> dict[str, object]:
-                return {
-                    "choices": [{"message": {"content": "Answer with sources"}}],
-                    "citations": ["https://example.com"],
-                    "usage": {
-                        "prompt_tokens": 12,
-                        "completion_tokens": 6,
-                        "total_tokens": 18,
-                    },
-                }
-
-        class FakeClient:
-            async def post(self, *args, **kwargs) -> FakeResponse:
-                return FakeResponse()
-
-        client = PollinationsClient(api_key="test-key")
-        with (
-            patcher as mock_create,
-            patch(
-                "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
-                return_value=FakeClient(),
-            ),
-        ):
-            result = await client.web_search(
-                "python tracing",
-                depth="normal",
-                research_goal="Find docs",
-            )
-
-        self.assertEqual(result["sources"], ["https://example.com"])
-        self.assertEqual(result["model_used"], "perplexity-fast")
-        self.assertEqual(result["input_tokens"], 12)
-        self.assertEqual(result["output_tokens"], 6)
-        self.assertEqual(span.attributes["search.source_count"], 1)
-        self.assertEqual(mock_create.call_args.kwargs["system"], "pollinations")
-        self.assertEqual(
-            mock_create.call_args.kwargs["attributes"]["search.depth"], "normal"
-        )
-
-    async def test_pollinations_gemini_grounding_traces_request(self) -> None:
-        from kindly_web_search_mcp_server.search.pollinations import (
-            gemini_grounding_search,
-        )
-
-        patcher, span = self._span_patch(
-            "kindly_web_search_mcp_server.search.pollinations.create_llm_operation_span"
-        )
-
-        class FakeResponse:
-            def raise_for_status(self) -> None:
-                return None
-
-            def json(self) -> dict[str, object]:
-                return {
-                    "choices": [
-                        {
-                            "groundingMetadata": {
-                                "webSearchQueries": ["python tracing"],
-                                "groundingChunks": [
-                                    {
-                                        "web": {
-                                            "uri": "https://example.com",
-                                            "title": "Example",
-                                            "domain": "example.com",
-                                        }
-                                    }
-                                ],
-                                "groundingSupports": [
-                                    {
-                                        "segment": {
-                                            "text": "Example text",
-                                            "startIndex": 0,
-                                            "endIndex": 12,
-                                        },
-                                        "groundingChunkIndices": [0],
-                                    }
-                                ],
-                            }
-                        }
-                    ],
-                    "model": "gemini-search",
-                    "provider": "vertex-ai",
-                    "usage": {
-                        "prompt_tokens": 18,
-                        "completion_tokens": 9,
-                        "total_tokens": 27,
-                    },
-                }
-
-        class FakeClient:
-            api_key = "test-key"
-            base_url = "https://gen.pollinations.ai"
-
-            def _get_headers(self) -> dict[str, str]:
-                return {"Authorization": "Bearer test-key"}
-
-        class FakeHttp:
-            async def post(self, *args, **kwargs) -> FakeResponse:
-                return FakeResponse()
-
-        with (
-            patcher as mock_create,
-            patch(
-                "kindly_web_search_mcp_server.search.pollinations.get_pollinations_client",
-                return_value=FakeClient(),
-            ),
-            patch(
-                "kindly_web_search_mcp_server.search.pollinations._get_shared_client",
-                return_value=FakeHttp(),
-            ),
-        ):
-            result = await gemini_grounding_search("python tracing", num_results=1)
-
-        self.assertEqual(
-            result["groundingMetadata"]["groundingChunks"][0]["uri"],
-            "https://example.com",
-        )
-        self.assertEqual(span.attributes["grounding.chunk_count"], 1)
-        self.assertEqual(mock_create.call_args.kwargs["system"], "pollinations")
-        self.assertEqual(
-            mock_create.call_args.kwargs["attributes"]["search.num_results_requested"],
-            1,
-        )
-        self.assertEqual(result["model_used"], "gemini-search")
-        self.assertEqual(result["input_tokens"], 18)
-        self.assertEqual(result["output_tokens"], 9)
-
     async def test_grok_paths_trace_request(self) -> None:
         from kindly_web_search_mcp_server.search.grok import (
             grok_search,
@@ -437,6 +299,10 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             def GenerateContentConfig(**kwargs):
                 return SimpleNamespace(**kwargs)
 
+            @staticmethod
+            def ThinkingConfig(**kwargs):
+                return SimpleNamespace(**kwargs)
+
         class FakeModels:
             @staticmethod
             def generate_content(*, model, contents, config):
@@ -469,11 +335,11 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                 research_goal="Find docs",
             )
 
-        self.assertEqual(result.model_used, "gemini-2.5-flash")
+        self.assertEqual(result.model_used, "gemini-3.1-flash-lite")
         self.assertEqual(result.input_tokens, 15)
         self.assertEqual(result.output_tokens, 7)
         self.assertEqual(span.attributes["search.grounding_chunk_count"], 1)
-        self.assertEqual(span.attributes["search.model_used"], "gemini-2.5-flash")
+        self.assertEqual(span.attributes["search.model_used"], "gemini-3.1-flash-lite")
         self.assertEqual(mock_create.call_args.kwargs["system"], "google")
         self.assertEqual(
             mock_create.call_args.kwargs["attributes"]["search.fallback_tier_count"],

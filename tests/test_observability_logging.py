@@ -36,7 +36,7 @@ def test_emit_observability_event_includes_hard_values(monkeypatch) -> None:
 
     emit_observability_event(
         logger,
-        "tool.perplexity_search.response",
+        "tool.grok_search.response",
         query="fastmcp middleware best practices",
         answer="Concrete answer text",
         sources=["https://example.com/a", "https://example.com/b"],
@@ -46,11 +46,11 @@ def test_emit_observability_event_includes_hard_values(monkeypatch) -> None:
     record = handler.records[0]
     payload = json.loads(record.getMessage())
 
-    assert payload["event"] == "tool.perplexity_search.response"
+    assert payload["event"] == "tool.grok_search.response"
     assert payload["query"] == "fastmcp middleware best practices"
     assert payload["answer"] == "Concrete answer text"
     assert payload["sources"] == ["https://example.com/a", "https://example.com/b"]
-    assert record.obs_event == "tool.perplexity_search.response"
+    assert record.obs_event == "tool.grok_search.response"
     assert record.obs_query == "fastmcp middleware best practices"
 
 

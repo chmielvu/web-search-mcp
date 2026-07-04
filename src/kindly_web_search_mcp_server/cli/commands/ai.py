@@ -42,33 +42,6 @@ def gemini_cmd(
     emit_json(payload, command="ai gemini")
 
 
-@ai_app.command("perplexity")
-def perplexity_cmd(
-    query: Annotated[str, typer.Option("--query", help="Search query text.")],
-    depth: Annotated[Literal["normal", "deep"], typer.Option("--depth")] = "normal",
-    research_goal: Annotated[str | None, typer.Option("--research-goal")] = None,
-) -> None:
-    from ..services.ai import fetch_perplexity_search_payload
-
-    try:
-        payload = asyncio.run(
-            fetch_perplexity_search_payload(
-                query,
-                depth=depth,
-                research_goal=research_goal,
-            )
-        )
-    except Exception as exc:
-        raise CliError(
-            kind="tool_error",
-            message=str(exc),
-            hint="Check the Pollinations API key and retry.",
-            exit_code=ExitCode.PROVIDER_ERROR,
-            context={"command": "ai perplexity"},
-        ) from exc
-    emit_json(payload, command="ai perplexity")
-
-
 @ai_app.command("grok")
 def grok_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],

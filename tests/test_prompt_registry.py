@@ -13,7 +13,6 @@ from kindly_web_search_mcp_server.prompts.registry import build_prompt
         "worker_rewrite",
         "gemini_search",
         "grok_search",
-        "perplexity_search",
         "rerank",
     ],
 )
