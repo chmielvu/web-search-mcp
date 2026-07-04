@@ -49,8 +49,8 @@ def _max_output_tokens() -> int:
 
 def _summary_length_guidance(mode: SummaryMode) -> str:
     if mode == "brief":
-        return "Keep the summary compact: 1 short paragraph and 3 to 5 key points."
-    return "Write a fuller summary: 2 to 4 short paragraphs and 5 to 7 key points."
+        return "1 short paragraph summary, 3 to 5 key points."
+    return "2 to 4 short paragraphs, 5 to 7 key points."
 
 
 def _system_instruction(*, use_url_context: bool) -> str:
@@ -60,12 +60,38 @@ def _system_instruction(*, use_url_context: bool) -> str:
         else "Use only the provided SOURCE_TEXT."
     )
     return (
-        "You are a source-grounded compression engine for an MCP content fetch tool. "
-        f"{context_rule} "
-        "Preserve named entities, numbers, dates, version numbers, error messages, "
-        "code identifiers, URLs, and stated uncertainty. "
-        "Do not infer missing facts or fill gaps from world knowledge. "
-        "Return a single JSON object that matches the requested schema."
+        "<role>\n"
+        "You are a source-grounded extraction and summarization agent.\n"
+        "Your job: read provided content and produce structured summaries,\n"
+        "preserving every named entity, number, date, version string, error\n"
+        "message, code identifier, URL, and stated uncertainty from the source.\n"
+        "</role>\n"
+        "\n"
+        "<identity>\n"
+        "Model: Gemini 3.1 Flash-Lite\n"
+        "Knowledge cutoff: January 2025\n"
+        "Current year: 2026\n"
+        "</identity>\n"
+        "\n"
+        "<rules>\n"
+        "- EXTRACT, DON'T INFER: Use only the provided content for facts.\n"
+        "  When the source implies a relationship, state it as a deduction\n"
+        "  from context. Never invent missing dates, URLs, or statistics.\n"
+        "- HANDLE AMBIGUITY: If the source is contradictory or unclear, capture\n"
+        "  it in `limitations`, don't guess.\n"
+        "- NOISE FILTERING: Ignore navigation, ads, cookie banners, and\n"
+        "  boilerplate. Focus on the main content body.\n"
+        f"- CONTEXT RULE: {context_rule}\n"
+        "- ENTITIES: For each named entity found, capture name, type\n"
+        "  (person/org/project/model/term), and why it matters in context.\n"
+        "- PRESERVE STRUCTURE: Keep lists, tables, and hierarchical\n"
+        "  relationships from the source where possible.\n"
+        "</rules>\n"
+        "\n"
+        "<output>\n"
+        "Return a single JSON object matching the requested schema.\n"
+        "No markdown, no prose wrapper.\n"
+        "</output>"
     )
 
 
@@ -77,16 +103,39 @@ def _build_user_prompt(
     source_text: str,
     use_url_context: bool,
 ) -> str:
+    from ..prompts.builders import anchor_today
+
     focus = focus_query.strip() if focus_query else "None"
     schema = json.dumps(SummaryOutput.model_json_schema(), ensure_ascii=True)
     parts = [
         "<summary_request>",
         f"<summary_mode>{mode}</summary_mode>",
         f"<focus_query>{focus}</focus_query>",
-        f"<guidance>{_summary_length_guidance(mode)}</guidance>",
-        "<output>",
-        "Return valid JSON only. No markdown fences, no prose wrapper.",
-        "</output>",
+        f"<today>{anchor_today()}</today>",
+        "<few_shot_example>",
+        "Here is an example of the expected output format:",
+        "{",
+        '  "summary": "The article announces the release of Python 3.14.0, '
+        'highlighting new pattern matching syntax and a 15% performance '
+        'improvement over 3.13.",',
+        '  "key_points": [',
+        '    "Python 3.14.0 released on 2026-10-01",',
+        '    "New structural pattern matching features added",',
+        '    "15% faster than 3.13 on standard benchmarks",',
+        '    "Requires macOS 12+ or glibc 2.35+"',
+        "  ],",
+        '  "important_entities": [',
+        '    {"name": "Python 3.14.0", "type": "software_version", '
+        '"why_relevant": "The main subject of the article"},',
+        '    {"name": "PSF", "type": "organization", '
+        '"why_relevant": "Release authority, the Python Software Foundation"}',
+        "  ],",
+        '  "verbatim_terms": ["PEP 701", "structural pattern matching", "glibc 2.35"],',
+        '  "limitations": ["No benchmark methodology details provided"],',
+        '  "source_date": "2026-10-01"',
+        "}",
+        "That is the exact format. Always match it.",
+        "</few_shot_example>",
         "<schema>",
         schema,
         "</schema>",
@@ -99,8 +148,8 @@ def _build_user_prompt(
             [
                 "</source_urls>",
                 "<instructions>",
-                "Use the URL context tool on the URLs above. If retrieval fails, say so "
-                "in the limitations instead of guessing.",
+                "Use the URL context tool on the URLs above. If retrieval fails, "
+                "say so in the limitations instead of guessing.",
                 "</instructions>",
             ]
         )
@@ -120,7 +169,19 @@ def _build_user_prompt(
             for url in source_urls:
                 parts.append(f"<url>{url}</url>")
             parts.append("</source_urls>")
-    parts.append("</summary_request>")
+    # Constraints LAST per Google Gemini 3 prompting guidance:
+    # place instructions at end of prompt, after data context.
+    parts.extend(
+        [
+            "<constraints>",
+            "Return valid JSON only. No markdown fences, no prose wrapper.",
+            f"Length: {_summary_length_guidance(mode)}",
+            "If the source is paywalled, truncated, or inaccessible, note it in limitations.",
+            "Do not invent missing details.",
+            "</constraints>",
+            "</summary_request>",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -182,8 +243,9 @@ def _make_config(
         "system_instruction": _system_instruction(use_url_context=use_url_context),
         "response_mime_type": "application/json",
         "response_json_schema": SummaryOutput.model_json_schema(),
-        "temperature": 0.0,
+        "temperature": 1.0,
         "max_output_tokens": max_output_tokens,
+        "thinking_config": types.ThinkingConfig(thinking_level="high"),
     }
     if use_url_context:
         config["tools"] = [URL_CONTEXT_TOOL]

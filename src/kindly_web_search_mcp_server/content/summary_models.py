@@ -34,6 +34,9 @@ class SummaryOutput(BaseModel):
     limitations: list[str] = Field(
         default_factory=list, description="Any gaps, caveats, or missing context."
     )
+    source_date: str | None = Field(
+        default=None, description="Publication date found in the source, ISO format."
+    )
 
 
 def summary_stub(mode: SummaryMode) -> dict[str, Any]:
