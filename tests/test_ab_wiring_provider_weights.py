@@ -6,9 +6,7 @@ import sys
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -84,8 +82,8 @@ class TestABWiringProviderWeightsDirect:
 
         assert effective_weights["tavily"] == 2.0  # overridden
         assert effective_weights["searxng"] == 1.0  # unchanged
-        assert effective_weights["brave"] == 1.0     # unchanged
-        assert effective_weights["gemini"] == 1.5    # new provider added
+        assert effective_weights["brave"] == 1.0  # unchanged
+        assert effective_weights["gemini"] == 1.5  # new provider added
 
     def test_shadow_mode_preserves_base_weights(self):
         """Simulate shadow mode: control path uses base weights unchanged."""
@@ -136,51 +134,53 @@ class TestABWiringProviderWeightsConfigFormat:
         """Create a temp YAML file, return its path."""
         tmp = tempfile.mktemp(suffix=".yaml", dir=os.getcwd())
         import yaml
+
         with open(tmp, "w") as f:
             yaml.dump(data, f)
         return tmp
 
     def test_sample_experiment_yaml(self):
         """Ensure a sample YAML for provider_weights can be loaded correctly."""
-        import yaml
 
         from kindly_web_search_mcp_server.ab_testing.yaml_loader import (
             load_experiments,
         )
 
-        config_path = self._make_temp_yaml({
-            "experiments": [
-                {
-                    "experiment_id": "pw-exp-1",
-                    "layer": "provider_weights",
-                    "status": "running",
-                    "traffic_pct": 50.0,
-                    "primary_metric": "ndcg_at_10",
-                    "started_at": "2025-06-11",
-                    "hypothesis": "Increasing tavily weight improves top-5 relevance",
-                    "variants": [
-                        {
-                            "variant_key": "control",
-                            "weight": 50,
-                            "config": {},
-                            "description": "Default provider weights",
-                        },
-                        {
-                            "variant_key": "treatment",
-                            "weight": 50,
-                            "config": {
-                                "provider_weights": {
-                                    "tavily": 2.0,
-                                    "brave": 1.2,
-                                    "gemini": 1.5,
-                                },
+        config_path = self._make_temp_yaml(
+            {
+                "experiments": [
+                    {
+                        "experiment_id": "pw-exp-1",
+                        "layer": "provider_weights",
+                        "status": "running",
+                        "traffic_pct": 50.0,
+                        "primary_metric": "ndcg_at_10",
+                        "started_at": "2025-06-11",
+                        "hypothesis": "Increasing tavily weight improves top-5 relevance",
+                        "variants": [
+                            {
+                                "variant_key": "control",
+                                "weight": 50,
+                                "config": {},
+                                "description": "Default provider weights",
                             },
-                            "description": "Boost tavily, brave, and gemini",
-                        },
-                    ],
-                }
-            ]
-        })
+                            {
+                                "variant_key": "treatment",
+                                "weight": 50,
+                                "config": {
+                                    "provider_weights": {
+                                        "tavily": 2.0,
+                                        "brave": 1.2,
+                                        "gemini": 1.5,
+                                    },
+                                },
+                                "description": "Boost tavily, brave, and gemini",
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
 
         try:
             experiments = load_experiments(config_path)
@@ -212,48 +212,47 @@ class TestABWiringProviderWeightsConfigFormat:
 
     def test_shadow_mode_experiment_yaml(self):
         """Ensure a shadow-mode YAML for provider_weights can be loaded."""
-        import yaml
 
         from kindly_web_search_mcp_server.ab_testing.yaml_loader import (
             load_experiments,
         )
 
-        config_path = self._make_temp_yaml({
-            "experiments": [
-                {
-                    "experiment_id": "pw-shadow-1",
-                    "layer": "provider_weights",
-                    "status": "running",
-                    "traffic_pct": 100.0,
-                    "started_at": "2025-06-11",
-                    "variants": [
-                        {
-                            "variant_key": "control",
-                            "weight": 50,
-                            "config": {},
-                        },
-                        {
-                            "variant_key": "test",
-                            "weight": 50,
-                            "config": {
-                                "provider_weights": {
-                                    "tavily": 1.8,
-                                },
-                                "shadow": True,
+        config_path = self._make_temp_yaml(
+            {
+                "experiments": [
+                    {
+                        "experiment_id": "pw-shadow-1",
+                        "layer": "provider_weights",
+                        "status": "running",
+                        "traffic_pct": 100.0,
+                        "started_at": "2025-06-11",
+                        "variants": [
+                            {
+                                "variant_key": "control",
+                                "weight": 50,
+                                "config": {},
                             },
-                        },
-                    ],
-                }
-            ]
-        })
+                            {
+                                "variant_key": "test",
+                                "weight": 50,
+                                "config": {
+                                    "provider_weights": {
+                                        "tavily": 1.8,
+                                    },
+                                    "shadow": True,
+                                },
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
 
         try:
             experiments = load_experiments(config_path)
             assert len(experiments) == 1
 
-            test_variant = [
-                v for v in experiments[0].variants if v.variant_key == "test"
-            ][0]
+            test_variant = [v for v in experiments[0].variants if v.variant_key == "test"][0]
             assert test_variant.config.get("shadow") is True
             assert test_variant.config["provider_weights"]["tavily"] == 1.8
         finally:
@@ -264,7 +263,6 @@ class TestABWiringProviderWeightsConfigFormat:
 
     def test_yaml_roundtrip(self):
         """Ensure experiments can be saved and reloaded."""
-        import yaml
 
         from kindly_web_search_mcp_server.ab_testing.yaml_loader import (
             load_experiments,
@@ -341,9 +339,7 @@ class TestGetABOverridesProviderWeightsLayer:
             status="running",
             traffic_pct=100.0,
             variants=[
-                ABVariant(
-                    variant_key="control", weight=50, config={}
-                ),
+                ABVariant(variant_key="control", weight=50, config={}),
                 ABVariant(
                     variant_key="test",
                     weight=50,
@@ -395,9 +391,7 @@ class TestGetABOverridesProviderWeightsLayer:
             assert experiments[0].experiment_id == "pw-exp-1"
 
             # Verify variants load correctly with provider_weights config
-            treatment = [
-                v for v in experiments[0].variants if v.variant_key == "treatment"
-            ][0]
+            treatment = [v for v in experiments[0].variants if v.variant_key == "treatment"][0]
             assert "provider_weights" in treatment.config
             assert treatment.config["provider_weights"]["tavily"] == 2.0
         finally:

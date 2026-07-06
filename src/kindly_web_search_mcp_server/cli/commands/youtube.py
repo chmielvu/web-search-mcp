@@ -23,9 +23,7 @@ def search_cmd(
     num_results: Annotated[int, typer.Option("--num-results")] = 5,
 ) -> None:
     try:
-        payload = asyncio.run(
-            fetch_youtube_search_payload(query, num_results=num_results)
-        )
+        payload = asyncio.run(fetch_youtube_search_payload(query, num_results=num_results))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -93,4 +91,3 @@ def transcript_cmd(
 
 def register(app: typer.Typer) -> None:
     app.add_typer(youtube_app, name="youtube")
-

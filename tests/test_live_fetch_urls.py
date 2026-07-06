@@ -14,10 +14,7 @@ TIMEOUT_URLS = [
 
 
 def _can_run_live_tests() -> bool:
-    return (
-        os.environ.get("RUN_LIVE_TESTS") == "1"
-        and os.environ.get("BROWSER_EXECUTABLE_PATH")
-    )
+    return os.environ.get("RUN_LIVE_TESTS") == "1" and os.environ.get("BROWSER_EXECUTABLE_PATH")
 
 
 @pytest.mark.skipif(

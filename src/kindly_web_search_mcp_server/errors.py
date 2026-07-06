@@ -125,11 +125,7 @@ def classify_error(
 
     # YouTube-specific errors (IP blocking)
     if "YouTube" in str(error) or "transcript" in str(error).lower():
-        if (
-            "IP" in str(error)
-            or "blocked" in str(error).lower()
-            or "Cloud" in str(error)
-        ):
+        if "IP" in str(error) or "blocked" in str(error).lower() or "Cloud" in str(error):
             return StructuredToolError(
                 error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
                 error_type="network",
@@ -248,7 +244,9 @@ def _rate_limit_action(provider: str | None, retry_after: int | None) -> str:
         return f"{base} Tavily API rate limit. Check your plan limits at tavily.com. Wait {retry_after or 30}s."
 
     if provider == "brave":
-        return f"{base} Brave Search API rate limit. Check your API usage. Wait {retry_after or 30}s."
+        return (
+            f"{base} Brave Search API rate limit. Check your API usage. Wait {retry_after or 30}s."
+        )
 
     if provider == "jina":
         return f"{base} Jina AI rate limit. Check your API tier. Wait {retry_after or 30}s."

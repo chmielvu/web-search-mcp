@@ -105,9 +105,7 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
             None,
         )
         mock_execute.return_value = batch
-        mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[
-            :top_k
-        ]
+        mock_rerank.side_effect = lambda _query, candidates, top_k, **kwargs: candidates[:top_k]
 
         resp = await run_search_pipeline(
             "FastAPI",

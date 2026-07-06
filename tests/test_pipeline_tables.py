@@ -67,9 +67,12 @@ class TestProviderCallsSchema:
         try:
             con = duckdb.connect(str(db_path))
             _ensure_provider_calls(con)
-            indexes = {r[0] for r in con.execute(
-                "SELECT index_name FROM duckdb_indexes WHERE table_name = 'provider_calls'"
-            ).fetchall()}
+            indexes = {
+                r[0]
+                for r in con.execute(
+                    "SELECT index_name FROM duckdb_indexes WHERE table_name = 'provider_calls'"
+                ).fetchall()
+            }
             con.close()
             assert "idx_pc_run_key" in indexes
             assert "idx_pc_provider" in indexes
@@ -242,9 +245,12 @@ class TestRerankStagesSchema:
         try:
             con = duckdb.connect(str(db_path))
             _ensure_rerank_stages(con)
-            indexes = {r[0] for r in con.execute(
-                "SELECT index_name FROM duckdb_indexes WHERE table_name = 'rerank_stages'"
-            ).fetchall()}
+            indexes = {
+                r[0]
+                for r in con.execute(
+                    "SELECT index_name FROM duckdb_indexes WHERE table_name = 'rerank_stages'"
+                ).fetchall()
+            }
             con.close()
             assert "idx_rs_run_key" in indexes
             assert "idx_rs_stage" in indexes

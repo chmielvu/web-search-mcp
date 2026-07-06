@@ -65,8 +65,7 @@ class TranscriptDuckDBCache:
         )
         try:
             con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_transcript_cache_key "
-                "ON transcript_cache(cache_key)"
+                "CREATE INDEX IF NOT EXISTS idx_transcript_cache_key ON transcript_cache(cache_key)"
             )
         except Exception:
             pass

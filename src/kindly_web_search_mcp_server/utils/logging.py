@@ -76,9 +76,7 @@ def _install_process_logging() -> None:
         _process_logging_installed = True
 
 
-def _install_duckdb_handler(
-    db_path: str, ttl_hours: int
-) -> tuple | None:
+def _install_duckdb_handler(db_path: str, ttl_hours: int) -> tuple | None:
     """Try to install the DuckDB log handler. Returns (handler, listener) or None."""
     try:
         from .duckdb_log_handler import install_process_logging as _install  # noqa: PLC0415

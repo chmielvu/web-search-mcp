@@ -14,11 +14,14 @@ class TestCacheObservability(unittest.TestCase):
 
         cache = ExactQueryCache(db_path="unused")
 
-        with patch(
-            "kindly_web_search_mcp_server.cache.query_cache.emit_cache_lookup_event"
-        ) as emit_lookup, patch(
-            "kindly_web_search_mcp_server.cache.query_cache.emit_cache_store_event"
-        ) as emit_store:
+        with (
+            patch(
+                "kindly_web_search_mcp_server.cache.query_cache.emit_cache_lookup_event"
+            ) as emit_lookup,
+            patch(
+                "kindly_web_search_mcp_server.cache.query_cache.emit_cache_store_event"
+            ) as emit_store,
+        ):
             cache.store("fastmcp", 10, False, {"results": [1]})
             cache.lookup("fastmcp", 10, False)
 
@@ -40,15 +43,18 @@ class TestCacheObservability(unittest.TestCase):
             "metadata": {"title": "Example"},
         }
 
-        with patch(
-            "kindly_web_search_mcp_server.cache.page_cache._PageDuckDBCache",
-            return_value=backend,
-        ), patch(
-            "kindly_web_search_mcp_server.cache.page_cache.emit_cache_lookup_event"
-        ) as emit_lookup, patch(
-            "kindly_web_search_mcp_server.cache.page_cache.emit_cache_store_event"
-        ) as emit_store, patch(
-            "kindly_web_search_mcp_server.cache.page_cache.record_cache_lookup"
+        with (
+            patch(
+                "kindly_web_search_mcp_server.cache.page_cache._PageDuckDBCache",
+                return_value=backend,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.cache.page_cache.emit_cache_lookup_event"
+            ) as emit_lookup,
+            patch(
+                "kindly_web_search_mcp_server.cache.page_cache.emit_cache_store_event"
+            ) as emit_store,
+            patch("kindly_web_search_mcp_server.cache.page_cache.record_cache_lookup"),
         ):
             cache = PageCache(db_path="unused")
             cache.lookup("https://example.com/page")
@@ -59,9 +65,7 @@ class TestCacheObservability(unittest.TestCase):
                 metadata={"title": "Example"},
             )
 
-        self.assertEqual(
-            backend.lookup.call_args.args[0], "https://example.com/page"
-        )
+        self.assertEqual(backend.lookup.call_args.args[0], "https://example.com/page")
         self.assertEqual(
             backend.store.call_args.kwargs["canonical_url"],
             "https://example.com/page",

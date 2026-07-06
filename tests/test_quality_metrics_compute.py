@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -156,34 +155,62 @@ class TestComputeSearchQuality:
             # domain_diversity_count = 2
             # domain_diversity_ratio = 2/3 ≈ 0.6667
             insert_final_results(
-                run_key=run_key, rank=1, domain="example.com",
-                link="https://example.com/1", title="Title 1", snippet="snip1",
-                final_score=0.92, providers=["searxng"], provider_count=1,
+                run_key=run_key,
+                rank=1,
+                domain="example.com",
+                link="https://example.com/1",
+                title="Title 1",
+                snippet="snip1",
+                final_score=0.92,
+                providers=["searxng"],
+                provider_count=1,
                 db_path=str(db_path),
             )
             insert_final_results(
-                run_key=run_key, rank=2, domain="example.org",
-                link="https://example.org/2", title="Title 2", snippet="snip2",
-                final_score=0.85, providers=["brave"], provider_count=1,
+                run_key=run_key,
+                rank=2,
+                domain="example.org",
+                link="https://example.org/2",
+                title="Title 2",
+                snippet="snip2",
+                final_score=0.85,
+                providers=["brave"],
+                provider_count=1,
                 db_path=str(db_path),
             )
             insert_final_results(
-                run_key=run_key, rank=3, domain="example.com",
-                link="https://example.com/3", title="Title 3", snippet="snip3",
-                final_score=0.75, providers=["searxng"], provider_count=1,
+                run_key=run_key,
+                rank=3,
+                domain="example.com",
+                link="https://example.com/3",
+                title="Title 3",
+                snippet="snip3",
+                final_score=0.75,
+                providers=["searxng"],
+                provider_count=1,
                 db_path=str(db_path),
             )
 
             # query_rewrites – 2 rows -> rewrite_variant_count = 2
             insert_query_rewrites(
-                run_key=run_key, variant_index=0, branch_type="original",
-                kind="direct", target="web", query="test query",
-                weight=1.0, db_path=str(db_path),
+                run_key=run_key,
+                variant_index=0,
+                branch_type="original",
+                kind="direct",
+                target="web",
+                query="test query",
+                weight=1.0,
+                db_path=str(db_path),
             )
             insert_query_rewrites(
-                run_key=run_key, variant_index=1, branch_type="variant",
-                kind="rephrase", target="web", query="test query rephrased",
-                weight=0.8, db_path=str(db_path),
+                run_key=run_key,
+                variant_index=1,
+                branch_type="variant",
+                kind="rephrase",
+                target="web",
+                query="test query rephrased",
+                weight=0.8,
+                db_path=str(db_path),
             )
 
             # ── 3. Call compute_search_quality ─────────────────────────
@@ -222,20 +249,20 @@ class TestComputeSearchQuality:
 
             assert row is not None, "Expected a row in search_quality_scores"
             assert row[0] == run_key
-            assert row[1] == 0.5          # provider_overlap_rate
-            assert row[2] == 2            # domain_diversity_count
-            assert row[3] == 2.0 / 3.0    # domain_diversity_ratio
-            assert row[4] == 10.0 / 6.0   # rerank_compression_ratio
-            assert row[5] == 28.875       # avg_rrf_score
-            assert row[6] == 0.92         # top_score
-            assert row[7] is not None     # p95_score (approx, just check exists)
-            assert row[8] == 2            # rewrite_variant_count
-            assert row[9] == 2            # provider_count
-            assert row[10] == 2           # branch_count
-            assert row[11] == 15          # total_candidates_input
-            assert row[12] == 4           # total_candidates_merged
-            assert row[13] == 6           # total_candidates_reranked
-            assert row[14] == 3           # total_final_results
+            assert row[1] == 0.5  # provider_overlap_rate
+            assert row[2] == 2  # domain_diversity_count
+            assert row[3] == 2.0 / 3.0  # domain_diversity_ratio
+            assert row[4] == 10.0 / 6.0  # rerank_compression_ratio
+            assert row[5] == 28.875  # avg_rrf_score
+            assert row[6] == 0.92  # top_score
+            assert row[7] is not None  # p95_score (approx, just check exists)
+            assert row[8] == 2  # rewrite_variant_count
+            assert row[9] == 2  # provider_count
+            assert row[10] == 2  # branch_count
+            assert row[11] == 15  # total_candidates_input
+            assert row[12] == 4  # total_candidates_merged
+            assert row[13] == 6  # total_candidates_reranked
+            assert row[14] == 3  # total_final_results
 
         finally:
             if db_path.exists():

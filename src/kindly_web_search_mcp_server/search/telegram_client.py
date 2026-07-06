@@ -50,7 +50,7 @@ async def get_telethon_client() -> TelegramClient:
             flood_sleep_threshold=settings.telegram_flood_sleep_threshold,
             receive_updates=False,
         )
-        await _client.start()
+        await _client.start()  # type: ignore[union-attr]
         logger.info("Telethon client connected (api_id=%s)", settings.telegram_api_id)
         return _client
 

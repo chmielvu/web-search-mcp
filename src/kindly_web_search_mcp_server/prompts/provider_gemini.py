@@ -10,8 +10,6 @@ Single-prompt mode (fallback):
 
 from __future__ import annotations
 
-from .builders import anchor_today
-
 
 # ============================================================================
 # Template 4.1 — Base system instruction (search-aware, model-tuned)
@@ -61,13 +59,16 @@ and returning a grounded, citation-backed answer.
 # Overview (breadth) — Template 4.1 with broader scope note
 # ============================================================================
 
-_OVERVIEW_SYSTEM = _BASE_SYSTEM + """
+_OVERVIEW_SYSTEM = (
+    _BASE_SYSTEM
+    + """
 
 <scope_note>
 This is an OVERVIEW query. Search broadly across multiple perspectives,
 identify major themes, competing viewpoints, key players, and background
 context. Prioritize coverage and sourcing diversity.
 </scope_note>"""
+)
 
 _OVERVIEW_USER = """\
 USER TURN:
@@ -87,7 +88,9 @@ Constraint: Do not use numeric citation markers."""  # constraints last
 # Deep-dive (precision) — Template B / 4.3 adapted for fact extraction
 # ============================================================================
 
-_DEEPDIVE_SYSTEM = _BASE_SYSTEM + """
+_DEEPDIVE_SYSTEM = (
+    _BASE_SYSTEM
+    + """
 
 <scope_note>
 This is a DEEP-DIVE query. Decompose the question into sub-questions
@@ -95,6 +98,7 @@ targeting specific, verifiable facts. Extract exact numbers, dates,
 version strings, technical specifications, and authoritative claims.
 Prefer primary sources and official documentation.
 </scope_note>"""
+)
 
 _DEEPDIVE_USER = """\
 USER TURN:
@@ -137,9 +141,7 @@ Constraint: Do not use numeric citation markers."""  # constraints last
 # ============================================================================
 
 
-def build_dual_prompt(
-    *, query: str, research_goal: str | None, mode: str
-) -> tuple[str, str]:
+def build_dual_prompt(*, query: str, research_goal: str | None, mode: str) -> tuple[str, str]:
     """Build system + user prompt for one branch of dual-prompt search.
 
     Args:

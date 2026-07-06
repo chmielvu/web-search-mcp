@@ -160,4 +160,3 @@ def build_candidate_survival_view_sql(target: str) -> str:
             tool_call_id
         FROM {target}.web_search_response_results
     """
-

@@ -187,12 +187,10 @@ async def search_hackernews(
         for tag, response in zip(tags, responses, strict=False):
             if isinstance(response, Exception):
                 failures.append(tag)
-                logger.warning(
-                    "Hacker News %s search failed for tag=%s: %s", query, tag, response
-                )
+                logger.warning("Hacker News %s search failed for tag=%s: %s", query, tag, response)
                 continue
             try:
-                response.raise_for_status()
+                response.raise_for_status()  # type: ignore[union-attr]
             except Exception as exc:
                 failures.append(tag)
                 logger.warning(
@@ -203,7 +201,7 @@ async def search_hackernews(
                 )
                 continue
             try:
-                data = response.json()
+                data = response.json()  # type: ignore[union-attr]
             except ValueError as exc:
                 failures.append(tag)
                 logger.warning(

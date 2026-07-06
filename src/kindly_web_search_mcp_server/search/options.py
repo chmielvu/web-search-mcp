@@ -59,13 +59,8 @@ class SearchOptions:
             raise ValueError("result_offset must be >= 0.")
         if self.searxng_pageno < 1:
             raise ValueError("searxng_pageno must be >= 1.")
-        if (
-            self.searxng_time_range
-            and self.searxng_time_range not in SEARCH_TIME_RANGES
-        ):
-            raise ValueError(
-                f"searxng_time_range must be one of {sorted(SEARCH_TIME_RANGES)}."
-            )
+        if self.searxng_time_range and self.searxng_time_range not in SEARCH_TIME_RANGES:
+            raise ValueError(f"searxng_time_range must be one of {sorted(SEARCH_TIME_RANGES)}.")
         if self.searxng_safesearch is not None and self.searxng_safesearch not in {
             0,
             1,
@@ -114,14 +109,10 @@ def build_search_options(
         result_offset=result_offset,
         searxng_categories=_normalize_items(searxng_categories),
         searxng_engines=_normalize_items(searxng_engines),
-        searxng_language=normalize_query(searxng_language) or None
-        if searxng_language
-        else None,
+        searxng_language=normalize_query(searxng_language) or None if searxng_language else None,
         searxng_pageno=searxng_pageno,
         searxng_time_range=(
-            normalize_query(searxng_time_range).casefold() or None
-            if searxng_time_range
-            else None
+            normalize_query(searxng_time_range).casefold() or None if searxng_time_range else None
         ),
         searxng_safesearch=searxng_safesearch,
         site_filters=_normalize_items(site_filters),

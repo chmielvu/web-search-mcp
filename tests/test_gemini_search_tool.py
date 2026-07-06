@@ -60,9 +60,7 @@ def _fake_grounding_response() -> SimpleNamespace:
                             grounding_chunk_indices=[0],
                         ),
                     ],
-                    search_entry_point=SimpleNamespace(
-                        rendered_content="<div>Search widget</div>"
-                    ),
+                    search_entry_point=SimpleNamespace(rendered_content="<div>Search widget</div>"),
                 ),
             )
         ],

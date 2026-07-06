@@ -47,4 +47,3 @@ def research_cmd(
 
 def register(app: typer.Typer) -> None:
     app.add_typer(agent_app, name="agent")
-

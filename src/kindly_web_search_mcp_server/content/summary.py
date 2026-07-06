@@ -46,11 +46,7 @@ async def create_batch_summaries(
 
     async def _summarize(item: dict[str, Any]) -> dict[str, Any] | None:
         source_text = (item.get("page_content") or "").strip()
-        source_url = (
-            item.get("fetched_url")
-            or item.get("normalized_url")
-            or item.get("input_url")
-        )
+        source_url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
         try:
             async with sem:
                 return await create_summary(

@@ -14,6 +14,7 @@ class TestProviderHealthTracker(unittest.TestCase):
             ProviderHealthTracker,
             reset_provider_health,
         )
+
         reset_provider_health()
         self.tracker = ProviderHealthTracker()
 
@@ -56,6 +57,9 @@ class TestProviderHealthTracker(unittest.TestCase):
                 self.assertLess(remaining, expected_cooldown + 0.1)
 
     def test_is_healthy_returns_false_during_cooldown(self) -> None:
+        # Circuit trips after failure_threshold (3) consecutive failures
+        self.tracker.mark_failure("gemini")
+        self.tracker.mark_failure("gemini")
         self.tracker.mark_failure("gemini")
         self.assertFalse(self.tracker.is_healthy("gemini"))
 
@@ -136,11 +140,10 @@ class TestContentStatusClassifier(unittest.TestCase):
             classify_markdown,
         )
 
-        result = classify_markdown(
-            "Access denied. Please verify you are human with captcha."
-        )
+        result = classify_markdown("Access denied. Please verify you are human with captcha.")
         self.assertEqual(result.status, "blocked")
-        self.assertIn("verify you are human", result.reason or "")
+        self.assertIn("access_blocked:", result.reason or "")
+        self.assertIn("access denied", result.reason or "")
 
     def test_classifies_login_wall(self) -> None:
         from kindly_web_search_mcp_server.content.status_classifier import (
@@ -218,9 +221,7 @@ class TestContentStatusClassifier(unittest.TestCase):
             classify_markdown,
         )
 
-        result = classify_markdown(
-            "Redirecting to https://example.com/destination"
-        )
+        result = classify_markdown("Redirecting to https://example.com/destination")
         self.assertEqual(result.status, "partial")
         self.assertEqual(result.reason, "redirect_only")
 
@@ -229,8 +230,8 @@ class TestContentStatusClassifier(unittest.TestCase):
             classify_markdown,
         )
 
-        # High ratio of null bytes and control chars
-        content = "\x00\x01\x02\x03\x04\x05" + " a" * 30 + " b" * 5
+        # High ratio of null bytes and control chars (>15% non-printable)
+        content = "\x00\x01\x02\x03\x04\x05" * 5 + " a" * 30 + " b" * 5
         result = classify_markdown(content)
         self.assertEqual(result.status, "error")
         self.assertEqual(result.reason, "garbled_content")

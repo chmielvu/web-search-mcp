@@ -12,7 +12,7 @@ import re
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.server.server import ToolResult
+from fastmcp.tools.base import ToolResult
 
 from .session_tracking import SessionTracker, get_session_id
 
@@ -52,9 +52,7 @@ def _append_enrichment(
     next_prompts: list[str] | None = None,
 ) -> Any:
     """Attach guidance + suggested_next_tools + suggested_prompts to ToolResult."""
-    if not isinstance(result, ToolResult) or not isinstance(
-        result.structured_content, dict
-    ):
+    if not isinstance(result, ToolResult) or not isinstance(result.structured_content, dict):
         return result
 
     structured = dict(result.structured_content)
@@ -85,6 +83,7 @@ def _gemini_is_healthy() -> bool:
     try:
         from ..search.provider_health import get_provider_health  # noqa: PLC0415
         from ..search.provider_config import PROVIDER_REGISTRY  # noqa: PLC0415
+
         cfg = PROVIDER_REGISTRY.get("gemini")
         if cfg is None or not cfg.is_available():
             return False
@@ -156,33 +155,22 @@ def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
 
     if window.get("has_more"):
         nxt = window.get("next_offset", 0)
-        parts.append(
-            f"Truncated at {nxt} chars. Continue: get_content(char_offset={nxt})."
-        )
+        parts.append(f"Truncated at {nxt} chars. Continue: get_content(char_offset={nxt}).")
         next_tools.append("get_content")
 
     if source_type == "github_issue":
-        parts.append(
-            "GitHub issue detected. "
-            "Use composio_similarlinks to find related issues/PRs."
-        )
+        parts.append("GitHub issue detected. Use composio_similarlinks to find related issues/PRs.")
         next_tools.append("composio_similarlinks")
         next_prompts.append("research_gap_analysis")
     elif source_type == "wikipedia":
-        parts.append(
-            "Wikipedia source. Cross-reference with academic_search or official docs."
-        )
+        parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
         next_tools.append("academic_search")
 
     if fetch_backend == "browser_fallback":
-        parts.append(
-            "Used browser fallback (JS-heavy page). Content may be less complete."
-        )
+        parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
 
     if content_len < 300 and not window.get("has_more") and status != "error":
-        parts.append(
-            "Very short content (possibly behind login/paywall). Try alternative source."
-        )
+        parts.append("Very short content (possibly behind login/paywall). Try alternative source.")
 
     return (" ".join(parts) if parts else "", next_tools, next_prompts)
 
@@ -209,13 +197,10 @@ def _guide_batch_get_content(data: dict) -> tuple[str, list[str], list[str]]:
     if total_req > 0 and success_count < total_req:
         parts.append(f"{success_count}/{total_req} URLs succeeded.")
 
-    source_types = {
-        r.get("source_type", "") for r in results if r.get("status") == "success"
-    }
+    source_types = {r.get("source_type", "") for r in results if r.get("status") == "success"}
     if len(source_types) == 1 and source_types:
         parts.append(
-            f"All fetched from {list(source_types)[0]}. "
-            "Consider adding different source types."
+            f"All fetched from {list(source_types)[0]}. Consider adding different source types."
         )
         next_tools.append("web_search")
 
@@ -258,12 +243,8 @@ class DynamicGuidanceMiddleware(Middleware):
             if call_count > 2:
                 return result
 
-            if isinstance(result, ToolResult) and isinstance(
-                result.structured_content, dict
-            ):
-                msg, next_tools, next_prompts = _guide_gemini_search(
-                    result.structured_content
-                )
+            if isinstance(result, ToolResult) and isinstance(result.structured_content, dict):
+                msg, next_tools, next_prompts = _guide_gemini_search(result.structured_content)
                 if msg or next_tools or next_prompts:
                     return _append_enrichment(
                         result,
@@ -278,9 +259,7 @@ class DynamicGuidanceMiddleware(Middleware):
         if generator is None:
             return result
 
-        if isinstance(result, ToolResult) and isinstance(
-            result.structured_content, dict
-        ):
+        if isinstance(result, ToolResult) and isinstance(result.structured_content, dict):
             msg, next_tools, next_prompts = generator(result.structured_content)
             if msg or next_tools or next_prompts:
                 return _append_enrichment(

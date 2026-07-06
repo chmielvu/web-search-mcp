@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Sequence
 
-from google import genai
+from google import genai  # type: ignore[import-untyped]
 from google.genai import types
 
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
@@ -116,7 +116,7 @@ def _build_user_prompt(
         "Here is an example of the expected output format:",
         "{",
         '  "summary": "The article announces the release of Python 3.14.0, '
-        'highlighting new pattern matching syntax and a 15% performance '
+        "highlighting new pattern matching syntax and a 15% performance "
         'improvement over 3.13.",',
         '  "key_points": [',
         '    "Python 3.14.0 released on 2026-10-01",',
@@ -236,16 +236,14 @@ def _parse_summary(raw: str) -> SummaryOutput:
         raise SummaryError(f"Summary response was not valid JSON: {exc}") from exc
 
 
-def _make_config(
-    *, use_url_context: bool, max_output_tokens: int
-) -> types.GenerateContentConfig:
+def _make_config(*, use_url_context: bool, max_output_tokens: int) -> types.GenerateContentConfig:
     config: dict[str, Any] = {
         "system_instruction": _system_instruction(use_url_context=use_url_context),
         "response_mime_type": "application/json",
         "response_json_schema": SummaryOutput.model_json_schema(),
         "temperature": 1.0,
         "max_output_tokens": max_output_tokens,
-        "thinking_config": types.ThinkingConfig(thinking_level="high"),
+        "thinking_config": types.ThinkingConfig(thinking_level="high"),  # type: ignore[arg-type]
     }
     if use_url_context:
         config["tools"] = [URL_CONTEXT_TOOL]
@@ -291,9 +289,7 @@ async def summarize_with_fallback(
 ) -> tuple[dict[str, Any], str, str]:
     source_urls_list = _normalize_urls(source_urls)
     primary_model = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
-    fallback_model = (
-        os.environ.get("SUMMARY_GEMMA_FALLBACK_MODEL") or FALLBACK_MODEL
-    ).strip()
+    fallback_model = (os.environ.get("SUMMARY_GEMMA_FALLBACK_MODEL") or FALLBACK_MODEL).strip()
     max_tokens = _max_output_tokens()
 
     with create_llm_operation_span(

@@ -58,8 +58,7 @@ async def search_youtube_api(
     api_key = settings.youtube_api_key.strip()
     if not api_key:
         raise YouTubeApiError(
-            "GOOGLE_API_KEY is not configured. "
-            "YouTube Data API search requires a valid API key."
+            "GOOGLE_API_KEY is not configured. YouTube Data API search requires a valid API key."
         )
 
     # Quota check before making the call
@@ -103,8 +102,14 @@ async def search_youtube_api(
             timeout=timeout_seconds,
         )
         if resp.status_code == 403:
-            error_body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            reason = error_body.get("error", {}).get("errors", [{}])[0].get("reason", "quotaExceeded")
+            error_body = (
+                resp.json()
+                if resp.headers.get("content-type", "").startswith("application/json")
+                else {}
+            )
+            reason = (
+                error_body.get("error", {}).get("errors", [{}])[0].get("reason", "quotaExceeded")
+            )
             tracker.record_call(success=False, units=_SEARCH_COST)
             raise YouTubeApiError(
                 f"YouTube API returned 403 (reason: {reason}). "
@@ -129,11 +134,7 @@ async def search_youtube_api(
 
             snippet = item.get("snippet", {})
             video_id_obj = item.get("id", {})
-            video_id = (
-                video_id_obj.get("videoId", "")
-                if isinstance(video_id_obj, dict)
-                else ""
-            )
+            video_id = video_id_obj.get("videoId", "") if isinstance(video_id_obj, dict) else ""
 
             title = snippet.get("title", "")
             description = snippet.get("description", "")
@@ -185,7 +186,8 @@ async def search_youtube_api(
 
             if video_ids:
                 metadata = await enrich_video_metadata(
-                    video_ids, http_client=http_client,
+                    video_ids,
+                    http_client=http_client,
                 )
                 results = merge_enrichment_into_results(results, metadata)
         except Exception as exc:

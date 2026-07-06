@@ -95,7 +95,7 @@ class TestObservabilityFlow(unittest.TestCase):
         payload = json.loads(captured.records[0].getMessage())
         self.assertEqual(payload["event"], "probe.event")
         self.assertEqual(payload["query"], "hello")
-        self.assertTrue(hasattr(captured.records[0], "kindly_query"))
+        self.assertTrue(hasattr(captured.records[0], "obs_query"))
 
     def test_merge_summary_logs_counts_and_top_results(self) -> None:
         logger = logging.getLogger("test.observability.merge")

@@ -70,9 +70,7 @@ async def gather_with_deadline(
     drain_done: set[asyncio.Task[T]] = set()
     drain_pending: set[asyncio.Task[T]] = pending
     if pending:
-        drain_done, drain_pending = await asyncio.wait(
-            pending, timeout=drain_timeout_seconds
-        )
+        drain_done, drain_pending = await asyncio.wait(pending, timeout=drain_timeout_seconds)
 
     if drain_pending:
         logger.warning(

@@ -9,4 +9,3 @@ _package_dir = Path(__file__).resolve().parent
 _repo_root = _package_dir.parents[2]
 load_dotenv(_repo_root / ".env")
 load_dotenv()
-

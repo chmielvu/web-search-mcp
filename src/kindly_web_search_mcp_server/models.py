@@ -116,9 +116,7 @@ class GetContentResponse(BaseModel):
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
     )
-    source_type: str = Field(
-        description="Detected source type, e.g. html, pdf, github_issue."
-    )
+    source_type: str = Field(description="Detected source type, e.g. html, pdf, github_issue.")
     fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
     page_content: str
     window: dict[str, Any]
@@ -310,9 +308,7 @@ class ToolErrorResponse(BaseModel):
         default="unknown",
         description="Error classification: rate_limit, auth, network, content, config, unknown.",
     )
-    isError: bool = Field(
-        default=True, description="MCP protocol: must be True for errors."
-    )
+    isError: bool = Field(default=True, description="MCP protocol: must be True for errors.")
     action: str | None = Field(
         default=None,
         description="Actionable guidance for the agent.",

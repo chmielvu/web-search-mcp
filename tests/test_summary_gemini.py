@@ -22,9 +22,7 @@ class _FakeModels:
         self.effects = effects
         self.calls: list[tuple[str, str, object]] = []
 
-    def generate_content(
-        self, *, model: str, contents: str, config: object
-    ) -> _FakeResponse:
+    def generate_content(self, *, model: str, contents: str, config: object) -> _FakeResponse:
         self.calls.append((model, contents, config))
         if not self.effects:
             raise AssertionError("No fake response configured")
@@ -92,9 +90,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         self.assertIn("example.com/article", contents)
         self.assertTrue(getattr(config, "tools", None))
         self.assertIsNotNone(getattr(config.tools[0], "url_context", None))
-        self.assertEqual(
-            getattr(config, "response_mime_type", None), "application/json"
-        )
+        self.assertEqual(getattr(config, "response_mime_type", None), "application/json")
 
     async def test_create_summary_falls_back_to_gemma_when_primary_fails(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_summary

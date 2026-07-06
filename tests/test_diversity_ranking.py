@@ -4,7 +4,13 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "src" / "kindly_web_search_mcp_server" / "rerank" / "diversity.py"
+MODULE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "kindly_web_search_mcp_server"
+    / "rerank"
+    / "diversity.py"
+)
 spec = importlib.util.spec_from_file_location("diversity_module", MODULE_PATH)
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
@@ -18,7 +24,9 @@ class TestDiversityRanking(unittest.TestCase):
         embeddings = [[1.0, 0.0], [0.98, 0.02], [0.92, 0.38]]
         urls = ["https://a.com/1", "https://a.com/2", "https://b.com/1"]
 
-        order = maximal_marginal_relevance_rank(query, embeddings, urls, lambda_param=0.7, max_per_host=1)
+        order = maximal_marginal_relevance_rank(
+            query, embeddings, urls, lambda_param=0.7, max_per_host=1
+        )
         self.assertEqual(order[0], 0)
         self.assertEqual(order[1], 2)
 

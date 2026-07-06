@@ -17,9 +17,7 @@ class ArxivError(RuntimeError):
 
 
 _ARXIV_ID_NEW_RE = re.compile(r"^(?P<id>\d{4}\.\d{4,5})(?P<ver>v\d+)?$", re.IGNORECASE)
-_ARXIV_ID_LEGACY_RE = re.compile(
-    r"^(?P<cat>[^/]+)/(?P<num>\d{7})(?P<ver>v\d+)?$", re.IGNORECASE
-)
+_ARXIV_ID_LEGACY_RE = re.compile(r"^(?P<cat>[^/]+)/(?P<num>\d{7})(?P<ver>v\d+)?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -118,8 +116,7 @@ def parse_arxiv_url(url: str) -> str:
 
 def _default_user_agent() -> str:
     return (
-        os.environ.get("ARXIV_USER_AGENT", "").strip()
-        or "web-search-mcp/0.0.1 (arXiv retriever)"
+        os.environ.get("ARXIV_USER_AGENT", "").strip() or "web-search-mcp/0.0.1 (arXiv retriever)"
     )
 
 
@@ -149,19 +146,11 @@ def _parse_arxiv_atom_xml(xml_text: str, *, arxiv_id: str) -> ArxivMetadata:
     if entry is None:
         raise ArxivError("arXiv API response contained no entry.")
 
-    entry_id = (
-        entry.findtext("atom:id", default="", namespaces=ns) or ""
-    ).strip() or None
+    entry_id = (entry.findtext("atom:id", default="", namespaces=ns) or "").strip() or None
     title_raw = (entry.findtext("atom:title", default="", namespaces=ns) or "").strip()
-    summary_raw = (
-        entry.findtext("atom:summary", default="", namespaces=ns) or ""
-    ).strip()
-    published = (
-        entry.findtext("atom:published", default="", namespaces=ns) or ""
-    ).strip() or None
-    updated = (
-        entry.findtext("atom:updated", default="", namespaces=ns) or ""
-    ).strip() or None
+    summary_raw = (entry.findtext("atom:summary", default="", namespaces=ns) or "").strip()
+    published = (entry.findtext("atom:published", default="", namespaces=ns) or "").strip() or None
+    updated = (entry.findtext("atom:updated", default="", namespaces=ns) or "").strip() or None
 
     title = _normalize_title(title_raw) if title_raw else None
     abstract = _normalize_whitespace(summary_raw) if summary_raw else None
@@ -243,9 +232,7 @@ async def _download_pdf_bytes(
     is_pdf_type = "pdf" in ctype
     is_pdf_sig = content[:5] == b"%PDF-"
     if not (is_pdf_type or is_pdf_sig):
-        raise ArxivError(
-            f"Downloaded content does not look like a PDF (content-type={ctype!r})."
-        )
+        raise ArxivError(f"Downloaded content does not look like a PDF (content-type={ctype!r}).")
 
     if not is_pdf_sig:
         raise ArxivError("Downloaded content did not have a %PDF- signature.")
@@ -274,9 +261,7 @@ def _pdf_bytes_to_markdown_best_effort(
         try:
             import fitz as pymupdf  # type: ignore
         except Exception as e:  # pragma: no cover
-            raise ArxivError(
-                "PyMuPDF is required for PDF processing but is not installed."
-            ) from e
+            raise ArxivError("PyMuPDF is required for PDF processing but is not installed.") from e
 
     # Import layout helpers if available. This can improve downstream layout extraction.
     try:  # pragma: no cover
@@ -332,14 +317,12 @@ def _pdf_bytes_to_markdown_best_effort(
         parts: list[str] = []
         for i in range(pages_rendered):
             page = doc.load_page(i)
-            text = (page.get_text("text") or "").strip()
+            text = str(page.get_text("text") or "").strip()
             if not text:
                 continue
             parts.append(f"### Page {i + 1}\n\n{text}\n")
         md = "\n".join(parts).strip()
-        return PdfMarkdown(
-            markdown=md, page_count=page_count, pages_rendered=pages_rendered
-        )
+        return PdfMarkdown(markdown=md, page_count=page_count, pages_rendered=pages_rendered)
     finally:
         doc.close()
 
@@ -386,16 +369,12 @@ def render_arxiv_paper_markdown(
 
     if truncated:
         reason = truncation_reason or "output limits"
-        lines.extend(
-            ["", f"_Truncated due to {reason}._", "", f"Source: {source_url}", ""]
-        )
+        lines.extend(["", f"_Truncated due to {reason}._", "", f"Source: {source_url}", ""])
 
     return "\n".join(lines).strip() + "\n"
 
 
-def _apply_char_cap(
-    markdown: str, *, max_chars: int, source_url: str
-) -> tuple[str, bool]:
+def _apply_char_cap(markdown: str, *, max_chars: int, source_url: str) -> tuple[str, bool]:
     if max_chars <= 0:
         return markdown, False
     if len(markdown) <= max_chars:

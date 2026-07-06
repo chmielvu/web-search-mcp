@@ -18,21 +18,21 @@ logger = logging.getLogger(__name__)
 
 class TelegramContentError(RuntimeError):
     """Invalid or unsupported Telegram URL."""
+
     pass
 
 
 @dataclass(frozen=True)
 class TelegramTarget:
     """Parsed Telegram URL target."""
+
     username: str | None
     channel_id: int | None
     msg_id: int | None
     comment_thread_id: int | None  # reply_to msg_id
 
 
-_T_ME_PATH_RE = re.compile(
-    r"^/(?:c/(\d+)(?:/(\d+))?|(\w+)(?:/(\d+))?)$"
-)
+_T_ME_PATH_RE = re.compile(r"^/(?:c/(\d+)(?:/(\d+))?|(\w+)(?:/(\d+))?)$")
 
 
 def parse_telegram_url(url: str) -> TelegramTarget:
@@ -111,7 +111,8 @@ async def fetch_telegram_markdown(url: str) -> str:
         if target.comment_thread_id:
             # Fetch comment thread
             replies = [
-                m async for m in client.iter_messages(
+                m
+                async for m in client.iter_messages(
                     entity, reply_to=target.comment_thread_id, limit=100
                 )
             ]

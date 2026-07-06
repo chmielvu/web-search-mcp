@@ -273,9 +273,7 @@ class Crawl4AIClient:
             resp = await self._http.post(path, json=payload)
             resp.raise_for_status()
         except httpx.TimeoutException as exc:
-            raise Crawl4AIClientError(
-                f"Crawl4AI {path} timed out: {exc}", retryable=True
-            ) from exc
+            raise Crawl4AIClientError(f"Crawl4AI {path} timed out: {exc}", retryable=True) from exc
         except httpx.HTTPStatusError as exc:
             raise Crawl4AIClientError(
                 f"Crawl4AI {path} returned HTTP {exc.response.status_code}: "

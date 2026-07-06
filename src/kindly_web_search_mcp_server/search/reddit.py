@@ -17,7 +17,9 @@ from ..models import WebSearchResult
 from ..settings import settings
 from .base_provider import run_provider
 
-_REDDIT_BASE = "https://www.reddit.com/r/programming+MachineLearning+LocalLLaMA+Rag+Python/search.json"
+_REDDIT_BASE = (
+    "https://www.reddit.com/r/programming+MachineLearning+LocalLLaMA+Rag+Python/search.json"
+)
 _USER_AGENT = "web-search-mcp/1.0 (research bot)"
 
 

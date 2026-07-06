@@ -57,9 +57,7 @@ def test_eval_schema_includes_existing_and_phase_1_2_tables() -> None:
     }
 
     for table, columns in required_columns.items():
-        table_columns = {
-            row[1] for row in con.execute(f"PRAGMA table_info('{table}')").fetchall()
-        }
+        table_columns = {row[1] for row in con.execute(f"PRAGMA table_info('{table}')").fetchall()}
         assert common_columns.issubset(table_columns)
         assert columns.issubset(table_columns)
 
@@ -87,9 +85,7 @@ def test_eval_case_models_validate_minimum_contract() -> None:
         candidate_sets=[
             CandidateSet(
                 name="post_rerank",
-                candidates=[
-                    {"url": "https://example.com/docs", "domain": "example.com"}
-                ],
+                candidates=[{"url": "https://example.com/docs", "domain": "example.com"}],
             )
         ],
     )
@@ -126,6 +122,6 @@ def test_deterministic_eval_metrics() -> None:
     assert latency_within_budget(250, 500) == 1.0
     assert latency_within_budget(750, 500) == 0.0
     assert mrr_at_k(ranked_candidates, "docs.python.org", 3) == 0.5
-    assert round(ndcg_at_k(ranked_candidates, 3), 3) == 0.693
+    assert round(ndcg_at_k(ranked_candidates, ["docs.python.org"], 3), 3) == 0.693
     assert top_k_domain_hit(ranked_candidates, "docs.python.org", 2) == 1.0
     assert top_k_domain_hit(ranked_candidates, "pypi.org", 2) == 0.0

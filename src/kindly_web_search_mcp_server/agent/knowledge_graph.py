@@ -46,9 +46,7 @@ class ResearchKnowledgeGraph:
     graph: nx.MultiDiGraph = field(default_factory=nx.MultiDiGraph)
     sources: dict[str, ResearchSource] = field(default_factory=dict)
     tool_calls: Counter[str] = field(default_factory=Counter)
-    title_variants: dict[str, set[str]] = field(
-        default_factory=lambda: defaultdict(set)
-    )
+    title_variants: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     fetched_urls: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
@@ -180,11 +178,7 @@ class ResearchKnowledgeGraph:
         return conflicts
 
     def summary(self) -> ResearchGraphSummary:
-        domains = {
-            source.domain
-            for source in self.sources.values()
-            if source.domain
-        }
+        domains = {source.domain for source in self.sources.values() if source.domain}
         return ResearchGraphSummary(
             node_count=self.graph.number_of_nodes(),
             edge_count=self.graph.number_of_edges(),

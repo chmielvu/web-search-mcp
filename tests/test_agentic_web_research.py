@@ -30,21 +30,19 @@ def _install_fake_habanero(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "semanticscholar", fake_semanticscholar)
 
 
-def test_resolve_langfuse_credentials_uses_mcp_auth_header(monkeypatch) -> None:
-    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
-    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
-    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
-    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+def test_langfuse_credentials_no_longer_resolved_from_settings() -> None:
+    """resolve_langfuse_credentials was removed from settings.
+    Verify it is no longer importable and the runner uses OTel/Phoenix instead.
+    """
+    import pytest
 
-    token = base64.b64encode(b"pk-test:sk-test").decode("ascii")
-    monkeypatch.setenv("LANGFUSE_MCP_AUTH_HEADER", f"Basic {token}")
+    with pytest.raises(ImportError):
+        from kindly_web_search_mcp_server.settings import resolve_langfuse_credentials  # noqa: F401
 
-    from kindly_web_search_mcp_server.settings import resolve_langfuse_credentials
+    # The runner module no longer uses LangChain callback handlers for langfuse.
+    from kindly_web_search_mcp_server.agent import runner
 
-    public_key, secret_key, base_url = resolve_langfuse_credentials()
-    assert public_key == "pk-test"
-    assert secret_key == "sk-test"
-    assert base_url == "https://cloud.langfuse.com"
+    assert getattr(runner, "_LANGFUSE_AVAILABLE", False) is False
 
 
 def test_build_chat_model_uses_nanogpt_configuration(monkeypatch) -> None:
@@ -122,7 +120,9 @@ def test_agentic_model_chain_uses_gemini_and_hf_as_terminal_fallbacks(monkeypatc
 
     assert mock_gemini.called
     assert mock_hf.called
-    assert [getattr(item, "model_name", getattr(item, "model", "")) for item in model.fallbacks] == [
+    assert [
+        getattr(item, "model_name", getattr(item, "model", "")) for item in model.fallbacks
+    ] == [
         "minimax/minimax-m3:thinking",
         "mistralai/mistral-small-4-119b-2603:thinking",
         "gemini-3.5-flash",
@@ -143,7 +143,6 @@ def test_build_agent_tools_exposes_distinct_search_and_fetch_tools(monkeypatch) 
         "search_brave",
         "search_duckduckgo",
         "composio_similarlinks",
-        "composio_image_search",
         "get_content",
         "batch_get_content",
         "discover_links",
@@ -168,7 +167,7 @@ def test_system_prompt_mentions_agentic_policy() -> None:
     assert "search_brave" in prompt
     assert "rerank_candidates" in prompt
     assert "academic_search" in prompt
-    assert "legacy full `web_search` pipeline" in prompt
+    assert "full `web_search` pipeline" in prompt
 
 
 def test_register_agentic_web_research_tool_registers_tool(monkeypatch) -> None:
@@ -189,7 +188,7 @@ def test_register_agentic_web_research_tool_registers_tool(monkeypatch) -> None:
     mcp = DummyMCP()
     register_agentic_web_research_tools(mcp)
     assert "agentic_web_research" in mcp.tools
-    assert "LangChain/LangGraph ReAct" in mcp.tools["agentic_web_research"].__doc__
+    assert "ReAct agent" in mcp.tools["agentic_web_research"].__doc__
 
 
 def test_run_agentic_web_research_extracts_sources_and_tool_trace(monkeypatch) -> None:
@@ -261,9 +260,7 @@ def test_run_agentic_web_research_extracts_sources_and_tool_trace(monkeypatch) -
     assert result.tool_trace == ["search_duckduckgo"]
     assert result.sources[0].url == "https://example.com/langgraph"
     assert result.knowledge_graph_summary.url_count == 1
-    assert result.knowledge_graph_summary.source_urls == [
-        "https://example.com/langgraph"
-    ]
+    assert result.knowledge_graph_summary.source_urls == ["https://example.com/langgraph"]
     assert result.knowledge_graph_summary.tool_calls["search_duckduckgo"] == 1
     assert result.uncertainties == []
 
@@ -299,9 +296,7 @@ def test_agentic_observability_emits_and_records_are_called(monkeypatch) -> None
             with patch(
                 "kindly_web_search_mcp_server.agent.runner.emit_observability_event"
             ) as mock_emit:
-                with patch(
-                    "kindly_web_search_mcp_server.agent.runner.record_agentic_research"
-                ):
+                with patch("kindly_web_search_mcp_server.agent.runner.record_agentic_research"):
                     cfg = AgenticResearchConfig(api_key="x" * 20)
                     res = asyncio.run(
                         run_agentic_web_research(

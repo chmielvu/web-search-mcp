@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from pathlib import Path
 
 import yaml
@@ -58,9 +57,7 @@ class TestABVariant:
 class TestABExperiment:
     def test_create_experiment_minimal(self):
         variants = [ABVariant("control", 50), ABVariant("test", 50)]
-        exp = ABExperiment(
-            experiment_id="exp-1", layer="reranking", variants=variants
-        )
+        exp = ABExperiment(experiment_id="exp-1", layer="reranking", variants=variants)
         assert exp.experiment_id == "exp-1"
         assert exp.layer == "reranking"
         assert exp.status == "draft"
@@ -98,9 +95,7 @@ class TestABExperiment:
 
     def test_validate_bad_traffic_pct_over_100(self):
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
-        exp = ABExperiment(
-            "exp-1", "reranking", traffic_pct=150, variants=variants
-        )
+        exp = ABExperiment("exp-1", "reranking", traffic_pct=150, variants=variants)
         errors = exp.validate()
         assert any("traffic_pct" in e for e in errors)
 
@@ -202,9 +197,7 @@ class TestGetAssignedVariant:
     def test_returns_none_when_no_running_experiments(self):
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
         exps = [
-            ABExperiment(
-                "exp-1", "reranking", status="draft", variants=variants
-            ),
+            ABExperiment("exp-1", "reranking", status="draft", variants=variants),
             ABExperiment(
                 "exp-2",
                 "reranking",
@@ -247,10 +240,7 @@ class TestGetAssignedVariant:
             ),
         ]
         # With 0.01% traffic, nearly all run_keys should be excluded
-        results = [
-            get_assigned_variant(f"run-{i}", "reranking", exps)
-            for i in range(2000)
-        ]
+        results = [get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(2000)]
         assigned = [r for r in results if r is not None]
         assert len(assigned) < 10  # at most a handful out of 2000
 
@@ -318,7 +308,7 @@ class TestGetAssignedVariant:
             if r and r.variant_key == "heavy":
                 heavy_count += 1
         # heavy should be ~90% — allow some statistical variance
-        assert heavy_count > n * 0.5, f"heavy_count={heavy_count}, expected > {n*0.5}"
+        assert heavy_count > n * 0.5, f"heavy_count={heavy_count}, expected > {n * 0.5}"
 
 
 # ---------------------------------------------------------------------------

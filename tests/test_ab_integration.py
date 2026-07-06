@@ -13,10 +13,7 @@ Tests the full A/B testing system end-to-end:
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -34,7 +31,6 @@ from kindly_web_search_mcp_server.ab_testing.assignment import (
 from kindly_web_search_mcp_server.ab_testing.models import (
     ABExperiment,
     ABVariant,
-    Assignment,
 )
 from kindly_web_search_mcp_server.ab_testing.yaml_loader import (
     load_experiments,
@@ -235,9 +231,7 @@ class TestExperimentLifecycle:
         assert reloaded[0].winning_variant == "test"
 
         # Concluded experiments should no longer assign
-        assignment_after = get_assigned_variant(
-            "run-abc-123", "reranking", reloaded
-        )
+        assignment_after = get_assigned_variant("run-abc-123", "reranking", reloaded)
         assert assignment_after is None
 
     def test_lifecycle_with_payload(self, tmp_yaml):
@@ -320,15 +314,11 @@ class TestAssignmentDeterminism:
     def test_deterministic_assignment(self):
         """Calling get_assigned_variant multiple times with same run_key yields same variant."""
         variants = [ABVariant("control", 50), ABVariant("test", 50)]
-        exps = [
-            _make_running_exp("det-exp", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("det-exp", "reranking", variants, traffic_pct=100.0)]
 
         results = []
         for _ in range(10):
-            results.append(
-                get_assigned_variant("deterministic-run", "reranking", exps)
-            )
+            results.append(get_assigned_variant("deterministic-run", "reranking", exps))
 
         assert all(r is not None for r in results)
         variant_keys = [r.variant_key for r in results]
@@ -343,9 +333,7 @@ class TestAssignmentDeterminism:
 
         # Each experiment should produce a stable assignment
         for exps in [exps_a, exps_b]:
-            results = [
-                get_assigned_variant("same-run", "reranking", exps) for _ in range(5)
-            ]
+            results = [get_assigned_variant("same-run", "reranking", exps) for _ in range(5)]
             keys = [r.variant_key for r in results]
             assert all(k == keys[0] for k in keys)
 
@@ -395,42 +383,28 @@ class TestTrafficEnrollment:
     def test_full_traffic_enrolls_all(self):
         """traffic_pct=100 should enroll every run_key."""
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
-        exps = [
-            _make_running_exp("full-traffic", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("full-traffic", "reranking", variants, traffic_pct=100.0)]
 
-        results = [
-            get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(100)
-        ]
+        results = [get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(100)]
         assigned = [r for r in results if r is not None]
         assert len(assigned) == 100
 
     def test_zero_traffic_enrolls_none(self):
         """traffic_pct=0.01 should enroll almost no one."""
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
-        exps = [
-            _make_running_exp("zero-traffic", "reranking", variants, traffic_pct=0.01)
-        ]
+        exps = [_make_running_exp("zero-traffic", "reranking", variants, traffic_pct=0.01)]
 
-        results = [
-            get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(5000)
-        ]
+        results = [get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(5000)]
         assigned = [r for r in results if r is not None]
         assert len(assigned) < 10  # at most a handful out of 5000
 
     def test_partial_traffic_approximates_pct(self):
         """traffic_pct=50 should enroll roughly 50% of run_keys."""
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
-        exps = [
-            _make_running_exp(
-                "partial-traffic", "reranking", variants, traffic_pct=50.0
-            )
-        ]
+        exps = [_make_running_exp("partial-traffic", "reranking", variants, traffic_pct=50.0)]
 
         n = 2000
-        results = [
-            get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(n)
-        ]
+        results = [get_assigned_variant(f"run-{i}", "reranking", exps) for i in range(n)]
         assigned = [r for r in results if r is not None]
         pct = len(assigned) / n * 100
         # Allow 10% absolute deviation from 50%
@@ -441,22 +415,15 @@ class TestTrafficEnrollment:
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
 
         # Very low traffic
-        exps_low = [
-            _make_running_exp("low", "reranking", variants, traffic_pct=0.1)
-        ]
-        results_low = [
-            get_assigned_variant(f"run-{i}", "reranking", exps_low) for i in range(5000)
-        ]
+        exps_low = [_make_running_exp("low", "reranking", variants, traffic_pct=0.1)]
+        results_low = [get_assigned_variant(f"run-{i}", "reranking", exps_low) for i in range(5000)]
         assigned_low = [r for r in results_low if r is not None]
         assert len(assigned_low) < 50  # at most a few dozen out of 5000
 
         # Very high traffic
-        exps_high = [
-            _make_running_exp("high", "reranking", variants, traffic_pct=99.9)
-        ]
+        exps_high = [_make_running_exp("high", "reranking", variants, traffic_pct=99.9)]
         results_high = [
-            get_assigned_variant(f"run-{i}", "reranking", exps_high)
-            for i in range(2000)
+            get_assigned_variant(f"run-{i}", "reranking", exps_high) for i in range(2000)
         ]
         assigned_high = [r for r in results_high if r is not None]
         assert len(assigned_high) > 1900  # most should be enrolled
@@ -485,10 +452,7 @@ class TestTrafficEnrollment:
         assert experiments[0].traffic_pct == 30.0
 
         n = 2000
-        results = [
-            get_assigned_variant(f"run-{i}", "reranking", experiments)
-            for i in range(n)
-        ]
+        results = [get_assigned_variant(f"run-{i}", "reranking", experiments) for i in range(n)]
         assigned = [r for r in results if r is not None]
         pct = len(assigned) / n * 100
         assert 10 <= pct <= 55, f"Enrollment {pct:.1f}% outside expected range (10-55%)"
@@ -507,9 +471,7 @@ class TestLayerMutualExclusion:
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
         exps = [
             _make_running_exp("exp-old", "reranking", variants, started_at="2025-01-01"),
-            _make_running_exp(
-                "exp-mid", "reranking", variants, started_at="2025-03-15"
-            ),
+            _make_running_exp("exp-mid", "reranking", variants, started_at="2025-03-15"),
             _make_running_exp("exp-new", "reranking", variants, started_at="2025-06-01"),
         ]
 
@@ -542,12 +504,8 @@ class TestLayerMutualExclusion:
         """Draft/paused/concluded experiments don't participate in mutual exclusion."""
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
         exps = [
-            ABExperiment(
-                "exp-draft", "reranking", status="draft", variants=variants
-            ),
-            ABExperiment(
-                "exp-paused", "reranking", status="paused", variants=variants
-            ),
+            ABExperiment("exp-draft", "reranking", status="draft", variants=variants),
+            ABExperiment("exp-paused", "reranking", status="paused", variants=variants),
             ABExperiment(
                 "exp-concluded",
                 "reranking",
@@ -563,9 +521,7 @@ class TestLayerMutualExclusion:
         """Only running experiments are considered for assignment."""
         variants = [ABVariant("ctrl", 50), ABVariant("test", 50)]
         exps = [
-            ABExperiment(
-                "exp-draft", "reranking", status="draft", variants=variants
-            ),
+            ABExperiment("exp-draft", "reranking", status="draft", variants=variants),
             _make_running_exp("exp-running", "reranking", variants),
             ABExperiment(
                 "exp-concluded",
@@ -603,9 +559,7 @@ class TestShadowMode:
         """Shadow function must be invoked with the provided kwargs."""
         shadow_fn = AsyncMock(return_value="result")
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.shadow_runner.insert_ab_shadow_run"
-        ):
+        with patch("kindly_web_search_mcp_server.ab_testing.shadow_runner.insert_ab_shadow_run"):
             await run_shadow(
                 run_key="rk-shadow-1",
                 experiment_id="exp-shadow-1",
@@ -746,17 +700,13 @@ class TestShadowMode:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             found_shadow = False
             for i in range(200):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="query_understanding"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="query_understanding")
                 if result and result["variant_key"] == "test":
                     assert result["shadow_mode"] is True
                     found_shadow = True
@@ -788,16 +738,12 @@ class TestShadowMode:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             for i in range(200):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="reranking"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="reranking")
                 if result and result["variant_key"] == "test":
                     assert result["shadow_mode"] is False
                     return
@@ -826,17 +772,13 @@ class TestShadowMode:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             # Shadow mode should still return overrides
             for i in range(200):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="query_understanding"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="query_understanding")
                 if result:
                     assert "experiment_id" in result
                     assert "variant_key" in result
@@ -857,9 +799,7 @@ class TestVariantWeightDistribution:
     def test_equal_weights_produce_balanced_distribution(self):
         """50/50 split should be roughly balanced."""
         variants = [ABVariant("control", 50), ABVariant("test", 50)]
-        exps = [
-            _make_running_exp("equal-weights", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("equal-weights", "reranking", variants, traffic_pct=100.0)]
 
         n = 2000
         control_count = 0
@@ -880,9 +820,7 @@ class TestVariantWeightDistribution:
     def test_skewed_weights_produce_skewed_distribution(self):
         """90/10 split should heavily favor the heavier variant."""
         variants = [ABVariant("heavy", 90), ABVariant("light", 10)]
-        exps = [
-            _make_running_exp("skewed", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("skewed", "reranking", variants, traffic_pct=100.0)]
 
         n = 2000
         heavy_count = 0
@@ -892,9 +830,7 @@ class TestVariantWeightDistribution:
                 heavy_count += 1
 
         heavy_pct = heavy_count / n * 100
-        assert heavy_pct > 70, (
-            f"Heavy variant {heavy_pct:.1f}% below expected 90%"
-        )
+        assert heavy_pct > 70, f"Heavy variant {heavy_pct:.1f}% below expected 90%"
 
     def test_three_variant_distribution(self):
         """Three variants with 50/30/20 split."""
@@ -903,9 +839,7 @@ class TestVariantWeightDistribution:
             ABVariant("b", 30),
             ABVariant("c", 20),
         ]
-        exps = [
-            _make_running_exp("three-way", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("three-way", "reranking", variants, traffic_pct=100.0)]
 
         n = 3000
         counts = {"a": 0, "b": 0, "c": 0}
@@ -925,9 +859,7 @@ class TestVariantWeightDistribution:
     def test_weight_sum_not_100(self):
         """Weights don't need to sum to 100 — they're relative."""
         variants = [ABVariant("a", 2), ABVariant("b", 1)]
-        exps = [
-            _make_running_exp("relative", "reranking", variants, traffic_pct=100.0)
-        ]
+        exps = [_make_running_exp("relative", "reranking", variants, traffic_pct=100.0)]
 
         n = 3000
         a_count = 0
@@ -938,9 +870,7 @@ class TestVariantWeightDistribution:
 
         a_pct = a_count / n * 100
         # a has 2/3 weight, so ~66.7%
-        assert 50 <= a_pct <= 85, (
-            f"Variant a {a_pct:.1f}% outside expected range (50-85%)"
-        )
+        assert 50 <= a_pct <= 85, f"Variant a {a_pct:.1f}% outside expected range (50-85%)"
 
     def test_distribution_stable_across_reloads(self, tmp_yaml):
         """Weight distribution is stable across YAML save/load cycles."""
@@ -954,8 +884,7 @@ class TestVariantWeightDistribution:
         ctrl_count = sum(
             1
             for i in range(n)
-            if get_assigned_variant(f"run-{i}", "reranking", loaded).variant_key
-            == "ctrl"
+            if get_assigned_variant(f"run-{i}", "reranking", loaded).variant_key == "ctrl"
         )
         ctrl_pct = ctrl_count / n * 100
         assert 30 <= ctrl_pct <= 70
@@ -1006,15 +935,11 @@ class TestEndToEndPipeline:
 
             async def run(self, run_key: str, **kwargs):
                 # Simulate a pipeline stage that checks AB overrides
-                with patch(
-                    "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-                ) as s:
+                with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
                     s.ab_testing_enabled = True
                     s.ab_config_path = str(tmp_yaml)
 
-                    overrides = get_ab_overrides(
-                        run_key=run_key, layer="query_understanding"
-                    )
+                    overrides = get_ab_overrides(run_key=run_key, layer="query_understanding")
                     self.applied_overrides = overrides
 
                     if overrides and overrides["variant_key"] == "test":
@@ -1101,16 +1026,12 @@ class TestEndToEndPipeline:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             for i in range(200):
-                overrides = get_ab_overrides(
-                    run_key=f"shadow-pipe-run-{i}", layer="reranking"
-                )
+                overrides = get_ab_overrides(run_key=f"shadow-pipe-run-{i}", layer="reranking")
                 if overrides and overrides["variant_key"] == "test":
                     assert overrides["shadow_mode"] is True
                     assert overrides["config"]["model"] == "experimental-reranker"
@@ -1138,9 +1059,7 @@ class TestEndToEndPipeline:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = False  # Disabled
             s.ab_config_path = str(tmp_yaml)
 
@@ -1152,15 +1071,11 @@ class TestEndToEndPipeline:
 
     def test_pipeline_no_experiment_file(self):
         """When no experiment file exists, pipeline gets no overrides."""
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = "/nonexistent/path/experiments.yaml"
 
-            overrides = get_ab_overrides(
-                run_key="no-file-run", layer="query_understanding"
-            )
+            overrides = get_ab_overrides(run_key="no-file-run", layer="query_understanding")
             assert overrides is None
 
     def test_pipeline_multiple_layers_independent(self, tmp_yaml):
@@ -1202,19 +1117,13 @@ class TestEndToEndPipeline:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             run_key = "multi-layer-run"
-            qu_overrides = get_ab_overrides(
-                run_key=run_key, layer="query_understanding"
-            )
-            rerank_overrides = get_ab_overrides(
-                run_key=run_key, layer="reranking"
-            )
+            qu_overrides = get_ab_overrides(run_key=run_key, layer="query_understanding")
+            rerank_overrides = get_ab_overrides(run_key=run_key, layer="reranking")
 
             # Both layers should return overrides
             assert qu_overrides is not None
@@ -1257,16 +1166,12 @@ class TestEndToEndPipeline:
         with open(tmp_yaml, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_yaml)
 
             for i in range(200):
-                overrides = get_ab_overrides(
-                    run_key=f"merge-run-{i}", layer="query_understanding"
-                )
+                overrides = get_ab_overrides(run_key=f"merge-run-{i}", layer="query_understanding")
                 if overrides and overrides["variant_key"] == "test":
                     config = overrides["config"]
                     assert config["model"] == "override-model"
@@ -1349,24 +1254,24 @@ class TestEdgeCases:
         save_experiments([exp], tmp_yaml)
         loaded = load_experiments(tmp_yaml)
         assert len(loaded) == 1
-        l = loaded[0]
-        assert l.experiment_id == "all-fields"
-        assert l.layer == "reranking"
-        assert l.status == "running"
-        assert l.hypothesis == "Test hypothesis"
-        assert l.primary_metric == "mrr"
-        assert l.traffic_pct == 75.0
-        assert l.guardrail_metrics == ["latency", "cost"]
-        assert l.started_at == "2025-06-01T00:00:00"
-        assert l.ended_at is None
-        assert l.winning_variant is None
-        assert len(l.variants) == 2
-        assert l.variants[0].variant_key == "ctrl"
-        assert l.variants[0].weight == 50
-        assert l.variants[0].config == {"a": 1}
-        assert l.variants[0].description == "Control group"
-        assert l.variants[1].variant_key == "test"
-        assert l.variants[1].weight == 50
-        assert l.variants[1].config == {"b": 2}
-        assert l.variants[1].description == "Test group"
-        assert l.payload == {"key": "value"}
+        experiment = loaded[0]
+        assert experiment.experiment_id == "all-fields"
+        assert experiment.layer == "reranking"
+        assert experiment.status == "running"
+        assert experiment.hypothesis == "Test hypothesis"
+        assert experiment.primary_metric == "mrr"
+        assert experiment.traffic_pct == 75.0
+        assert experiment.guardrail_metrics == ["latency", "cost"]
+        assert experiment.started_at == "2025-06-01T00:00:00"
+        assert experiment.ended_at is None
+        assert experiment.winning_variant is None
+        assert len(experiment.variants) == 2
+        assert experiment.variants[0].variant_key == "ctrl"
+        assert experiment.variants[0].weight == 50
+        assert experiment.variants[0].config == {"a": 1}
+        assert experiment.variants[0].description == "Control group"
+        assert experiment.variants[1].variant_key == "test"
+        assert experiment.variants[1].weight == 50
+        assert experiment.variants[1].config == {"b": 2}
+        assert experiment.variants[1].description == "Test group"
+        assert experiment.payload == {"key": "value"}

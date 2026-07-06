@@ -186,12 +186,7 @@ def build_local_analytics_query_sql(question: str, *, max_rows: int = 100) -> tu
         return _eval_query(limit)
     if "fetch" in q or "window" in q or "page content" in q:
         return _fetch_query(limit)
-    if (
-        "content" in q
-        or "classification" in q
-        or "markdown" in q
-        or "blocked" in q
-    ):
+    if "content" in q or "classification" in q or "markdown" in q or "blocked" in q:
         return _content_query(limit)
     if "recent" in q or "latest" in q or "timeline" in q or "activity" in q or "event" in q:
         return _recent_events_query(limit)

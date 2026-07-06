@@ -137,7 +137,7 @@ def _parse_rerank_results(data: Any, document_count: int) -> list[tuple[int, flo
         if not isinstance(index, int) or not (0 <= index < document_count):
             # Some servers may return 0-based in order; be lenient but validate range later
             try:
-                index = int(index)
+                index = int(index)  # type: ignore[arg-type]
             except Exception:
                 continue
         if not isinstance(score, (int, float)):
@@ -189,9 +189,13 @@ async def gcp_cloudrun_rerank(
     if not documents:
         return []
 
-    resolved_url = url or settings.rerank_gcp_cloudrun_url or os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
+    resolved_url = (
+        url or settings.rerank_gcp_cloudrun_url or os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
+    )
     if not resolved_url.strip():
-        raise ValueError("RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker")
+        raise ValueError(
+            "RERANK_GCP_CLOUDRUN_URL (or equivalent) is required for gcp_cloudrun reranker"
+        )
 
     resolved_timeout = timeout or getattr(settings, "rerank_gcp_timeout", 30.0)
 
@@ -220,7 +224,9 @@ async def gcp_cloudrun_rerank(
         if token:
             headers["Authorization"] = f"Bearer {token}"
         else:
-            logger.debug("No static token and no GCP ID token obtained; attempting unauthenticated call (service must allow unauth or be reachable)")
+            logger.debug(
+                "No static token and no GCP ID token obtained; attempting unauthenticated call (service must allow unauth or be reachable)"
+            )
 
     # Wrap in retry for transient
     async def _execute() -> list[tuple[int, float]]:

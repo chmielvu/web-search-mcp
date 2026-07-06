@@ -143,9 +143,7 @@ def _parse_enrichment_response(data: dict[str, Any]) -> dict[str, dict[str, Any]
         published_date = published_raw[:10] if isinstance(published_raw, str) else ""
 
         result[video_id] = {
-            "duration_seconds": _parse_iso8601_duration(
-                content.get("duration", "PT0S")
-            ),
+            "duration_seconds": _parse_iso8601_duration(content.get("duration", "PT0S")),
             "view_count": _safe_int(stats.get("viewCount")),
             "like_count": _safe_int(stats.get("likeCount")),
             "channel_title": snippet.get("channelTitle", ""),
@@ -250,9 +248,7 @@ def merge_enrichment_into_results(
             updates: dict[str, Any] = {}
             if enrichment_line:
                 new_snippet = (
-                    f"{result.snippet}\n{enrichment_line}"
-                    if result.snippet
-                    else enrichment_line
+                    f"{result.snippet}\n{enrichment_line}" if result.snippet else enrichment_line
                 )
                 updates["snippet"] = new_snippet
 

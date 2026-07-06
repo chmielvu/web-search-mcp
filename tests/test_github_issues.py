@@ -18,7 +18,8 @@ class TestGitHubIssues(unittest.TestCase):
             "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/issues/26"
         )
         self.assertEqual(
-            target, GitHubIssueTarget(owner="nextlevelbuilder", repo="ui-ux-pro-max-skill", number=26)
+            target,
+            GitHubIssueTarget(owner="nextlevelbuilder", repo="ui-ux-pro-max-skill", number=26),
         )
 
         target2 = parse_github_issue_url(
@@ -63,7 +64,9 @@ class TestGitHubIssues(unittest.TestCase):
             }
         ]
 
-        md = render_issue_thread_markdown(issue=issue, comments=comments, total_comments=1, truncated=False)
+        md = render_issue_thread_markdown(
+            issue=issue, comments=comments, total_comments=1, truncated=False
+        )
         self.assertIn("# Question", md)
         self.assertIn("# Answers", md)
         self.assertIn("Bug: Something breaks", md)

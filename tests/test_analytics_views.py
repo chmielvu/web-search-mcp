@@ -345,7 +345,7 @@ class TestAnalyticsViews:
                 con.close()
 
             assert cache_row == ("exact", "hit", "true", 0.91)
-            assert middleware_row == ("rate_limit", "grok_search", "expensive", 2.5, 3, "session-1")
+            assert middleware_row == ("rate_limit", "perplexity_search", "expensive", 2.5, 3, "session-1")
             assert session_row == ("session-1", "started", "web_search", 2)
             assert content_row == ("resolution", "resolution", "success", 20)
             assert error_row == ("provider.search.error", "searxng", "TimeoutError")

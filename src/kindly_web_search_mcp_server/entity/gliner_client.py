@@ -26,7 +26,11 @@ _gliner_client: GLiNER2Client | None = None
 def is_entity_extraction_enabled() -> bool:
     """Return true only when explicitly enabled via env (ENTITY_EXTRACTION_ENABLED=true)."""
     # Read live from env to support monkeypatch in tests; fall back to settings.
-    raw = (settings.entity_extraction_enabled if hasattr(settings, "entity_extraction_enabled") else False)
+    raw = (
+        settings.entity_extraction_enabled
+        if hasattr(settings, "entity_extraction_enabled")
+        else False
+    )
     # Re-evaluate from env for test dynamism (settings may be snapshot)
     import os
 
@@ -59,9 +63,8 @@ class GLiNER2Client:
     def _resolve_model_name(self) -> str:
         import os
 
-        return (
-            os.environ.get("GLINER_MODEL")
-            or getattr(settings, "gliner_model", "fastino/gliner2-base-v1")
+        return os.environ.get("GLINER_MODEL") or getattr(
+            settings, "gliner_model", "fastino/gliner2-base-v1"
         )
 
     def _resolve_threshold(self) -> float:

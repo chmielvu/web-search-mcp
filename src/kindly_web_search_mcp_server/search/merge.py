@@ -146,9 +146,7 @@ def merge_search_results(
             url_occurrences[key] += 1
 
     overlapping_urls = [url for url, count in url_occurrences.items() if count > 1]
-    overlap_rate = (
-        len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
-    )
+    overlap_rate = len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
 
     if k is None:
         k = settings.rrf_k
@@ -311,9 +309,7 @@ def merge_search_results(
                     rrf_score=result.score or 0.0,
                     provider_count=result.provider_count,
                     providers=result.providers or [],
-                    overlap_flag=(
-                        canonicalize_url(result.link) in overlapping_urls
-                    ),
+                    overlap_flag=(canonicalize_url(result.link) in overlapping_urls),
                     payload_json={
                         "list_weights": list_weights,
                         "k": k,

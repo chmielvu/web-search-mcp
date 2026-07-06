@@ -34,4 +34,3 @@ def start_cmd(
 
 def register(app: typer.Typer) -> None:
     app.add_typer(server_app, name="server")
-

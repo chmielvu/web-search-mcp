@@ -65,7 +65,9 @@ async def dispatch_providers(
     async def _call(cfg: ProviderConfig) -> list[WebSearchResult]:
         bundle = (provider_options_by_name or {}).get(cfg.name)
         provider_search_options = (
-            bundle.search_options if bundle and bundle.search_options is not None else search_options
+            bundle.search_options
+            if bundle and bundle.search_options is not None
+            else search_options
         )
         provider_arguments = bundle.arguments if bundle is not None else None
         return await _search_single_provider(

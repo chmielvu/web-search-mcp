@@ -57,9 +57,7 @@ def build_search_branch_specs(
     branch_specs: list[SearchBranchSpec] = []
     for index, variant in enumerate(planned_variants):
         branch_providers = (
-            provider_shards[index]
-            if index < len(provider_shards)
-            else list(active_provider_names)
+            provider_shards[index] if index < len(provider_shards) else list(active_provider_names)
         )
         branch_specs.append(
             SearchBranchSpec(

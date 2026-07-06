@@ -16,9 +16,7 @@ from .duckdb_store import (
 )
 
 
-def compute_search_quality(
-    run_key: str, db_path: str | None = None
-) -> dict[str, object]:
+def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str, object]:
     """Query DuckDB tables for *run_key* and insert computed quality metrics.
 
     Metrics are computed from the pipeline tables (merged_candidates,
@@ -190,9 +188,9 @@ def compute_search_quality(
 
 def _to_float(val: object) -> float | None:
     """Safely convert *val* to ``float`` (or ``None``)."""
-    return None if val is None else float(val)
+    return None if val is None else float(val)  # type: ignore[arg-type]
 
 
 def _to_int(val: object) -> int | None:
     """Safely convert *val* to ``int`` (or ``None``)."""
-    return None if val is None else int(val)
+    return None if val is None else int(val)  # type: ignore[arg-type]

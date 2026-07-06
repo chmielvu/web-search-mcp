@@ -54,29 +54,17 @@ def _build_headers() -> dict[str, str]:
         try:
             parsed = json.loads(raw_extra)
         except json.JSONDecodeError as exc:
-            raise SearxngConfigError(
-                "SEARXNG_HEADERS_JSON must be a JSON object string."
-            ) from exc
+            raise SearxngConfigError("SEARXNG_HEADERS_JSON must be a JSON object string.") from exc
 
         if not isinstance(parsed, dict):
-            raise SearxngConfigError(
-                "SEARXNG_HEADERS_JSON must be a JSON object string."
-            )
+            raise SearxngConfigError("SEARXNG_HEADERS_JSON must be a JSON object string.")
 
         for key, value in parsed.items():
-            if (
-                isinstance(key, str)
-                and isinstance(value, str)
-                and key.strip()
-                and value.strip()
-            ):
+            if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
                 headers[key] = value
 
     if "user-agent" not in {key.lower() for key in headers.keys()}:
-        headers["User-Agent"] = (
-            settings.searxng_user_agent.strip()
-            or DEFAULT_SEARXNG_USER_AGENT
-        )
+        headers["User-Agent"] = settings.searxng_user_agent.strip() or DEFAULT_SEARXNG_USER_AGENT
 
     return headers
 
@@ -148,9 +136,7 @@ def _apply_engine_consensus_bonus(
         if engine_count > 1:
             consensus_bonus = bonus_per_engine * (engine_count - 1)
             current_score = result.raw_score or 0.0
-            result = result.model_copy(
-                update={"raw_score": current_score + consensus_bonus}
-            )
+            result = result.model_copy(update={"raw_score": current_score + consensus_bonus})
             LOGGER.debug(
                 "Consensus bonus: %s engines=%d bonus=%.3f",
                 result.link,
@@ -242,9 +228,7 @@ async def search_searxng(
     request_timeout = timeout_seconds if timeout_seconds is not None else 30.0
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.get(
-            url, params=params, headers=headers, timeout=request_timeout
-        )
+        resp = await client.get(url, params=params, headers=headers, timeout=request_timeout)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -289,11 +273,7 @@ async def search_searxng(
 
             if not isinstance(title, str) or not title.strip():
                 continue
-            if (
-                not isinstance(link, str)
-                or not link.strip()
-                or not _looks_like_url(link)
-            ):
+            if not isinstance(link, str) or not link.strip() or not _looks_like_url(link):
                 continue
             if not isinstance(snippet, str) or not snippet.strip():
                 continue

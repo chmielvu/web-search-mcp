@@ -120,9 +120,18 @@ async def help_docs():
             },
             "/classify": {"method": "POST", "description": "Text classification using GLiNER2."},
             "/extract": {"method": "POST", "description": "Entity extraction using GLiNER2."},
-            "/extract_json": {"method": "POST", "description": "Structured extraction using GLiNER2."},
-            "/extract_relations": {"method": "POST", "description": "Relation extraction using GLiNER2."},
-            "/extract_combined": {"method": "POST", "description": "Multi-task schema composition using GLiNER2."},
+            "/extract_json": {
+                "method": "POST",
+                "description": "Structured extraction using GLiNER2.",
+            },
+            "/extract_relations": {
+                "method": "POST",
+                "description": "Relation extraction using GLiNER2.",
+            },
+            "/extract_combined": {
+                "method": "POST",
+                "description": "Multi-task schema composition using GLiNER2.",
+            },
             "/health": {"method": "GET", "description": "Health check."},
         },
     }

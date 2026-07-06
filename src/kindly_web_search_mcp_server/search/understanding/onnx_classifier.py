@@ -27,9 +27,7 @@ async def classify_intent(query: str) -> tuple[str, float] | None:
         return None
 
     try:
-        async with httpx.AsyncClient(
-            timeout=settings.intent_classifier_timeout_seconds
-        ) as client:
+        async with httpx.AsyncClient(timeout=settings.intent_classifier_timeout_seconds) as client:
             resp = await client.post(
                 f"{settings.intent_classifier_url}/classify",
                 json={"text": query},

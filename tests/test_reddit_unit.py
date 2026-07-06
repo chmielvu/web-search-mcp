@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -19,9 +18,11 @@ class _DummyResponse:
 
 
 class TestRedditUnit(unittest.IsolatedAsyncioTestCase):
-    @patch.dict(os.environ, {"REDDIT_DELAY_SECONDS": "0.25"}, clear=False)
+    @patch("kindly_web_search_mcp_server.search.reddit.settings")
     @patch("asyncio.sleep", new_callable=AsyncMock)
-    async def test_reddit_delay_is_configurable(self, mock_sleep: AsyncMock) -> None:
+    async def test_reddit_delay_is_configurable(self, mock_sleep: AsyncMock, mock_settings: object) -> None:
+
+        mock_settings.reddit_delay_seconds = 0.25
         http_client = type("Client", (), {})()
         http_client.get = AsyncMock(
             return_value=_DummyResponse(

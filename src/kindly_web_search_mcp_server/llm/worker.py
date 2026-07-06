@@ -76,11 +76,7 @@ class LLMWorker:
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
     ) -> StructuredLLMResponse:
-        router = (
-            build_classifier_router()
-            if task == "query_understand"
-            else build_worker_router()
-        )
+        router = build_classifier_router() if task == "query_understand" else build_worker_router()
         generation = await router.complete_text(
             messages=messages,
             temperature=temperature,

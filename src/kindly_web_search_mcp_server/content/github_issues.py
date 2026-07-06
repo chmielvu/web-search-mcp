@@ -155,9 +155,7 @@ def render_issue_thread_markdown(
         if total_comments is None:
             lines.append(f"_Thread truncated: showing {shown} comments._")
         else:
-            lines.append(
-                f"_Thread truncated: showing {shown} of {total_comments} comments._"
-            )
+            lines.append(f"_Thread truncated: showing {shown} of {total_comments} comments._")
         if url:
             lines.append(f"_View full thread: {url}_")
         lines.append("")

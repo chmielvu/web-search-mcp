@@ -17,12 +17,12 @@ def test_quality_dashboard_json_parses_and_has_joint_panels():
     panel_lower = [t.lower() for t in panels]
 
     # Must have panels for the new areas (real events from phases 1-8 +9)
-    assert any("tool profile" in t or "profile usage" in t or "tool_surface" in t for t in panel_lower), (
-        f"missing tool profile usage panel; titles: {panels}"
-    )
-    assert any("result memory" in t or "result-memory" in t or "result_memory" in t for t in panel_lower), (
-        f"missing result-memory panel; titles: {panels}"
-    )
+    assert any(
+        "tool profile" in t or "profile usage" in t or "tool_surface" in t for t in panel_lower
+    ), f"missing tool profile usage panel; titles: {panels}"
+    assert any(
+        "result memory" in t or "result-memory" in t or "result_memory" in t for t in panel_lower
+    ), f"missing result-memory panel; titles: {panels}"
     assert any(
         ("rerank" in t and ("latency" in t or "quality" in t or "duration" in t))
         for t in panel_lower
@@ -54,9 +54,7 @@ def test_overview_dashboard_json_parses_and_has_loki_panels():
 
     loki_panels = [p for p in panels if p.get("title") in titles[-3:]]
     expressions = [
-        target.get("expr", "")
-        for panel in loki_panels
-        for target in panel.get("targets", [])
+        target.get("expr", "") for panel in loki_panels for target in panel.get("targets", [])
     ]
     assert all('service_name="$service"' in expr for expr in expressions), expressions
 

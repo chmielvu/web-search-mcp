@@ -58,7 +58,7 @@ class WebResultsIndex:
             self._client = AsyncQdrantClient(
                 url=self._url,
                 api_key=self._api_key or None,
-                auth_token_provider=self._auth_token_provider,
+                auth_token_provider=self._auth_token_provider,  # type: ignore[arg-type]
                 timeout=30,
                 prefer_grpc=False,
                 port=443,
@@ -74,7 +74,7 @@ class WebResultsIndex:
             info = await client.get_collection(COLLECTION_NAME)
             if info.status == "green":
                 vectors_config = info.config.params.vectors or {}
-                dense_cfg = vectors_config.get("dense")
+                dense_cfg = vectors_config.get("dense")  # type: ignore[union-attr]
                 if dense_cfg is not None and hasattr(dense_cfg, "size"):
                     expected_size = COLLECTION_VECTORS["dense"].size
                     if dense_cfg.size != expected_size:
@@ -102,9 +102,7 @@ class WebResultsIndex:
                 sparse_vectors_config=COLLECTION_SPARSE,
             )
             self._collection_ok = True
-            logger.info(
-                "Created Qdrant collection '%s' on %s", COLLECTION_NAME, self._url
-            )
+            logger.info("Created Qdrant collection '%s' on %s", COLLECTION_NAME, self._url)
         except Exception as exc:
             message = str(exc).lower()
             if "already exists" in message or "409" in message:
@@ -139,9 +137,7 @@ class WebResultsIndex:
         """
         if not results or not dense_embeddings:
             return
-        if len(results) != len(dense_embeddings) or len(results) != len(
-            sparse_embeddings
-        ):
+        if len(results) != len(dense_embeddings) or len(results) != len(sparse_embeddings):
             logger.warning(
                 "index_results: embedding count mismatch (%d results, %d dense, %d sparse); skipping",
                 len(results),
@@ -168,8 +164,8 @@ class WebResultsIndex:
                     vector={
                         "dense": dense,
                         "sparse": models.SparseVector(
-                            indices=sparse["indices"],
-                            values=sparse["values"],
+                            indices=sparse["indices"],  # type: ignore[arg-type]
+                            values=sparse["values"],  # type: ignore[arg-type]
                         ),
                     },
                     payload={
@@ -211,15 +207,11 @@ def get_web_results_index() -> WebResultsIndex | None:
         return None
     url = settings.qdrant_space_url.strip()
     if not url:
-        logger.warning(
-            "web_results_index_enabled=True but QDRANT_SPACE_URL is empty"
-        )
+        logger.warning("web_results_index_enabled=True but QDRANT_SPACE_URL is empty")
         return None
     if _web_results_index is None:
         hf_token = settings.hf_token.strip() or None
-        auth_provider: Callable[[], str] | None = (
-            (lambda: hf_token) if hf_token else None
-        )
+        auth_provider: Callable[[], str] | None = (lambda: hf_token) if hf_token else None
         _web_results_index = WebResultsIndex(
             url=url,
             api_key=None,

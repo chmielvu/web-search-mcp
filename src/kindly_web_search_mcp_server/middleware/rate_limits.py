@@ -108,9 +108,7 @@ class DifferentiatedRateLimitMiddleware(Middleware):
                 logger,
                 "middleware.rate_limit.throttled",
                 tool_name=tool_name,
-                bucket="expensive"
-                if tool_name in self.EXPENSIVE_TOOLS
-                else "cheap",
+                bucket="expensive" if tool_name in self.EXPENSIVE_TOOLS else "cheap",
                 waited_seconds=round(waited, 3),
             )
         return await call_next(context)

@@ -177,4 +177,3 @@ def ensure_pipeline_observability_tables(*, db_path: str | None = None) -> None:
             _ensure_pipeline_heartbeats(connection)
         finally:
             connection.close()
-

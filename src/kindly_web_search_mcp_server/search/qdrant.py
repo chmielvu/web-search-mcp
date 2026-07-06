@@ -70,13 +70,16 @@ async def _embed_qdrant_query(query: str, *, deadline: float = 15.0) -> list[flo
     # Wait for the in-flight embedding, but with a deadline so a stuck
     # embedding service doesn't block the search pipeline indefinitely.
     try:
-        return await asyncio.wait_for(asyncio.shield(task), timeout=deadline)
+        return await asyncio.wait_for(task, timeout=deadline)
     except asyncio.TimeoutError:
         LOGGER.warning(
             "Qdrant embedding for %r timed out after %.1fs",
             query[:80],
             deadline,
         )
+        raise
+    except asyncio.CancelledError:
+        task.cancel()
         raise
 
 
@@ -144,8 +147,8 @@ async def search_qdrant(
         )
         try:
             sparse_vector = models.SparseVector(
-                indices=sparse["indices"],
-                values=sparse["values"],
+                indices=sparse["indices"],  # type: ignore[arg-type]
+                values=sparse["values"],  # type: ignore[arg-type]
             )
 
             result = await client.query_points(

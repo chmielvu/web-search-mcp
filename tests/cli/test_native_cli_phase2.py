@@ -18,7 +18,7 @@ def _payload(result) -> dict:
 
 def test_search_quick_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.search.fetch_quick_web_search_payload",
+        "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
         AsyncMock(
             return_value={
                 "query": "latest fastmcp transport docs",
@@ -93,4 +93,3 @@ def test_content_get_emits_json_payload(monkeypatch) -> None:
     assert payload["data"]["status"] == "success"
     assert payload["data"]["page_content"] == "# Example docs"
     assert payload["data"]["window"]["has_more"] is False
-

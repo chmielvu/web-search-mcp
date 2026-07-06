@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -12,7 +12,6 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kindly_web_search_mcp_server.ab_testing.wiring import get_ab_overrides
-from kindly_web_search_mcp_server.ab_testing.models import ABExperiment, ABVariant
 
 
 # ---------------------------------------------------------------------------
@@ -24,17 +23,13 @@ class TestGetABOverrides:
     """Tests for the wiring helper that provides variant config to pipelines."""
 
     def test_returns_none_when_disabled(self):
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = False
             result = get_ab_overrides(run_key="run-1", layer="query_understanding")
             assert result is None
 
     def test_returns_none_when_no_experiments_file(self, tmp_path):
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(tmp_path / "missing.yaml")
             result = get_ab_overrides(run_key="run-1", layer="query_understanding")
@@ -64,18 +59,14 @@ class TestGetABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
 
             # Try enough run keys to hit one enrolled in test variant
             result = None
             for i in range(100):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="query_understanding"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="query_understanding")
                 if result and result["variant_key"] == "test":
                     break
 
@@ -110,16 +101,12 @@ class TestGetABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
 
             for i in range(200):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="query_understanding"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="query_understanding")
                 if result and result["variant_key"] == "test":
                     assert result["shadow_mode"] is True
                     return
@@ -147,17 +134,13 @@ class TestGetABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
 
             # Very unlikely any of these get enrolled
             for i in range(50):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="query_understanding"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="query_understanding")
                 if result is not None:
                     # If someone does get enrolled, that's fine — just skip
                     pass
@@ -182,9 +165,7 @@ class TestGetABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
             result = get_ab_overrides(run_key="run-1", layer="query_understanding")

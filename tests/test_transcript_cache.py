@@ -1,4 +1,5 @@
 """Tests for DuckDB-backed transcript cache."""
+
 from __future__ import annotations
 
 import sys

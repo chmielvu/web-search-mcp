@@ -81,12 +81,14 @@ async def search_telegram(
         async for msg in client.iter_messages(None, search=query, limit=num_results):
             if not msg or not msg.text:
                 continue
-            results.append(WebSearchResult(
-                title=_chat_title(msg),
-                link=_message_link(msg),
-                snippet=msg.text[:200],
-                published_date=msg.date.isoformat() if msg.date else None,
-            ))
+            results.append(
+                WebSearchResult(
+                    title=_chat_title(msg),
+                    link=_message_link(msg),
+                    snippet=msg.text[:200],
+                    published_date=msg.date.isoformat() if msg.date else None,
+                )
+            )
     except FloodWaitError as e:
         logger.warning("Telegram searchGlobal flood wait: %ds", e.seconds)
     except Exception as exc:
@@ -95,9 +97,7 @@ async def search_telegram(
     # Tier 2: searchPosts — all public channels (limited budget)
     if len(results) < num_results:
         try:
-            public_results = await _search_public_posts(
-                client, query, num_results - len(results)
-            )
+            public_results = await _search_public_posts(client, query, num_results - len(results))
             results.extend(public_results)
         except FloodWaitError as e:
             logger.info("Telegram searchPosts flood wait: %ds, skipping", e.seconds)
@@ -107,9 +107,7 @@ async def search_telegram(
     return results[:num_results]
 
 
-async def _search_public_posts(
-    client: Any, query: str, limit: int
-) -> list[WebSearchResult]:
+async def _search_public_posts(client: Any, query: str, limit: int) -> list[WebSearchResult]:
     """Search ALL public channels via channels.searchPosts.
 
     Costs 1 daily free slot (~10/day for Premium). Checks budget first.
@@ -125,7 +123,8 @@ async def _search_public_posts(
     if not flood.query_is_free and flood.remains <= 0:
         logger.info(
             "Telegram searchPosts: no free slots (%d/%d), skipping",
-            flood.remains, flood.total_daily,
+            flood.remains,
+            flood.total_daily,
         )
         return []
 
@@ -133,17 +132,20 @@ async def _search_public_posts(
         # Below our reserved budget threshold
         logger.info(
             "Telegram searchPosts: below budget reserve (%d/%d remaining), skipping",
-            flood.remains, flood.total_daily,
+            flood.remains,
+            flood.total_daily,
         )
         return []
 
-    result = await client(functions.channels.SearchPostsRequest(
-        query=query,
-        offset_rate=0,
-        offset_peer=types.InputPeerEmpty(),
-        offset_id=0,
-        limit=limit,
-    ))
+    result = await client(
+        functions.channels.SearchPostsRequest(
+            query=query,
+            offset_rate=0,
+            offset_peer=types.InputPeerEmpty(),
+            offset_id=0,
+            limit=limit,
+        )
+    )
 
     # Build chat lookup
     chat_map = {c.id: c for c in result.chats}
@@ -161,18 +163,21 @@ async def _search_public_posts(
         username = chat.username if chat and hasattr(chat, "username") else None
         link = f"https://t.me/{username}/{msg.id}" if username else ""
 
-        results.append(WebSearchResult(
-            title=title,
-            link=link,
-            snippet=msg.text[:200],
-            published_date=msg.date.isoformat() if msg.date else None,
-        ))
+        results.append(
+            WebSearchResult(
+                title=title,
+                link=link,
+                snippet=msg.text[:200],
+                published_date=msg.date.isoformat() if msg.date else None,
+            )
+        )
 
     if hasattr(result, "search_flood") and result.search_flood:
         sf = result.search_flood
         logger.info(
             "Telegram searchPosts: %d/%d slots remaining",
-            sf.remains, sf.total_daily,
+            sf.remains,
+            sf.total_daily,
         )
 
     return results

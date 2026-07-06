@@ -41,18 +41,15 @@ async def search_youtube(
     if settings.youtube_api_key.strip():
         try:
             from .api_search import search_youtube_api
+
             results = await search_youtube_api(
                 query, num_results=num_results, http_client=http_client
             )
             return results, "api"
         except Exception as exc:
-            LOGGER.warning(
-                "YouTube API search failed (%s), falling back to SearXNG", exc
-            )
+            LOGGER.warning("YouTube API search failed (%s), falling back to SearXNG", exc)
 
-    results = await search_youtube_videos(
-        query, num_results=num_results, http_client=http_client
-    )
+    results = await search_youtube_videos(query, num_results=num_results, http_client=http_client)
     return results, "searxng"
 
 
@@ -86,8 +83,7 @@ async def search_youtube_videos(
     base_url = os.environ.get("SEARXNG_BASE_URL", "").strip()
     if not base_url:
         raise YouTubeSearchError(
-            "SEARXNG_BASE_URL is not configured. "
-            "YouTube search requires SearXNG instance."
+            "SEARXNG_BASE_URL is not configured. YouTube search requires SearXNG instance."
         )
 
     base_url = base_url.rstrip("/")
@@ -126,9 +122,7 @@ async def search_youtube_videos(
             pass
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.get(
-            url, params=params, headers=headers, timeout=timeout_seconds
-        )
+        resp = await client.get(url, params=params, headers=headers, timeout=timeout_seconds)
         resp.raise_for_status()
         data = resp.json()
         if not isinstance(data, dict):
@@ -141,9 +135,7 @@ async def search_youtube_videos(
             raise YouTubeSearchError("SearXNG response missing `results` list.")
 
         if not raw_results:
-            LOGGER.debug(
-                "SearXNG YouTube search returned empty results for query=%r", query
-            )
+            LOGGER.debug("SearXNG YouTube search returned empty results for query=%r", query)
 
         results: list[WebSearchResult] = []
         for item in raw_results:
@@ -160,9 +152,7 @@ async def search_youtube_videos(
                 continue
 
             if not _YOUTUBE_DOMAIN_RE.match(link.strip()):
-                LOGGER.debug(
-                    "Skipping non-YouTube URL in YouTube search results: %s", link
-                )
+                LOGGER.debug("Skipping non-YouTube URL in YouTube search results: %s", link)
                 continue
 
             if not isinstance(snippet, str):

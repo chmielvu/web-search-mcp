@@ -24,6 +24,7 @@ def get_current_run_key() -> str | None:
     """Get the run_key for the current context."""
     return _run_key_context.get()
 
+
 try:
     from opentelemetry import trace
 except Exception:  # pragma: no cover - optional observability dependency
@@ -55,9 +56,7 @@ def _max_items() -> int:
 def preview_text(value: str | None, *, limit: int | None = None) -> str:
     if not value:
         return ""
-    hard_limit = limit or _get_int_env(
-        "OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS
-    )
+    hard_limit = limit or _get_int_env("OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS)
     if len(value) <= hard_limit:
         return value
     return value[:hard_limit].rstrip() + "…"
@@ -224,9 +223,7 @@ def serialize_tool_metadata(metadata: Any) -> dict[str, Any] | None:
     keys = [key for key in preferred_keys if key in metadata]
     if not keys:
         keys = list(metadata.keys())[: _max_items()]
-    return {
-        str(key): _normalize_for_body(metadata[key]) for key in keys if key in metadata
-    }
+    return {str(key): _normalize_for_body(metadata[key]) for key in keys if key in metadata}
 
 
 def _tool_request_fingerprint(tool_name: str, fields: dict[str, Any]) -> str:
@@ -256,8 +253,7 @@ def serialize_tool_event_fields(
             normalized[name] = serialize_tool_metadata(value)
         elif name == "error" and isinstance(value, dict):
             normalized[name] = {
-                key: _normalize_for_body(val)
-                for key, val in list(value.items())[: _max_items()]
+                key: _normalize_for_body(val) for key, val in list(value.items())[: _max_items()]
             }
         else:
             normalized[name] = _normalize_for_body(value)
@@ -316,15 +312,13 @@ def emit_tool_observability_event(
             fields,
         )
 
-    extra = {"obs_event": event}
+    extra: dict[str, str | bool | int | float | None] = {"obs_event": event}
     for name, value in payload.items():
         if name == "event":
             continue
         extra[_record_key(name)] = _normalize_for_extra(value)
 
-    logger.log(
-        level, json.dumps(payload, ensure_ascii=True, sort_keys=True), extra=extra
-    )
+    logger.log(level, json.dumps(payload, ensure_ascii=True, sort_keys=True), extra=extra)
     _persist_analytics_event(event, analytics_payload, logger)
 
 
@@ -357,7 +351,7 @@ def emit_observability_event(
         if ctx_run_key is not None:
             analytics_payload["run_key"] = ctx_run_key
 
-    extra = {"obs_event": event}
+    extra: dict[str, str | bool | int | float | None] = {"obs_event": event}
     for name, value in payload.items():
         if name == "event":
             continue

@@ -62,9 +62,7 @@ class AgenticResearchResult(BaseModel):
     sources: list[ResearchSource] = Field(default_factory=list)
     uncertainties: list[str] = Field(default_factory=list)
     tool_trace: list[str] = Field(default_factory=list)
-    knowledge_graph_summary: ResearchGraphSummary = Field(
-        default_factory=ResearchGraphSummary
-    )
+    knowledge_graph_summary: ResearchGraphSummary = Field(default_factory=ResearchGraphSummary)
     run_limit: int = 0
     duration_seconds: float = 0.0
     warnings: list[str] = Field(default_factory=list)
@@ -176,9 +174,7 @@ class FinalAnswerInput(BaseModel):
     The runner detects ToolMessage(name="final_answer") and prefers the structured payload.
     """
 
-    answer: str = Field(
-        description="Final synthesized answer. May include [N] citations."
-    )
+    answer: str = Field(description="Final synthesized answer. May include [N] citations.")
     sources: list[dict] = Field(
         description="List of sources used: each with at least 'url' and optionally 'title', 'key_finding'."
     )

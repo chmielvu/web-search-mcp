@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from .observability_ids import _candidate_id, _canonical_result_id, _field
-from .observability_tables import ensure_pipeline_observability_tables, insert_web_search_response_results
+from .observability_tables import (
+    ensure_pipeline_observability_tables,
+    insert_web_search_response_results,
+)
 
 
 def build_response_result_rows(
@@ -47,4 +50,3 @@ def build_response_result_rows(
                 "link_hash": _canonical_result_id(link),
             },
         )
-

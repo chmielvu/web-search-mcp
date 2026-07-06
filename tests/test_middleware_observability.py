@@ -93,9 +93,7 @@ class TestMiddlewareObservability(unittest.TestCase):
         response = httpx.Response(429, request=request, headers={"Retry-After": "12"})
         error = httpx.HTTPStatusError("rate limited", request=request, response=response)
 
-        with patch(
-            "kindly_web_search_mcp_server.errors.emit_observability_event"
-        ) as emit_event:
+        with patch("kindly_web_search_mcp_server.errors.emit_observability_event") as emit_event:
             structured = format_tool_error(error, provider="searxng")
 
         self.assertTrue(structured["isError"])

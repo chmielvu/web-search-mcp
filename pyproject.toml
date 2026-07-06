@@ -61,7 +61,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
 eval = ["mcpevals"]
 pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
@@ -91,3 +90,48 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+    ".venv",
+    ".uv-cache",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"src/classifier_service/runtime.py" = ["F401"]
+"src/kindly_web_search_mcp_server/analytics/app.py" = ["E402"]
+"tests/test_shadow_runner.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest.*",
+]
+
+[tool.pyright]
+include = ["src"]
+exclude = [
+    ".venv",
+    "**/__pycache__",
+    "src/classifier_service",
+]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+reportMissingImports = "warning"
+reportMissingModuleSource = "warning"

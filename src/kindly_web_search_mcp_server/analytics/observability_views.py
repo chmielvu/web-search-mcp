@@ -233,4 +233,3 @@ def build_observability_view_sql(target: str) -> list[str]:
         ) hb ON r.run_key = hb.run_key
         """,
     ]
-

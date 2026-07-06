@@ -17,7 +17,6 @@ import json
 import logging
 import logging.handlers
 import queue
-import time
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -85,18 +84,10 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
                 );
                 """
             )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_logs_time   ON process_logs (recorded_at);"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_logs_level  ON process_logs (level);"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_logs_logger ON process_logs (logger_name);"
-            )
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_logs_trace  ON process_logs (trace_id);"
-            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_logs_time   ON process_logs (recorded_at);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_logs_level  ON process_logs (level);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_logs_logger ON process_logs (logger_name);")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_logs_trace  ON process_logs (trace_id);")
         finally:
             con.close()
 
@@ -125,15 +116,11 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
         """Extract a dict suitable for DuckDB insertion from a LogRecord."""
         exc_text: str | None = None
         if record.exc_info and record.exc_info[0] is not None:
-            exc_text = "".join(
-                traceback.format_exception(*record.exc_info)
-            )
+            exc_text = "".join(traceback.format_exception(*record.exc_info))
 
         # Serialize any extra kwargs that aren't part of standard LogRecord
         payload: dict[str, Any] = {}
-        standard_attrs = logging.LogRecord(
-            "", 0, "", 0, "", (), None
-        ).__dict__.keys()
+        standard_attrs = logging.LogRecord("", 0, "", 0, "", (), None).__dict__.keys()
         for key, value in record.__dict__.items():
             if key not in standard_attrs and not key.startswith("_"):
                 try:
@@ -144,9 +131,7 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
 
         return {
             "log_id": uuid.uuid4().hex,
-            "recorded_at": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ),
+            "recorded_at": datetime.fromtimestamp(record.created, tz=timezone.utc),
             "logged_at": datetime.now(tz=timezone.utc),
             "pid": record.process,
             "logger_name": record.name,
@@ -295,9 +280,7 @@ def install_process_logging(
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
 
-    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(
-        maxsize=queue_maxsize
-    )
+    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=queue_maxsize)
     handler = BatchDuckDBLogHandler(
         db_path=resolved_db_path,
         capacity=capacity,

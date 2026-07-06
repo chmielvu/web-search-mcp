@@ -30,7 +30,7 @@ class TestAnalyticsQuery(unittest.TestCase):
         self.assertEqual(prefix, '"md_my_db"."web_search_analytics".')
         connect.assert_called_once()
         self.assertNotIn("missing-local.duckdb", repr(connect.call_args))
-        connection.execute.assert_called_once_with('ATTACH \'md:my_db\' AS "md_my_db"')
+        connection.execute.assert_called_once_with("ATTACH 'md:my_db' AS \"md_my_db\"")
 
     def test_build_analytics_query_plan_routes_fetch_questions(self) -> None:
         from kindly_web_search_mcp_server.analytics.queries import (
@@ -151,9 +151,7 @@ class TestAnalyticsQuery(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["data"]["rationale"], "fetch")
         self.assertEqual(payload["data"]["row_count"], 1)
-        self.assertEqual(
-            payload["data"]["rows"][0]["fetch_backend"], "safe_http_extract"
-        )
+        self.assertEqual(payload["data"]["rows"][0]["fetch_backend"], "safe_http_extract")
 
         if db_path.exists():
             db_path.unlink()

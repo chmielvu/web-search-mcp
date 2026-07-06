@@ -12,7 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
     async def test_emits_cursor_when_budget_not_enough(self) -> None:
         from kindly_web_search_mcp_server.content.artifact import ContentArtifact
-        from kindly_web_search_mcp_server.content.batch_orchestrator import BatchParams, run_batch_fetch
+        from kindly_web_search_mcp_server.content.batch_orchestrator import (
+            BatchParams,
+            run_batch_fetch,
+        )
 
         async def _fake_fetch(url: str) -> ContentArtifact:
             return ContentArtifact(
@@ -32,7 +35,9 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
         ):
             output = await run_batch_fetch(
                 urls=["https://a.com", "https://b.com"],
-                params=BatchParams(max_concurrency=2, per_item_char_length=1000, total_char_budget=1000),
+                params=BatchParams(
+                    max_concurrency=2, per_item_char_length=1000, total_char_budget=1000
+                ),
                 cursor=None,
             )
 
@@ -49,7 +54,9 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
         ):
             next_output = await run_batch_fetch(
                 urls=["https://a.com", "https://b.com"],
-                params=BatchParams(max_concurrency=2, per_item_char_length=1000, total_char_budget=2000),
+                params=BatchParams(
+                    max_concurrency=2, per_item_char_length=1000, total_char_budget=2000
+                ),
                 cursor=output["cursor"],
             )
 
@@ -57,7 +64,10 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(next_output["results"][0]["window"]["offset"], 1000)
 
     async def test_per_url_timeout_is_isolated(self) -> None:
-        from kindly_web_search_mcp_server.content.batch_orchestrator import BatchParams, run_batch_fetch
+        from kindly_web_search_mcp_server.content.batch_orchestrator import (
+            BatchParams,
+            run_batch_fetch,
+        )
 
         async def _slow_fetch(url: str):
             await asyncio.sleep(0.05)

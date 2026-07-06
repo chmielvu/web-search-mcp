@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from kindly_web_search_mcp_server.search.intent_policy import (
-    IntentSearchPolicy,
     resolve_intent_policy,
     _INTENT_POLICIES,
 )
@@ -25,9 +24,7 @@ class TestIntentToCategoryRouting:
             ("news", ("news", "general")),
         ],
     )
-    def test_intent_maps_to_correct_categories(
-        self, intent, expected_categories
-    ):
+    def test_intent_maps_to_correct_categories(self, intent, expected_categories):
         policy = _INTENT_POLICIES[normalize_intent(intent)]
         so = policy.apply_search_options(None)
         assert so is not None

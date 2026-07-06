@@ -139,9 +139,7 @@ class ExpensiveToolProtectionMiddleware(Middleware):
 
         # Allow through - record this successful attempt
         self._increment_attempt(session_id, tool_name)
-        logger.debug(
-            f"Allowing call through for {tool_name} (attempt {attempt_count + 1})"
-        )
+        logger.debug(f"Allowing call through for {tool_name} (attempt {attempt_count + 1})")
         emit_observability_event(
             logger,
             "middleware.expensive_tool.allowed",

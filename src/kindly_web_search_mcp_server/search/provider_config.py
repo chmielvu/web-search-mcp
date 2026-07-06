@@ -80,9 +80,7 @@ def select_paid_serp_configs(
     *,
     limit: int = 2,
 ) -> list[ProviderConfig]:
-    paid_serp_configs = [
-        config for config in configs if config.group == ProviderGroup.paid_serp
-    ]
+    paid_serp_configs = [config for config in configs if config.group == ProviderGroup.paid_serp]
     if not paid_serp_configs or limit <= 0:
         return []
     if len(paid_serp_configs) <= limit:
@@ -92,8 +90,7 @@ def select_paid_serp_configs(
     with _SERP_PAID_RR_LOCK:
         start = _SERP_PAID_RR_CURSOR % len(paid_serp_configs)
         selected = [
-            paid_serp_configs[(start + offset) % len(paid_serp_configs)]
-            for offset in range(limit)
+            paid_serp_configs[(start + offset) % len(paid_serp_configs)] for offset in range(limit)
         ]
         _SERP_PAID_RR_CURSOR = (start + limit) % len(paid_serp_configs)
     return selected

@@ -27,4 +27,3 @@ __all__ = [
     "insert_web_search_response_results",
     "insert_web_search_tool_call",
 ]
-

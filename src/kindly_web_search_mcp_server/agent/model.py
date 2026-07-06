@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain_core.runnables import Runnable
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from .config import AgenticResearchConfig
 
@@ -40,20 +41,16 @@ class ChatModelFallbackChain(Runnable[Any, Any]):
         self._raise_or_return(errors)
 
     def bind_tools(self, tools: Any, **kwargs: Any) -> "ChatModelFallbackChain":
-        return ChatModelFallbackChain(
-            [model.bind_tools(tools, **kwargs) for model in self.models]
-        )
+        return ChatModelFallbackChain([model.bind_tools(tools, **kwargs) for model in self.models])
 
 
 def _build_chat_model(cfg: AgenticResearchConfig, model_name: str) -> ChatOpenAI:
     if not cfg.api_key.strip():
-        raise RuntimeError(
-            "NANOGPT_API_KEY is not set. Agentic research cannot start without it."
-        )
+        raise RuntimeError("NANOGPT_API_KEY is not set. Agentic research cannot start without it.")
     return ChatOpenAI(
         model=model_name,
         base_url=cfg.base_url,
-        api_key=cfg.api_key,
+        api_key=SecretStr(cfg.api_key),
         temperature=cfg.temperature,
         timeout=cfg.timeout_seconds,
         max_retries=cfg.max_retries,
@@ -64,9 +61,7 @@ def _build_chat_model(cfg: AgenticResearchConfig, model_name: str) -> ChatOpenAI
 
 def _build_gemini_model(cfg: AgenticResearchConfig) -> Any:
     if not cfg.gemini_api_key.strip():
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set. Gemini agentic fallback cannot start."
-        )
+        raise RuntimeError("GEMINI_API_KEY is not set. Gemini agentic fallback cannot start.")
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
     except ImportError as exc:
@@ -76,7 +71,7 @@ def _build_gemini_model(cfg: AgenticResearchConfig) -> Any:
 
     return ChatGoogleGenerativeAI(
         model=cfg.gemini_fallback_model,
-        api_key=cfg.gemini_api_key,
+        api_key=SecretStr(cfg.gemini_api_key),
         temperature=cfg.temperature,
         timeout=cfg.timeout_seconds,
         max_retries=cfg.max_retries,
@@ -91,7 +86,7 @@ def _build_hf_router_model(cfg: AgenticResearchConfig) -> ChatOpenAI:
     return ChatOpenAI(
         model=cfg.hf_fallback_model,
         base_url=cfg.hf_router_base_url,
-        api_key=cfg.hf_token,
+        api_key=SecretStr(cfg.hf_token),
         temperature=cfg.temperature,
         timeout=cfg.timeout_seconds,
         max_retries=cfg.max_retries,

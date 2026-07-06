@@ -25,7 +25,7 @@ def test_tool_search_transform_not_active_by_default():
     async def youtube_transcript(video_url: str = "") -> str:
         return "ok"
 
-    apply_tool_profile(mcp, "media")
+    apply_tool_profile(mcp, "full")
 
     # Do not add transform here (simulates disabled)
     tools = asyncio.run(mcp.list_tools())
@@ -48,8 +48,8 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
     # Set env before importing server (which reads settings at module load and
     # runs profile+conditional transform at bottom of server.py).
     monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
-    # Use media profile so youtube_* tools are visible (for the "YouTube transcript" search surface test)
-    monkeypatch.setenv("TOOL_PROFILE", "media")
+    # Use full profile so all tools including youtube_* are visible
+    monkeypatch.setenv("TOOL_PROFILE", "full")
 
     # Clean any prior server import so bottom-of-module code re-executes with new env.
     for mod in list(sys.modules):
@@ -63,11 +63,9 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
     # Now list_tools should be transformed by the server wiring under TOOL_SEARCH_ENABLED
     listed = asyncio.run(mcp.list_tools())
     listed_names = {t.name for t in listed}
-    assert "search_tools" in listed_names, (
-        "search meta-tool must be exposed when enabled"
-    )
+    assert "search_tools" in listed_names, "search meta-tool must be exposed when enabled"
     assert "call_tool" in listed_names, "call meta-tool must be exposed when enabled"
-    # Pinned core tools (from default profile + media in catalog) remain visible
+    # Pinned core tools (from default profile + full in catalog) remain visible
     assert "web_search" in listed_names
     assert "get_content" in listed_names
     # Non-pinned like youtube are hidden from flat list but discoverable via search
@@ -79,9 +77,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
         async with Client(mcp) as client:
             # Use name-containing patterns guaranteed to match (name part of searchable text).
             # "get_content|web_search" will hit the pinned tools; transcript hits media ones via search.
-            docs_res = await client.call_tool(
-                "search_tools", {"pattern": "get_content|web_search"}
-            )
+            docs_res = await client.call_tool("search_tools", {"pattern": "get_content|web_search"})
             res_text = str(docs_res)
             assert "get_content" in res_text or "web_search" in res_text, (
                 f"search must surface get_content or web_search; got {res_text}"

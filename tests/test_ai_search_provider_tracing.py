@@ -55,9 +55,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                 self.models = self
                 self.calls: list[tuple[str, str, object]] = []
 
-            def generate_content(
-                self, *, model: str, contents: str, config: object
-            ) -> object:
+            def generate_content(self, *, model: str, contents: str, config: object) -> object:
                 self.calls.append((model, contents, config))
 
                 class _Response:
@@ -161,9 +159,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider_span.attributes["search.source_count"], 1)
         self.assertEqual(provider_create.call_args.kwargs["system"], "openrouter")
         self.assertEqual(
-            provider_create.call_args.kwargs["attributes"][
-                "search.num_results_requested"
-            ],
+            provider_create.call_args.kwargs["attributes"]["search.num_results_requested"],
             1,
         )
 
@@ -260,9 +256,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
                     web_search_queries=["python tracing"],
                     grounding_chunks=[
                         SimpleNamespace(
-                            web=SimpleNamespace(
-                                uri="https://example.com", title="Example"
-                            )
+                            web=SimpleNamespace(uri="https://example.com", title="Example")
                         )
                     ],
                     grounding_supports=[

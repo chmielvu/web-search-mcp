@@ -6,6 +6,9 @@
 - DeGoog search aggregator as free provider alongside SearXNG
 
 ### Changed
+- **Modularized telemetry package** — split `src/kindly_web_search_mcp_server/telemetry.py` into a focused `telemetry/` package (`attributes.py`, `constants.py`, `init.py`, `metrics.py`, `spans.py`, `span_enhancements.py`, `records_*.py`, `_internal.py`). The public API is preserved via `telemetry/__init__.py` re-exports; all existing imports from `.telemetry` continue to work.
+- **Rerank bi-encoder hot path repaired** — the HF bi-encoder now runs for normal overfetch windows by default, embeds bounded title/snippet candidate text (`RERANK_BI_ENCODER_TEXT_MAX_CHARS=384`), keeps normal windows in one batch (`RERANK_BI_ENCODER_BATCH_SIZE=64`), and uses a single latency-sensitive candidate-embedding attempt (`RERANK_BI_ENCODER_TIMEOUT_SECONDS=15.0`). The per-call `AsyncInferenceClient` singleton is reused for connection pooling; concurrency is controlled by the per-caller wrappers (Qdrant `BatchLimitedEmbeddings`, bi-encoder batch semaphore) rather than a process-global gate.
+- **Rerank candidate analytics batched per stage** — candidate-survival rows are now inserted with one DuckDB connection/executemany per stage instead of per-candidate writes inside the awaited rerank path.
 - **SerpApi default engine switched to Yahoo** — the provider now defaults `SERPAPI_DEFAULT_ENGINE` to `yahoo`, keeping multi-engine support intact while broadening the default non-Google coverage.
 - **Grafana dashboards aligned to current telemetry** — the pipeline dashboard now uses `web_search_rrf_provider_contribution`, the content dashboard now tracks `crawl4ai_remote`, and the providers dashboard now includes circuit-state visibility. `grafana/README.md` and the Grafana dashboard regression tests were updated to match.
 - **HF Inference API connection reuse** — `embed_texts` now uses a singleton `AsyncInferenceClient` instead of creating a new instance per call. The HF library lazily creates an internal `httpx.AsyncClient`; reusing the same instance gives TCP/TLS connection pooling. Latency dropped from 5-6s to ~1s per embedding call (~5x improvement).
@@ -17,6 +20,7 @@
 - **LLM reranker scores changed from 1/position to exponential decay** `exp(-0.3*(pos-1))` — smoother relevance gradient (1.0, 0.74, 0.55, 0.41... instead of 1.0, 0.5, 0.33, 0.25...).
 - **Score propagation fixed after MMR** — candidate scores are now updated to reflect MMR ordering using exponential decay, so final scores match final ranking order. Previously, scores reflected pre-MMR LLM ranking while order reflected MMR — causing score-order inconsistency in analytics.
 - **Reranker fallback chain simplified to ONE chain**: `cohere_fast -> cohere_fast_openrouter -> voyage`. Always tries in this order regardless of configured engine. Jina and GCP CloudRun rerankers removed entirely (GCP deprecated, Jina redundant).
+- **Modularized `server.py` tool handlers** — split `@mcp.tool` handlers, resources, and prompts into focused modules under `src/kindly_web_search_mcp_server/tools/`. `server.py` is now a thin registry that imports and registers handlers on the `mcp` instance. Fixed the missing `num_results` parameter in `web_search` and replaced logging f-strings with lazy formatting in touched code.
 
 ### Added
 - Added `plans/grafana-observability-refresh-plan-2026-07-03.md` to reconcile the live Grafana setup with the current app telemetry, including the crawl4ai content stage, provider health visibility, branch/result lineage, and MotherDuck-backed quality panels.
@@ -28,6 +32,7 @@
 - Added the repo-doc consolidation note and simplified `CLAUDE.md` to point at `AGENTS.md` as the single workspace guidance source.
 
 ### Fixed
+- **LiteLLM route model IDs separated from reported provider model IDs** — Cerebras/Groq worker calls now send provider-qualified route models such as `cerebras/gpt-oss-120b` and `groq/openai/gpt-oss-120b` to LiteLLM while preserving raw provider model IDs in telemetry.
 - **Query rewrite model IDs now match the documented providers** — the rewrite/classifier LLM router now uses the documented Cerebras, Groq, and Vercel model IDs directly instead of inventing nested provider-prefixed strings. This restores the intended Cerebras → Groq → Vercel fallback ladder and avoids the malformed Vercel rewrite default.
 - **Async DuckDB analytics no longer blocks the event loop** — the hot observability and pipeline write paths now dispatch DuckDB inserts through a shared background-write helper, covering search events, provider calls/candidates, rerank stages, final results, search runs, and pipeline observability inserts.
 - **HF Inference API connection reuse** — singleton `AsyncInferenceClient` eliminates per-call TCP/TLS handshake overhead. Embedding latency dropped from 5-6s to ~1s (~5x improvement).
@@ -65,3 +70,51 @@
 ### Changed
 - `resolve_query_understanding` in resolver.py — ONNX classifier is primary path, LLM query understanding is fallback (only when classifier service is down).
 - Added `intent_classifier_url`, `intent_classifier_timeout_seconds`, `intent_classifier_confidence_threshold`, `intent_classifier_enabled` settings.
+- Classification report: general=0.86, social_media=0.87, digital_humanities=1.00, comparison=0.76, ai_coding=0.79, news=0.73.
+- Created `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE-DIAGRAMS.md` documenting the system architecture and data flows.
+- Added `docs/CONFIGURATION.md` with environment variables and setup guide.
+- Added `docs/GETTING-STARTED.md` quick start guide.
+- Added `docs/DEVELOPMENT.md` and `docs/TESTING.md` development patterns and workflows.
+- Added `docs/CONTRIBUTING.md` contribution guidelines.
+- Added `plans/` directory with initial roadmap and design documents.
+- Added `tests/test_branch_planner.py` for branch planner tests.
+
+### Fixed
+- Fixed classifier service URL to use the live VPS endpoint.
+- Resolved query understanding fallback to LLM when classifier service is down.
+- Fixed intent classification confidence threshold handling.
+
+## [0.3.0] — 2026-06-15
+
+### Added
+- Initial web search MCP server with multi-provider search (SearXNG, Tavily, Brave, Jina).
+- RRF merge and reranking pipeline.
+- Content extraction pipeline with 7-stage resolution.
+- YouTube transcript and search tools.
+- Academic search across 6 scholarly sources.
+- Gemini grounded search and Grok search.
+- Semantic sitemap generation.
+- Query cache and page cache layers.
+- OpenTelemetry and DuckDB observability.
+
+### Changed
+- N/A
+
+### Fixed
+- N/A
+
+## [0.2.0] — 2026-06-01
+
+### Added
+- Prototype MCP server with basic web search.
+
+### Changed
+- N/A
+
+### Fixed
+- N/A
+
+## [0.1.0] — 2026-05-15
+
+### Added
+- Initial project scaffolding.

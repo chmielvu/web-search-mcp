@@ -68,16 +68,12 @@ class Settings:
     query_rewrite_cascade_timeout_seconds: float = float(
         os.environ.get("QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
-    query_rewrite_max_variants: int = int(
-        os.environ.get("QUERY_REWRITE_MAX_VARIANTS", "2")
-    )
+    query_rewrite_max_variants: int = int(os.environ.get("QUERY_REWRITE_MAX_VARIANTS", "2"))
     query_classifier_timeout_seconds: float = float(
         os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
     # ONNX intent classifier (primary path, replaces LLM for intent resolution)
-    intent_classifier_url: str = os.environ.get(
-        "INTENT_CLASSIFIER_URL", "http://127.0.0.1:18686"
-    )
+    intent_classifier_url: str = os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:18686")
     intent_classifier_timeout_seconds: float = float(
         os.environ.get("INTENT_CLASSIFIER_TIMEOUT_SECONDS", "3")
     )
@@ -96,9 +92,7 @@ class Settings:
     query_decomposition_max_subquestions: int = int(
         os.environ.get("QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
     )
-    query_decomposition_max_branches: int = int(
-        os.environ.get("DECOMPOSITION_MAX_BRANCHES", "10")
-    )
+    query_decomposition_max_branches: int = int(os.environ.get("DECOMPOSITION_MAX_BRANCHES", "10"))
     query_decomposition_max_concurrency: int = int(
         os.environ.get("DECOMPOSITION_MAX_CONCURRENCY", "4")
     )
@@ -122,12 +116,8 @@ class Settings:
     cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     hf_token: str = os.environ.get("HF_TOKEN", "")
-    cerebras_base_url: str = os.environ.get(
-        "CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"
-    )
-    groq_base_url: str = os.environ.get(
-        "GROQ_BASE_URL", "https://api.groq.com/openai/v1"
-    )
+    cerebras_base_url: str = os.environ.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+    groq_base_url: str = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     vercel_ai_gateway_api_key: str = os.environ.get("AI_GATEWAY_API_KEY", "")
     vercel_ai_gateway_base_url: str = os.environ.get(
         "VERCEL_AI_GATEWAY_BASE_URL", "https://ai-gateway.vercel.sh/v1"
@@ -135,15 +125,9 @@ class Settings:
     query_understanding_model: str = os.environ.get(
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
-    cerebras_rewrite_model: str = os.environ.get(
-        "CEREBRAS_REWRITE_MODEL", "gpt-oss-120b"
-    )
-    groq_rewrite_model: str = os.environ.get(
-        "GROQ_REWRITE_MODEL", "openai/gpt-oss-120b"
-    )
-    vercel_rewrite_model: str = os.environ.get(
-        "VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b"
-    )
+    cerebras_rewrite_model: str = os.environ.get("CEREBRAS_REWRITE_MODEL", "gpt-oss-120b")
+    groq_rewrite_model: str = os.environ.get("GROQ_REWRITE_MODEL", "openai/gpt-oss-120b")
+    vercel_rewrite_model: str = os.environ.get("VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b")
 
     # Embeddings (Hugging Face Inference Provider)
     hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
@@ -151,9 +135,7 @@ class Settings:
         "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large-instruct"
     )
     embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "1024"))
-    embedding_timeout_seconds: float = float(
-        os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0")
-    )
+    embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
     embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
     embedding_retry_delay_seconds: float = float(
         os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "5.0")
@@ -163,19 +145,26 @@ class Settings:
     # gcp_cloudrun for custom GCP Cloud Run / TEI / FastAPI supported;
     # listwise LLM reranker stays in the default stack but is tightly bounded)
 
-    reranking_enabled: bool = (
-        os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
-    )
+    reranking_enabled: bool = os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
     rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
     rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross_llm").lower()
     bi_encoder_top_k: int = int(os.environ.get("BI_ENCODER_TOP_K", "100"))
+    rerank_bi_encoder_min_candidates: int = int(
+        os.environ.get("RERANK_BI_ENCODER_MIN_CANDIDATES", "0")
+    )
+    rerank_bi_encoder_timeout_seconds: float = float(
+        os.environ.get("RERANK_BI_ENCODER_TIMEOUT_SECONDS", "15.0")
+    )
+    rerank_bi_encoder_text_max_chars: int = int(
+        os.environ.get("RERANK_BI_ENCODER_TEXT_MAX_CHARS", "384")
+    )
+    rerank_bi_encoder_batch_size: int = int(os.environ.get("RERANK_BI_ENCODER_BATCH_SIZE", "64"))
+    rerank_bi_encoder_max_concurrent_batches: int = int(
+        os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
+    )
     rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
-    rerank_llm_candidate_limit: int = int(
-        os.environ.get("RERANK_LLM_CANDIDATE_LIMIT", "20")
-    )
-    rerank_llm_timeout_seconds: float = float(
-        os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "20.0")
-    )
+    rerank_llm_candidate_limit: int = int(os.environ.get("RERANK_LLM_CANDIDATE_LIMIT", "20"))
+    rerank_llm_timeout_seconds: float = float(os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "20.0"))
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
     jina_rerank_model: str = os.environ.get("JINA_RERANK_MODEL", "jina-reranker-v3")
@@ -184,35 +173,21 @@ class Settings:
     cohere_rerank_base_url: str = os.environ.get(
         "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
     )
-    cohere_rerank_timeout: float = float(
-        os.environ.get("COHERE_RERANK_TIMEOUT", "30.0")
-    )
-    openrouter_rerank_model: str = os.environ.get(
-        "OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast"
-    )
+    cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "30.0"))
+    openrouter_rerank_model: str = os.environ.get("OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast")
     openrouter_rerank_base_url: str = os.environ.get(
         "OPENROUTER_RERANK_BASE_URL", "https://openrouter.ai/api/v1/rerank"
     )
-    openrouter_rerank_timeout: float = float(
-        os.environ.get("OPENROUTER_RERANK_TIMEOUT", "30.0")
-    )
+    openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "30.0"))
     # GCP Cloud Run reranker (TEI or custom FastAPI /rerank endpoint). Private by default; client handles IAM ID tokens.
     rerank_gcp_cloudrun_url: str = os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
-    rerank_gcp_model: str = os.environ.get(
-        "RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3"
-    )
+    rerank_gcp_model: str = os.environ.get("RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3")
     rerank_gcp_timeout: float = float(os.environ.get("RERANK_GCP_TIMEOUT", "30.0"))
-    rerank_score_threshold: float = float(
-        os.environ.get("RERANK_SCORE_THRESHOLD", "0.0")
-    )
+    rerank_score_threshold: float = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.0"))
     diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.7"))
-    rerank_recency_weight: float = float(
-        os.environ.get("RERANK_RECENCY_WEIGHT", "0.15")
-    )
-    rerank_recency_half_life_days: int = int(
-        os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90")
-    )
+    rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
+    rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
 
     # Entity extraction (GLiNER2, optional extra, opt-in only)
     # Per joint plan: explicit disabled by default; error events on failure when enabled.
@@ -230,18 +205,14 @@ class Settings:
         os.environ.get("RERANK_ENTITY_OVERLAP_WEIGHT", "0.15")
     )
 
-    analytics_enabled: bool = (
-        os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
-    )
+    analytics_enabled: bool = os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
     analytics_duckdb_path: str = os.environ.get(
         "ANALYTICS_DUCKDB_PATH",
         DEFAULT_ANALYTICS_DB,
     )
 
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
-    process_logs_enabled: bool = (
-        os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
-    )
+    process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
     process_logs_duckdb_path: str = os.environ.get(
         "PROCESS_LOGS_DUCKDB_PATH",
         DEFAULT_PROCESS_LOGS_DB,
@@ -287,29 +258,21 @@ class Settings:
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
 
     # Gemini summaries (for get_content / batch_get_content optional summaries)
-    summary_gemini_model: str = os.environ.get(
-        "SUMMARY_GEMINI_MODEL", "gemini-3.1-flash-lite"
-    )
+    summary_gemini_model: str = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-3.1-flash-lite")
     summary_gemma_fallback_model: str = os.environ.get(
         "SUMMARY_GEMMA_FALLBACK_MODEL", "gemma-4-26b-a4b-it"
     )
     summary_max_tokens: int = int(os.environ.get("SUMMARY_MAX_TOKENS", "1200"))
 
     # YouTube Transcript
-    youtube_transcript_proxy_url: str = os.environ.get(
-        "YOUTUBE_TRANSCRIPT_PROXY_URL", ""
-    )
-    youtube_transcript_max_chars: int = int(
-        os.environ.get("YOUTUBE_TRANSCRIPT_MAX_CHARS", "50000")
-    )
+    youtube_transcript_proxy_url: str = os.environ.get("YOUTUBE_TRANSCRIPT_PROXY_URL", "")
+    youtube_transcript_max_chars: int = int(os.environ.get("YOUTUBE_TRANSCRIPT_MAX_CHARS", "50000"))
     youtube_transcript_timeout_seconds: float = float(
         os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
     )
 
     # YouTube Transcript Backend (auto|ytdlp|api)
-    youtube_transcript_backend: str = os.environ.get(
-        "YOUTUBE_TRANSCRIPT_BACKEND", "auto"
-    )
+    youtube_transcript_backend: str = os.environ.get("YOUTUBE_TRANSCRIPT_BACKEND", "auto")
 
     # Whisper ASR (HF Space) for videos without captions
     whisper_space_url: str = os.environ.get("WHISPER_SPACE_URL", "")
@@ -322,12 +285,8 @@ class Settings:
 
     # YouTube Data API v3 (optional, enables enriched search)
     youtube_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
-    youtube_api_timeout_seconds: float = float(
-        os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", "15")
-    )
-    youtube_api_daily_quota: int = int(
-        os.environ.get("YOUTUBE_API_DAILY_QUOTA", "10000")
-    )
+    youtube_api_timeout_seconds: float = float(os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", "15"))
+    youtube_api_daily_quota: int = int(os.environ.get("YOUTUBE_API_DAILY_QUOTA", "10000"))
     youtube_api_language: str = os.environ.get("YOUTUBE_API_LANGUAGE", "")
     youtube_api_region: str = os.environ.get("YOUTUBE_API_REGION", "")
 
@@ -362,19 +321,13 @@ class Settings:
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     google_cse_engine_id: str = "771d303cf528e4b7c"
-    google_cse_timeout_seconds: float = float(
-        os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20")
-    )
+    google_cse_timeout_seconds: float = float(os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20"))
     ddg_timeout_seconds: float = float(os.environ.get("DDG_TIMEOUT_SECONDS", "10"))
 
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
     # to turn off noisy providers like reddit without changing code.
-    providers_enabled: bool = (
-        os.environ.get("PROVIDERS_ENABLED", "true").lower() == "true"
-    )
-    disabled_providers: tuple[str, ...] = _parse_csv_env(
-        os.environ.get("DISABLED_PROVIDERS", "")
-    )
+    providers_enabled: bool = os.environ.get("PROVIDERS_ENABLED", "true").lower() == "true"
+    disabled_providers: tuple[str, ...] = _parse_csv_env(os.environ.get("DISABLED_PROVIDERS", ""))
 
     # New SERP providers (Serper, SerpApi, BrightData)
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
@@ -403,9 +356,7 @@ class Settings:
     )
 
     # Unified provider health / circuit breaker
-    provider_failure_threshold: int = int(
-        os.environ.get("PROVIDER_FAILURE_THRESHOLD", "3")
-    )
+    provider_failure_threshold: int = int(os.environ.get("PROVIDER_FAILURE_THRESHOLD", "3"))
     provider_cooldown_cap_seconds: float = float(
         os.environ.get("PROVIDER_COOLDOWN_CAP_SECONDS", "30.0")
     )
@@ -422,15 +373,11 @@ class Settings:
     searxng_user_agent: str = os.environ.get("SEARXNG_USER_AGENT", "")
     searxng_language: str = os.environ.get("SEARXNG_LANGUAGE", "")
     searxng_safesearch: str = os.environ.get("SEARXNG_SAFESEARCH", "")
-    searxng_timeout_seconds: float = float(
-        os.environ.get("SEARXNG_TIMEOUT_SECONDS", "10")
-    )
+    searxng_timeout_seconds: float = float(os.environ.get("SEARXNG_TIMEOUT_SECONDS", "10"))
 
     # DeGoog search aggregator (self-hosted)
     degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")
-    degoog_timeout_seconds: float = float(
-        os.environ.get("DEGOOG_TIMEOUT_SECONDS", "15")
-    )
+    degoog_timeout_seconds: float = float(os.environ.get("DEGOOG_TIMEOUT_SECONDS", "15"))
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
@@ -445,9 +392,7 @@ class Settings:
     composio_search_toolkit_version: str = os.environ.get(
         "COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260618_00"
     )
-    composio_timeout_seconds: float = float(
-        os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25")
-    )
+    composio_timeout_seconds: float = float(os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25"))
     composio_max_retries: int = int(os.environ.get("COMPOSIO_MAX_RETRIES", "2"))
 
     # RRF tuning
@@ -469,25 +414,15 @@ class Settings:
 
     # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
     # No legacy aliases (per joint plan: no backward compat).
-    tool_search_enabled: bool = (
-        os.environ.get("TOOL_SEARCH_ENABLED", "false").lower() == "true"
-    )
+    tool_search_enabled: bool = os.environ.get("TOOL_SEARCH_ENABLED", "false").lower() == "true"
 
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
     # Rate-limit and concurrency settings for web search (prefixed with ).
-    rate_limit_cheap_rps: float = float(
-        os.environ.get("RATE_LIMIT_WEB_SEARCH_RPS", "4.0")
-    )
-    rate_limit_cheap_burst: int = int(
-        os.environ.get("RATE_LIMIT_WEB_SEARCH_BURST", "12")
-    )
-    rate_limit_expensive_rps: float = float(
-        os.environ.get("RATE_LIMIT_EXPENSIVE_RPS", "0.5")
-    )
-    rate_limit_expensive_burst: int = int(
-        os.environ.get("RATE_LIMIT_EXPENSIVE_BURST", "1")
-    )
+    rate_limit_cheap_rps: float = float(os.environ.get("RATE_LIMIT_WEB_SEARCH_RPS", "4.0"))
+    rate_limit_cheap_burst: int = int(os.environ.get("RATE_LIMIT_WEB_SEARCH_BURST", "12"))
+    rate_limit_expensive_rps: float = float(os.environ.get("RATE_LIMIT_EXPENSIVE_RPS", "0.5"))
+    rate_limit_expensive_burst: int = int(os.environ.get("RATE_LIMIT_EXPENSIVE_BURST", "1"))
 
     # =====================================================================
     # OpenTelemetry / Grafana Observability (Phase 1 of observability work)
@@ -504,9 +439,7 @@ class Settings:
 
     # Service identity overrides (fall back to telemetry.py defaults + package version)
     otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
-    otel_service_namespace: str = os.environ.get(
-        "OTEL_SERVICE_NAMESPACE", "web-search-mcp"
-    )
+    otel_service_namespace: str = os.environ.get("OTEL_SERVICE_NAMESPACE", "web-search-mcp")
     otel_deployment_environment: str = os.environ.get(
         "DEPLOYMENT_ENV", os.environ.get("OTEL_ENVIRONMENT", "development")
     )
@@ -554,15 +487,11 @@ class Settings:
     )
     # NANOGPT_API_KEY is the canonical key name used by the default agentic model provider
     nanogpt_api_key: str = os.environ.get("NANOGPT_API_KEY", "")
-    agentic_research_temperature: float = float(
-        os.environ.get("AGENTIC_RESEARCH_TEMPERATURE", "0")
-    )
+    agentic_research_temperature: float = float(os.environ.get("AGENTIC_RESEARCH_TEMPERATURE", "0"))
     agentic_research_timeout_seconds: float = float(
         os.environ.get("AGENTIC_RESEARCH_TIMEOUT_SECONDS", "180")
     )
-    agentic_research_max_retries: int = int(
-        os.environ.get("AGENTIC_RESEARCH_MAX_RETRIES", "2")
-    )
+    agentic_research_max_retries: int = int(os.environ.get("AGENTIC_RESEARCH_MAX_RETRIES", "2"))
 
     # Depth profile controls (quick/normal/deep affect tool budget + timeout)
     agentic_research_quick_run_limit: int = int(
@@ -597,17 +526,11 @@ class Settings:
     )
 
     # Prometheus sidecar / Alloy scrape support
-    prometheus_enabled: bool = (
-        os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
-    )
-    prometheus_port: int = int(
-        os.environ.get("PROMETHEUS_PORT", "0")
-    )  # 0 = disabled / dynamic
+    prometheus_enabled: bool = os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
+    prometheus_port: int = int(os.environ.get("PROMETHEUS_PORT", "0"))  # 0 = disabled / dynamic
 
     # Attribute safety (used by utils/observability.py and telemetry)
-    observability_max_text_chars: int = int(
-        os.environ.get("OBSERVABILITY_MAX_TEXT_CHARS", "20000")
-    )
+    observability_max_text_chars: int = int(os.environ.get("OBSERVABILITY_MAX_TEXT_CHARS", "20000"))
     observability_max_items: int = int(os.environ.get("OBSERVABILITY_MAX_ITEMS", "10"))
 
     # =====================================================================
@@ -617,9 +540,7 @@ class Settings:
         os.environ.get("JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
     )
     judge_model: str = os.environ.get("JUDGE_MODEL", "openai/gpt-oss-120b")
-    judge_timeout_seconds: float = float(
-        os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0")
-    )
+    judge_timeout_seconds: float = float(os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0"))
 
     # =====================================================================
     # Crawl4AI remote server (Docker on VPS)
@@ -628,12 +549,8 @@ class Settings:
     # When set (e.g. http://vps-ip:11235), all Crawl4AI calls go remote.
     # When empty, Crawl4AI is skipped; fallback to Jina Reader → trafilatura.
 
-    crawl4ai_timeout_seconds: float = float(
-        os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120")
-    )
-    crawl4ai_max_pages_sitemap: int = int(
-        os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100")
-    )
+    crawl4ai_timeout_seconds: float = float(os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120"))
+    crawl4ai_max_pages_sitemap: int = int(os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100"))
     crawl4ai_health_cache_seconds: float = float(
         os.environ.get("CRAWL4AI_HEALTH_CACHE_SECONDS", "30")
     )
@@ -641,9 +558,7 @@ class Settings:
     # =====================================================================
     # A/B Testing Framework (opt-in, experiment config via YAML)
     # =====================================================================
-    ab_testing_enabled: bool = (
-        os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
-    )
+    ab_testing_enabled: bool = os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
     ab_config_path: str = os.environ.get("AB_CONFIG_PATH", DEFAULT_EXPERIMENTS_YAML)
     ab_shadow_mode_default: bool = (
         os.environ.get("AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"
@@ -710,10 +625,34 @@ class Settings:
             raise ValueError(
                 f"rerank_llm_timeout_seconds must be > 0, got {self.rerank_llm_timeout_seconds!r}."
             )
+        if self.rerank_bi_encoder_min_candidates < 0:
+            raise ValueError(
+                "rerank_bi_encoder_min_candidates must be >= 0, "
+                f"got {self.rerank_bi_encoder_min_candidates!r}."
+            )
+        if self.rerank_bi_encoder_timeout_seconds <= 0:
+            raise ValueError(
+                "rerank_bi_encoder_timeout_seconds must be > 0, "
+                f"got {self.rerank_bi_encoder_timeout_seconds!r}."
+            )
+        if self.rerank_bi_encoder_text_max_chars <= 0:
+            raise ValueError(
+                "rerank_bi_encoder_text_max_chars must be > 0, "
+                f"got {self.rerank_bi_encoder_text_max_chars!r}."
+            )
+        if self.rerank_bi_encoder_batch_size <= 0:
+            raise ValueError(
+                "rerank_bi_encoder_batch_size must be > 0, "
+                f"got {self.rerank_bi_encoder_batch_size!r}."
+            )
+        if self.rerank_bi_encoder_max_concurrent_batches <= 0:
+            raise ValueError(
+                "rerank_bi_encoder_max_concurrent_batches must be > 0, "
+                f"got {self.rerank_bi_encoder_max_concurrent_batches!r}."
+            )
         if self.rrf_k <= 0:
             raise ValueError(
-                f"rrf_k must be > 0, got {self.rrf_k!r}. "
-                "Set RRF_K env var to a positive integer."
+                f"rrf_k must be > 0, got {self.rrf_k!r}. Set RRF_K env var to a positive integer."
             )
 
         # OTel / Observability validation

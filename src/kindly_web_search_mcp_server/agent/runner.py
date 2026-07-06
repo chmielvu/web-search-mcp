@@ -40,9 +40,7 @@ def _resolve_within(path_str: str, allowed_dir: Path) -> Path:
         candidate = allowed / candidate
     resolved = candidate.resolve()
     if resolved != allowed and allowed not in resolved.parents:
-        raise ValueError(
-            f"Refusing to read MCP config outside allowed directory: {resolved}"
-        )
+        raise ValueError(f"Refusing to read MCP config outside allowed directory: {resolved}")
     return resolved
 
 
@@ -82,9 +80,7 @@ async def run_agentic_web_research(
     cfg = config or AgenticResearchConfig()
     profile = depth_profile_for(request.depth)
     model = build_chat_model(cfg)
-    system_prompt = build_system_prompt(
-        request, profile, current_time=datetime.now(timezone.utc)
-    )
+    system_prompt = build_system_prompt(request, profile, current_time=datetime.now(timezone.utc))
     tool_budget = ToolCallLimitMiddleware(
         run_limit=profile.run_limit,
         exit_behavior="continue",
@@ -145,7 +141,7 @@ async def run_agentic_web_research(
     result = await asyncio.wait_for(
         agent.ainvoke(
             {"messages": [HumanMessage(content=user_prompt)]},
-            config=invoke_config if invoke_config else None,
+            config=invoke_config if invoke_config else None,  # type: ignore[arg-type]
         ),
         timeout=profile.timeout_seconds,
     )
@@ -172,10 +168,7 @@ async def run_agentic_web_research(
     warnings = []
     extra: dict[str, object] = {}
     if isinstance(result, dict):
-        if (
-            "structured_response" in result
-            and result["structured_response"] is not None
-        ):
+        if "structured_response" in result and result["structured_response"] is not None:
             extra["structured_response"] = result["structured_response"]
         if "messages" in result:
             extra["message_count"] = len(result["messages"])
@@ -228,9 +221,7 @@ async def run_agentic_web_research(
             else dict(getattr(summary, "__dict__", {})),
             uncertainties=summary.potential_conflicts,
             sources=[
-                s.model_dump()
-                if hasattr(s, "model_dump")
-                else dict(getattr(s, "__dict__", {}))
+                s.model_dump() if hasattr(s, "model_dump") else dict(getattr(s, "__dict__", {}))
                 for s in sources_list[:5]
             ],  # sample
         )
@@ -251,6 +242,7 @@ async def run_agentic_web_research(
     # Scores are attached as OTel span attributes rather than Langfuse-specific API calls.
     try:
         from opentelemetry import trace as otel_trace
+
         span = otel_trace.get_current_span()
         if span.is_recording():
             coverage = min(1.0, len(sources_list) / 5.0) if sources_list else 0.0

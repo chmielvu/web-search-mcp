@@ -25,10 +25,7 @@ from typing import Any
 import duckdb
 
 
-
-PAGE_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("PAGE_CACHE_TTL_SECONDS", "604800")
-)
+PAGE_CACHE_DEFAULT_TTL_SECONDS = int(os.environ.get("PAGE_CACHE_TTL_SECONDS", "604800"))
 
 
 class PageDuckDBCache:
@@ -71,9 +68,7 @@ class PageDuckDBCache:
         )
         # Best-effort index for hash lookups
         try:
-            con.execute(
-                "CREATE INDEX IF NOT EXISTS idx_page_url_hash ON page_cache(url_hash)"
-            )
+            con.execute("CREATE INDEX IF NOT EXISTS idx_page_url_hash ON page_cache(url_hash)")
         except Exception:
             # ignore if concurrent create or older duckdb variant
             pass
@@ -130,9 +125,7 @@ class PageDuckDBCache:
 
                 age_seconds = (datetime.now(UTC) - created_at).total_seconds()
                 eff_ttl = (
-                    int(ttl_seconds)
-                    if ttl_seconds is not None
-                    else PAGE_CACHE_DEFAULT_TTL_SECONDS
+                    int(ttl_seconds) if ttl_seconds is not None else PAGE_CACHE_DEFAULT_TTL_SECONDS
                 )
 
                 if age_seconds > eff_ttl:

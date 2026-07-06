@@ -1,0 +1,105 @@
+# ── Documentation (Markdown) ──
+*.md
+docs/
+
+# ── Tests ──
+tests/
+test_classifier.py
+
+# ── Grafana dashboards & reports ──
+grafana/
+grafana_reports/
+dashboards/
+dashboard/
+
+# ── Planning / research (not source) ──
+plans/
+future-plans/
+research_repos/
+
+# ── Evaluations ──
+evals/
+
+# ── Training ──
+training/
+
+# ── Skills / CLI tool docs ──
+skills/
+
+# ── External / third-party integrations ──
+custom_search_json_api/
+searxng/
+searxng-settings/
+agent/
+
+# ── Scripts / launchers ──
+scripts/
+*.bat
+*.ps1
+
+# ── Docker / deployment ──
+Dockerfile
+
+# ── Project metadata / config ──
+pyproject.toml
+uv.lock
+requirements.txt
+LICENSE
+.mcp.json
+CLAUDE.md
+issues.md
+
+# ── Environment / secrets ──
+.env
+.env.*
+
+# ── Logs ──
+*.log
+
+# ── Dev tool tracking / state directories ──
+.agent/
+.claude/
+.cocoindex_code/
+.codegraph/
+.codex/
+.deepeval/
+.hermes/
+.kindly/
+.kilo/
+.serena/
+.superpowers/
+.playwright-mcp/
+.copilot-tracking/
+.coderag_observability/
+
+# ── DuckDB extension cache ──
+.duckdb_extensions/
+duckdb_data/
+
+# ── Virtual environments ──
+.venv*/
+.uv-cache/
+.uv-tools/
+
+# ── Repomix own output ──
+repomix-output*.xml
+repomix-output*.md
+
+# ── IDE / editor ──
+.vscode/
+.idea/
+
+# ── Graph / index tool output ──
+graphify-out/
+lancedb_data/
+outputs/
+
+# ── Misc generated ──
+model_stats.json
+models.json
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/

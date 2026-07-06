@@ -138,9 +138,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
             elapsed = time.perf_counter() - start
 
             self.assertLess(elapsed, 0.05)
-            self.assertTrue(
-                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
-            )
+            self.assertTrue(await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0))
             await asyncio.sleep(0.2)
 
     async def test_insert_provider_calls_returns_before_write_finishes(self) -> None:
@@ -185,9 +183,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
             elapsed = time.perf_counter() - start
 
             self.assertLess(elapsed, 0.05)
-            self.assertTrue(
-                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
-            )
+            self.assertTrue(await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0))
             await asyncio.sleep(0.2)
 
     async def test_provider_health_transition_returns_before_write_finishes(self) -> None:
@@ -239,9 +235,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
             elapsed = time.perf_counter() - start
 
             self.assertLess(elapsed, 0.05)
-            self.assertTrue(
-                await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0)
-            )
+            self.assertTrue(await asyncio.wait_for(asyncio.to_thread(write_started.wait), 1.0))
             await asyncio.sleep(0.2)
 
     def test_append_event_normalizes_model_used_and_token_aliases(self) -> None:
@@ -503,9 +497,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
                 *build_summary_sql('"md"."kindly_analytics"'),
             ]
         ).lower()
-        table_sql = "\n".join(
-            build_eval_table_sql('"md"."kindly_analytics"')
-        ).lower()
+        table_sql = "\n".join(build_eval_table_sql('"md"."kindly_analytics"')).lower()
 
         self.assertIn("create or replace view", view_sql)
         self.assertIn("vw_events", view_sql)
@@ -535,9 +527,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
         )
         dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
 
-        templating_names = {
-            variable["name"] for variable in dashboard["templating"]["list"]
-        }
+        templating_names = {variable["name"] for variable in dashboard["templating"]["list"]}
         panels_by_id = {panel["id"]: panel for panel in dashboard["panels"]}
 
         self.assertEqual(dashboard["version"], 3)
@@ -548,22 +538,12 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
             for variable in dashboard["templating"]["list"]
             if variable["name"] == "motherduck_datasource"
         )
-        self.assertEqual(
-            datasource_variable["pluginId"], "grafana-postgresql-datasource"
-        )
-        self.assertEqual(
-            panels_by_id[13]["datasource"]["type"], "grafana-postgresql-datasource"
-        )
+        self.assertEqual(datasource_variable["pluginId"], "grafana-postgresql-datasource")
+        self.assertEqual(panels_by_id[13]["datasource"]["type"], "grafana-postgresql-datasource")
         self.assertIn("vw_candidate_survival", panels_by_id[13]["targets"][0]["rawSql"])
-        self.assertEqual(
-            panels_by_id[14]["datasource"]["type"], "grafana-postgresql-datasource"
-        )
-        self.assertIn(
-            "provider.search.result", panels_by_id[14]["targets"][0]["rawSql"]
-        )
-        self.assertEqual(
-            panels_by_id[15]["datasource"]["type"], "grafana-postgresql-datasource"
-        )
+        self.assertEqual(panels_by_id[14]["datasource"]["type"], "grafana-postgresql-datasource")
+        self.assertIn("provider.search.result", panels_by_id[14]["targets"][0]["rawSql"])
+        self.assertEqual(panels_by_id[15]["datasource"]["type"], "grafana-postgresql-datasource")
         self.assertIn("vw_provider_results", panels_by_id[15]["targets"][0]["rawSql"])
         self.assertIn("source_engines_json", panels_by_id[15]["targets"][0]["rawSql"])
 

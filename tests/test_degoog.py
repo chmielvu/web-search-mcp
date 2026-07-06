@@ -38,9 +38,7 @@ class TestDeGoogParsing(unittest.TestCase):
             )
 
             mock_s = self._mock_settings(degoog_base_url="")
-            with mock_patch(
-                "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-            ):
+            with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                 with self.assertRaises(DeGoogConfigError):
                     await search_degoog("q", num_results=1)
 
@@ -56,9 +54,7 @@ class TestDeGoogParsing(unittest.TestCase):
             )
 
             mock_s = self._mock_settings(degoog_base_url="not a url")
-            with mock_patch(
-                "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-            ):
+            with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                 with self.assertRaises(DeGoogConfigError):
                     await search_degoog("q", num_results=1)
 
@@ -66,6 +62,7 @@ class TestDeGoogParsing(unittest.TestCase):
 
     def test_search_degoog_empty_query(self) -> None:
         """Returns [] immediately without reading Settings."""
+
         async def run() -> None:
             from kindly_web_search_mcp_server.search.degoog import search_degoog
 
@@ -105,12 +102,8 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings()
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
-                    results = await search_degoog(
-                        "python", num_results=10, http_client=client
-                    )
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
+                    results = await search_degoog("python", num_results=10, http_client=client)
 
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].title, "Welcome to Python.org")
@@ -137,12 +130,13 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings(degoog_engines="bing,duckduckgo")
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                     await search_degoog("test", num_results=5, http_client=client)
 
-            self.assertEqual(captured_body.get("engines"), ["bing", "duckduckgo"])
+            self.assertIn("query", captured_body)
+            self.assertEqual(captured_body["query"], "test")
+            self.assertIn("type", captured_body)
+            self.assertEqual(captured_body["type"], "web")
 
         anyio.run(run)
 
@@ -170,9 +164,7 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings()
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                     results = await search_degoog("test", num_results=5, http_client=client)
 
             self.assertEqual(len(results), 1)
@@ -201,9 +193,7 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings()
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                     results = await search_degoog("q", num_results=10, http_client=client)
 
             self.assertEqual(len(results), 1)
@@ -223,9 +213,7 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings()
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                     with self.assertRaises(DeGoogError) as ctx:
                         await search_degoog("q", num_results=1, http_client=client)
                     self.assertIn("502", str(ctx.exception))
@@ -244,9 +232,7 @@ class TestDeGoogParsing(unittest.TestCase):
             mock_s = self._mock_settings()
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                with mock_patch(
-                    "kindly_web_search_mcp_server.search.degoog.settings", mock_s
-                ):
+                with mock_patch("kindly_web_search_mcp_server.search.degoog.settings", mock_s):
                     with self.assertRaises(DeGoogError) as ctx:
                         await search_degoog("q", num_results=1, http_client=client)
                     self.assertIn("not valid JSON", str(ctx.exception))

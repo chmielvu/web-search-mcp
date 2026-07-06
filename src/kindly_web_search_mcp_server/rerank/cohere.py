@@ -29,9 +29,7 @@ def _apply_instruction(query: str, instruction: str | None) -> str:
     return f"{cleaned_instruction}\n\n{query}"
 
 
-def _parse_rerank_results(
-    data: dict[str, Any], document_count: int
-) -> list[tuple[int, float]]:
+def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
     results = data.get("results")
     if not isinstance(results, list):
         raise ValueError("Cohere rerank response missing results list")
@@ -70,9 +68,7 @@ async def cohere_rerank(
     if not documents:
         return []
 
-    resolved_api_key = (
-        api_key or settings.cohere_api_key or os.environ.get("COHERE_API_KEY", "")
-    )
+    resolved_api_key = api_key or settings.cohere_api_key or os.environ.get("COHERE_API_KEY", "")
     if not resolved_api_key.strip():
         raise ValueError("COHERE_API_KEY is required for Cohere reranking")
 

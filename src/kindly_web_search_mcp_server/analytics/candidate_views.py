@@ -156,4 +156,3 @@ def build_candidate_view_sql(
         """,
         build_candidate_survival_view_sql(target),
     ]
-

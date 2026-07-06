@@ -22,9 +22,7 @@ class BraveConfigError(BraveError):
 def _get_brave_api_key() -> str:
     api_key = get_env_value("BRAVE_API_KEY", settings.brave_api_key).strip()
     if not api_key:
-        raise BraveConfigError(
-            "BRAVE_API_KEY is not set. Configure it in your runtime settings."
-        )
+        raise BraveConfigError("BRAVE_API_KEY is not set. Configure it in your runtime settings.")
     return api_key
 
 

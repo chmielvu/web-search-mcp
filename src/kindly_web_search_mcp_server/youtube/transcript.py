@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Legacy youtube-transcript-api backend
 # ---------------------------------------------------------------------------
 
+
 def fetch_transcript_data(
     video_id: str,
     language: str | None = None,
@@ -49,8 +50,7 @@ def fetch_transcript_data(
         )
     except ImportError:
         raise YouTubeError(
-            "youtube-transcript-api not installed. "
-            "Install with: pip install youtube-transcript-api"
+            "youtube-transcript-api not installed. Install with: pip install youtube-transcript-api"
         )
 
     languages = [language] if language else ["en"]
@@ -89,19 +89,14 @@ def fetch_transcript_data(
                 raise YouTubeError(f"Translation failed: {e}")
 
         fetched = transcript.fetch()
-        return [
-            {"text": s.text, "start": s.start, "duration": s.duration}
-            for s in fetched
-        ]
+        return [{"text": s.text, "start": s.start, "duration": s.duration} for s in fetched]
 
     except TranscriptsDisabled:
         raise YouTubeError("Transcripts are disabled for this video")
     except NoTranscriptFound:
         raise YouTubeError(f"No transcript found for language(s): {languages}")
     except VideoUnavailable:
-        raise YouTubeError(
-            "Video is unavailable (may be private, deleted, or age-restricted)"
-        )
+        raise YouTubeError("Video is unavailable (may be private, deleted, or age-restricted)")
     except CouldNotRetrieveTranscript as e:
         error_msg = str(e)
         if "RequestBlocked" in error_msg or "IpBlocked" in error_msg:
@@ -119,13 +114,10 @@ def fetch_transcript_data(
 # Formatting helpers
 # ---------------------------------------------------------------------------
 
+
 def format_transcript_text(segments: list[dict[str, Any]]) -> str:
     """Format transcript as plain text (concatenated)."""
-    return " ".join(
-        seg.get("text", "").strip()
-        for seg in segments
-        if seg.get("text", "").strip()
-    )
+    return " ".join(seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip())
 
 
 def format_transcript_timestamped(segments: list[dict[str, Any]]) -> str:

@@ -41,9 +41,7 @@ def normalize_scores_minmax(scores: list[float]) -> list[float]:
     return ((arr - min_s) / (max_s - min_s)).tolist()
 
 
-def compute_recency_score(
-    published_date: str | None, half_life_days: int = 90
-) -> float:
+def compute_recency_score(published_date: str | None, half_life_days: int = 90) -> float:
     if not published_date:
         return 0.0
     try:
@@ -85,7 +83,9 @@ def apply_ranked_results(
 
     candidates = [candidates[item.index] for item in sorted_ranked]
     relevance_scores = [
-        result.score for result in candidates[: min(10, len(candidates))] if result.score is not None
+        result.score
+        for result in candidates[: min(10, len(candidates))]
+        if result.score is not None
     ]
     max_score = max(relevance_scores) if relevance_scores else 0.0
     avg_score = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
@@ -112,11 +112,11 @@ def apply_entity_overlap_boost(
             candidate_entities = getattr(candidate, "entities", None) or []
             overlap = compute_entity_overlap(
                 query_entities,
-                candidate_entities if isinstance(candidate_entities, (list, tuple)) else [],
+                candidate_entities if isinstance(candidate_entities, (list, tuple)) else [],  # type: ignore[arg-type]
             )
             overlaps.append(overlap)
             if getattr(candidate, "score", None) is not None:
-                candidate.score = float(candidate.score) + (weight * overlap)
+                candidate.score = float(candidate.score) + (weight * overlap)  # type: ignore[arg-type]
         if overlaps:
             logger.debug(
                 "Entity overlap boost applied: mean=%s min=%s max=%s weight=%s",
@@ -168,8 +168,7 @@ async def run_diversity_pruning(
             )
         if embeddings and len(embeddings) == len(stage_input):
             relevance_scores = [
-                candidate.score if candidate.score is not None else 0.0
-                for candidate in stage_input
+                candidate.score if candidate.score is not None else 0.0 for candidate in stage_input
             ]
             diversified_rank = maximal_marginal_relevance_rank(
                 query_embedding,
@@ -179,7 +178,9 @@ async def run_diversity_pruning(
                 max_per_host=2,
                 relevance_scores=relevance_scores,
             )
-            candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[top_k * 2 :]
+            candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[
+                top_k * 2 :
+            ]
             stage_output_count = len(candidates)
             diversity_removed = len(diversified_rank) - len(diversified_rank[: top_k * 2])
         else:

@@ -67,9 +67,7 @@ class TestPublicOutputSerialization(unittest.TestCase):
                 has_more=False,
             ),
             providers_used=["searxng"],
-            warnings=[
-                ProviderWarning(provider="ddg", error="timeout", error_type="timeout")
-            ],
+            warnings=[ProviderWarning(provider="ddg", error="timeout", error_type="timeout")],
             diagnostics=[{"provider": "searxng", "score": 0.42}],
         )
 

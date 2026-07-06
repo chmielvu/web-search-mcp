@@ -35,9 +35,7 @@ class ABExperiment:
         if self.status not in ("draft", "running", "paused", "concluded"):
             errors.append(f"invalid status: {self.status}")
         if not (0 < self.traffic_pct <= 100):
-            errors.append(
-                f"traffic_pct must be in (0, 100], got {self.traffic_pct}"
-            )
+            errors.append(f"traffic_pct must be in (0, 100], got {self.traffic_pct}")
         if len(self.variants) < 2:
             errors.append("need at least 2 variants")
         for v in self.variants:

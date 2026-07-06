@@ -50,7 +50,7 @@ def _analytics_connection_and_prefix(
         database = _motherduck_database()
         attach = _attach_name(database)
         schema = _quote_ident("web_search_analytics")
-        connection = duckdb.connect(config=_duckdb_config())
+        connection = duckdb.connect(config=_duckdb_config())  # type: ignore[arg-type]
         _load_motherduck(connection)
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")
         return connection, _normalize_view_prefix(f"{_quote_ident(attach)}.{schema}")

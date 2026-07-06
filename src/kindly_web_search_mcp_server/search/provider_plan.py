@@ -66,15 +66,9 @@ def build_provider_execution_plan(
 ) -> ProviderExecutionPlan:
     policy = resolve_intent_policy(intent)
     registry = get_provider_configs()
-    free_names = [
-        name
-        for name, config in registry.items()
-        if config.group == ProviderGroup.free
-    ]
+    free_names = [name for name, config in registry.items() if config.group == ProviderGroup.free]
     paid_names = [
-        name
-        for name, config in registry.items()
-        if config.group == ProviderGroup.paid_serp
+        name for name, config in registry.items() if config.group == ProviderGroup.paid_serp
     ]
 
     free_configs = resolve_provider_configs(free_names)

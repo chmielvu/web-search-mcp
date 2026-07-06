@@ -23,9 +23,7 @@ class JinaConfigError(JinaError):
 def _get_jina_api_key() -> str:
     api_key = get_env_value("JINA_API_KEY", settings.jina_api_key).strip()
     if not api_key:
-        raise JinaConfigError(
-            "JINA_API_KEY is not set. Configure it in your runtime settings."
-        )
+        raise JinaConfigError("JINA_API_KEY is not set. Configure it in your runtime settings.")
     return api_key
 
 

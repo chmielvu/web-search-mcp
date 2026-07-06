@@ -291,11 +291,7 @@ async def run_search_pipeline(
             except Exception as exc:
                 logger.debug("Early embed_query failed (rerank will retry): %s", exc)
 
-            ab_overrides = (
-                get_ab_overrides(run_key=run_key, layer="reranking")
-                if run_key
-                else None
-            )
+            ab_overrides = get_ab_overrides(run_key=run_key, layer="reranking") if run_key else None
 
             if ab_overrides and ab_overrides.get("shadow_mode"):
                 ab_config = ab_overrides.get("config", {})
@@ -523,15 +519,11 @@ async def run_search_pipeline(
                 payload_json={
                     "provider_count": result.provider_count,
                     "providers": result.providers or [],
-                    "candidate_id": _candidate_id(
-                        result.link, result.title, result.snippet
-                    ),
+                    "candidate_id": _candidate_id(result.link, result.title, result.snippet),
                     "canonical_result_id": _canonical_result_id(result.link),
                     "tool_call_id": tool_call_id,
                     "entities": (
-                        [e.model_dump() for e in result.entities]
-                        if result.entities
-                        else None
+                        [e.model_dump() for e in result.entities] if result.entities else None
                     ),
                 },
             )

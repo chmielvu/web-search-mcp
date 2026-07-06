@@ -19,12 +19,14 @@ try:
         using_attributes,
     )
 except Exception:  # pragma: no cover - optional tracing dependency
+
     def get_attributes_from_context() -> dict[str, Any]:
         return {}
 
     @contextmanager
     def using_attributes(**attrs: Any) -> Iterator[None]:
         yield
+
 
 from opentelemetry import trace
 

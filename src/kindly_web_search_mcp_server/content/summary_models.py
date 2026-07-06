@@ -22,9 +22,7 @@ class SummaryEntity(BaseModel):
 
 class SummaryOutput(BaseModel):
     summary: str = Field(description="Concise source-grounded summary text.")
-    key_points: list[str] = Field(
-        default_factory=list, description="Bullet-friendly takeaways."
-    )
+    key_points: list[str] = Field(default_factory=list, description="Bullet-friendly takeaways.")
     important_entities: list[SummaryEntity] = Field(
         default_factory=list, description="Named entities that matter in the source."
     )

@@ -134,9 +134,7 @@ class TaskScope:
         drain_done: set[asyncio.Task[Any]] = set()
         drain_pending: set[asyncio.Task[Any]] = set()
         if pending:
-            drain_done, drain_pending = await asyncio.wait(
-                pending, timeout=self._drain_seconds
-            )
+            drain_done, drain_pending = await asyncio.wait(pending, timeout=self._drain_seconds)
 
         if drain_pending:
             logger.warning(

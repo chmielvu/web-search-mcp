@@ -9,7 +9,6 @@ _ensure_schema(), lazy path resolution.
 
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +20,7 @@ import duckdb
 @dataclass
 class TelegramChannelEntry:
     """A channel entry for the registry."""
+
     username: str
     title: str
     entry_type: str = "channel"  # "channel" | "group"
@@ -44,6 +44,7 @@ class TelegramRegistryDuckDB:
         if self.db_path:
             return Path(self.db_path)
         from ..settings import settings
+
         return Path(settings.telegram_registry_duckdb_path)
 
     def _ensure_schema(self, con: duckdb.DuckDBPyConnection) -> None:
@@ -76,16 +77,26 @@ class TelegramRegistryDuckDB:
             self._ensure_schema(con)
             count = 0
             for e in entries:
-                con.execute("""
+                con.execute(
+                    """
                     INSERT OR REPLACE INTO telegram_channels
                     (username, title, entry_type, language, intent, category,
                      member_count, source, source_url, active, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, [
-                    e.username, e.title, e.entry_type, e.language,
-                    e.intent, e.category, e.member_count,
-                    e.source, e.source_url, e.active,
-                ])
+                """,
+                    [
+                        e.username,
+                        e.title,
+                        e.entry_type,
+                        e.language,
+                        e.intent,
+                        e.category,
+                        e.member_count,
+                        e.source,
+                        e.source_url,
+                        e.active,
+                    ],
+                )
                 count += 1
             con.close()
             return count
@@ -97,17 +108,19 @@ class TelegramRegistryDuckDB:
             if not path.exists():
                 return []
             con = duckdb.connect(str(path), read_only=True)
-            rows = con.execute("""
+            rows = con.execute(
+                """
                 SELECT username, title, entry_type, language, member_count
                 FROM telegram_channels
                 WHERE intent = ? AND active = TRUE
                 ORDER BY member_count DESC NULLS LAST
                 LIMIT ?
-            """, [intent, limit]).fetchall()
+            """,
+                [intent, limit],
+            ).fetchall()
             con.close()
             return [
-                {"username": r[0], "title": r[1], "type": r[2],
-                 "language": r[3], "members": r[4]}
+                {"username": r[0], "title": r[1], "type": r[2], "language": r[3], "members": r[4]}
                 for r in rows
             ]
 
@@ -119,11 +132,14 @@ class TelegramRegistryDuckDB:
                 return
             con = duckdb.connect(str(path))
             self._ensure_schema(con)
-            con.execute("""
+            con.execute(
+                """
                 UPDATE telegram_channels
                 SET joined = TRUE, joined_at = CURRENT_TIMESTAMP
                 WHERE username = ?
-            """, [username])
+            """,
+                [username],
+            )
             con.close()
 
     def get_unjoined_for_intent(self, intent: str, limit: int = 10) -> list[str]:
@@ -133,12 +149,15 @@ class TelegramRegistryDuckDB:
             if not path.exists():
                 return []
             con = duckdb.connect(str(path), read_only=True)
-            rows = con.execute("""
+            rows = con.execute(
+                """
                 SELECT username FROM telegram_channels
                 WHERE intent = ? AND active = TRUE AND joined = FALSE
                 ORDER BY member_count DESC NULLS LAST
                 LIMIT ?
-            """, [intent, limit]).fetchall()
+            """,
+                [intent, limit],
+            ).fetchall()
             con.close()
             return [r[0] for r in rows]
 
@@ -149,8 +168,6 @@ class TelegramRegistryDuckDB:
             if not path.exists():
                 return 0
             con = duckdb.connect(str(path), read_only=True)
-            count = con.execute(
-                "SELECT COUNT(*) FROM telegram_channels"
-            ).fetchone()[0]
+            count = con.execute("SELECT COUNT(*) FROM telegram_channels").fetchone()[0]  # type: ignore[index]
             con.close()
             return count

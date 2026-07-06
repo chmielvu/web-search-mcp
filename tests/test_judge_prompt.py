@@ -106,14 +106,16 @@ class TestParseJudgeResponse:
         assert result["overall_score"] is None
 
     def test_int_values_coerced_to_float(self) -> None:
-        raw = json.dumps({
-            "relevance_score": 1,
-            "accuracy_score": 0,
-            "completeness_score": 0,
-            "source_quality_score": 1,
-            "overall_score": 1,
-            "rationale": "int test",
-        })
+        raw = json.dumps(
+            {
+                "relevance_score": 1,
+                "accuracy_score": 0,
+                "completeness_score": 0,
+                "source_quality_score": 1,
+                "overall_score": 1,
+                "rationale": "int test",
+            }
+        )
         result = parse_judge_response(raw)
         assert isinstance(result["relevance_score"], float)
         assert result["relevance_score"] == 1.0

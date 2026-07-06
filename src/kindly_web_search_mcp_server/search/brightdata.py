@@ -41,9 +41,7 @@ def _get_brightdata_api_key() -> str:
 
 
 def _resolve_payload_base() -> dict:
-    zone = (
-        get_env_value("BRIGHTDATA_ZONE", settings.brightdata_zone).strip() or "sdk_serp"
-    )
+    zone = get_env_value("BRIGHTDATA_ZONE", settings.brightdata_zone).strip() or "sdk_serp"
     payload: dict = {
         "zone": zone,
         "format": "raw",
@@ -110,9 +108,7 @@ def _detect_upstream_error(data: dict) -> str | None:
     return f"BrightData upstream {status_code}: {msg or 'unknown error'}"
 
 
-def _parse_response(
-    data: dict, search_type: str, num_results: int
-) -> list[WebSearchResult]:
+def _parse_response(data: dict, search_type: str, num_results: int) -> list[WebSearchResult]:
     upstream = _detect_upstream_error(data)
     if upstream:
         raise BrightDataError(upstream)
@@ -202,9 +198,7 @@ async def _search_bing(
             try:
                 data = response.json()
             except ValueError as exc:
-                raise BrightDataError(
-                    "BrightData Bing response was not valid JSON."
-                ) from exc
+                raise BrightDataError("BrightData Bing response was not valid JSON.") from exc
             if not isinstance(data, dict):
                 raise BrightDataError("BrightData Bing response was not a JSON object.")
             return _parse_response(data, "web", num_results)
@@ -272,9 +266,7 @@ async def search_brightdata(
     google_timeout = httpx.Timeout(settings.brightdata_google_timeout_seconds)
 
     async def _google_request(client: httpx.AsyncClient) -> dict:
-        google_url = _build_google_url(
-            query, country, language, search_type, exact_match
-        )
+        google_url = _build_google_url(query, country, language, search_type, exact_match)
         body = {**payload_base, "url": google_url}
         logger.debug("BrightData Google request: %s", google_url)
         response = await client.post(

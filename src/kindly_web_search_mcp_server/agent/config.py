@@ -45,15 +45,11 @@ class AgenticResearchConfig:
     api_key: str = field(default_factory=lambda: Settings().nanogpt_api_key)
     gemini_api_key: str = field(default_factory=lambda: Settings().gemini_api_key)
     hf_token: str = field(default_factory=lambda: Settings().hf_token)
-    temperature: float = field(
-        default_factory=lambda: Settings().agentic_research_temperature
-    )
+    temperature: float = field(default_factory=lambda: Settings().agentic_research_temperature)
     timeout_seconds: float = field(
         default_factory=lambda: Settings().agentic_research_timeout_seconds
     )
-    max_retries: int = field(
-        default_factory=lambda: Settings().agentic_research_max_retries
-    )
+    max_retries: int = field(default_factory=lambda: Settings().agentic_research_max_retries)
 
     quick_run_limit: int = field(
         default_factory=lambda: Settings().agentic_research_quick_run_limit
@@ -61,9 +57,7 @@ class AgenticResearchConfig:
     normal_run_limit: int = field(
         default_factory=lambda: Settings().agentic_research_normal_run_limit
     )
-    deep_run_limit: int = field(
-        default_factory=lambda: Settings().agentic_research_deep_run_limit
-    )
+    deep_run_limit: int = field(default_factory=lambda: Settings().agentic_research_deep_run_limit)
     quick_timeout_seconds: float = field(
         default_factory=lambda: Settings().agentic_research_quick_timeout_seconds
     )
@@ -89,11 +83,7 @@ class AgenticResearchConfig:
 
     def model_chain(self) -> tuple[str, ...]:
         models = [self.model_name.strip()]
-        models.extend(
-            item.strip()
-            for item in self.fallback_models.split(",")
-            if item.strip()
-        )
+        models.extend(item.strip() for item in self.fallback_models.split(",") if item.strip())
         deduped: list[str] = []
         for model in models:
             if model and model not in deduped:

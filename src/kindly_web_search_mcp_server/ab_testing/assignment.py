@@ -9,9 +9,7 @@ logger = logging.getLogger(__name__)
 
 def _hash_to_bucket(run_key: str, experiment_id: str, buckets: int = 10000) -> int:
     """Deterministic hash-based bucket assignment."""
-    digest = hashlib.sha256(
-        f"{experiment_id}:{run_key}".encode()
-    ).hexdigest()
+    digest = hashlib.sha256(f"{experiment_id}:{run_key}".encode()).hexdigest()
     return int(digest, 16) % buckets
 
 
@@ -26,9 +24,7 @@ def get_assigned_variant(
     Traffic_pct controls what fraction of run_keys are enrolled.
     Within enrolled run_keys, variant weights determine allocation.
     """
-    running = [
-        e for e in experiments if e.status == "running" and e.layer == layer
-    ]
+    running = [e for e in experiments if e.status == "running" and e.layer == layer]
     if not running:
         return None
 

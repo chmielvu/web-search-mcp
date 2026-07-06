@@ -28,10 +28,7 @@ class TestAnalyticsQualityBootstrap(unittest.TestCase):
         self.assertEqual(metrics["provider_count"], 0)
 
         con = duckdb.connect(str(db_path), read_only=True)
-        tables = {
-            row[0]
-            for row in con.execute("SHOW TABLES").fetchall()
-        }
+        tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
         row_count = con.execute(
             "SELECT COUNT(*) FROM search_quality_scores WHERE run_key = ?",
             ["run-1"],

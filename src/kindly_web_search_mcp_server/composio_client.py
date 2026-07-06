@@ -108,7 +108,7 @@ def _get_composio_client() -> Any:
         _CACHED_CLIENT = Composio(
             api_key=api_key,
             max_retries=settings.composio_max_retries,
-            timeout=settings.composio_timeout_seconds,
+            timeout=int(settings.composio_timeout_seconds),
             toolkit_versions={
                 COMPOSIO_SEARCH_TOOLKIT: settings.composio_search_toolkit_version,
             },
@@ -133,9 +133,7 @@ async def execute_composio_tool(
     if not slug.strip():
         raise ComposioToolError("Composio tool slug is required.")
     effective_timeout = (
-        settings.composio_timeout_seconds
-        if timeout_seconds is None
-        else timeout_seconds
+        settings.composio_timeout_seconds if timeout_seconds is None else timeout_seconds
     )
     timeout = max(1.0, effective_timeout)
     return await asyncio.wait_for(

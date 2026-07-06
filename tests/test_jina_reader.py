@@ -44,8 +44,9 @@ class TestJinaReader(unittest.IsolatedAsyncioTestCase):
             side_effect=[_FakeResponse(429, "rate limited"), _FakeResponse(200, "final")]
         )
 
-        with patch("httpx.AsyncClient") as mock_client_cls, patch.dict(
-            os.environ, {"JINA_API_KEY": "test-key"}, clear=False
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.dict(os.environ, {"JINA_API_KEY": "test-key"}, clear=False),
         ):
             mock_client_cls.return_value.__aenter__.return_value = fake_client
             content = await fetch_with_jina_reader("https://example.com")
@@ -64,8 +65,9 @@ class TestJinaReader(unittest.IsolatedAsyncioTestCase):
         fake_client = AsyncMock()
         fake_client.get = AsyncMock(return_value=_FakeResponse(429, "rate limited"))
 
-        with patch("httpx.AsyncClient") as mock_client_cls, patch.dict(
-            os.environ, {"JINA_API_KEY": ""}, clear=False
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.dict(os.environ, {"JINA_API_KEY": ""}, clear=False),
         ):
             mock_client_cls.return_value.__aenter__.return_value = fake_client
             with self.assertRaises(JinaReaderError):

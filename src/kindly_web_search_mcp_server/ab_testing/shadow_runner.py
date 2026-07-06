@@ -1,11 +1,8 @@
-import asyncio
-import json
 import logging
 import time
 from typing import Any, Callable, Coroutine
 
 from ..analytics.duckdb_store import insert_ab_shadow_run
-from ..settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +18,10 @@ async def run_shadow(
     control_result_summary: dict | None = None,
 ) -> None:
     """Fire-and-forget shadow execution. Runs variant B and records results.
-    
-    This function is designed to be called via asyncio.create_task() or 
+
+    This function is designed to be called via asyncio.create_task() or
     asyncio.ensure_future(). It never propagates exceptions.
-    
+
     Parameters:
         run_key: The search run identifier
         experiment_id: The A/B experiment identifier
@@ -37,7 +34,7 @@ async def run_shadow(
     """
     shadow_start = time.monotonic()
     error_type = None
-    
+
     try:
         shadow_result = await shadow_fn(**shadow_kwargs)
         shadow_duration_ms = (time.monotonic() - shadow_start) * 1000
@@ -46,11 +43,11 @@ async def run_shadow(
         error_type = "shadow_failed"
         shadow_result = None
         logger.debug("Shadow execution failed for %s/%s: %s", experiment_id, run_key, exc)
-    
+
     # Record shadow run in DuckDB
     try:
         latency_delta_ms = shadow_duration_ms - control_duration_ms
-        
+
         insert_ab_shadow_run(
             run_key=run_key,
             experiment_id=experiment_id,
@@ -77,8 +74,10 @@ def _safe_summary(obj: Any) -> Any:
     if obj is None:
         return None
     if isinstance(obj, dict):
-        return {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v 
-                for k, v in list(obj.items())[:10]}
+        return {
+            k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+            for k, v in list(obj.items())[:10]
+        }
     if isinstance(obj, list):
         return {"count": len(obj), "first_3": [str(x)[:200] for x in obj[:3]]}
     if hasattr(obj, "__dict__"):

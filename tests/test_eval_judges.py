@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 
-
 def test_strict_json_parser_handles_pure_and_fenced():
     from kindly_web_search_mcp_server.evals.judges import _parse_strict_json
 
@@ -47,13 +46,19 @@ def test_judge_fns_return_score_and_persist_structure(monkeypatch):
     assert res["score"] == 0.82
     assert len(calls) == 1
 
-    res2 = jmod.judge_argument_correctness("q", [], eval_run_id="r1", eval_case_id="c1", run_key="rk1")
+    res2 = jmod.judge_argument_correctness(
+        "q", [], eval_run_id="r1", eval_case_id="c1", run_key="rk1"
+    )
     assert "score" in res2
 
-    res3 = jmod.judge_source_usefulness("q", [{"title": "t"}], eval_run_id="r1", eval_case_id="c1", run_key="rk1")
+    res3 = jmod.judge_source_usefulness(
+        "q", [{"title": "t"}], eval_run_id="r1", eval_case_id="c1", run_key="rk1"
+    )
     assert res3["score"] == 0.82
 
-    res4 = jmod.judge_ranking_quality("q", ["u1"], ["u1"], eval_run_id="r1", eval_case_id="c1", run_key="rk1")
+    res4 = jmod.judge_ranking_quality(
+        "q", ["u1"], ["u1"], eval_run_id="r1", eval_case_id="c1", run_key="rk1"
+    )
     assert res4["score"] == 0.82
 
 

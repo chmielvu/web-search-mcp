@@ -77,7 +77,9 @@ class TestStackExchangeApiClient(unittest.TestCase):
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as http_client:
                 api = StackExchangeApiClient(http_client=http_client)
-                target = StackExchangeTarget(site="stackoverflow", question_id=11227809, answer_id=None)
+                target = StackExchangeTarget(
+                    site="stackoverflow", question_id=11227809, answer_id=None
+                )
                 question = await api.fetch_question(target)
                 answers = await api.fetch_all_answers(target)
 

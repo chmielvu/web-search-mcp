@@ -93,7 +93,11 @@ def decide_rerank(
             candidate_count=candidate_count,
         )
         emit_observability_event(
-            logger, "rerank.bypassed", reason=d.reason, query=query[:200], candidate_count=candidate_count
+            logger,
+            "rerank.bypassed",
+            reason=d.reason,
+            query=query[:200],
+            candidate_count=candidate_count,
         )
         return d
 
@@ -105,9 +109,7 @@ def decide_rerank(
             query_type="literal",
             candidate_count=candidate_count,
         )
-        emit_observability_event(
-            logger, "rerank.bypassed", reason=d.reason, query=query[:200]
-        )
+        emit_observability_event(logger, "rerank.bypassed", reason=d.reason, query=query[:200])
         return d
 
     # 3. navigational exact domain
@@ -118,9 +120,7 @@ def decide_rerank(
             query_type="navigational",
             candidate_count=candidate_count,
         )
-        emit_observability_event(
-            logger, "rerank.bypassed", reason=d.reason, query=query[:200]
-        )
+        emit_observability_event(logger, "rerank.bypassed", reason=d.reason, query=query[:200])
         return d
 
     # 4. degraded health
@@ -147,9 +147,7 @@ def decide_rerank(
             query_type="harmful",
             candidate_count=candidate_count,
         )
-        emit_observability_event(
-            logger, "rerank.bypassed", reason=d.reason, query=query[:200]
-        )
+        emit_observability_event(logger, "rerank.bypassed", reason=d.reason, query=query[:200])
         return d
 
     # eligible
@@ -159,6 +157,10 @@ def decide_rerank(
         query_type=qtype,
         candidate_count=candidate_count,
         engine_health=health,
-        details={"entity_overlap_enabled": bool(getattr(settings, "rerank_entity_overlap_enabled", False))},
+        details={
+            "entity_overlap_enabled": bool(
+                getattr(settings, "rerank_entity_overlap_enabled", False)
+            )
+        },
     )
     return d

@@ -22,9 +22,7 @@ class SerperConfigError(SerperError):
 def _get_serper_api_key() -> str:
     api_key = get_env_value("SERPER_API_KEY", settings.serper_api_key).strip()
     if not api_key:
-        raise SerperConfigError(
-            "SERPER_API_KEY is not set. Configure it in your runtime settings."
-        )
+        raise SerperConfigError("SERPER_API_KEY is not set. Configure it in your runtime settings.")
     return api_key
 
 

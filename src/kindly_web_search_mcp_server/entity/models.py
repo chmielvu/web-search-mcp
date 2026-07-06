@@ -15,9 +15,7 @@ class EntitySpan(BaseModel):
     offset correction has been applied by the caller (see chunk + gliner_client).
     """
 
-    text: str = Field(
-        description="Surface form of the entity exactly as matched in source text."
-    )
+    text: str = Field(description="Surface form of the entity exactly as matched in source text.")
     label: str = Field(
         description="Entity label from the extraction schema (e.g. 'package', 'version', 'repo_ref')."
     )

@@ -9,9 +9,7 @@ from __future__ import annotations
 from ..content.windowing import _find_boundary_index
 
 
-def chunk_text(
-    text: str, *, chunk_size: int = 1000, overlap: int = 150
-) -> list[tuple[int, str]]:
+def chunk_text(text: str, *, chunk_size: int = 1000, overlap: int = 150) -> list[tuple[int, str]]:
     """Split text into overlapping chunks.
 
     Returns list of (global_start_offset, chunk_text) tuples.

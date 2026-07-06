@@ -13,10 +13,12 @@ from .query_policy import RewritePolicy
 
 # Categories that produce user-visible warnings.
 # "unconfigured" is silent by design.
-_WARNING_CATEGORIES = frozenset({
-    DiagnosisCategory.cooldown,
-    DiagnosisCategory.disabled,
-})
+_WARNING_CATEGORIES = frozenset(
+    {
+        DiagnosisCategory.cooldown,
+        DiagnosisCategory.disabled,
+    }
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +52,7 @@ async def maybe_extract_entities(
                 updated_results.append(result)
             elif hasattr(result, "model_copy"):
                 try:
-                    updated_results.append(
-                        result.model_copy(update={"entities": entities or None})
-                    )
+                    updated_results.append(result.model_copy(update={"entities": entities or None}))
                 except Exception:
                     updated_results.append(result)
             else:
@@ -63,9 +63,7 @@ async def maybe_extract_entities(
             "entity.search_result_extracted",
             query=query,
             num_results=len(results),
-            total_entities=sum(
-                len(getattr(result, "entities", []) or []) for result in results
-            ),
+            total_entities=sum(len(getattr(result, "entities", []) or []) for result in results),
         )
     except Exception as exc:
         emit_observability_event(
@@ -135,7 +133,7 @@ def build_search_response(
             query=query,
             results=final_results,
             total_results=len(final_results),
-            result_window={
+            result_window={  # type: ignore[arg-type]
                 "offset": result_offset,
                 "returned": len(final_results),
                 "candidate_count": candidate_count,

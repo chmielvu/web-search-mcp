@@ -24,9 +24,7 @@ WEB_SEARCH_MAX_RESULTS = 5
 def _string_list(values: list[str] | None) -> list[str] | None:
     if not values:
         return None
-    cleaned = [
-        value.strip() for value in values if isinstance(value, str) and value.strip()
-    ]
+    cleaned = [value.strip() for value in values if isinstance(value, str) and value.strip()]
     return cleaned or None
 
 

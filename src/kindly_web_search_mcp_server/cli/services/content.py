@@ -49,9 +49,7 @@ def _cached_artifact(url: str) -> dict[str, Any] | None:
         if isinstance(cached_metadata, dict) and "metadata" in cached_metadata
         else cached_metadata
     )
-    cached_links = (
-        cached_metadata.get("links") if isinstance(cached_metadata, dict) else None
-    )
+    cached_links = cached_metadata.get("links") if isinstance(cached_metadata, dict) else None
     return {
         "input_url": url,
         "normalized_url": url,
@@ -144,9 +142,7 @@ async def fetch_content_payload(
     max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    safe_summary_mode = (
-        summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
-    )
+    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
 
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
@@ -190,7 +186,7 @@ async def fetch_content_payload(
     )
     summary = await create_summary(
         windowed.content,
-        mode=safe_summary_mode,
+        mode=safe_summary_mode,  # type: ignore[arg-type]
         focus_query=focus_query,
         source_urls=[
             artifact["fetched_url"] or artifact["normalized_url"],

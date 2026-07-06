@@ -23,15 +23,6 @@ def latency_within_budget(latency_ms: float, budget_ms: float) -> float:
 
 
 
-def top_k_domain_hit(
-    candidates: list[dict[str, object]], expected_domain: str, k: int
-) -> float:
-    return 1.0 if any(
-        _candidate_domain_matches(candidate, expected_domain)
-        for candidate in candidates[:k]
-    ) else 0.0
-
-
 def _tool_called(tool_calls: list[dict[str, object]], tool_name: str) -> bool:
     return any(call.get("tool_name") == tool_name for call in tool_calls)
 
@@ -75,7 +66,7 @@ def mrr_at_k(
     else:
         for c in candidates or []:
             if isinstance(c, dict):
-                ranked.append(c.get("link") or c.get("url") or "")
+                ranked.append(str(c.get("link") or c.get("url") or ""))
             else:
                 ranked.append(str(c))
     for index, url in enumerate(ranked[:k], start=1):
@@ -96,7 +87,7 @@ def ndcg_at_k(
     else:
         for c in candidates or []:
             if isinstance(c, dict):
-                ranked.append(c.get("link") or c.get("url") or "")
+                ranked.append(str(c.get("link") or c.get("url") or ""))
             else:
                 ranked.append(str(c))
     gains = [1.0 if any(g in u or u in g for g in gold) else 0.0 for u in ranked[:k]]
@@ -114,7 +105,7 @@ def top_k_domain_hit(
 ) -> float:
     if isinstance(gold, str) and candidates and isinstance(candidates[0], dict):
         return 1.0 if any(
-            _candidate_domain_matches(candidate, gold)
+            _candidate_domain_matches(candidate, gold)  # type: ignore[arg-type]
             for candidate in candidates[:k]
         ) else 0.0
     if isinstance(gold, str):
@@ -125,7 +116,7 @@ def top_k_domain_hit(
     else:
         for c in candidates or []:
             if isinstance(c, dict):
-                ranked.append(c.get("link") or c.get("url") or "")
+                ranked.append(str(c.get("link") or c.get("url") or ""))
             else:
                 ranked.append(str(c))
     for u in ranked[:k]:
@@ -146,7 +137,7 @@ def duplicate_url_rate(candidates: list[dict[str, object]] | list[str]) -> float
         if isinstance(c, str):
             urls.append(c)
         elif isinstance(c, dict):
-            urls.append(c.get("link") or c.get("url") or "")
+            urls.append(str(c.get("link") or c.get("url") or ""))
     if not urls:
         return 0.0
     unique = len(set(urls))

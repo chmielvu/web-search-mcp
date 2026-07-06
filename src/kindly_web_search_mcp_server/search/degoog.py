@@ -111,11 +111,7 @@ async def search_degoog(
 
             if not isinstance(title, str) or not title.strip():
                 continue
-            if (
-                not isinstance(link, str)
-                or not link.strip()
-                or not _looks_like_url(link)
-            ):
+            if not isinstance(link, str) or not link.strip() or not _looks_like_url(link):
                 continue
             if not isinstance(snippet, str) or not snippet.strip():
                 continue

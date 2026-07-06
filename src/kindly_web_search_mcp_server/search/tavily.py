@@ -20,9 +20,7 @@ class TavilyConfigError(TavilyError):
 def _get_tavily_api_key() -> str:
     api_key = get_env_value("TAVILY_API_KEY", settings.tavily_api_key).strip()
     if not api_key:
-        raise TavilyConfigError(
-            "TAVILY_API_KEY is not set. Configure it in your runtime settings."
-        )
+        raise TavilyConfigError("TAVILY_API_KEY is not set. Configure it in your runtime settings.")
     return api_key
 
 

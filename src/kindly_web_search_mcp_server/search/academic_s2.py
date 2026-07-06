@@ -120,7 +120,7 @@ async def search_semanticscholar(
 
     api_key = _get_api_key()
     sch = AsyncSemanticScholar(
-        api_key=api_key,
+        api_key=api_key,  # type: ignore[arg-type]
         timeout=S2_TIMEOUT,
         retry=S2_RETRY_ENABLED,  # False when S2_MAX_RETRIES=0 (fail fast)
     )
@@ -136,16 +136,16 @@ async def search_semanticscholar(
     try:
         results = await sch.search_paper(
             query,
-            year=year_str,
-            fields_of_study=fields_of_study,
-            venue=[venue] if venue else None,
+            year=year_str,  # type: ignore[arg-type]
+            fields_of_study=fields_of_study,  # type: ignore[arg-type]
+            venue=[venue] if venue else None,  # type: ignore[arg-type]
             limit=min(limit * 2, 100),
-            open_access_pdf=True if open_access_only else None,
+            open_access_pdf=True if open_access_only else None,  # type: ignore[arg-type]
         )
 
         papers: list[AcademicPaper] = []
         # AsyncSemanticScholar returns PaginatedResults - iterate items directly
-        for item in results.items if hasattr(results, "items") else results:
+        for item in results.items if hasattr(results, "items") else results:  # type: ignore[union-attr]
             raw = item.__dict__ if hasattr(item, "__dict__") else dict(item)
             paper = _normalize_paper(raw)
             if paper is not None:

@@ -40,19 +40,16 @@ async def fetch_batch_content_payload(
         fetch_options=fetch_options,
     )
 
-    safe_summary_mode = (
-        summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
-    )
+    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
     summaries = await create_batch_summaries(
         output["results"],
-        mode=safe_summary_mode,
+        mode=safe_summary_mode,  # type: ignore[arg-type]
         focus_query=focus_query,
         max_concurrency=max_concurrency,
     )
     return {
         **output,
         "results": [
-            {**item, "summary": summaries[idx]}
-            for idx, item in enumerate(output["results"])
+            {**item, "summary": summaries[idx]} for idx, item in enumerate(output["results"])
         ],
     }

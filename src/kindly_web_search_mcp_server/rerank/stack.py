@@ -19,10 +19,7 @@ def normalize_rerank_stack_mode(raw_mode: str) -> str:
     mode = raw_mode.strip().lower()
     if mode not in VALID_RERANK_STACK_MODES:
         allowed = ", ".join(sorted(VALID_RERANK_STACK_MODES))
-        raise ValueError(
-            f"Invalid rerank stack mode: {raw_mode!r}. "
-            f"Expected one of: {allowed}."
-        )
+        raise ValueError(f"Invalid rerank stack mode: {raw_mode!r}. Expected one of: {allowed}.")
     return mode
 
 

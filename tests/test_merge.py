@@ -26,7 +26,9 @@ except ModuleNotFoundError:
 
     otel_stub = types.ModuleType("opentelemetry")
     otel_stub.trace = types.SimpleNamespace(
-        get_tracer=lambda *a, **k: types.SimpleNamespace(start_as_current_span=lambda *x, **y: None),
+        get_tracer=lambda *a, **k: types.SimpleNamespace(
+            start_as_current_span=lambda *x, **y: None
+        ),
         SpanKind=types.SimpleNamespace(INTERNAL="internal"),
     )
     sys.modules["opentelemetry"] = otel_stub

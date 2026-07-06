@@ -19,6 +19,7 @@ import pytest
 # Helper: build a fake litellm acompletion response
 # =========================================================================
 
+
 def _make_fake_litellm_response(content: str) -> SimpleNamespace:
     """Build a minimal mock of a litellm acompletion return value."""
     msg = SimpleNamespace(content=content)
@@ -29,6 +30,7 @@ def _make_fake_litellm_response(content: str) -> SimpleNamespace:
 # =========================================================================
 # Test 1: Full judge flow with mocked LLM
 # =========================================================================
+
 
 class TestJudgerunnerMockedLLM:
     """Tests for run_judge_evaluation with a mocked LLM response."""
@@ -91,6 +93,7 @@ class TestJudgerunnerMockedLLM:
 
             # This is async — we need to run it
             import asyncio
+
             asyncio.run(
                 run_judge_evaluation(
                     run_key="test-run-001",
@@ -105,6 +108,7 @@ class TestJudgerunnerMockedLLM:
 
             # Verify the data was inserted into DuckDB
             import duckdb
+
             con = duckdb.connect(str(db_path))
             try:
                 row = con.execute(
@@ -147,6 +151,7 @@ class TestJudgerunnerMockedLLM:
         )
 
         import asyncio
+
         asyncio.run(
             run_judge_evaluation(
                 run_key="test-empty",
@@ -190,14 +195,13 @@ class TestJudgerunnerMockedLLM:
         )
 
         import asyncio
+
         asyncio.run(
             run_judge_evaluation(
                 run_key="test-run-002",
                 query="AI papers",
                 intent="general",
-                results=[
-                    self._make_result("Paper A", "https://a.example", "Great paper")
-                ],
+                results=[self._make_result("Paper A", "https://a.example", "Great paper")],
                 tool_name="web_search",
                 session_id="session-999",
             )
@@ -247,13 +251,10 @@ class TestJudgerunnerMockedLLM:
                 str(db_path),
             )
 
-            results = [
-                SimpleNamespace(
-                    title="Test", link="https://t.example", snippet="test"
-                )
-            ]
+            results = [SimpleNamespace(title="Test", link="https://t.example", snippet="test")]
 
             import asyncio
+
             asyncio.run(
                 run_judge_evaluation(
                     run_key="test-fallback",
@@ -264,6 +265,7 @@ class TestJudgerunnerMockedLLM:
             )
 
             import duckdb
+
             con = duckdb.connect(str(db_path))
             try:
                 row = con.execute(
@@ -274,6 +276,7 @@ class TestJudgerunnerMockedLLM:
                 assert row is not None, "Expected a fallback row"
                 assert row[0] == "test-fallback"
                 import json as _json
+
                 payload = _json.loads(row[2])
                 assert "error" in payload
             finally:
@@ -287,6 +290,7 @@ class TestJudgerunnerMockedLLM:
 # Test 2: Calibration workflow
 # =========================================================================
 
+
 class TestJudgeCalibration:
     """Tests for calibrate_judge."""
 
@@ -297,6 +301,7 @@ class TestJudgeCalibration:
     ) -> None:
         """Insert judge_evaluation rows for calibration testing."""
         import duckdb
+
         con = duckdb.connect(str(db_path))
         try:
             con.execute(
@@ -365,32 +370,35 @@ class TestJudgeCalibration:
             )
 
             # Seed data where actual matches expected perfectly
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-c-perfect-1",
-                    "overall_score": 0.9,
-                    "relevance_score": 0.9,
-                    "accuracy_score": 0.85,
-                    "completeness_score": 0.8,
-                    "source_quality_score": 0.85,
-                },
-                {
-                    "run_key": "rk-c-perfect-2",
-                    "overall_score": 0.7,
-                    "relevance_score": 0.7,
-                    "accuracy_score": 0.65,
-                    "completeness_score": 0.6,
-                    "source_quality_score": 0.75,
-                },
-                {
-                    "run_key": "rk-c-perfect-3",
-                    "overall_score": 0.5,
-                    "relevance_score": 0.5,
-                    "accuracy_score": 0.55,
-                    "completeness_score": 0.5,
-                    "source_quality_score": 0.5,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-c-perfect-1",
+                        "overall_score": 0.9,
+                        "relevance_score": 0.9,
+                        "accuracy_score": 0.85,
+                        "completeness_score": 0.8,
+                        "source_quality_score": 0.85,
+                    },
+                    {
+                        "run_key": "rk-c-perfect-2",
+                        "overall_score": 0.7,
+                        "relevance_score": 0.7,
+                        "accuracy_score": 0.65,
+                        "completeness_score": 0.6,
+                        "source_quality_score": 0.75,
+                    },
+                    {
+                        "run_key": "rk-c-perfect-3",
+                        "overall_score": 0.5,
+                        "relevance_score": 0.5,
+                        "accuracy_score": 0.55,
+                        "completeness_score": 0.5,
+                        "source_quality_score": 0.5,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -451,32 +459,35 @@ class TestJudgeCalibration:
             )
 
             # Actual scores are 0.1 higher than expected (positive bias)
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-bias-1",
-                    "overall_score": 0.8,
-                    "relevance_score": 0.8,
-                    "accuracy_score": 0.8,
-                    "completeness_score": 0.8,
-                    "source_quality_score": 0.8,
-                },
-                {
-                    "run_key": "rk-bias-2",
-                    "overall_score": 0.6,
-                    "relevance_score": 0.6,
-                    "accuracy_score": 0.6,
-                    "completeness_score": 0.6,
-                    "source_quality_score": 0.6,
-                },
-                {
-                    "run_key": "rk-bias-3",
-                    "overall_score": 0.4,
-                    "relevance_score": 0.4,
-                    "accuracy_score": 0.4,
-                    "completeness_score": 0.4,
-                    "source_quality_score": 0.4,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-bias-1",
+                        "overall_score": 0.8,
+                        "relevance_score": 0.8,
+                        "accuracy_score": 0.8,
+                        "completeness_score": 0.8,
+                        "source_quality_score": 0.8,
+                    },
+                    {
+                        "run_key": "rk-bias-2",
+                        "overall_score": 0.6,
+                        "relevance_score": 0.6,
+                        "accuracy_score": 0.6,
+                        "completeness_score": 0.6,
+                        "source_quality_score": 0.6,
+                    },
+                    {
+                        "run_key": "rk-bias-3",
+                        "overall_score": 0.4,
+                        "relevance_score": 0.4,
+                        "accuracy_score": 0.4,
+                        "completeness_score": 0.4,
+                        "source_quality_score": 0.4,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -535,16 +546,19 @@ class TestJudgeCalibration:
             )
 
             # Actual scores are 0.2 lower than expected (negative bias)
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-neg-1",
-                    "overall_score": 0.5,
-                },
-                {
-                    "run_key": "rk-neg-2",
-                    "overall_score": 0.7,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-neg-1",
+                        "overall_score": 0.5,
+                    },
+                    {
+                        "run_key": "rk-neg-2",
+                        "overall_score": 0.7,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -578,11 +592,14 @@ class TestJudgeCalibration:
 
             # Deliberately messy: expected [0.9, 0.7, 0.5], actual [0.85, 0.6, 0.55]
             # Pearson correlation between those should be > 0.9
-            self._seed_judge_scores(db_path, [
-                {"run_key": "rk-c-1", "overall_score": 0.85},
-                {"run_key": "rk-c-2", "overall_score": 0.6},
-                {"run_key": "rk-c-3", "overall_score": 0.55},
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {"run_key": "rk-c-1", "overall_score": 0.85},
+                    {"run_key": "rk-c-2", "overall_score": 0.6},
+                    {"run_key": "rk-c-3", "overall_score": 0.55},
+                ],
+            )
 
             known_queries = [
                 {"run_key": "rk-c-1", "expected_scores": {"overall_score": 0.9}},
@@ -638,18 +655,21 @@ class TestJudgeCalibration:
                 calibrate_judge,
             )
 
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-partial-1",
-                    "overall_score": 0.8,
-                    "relevance_score": 0.8,
-                },
-                {
-                    "run_key": "rk-partial-2",
-                    "overall_score": 0.6,
-                    "relevance_score": 0.6,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-partial-1",
+                        "overall_score": 0.8,
+                        "relevance_score": 0.8,
+                    },
+                    {
+                        "run_key": "rk-partial-2",
+                        "overall_score": 0.6,
+                        "relevance_score": 0.6,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -691,12 +711,15 @@ class TestJudgeCalibration:
                 calibrate_judge,
             )
 
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-single",
-                    "overall_score": 0.75,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-single",
+                        "overall_score": 0.75,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -725,16 +748,19 @@ class TestJudgeCalibration:
                 calibrate_judge,
             )
 
-            self._seed_judge_scores(db_path, [
-                {
-                    "run_key": "rk-pd-1",
-                    "relevance_score": 0.95,
-                    "accuracy_score": 0.90,
-                    "completeness_score": 0.85,
-                    "source_quality_score": 0.80,
-                    "overall_score": 0.88,
-                },
-            ])
+            self._seed_judge_scores(
+                db_path,
+                [
+                    {
+                        "run_key": "rk-pd-1",
+                        "relevance_score": 0.95,
+                        "accuracy_score": 0.90,
+                        "completeness_score": 0.85,
+                        "source_quality_score": 0.80,
+                        "overall_score": 0.88,
+                    },
+                ],
+            )
 
             known_queries = [
                 {
@@ -753,9 +779,13 @@ class TestJudgeCalibration:
 
             pd = result["per_dimension"]
             # All should have mae=0.05, bias=0.05
-            for dim in ["relevance_score", "accuracy_score",
-                         "completeness_score", "source_quality_score",
-                         "overall_score"]:
+            for dim in [
+                "relevance_score",
+                "accuracy_score",
+                "completeness_score",
+                "source_quality_score",
+                "overall_score",
+            ]:
                 assert pd[dim]["mae"] == pytest.approx(0.05, abs=1e-6)
                 assert pd[dim]["bias"] == pytest.approx(0.05, abs=1e-6)
         finally:

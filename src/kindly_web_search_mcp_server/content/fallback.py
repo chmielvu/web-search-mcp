@@ -85,9 +85,7 @@ async def fallback_fetch_content(
                 quality_score=0.9,
             )
         # Jina returned content but quality is low — try trafilatura
-        LOGGER.info(
-            "Jina Reader quality low (%s), trying trafilatura", cls.reason
-        )
+        LOGGER.info("Jina Reader quality low (%s), trying trafilatura", cls.reason)
     except JinaReaderError as exc:
         LOGGER.debug("Jina Reader failed: %s", exc)
     except Exception as exc:
@@ -155,9 +153,7 @@ async def fallback_fetch_content(
 
     metadata: dict[str, Any] | None = None
     if opts.include_metadata:
-        metadata = extract_html_metadata(
-            html, page_url=url, fetched_url=fetched.fetched_url
-        )
+        metadata = extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
 
     links: list[dict[str, Any]] | None = None
     if opts.include_links:

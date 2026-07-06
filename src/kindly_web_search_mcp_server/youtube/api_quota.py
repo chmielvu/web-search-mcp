@@ -40,7 +40,10 @@ class YouTubeApiQuotaTracker:
             if self._today:
                 logger.info(
                     "YouTube API quota rollover: %s → %s (used %d/%d units)",
-                    self._today, today, self._used, self._daily_quota,
+                    self._today,
+                    today,
+                    self._used,
+                    self._daily_quota,
                 )
             self._today = today
             self._used = 0
@@ -67,12 +70,17 @@ class YouTubeApiQuotaTracker:
             if usage_ratio >= _HALT_THRESHOLD:
                 logger.warning(
                     "YouTube API daily quota EXHAUSTED: %d/%d units used (%d calls, %d failures)",
-                    self._used, self._daily_quota, self._call_count, self._failures,
+                    self._used,
+                    self._daily_quota,
+                    self._call_count,
+                    self._failures,
                 )
             elif usage_ratio >= _WARN_THRESHOLD:
                 logger.warning(
                     "YouTube API daily quota at %.0f%%: %d/%d units used",
-                    usage_ratio * 100, self._used, self._daily_quota,
+                    usage_ratio * 100,
+                    self._used,
+                    self._daily_quota,
                 )
 
     def snapshot(self) -> dict[str, Any]:
@@ -84,7 +92,9 @@ class YouTubeApiQuotaTracker:
                 "daily_quota": self._daily_quota,
                 "used": self._used,
                 "remaining": max(0, self._daily_quota - self._used),
-                "usage_pct": round(self._used / self._daily_quota * 100, 1) if self._daily_quota else 0,
+                "usage_pct": round(self._used / self._daily_quota * 100, 1)
+                if self._daily_quota
+                else 0,
                 "call_count": self._call_count,
                 "failures": self._failures,
             }
@@ -102,6 +112,7 @@ def get_youtube_api_quota_tracker() -> YouTubeApiQuotaTracker:
         with _tracker_lock:
             if _quota_tracker is None:
                 from ..settings import settings
+
                 _quota_tracker = YouTubeApiQuotaTracker(
                     daily_quota=settings.youtube_api_daily_quota,
                 )

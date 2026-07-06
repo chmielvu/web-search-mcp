@@ -99,10 +99,7 @@ def _get_headers() -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": (
-            "https://github.com/Shelpuk-AI-Technology-Consulting/"
-            "web-search-mcp"
-        ),
+        "HTTP-Referer": ("https://github.com/Shelpuk-AI-Technology-Consulting/web-search-mcp"),
         "X-Title": "web-search-mcp",
     }
 
@@ -130,9 +127,7 @@ def _extract_text(message: dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "".join(
-            part.get("text", "") for part in content if isinstance(part, dict)
-        )
+        return "".join(part.get("text", "") for part in content if isinstance(part, dict))
     return ""
 
 
@@ -413,9 +408,7 @@ async def grok_search(
                 resp.raise_for_status()
             except httpx.TimeoutException as e:
                 set_span_error(span, e)
-                raise httpx.HTTPError(
-                    f"Grok search timed out after {resolved_timeout}s"
-                ) from e
+                raise httpx.HTTPError(f"Grok search timed out after {resolved_timeout}s") from e
             except httpx.HTTPStatusError as e:
                 set_span_error(span, e)
                 raise e

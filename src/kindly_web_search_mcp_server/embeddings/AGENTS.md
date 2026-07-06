@@ -12,9 +12,12 @@ embeddings/
 ## Current Behavior
 
 - Embeddings are served through Hugging Face Inference
-- `hf_inference.py` owns the provider client, validation, and circuit breaker
-- `rate_limiter.py` batches and throttles requests so branch fanout does not
-  stampede the embedding backend
+- `hf_inference.py` owns the singleton provider client, validation, circuit breaker,
+  and per-call timeouts. The singleton `AsyncInferenceClient` is reused for
+  TCP/TLS connection pooling; concurrent calls are allowed because the underlying
+  httpx client handles connection multiplexing and the per-caller wrappers
+  (`rate_limiter.py`, the Qdrant embedder, and the bi-encoder batch semaphore)
+  already throttle their own traffic.
 
 ## Notes
 

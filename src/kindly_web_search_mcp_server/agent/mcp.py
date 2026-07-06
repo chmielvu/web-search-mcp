@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -23,7 +24,7 @@ from .runner import run_agentic_web_research
 LOGGER = logging.getLogger(__name__)
 
 
-def register_agentic_web_research_tools(mcp: object) -> None:
+def register_agentic_web_research_tools(mcp: Any) -> None:  # FastMCP instance
     @mcp.tool(**tool_kwargs("agentic_web_research"))
     async def agentic_web_research(
         query: str,
@@ -106,9 +107,7 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 answer_preview=(getattr(result, "answer", "") or "")[:400],
                 # Full complex data lives in payload_json (views/reports already json_extract answers/sources)
                 sources=[
-                    s.model_dump()
-                    if hasattr(s, "model_dump")
-                    else dict(getattr(s, "__dict__", {}))
+                    s.model_dump() if hasattr(s, "model_dump") else dict(getattr(s, "__dict__", {}))
                     for s in result.sources[:3]
                 ],
                 tool_trace=result.tool_trace,
@@ -133,14 +132,10 @@ def register_agentic_web_research_tools(mcp: object) -> None:
                 current = trace.get_current_span()
                 if current:
                     current.set_attribute("agent.depth", depth)
-                    current.set_attribute(
-                        "agent.model", getattr(result, "model", "unknown")
-                    )
+                    current.set_attribute("agent.model", getattr(result, "model", "unknown"))
                     current.set_attribute("agent.tool_calls_count", tool_calls_count)
                     current.set_attribute("agent.sources_count", sources_count)
-                    current.set_attribute(
-                        "agent.uncertainties_count", uncertainties_count
-                    )
+                    current.set_attribute("agent.uncertainties_count", uncertainties_count)
                     current.set_attribute(
                         "agent.duration_seconds",
                         getattr(result, "duration_seconds", 0.0),

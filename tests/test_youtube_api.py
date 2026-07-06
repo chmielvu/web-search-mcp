@@ -19,6 +19,7 @@ from kindly_web_search_mcp_server.youtube.search import search_youtube
 # Quota tracker tests
 # ---------------------------------------------------------------------------
 
+
 class TestYouTubeApiQuotaTracker:
     """Test daily quota tracking with rollover."""
 
@@ -75,6 +76,7 @@ class TestYouTubeApiQuotaTracker:
 # YouTube API search tests
 # ---------------------------------------------------------------------------
 
+
 class TestYouTubeApiSearch(unittest.IsolatedAsyncioTestCase):
     """Test YouTube Data API v3 search."""
 
@@ -87,9 +89,7 @@ class TestYouTubeApiSearch(unittest.IsolatedAsyncioTestCase):
         """Missing GOOGLE_API_KEY raises YouTubeApiError."""
         with patch.dict("os.environ", {"GOOGLE_API_KEY": ""}, clear=False):
             # Force settings reload
-            with patch(
-                "kindly_web_search_mcp_server.youtube.api_search.settings"
-            ) as mock_settings:
+            with patch("kindly_web_search_mcp_server.youtube.api_search.settings") as mock_settings:
                 mock_settings.youtube_api_key = ""
                 with pytest.raises(YouTubeApiError, match="not configured"):
                     await search_youtube_api("test query", num_results=5)
@@ -126,17 +126,13 @@ class TestYouTubeApiSearch(unittest.IsolatedAsyncioTestCase):
         mock_client = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_search.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_search.settings") as mock_settings:
             mock_settings.youtube_api_key = "test-key"
             mock_settings.youtube_api_timeout_seconds = 15.0
             mock_settings.youtube_api_language = ""
             mock_settings.youtube_api_region = ""
 
-            results = await search_youtube_api(
-                "test query", num_results=5, http_client=mock_client
-            )
+            results = await search_youtube_api("test query", num_results=5, http_client=mock_client)
 
         assert len(results) == 2
         assert results[0].title == "Test Video"
@@ -148,27 +144,19 @@ class TestYouTubeApiSearch(unittest.IsolatedAsyncioTestCase):
         mock_response = MagicMock()
         mock_response.status_code = 403
         mock_response.headers = {"content-type": "application/json"}
-        mock_response.json.return_value = {
-            "error": {
-                "errors": [{"reason": "quotaExceeded"}]
-            }
-        }
+        mock_response.json.return_value = {"error": {"errors": [{"reason": "quotaExceeded"}]}}
 
         mock_client = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_search.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_search.settings") as mock_settings:
             mock_settings.youtube_api_key = "test-key"
             mock_settings.youtube_api_timeout_seconds = 15.0
             mock_settings.youtube_api_language = ""
             mock_settings.youtube_api_region = ""
 
             with pytest.raises(YouTubeApiError, match="403"):
-                await search_youtube_api(
-                    "test query", num_results=5, http_client=mock_client
-                )
+                await search_youtube_api("test query", num_results=5, http_client=mock_client)
 
 
 class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
@@ -180,13 +168,14 @@ class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
             MagicMock(title="Video 1", link="https://youtube.com/watch?v=abc"),
         ]
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.search.settings"
-        ) as mock_settings, patch(
-            "kindly_web_search_mcp_server.youtube.api_search.search_youtube_api",
-            new_callable=AsyncMock,
-            return_value=mock_results,
-        ) as mock_api:
+        with (
+            patch("kindly_web_search_mcp_server.youtube.search.settings") as mock_settings,
+            patch(
+                "kindly_web_search_mcp_server.youtube.api_search.search_youtube_api",
+                new_callable=AsyncMock,
+                return_value=mock_results,
+            ) as mock_api,
+        ):
             mock_settings.youtube_api_key = "test-key"
 
             results, backend = await search_youtube("test query", num_results=5)
@@ -199,13 +188,14 @@ class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
             MagicMock(title="Video 1", link="https://youtube.com/watch?v=abc"),
         ]
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.search.settings"
-        ) as mock_settings, patch(
-            "kindly_web_search_mcp_server.youtube.search.search_youtube_videos",
-            new_callable=AsyncMock,
-            return_value=mock_results,
-        ) as mock_searxng:
+        with (
+            patch("kindly_web_search_mcp_server.youtube.search.settings") as mock_settings,
+            patch(
+                "kindly_web_search_mcp_server.youtube.search.search_youtube_videos",
+                new_callable=AsyncMock,
+                return_value=mock_results,
+            ) as mock_searxng,
+        ):
             mock_settings.youtube_api_key = ""
 
             results, backend = await search_youtube("test query", num_results=5)
@@ -218,20 +208,21 @@ class TestYouTubeSearchRouter(unittest.IsolatedAsyncioTestCase):
             MagicMock(title="Fallback Video", link="https://youtube.com/watch?v=xyz"),
         ]
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.search.settings"
-        ) as mock_settings, patch(
-            "kindly_web_search_mcp_server.youtube.api_search.search_youtube_api",
-            new_callable=AsyncMock,
-            side_effect=YouTubeApiError("quota exhausted"),
-        ), patch(
-            "kindly_web_search_mcp_server.youtube.search.search_youtube_videos",
-            new_callable=AsyncMock,
-            return_value=mock_results,
-        ) as mock_searxng:
+        with (
+            patch("kindly_web_search_mcp_server.youtube.search.settings") as mock_settings,
+            patch(
+                "kindly_web_search_mcp_server.youtube.api_search.search_youtube_api",
+                new_callable=AsyncMock,
+                side_effect=YouTubeApiError("quota exhausted"),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.youtube.search.search_youtube_videos",
+                new_callable=AsyncMock,
+                return_value=mock_results,
+            ) as mock_searxng,
+        ):
             mock_settings.youtube_api_key = "test-key"
 
             results, backend = await search_youtube("test query", num_results=5)
             assert backend == "searxng"
             mock_searxng.assert_called_once()
-

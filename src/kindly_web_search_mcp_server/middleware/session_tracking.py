@@ -82,7 +82,7 @@ class SessionTracker:
             state = SessionState()
             self._sessions[session_id] = state
 
-        state.last_activity = time.time()
+        assert state is not None  # guaranteed by the branch above
         current = state.counters.get(key, 0) + 1
         state.counters[key] = current
         emit_observability_event(
@@ -93,5 +93,6 @@ class SessionTracker:
             tool_count=current,
             session_timeout_seconds=self.timeout_seconds,
         )
+        state.last_activity = time.time()
         self.cleanup_expired_sessions()
         return current

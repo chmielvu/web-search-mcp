@@ -28,9 +28,7 @@ from .artifact import ContentArtifact, ContentError
 from .crawl4ai_client import Crawl4AIClientError, get_crawl4ai_client
 from .fallback import fallback_fetch_content
 from .html_tools import (
-    extract_html_links,
     extract_html_metadata,
-    strip_html_selectors,
 )
 from .options import FetchOptions
 from .stackexchange import (
@@ -58,9 +56,7 @@ from .github_issues import (
 
 LOGGER = logging.getLogger(__name__)
 
-_content_tracer = trace.get_tracer(
-    "kindly_web_search_mcp_server.content.fetch_pipeline"
-)
+_content_tracer = trace.get_tracer("kindly_web_search_mcp_server.content.fetch_pipeline")
 
 
 # ------------------------------------------------------------------
@@ -68,9 +64,7 @@ _content_tracer = trace.get_tracer(
 # ------------------------------------------------------------------
 
 
-def _to_content_error(
-    exc: Exception, code: str, provider: str | None = None
-) -> ContentError:
+def _to_content_error(exc: Exception, code: str, provider: str | None = None) -> ContentError:
     """Convert any exception to a ContentError with proper error_type and retryable flag."""
     structured = classify_error(exc, provider=provider)
     retryable = structured.error_type in ("rate_limit", "network")
@@ -114,9 +108,7 @@ async def _maybe_specialized(
             markdown="",
             word_count=0,
             quality_score=0.0,
-            error=_to_content_error(
-                exc, code=f"{source_type}_fetch_failed", provider=source_type
-            ),
+            error=_to_content_error(exc, code=f"{source_type}_fetch_failed", provider=source_type),
         )
 
     cls = classify_markdown(markdown)
@@ -141,9 +133,7 @@ async def _maybe_specialized(
         quality_score=1.0 if cls.status == "success" else 0.4,
         error=None
         if cls.status == "success"
-        else ContentError(
-            code=cls.reason or "partial", message=cls.reason or "partial"
-        ),
+        else ContentError(code=cls.reason or "partial", message=cls.reason or "partial"),
     )
 
 
@@ -162,33 +152,35 @@ def _merge_crawl4ai_links(
 
     from urllib.parse import urlparse
 
-    base_domain = urlparse(base_url).netloc.lower()
-
-    for internal in (links_data.get("internal") or []):
+    for internal in links_data.get("internal") or []:
         href = (internal.get("href") or "").strip()
         if not href or href in seen:
             continue
         seen.add(href)
         parsed = urlparse(href)
-        result.append({
-            "url": href,
-            "text": internal.get("text") or href,
-            "domain": parsed.netloc.lower(),
-            "internal": True,
-        })
+        result.append(
+            {
+                "url": href,
+                "text": internal.get("text") or href,
+                "domain": parsed.netloc.lower(),
+                "internal": True,
+            }
+        )
 
-    for external in (links_data.get("external") or []):
+    for external in links_data.get("external") or []:
         href = (external.get("href") or "").strip()
         if not href or href in seen:
             continue
         seen.add(href)
         parsed = urlparse(href)
-        result.append({
-            "url": href,
-            "text": external.get("text") or href,
-            "domain": parsed.netloc.lower(),
-            "internal": False,
-        })
+        result.append(
+            {
+                "url": href,
+                "text": external.get("text") or href,
+                "domain": parsed.netloc.lower(),
+                "internal": False,
+            }
+        )
 
     return result
 
@@ -233,9 +225,7 @@ async def _fetch_via_crawl4ai(
     html = result.get("cleaned_html") or result.get("html") or ""
     metadata = None
     if options.include_metadata and html:
-        metadata = extract_html_metadata(
-            html, page_url=url, fetched_url=result.get("url", url)
-        )
+        metadata = extract_html_metadata(html, page_url=url, fetched_url=result.get("url", url))
 
     # Extract links from Crawl4AI response
     links = None
@@ -315,7 +305,7 @@ async def fetch_content_artifact(
 
         specialized = await _maybe_specialized(
             url,
-            parser=parse_stackexchange_url,
+            parser=parse_stackexchange_url,  # type: ignore[arg-type]
             fetcher=fetch_stackexchange_thread_markdown,
             source_type="stackexchange",
         )
@@ -324,7 +314,7 @@ async def fetch_content_artifact(
 
     specialized = await _maybe_specialized(
         url,
-        parser=parse_github_issue_url,
+        parser=parse_github_issue_url,  # type: ignore[arg-type]
         fetcher=fetch_github_issue_thread_markdown,
         source_type="github_issue",
     )
@@ -333,7 +323,7 @@ async def fetch_content_artifact(
 
     specialized = await _maybe_specialized(
         url,
-        parser=parse_github_discussion_url,
+        parser=parse_github_discussion_url,  # type: ignore[arg-type]
         fetcher=fetch_github_discussion_thread_markdown,
         source_type="github_discussion",
     )
@@ -342,7 +332,7 @@ async def fetch_content_artifact(
 
     specialized = await _maybe_specialized(
         url,
-        parser=parse_wikipedia_url,
+        parser=parse_wikipedia_url,  # type: ignore[arg-type]
         fetcher=fetch_wikipedia_article_markdown,
         source_type="wikipedia",
     )
@@ -370,9 +360,7 @@ async def fetch_content_artifact(
                 quality_score=1.0,
             )
         except Exception as exc:
-            record_content_error(
-                stage="arxiv", url=url, error_type="arxiv_fetch_failed"
-            )
+            record_content_error(stage="arxiv", url=url, error_type="arxiv_fetch_failed")
             return ContentArtifact(
                 input_url=url,
                 normalized_url=canonical,
@@ -384,9 +372,7 @@ async def fetch_content_artifact(
                 markdown="",
                 word_count=0,
                 quality_score=0.0,
-                error=_to_content_error(
-                    exc, code="arxiv_fetch_failed", provider="arxiv"
-                ),
+                error=_to_content_error(exc, code="arxiv_fetch_failed", provider="arxiv"),
             )
 
     # Telegram (t.me URLs)
@@ -417,13 +403,15 @@ async def fetch_content_artifact(
                 markdown=tg_md,
                 word_count=len(tg_md.split()),
                 quality_score=1.0 if cls.status == "success" else 0.4,
-                error=None if cls.status == "success" else ContentError(
-                    code="telegram_partial", message="partial content"
-                ),
+                error=None
+                if cls.status == "success"
+                else ContentError(code="telegram_partial", message="partial content"),
             )
         except Exception as exc:
             record_content_resolution(
-                stage="telegram", url=url, success=False,
+                stage="telegram",
+                url=url,
+                success=False,
                 extraction_method="telethon_mtproto",
             )
             return ContentArtifact(
@@ -451,9 +439,7 @@ async def fetch_content_artifact(
             return await _fetch_via_crawl4ai(url, options)
         except Crawl4AIClientError as exc:
             LOGGER.warning("Crawl4AI remote failed for %s: %s", url, exc)
-            record_content_error(
-                stage="crawl4ai_remote", url=url, error_type="crawl4ai_failed"
-            )
+            record_content_error(stage="crawl4ai_remote", url=url, error_type="crawl4ai_failed")
             # fall through to fallback
 
     # Stage 7: Fallback — Jina Reader → trafilatura

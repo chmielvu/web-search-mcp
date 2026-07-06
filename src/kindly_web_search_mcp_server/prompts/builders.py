@@ -48,8 +48,4 @@ def system_header(reasoning: str = REASONING_EFFORT_LOW) -> str:
     The ``Reasoning:`` directive is placed first so provider jinja templates
     can detect it reliably.
     """
-    return (
-        f"Reasoning: {reasoning}\n"
-        f"Knowledge cutoff: 2024-06\n"
-        f"Current date: {anchor_today()}"
-    )
+    return f"Reasoning: {reasoning}\nKnowledge cutoff: 2024-06\nCurrent date: {anchor_today()}"

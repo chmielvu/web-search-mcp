@@ -36,8 +36,8 @@ _genai_types: Any | None = None
 # 2.5 models serve as fallback for the known 3.1 grounding_chunks null bug.
 GEMINI_GROUNDING_TIER = [
     "gemini-3.1-flash-lite",  # PRIMARY — Gemini 3.x grounding + structured output
-    "gemini-2.5-flash",        # FAST FALLBACK — best 2.x grounding quality
-    "gemini-2.5-flash-lite",   # LAST-RESORT FALLBACK
+    "gemini-2.5-flash",  # FAST FALLBACK — best 2.x grounding quality
+    "gemini-2.5-flash-lite",  # LAST-RESORT FALLBACK
 ]
 
 
@@ -73,18 +73,14 @@ class GeminiGroundingResult(BaseModel):
 
     query: str = Field(description="Original search query")
     answer: str = Field(description="Generated answer text")
-    thoughts: str | None = Field(
-        default=None, description="Internal reasoning if available"
-    )
+    thoughts: str | None = Field(default=None, description="Internal reasoning if available")
     structured_result: dict[str, Any] | None = Field(
         default=None, description="Parsed structured output"
     )
     model_used: str = Field(description="Model ID used for generation")
     input_tokens: int | None = Field(default=None, description="Input token count")
     output_tokens: int | None = Field(default=None, description="Output token count")
-    structured_output: bool = Field(
-        description="Whether structured output was requested"
-    )
+    structured_output: bool = Field(description="Whether structured output was requested")
     web_search_queries: list[str] = Field(
         default_factory=list, description="Queries sent to Google Search"
     )
@@ -104,16 +100,15 @@ class GeminiGroundingResult(BaseModel):
     fallback_chain: list[str] = Field(
         default_factory=list, description="Models tried during fallback"
     )
-    fallback_reason: str | None = Field(
-        default=None, description="Reason for fallback if occurred"
-    )
+    fallback_reason: str | None = Field(default=None, description="Reason for fallback if occurred")
     error: str | None = Field(default=None, description="Error message if failed")
 
 
 def _get_genai_module() -> Any:
     global _genai_module
     if _genai_module is None:
-        from google import genai
+        from google import genai  # type: ignore[import-untyped]
+
         _genai_module = genai
     return _genai_module
 
@@ -122,6 +117,7 @@ def _get_genai_types() -> Any:
     global _genai_types
     if _genai_types is None:
         from google.genai import types
+
         _genai_types = types
     return _genai_types
 
@@ -184,9 +180,7 @@ def _is_gemini3_model(model_id: str) -> bool:
     return model_id.startswith("gemini-3")
 
 
-def _build_grounding_config(
-    *, structured_output: bool, model_id: str
-) -> dict[str, Any]:
+def _build_grounding_config(*, structured_output: bool, model_id: str) -> dict[str, Any]:
     """Build GenerateContentConfig dict for a grounding call.
 
     Unified config per Google Gemini 3 best practices:
@@ -206,9 +200,7 @@ def _build_grounding_config(
 
         if structured_output:
             config_dict["response_mime_type"] = "application/json"
-            config_dict["response_json_schema"] = (
-                GeminiResearchOutput.model_json_schema()
-            )
+            config_dict["response_json_schema"] = GeminiResearchOutput.model_json_schema()
 
     return config_dict
 
@@ -233,18 +225,22 @@ def _extract_url_citations(response: Any) -> list[dict[str, Any]]:
                 for ann in annotations:
                     ann_type = getattr(ann, "type", None)
                     if ann_type == "url_citation":
-                        citations.append({
-                            "url": getattr(ann, "url", ""),
-                            "title": getattr(ann, "title", ""),
-                            "start_index": getattr(ann, "start_index", None),
-                            "end_index": getattr(ann, "end_index", None),
-                        })
+                        citations.append(
+                            {
+                                "url": getattr(ann, "url", ""),
+                                "title": getattr(ann, "title", ""),
+                                "start_index": getattr(ann, "start_index", None),
+                                "end_index": getattr(ann, "end_index", None),
+                            }
+                        )
     except Exception:
         pass
     return citations
 
 
-def _extract_grounding_metadata(response: Any) -> tuple[
+def _extract_grounding_metadata(
+    response: Any,
+) -> tuple[
     list[str],
     list[dict[str, str]],
     list[dict[str, Any]],
@@ -282,10 +278,7 @@ def _extract_grounding_metadata(response: Any) -> tuple[
             }
             for support in metadata.grounding_supports or []
         ]
-        if (
-            metadata.search_entry_point
-            and metadata.search_entry_point.rendered_content
-        ):
+        if metadata.search_entry_point and metadata.search_entry_point.rendered_content:
             search_widget_html = metadata.search_entry_point.rendered_content
     except Exception:
         pass
@@ -326,9 +319,7 @@ def _process_grounding_response(
                 parsed = GeminiResearchOutput.model_validate_json(answer)
                 structured_result = parsed.model_dump()
         except Exception as exc:
-            logger.warning(
-                "Structured Gemini grounding output failed to parse: %s", exc
-            )
+            logger.warning("Structured Gemini grounding output failed to parse: %s", exc)
 
     url_citations = _extract_url_citations(response)
     web_search_queries, grounding_chunks, grounding_supports, search_widget_html = (
@@ -404,6 +395,7 @@ async def _call_single_grounding(
             "search.fallback_tier_count": len(GEMINI_GROUNDING_TIER),
         },
     ) as span:
+
         async def _try_model(
             model_id: str,
             client: Any,
@@ -418,8 +410,13 @@ async def _call_single_grounding(
                 config=config,
             )
             return _process_grounding_response(
-                response, model_id, query, structured_output,
-                fallback_chain, fallback_reason, span,
+                response,
+                model_id,
+                query,
+                structured_output,
+                fallback_chain,
+                fallback_reason,
+                span,
             )
 
         for model_id in GEMINI_GROUNDING_TIER:
@@ -471,15 +468,17 @@ async def _call_single_grounding(
 
                 logger.warning(
                     "Gemini grounding attempt failed for %s: %s (type=%s, fallback=%s, retry=%s)",
-                    model_id, exc, error_type, should_fallback, should_retry,
+                    model_id,
+                    exc,
+                    error_type,
+                    should_fallback,
+                    should_retry,
                 )
 
                 fallback_reason = f"{error_type}: {str(exc)}"
 
                 if should_retry:
-                    logger.info(
-                        "Rate limit hit for %s, retrying once with 1s backoff", model_id
-                    )
+                    logger.info("Rate limit hit for %s, retrying once with 1s backoff", model_id)
                     await asyncio.sleep(1)
                     try:
                         return await _try_model(model_id, client, config, use_query)
@@ -556,7 +555,7 @@ async def gemini_search_with_grounding_dual(
             "search.query": query[:500],
             "search.structured_output": structured_output,
             "search.research_goal": goal[:500],
-                "search.dual_mode": True,
+            "search.dual_mode": True,
             "llm.model_name": GEMINI_GROUNDING_TIER[0],
         },
     ) as span:
@@ -576,8 +575,7 @@ async def gemini_search_with_grounding_dual(
         )
 
         both_succeeded = bool(
-            result_ov.answer and result_dd.answer
-            and not result_ov.error and not result_dd.error
+            result_ov.answer and result_dd.answer and not result_ov.error and not result_dd.error
         )
 
         span.set_attribute("search.overview_succeeded", bool(result_ov.answer))

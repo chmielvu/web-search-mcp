@@ -71,24 +71,12 @@ def _entry(
 
 
 TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
-    "quick_web_search": _entry(
-        "quick_web_search", "Quick Web Search", {"regular", "full"}
-    ),
-    "web_search": _entry(
-        "web_search", "Web Search", {"regular", "full"}
-    ),
-    "get_content": _entry(
-        "get_content", "Get Content", {"regular", "full"}
-    ),
-    "batch_get_content": _entry(
-        "batch_get_content", "Batch Get Content", {"regular", "full"}
-    ),
-    "discover_links": _entry(
-        "discover_links", "Discover Links", {"regular", "full"}
-    ),
-    "gemini_search": _entry(
-        "gemini_search", "Gemini Search", {"regular", "full"}
-    ),
+    "quick_web_search": _entry("quick_web_search", "Quick Web Search", {"regular", "full"}),
+    "web_search": _entry("web_search", "Web Search", {"regular", "full"}),
+    "get_content": _entry("get_content", "Get Content", {"regular", "full"}),
+    "batch_get_content": _entry("batch_get_content", "Batch Get Content", {"regular", "full"}),
+    "discover_links": _entry("discover_links", "Discover Links", {"regular", "full"}),
+    "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
     "grok_search": _entry(
         "grok_search",
         "Grok Search",
@@ -96,12 +84,8 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         expensive=True,
         idempotent=False,
     ),
-    "academic_search": _entry(
-        "academic_search", "Academic Search", {"full"}
-    ),
-    "composio_similarlinks": _entry(
-        "composio_similarlinks", "Composio Similarlinks", {"full"}
-    ),
+    "academic_search": _entry("academic_search", "Academic Search", {"full"}),
+    "composio_similarlinks": _entry("composio_similarlinks", "Composio Similarlinks", {"full"}),
     "agentic_web_research": _entry(
         "agentic_web_research",
         "Agentic Web Research",
@@ -109,12 +93,8 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         experimental=True,
         idempotent=False,
     ),
-    "youtube_search": _entry(
-        "youtube_search", "YouTube Search", {"regular", "full"}
-    ),
-    "youtube_transcript": _entry(
-        "youtube_transcript", "YouTube Transcript", {"regular", "full"}
-    ),
+    "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
+    "youtube_transcript": _entry("youtube_transcript", "YouTube Transcript", {"regular", "full"}),
     "generate_semantic_sitemap": _entry(
         "generate_semantic_sitemap",
         "Generate Semantic Sitemap",

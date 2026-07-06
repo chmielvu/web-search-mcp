@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
-from ..analytics.duckdb_store import insert_rerank_candidates as analytics_insert_rerank_candidates
+from ..analytics.rerank_candidate_writes import insert_rerank_candidate_rows_batch
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..models import WebSearchResult
 from ..utils.observability import emit_observability_event, serialize_search_results
@@ -99,6 +99,28 @@ def record_rerank_candidate_rows(
     if not run_key:
         return
     try:
+        rows = build_rerank_candidate_rows(
+            run_key=run_key,
+            stage=stage,
+            before_candidates=before_candidates,
+            after_candidates=after_candidates,
+            payload_json=payload_json,
+        )
+        insert_rerank_candidate_rows_batch(rows)
+    except Exception as exc:
+        logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+
+
+def build_rerank_candidate_rows(
+    *,
+    run_key: str,
+    stage: str,
+    before_candidates: list[WebSearchResult],
+    after_candidates: list[WebSearchResult],
+    payload_json: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
         before_by_link = {
             candidate.link: (index + 1, candidate)
             for index, candidate in enumerate(before_candidates)
@@ -117,28 +139,35 @@ def record_rerank_candidate_rows(
             candidate = after_candidate or before_candidate
             if candidate is None:
                 continue
-            analytics_insert_rerank_candidates(
-                run_key=run_key,
-                stage=stage,
-                link=link,
-                rank_before=before_rank,
-                rank_after=after_rank,
-                score_before=getattr(before_candidate, "score", None),
-                score_after=getattr(after_candidate, "score", None),
-                score_after_relevance=getattr(after_candidate, "score", None),
-                score_after_recency=None,
-                score_after_entity=None,
-                recency_boost=None,
-                entity_overlap_score=None,
-                diversity_removed=after_candidate is None,
-                payload_json={
-                    **(payload_json or {}),
-                    "candidate_id": _candidate_id(link, candidate.title, candidate.snippet),
-                    "canonical_result_id": _canonical_result_id(link),
+            rows.append(
+                {
+                    "run_key": run_key,
+                    "stage": stage,
+                    "link": link,
+                    "rank_before": before_rank,
+                    "rank_after": after_rank,
+                    "score_before": getattr(before_candidate, "score", None),
+                    "score_after": getattr(after_candidate, "score", None),
+                    "score_after_relevance": getattr(after_candidate, "score", None),
+                    "score_after_recency": None,
+                    "score_after_entity": None,
+                    "recency_boost": None,
+                    "entity_overlap_score": None,
+                    "diversity_removed": after_candidate is None,
+                    "payload_json": {
+                        **(payload_json or {}),
+                        "candidate_id": _candidate_id(
+                            link,
+                            candidate.title,
+                            candidate.snippet,
+                        ),
+                        "canonical_result_id": _canonical_result_id(link),
+                    },
                 },
             )
     except Exception as exc:
-        logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+        raise ValueError("failed to build rerank candidate rows") from exc
+    return rows
 
 
 async def record_rerank_candidate_rows_async(
@@ -150,19 +179,17 @@ async def record_rerank_candidate_rows_async(
     after_candidates: list[WebSearchResult],
     payload_json: dict[str, Any] | None = None,
 ) -> None:
-    """Async wrapper that runs record_rerank_candidate_rows in a thread.
-
-    DuckDB has no native async support — the sync inserts block the event loop.
-    This wrapper offloads to a thread so the pipeline can continue while writes happen.
-    """
+    """Persist one stage's candidate analytics with a single batched thread write."""
     if not run_key:
         return
-    await asyncio.to_thread(
-        record_rerank_candidate_rows,
-        logger,
-        run_key=run_key,
-        stage=stage,
-        before_candidates=before_candidates,
-        after_candidates=after_candidates,
-        payload_json=payload_json,
-    )
+    try:
+        rows = build_rerank_candidate_rows(
+            run_key=run_key,
+            stage=stage,
+            before_candidates=before_candidates,
+            after_candidates=after_candidates,
+            payload_json=payload_json,
+        )
+        await asyncio.to_thread(insert_rerank_candidate_rows_batch, rows)
+    except Exception as exc:
+        logger.debug("analytics insert_rerank_candidates failed: %s", exc)

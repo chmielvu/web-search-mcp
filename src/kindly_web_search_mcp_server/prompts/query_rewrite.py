@@ -35,7 +35,7 @@ def build_query_rewrite_prompt(
 Rewrite search queries. {intent_directives}
 Today is {anchor_today()}.
 Return JSON only with a top-level `variants` array.
-Produce exactly {max_variants} variant{'s' if max_variants != 1 else ''}.
+Produce exactly {max_variants} variant{"s" if max_variants != 1 else ""}.
 Each variant has: kind, target, query, why, weight.
 Target must be keyword, community, or neural.
 Preserve every must-keep term exactly.

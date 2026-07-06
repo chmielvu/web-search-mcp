@@ -18,6 +18,11 @@ class TestRerankSettings(unittest.TestCase):
             reloaded = importlib.reload(settings_module)
 
         self.assertEqual(reloaded.settings.rerank_stack_mode, "bi_cross_llm")
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_min_candidates, 0)
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_timeout_seconds, 15.0)
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_text_max_chars, 384)
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_batch_size, 64)
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_max_concurrent_batches, 3)
         self.assertEqual(reloaded.settings.rerank_llm_candidate_limit, 20)
         self.assertEqual(reloaded.settings.rerank_llm_timeout_seconds, 20.0)
 
@@ -32,6 +37,9 @@ class TestRerankSettings(unittest.TestCase):
     def test_invalid_rerank_stack_mode_fails_fast(self) -> None:
         import kindly_web_search_mcp_server.settings as settings_module
 
-        with patch.dict(os.environ, {"RERANK_STACK_MODE": "invalid-mode"}, clear=False):
+        with (
+            patch("dotenv.load_dotenv", return_value=False),
+            patch.dict(os.environ, {"RERANK_STACK_MODE": "invalid-mode"}, clear=True),
+        ):
             with self.assertRaises(ValueError):
                 importlib.reload(settings_module)

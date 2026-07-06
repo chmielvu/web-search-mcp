@@ -132,8 +132,7 @@ async def crawl_and_extract_pages(
     client = get_crawl4ai_client()
     if client is None:
         raise RuntimeError(
-            "CRAWL4AI_BASE_URL not configured. "
-            "The sitemap tool requires a remote Crawl4AI server."
+            "CRAWL4AI_BASE_URL not configured. The sitemap tool requires a remote Crawl4AI server."
         )
 
     # Phase 1: Deep crawl via Crawl4AI
@@ -166,9 +165,7 @@ async def crawl_and_extract_pages(
         else:
             md = ""
 
-        sections = _extract_sections_from_markdown(
-            md, preview_chars=config.heading_preview_chars
-        )
+        sections = _extract_sections_from_markdown(md, preview_chars=config.heading_preview_chars)
         title = _extract_title_from_markdown(md)
         stats["total_sections"] += len(sections)
 

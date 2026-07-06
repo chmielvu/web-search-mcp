@@ -15,7 +15,9 @@ from ...prompts.registry import build_prompt
 from ...training.session_state import get_session_state_store
 from ...training.query_understanding_jsonl import append_query_understanding_record
 from ...utils.observability import emit_observability_event
-from ...analytics.duckdb_store import insert_query_understanding as analytics_insert_query_understanding
+from ...analytics.duckdb_store import (
+    insert_query_understanding as analytics_insert_query_understanding,
+)
 from ...ab_testing.wiring import get_ab_overrides
 from ...ab_testing.shadow_runner import run_shadow
 from ..intents import SearchIntent, normalize_intent
@@ -118,9 +120,7 @@ async def resolve_query_understanding(
                     session_id=session_id,
                 )
                 if session_id:
-                    get_session_state_store().get(session_id).last_intent = (
-                        understanding.intent
-                    )
+                    get_session_state_store().get(session_id).last_intent = understanding.intent
             except Exception as exc:
                 logger.warning("query understanding JSONL write failed: %s", exc)
 
@@ -166,7 +166,9 @@ async def resolve_query_understanding(
     # ------------------------------------------------------------------
     # A/B experiment override: check if this run_key is enrolled
     # ------------------------------------------------------------------
-    ab_overrides = get_ab_overrides(run_key=run_key, layer="query_understanding") if run_key else None
+    ab_overrides = (
+        get_ab_overrides(run_key=run_key, layer="query_understanding") if run_key else None
+    )
     timeout_seconds = settings.query_classifier_timeout_seconds
     use_ab_router = False
     if ab_overrides:
@@ -200,8 +202,8 @@ async def resolve_query_understanding(
     try:
         if use_ab_router:
             # A/B variant: use a custom router with overridden model/timeout
-            router = _build_ab_router(ab_overrides)
-            generation = await router.complete_json(
+            router = _build_ab_router(ab_overrides)  # type: ignore[arg-type]
+            generation = await router.complete_json(  # type: ignore[attr-defined]
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -269,10 +271,12 @@ async def resolve_query_understanding(
     if shadow_mode and ab_overrides and run_key and not fallback_used:
         shadow_cfg = ab_overrides["config"]
         shadow_router = _build_ab_router(ab_overrides)
-        shadow_timeout = float(shadow_cfg.get("timeout_seconds", settings.query_classifier_timeout_seconds))
+        shadow_timeout = float(
+            shadow_cfg.get("timeout_seconds", settings.query_classifier_timeout_seconds)
+        )
 
         async def _shadow_fn() -> QueryUnderstandingResult:
-            shadow_gen = await shadow_router.complete_json(
+            shadow_gen = await shadow_router.complete_json(  # type: ignore[attr-defined]
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

@@ -16,6 +16,12 @@ class LLMEndpoint:
     base_url: str
     api_key: str
     timeout_seconds: float
+    route_model: str | None = None
+
+    @property
+    def litellm_model(self) -> str:
+        """Provider-qualified model string sent to LiteLLM."""
+        return self.route_model or self.model
 
 
 @dataclass(frozen=True, slots=True)

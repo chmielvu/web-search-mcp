@@ -81,10 +81,8 @@ def _sync_append_only(
     target_table: str,
     key_columns: list[str],
 ) -> int:
-    before = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]
-    predicate = " AND ".join(
-        f"remote.{column} = local.{column}" for column in key_columns
-    )
+    before = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]  # type: ignore[index]
+    predicate = " AND ".join(f"remote.{column} = local.{column}" for column in key_columns)
     connection.execute(
         f"""
         INSERT INTO {target_table} BY NAME
@@ -97,7 +95,7 @@ def _sync_append_only(
         )
         """
     )
-    after = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]
+    after = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]  # type: ignore[index]
     return int(after - before)
 
 
@@ -181,7 +179,7 @@ def sync_once(
     remote_target = _quote_ident(schema)
     limit_sql = f"LIMIT {int(limit)}" if limit and limit > 0 else ""
 
-    connection = duckdb.connect(str(source), config=_duckdb_config())
+    connection = duckdb.connect(str(source), config=_duckdb_config())  # type: ignore[arg-type]
     try:
         _load_motherduck(connection)
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")
@@ -192,15 +190,11 @@ def sync_once(
         for statement in build_eval_table_sql(target):
             connection.execute(statement)
 
-        source_rows = connection.execute(
-            "SELECT count(*) FROM search_events"
-        ).fetchone()[0]
-        last_event_id = connection.execute(
-            "SELECT max(event_id) FROM search_events"
-        ).fetchone()[0]
+        source_rows = connection.execute("SELECT count(*) FROM search_events").fetchone()[0]  # type: ignore[index]
+        last_event_id = connection.execute("SELECT max(event_id) FROM search_events").fetchone()[0]  # type: ignore[index]
         before = connection.execute(
             f"SELECT count(*) FROM {target}.analytics_event_raw"
-        ).fetchone()[0]
+        ).fetchone()[0]  # type: ignore[index]
         connection.execute(
             f"""
             INSERT INTO {target}.analytics_event_raw BY NAME
@@ -215,9 +209,9 @@ def sync_once(
             {limit_sql}
             """
         )
-        after = connection.execute(
-            f"SELECT count(*) FROM {target}.analytics_event_raw"
-        ).fetchone()[0]
+        after = connection.execute(f"SELECT count(*) FROM {target}.analytics_event_raw").fetchone()[  # type: ignore[index]
+            0
+        ]
 
         for source_table, key_columns in (
             ("eval_runs", ["eval_run_id"]),
@@ -243,7 +237,9 @@ def sync_once(
             ensure_ascii=True,
             sort_keys=True,
         )
-        connection.execute(f"DELETE FROM {target}.analytics_sync_state WHERE target_name = ?", [schema])
+        connection.execute(
+            f"DELETE FROM {target}.analytics_sync_state WHERE target_name = ?", [schema]
+        )
         connection.execute(
             f"""
             INSERT INTO {target}.analytics_sync_state
@@ -254,7 +250,7 @@ def sync_once(
     finally:
         connection.close()
 
-    remote = duckdb.connect(f"md:{database}", config=_duckdb_config())
+    remote = duckdb.connect(f"md:{database}", config=_duckdb_config())  # type: ignore[arg-type]
     try:
         remote.execute(f"CREATE SCHEMA IF NOT EXISTS {remote_target}")
         for statement in [

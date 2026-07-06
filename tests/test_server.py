@@ -104,17 +104,13 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.analytics.reports.run_report",
             return_value=report_table,
         ) as run_report_mock:
-            candidate_result = asyncio.run(
-                mcp.read_resource("analytics://candidate-survival")
-            )
+            candidate_result = asyncio.run(mcp.read_resource("analytics://candidate-survival"))
             cache_result = asyncio.run(mcp.read_resource("analytics://cache-hit-rates"))
             template_result = asyncio.run(
                 mcp.read_resource("analytics://reports/provider-performance?days=14")
             )
 
-        self.assertEqual(
-            run_report_mock.call_args_list[0].args, ("candidate-survival",)
-        )
+        self.assertEqual(run_report_mock.call_args_list[0].args, ("candidate-survival",))
         self.assertEqual(run_report_mock.call_args_list[0].kwargs, {"days": 7})
         self.assertEqual(run_report_mock.call_args_list[1].args, ("cache-hit-rates",))
         self.assertEqual(run_report_mock.call_args_list[1].kwargs, {"days": 7})
@@ -133,9 +129,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         from kindly_web_search_mcp_server.server import mcp
 
         templates = asyncio.run(mcp.list_resource_templates())
-        uri_templates = {
-            str(getattr(template, "uri_template", "")) for template in templates
-        }
+        uri_templates = {str(getattr(template, "uri_template", "")) for template in templates}
 
         self.assertIn("analytics://reports/{report_name}{?days}", uri_templates)
 
@@ -325,26 +319,20 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
     async def test_web_search_returns_results(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
 
-        mocked_results = [
-            WebSearchResult(title="T", link="https://example.com", snippet="S")
-        ]
+        mocked_results = [WebSearchResult(title="T", link="https://example.com", snippet="S")]
 
         # Create mock context with .info() method
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.server.run_web_search", new_callable=AsyncMock
+            "kindly_web_search_mcp_server.tools.search.run_web_search", new_callable=AsyncMock
         ) as mock_search:
-            mock_search.return_value = WebSearchResponse(
-                query="hello", results=mocked_results
-            )
+            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
 
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn(
-                "hello", "Find information about hello", ctx=mock_ctx
-            )
+            out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
 
         self.assertIsInstance(out, dict)
         self.assertEqual(out["query"], "hello")
@@ -359,21 +347,17 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         from kindly_web_search_mcp_server.server import web_search
         from kindly_web_search_mcp_server.search.options import SearchOptions
 
-        mocked_results = [
-            WebSearchResult(title="T", link="https://example.com", snippet="S")
-        ]
+        mocked_results = [WebSearchResult(title="T", link="https://example.com", snippet="S")]
 
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.run_web_search",
+                "kindly_web_search_mcp_server.tools.search.run_web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
-            patch(
-                "kindly_web_search_mcp_server.server.get_query_cache"
-            ) as mock_get_query_cache,
+            patch("kindly_web_search_mcp_server.tools.search.get_query_cache") as mock_get_query_cache,
         ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
@@ -430,12 +414,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.server.get_page_cache"
-            ) as mock_get_page_cache,
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -473,12 +455,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.server.get_page_cache"
-            ) as mock_get_page_cache,
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -530,12 +510,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.server.get_page_cache"
-            ) as mock_get_page_cache,
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -569,14 +547,12 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.fetch_content_artifact",
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
             patch(
-                "kindly_web_search_mcp_server.server.get_page_cache"
-            ) as mock_get_page_cache,
-            patch(
-                "kindly_web_search_mcp_server.server._resolve_tool_total_timeout_seconds",
+                "kindly_web_search_mcp_server.tools.content._resolve_tool_total_timeout_seconds",
                 return_value=0.01,
             ),
         ):
@@ -620,20 +596,16 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.server.run_web_search",
+                "kindly_web_search_mcp_server.tools.search.run_web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
-            patch(
-                "kindly_web_search_mcp_server.server.get_query_cache"
-            ) as mock_get_query_cache,
+            patch("kindly_web_search_mcp_server.tools.search.get_query_cache") as mock_get_query_cache,
         ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
             mock_query_cache.store = MagicMock()
             mock_get_query_cache.return_value = mock_query_cache
-            mock_search.return_value = WebSearchResponse(
-                query="hello", results=mocked_results
-            )
+            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
@@ -657,7 +629,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.server.discover_page_links",
+            "kindly_web_search_mcp_server.tools.content.discover_page_links",
             new_callable=AsyncMock,
         ) as mock_discover:
             mock_discover.return_value = {
@@ -678,9 +650,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "metadata": {"title": "Example"},
             }
 
-            tool_fn = (
-                discover_links.fn if hasattr(discover_links, "fn") else discover_links
-            )
+            tool_fn = discover_links.fn if hasattr(discover_links, "fn") else discover_links
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
         self.assertEqual(out["source_type"], "html")

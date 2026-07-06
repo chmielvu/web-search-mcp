@@ -6,6 +6,7 @@ This directory implements the DuckDB-backed analytics and evaluation layer.
 
 analytics/
 |-- duckdb_store.py          # Storage schema and insert helpers
+|-- rerank_candidate_writes.py # Batched rerank candidate survival inserts
 |-- observability_schema.py  # Canonical observability schema definitions
 |-- observability_tables.py  # Table builders for analytics storage
 |-- observability_rows.py    # Row-shaping helpers for inserts
@@ -37,7 +38,9 @@ All analytics rows join on `run_key`.
 1. `search_runs` and query-understanding rows capture the request side
 2. `provider_calls` and `provider_candidates` capture provider fanout
 3. `merged_candidates` captures RRF output
-4. `rerank_stages` and `rerank_candidates` capture reranking
+4. `rerank_stages` and `rerank_candidates` capture reranking; candidate
+   survival rows are batched per stage so analytics does not add per-row
+   DuckDB connection overhead to the rerank hot path
 5. `final_results` captures the public output
 6. `search_quality_scores` stores computed quality metrics
 7. `judge_evaluations` stores asynchronous judge results

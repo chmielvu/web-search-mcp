@@ -55,9 +55,7 @@ def load_experiments(
             )
             errors = exp.validate()
             if errors:
-                logger.warning(
-                    "Invalid experiment %s: %s", exp.experiment_id, errors
-                )
+                logger.warning("Invalid experiment %s: %s", exp.experiment_id, errors)
                 continue
             experiments.append(exp)
         except (KeyError, TypeError) as exc:

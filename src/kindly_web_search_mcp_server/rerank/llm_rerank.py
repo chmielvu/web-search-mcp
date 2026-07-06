@@ -83,7 +83,9 @@ def _parse_ranked_ids(output: str, candidate_count: int) -> list[int]:
 
     # Extract all [N] patterns from the output — handles both wrapped and raw formats
     template = load_rerank_prompt_template()
-    extracted_ids_raw = [int(match) for match in re.findall(template.output_extraction_regex, stripped)]
+    extracted_ids_raw = [
+        int(match) for match in re.findall(template.output_extraction_regex, stripped)
+    ]
     if not extracted_ids_raw:
         raise ValueError(f"LLM rerank returned no ranked candidate ids. Output: {output!r}")
 

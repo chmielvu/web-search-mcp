@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 def _run_async(awaitable):
     import asyncio
+
     return asyncio.run(awaitable)
 
 
@@ -25,7 +26,12 @@ GOOGLE_ORGANIC_RESPONSE = {
 
 GOOGLE_NEWS_RESPONSE = {
     "news": [
-        {"title": "Breaking News", "link": "https://news.example.com", "description": "Something happened", "date": "2 hours ago"},
+        {
+            "title": "Breaking News",
+            "link": "https://news.example.com",
+            "description": "Something happened",
+            "date": "2 hours ago",
+        },
     ]
 }
 
@@ -98,7 +104,7 @@ class TestBrightDataPayload(unittest.TestCase):
     def test_resolve_payload_ignores_bad_json(self, mock_settings):
         from kindly_web_search_mcp_server.search.brightdata import _resolve_payload_base
 
-        mock_settings.brightdata_payload_extra = 'not json'
+        mock_settings.brightdata_payload_extra = "not json"
         payload = _resolve_payload_base()
         self.assertNotIn("method", payload)
         self.assertIn("format", payload)
@@ -114,10 +120,12 @@ class TestBrightDataErrorDetection(unittest.TestCase):
     def test_detect_upstream_error_detects_407(self):
         from kindly_web_search_mcp_server.search.brightdata import _detect_upstream_error
 
-        error = _detect_upstream_error({
-            "status_code": 407,
-            "headers": {"x-brd-err-msg": "Invalid authentication"},
-        })
+        error = _detect_upstream_error(
+            {
+                "status_code": 407,
+                "headers": {"x-brd-err-msg": "Invalid authentication"},
+            }
+        )
         self.assertIsNotNone(error)
         self.assertIn("407", error)
         self.assertIn("Invalid authentication", error)
@@ -125,11 +133,13 @@ class TestBrightDataErrorDetection(unittest.TestCase):
     def test_detect_upstream_error_with_body(self):
         from kindly_web_search_mcp_server.search.brightdata import _detect_upstream_error
 
-        error = _detect_upstream_error({
-            "status_code": 502,
-            "headers": {},
-            "body": "Bad Gateway: upstream server error",
-        })
+        error = _detect_upstream_error(
+            {
+                "status_code": 502,
+                "headers": {},
+                "body": "Bad Gateway: upstream server error",
+            }
+        )
         self.assertIsNotNone(error)
         self.assertIn("502", error)
         self.assertIn("Bad Gateway", error)
@@ -169,58 +179,89 @@ class TestBrightDataParseResponse(unittest.TestCase):
         from kindly_web_search_mcp_server.search.brightdata import _parse_response, BrightDataError
 
         with self.assertRaises(BrightDataError):
-            _parse_response({
-                "status_code": 407,
-                "headers": {"x-brd-err-msg": "auth error"},
-            }, "web", 5)
+            _parse_response(
+                {
+                    "status_code": 407,
+                    "headers": {"x-brd-err-msg": "auth error"},
+                },
+                "web",
+                5,
+            )
 
     def test_parse_skips_malformed_items(self):
         from kindly_web_search_mcp_server.search.brightdata import _parse_response
 
-        results = _parse_response({
-            "organic": [
-                {"title": "ok", "link": "https://a.com", "description": "yes"},
-                {"title": "", "link": "https://b.com", "description": "empty title"},
-                {"title": 123, "link": "https://c.com", "description": "not string"},
-                {"title": "no-link", "link": "", "description": "nope"},
-                {"title": None, "link": None, "description": None},
-            ]
-        }, "web", 10)
+        results = _parse_response(
+            {
+                "organic": [
+                    {"title": "ok", "link": "https://a.com", "description": "yes"},
+                    {"title": "", "link": "https://b.com", "description": "empty title"},
+                    {"title": 123, "link": "https://c.com", "description": "not string"},
+                    {"title": "no-link", "link": "", "description": "nope"},
+                    {"title": None, "link": None, "description": None},
+                ]
+            },
+            "web",
+            10,
+        )
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].title, "ok")
 
 
 class TestBrightDataSearchIntegration(unittest.TestCase):
     @patch("kindly_web_search_mcp_server.search.brightdata.run_provider")
-    @patch("kindly_web_search_mcp_server.search.brightdata._search_bing", new=AsyncMock(return_value=[]))
-    @patch("kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key", return_value="test-key")
-    @patch("kindly_web_search_mcp_server.search.brightdata._resolve_payload_base", return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"})
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._search_bing",
+        new=AsyncMock(return_value=[]),
+    )
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key",
+        return_value="test-key",
+    )
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._resolve_payload_base",
+        return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"},
+    )
     def test_search_returns_google_only_when_bing_disabled(self, *_):
         from kindly_web_search_mcp_server.search.brightdata import search_brightdata
         from kindly_web_search_mcp_server.models import WebSearchResult
 
-        run_provider_mock = AsyncMock(return_value=[
-            WebSearchResult(title="Google Hit", link="https://g.com", snippet="from google"),
-        ])
+        run_provider_mock = AsyncMock(
+            return_value=[
+                WebSearchResult(title="Google Hit", link="https://g.com", snippet="from google"),
+            ]
+        )
 
-        with patch("kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock):
+        with patch(
+            "kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock
+        ):
             results = _run_async(search_brightdata("test", num_results=5, use_bing=False))
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].title, "Google Hit")
 
-    @patch("kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key", return_value="test-key")
-    @patch("kindly_web_search_mcp_server.search.brightdata._resolve_payload_base", return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"})
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key",
+        return_value="test-key",
+    )
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._resolve_payload_base",
+        return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"},
+    )
     def test_search_merges_google_and_bing(self, *_):
         from kindly_web_search_mcp_server.search.brightdata import search_brightdata
         from kindly_web_search_mcp_server.models import WebSearchResult
 
-        run_provider_mock = AsyncMock(return_value=[
-            WebSearchResult(title="Google Hit", link="https://g.com", snippet="g"),
-        ])
-        bing_mock = AsyncMock(return_value=[
-            WebSearchResult(title="Bing Hit", link="https://b.com", snippet="b"),
-        ])
+        run_provider_mock = AsyncMock(
+            return_value=[
+                WebSearchResult(title="Google Hit", link="https://g.com", snippet="g"),
+            ]
+        )
+        bing_mock = AsyncMock(
+            return_value=[
+                WebSearchResult(title="Bing Hit", link="https://b.com", snippet="b"),
+            ]
+        )
 
         with (
             patch("kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock),
@@ -232,10 +273,19 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
         titles = {r.title for r in results}
         self.assertEqual(titles, {"Google Hit", "Bing Hit"})
 
-    @patch("kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key", return_value="test-key")
-    @patch("kindly_web_search_mcp_server.search.brightdata._resolve_payload_base", return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"})
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key",
+        return_value="test-key",
+    )
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._resolve_payload_base",
+        return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"},
+    )
     def test_search_raises_when_no_results(self, *_):
-        from kindly_web_search_mcp_server.search.brightdata import search_brightdata, BrightDataError
+        from kindly_web_search_mcp_server.search.brightdata import (
+            search_brightdata,
+            BrightDataError,
+        )
 
         run_provider_mock = AsyncMock(return_value=[])
         bing_mock = AsyncMock(return_value=[])
@@ -247,17 +297,27 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
             with self.assertRaises(BrightDataError):
                 _run_async(search_brightdata("test", num_results=5))
 
-    @patch("kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key", return_value="test-key")
-    @patch("kindly_web_search_mcp_server.search.brightdata._resolve_payload_base", return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"})
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key",
+        return_value="test-key",
+    )
+    @patch(
+        "kindly_web_search_mcp_server.search.brightdata._resolve_payload_base",
+        return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"},
+    )
     def test_search_news_skips_bing(self, *_):
         from kindly_web_search_mcp_server.search.brightdata import search_brightdata
         from kindly_web_search_mcp_server.models import WebSearchResult
 
-        run_provider_mock = AsyncMock(return_value=[
-            WebSearchResult(title="News Hit", link="https://n.com", snippet="news"),
-        ])
+        run_provider_mock = AsyncMock(
+            return_value=[
+                WebSearchResult(title="News Hit", link="https://n.com", snippet="news"),
+            ]
+        )
 
-        with patch("kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock):
+        with patch(
+            "kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock
+        ):
             results = _run_async(search_brightdata("test", num_results=5, search_type="news"))
 
         self.assertEqual(len(results), 1)

@@ -71,19 +71,13 @@ def parse_stackexchange_url(url: str) -> StackExchangeTarget:
 
     m_q = _QUESTION_RE.search(path)
     if m_q:
-        return StackExchangeTarget(
-            site=site, question_id=int(m_q.group(1)), answer_id=None
-        )
+        return StackExchangeTarget(site=site, question_id=int(m_q.group(1)), answer_id=None)
 
     m_a = _ANSWER_RE.search(path)
     if m_a:
-        return StackExchangeTarget(
-            site=site, question_id=None, answer_id=int(m_a.group(1))
-        )
+        return StackExchangeTarget(site=site, question_id=None, answer_id=int(m_a.group(1)))
 
-    raise StackExchangeError(
-        "URL is not a recognized StackExchange question/answer URL."
-    )
+    raise StackExchangeError("URL is not a recognized StackExchange question/answer URL.")
 
 
 def _stackexchange_params(site: str, *, filter_id: str) -> dict[str, str]:
@@ -108,9 +102,7 @@ def _epoch_to_iso(ts: Any) -> str:
         return ""
 
 
-def render_thread_markdown(
-    question: dict[str, Any], answers: list[dict[str, Any]]
-) -> str:
+def render_thread_markdown(question: dict[str, Any], answers: list[dict[str, Any]]) -> str:
     """Render a StackExchange Q&A thread to deterministic Markdown."""
 
     def post_body_markdown(post: dict[str, Any]) -> str:
@@ -135,7 +127,8 @@ def render_thread_markdown(
     title = question.get("title") or ""
     link = question.get("link") or ""
     score = question.get("score")
-    owner = question.get("owner") if isinstance(question.get("owner"), dict) else {}
+    _q_owner_raw = question.get("owner")
+    owner = _q_owner_raw if isinstance(_q_owner_raw, dict) else {}
     owner_link = owner.get("link") or ""
     created = _epoch_to_iso(question.get("creation_date"))
     body_md = post_body_markdown(question)
@@ -143,9 +136,7 @@ def render_thread_markdown(
     lines: list[str] = []
     lines.append("# Question")
     lines.append(f"Question: {title}".strip())
-    lines.append(
-        f"Link: {link} Author: ({owner_link}) Date: {created} Score: {score}".strip()
-    )
+    lines.append(f"Link: {link} Author: ({owner_link}) Date: {created} Score: {score}".strip())
     lines.append("")
     lines.append(body_md)
     lines.append("")
@@ -155,7 +146,7 @@ def render_thread_markdown(
         accepted = bool(a.get("is_accepted"))
         score_val = a.get("score")
         try:
-            score_int = int(score_val)
+            score_int = int(score_val)  # type: ignore[arg-type]
         except Exception:
             score_int = 0
         # accepted first, then higher scores first
@@ -164,7 +155,8 @@ def render_thread_markdown(
     sorted_answers = sorted(answers, key=sort_key)
     for idx, ans in enumerate(sorted_answers, start=1):
         accepted = bool(ans.get("is_accepted"))
-        ans_owner = ans.get("owner") if isinstance(ans.get("owner"), dict) else {}
+        _a_owner_raw = ans.get("owner")
+        ans_owner = _a_owner_raw if isinstance(_a_owner_raw, dict) else {}
         ans_author = ans_owner.get("display_name") or ""
         ans_created = _epoch_to_iso(ans.get("creation_date"))
         ans_score = ans.get("score")
@@ -247,9 +239,7 @@ class StackExchangeApiClient:
         page = 1
         answers: list[dict[str, Any]] = []
         while page <= max_pages:
-            params: dict[str, Any] = _stackexchange_params(
-                target.site, filter_id=self._filter
-            )
+            params: dict[str, Any] = _stackexchange_params(target.site, filter_id=self._filter)
             params.update(
                 {
                     "page": page,

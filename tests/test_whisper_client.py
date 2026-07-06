@@ -191,26 +191,27 @@ class TestCascadeWhisper:
         )
 
         mock_segments = [{"text": "From API", "start": 0.0, "duration": 1.0}]
-        with patch(
-            "kindly_web_search_mcp_server.youtube.cascade.settings"
-        ) as mock_settings, patch(
-            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
-            side_effect=Exception("yt-dlp fail"),
-        ), patch(
-            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
-            return_value=mock_segments,
-        ), patch(
-            "kindly_web_search_mcp_server.youtube.whisper_client.fetch_whisper_transcript_sync",
-        ) as mock_whisper:
+        with (
+            patch("kindly_web_search_mcp_server.youtube.cascade.settings") as mock_settings,
+            patch(
+                "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+                side_effect=Exception("yt-dlp fail"),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+                return_value=mock_segments,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.youtube.whisper_client.fetch_whisper_transcript_sync",
+            ) as mock_whisper,
+        ):
             mock_settings.whisper_space_url = ""
             mock_settings.youtube_transcript_backend = "auto"
             mock_settings.youtube_transcript_proxy_url = ""
             mock_settings.youtube_transcript_max_chars = 50000
             mock_settings.youtube_transcript_timeout_seconds = 30
 
-            segments, backend = fetch_transcript_cascade(
-                "dQw4w9WgXcQ", backend="auto"
-            )
+            segments, backend = fetch_transcript_cascade("dQw4w9WgXcQ", backend="auto")
             assert backend == "api"
             mock_whisper.assert_not_called()
 
@@ -221,17 +222,20 @@ class TestCascadeWhisper:
         )
 
         whisper_segments = [{"text": "Whisper text", "start": 0.0, "duration": 5.0}]
-        with patch(
-            "kindly_web_search_mcp_server.youtube.cascade.settings"
-        ) as mock_settings, patch(
-            "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
-            side_effect=Exception("yt-dlp fail"),
-        ), patch(
-            "kindly_web_search_mcp_server.youtube.whisper_client.fetch_whisper_transcript_sync",
-            return_value=whisper_segments,
-        ), patch(
-            "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
-        ) as mock_api:
+        with (
+            patch("kindly_web_search_mcp_server.youtube.cascade.settings") as mock_settings,
+            patch(
+                "kindly_web_search_mcp_server.youtube.cascade.ytdlp_extract_subtitles",
+                side_effect=Exception("yt-dlp fail"),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.youtube.whisper_client.fetch_whisper_transcript_sync",
+                return_value=whisper_segments,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.youtube.cascade.fetch_transcript_data",
+            ) as mock_api,
+        ):
             mock_settings.whisper_space_url = "https://whisper.hf.space"
             mock_settings.whisper_space_timeout_seconds = 300.0
             mock_settings.youtube_transcript_backend = "auto"
@@ -239,9 +243,7 @@ class TestCascadeWhisper:
             mock_settings.youtube_transcript_max_chars = 50000
             mock_settings.youtube_transcript_timeout_seconds = 30
 
-            segments, backend = fetch_transcript_cascade(
-                "dQw4w9WgXcQ", backend="auto"
-            )
+            segments, backend = fetch_transcript_cascade("dQw4w9WgXcQ", backend="auto")
             assert backend == "whisper"
             assert segments == whisper_segments
             mock_api.assert_not_called()

@@ -28,8 +28,7 @@ class TestABSchema:
             con = duckdb.connect(str(db_path))
             _ensure_ab_experiments(con)
             cols = {
-                r[1]: r[2]
-                for r in con.execute("PRAGMA table_info('ab_experiments')").fetchall()
+                r[1]: r[2] for r in con.execute("PRAGMA table_info('ab_experiments')").fetchall()
             }
             con.close()
 
@@ -148,14 +147,10 @@ class TestABSchema:
             )
 
             con = duckdb.connect(str(db_path), read_only=True)
-            rows = con.execute(
-                "SELECT experiment_id, layer FROM ab_experiments"
-            ).fetchall()
+            rows = con.execute("SELECT experiment_id, layer FROM ab_experiments").fetchall()
             con.close()
 
-            assert len(rows) == 1, (
-                f"Expected 1 row after ON CONFLICT DO NOTHING, got {len(rows)}"
-            )
+            assert len(rows) == 1, f"Expected 1 row after ON CONFLICT DO NOTHING, got {len(rows)}"
             # Original values must be preserved (first insert won, not second)
             assert rows[0][0] == "exp-pk"
             assert rows[0][1] == "layer_a"
@@ -181,10 +176,7 @@ class TestABSchema:
             con = duckdb.connect(str(db_path))
             _ensure_ab_shadow_runs(con)
             cols = {
-                r[1]: r[2]
-                for r in con.execute(
-                    "PRAGMA table_info('ab_shadow_runs')"
-                ).fetchall()
+                r[1]: r[2] for r in con.execute("PRAGMA table_info('ab_shadow_runs')").fetchall()
             }
             con.close()
 
@@ -346,17 +338,14 @@ class TestABSchema:
             indexes = {
                 r[0]
                 for r in con.execute(
-                    "SELECT index_name FROM duckdb_indexes "
-                    "WHERE table_name = 'ab_shadow_runs'"
+                    "SELECT index_name FROM duckdb_indexes WHERE table_name = 'ab_shadow_runs'"
                 ).fetchall()
             }
             con.close()
             assert "idx_abs_run_key" in indexes, (
                 f"Missing idx_abs_run_key; found indexes: {indexes}"
             )
-            assert "idx_abs_exp" in indexes, (
-                f"Missing idx_abs_exp; found indexes: {indexes}"
-            )
+            assert "idx_abs_exp" in indexes, f"Missing idx_abs_exp; found indexes: {indexes}"
         finally:
             if db_path.exists():
                 db_path.unlink()

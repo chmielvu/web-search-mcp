@@ -88,15 +88,11 @@ def emit_result_lists_summary(
         summarize_result_list(
             index=index,
             query=branch_queries[index] if index < len(branch_queries) else query,
-            providers=branch_providers[index]
-            if index < len(branch_providers)
-            else None,
+            providers=branch_providers[index] if index < len(branch_providers) else None,
             weight=list_weights[index] if index < len(list_weights) else 1.0,
             results=results,
             metadata=(
-                branch_metadata[index]
-                if branch_metadata and index < len(branch_metadata)
-                else None
+                branch_metadata[index] if branch_metadata and index < len(branch_metadata) else None
             ),
         )
         for index, results in enumerate(result_lists)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -72,9 +73,7 @@ class HFCircuitBreaker:
             # Check if recovery timeout elapsed
             elapsed = time.time() - self._last_failure_time
             if elapsed >= self.RECOVERY_TIMEOUT_SECONDS:
-                LOGGER.info(
-                    "Circuit breaker entering HALF_OPEN state after recovery timeout"
-                )
+                LOGGER.info("Circuit breaker entering HALF_OPEN state after recovery timeout")
                 self._state = "half_open"
                 self._half_open_success = False
                 return False  # Allow one test call
@@ -132,16 +131,12 @@ def _coerce_vectors(raw: Any, expected_count: int) -> list[list[float]]:
         data = [data]
     if not isinstance(data, list) or len(data) != expected_count:
         count = len(data) if isinstance(data, list) else "non-list"
-        raise ValueError(
-            f"HF Inference returned {count} vectors for {expected_count} inputs"
-        )
+        raise ValueError(f"HF Inference returned {count} vectors for {expected_count} inputs")
 
     vectors: list[list[float]] = []
     for index, item in enumerate(data):
         item = _as_list(item)
-        if not isinstance(item, list) or not all(
-            isinstance(v, int | float) for v in item
-        ):
+        if not isinstance(item, list) or not all(isinstance(v, int | float) for v in item):
             raise ValueError(f"HF Inference embedding at index {index} is not numeric")
         vectors.append([float(v) for v in item])
     return vectors
@@ -178,13 +173,9 @@ async def _get_hf_client(
 
         resolved_provider = provider or settings.hf_inference_provider
         resolved_key = (
-            api_key
-            or os.environ.get("HF_TOKEN")
-            or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+            api_key or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
         )
-        resolved_timeout = (
-            timeout if timeout is not None else settings.embedding_timeout_seconds
-        )
+        resolved_timeout = timeout if timeout is not None else settings.embedding_timeout_seconds
 
         _HF_CLIENT = AsyncInferenceClient(
             provider=resolved_provider,  # type: ignore[arg-type]
@@ -199,6 +190,22 @@ async def _get_hf_client(
         return _HF_CLIENT
 
 
+async def reset_hf_client() -> None:
+    """Close and clear the shared HF client after cancellation or connection issues."""
+    global _HF_CLIENT
+    async with _HF_CLIENT_LOCK:
+        client = _HF_CLIENT
+        _HF_CLIENT = None
+    if client is None:
+        return
+    close = getattr(client, "close", None)
+    if close is None:
+        return
+    close_result = close()
+    if inspect.isawaitable(close_result):
+        await close_result
+
+
 async def embed_texts(
     texts: list[str],
     *,
@@ -207,6 +214,7 @@ async def embed_texts(
     api_key: str | None = None,
     expected_dim: int | None = None,
     timeout: float | None = None,
+    max_retries: int | None = None,
     http_client: object | None = None,
     skip_circuit_check: bool = False,
 ) -> list[list[float]]:
@@ -249,24 +257,28 @@ async def embed_texts(
 
     resolved_model = model or settings.hf_embedding_model
     resolved_dim = expected_dim or settings.embedding_dim
+    resolved_timeout = timeout if timeout is not None else settings.embedding_timeout_seconds
 
     # Use singleton client for connection reuse.  Per-call overrides for
     # provider/api_key/timeout are ignored after the first creation to keep
     # the singleton stable; in practice these are always set via settings.
     client = await _get_hf_client(provider=provider, api_key=api_key, timeout=timeout)
 
-    max_retries = settings.embedding_max_retries
+    max_retries = max_retries if max_retries is not None else settings.embedding_max_retries
     retry_delay = settings.embedding_retry_delay_seconds
     raw = None
 
     for attempt in range(max_retries + 1):
         try:
-            raw = await client.feature_extraction(  # type: ignore[arg-type]
-                texts, model=resolved_model, normalize=True
+            raw = await asyncio.wait_for(
+                client.feature_extraction(  # type: ignore[arg-type]
+                    texts, model=resolved_model, normalize=True  # type: ignore[arg-type]
+                ),
+                timeout=resolved_timeout,
             )
             HF_CIRCUIT_BREAKER.record_success()
             break
-        except InferenceTimeoutError as e:
+        except (asyncio.TimeoutError, InferenceTimeoutError) as e:
             HF_CIRCUIT_BREAKER.record_failure()
             if attempt < max_retries:
                 LOGGER.warning(
@@ -287,9 +299,7 @@ async def embed_texts(
         except Exception as e:
             LOGGER.error(f"Embedding API request failed: {type(e).__name__}: {e}")
             HF_CIRCUIT_BREAKER.record_failure()
-            raise EmbeddingAPIError(
-                f"Embedding API request failed: {type(e).__name__}: {e}"
-            ) from e
+            raise EmbeddingAPIError(f"Embedding API request failed: {type(e).__name__}: {e}") from e
 
     assert raw is not None  # guaranteed by the loop above
     vectors = _coerce_vectors(raw, len(texts))

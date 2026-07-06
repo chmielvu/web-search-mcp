@@ -59,9 +59,7 @@ async def search_search_router(
         try:
             data = response.json()
         except ValueError as exc:
-            raise SearchRouterError(
-                "Search Router response was not valid JSON."
-            ) from exc
+            raise SearchRouterError("Search Router response was not valid JSON.") from exc
         if not isinstance(data, dict):
             raise SearchRouterError("Search Router response was not a JSON object.")
         return data
@@ -77,12 +75,7 @@ async def search_search_router(
                 continue
             title = item.get("title")
             link = item.get("url")
-            snippet = (
-                item.get("snippet")
-                or item.get("description")
-                or item.get("content")
-                or ""
-            )
+            snippet = item.get("snippet") or item.get("description") or item.get("content") or ""
             domain = item.get("domain")
             if (
                 not isinstance(title, str)

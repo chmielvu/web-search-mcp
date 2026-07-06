@@ -77,7 +77,9 @@ class GLiNER2Runtime:
         normalized_labels: dict[str, list[str] | dict[str, str]] = {}
         for task_name, task_labels in labels.items():
             if isinstance(task_labels, list):
-                normalized_labels[task_name] = _as_str_list(task_labels, field_name=f"labels[{task_name}]")
+                normalized_labels[task_name] = _as_str_list(
+                    task_labels, field_name=f"labels[{task_name}]"
+                )
             elif isinstance(task_labels, dict):
                 normalized_labels[task_name] = {
                     str(label): str(description).strip()
@@ -129,7 +131,8 @@ class GLiNER2Runtime:
         normalized_structures: dict[str, list[str]] = {}
         for struct_name, field_specs in structures.items():
             normalized_structures[str(struct_name)] = [
-                str(field_spec).strip() for field_spec in _as_str_list(field_specs, field_name=f"structures[{struct_name}]")
+                str(field_spec).strip()
+                for field_spec in _as_str_list(field_specs, field_name=f"structures[{struct_name}]")
             ]
         return extractor.extract_json(
             text,
@@ -228,4 +231,3 @@ class GLiNER2Runtime:
             raise ValueError("combined extraction requires entities, classification, or structures")
 
         return extractor.extract(text, schema)
-

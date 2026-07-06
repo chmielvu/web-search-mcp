@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 # InnerTube API clients with different rate-limit buckets.
 _YTDLP_CLIENTS = [
-    "web",       # Web client — most reliable
-    "android",   # Android app
-    "ios",       # iOS app
-    "tv",        # TV client
-    "mweb",      # Mobile web
-    "web_embed", # Embedded web player
+    "web",  # Web client — most reliable
+    "android",  # Android app
+    "ios",  # iOS app
+    "tv",  # TV client
+    "mweb",  # Mobile web
+    "web_embed",  # Embedded web player
     "tv_embed",  # Embedded TV player
 ]
 
@@ -40,9 +40,7 @@ def ytdlp_extract_subtitles(
     try:
         import yt_dlp
     except ImportError:
-        raise YouTubeError(
-            "yt-dlp not installed. Install with: pip install yt-dlp"
-        )
+        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp")
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     target_lang = language or "en"
@@ -50,26 +48,26 @@ def ytdlp_extract_subtitles(
 
     for client in _YTDLP_CLIENTS:
         try:
-            segments = _try_client(
-                yt_dlp, url, video_id, target_lang, client
-            )
+            segments = _try_client(yt_dlp, url, video_id, target_lang, client)
             if segments:
                 logger.debug(
                     "yt-dlp succeeded with client=%s for video=%s",
-                    client, video_id,
+                    client,
+                    video_id,
                 )
                 return segments
         except Exception as exc:
             last_error = exc
             logger.debug(
                 "yt-dlp client=%s failed for video=%s: %s",
-                client, video_id, exc,
+                client,
+                video_id,
+                exc,
             )
             continue
 
     raise YouTubeError(
-        f"yt-dlp: all {len(_YTDLP_CLIENTS)} clients failed for {video_id}. "
-        f"Last error: {last_error}"
+        f"yt-dlp: all {len(_YTDLP_CLIENTS)} clients failed for {video_id}. Last error: {last_error}"
     )
 
 
@@ -128,6 +126,7 @@ def _parse_json3(subtitle_data: Any) -> list[dict[str, Any]]:
                 url = entry.get("url")
                 if url:
                     import httpx
+
                     resp = httpx.get(url, timeout=15, follow_redirects=True)
                     resp.raise_for_status()
                     raw = resp.text
@@ -164,10 +163,12 @@ def _parse_json3(subtitle_data: Any) -> list[dict[str, Any]]:
         start_ms = event.get("tStartMs", 0)
         duration_ms = event.get("dDurationMs", 0)
 
-        segments.append({
-            "text": text,
-            "start": start_ms / 1000.0,
-            "duration": duration_ms / 1000.0,
-        })
+        segments.append(
+            {
+                "text": text,
+                "start": start_ms / 1000.0,
+                "duration": duration_ms / 1000.0,
+            }
+        )
 
     return segments

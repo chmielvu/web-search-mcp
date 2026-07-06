@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -18,9 +18,7 @@ class TestProviderWeightsABOverrides:
     """Tests that provider weight A/B overrides work correctly."""
 
     def test_returns_none_when_disabled(self):
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = False
             result = get_ab_overrides(run_key="run-1", layer="provider_weights")
             assert result is None
@@ -51,18 +49,14 @@ class TestProviderWeightsABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
 
             # Try enough run keys to hit one enrolled in the test variant
             result = None
             for i in range(100):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="provider_weights"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="provider_weights")
                 if result and result["variant_key"] == "heavy-searxng":
                     break
 
@@ -99,16 +93,12 @@ class TestProviderWeightsABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
 
             for i in range(200):
-                result = get_ab_overrides(
-                    run_key=f"run-{i}", layer="provider_weights"
-                )
+                result = get_ab_overrides(run_key=f"run-{i}", layer="provider_weights")
                 if result and result["variant_key"] == "shadow-test":
                     assert result["shadow_mode"] is True
                     assert result["config"]["provider_weights"]["searxng"] == 3.0
@@ -135,9 +125,7 @@ class TestProviderWeightsABOverrides:
         with open(config, "w") as f:
             yaml.dump(data, f)
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.wiring.settings"
-        ) as s:
+        with patch("kindly_web_search_mcp_server.ab_testing.wiring.settings") as s:
             s.ab_testing_enabled = True
             s.ab_config_path = str(config)
             result = get_ab_overrides(run_key="run-1", layer="provider_weights")

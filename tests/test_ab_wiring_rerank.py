@@ -43,9 +43,7 @@ class TestRerankCoreABOverrides:
         """ab_overrides=dict should not raise and top_k override should be visible."""
         with (
             patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
-            patch(
-                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-            ) as mock_decide,
+            patch("kindly_web_search_mcp_server.rerank.core.decide_rerank") as mock_decide,
             patch("kindly_web_search_mcp_server.rerank.core.embed_query") as mock_embed,
         ):
             s.reranking_enabled = True
@@ -89,9 +87,7 @@ class TestRerankCoreABOverrides:
         """ab_overrides=None should behave exactly like normal call."""
         with (
             patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
-            patch(
-                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-            ) as mock_decide,
+            patch("kindly_web_search_mcp_server.rerank.core.decide_rerank") as mock_decide,
             patch("kindly_web_search_mcp_server.rerank.core.embed_query") as mock_embed,
         ):
             s.reranking_enabled = True
@@ -170,9 +166,7 @@ class TestPipelineABWiringRerank:
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
             ) as mock_merge,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-            ) as mock_norm,
+            patch("kindly_web_search_mcp_server.search.pipeline.normalize_query") as mock_norm,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
@@ -269,9 +263,7 @@ class TestPipelineABWiringRerank:
             # get_ab_overrides is called for both provider_weights and reranking layers
             assert mock_get_ab.call_count >= 1
             reranking_calls = [
-                c
-                for c in mock_get_ab.call_args_list
-                if c.kwargs.get("layer") == "reranking"
+                c for c in mock_get_ab.call_args_list if c.kwargs.get("layer") == "reranking"
             ]
             assert len(reranking_calls) >= 1, "Expected reranking layer call"
 
@@ -291,9 +283,7 @@ class TestPipelineABWiringRerank:
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
             ) as mock_merge,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-            ) as mock_norm,
+            patch("kindly_web_search_mcp_server.search.pipeline.normalize_query") as mock_norm,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
@@ -418,9 +408,7 @@ class TestPipelineABWiringRerank:
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.merge_search_results"
             ) as mock_merge,
-            patch(
-                "kindly_web_search_mcp_server.search.pipeline.normalize_query"
-            ) as mock_norm,
+            patch("kindly_web_search_mcp_server.search.pipeline.normalize_query") as mock_norm,
             patch(
                 "kindly_web_search_mcp_server.search.pipeline.resolve_query_understanding"
             ) as mock_qu,
@@ -520,9 +508,7 @@ class TestPipelineABWiringRerank:
             # verify that get_ab_overrides was called for multiple layers
             assert mock_get_ab.call_count >= 1
             # verify that fire_and_forget was called (for shadow task)
-            assert mock_fire_and_forget.called, (
-                "fire_and_forget should be called for shadow mode"
-            )
+            assert mock_fire_and_forget.called, "fire_and_forget should be called for shadow mode"
 
 
 class TestRerankResultsWithABDirectly:
@@ -546,9 +532,7 @@ class TestRerankResultsWithABDirectly:
 
         with (
             patch("kindly_web_search_mcp_server.rerank.core.settings") as s,
-            patch(
-                "kindly_web_search_mcp_server.rerank.core.decide_rerank"
-            ) as mock_decide,
+            patch("kindly_web_search_mcp_server.rerank.core.decide_rerank") as mock_decide,
         ):
             s.rerank_provider = "none"
             s.rerank_stack_mode = "bi_cross"

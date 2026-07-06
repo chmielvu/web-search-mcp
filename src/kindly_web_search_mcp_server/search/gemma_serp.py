@@ -11,7 +11,6 @@ abstractions — not valid in raw REST payloads.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import Any
@@ -51,33 +50,33 @@ def _parse_presentation_text(text: str) -> list[dict[str, str]]:
 
         url_match = re.search(r"URL:\s*(https?://[^\s\n)]+)", block)
         title_match = re.search(r"(?:TITLE|Title|##\s*)\s*:\s*(.+?)(?:\n|$)", block)
-        snippet_match = re.search(
-            r"(?:SNIPPET|Snippet|Description)\s*:\s*(.+?)(?:\n|$)", block
-        )
+        snippet_match = re.search(r"(?:SNIPPET|Snippet|Description)\s*:\s*(.+?)(?:\n|$)", block)
 
         # Also try numbered list: 1. **Title** — URL: ...
         if not url_match:
-            url_match = re.search(
-                r"(?:URL|Link|url|link)\s*[=:]\s*(https?://[^\s\n)]+)", block
-            )
+            url_match = re.search(r"(?:URL|Link|url|link)\s*[=:]\s*(https?://[^\s\n)]+)", block)
         if not url_match and not title_match:
             md_link = re.search(r"\*\*([^*]+)\*\*.*?\((https?://[^)]+)\)", block)
             md_title = re.search(r"\*\*([^*]+)\*\*", block)
             if md_link:
-                results.append({
-                    "url": md_link.group(2),
-                    "title": md_link.group(1),
-                    "snippet": block.strip().split("\n", 1)[-1][:200],
-                })
+                results.append(
+                    {
+                        "url": md_link.group(2),
+                        "title": md_link.group(1),
+                        "snippet": block.strip().split("\n", 1)[-1][:200],
+                    }
+                )
                 continue
             if md_title:
                 plain_url = re.search(r"\[([^\]]+)\]\((https?://[^)]+)\)", block)
                 if plain_url:
-                    results.append({
-                        "url": plain_url.group(2),
-                        "title": plain_url.group(1),
-                        "snippet": block.strip().split("\n", 1)[-1][:200],
-                    })
+                    results.append(
+                        {
+                            "url": plain_url.group(2),
+                            "title": plain_url.group(1),
+                            "snippet": block.strip().split("\n", 1)[-1][:200],
+                        }
+                    )
                     continue
 
         if not url_match:
@@ -118,11 +117,13 @@ def _extract_from_grounding(data: dict) -> list[dict[str, str]]:
         if domain and domain in seen_domains:
             continue
         seen_domains.add(domain)
-        results.append({
-            "url": uri,
-            "title": domain,
-            "snippet": "",
-        })
+        results.append(
+            {
+                "url": uri,
+                "title": domain,
+                "snippet": "",
+            }
+        )
 
     return results
 
@@ -154,13 +155,13 @@ async def _grounded_search(prompt: str) -> dict:
                     msg = data["error"].get("message", "unknown")
                     logger.warning(
                         "Gemma %s grounding error (code=%s): %s",
-                        model, code, msg,
+                        model,
+                        code,
+                        msg,
                     )
                     continue
 
-                grounding = data.get("candidates", [{}])[0].get(
-                    "groundingMetadata"
-                )
+                grounding = data.get("candidates", [{}])[0].get("groundingMetadata")
                 if grounding:
                     logger.debug(
                         "Gemma %s grounding: %d chunks",
@@ -205,9 +206,7 @@ async def search_gemma(
         model_used = data.get("modelVersion", MODEL)
         # Try parsing the model's presentation text first (has titles + URLs + snippets)
         text = ""
-        for part in (
-            data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        ):
+        for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
             if not part.get("thought", False):
                 text += part.get("text", "")
 
@@ -256,4 +255,3 @@ async def search_gemma(
         request=_request,
         parse_response=_parse_response,
     )
-

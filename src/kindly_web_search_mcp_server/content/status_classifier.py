@@ -152,9 +152,7 @@ def _cookie_boilerplate_ratio(normalized: str) -> float:
     if not words:
         return 0.0
     cookie_count = sum(
-        1
-        for w in words
-        if any(indicator in w for indicator in _COOKIE_CONSENT_INDICATORS)
+        1 for w in words if any(indicator in w for indicator in _COOKIE_CONSENT_INDICATORS)
     )
     return cookie_count / len(words)
 
@@ -173,7 +171,7 @@ def _emit_classification_event(
         cacheable=result.cacheable,
         markdown_chars=len(markdown),
         word_count=len(normalized.split()),
-        **extra,
+        **extra,  # type: ignore[arg-type]
     )
 
 
@@ -205,14 +203,18 @@ def classify_markdown(markdown: str) -> ClassificationResult:
     # 2. Access blocks (Cloudflare, captcha, IP ban)
     match = _pattern_match(normalized, _BLOCK_PATTERNS)
     if match:
-        result = ClassificationResult(status="blocked", reason=f"access_blocked:{match}", cacheable=False)
+        result = ClassificationResult(
+            status="blocked", reason=f"access_blocked:{match}", cacheable=False
+        )
         _emit_classification_event(result, markdown, normalized)
         return result
 
     # 3. Login walls (content gated behind authentication)
     match = _pattern_match(normalized, _LOGIN_WALL_PATTERNS)
     if match:
-        result = ClassificationResult(status="blocked", reason=f"login_wall:{match}", cacheable=False)
+        result = ClassificationResult(
+            status="blocked", reason=f"login_wall:{match}", cacheable=False
+        )
         _emit_classification_event(result, markdown, normalized)
         return result
 
@@ -245,7 +247,9 @@ def classify_markdown(markdown: str) -> ClassificationResult:
     # 7. Cookie consent boilerplate (entire page is just cookie banner)
     cookie_ratio = _cookie_boilerplate_ratio(normalized)
     if cookie_ratio > 0.4:
-        result = ClassificationResult(status="partial", reason="cookie_boilerplate", cacheable=False)
+        result = ClassificationResult(
+            status="partial", reason="cookie_boilerplate", cacheable=False
+        )
         _emit_classification_event(
             result,
             markdown,

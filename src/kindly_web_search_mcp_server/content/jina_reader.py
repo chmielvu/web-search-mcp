@@ -24,9 +24,7 @@ async def fetch_with_jina_reader(url: str, *, timeout_seconds: float = 25.0) -> 
             # 2) Retry with API key only when rate-limited
             api_key = get_env_value("JINA_API_KEY", settings.jina_api_key).strip()
             if not api_key:
-                raise JinaReaderError(
-                    "Jina Reader rate-limited and JINA_API_KEY is not configured"
-                )
+                raise JinaReaderError("Jina Reader rate-limited and JINA_API_KEY is not configured")
             auth_headers = dict(base_headers)
             auth_headers["Authorization"] = f"Bearer {api_key}"
             response = await client.get(endpoint, headers=auth_headers)

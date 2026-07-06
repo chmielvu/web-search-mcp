@@ -19,9 +19,7 @@ def tools_cmd(
     ] = "full",
 ) -> None:
     """Emit MCP-tool to CLI-command coverage."""
-    tools = [
-        item for item in TOOL_COVERAGE if profile == "full" or profile in item["profiles"]
-    ]
+    tools = [item for item in TOOL_COVERAGE if profile == "full" or profile in item["profiles"]]  # type: ignore[operator]
     emit_json({"profile": profile, "tools": tools}, command="reference tools")
 
 

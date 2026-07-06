@@ -28,9 +28,7 @@ def normalize_tool_profile(raw: str) -> ToolProfile:
 
 def tools_for_profile(profile: str) -> frozenset[str]:
     normalized = normalize_tool_profile(profile)
-    return frozenset(
-        name for name, entry in TOOL_CATALOG.items() if normalized in entry.profiles
-    )
+    return frozenset(name for name, entry in TOOL_CATALOG.items() if normalized in entry.profiles)
 
 
 def tags_for_profile(profile: str) -> set[str]:

@@ -75,9 +75,7 @@ def _build_arxiv_query(
 def _normalize_result(result: arxiv.Result) -> AcademicPaper:
     arxiv_id = result.get_short_id()
     arxiv_id_clean = (
-        arxiv_id.rsplit("v", 1)[0]
-        if "v" in arxiv_id and arxiv_id[-1].isdigit()
-        else arxiv_id
+        arxiv_id.rsplit("v", 1)[0] if "v" in arxiv_id and arxiv_id[-1].isdigit() else arxiv_id
     )
 
     authors_list = [a.name for a in result.authors] if result.authors else []
@@ -92,9 +90,7 @@ def _normalize_result(result: arxiv.Result) -> AcademicPaper:
         except (AttributeError, TypeError):
             pass
 
-    primary_category = (
-        result.primary_category if hasattr(result, "primary_category") else None
-    )
+    primary_category = result.primary_category if hasattr(result, "primary_category") else None
 
     pdf_url = result.pdf_url or f"https://arxiv.org/pdf/{arxiv_id_clean}"
     url = result.entry_id or f"https://arxiv.org/abs/{arxiv_id_clean}"

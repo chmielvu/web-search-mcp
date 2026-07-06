@@ -44,15 +44,11 @@ class TestAnalyticsReports(unittest.TestCase):
         ensure_local_views(db_path=str(db_path))
 
         con = duckdb.connect(str(db_path), read_only=True)
-        provider_row = con.execute(
-            "SELECT provider, title FROM vw_provider_results"
-        ).fetchone()
+        provider_row = con.execute("SELECT provider, title FROM vw_provider_results").fetchone()
         events_row = con.execute(
             "SELECT provider FROM vw_events WHERE event_name = 'provider.search.result'"
         ).fetchone()
-        candidate_count = con.execute(
-            "SELECT COUNT(*) FROM vw_candidate_survival"
-        ).fetchone()[0]
+        candidate_count = con.execute("SELECT COUNT(*) FROM vw_candidate_survival").fetchone()[0]
         con.close()
 
         self.assertEqual(provider_row, ("searxng", "DuckDB docs"))

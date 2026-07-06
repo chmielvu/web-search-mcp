@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 
@@ -11,6 +11,7 @@ from ..output import emit_json
 
 
 ai_app = typer.Typer(no_args_is_help=True)
+
 
 @ai_app.command("gemini")
 def gemini_cmd(
@@ -79,4 +80,3 @@ def grok_cmd(
 
 def register(app: typer.Typer) -> None:
     app.add_typer(ai_app, name="ai")
-

@@ -88,14 +88,13 @@ class TestEnrichVideoMetadata(unittest.IsolatedAsyncioTestCase):
         mock_client = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_enrichment.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_enrichment.settings") as mock_settings:
             mock_settings.youtube_api_key = "test-key"
             mock_settings.youtube_api_timeout_seconds = 15.0
 
             result = await enrich_video_metadata(
-                ["abc123"], http_client=mock_client,
+                ["abc123"],
+                http_client=mock_client,
             )
 
         assert "abc123" in result
@@ -114,9 +113,7 @@ class TestEnrichVideoMetadata(unittest.IsolatedAsyncioTestCase):
 
     async def test_enrich_missing_key(self) -> None:
         """Missing API key returns empty dict gracefully."""
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_enrichment.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_enrichment.settings") as mock_settings:
             mock_settings.youtube_api_key = ""
             result = await enrich_video_metadata(["abc123"], http_client=None)
         assert result == {}
@@ -125,21 +122,18 @@ class TestEnrichVideoMetadata(unittest.IsolatedAsyncioTestCase):
         """HTTP error returns empty dict (graceful degradation)."""
         mock_response = MagicMock()
         mock_response.status_code = 503
-        mock_response.raise_for_status = MagicMock(
-            side_effect=Exception("Service Unavailable")
-        )
+        mock_response.raise_for_status = MagicMock(side_effect=Exception("Service Unavailable"))
 
         mock_client = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_enrichment.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_enrichment.settings") as mock_settings:
             mock_settings.youtube_api_key = "test-key"
             mock_settings.youtube_api_timeout_seconds = 15.0
 
             result = await enrich_video_metadata(
-                ["abc123"], http_client=mock_client,
+                ["abc123"],
+                http_client=mock_client,
             )
 
         assert result == {}
@@ -152,14 +146,13 @@ class TestEnrichVideoMetadata(unittest.IsolatedAsyncioTestCase):
         mock_client = MagicMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch(
-            "kindly_web_search_mcp_server.youtube.api_enrichment.settings"
-        ) as mock_settings:
+        with patch("kindly_web_search_mcp_server.youtube.api_enrichment.settings") as mock_settings:
             mock_settings.youtube_api_key = "test-key"
             mock_settings.youtube_api_timeout_seconds = 15.0
 
             result = await enrich_video_metadata(
-                ["abc123"], http_client=mock_client,
+                ["abc123"],
+                http_client=mock_client,
             )
 
         assert result == {}
@@ -208,7 +201,8 @@ class TestMergeEnrichmentIntoResults:
         """Empty metadata dict returns results unchanged."""
         results = [
             WebSearchResult(
-                title="Test", link="https://www.youtube.com/watch?v=abc123",
+                title="Test",
+                link="https://www.youtube.com/watch?v=abc123",
                 snippet="desc",
             ),
         ]
@@ -219,7 +213,8 @@ class TestMergeEnrichmentIntoResults:
         """Results without YouTube watch URLs are returned unchanged."""
         results = [
             WebSearchResult(
-                title="Not YouTube", link="https://example.com",
+                title="Not YouTube",
+                link="https://example.com",
                 snippet="Some text",
             ),
         ]

@@ -12,7 +12,9 @@ from opentelemetry import trace
 
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..analytics.duckdb_store import insert_provider_calls as analytics_insert_provider_calls
-from ..analytics.duckdb_store import insert_provider_candidates as analytics_insert_provider_candidates
+from ..analytics.duckdb_store import (
+    insert_provider_candidates as analytics_insert_provider_candidates,
+)
 from ..models import WebSearchResult
 from ..telemetry import (
     INPUT_MIME_TYPE,
@@ -98,8 +100,7 @@ async def _search_single_provider(
             if cancel_token is not None:
                 sig = inspect.signature(provider_fn)
                 if "cancel_token" in sig.parameters or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD
-                    for p in sig.parameters.values()
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
                 ):
                     call_kwargs["cancel_token"] = cancel_token
             results = await provider_fn(provider_query, **call_kwargs)
@@ -199,8 +200,7 @@ async def _search_single_provider(
                 budget.record_call(provider_name, success=False)
 
             is_rate_limit = (
-                isinstance(exc, httpx.HTTPStatusError)
-                and exc.response.status_code == 429
+                isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
             )
             error_type = "rate_limit" if is_rate_limit else type(exc).__name__
             retry_after = _extract_retry_after(exc) if is_rate_limit else None
@@ -252,7 +252,5 @@ async def _search_single_provider(
                 error_type=type(exc).__name__,
                 error_message=str(exc),
             )
-            LOGGER.warning(
-                "Provider %s failed: %s: %s", provider_name, type(exc).__name__, exc
-            )
+            LOGGER.warning("Provider %s failed: %s: %s", provider_name, type(exc).__name__, exc)
             return []

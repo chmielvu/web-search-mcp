@@ -65,7 +65,9 @@ async def _apply_ranked_stage(
         entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
         entity_overlap_weight=getattr(settings, "rerank_entity_overlap_weight", 0.15),
         logger=logger,
-        ab_weight=float(payload_json.get("entity_boost")) if payload_json.get("entity_boost") is not None else None,
+        ab_weight=float(payload_json.get("entity_boost"))  # type: ignore[arg-type]
+        if payload_json.get("entity_boost") is not None
+        else None,
     )
     await record_rerank_candidate_rows_async(
         logger,
@@ -76,7 +78,9 @@ async def _apply_ranked_stage(
         payload_json=payload_json,
     )
     relevance_scores = [
-        candidate.score for candidate in candidates[: min(10, len(candidates))] if candidate.score is not None
+        candidate.score
+        for candidate in candidates[: min(10, len(candidates))]
+        if candidate.score is not None
     ]
     max_score, _ = record_ranked_stage(
         stage_name=stage_name,

@@ -29,4 +29,3 @@ async def fetch_academic_search_payload(
         sort=sort,
     )
     return response.model_dump(exclude_none=True)
-

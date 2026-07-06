@@ -65,7 +65,10 @@ class TestJudgeEvaluationsSchema:
             assert row[9] == 1234.5  # duration_ms
             assert row[10] == 1500  # tokens_used
             assert row[11] == 0.0032  # cost_usd
-            assert json.loads(row[12]) == {"prompt_tokens": 500, "completion_tokens": 1000}  # payload_json
+            assert json.loads(row[12]) == {
+                "prompt_tokens": 500,
+                "completion_tokens": 1000,
+            }  # payload_json
         finally:
             if db_path.exists():
                 db_path.unlink()
@@ -80,9 +83,12 @@ class TestJudgeEvaluationsSchema:
         try:
             con = duckdb.connect(str(db_path))
             _ensure_judge_evaluations(con)
-            indexes = {r[0] for r in con.execute(
-                "SELECT index_name FROM duckdb_indexes WHERE table_name = 'judge_evaluations'"
-            ).fetchall()}
+            indexes = {
+                r[0]
+                for r in con.execute(
+                    "SELECT index_name FROM duckdb_indexes WHERE table_name = 'judge_evaluations'"
+                ).fetchall()
+            }
             con.close()
             assert "idx_je_run_key" in indexes
         finally:
@@ -101,8 +107,7 @@ class TestJudgeEvaluationsSchema:
             con = duckdb.connect(str(db_path))
             _ensure_judge_evaluations(con)
             cols = {
-                r[1]: r[2]
-                for r in con.execute("PRAGMA table_info('judge_evaluations')").fetchall()
+                r[1]: r[2] for r in con.execute("PRAGMA table_info('judge_evaluations')").fetchall()
             }
             con.close()
 
@@ -239,41 +244,32 @@ class TestJudgeEvaluationsSchema:
             )
 
             con = duckdb.connect(str(db_path), read_only=True)
-            row = con.execute("SELECT * FROM judge_evaluations").fetchone()
+            # Use explicit column list to avoid index drift from schema additions
+            row = con.execute(
+                "SELECT run_key, recorded_at, tool_name, judge_model, "
+                "relevance_score, relevance_raw, relevance_scale, "
+                "accuracy_score, completeness_score, source_quality_score, "
+                "overall_score, rationale, duration_ms, tokens_used, "
+                "cost_usd, payload_json FROM judge_evaluations"
+            ).fetchone()
             con.close()
 
             assert row is not None
-            # row[0]: run_key
             assert row[0] == "run-je-full"
-            # row[1]: recorded_at — should be auto-populated (not None)
             assert row[1] is not None, "recorded_at should be auto-populated"
-            # row[2]: tool_name
             assert row[2] == "web_search"
-            # row[3]: judge_model
             assert row[3] == "gpt-4o"
-            # row[4]: relevance_score
             assert row[4] == 0.99
-            # row[5]: relevance_raw
             assert row[5] == 4
-            # row[6]: relevance_scale
             assert row[6] == "1-4"
-            # row[7]: accuracy_score
             assert row[7] == 0.97
-            # row[8]: completeness_score
             assert row[8] == 0.96
-            # row[9]: source_quality_score
             assert row[9] == 0.95
-            # row[10]: overall_score
             assert row[10] == 0.97
-            # row[11]: rationale
             assert row[11] == "Excellent results across all dimensions."
-            # row[12]: duration_ms
             assert row[12] == 4567.89
-            # row[13]: tokens_used
             assert row[13] == 2345
-            # row[14]: cost_usd
             assert row[14] == 0.0089
-            # row[15]: payload_json
             assert json.loads(row[15]) == {"model": "gpt-4o-2024-08-06", "temperature": 0.3}
         finally:
             if db_path.exists():

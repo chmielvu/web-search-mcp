@@ -158,11 +158,7 @@ def _format_result_snippet(node: dict[str, object], result_type: str) -> str:
     created = _short_date(node.get("createdAt"))
     updated = _short_date(node.get("updatedAt"))
     comments_data = node.get("comments", {})
-    total_comments = (
-        comments_data.get("totalCount", 0)
-        if isinstance(comments_data, dict)
-        else 0
-    )
+    total_comments = comments_data.get("totalCount", 0) if isinstance(comments_data, dict) else 0
 
     parts = [repo, f"by {author}"]
     if result_type == "discussion":
@@ -305,9 +301,7 @@ async def search_github_graphql(
 
     async def _run(client: httpx.AsyncClient) -> list[WebSearchResult]:
         discussion_results, issue_results = await asyncio.gather(
-            _search_graphql(
-                client, query, num_results, _DISCUSSION_QUERY, token, "discussion"
-            ),
+            _search_graphql(client, query, num_results, _DISCUSSION_QUERY, token, "discussion"),
             _search_graphql(client, query, num_results, _ISSUE_QUERY, token, "issue"),
             return_exceptions=True,
         )
@@ -315,9 +309,7 @@ async def search_github_graphql(
         discussion_list: list[WebSearchResult] = (
             discussion_results if isinstance(discussion_results, list) else []
         )
-        issue_list: list[WebSearchResult] = (
-            issue_results if isinstance(issue_results, list) else []
-        )
+        issue_list: list[WebSearchResult] = issue_results if isinstance(issue_results, list) else []
         discussion_failed = isinstance(discussion_results, Exception)
         issue_failed = isinstance(issue_results, Exception)
 

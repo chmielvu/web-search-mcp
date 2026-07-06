@@ -27,9 +27,7 @@ def _resolve_config_path() -> Path:
     return Path(DEFAULT_EXPERIMENTS_YAML)
 
 
-def _find_experiment(
-    experiments: list[ABExperiment], experiment_id: str
-) -> ABExperiment:
+def _find_experiment(experiments: list[ABExperiment], experiment_id: str) -> ABExperiment:
     for exp in experiments:
         if exp.experiment_id == experiment_id:
             return exp
@@ -75,9 +73,7 @@ def list_cmd() -> None:
 
 @experiments_app.command("enable")
 def enable_cmd(
-    experiment_id: Annotated[
-        str, typer.Argument(help="Experiment ID to enable.")
-    ],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID to enable.")],
 ) -> None:
     """Set an experiment status to 'running' and save."""
     config_path = _resolve_config_path()
@@ -136,9 +132,7 @@ def enable_cmd(
 
 @experiments_app.command("disable")
 def disable_cmd(
-    experiment_id: Annotated[
-        str, typer.Argument(help="Experiment ID to disable.")
-    ],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID to disable.")],
 ) -> None:
     """Set an experiment status to 'paused' and save."""
     config_path = _resolve_config_path()
@@ -197,12 +191,8 @@ def disable_cmd(
 
 @experiments_app.command("conclude")
 def conclude_cmd(
-    experiment_id: Annotated[
-        str, typer.Argument(help="Experiment ID to conclude.")
-    ],
-    winner: Annotated[
-        str, typer.Option("--winner", help="Winning variant key.")
-    ],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID to conclude.")],
+    winner: Annotated[str, typer.Option("--winner", help="Winning variant key.")],
 ) -> None:
     """Set an experiment status to 'concluded' with a winning variant."""
     config_path = _resolve_config_path()
@@ -277,9 +267,7 @@ def conclude_cmd(
 
 @experiments_app.command("stats")
 def stats_cmd(
-    experiment_id: Annotated[
-        str, typer.Argument(help="Experiment ID to show stats for.")
-    ],
+    experiment_id: Annotated[str, typer.Argument(help="Experiment ID to show stats for.")],
 ) -> None:
     """Show basic stats for an experiment."""
     config_path = _resolve_config_path()

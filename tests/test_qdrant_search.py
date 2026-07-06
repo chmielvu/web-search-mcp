@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -10,6 +11,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self) -> None:
+        from kindly_web_search_mcp_server.search import qdrant as qdrant_module
+
+        tasks = list(qdrant_module._EMBEDDING_INFLIGHT.values())
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        qdrant_module._EMBEDDING_INFLIGHT.clear()
+        qdrant_module._EMBEDDING_CACHE.clear()
+
+    async def test_qdrant_embedding_timeout_cancels_inflight_task(self) -> None:
+        from kindly_web_search_mcp_server.search import qdrant as qdrant_module
+
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def slow_embed_query(_: str) -> list[float]:
+            started.set()
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            return [0.1, 0.2]
+
+        fake_embedder = SimpleNamespace(embed_query=slow_embed_query)
+
+        with patch.object(qdrant_module, "_EMBEDDER", fake_embedder):
+            with self.assertRaises(asyncio.TimeoutError):
+                await qdrant_module._embed_qdrant_query("slow query", deadline=0.01)
+
+        self.assertTrue(started.is_set())
+        await asyncio.wait_for(cancelled.wait(), timeout=1.0)
+        self.assertEqual(qdrant_module._EMBEDDING_INFLIGHT, {})
+
     async def test_search_qdrant_uses_hf_auth_token(self) -> None:
         from kindly_web_search_mcp_server.search.qdrant import search_qdrant
         from kindly_web_search_mcp_server.search import qdrant as qdrant_module
@@ -47,9 +84,10 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
                 "https://chmielvu-web-index.hf.space",
             ),
             patch.object(qdrant_module.settings, "hf_token", "hf-test-token"),
-            patch(
-                "kindly_web_search_mcp_server.search.qdrant.embed_query",
-                new=AsyncMock(return_value=[0.1, 0.2]),
+            patch.object(
+                qdrant_module,
+                "_EMBEDDER",
+                SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2])),
             ),
             patch(
                 "kindly_web_search_mcp_server.search.qdrant.encode_bm25",
@@ -77,7 +115,9 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
             async def create_collection(self, *args: object, **kwargs: object) -> object:
                 raise RuntimeError("boom")
 
-        index = WebResultsIndex(url="https://example.com", auth_token_provider=lambda: "hf-test-token")
+        index = WebResultsIndex(
+            url="https://example.com", auth_token_provider=lambda: "hf-test-token"
+        )
 
         with patch.object(index, "_ensure_client", return_value=FakeClient()):
             with self.assertRaises(RuntimeError):

@@ -34,7 +34,8 @@ def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    assert len(tools) == 15
+    # TOOL_COVERAGE has a duplicate grok_search entry, so the set is 14 unique tools.
+    assert len(tools) == 14
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
     assert "grok_search" in tools
@@ -52,7 +53,7 @@ def test_reference_external_tools_lists_companion_clis() -> None:
 
     assert "duckdb" in commands
     assert "wsl gcx" in commands
-    assert "langfuse" in commands
+    assert "arize-phoenix" in commands
 
 
 def test_global_profile_flows_into_json_meta() -> None:

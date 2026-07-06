@@ -38,15 +38,11 @@ def _parse_gradio_response(raw_json: dict[str, Any]) -> list[dict[str, Any]]:
     """
     data_field = raw_json.get("data")
     if not isinstance(data_field, list) or not data_field:
-        raise WhisperClientError(
-            "Whisper Space returned no 'data' array in response"
-        )
+        raise WhisperClientError("Whisper Space returned no 'data' array in response")
 
     payload_str = data_field[0]
     if not isinstance(payload_str, str):
-        raise WhisperClientError(
-            "Whisper Space data[0] is not a string"
-        )
+        raise WhisperClientError("Whisper Space data[0] is not a string")
 
     try:
         payload = json.loads(payload_str)
@@ -69,11 +65,13 @@ def _parse_gradio_response(raw_json: dict[str, Any]) -> list[dict[str, Any]]:
         text = str(seg.get("text", "")).strip()
         if not text:
             continue
-        segments.append({
-            "text": text,
-            "start": float(seg.get("start", 0.0)),
-            "duration": float(seg.get("duration", 0.0)),
-        })
+        segments.append(
+            {
+                "text": text,
+                "start": float(seg.get("start", 0.0)),
+                "duration": float(seg.get("duration", 0.0)),
+            }
+        )
 
     if not segments:
         return [{"text": payload_str.strip(), "start": 0.0, "duration": 0.0}]
@@ -103,11 +101,12 @@ async def fetch_whisper_transcript(
     space_url = settings.whisper_space_url.strip()
     if not space_url:
         raise WhisperClientError(
-            "WHISPER_SPACE_URL is not configured. "
-            "Set it to a Whisper HF Space URL."
+            "WHISPER_SPACE_URL is not configured. Set it to a Whisper HF Space URL."
         )
 
-    timeout = timeout_seconds if timeout_seconds is not None else settings.whisper_space_timeout_seconds
+    timeout = (
+        timeout_seconds if timeout_seconds is not None else settings.whisper_space_timeout_seconds
+    )
     api_url = _build_space_url(space_url)
     body = {"data": [youtube_url]}
 
@@ -117,13 +116,9 @@ async def fetch_whisper_transcript(
             resp.raise_for_status()
             raw = resp.json()
     except httpx.TimeoutException as exc:
-        raise WhisperClientError(
-            f"Whisper Space request timed out after {timeout}s"
-        ) from exc
+        raise WhisperClientError(f"Whisper Space request timed out after {timeout}s") from exc
     except httpx.HTTPStatusError as exc:
-        raise WhisperClientError(
-            f"Whisper Space returned HTTP {exc.response.status_code}"
-        ) from exc
+        raise WhisperClientError(f"Whisper Space returned HTTP {exc.response.status_code}") from exc
     except Exception as exc:
         raise WhisperClientError(
             f"Whisper Space request failed: {type(exc).__name__}: {exc}"
@@ -146,11 +141,12 @@ def fetch_whisper_transcript_sync(
     space_url = settings.whisper_space_url.strip()
     if not space_url:
         raise WhisperClientError(
-            "WHISPER_SPACE_URL is not configured. "
-            "Set it to a Whisper HF Space URL."
+            "WHISPER_SPACE_URL is not configured. Set it to a Whisper HF Space URL."
         )
 
-    timeout = timeout_seconds if timeout_seconds is not None else settings.whisper_space_timeout_seconds
+    timeout = (
+        timeout_seconds if timeout_seconds is not None else settings.whisper_space_timeout_seconds
+    )
     api_url = _build_space_url(space_url)
     body = {"data": [youtube_url]}
 
@@ -160,13 +156,9 @@ def fetch_whisper_transcript_sync(
             resp.raise_for_status()
             raw = resp.json()
     except httpx.TimeoutException as exc:
-        raise WhisperClientError(
-            f"Whisper Space request timed out after {timeout}s"
-        ) from exc
+        raise WhisperClientError(f"Whisper Space request timed out after {timeout}s") from exc
     except httpx.HTTPStatusError as exc:
-        raise WhisperClientError(
-            f"Whisper Space returned HTTP {exc.response.status_code}"
-        ) from exc
+        raise WhisperClientError(f"Whisper Space returned HTTP {exc.response.status_code}") from exc
     except Exception as exc:
         raise WhisperClientError(
             f"Whisper Space request failed: {type(exc).__name__}: {exc}"

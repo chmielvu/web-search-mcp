@@ -47,9 +47,7 @@ class TestHackerNewsProvider(unittest.IsolatedAsyncioTestCase):
                 }
             ]
         }
-        client = SimpleNamespace(
-            get=AsyncMock(side_effect=[story_response, comment_response])
-        )
+        client = SimpleNamespace(get=AsyncMock(side_effect=[story_response, comment_response]))
 
         async def fake_run_provider(
             _provider_name,

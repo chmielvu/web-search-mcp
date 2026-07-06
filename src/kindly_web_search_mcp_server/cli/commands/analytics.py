@@ -105,4 +105,3 @@ def report_cmd(
 
 def register(app: typer.Typer) -> None:
     app.add_typer(analytics_app, name="analytics")
-

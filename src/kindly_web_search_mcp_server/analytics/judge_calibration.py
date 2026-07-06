@@ -54,7 +54,7 @@ def _fetch_judge_scores(
                    source_quality_score,
                    overall_score
             FROM judge_evaluations
-            WHERE run_key IN ({','.join('?' for _ in run_keys)})
+            WHERE run_key IN ({",".join("?" for _ in run_keys)})
             """,
             run_keys,
         ).fetchall()

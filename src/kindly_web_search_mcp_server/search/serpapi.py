@@ -162,17 +162,12 @@ async def search_serpapi(
 
     # Single engine: direct pass-through
     if len(engines) == 1:
-        return await _search_one_engine(
-            query, engines[0], api_key, num_results, http_client
-        )
+        return await _search_one_engine(query, engines[0], api_key, num_results, http_client)
 
     # Multi-engine: parallel gather, concatenate all results
     async def _do_search() -> list[WebSearchResult]:
         engine_results_raw = await asyncio.gather(
-            *[
-                _search_one_engine(query, e, api_key, num_results, http_client)
-                for e in engines
-            ],
+            *[_search_one_engine(query, e, api_key, num_results, http_client) for e in engines],
             return_exceptions=True,
         )
 

@@ -53,7 +53,7 @@ def extract_html_metadata(
             attrs["name"] = name
         if property:
             attrs["property"] = property
-        tag = soup.find("meta", attrs=attrs)
+        tag = soup.find("meta", attrs=attrs)  # type: ignore[call-overload]
         content = tag.get("content") if tag else None
         return content.strip() if isinstance(content, str) and content.strip() else ""
 
@@ -65,9 +65,7 @@ def extract_html_metadata(
             metadata[key] = value
 
     canonical = ""
-    link = soup.find(
-        "link", attrs={"rel": lambda value: value and "canonical" in value}
-    )
+    link = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})  # type: ignore[call-overload]
     if link:
         href = link.get("href")
         canonical = href.strip() if isinstance(href, str) and href.strip() else ""
@@ -145,9 +143,7 @@ def extract_sitemap_links(
     base_domain = _safe_domain(base_url)
     links: list[dict[str, str | bool]] = []
     seen: set[str] = set()
-    for raw_url in re.findall(
-        r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S
-    ):
+    for raw_url in re.findall(r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S):
         candidate = raw_url.strip()
         if not candidate:
             continue

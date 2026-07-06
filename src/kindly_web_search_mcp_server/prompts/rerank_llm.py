@@ -86,9 +86,7 @@ def build_llm_rerank_messages(
             _render_template(template.suffix, query=query),
         ]
     )
-    system_content = (
-        f"{system_header(REASONING_EFFORT_LOW)}\n\n{template.system_message}"
-    )
+    system_content = f"{system_header(REASONING_EFFORT_LOW)}\n\n{template.system_message}"
     return [
         {"role": "system", "content": system_content},
         {"role": "user", "content": user_content},

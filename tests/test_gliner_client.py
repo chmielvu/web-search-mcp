@@ -123,6 +123,7 @@ async def test_threshold_propagation(monkeypatch):
     monkeypatch.setenv("GLINER_THRESHOLD", "0.75")
     # Direct os.environ to guarantee resolve_threshold sees it even if prior tests left snapshot
     import os
+
     os.environ["GLINER_THRESHOLD"] = "0.75"
 
     # Ensure fresh client so settings/env snapshot in client sees monkeypatch
@@ -160,9 +161,7 @@ async def test_disabled_returns_empty_and_no_load(monkeypatch):
     assert ents == []
 
     # ensure we never tried to touch gliner2
-    assert "gliner2" not in sys.modules or not hasattr(
-        sys.modules.get("gliner2"), "GLiNER2"
-    )
+    assert "gliner2" not in sys.modules or not hasattr(sys.modules.get("gliner2"), "GLiNER2")
 
 
 @pytest.mark.asyncio
@@ -170,6 +169,7 @@ async def test_extract_error_emits_event_and_returns_empty(monkeypatch, caplog):
     """Enabled but broken -> explicit error event, never silent, returns [] ."""
     monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "true")
     import os
+
     os.environ["ENTITY_EXTRACTION_ENABLED"] = "true"
 
     # reset singleton so load path is exercised with the failing from_pretrained
@@ -203,8 +203,12 @@ async def test_extract_error_emits_event_and_returns_empty(monkeypatch, caplog):
 
             assert ents == []
             # must have emitted an error event (load failure path)
-            assert any("entity" in (ev[0] or "") for ev in captured_events), f"no entity events: {captured_events}"
-            assert any("error" in (ev[0] or "") or "failure" in str(ev[1]) for ev in captured_events)
+            assert any("entity" in (ev[0] or "") for ev in captured_events), (
+                f"no entity events: {captured_events}"
+            )
+            assert any(
+                "error" in (ev[0] or "") or "failure" in str(ev[1]) for ev in captured_events
+            )
 
 
 def test_get_gliner_client_is_singleton(monkeypatch):

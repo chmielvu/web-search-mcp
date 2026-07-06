@@ -274,7 +274,7 @@ def run_eval_case(
         gold = [c.get("link") or "" for c in sources[:3]]
         j4 = judge_ranking_quality(
             case.query,
-            ranked,
+            ranked,  # type: ignore[arg-type]
             gold,
             eval_run_id=run_id,
             eval_case_id=case_id,

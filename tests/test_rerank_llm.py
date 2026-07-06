@@ -25,7 +25,9 @@ def _build_candidates(count: int) -> list[WebSearchResult]:
     ]
 
 
-def _make_fake_worker(content: str, endpoint: str = "cerebras", model: str = "cerebras/openai/gpt-oss-120b"):
+def _make_fake_worker(
+    content: str, endpoint: str = "cerebras", model: str = "cerebras/openai/gpt-oss-120b"
+):
     """Build a fake LLMWorker that mocks complete_text_messages."""
     return SimpleNamespace(
         complete_text_messages=AsyncMock(

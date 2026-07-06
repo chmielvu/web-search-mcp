@@ -1,7 +1,7 @@
 """Tests for Telegram search provider (mocked Telethon)."""
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from kindly_web_search_mcp_server.search.telegram import (
     search_telegram,
@@ -55,6 +55,7 @@ class TestSearchTelegram(unittest.IsolatedAsyncioTestCase):
     @patch("kindly_web_search_mcp_server.search.telegram_client.get_telethon_client")
     async def test_no_config_returns_empty(self, mock_client):
         from kindly_web_search_mcp_server.search.telegram_client import TelegramConfigError
+
         mock_client.side_effect = TelegramConfigError("not configured")
         result = await search_telegram("test", num_results=5)
         self.assertEqual(result, [])

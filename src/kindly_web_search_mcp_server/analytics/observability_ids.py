@@ -6,9 +6,7 @@ from typing import Any
 
 
 def _stable_hash(value: Any, *, length: int = 16) -> str:
-    raw = json.dumps(value, ensure_ascii=True, sort_keys=True, default=str).encode(
-        "utf-8"
-    )
+    raw = json.dumps(value, ensure_ascii=True, sort_keys=True, default=str).encode("utf-8")
     return sha256(raw).hexdigest()[:length]
 
 
@@ -30,4 +28,3 @@ def _field(result: Any, name: str, default: Any = None) -> Any:
     if isinstance(result, dict):
         return result.get(name, default)
     return getattr(result, name, default)
-

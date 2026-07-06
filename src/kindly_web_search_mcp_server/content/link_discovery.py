@@ -73,9 +73,7 @@ async def discover_links(
         }
 
     if fetched.is_pdf:
-        fetched_domain = (
-            urlparse(fetched.fetched_url).netloc if fetched.fetched_url else ""
-        )
+        fetched_domain = urlparse(fetched.fetched_url).netloc if fetched.fetched_url else ""
         return {
             "input_url": url,
             "normalized_url": normalized,
@@ -93,9 +91,7 @@ async def discover_links(
     if strip_selectors:
         html = strip_html_selectors(html, strip_selectors)
 
-    metadata = extract_html_metadata(
-        html, page_url=url, fetched_url=fetched.fetched_url
-    )
+    metadata = extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
     sitemapish = bool("urlset" in html.lower() and "<loc" in html.lower())
     max_links = max(1, max_links)
     link_limit = max_links + 1

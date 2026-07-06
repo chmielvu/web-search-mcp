@@ -115,18 +115,14 @@ def _metadata_richness(paper: AcademicPaper) -> int:
 def _merge_two(existing: AcademicPaper, incoming: AcademicPaper) -> AcademicPaper:
     """Merge two papers that refer to the same work, keeping the best fields."""
     return AcademicPaper(
-        title=existing.title
-        if len(existing.title) >= len(incoming.title)
-        else incoming.title,
+        title=existing.title if len(existing.title) >= len(incoming.title) else incoming.title,
         authors=existing.authors
         if len(existing.authors) >= len(incoming.authors)
         else incoming.authors,
         abstract=existing.abstract or incoming.abstract,
         year=existing.year if existing.year is not None else incoming.year,
         venue=existing.venue or incoming.venue,
-        citations=existing.citations
-        if existing.citations is not None
-        else incoming.citations,
+        citations=existing.citations if existing.citations is not None else incoming.citations,
         url=existing.url,
         pdf_url=existing.pdf_url or incoming.pdf_url,
         source=existing.source,
@@ -142,9 +138,7 @@ def _merge_two(existing: AcademicPaper, incoming: AcademicPaper) -> AcademicPape
     )
 
 
-def _merge_dicts(
-    a: dict[str, str] | None, b: dict[str, str] | None
-) -> dict[str, str] | None:
+def _merge_dicts(a: dict[str, str] | None, b: dict[str, str] | None) -> dict[str, str] | None:
     if not a and not b:
         return None
     merged = {}
@@ -170,9 +164,7 @@ def _resolve_sources(sources: list[str] | None) -> list[str]:
     if sources is None:
         return ["arxiv", "semanticscholar"]  # Default: both free-ish providers
 
-    requested = {
-        s.lower().replace("-", "").replace("_", "").replace(" ", "") for s in sources
-    }
+    requested = {s.lower().replace("-", "").replace("_", "").replace(" ", "") for s in sources}
     normalized = set()
     for r in requested:
         if r in ("semanticscholar", "s2", "semantic"):
@@ -263,9 +255,7 @@ async def run_academic_search(
                 msg = "ArXiv returned empty (no matches)"
                 logger.info(msg)
                 warnings.append(
-                    ProviderWarning(
-                        provider="arxiv", error=msg, error_type="empty_results"
-                    )
+                    ProviderWarning(provider="arxiv", error=msg, error_type="empty_results")
                 )
         except Exception as e:
             logger.warning(f"ArXiv search failed: {e}")
@@ -294,9 +284,7 @@ async def run_academic_search(
                 msg = "OpenAlex returned empty (no matches)"
                 logger.info(msg)
                 warnings.append(
-                    ProviderWarning(
-                        provider="openalex", error=msg, error_type="empty_results"
-                    )
+                    ProviderWarning(provider="openalex", error=msg, error_type="empty_results")
                 )
         except Exception as e:
             logger.warning(f"OpenAlex search failed: {e}")
@@ -323,9 +311,7 @@ async def run_academic_search(
                 msg = "CrossRef returned empty (no matches)"
                 logger.info(msg)
                 warnings.append(
-                    ProviderWarning(
-                        provider="crossref", error=msg, error_type="empty_results"
-                    )
+                    ProviderWarning(provider="crossref", error=msg, error_type="empty_results")
                 )
         except Exception as e:
             logger.warning(f"CrossRef search failed: {e}")
@@ -352,9 +338,7 @@ async def run_academic_search(
                 msg = "PubMed returned empty (no matches)"
                 logger.info(msg)
                 warnings.append(
-                    ProviderWarning(
-                        provider="pubmed", error=msg, error_type="empty_results"
-                    )
+                    ProviderWarning(provider="pubmed", error=msg, error_type="empty_results")
                 )
         except Exception as e:
             logger.warning(f"PubMed search failed: {e}")
@@ -382,9 +366,7 @@ async def run_academic_search(
                 msg = "CORE returned empty (no API key or no matches)"
                 logger.info(msg)
                 warnings.append(
-                    ProviderWarning(
-                        provider="core", error=msg, error_type="empty_results"
-                    )
+                    ProviderWarning(provider="core", error=msg, error_type="empty_results")
                 )
         except Exception as e:
             logger.warning(f"CORE search failed: {e}")

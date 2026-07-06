@@ -76,9 +76,7 @@ def insert_web_search_tool_call(*, db_path: str | None = None, **kwargs: Any) ->
     )
 
 
-def insert_web_search_response_results(
-    *, db_path: str | None = None, **kwargs: Any
-) -> None:
+def insert_web_search_response_results(*, db_path: str | None = None, **kwargs: Any) -> None:
     columns = [
         "tool_call_id",
         "run_key",
@@ -155,9 +153,7 @@ def insert_branch_candidates(*, db_path: str | None = None, **kwargs: Any) -> No
     )
 
 
-def insert_provider_health_transition(
-    *, db_path: str | None = None, **kwargs: Any
-) -> None:
+def insert_provider_health_transition(*, db_path: str | None = None, **kwargs: Any) -> None:
     columns = [
         "provider",
         "transition",

@@ -15,13 +15,17 @@ class TestArxivParsing(unittest.TestCase):
         self.assertEqual(parse_arxiv_url("https://arxiv.org/pdf/2205.01491"), "2205.01491")
         self.assertEqual(parse_arxiv_url("https://arxiv.org/pdf/2205.01491.pdf"), "2205.01491")
         self.assertEqual(parse_arxiv_url("https://arxiv.org/abs/2205.01491v2"), "2205.01491v2")
-        self.assertEqual(parse_arxiv_url("https://arxiv.org/pdf/2205.01491v2.pdf?download=1"), "2205.01491v2")
+        self.assertEqual(
+            parse_arxiv_url("https://arxiv.org/pdf/2205.01491v2.pdf?download=1"), "2205.01491v2"
+        )
 
     def test_parse_arxiv_url_legacy_id(self) -> None:
         from kindly_web_search_mcp_server.content.arxiv import parse_arxiv_url
 
         self.assertEqual(parse_arxiv_url("https://arxiv.org/abs/hep-th/9901001"), "hep-th/9901001")
-        self.assertEqual(parse_arxiv_url("https://arxiv.org/pdf/hep-th/9901001v1.pdf"), "hep-th/9901001v1")
+        self.assertEqual(
+            parse_arxiv_url("https://arxiv.org/pdf/hep-th/9901001v1.pdf"), "hep-th/9901001v1"
+        )
 
     def test_parse_arxiv_url_rejects_non_arxiv(self) -> None:
         from kindly_web_search_mcp_server.content.arxiv import ArxivError, parse_arxiv_url

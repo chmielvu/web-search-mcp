@@ -19,7 +19,9 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..analytics.observability_store import insert_branch_attempts as analytics_insert_branch_attempts
+from ..analytics.observability_store import (
+    insert_branch_attempts as analytics_insert_branch_attempts,
+)
 from .intents import SearchIntent
 
 from .options import SearchOptions
@@ -144,17 +146,14 @@ async def execute_search_branches(
     )
     semaphore = asyncio.Semaphore(concurrency)
 
-    branch_attempt_ids = {
-        spec.index: str(uuid.uuid4()) for spec in selected_branches
-    }
+    branch_attempt_ids = {spec.index: str(uuid.uuid4()) for spec in selected_branches}
 
     async def _run_branch(spec: SearchBranchSpec) -> SearchBranchResult:
         async with semaphore:
             branch_attempt_id = branch_attempt_ids[spec.index]
             start = time.perf_counter()
-            provider_options_by_name = (
-                spec.provider_options_by_name
-                or (provider_plan.options.bundles if provider_plan else None)
+            provider_options_by_name = spec.provider_options_by_name or (
+                provider_plan.options.bundles if provider_plan else None
             )
             resolved_configs: list = []
             if spec.providers and provider_plan:
@@ -176,7 +175,7 @@ async def execute_search_branches(
                     deadline_seconds=settings.provider_group_deadline_seconds,
                     search_options=search_options,
                     provider_options_by_name=provider_options_by_name,
-                    **dispatch_kwargs,
+                    **dispatch_kwargs,  # type: ignore[arg-type]
                 )
                 status = "completed"
                 error_type = None
@@ -214,9 +213,7 @@ async def execute_search_branches(
             )
 
     branch_coros = [_run_branch(spec) for spec in selected_branches]
-    branch_results: list[SearchBranchResult] = list(
-        await asyncio.gather(*branch_coros)
-    )
+    branch_results: list[SearchBranchResult] = list(await asyncio.gather(*branch_coros))
 
     if run_key:
         try:

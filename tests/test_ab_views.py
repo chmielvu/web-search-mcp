@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -132,6 +131,7 @@ class TestABViews:
             assert row[6] == 4  # assignment_count
             assert row[7] == 4  # unique_run_count
             import pytest
+
             assert row[8] == pytest.approx(0.815, abs=1e-9)  # avg_primary_metric
             assert row[9] == pytest.approx(0.825, abs=1e-9)  # avg_secondary_metric
             assert row[10] == pytest.approx(161.25, abs=1e-9)  # avg_duration_ms
@@ -247,6 +247,7 @@ class TestABViews:
             assert ctrl[1] == "control"
             assert ctrl[2] == 2  # run_count
             import pytest
+
             assert ctrl[3] == pytest.approx(0.735, abs=1e-9)  # avg_primary_metric
             assert ctrl[4] == pytest.approx(0.79, abs=1e-9)  # avg_secondary_metric
             assert ctrl[5] == pytest.approx(117.5, abs=1e-9)  # avg_duration_ms
@@ -303,6 +304,7 @@ class TestABViews:
             assert r0[6] == -5.0
             # control avg judge = (0.82+0.79)/2 = 0.805, delta = 0.82-0.805 = 0.015
             import pytest
+
             assert r0[7] == pytest.approx(0.015, abs=1e-9)
 
             # shadow-002: control, 130ms, judge 0.79

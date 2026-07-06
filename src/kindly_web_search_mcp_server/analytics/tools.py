@@ -57,9 +57,7 @@ def register_analytics_tools(mcp: Any) -> None:
         except Exception as exc:
             return format_tool_error(exc, provider="analytics_report")
 
-        await ctx.info(
-            f"Analytics report {report_name} returned {table.num_rows} rows"
-        )
+        await ctx.info(f"Analytics report {report_name} returned {table.num_rows} rows")
         return {
             "report": report_name,
             "days": days,

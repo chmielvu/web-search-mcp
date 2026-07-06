@@ -60,6 +60,7 @@ def test_policy_bypass_harmful_query_class(monkeypatch):
 
 def test_policy_emits_eligibility_and_bypass_events(monkeypatch, caplog):
     import logging
+
     caplog.set_level(logging.INFO)
     from kindly_web_search_mcp_server.rerank.policy import decide_rerank
 

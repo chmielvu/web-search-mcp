@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastmcp.server.middleware import MiddlewareContext
 from fastmcp.tools.base import ToolResult
@@ -19,16 +20,33 @@ from kindly_web_search_mcp_server.middleware.query_guidance import (
 class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
     async def test_dynamic_guidance_on_web_search_with_results(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
-            return ToolResult(structured_content={
-                "query": "fastmcp",
-                "results": [
-                    {"title": "t1", "link": "https://github.com/org/repo/issues/1", "snippet": "...", "provider_count": 1},
-                    {"title": "t2", "link": "https://github.com/org/repo/issues/2", "snippet": "...", "provider_count": 1},
-                    {"title": "t3", "link": "https://github.com/org/repo/issues/3", "snippet": "...", "provider_count": 1},
-                ],
-                "providers_used": ["searxng", "ddg"],
-                "total_results": 3,
-            })
+            return ToolResult(
+                structured_content={
+                    "query": "fastmcp",
+                    "results": [
+                        {
+                            "title": "t1",
+                            "link": "https://github.com/org/repo/issues/1",
+                            "snippet": "...",
+                            "provider_count": 1,
+                        },
+                        {
+                            "title": "t2",
+                            "link": "https://github.com/org/repo/issues/2",
+                            "snippet": "...",
+                            "provider_count": 1,
+                        },
+                        {
+                            "title": "t3",
+                            "link": "https://github.com/org/repo/issues/3",
+                            "snippet": "...",
+                            "provider_count": 1,
+                        },
+                    ],
+                    "providers_used": ["searxng", "ddg"],
+                    "total_results": 3,
+                }
+            )
 
         context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
         result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
@@ -49,15 +67,21 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
 
     async def test_dynamic_guidance_on_web_search_empty(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
-            return ToolResult(structured_content={
-                "query": "xyzzy",
-                "results": [],
-                "providers_used": ["searxng"],
-                "total_results": 0,
-            })
+            return ToolResult(
+                structured_content={
+                    "query": "xyzzy",
+                    "results": [],
+                    "providers_used": ["searxng"],
+                    "total_results": 0,
+                }
+            )
 
         context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
-        result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
+        with patch(
+            "kindly_web_search_mcp_server.middleware.query_guidance._gemini_is_healthy",
+            return_value=True,
+        ):
+            result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
 
         structured = result.structured_content
         guidance = structured["agent_guidance"][0]
@@ -66,14 +90,16 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
 
     async def test_dynamic_guidance_on_get_content_truncated(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
-            return ToolResult(structured_content={
-                "input_url": "https://example.com",
-                "status": "success",
-                "source_type": "html",
-                "fetch_backend": "safe_http_extract",
-                "page_content": "x" * 500,
-                "window": {"has_more": True, "next_offset": 8000},
-            })
+            return ToolResult(
+                structured_content={
+                    "input_url": "https://example.com",
+                    "status": "success",
+                    "source_type": "html",
+                    "fetch_backend": "safe_http_extract",
+                    "page_content": "x" * 500,
+                    "window": {"has_more": True, "next_offset": 8000},
+                }
+            )
 
         context = MiddlewareContext(message=SimpleNamespace(name="get_content"))
         result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)

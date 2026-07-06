@@ -37,7 +37,7 @@ class LLMRouter:
         for endpoint in self.endpoints:
             try:
                 request_kwargs: dict[str, Any] = {
-                    "model": endpoint.model,
+                    "model": endpoint.litellm_model,
                     "messages": messages,
                     "temperature": temperature,
                     "api_base": endpoint.base_url,
@@ -54,7 +54,7 @@ class LLMRouter:
                     request_kwargs["reasoning_effort"] = reasoning_effort
                 with openinference_context_scope(langfuse):
                     response = await acompletion(**request_kwargs)
-                content = response.choices[0].message.content or ""
+                content = response.choices[0].message.content or ""  # type: ignore[union-attr]
                 if content.strip():
                     return LLMGeneration(
                         endpoint=endpoint,

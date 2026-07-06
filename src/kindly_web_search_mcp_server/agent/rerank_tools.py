@@ -23,7 +23,7 @@ def _to_result(candidate: Any) -> WebSearchResult:
         snippet=str(candidate.get("snippet", "")).strip(),
         domain=candidate.get("domain"),
         published_date=candidate.get("published_date"),
-        providers=[candidate.get("provider")] if candidate.get("provider") else None,
+        providers=[str(candidate["provider"])] if candidate.get("provider") else None,
         raw_score=candidate.get("raw_score"),
         score=candidate.get("score"),
     )

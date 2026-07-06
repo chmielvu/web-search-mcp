@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Any
 
 from ..settings import settings
 from .intents import SearchIntent, normalize_intent
@@ -43,7 +44,7 @@ class IntentSearchPolicy:
 
 
 # Base shared policy kwargs (no category overrides — each intent sets its own).
-_BASE_POLICY_KWARGS = dict(
+_BASE_POLICY_KWARGS: dict[str, Any] = dict(
     provider_weights=_merge_weights(),
     rewrite_temperature=0.0,
 )

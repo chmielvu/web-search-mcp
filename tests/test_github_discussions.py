@@ -62,7 +62,10 @@ class TestGitHubDiscussions(unittest.TestCase):
             "category": {"name": "Q&A", "slug": "q-a"},
             "upvoteCount": 7,
             "isAnswered": True,
-            "answer": {"id": "C_1", "url": "https://github.com/o/r/discussions/1#discussioncomment-1"},
+            "answer": {
+                "id": "C_1",
+                "url": "https://github.com/o/r/discussions/1#discussioncomment-1",
+            },
             "activeLockReason": None,
         }
         comments = [

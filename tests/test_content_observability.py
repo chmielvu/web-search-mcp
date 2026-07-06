@@ -17,9 +17,7 @@ class TestContentObservability(unittest.TestCase):
         with patch(
             "kindly_web_search_mcp_server.content.status_classifier.emit_observability_event"
         ) as emit_event:
-            result = classify_markdown(
-                "Access denied. Please verify you are human with captcha."
-            )
+            result = classify_markdown("Access denied. Please verify you are human with captcha.")
 
         self.assertEqual(result.status, "blocked")
         self.assertEqual(emit_event.call_args.args[1], "content.status.classified")

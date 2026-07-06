@@ -110,7 +110,12 @@ def test_run_search_pipeline_rewrites_searches_and_reranks() -> None:
                 None,
             )
             mock_execute.return_value = batch
-            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(
+                results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[
+                    : kwargs.get("top_k", 10)
+                ],
+                embedding_context=None,
+            )
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             response = await run_search_pipeline(
@@ -197,7 +202,12 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
                 return batch
 
             mock_execute.side_effect = _execute
-            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(
+                results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[
+                    : kwargs.get("top_k", 10)
+                ],
+                embedding_context=None,
+            )
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             await run_search_pipeline(
@@ -254,7 +264,12 @@ def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
         ):
             mock_understanding.return_value = _understanding()
             mock_execute.return_value = batch
-            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[:kwargs.get("top_k", 10)], embedding_context=None)
+            mock_rerank.side_effect = lambda *args, **kwargs: RerankOutput(
+                results=kwargs.get("candidates", args[1] if len(args) > 1 else [])[
+                    : kwargs.get("top_k", 10)
+                ],
+                embedding_context=None,
+            )
             mock_entities.side_effect = lambda *args, **kwargs: kwargs.get("results", [])
 
             response = await run_search_pipeline(
@@ -275,5 +290,3 @@ def test_run_search_pipeline_without_rewrite_keeps_original_query() -> None:
         assert mock_entities.awaited
 
     asyncio.run(_run())
-
-

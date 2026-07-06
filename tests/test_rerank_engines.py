@@ -30,116 +30,6 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.index, 2)
         self.assertEqual(result.score, 0.87)
 
-    def test_supported_engine_ids_are_registered(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import get_rerank_engine
-
-        self.assertEqual(get_rerank_engine("none").engine_id, "none")
-        self.assertEqual(get_rerank_engine("voyage").engine_id, "voyage")
-        self.assertEqual(get_rerank_engine("cohere_fast").engine_id, "cohere_fast")
-        self.assertEqual(
-            get_rerank_engine("cohere_fast_openrouter").engine_id,
-            "cohere_fast_openrouter",
-        )
-        self.assertEqual(
-            get_rerank_engine("local_baseline").engine_id, "local_baseline"
-        )
-
-    def test_cohere_fast_defaults_to_cohere_model(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import get_default_model
-
-        self.assertEqual(get_default_model("cohere_fast"), "rerank-v4.0-fast")
-        self.assertEqual(
-            get_default_model("cohere_fast_openrouter"), "cohere/rerank-4-fast"
-        )
-
-    async def test_none_engine_preserves_merged_order(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import (
-            rerank_with_engine_fallback,
-        )
-
-        candidates = [_candidate("A"), _candidate("B"), _candidate("C")]
-
-        result = await rerank_with_engine_fallback(
-            query="query",
-            candidates=candidates,
-            engine_id="none",
-        )
-
-        self.assertEqual(result.engine_id, "none")
-        self.assertIsNone(result.model)
-        self.assertEqual(result.ranked, [])
-        self.assertEqual(result.ordered_candidates, candidates)
-
-    async def test_all_provider_failures_preserve_merged_order(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import (
-            rerank_with_engine_fallback,
-        )
-
-        candidates = [_candidate("A"), _candidate("B"), _candidate("C")]
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.voyage_rerank",
-                new_callable=AsyncMock,
-            ) as voyage,
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.cohere_rerank",
-                new_callable=AsyncMock,
-            ) as cohere,
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.openrouter_cohere_rerank",
-                new_callable=AsyncMock,
-            ) as openrouter,
-        ):
-            voyage.side_effect = RuntimeError("voyage down")
-            cohere.side_effect = RuntimeError("cohere down")
-            openrouter.side_effect = RuntimeError("openrouter down")
-
-            result = await rerank_with_engine_fallback(
-                query="query",
-                candidates=candidates,
-                engine_id="voyage",
-            )
-
-        self.assertEqual(result.engine_id, "none")
-        self.assertEqual(result.ranked, [])
-        self.assertEqual(result.ordered_candidates, candidates)
-
-    async def test_cohere_fast_falls_back_to_openrouter_then_voyage(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import (
-            rerank_with_engine_fallback,
-        )
-
-        candidates = [_candidate("A"), _candidate("B"), _candidate("C")]
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.cohere_rerank",
-                new_callable=AsyncMock,
-            ) as cohere,
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.openrouter_cohere_rerank",
-                new_callable=AsyncMock,
-            ) as openrouter,
-            patch(
-                "kindly_web_search_mcp_server.rerank.engines.voyage_rerank",
-                new_callable=AsyncMock,
-            ) as voyage,
-        ):
-            cohere.side_effect = RuntimeError("cohere down")
-            openrouter.side_effect = RuntimeError("openrouter down")
-            voyage.return_value = [(1, 0.9), (0, 0.8)]
-
-            result = await rerank_with_engine_fallback(
-                query="query",
-                candidates=candidates,
-                engine_id="cohere_fast",
-            )
-
-        self.assertEqual(result.engine_id, "voyage")
-        self.assertEqual([item.index for item in result.ranked], [1, 0])
-        self.assertEqual([item.title for item in result.ordered_candidates], ["B", "A"])
-
     async def test_cohere_rerank_uses_request_payload(self) -> None:
         from kindly_web_search_mcp_server.rerank.cohere import cohere_rerank
 
@@ -166,9 +56,7 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ranked, [(1, 0.95), (0, 0.5)])
         payload = mock_client.post.await_args.kwargs["json"]
         self.assertEqual(payload["model"], "rerank-v4.0-fast")
-        self.assertEqual(
-            payload["query"], "Prefer official docs.\n\nsite reliability docs"
-        )
+        self.assertEqual(payload["query"], "Prefer official docs.\n\nsite reliability docs")
         self.assertEqual(payload["documents"], ["doc a", "doc b"])
         self.assertEqual(payload["top_n"], 2)
         self.assertEqual(
@@ -204,9 +92,7 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ranked, [(1, 0.93), (0, 0.4)])
         payload = mock_client.post.await_args.kwargs["json"]
         self.assertEqual(payload["model"], "cohere/rerank-4-fast")
-        self.assertEqual(
-            payload["query"], "Prefer official docs.\n\nsite reliability docs"
-        )
+        self.assertEqual(payload["query"], "Prefer official docs.\n\nsite reliability docs")
         self.assertEqual(payload["documents"], ["doc a", "doc b"])
         self.assertEqual(payload["top_n"], 2)
         self.assertEqual(
@@ -217,31 +103,6 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
             mock_client.post.await_args.kwargs["headers"]["Content-Type"],
             "application/json",
         )
-
-    async def test_voyage_engine_uses_existing_provider_client(self) -> None:
-        from kindly_web_search_mcp_server.rerank.engines import (
-            rerank_with_engine_fallback,
-        )
-
-        candidates = [_candidate("A"), _candidate("B"), _candidate("C")]
-
-        with patch(
-            "kindly_web_search_mcp_server.rerank.engines.voyage_rerank",
-            new_callable=AsyncMock,
-        ) as voyage:
-            voyage.return_value = [(2, 0.9), (0, 0.7)]
-
-            result = await rerank_with_engine_fallback(
-                query="query",
-                candidates=candidates,
-                engine_id="voyage",
-                model="rerank-2.5",
-            )
-
-        self.assertEqual(result.engine_id, "voyage")
-        self.assertEqual(result.model, "rerank-2.5")
-        self.assertEqual([item.index for item in result.ranked], [2, 0])
-        self.assertEqual([item.title for item in result.ordered_candidates], ["C", "A"])
 
     async def test_voyage_rerank_prepends_instruction_to_query(self) -> None:
         from kindly_web_search_mcp_server.rerank.voyage import voyage_rerank

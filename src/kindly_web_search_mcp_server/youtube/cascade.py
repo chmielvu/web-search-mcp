@@ -48,9 +48,7 @@ def fetch_transcript_cascade(
         ValueError when backend is not recognized
     """
     if backend not in _VALID_BACKENDS:
-        raise ValueError(
-            f"Unknown backend '{backend}'. Valid: {', '.join(_VALID_BACKENDS)}"
-        )
+        raise ValueError(f"Unknown backend '{backend}'. Valid: {', '.join(_VALID_BACKENDS)}")
 
     errors: list[str] = []
 
@@ -61,12 +59,8 @@ def fetch_transcript_cascade(
             if segments:
                 return segments, "ytdlp"
             if backend == "ytdlp":
-                raise YouTubeError(
-                    f"yt-dlp: no subtitles available for {video_id}"
-                )
-            logger.debug(
-                "yt-dlp returned empty subtitles for %s, trying next", video_id
-            )
+                raise YouTubeError(f"yt-dlp: no subtitles available for {video_id}")
+            logger.debug("yt-dlp returned empty subtitles for %s, trying next", video_id)
         except ImportError:
             errors.append("yt-dlp: not installed")
             logger.debug("yt-dlp not installed, skipping")
@@ -86,9 +80,7 @@ def fetch_transcript_cascade(
     # --- Layer 3: Legacy youtube-transcript-api ---
     if backend in ("auto", "api"):
         try:
-            segments = fetch_transcript_data(
-                video_id, language=language, translate_to=translate_to
-            )
+            segments = fetch_transcript_data(video_id, language=language, translate_to=translate_to)
             return segments, "api"
         except YouTubeError as exc:
             errors.append(f"api: {exc}")
@@ -98,8 +90,7 @@ def fetch_transcript_cascade(
             logger.debug("legacy api unexpected error for %s: %s", video_id, exc)
 
     raise TranscriptBackendError(
-        f"All transcript backends failed for video {video_id}. "
-        f"Errors: {'; '.join(errors)}"
+        f"All transcript backends failed for video {video_id}. Errors: {'; '.join(errors)}"
     )
 
 

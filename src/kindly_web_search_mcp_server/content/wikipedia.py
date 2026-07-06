@@ -136,27 +136,17 @@ def _strip_wikipedia_html_noise(html: str) -> str:
         return str(soup)
     except Exception:
         # Regex fallback (not perfect, but avoids extra deps).
-        html = re.sub(
-            r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL
-        )
-        html = re.sub(
-            r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL
-        )
+        html = re.sub(r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL)
+        html = re.sub(r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL)
         return html
 
 
 def _looks_like_disambiguation(html: str) -> bool:
     lowered = html.lower()
-    return (
-        'id="disambigbox"' in lowered
-        or "dmbox-disambig" in lowered
-        or "mw-disambig" in lowered
-    )
+    return 'id="disambigbox"' in lowered or "dmbox-disambig" in lowered or "mw-disambig" in lowered
 
 
-def _extract_disambiguation_links(
-    html: str, *, max_links: int = 25
-) -> list[tuple[str, str]]:
+def _extract_disambiguation_links(html: str, *, max_links: int = 25) -> list[tuple[str, str]]:
     """
     Best-effort extraction of options from a disambiguation page.
     Returns list of (text, href).
@@ -167,7 +157,7 @@ def _extract_disambiguation_links(
         soup = BeautifulSoup(html, "html.parser")
         out: list[tuple[str, str]] = []
         for a in soup.select(".mw-parser-output a[href^='/wiki/']"):
-            href = a.get("href")
+            href = str(a.get("href") or "")
             text = a.get_text(" ", strip=True)
             if not href or not text:
                 continue
@@ -229,9 +219,7 @@ class WikipediaApiClient:
             except Exception:
                 delay = 2
             await anyio.sleep(min(max(delay, 1), 30))
-            resp = await self._http.get(
-                target.api_base_url, params=params, headers=headers
-            )
+            resp = await self._http.get(target.api_base_url, params=params, headers=headers)
 
         resp.raise_for_status()
         data = resp.json()
@@ -305,9 +293,7 @@ async def fetch_wikipedia_article_markdown(
         cleaned_html = _strip_wikipedia_html_noise(html)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
-        md = await anyio.to_thread.run_sync(
-            partial(extract_content_as_markdown, cleaned_html)
-        )
+        md = await anyio.to_thread.run_sync(partial(extract_content_as_markdown, cleaned_html))  # type: ignore[attr-defined]
         cleaned_html = ""
         md = sanitize_markdown(md)
 

@@ -114,12 +114,8 @@ class ProviderHealthTracker:
         state.last_error_type = None
 
         if was_open_or_half:
-            record_circuit_breaker_event(
-                provider_name, "reset", self._failure_threshold
-            )
-            logger.info(
-                "provider_health: %s circuit RESET after success", provider_name
-            )
+            record_circuit_breaker_event(provider_name, "reset", self._failure_threshold)
+            logger.info("provider_health: %s circuit RESET after success", provider_name)
         record_circuit_breaker_state(provider_name, "closed", 0)
 
         logger.debug(
@@ -198,12 +194,8 @@ class ProviderHealthTracker:
         if state.consecutive_failures >= self._failure_threshold:
             state.circuit_state = "open"
             state.opened_at = now
-            record_circuit_breaker_state(
-                provider_name, "open", state.consecutive_failures
-            )
-            record_circuit_breaker_event(
-                provider_name, "trip", self._failure_threshold
-            )
+            record_circuit_breaker_state(provider_name, "open", state.consecutive_failures)
+            record_circuit_breaker_event(provider_name, "trip", self._failure_threshold)
             logger.warning(
                 "provider_health: %s circuit OPEN after %d failures (cooldown %.1fs)",
                 provider_name,
@@ -211,9 +203,7 @@ class ProviderHealthTracker:
                 cooldown_s,
             )
         else:
-            record_circuit_breaker_state(
-                provider_name, "closed", state.consecutive_failures
-            )
+            record_circuit_breaker_state(provider_name, "closed", state.consecutive_failures)
 
         logger.warning(
             "provider_health: %s failure #%d (%s) — cooldown %.1fs until %s",
@@ -226,9 +216,13 @@ class ProviderHealthTracker:
         try:
             insert_provider_health_transition(
                 provider=provider_name,
-                transition="open" if state.consecutive_failures >= self._failure_threshold else "cooldown",
+                transition="open"
+                if state.consecutive_failures >= self._failure_threshold
+                else "cooldown",
                 run_key=get_current_run_key(),
-                status="open" if state.consecutive_failures >= self._failure_threshold else "closed",
+                status="open"
+                if state.consecutive_failures >= self._failure_threshold
+                else "closed",
                 consecutive_failures=state.consecutive_failures,
                 cooldown_seconds=round(cooldown_s, 3),
                 cooldown_remaining_s=round(max(0.0, state.cooldown_until - now), 3),
@@ -275,12 +269,8 @@ class ProviderHealthTracker:
             if time.monotonic() >= state.cooldown_until:
                 # Cooldown expired — transition to half_open
                 state.circuit_state = "half_open"
-                record_circuit_breaker_state(
-                    provider_name, "half_open", state.consecutive_failures
-                )
-                record_circuit_breaker_event(
-                    provider_name, "half_open", self._failure_threshold
-                )
+                record_circuit_breaker_state(provider_name, "half_open", state.consecutive_failures)
+                record_circuit_breaker_event(provider_name, "half_open", self._failure_threshold)
                 logger.info(
                     "provider_health: %s circuit HALF_OPEN (cooldown expired)",
                     provider_name,
@@ -359,9 +349,7 @@ class ProviderHealthTracker:
             self._states[provider_name] = _ProviderState()
         return self._states[provider_name]
 
-    def _cooldown_seconds(
-        self, consecutive_failures: int, *, is_rate_limit: bool = False
-    ) -> float:
+    def _cooldown_seconds(self, consecutive_failures: int, *, is_rate_limit: bool = False) -> float:
         """Exponential backoff with error-type-specific parameters."""
         if is_rate_limit:
             # Rate limits: start at 60s, double each time, cap at 300s

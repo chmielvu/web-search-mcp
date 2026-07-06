@@ -89,7 +89,9 @@ async def rerank_results(
             output_count=len(candidates),
             duration_seconds=0.0,
         )
-        return RerankOutput(results=candidates, embedding_context=None, provider="bypass", model=None)
+        return RerankOutput(
+            results=candidates, embedding_context=None, provider="bypass", model=None
+        )
 
     if ab_overrides:
         if "top_k" in ab_overrides:
@@ -133,7 +135,9 @@ async def rerank_results(
             query=query[:200],
             candidate_count=len(candidates),
         )
-        return RerankOutput(results=candidates, embedding_context=None, provider="bypass", model=None)
+        return RerankOutput(
+            results=candidates, embedding_context=None, provider="bypass", model=None
+        )
 
     original_count = len(candidates)
     pipeline_start = time.time()
@@ -177,7 +181,16 @@ async def rerank_results(
         },
     ) as main_span:
         stage1_output_count = original_count
-        if query_embedding and len(candidates) > top_k * 2:
+        bi_encoder_min_candidates = getattr(
+            settings,
+            "rerank_bi_encoder_min_candidates",
+            top_k * 2 + 1,
+        )
+        if (
+            query_embedding
+            and len(candidates) > top_k * 2
+            and len(candidates) >= bi_encoder_min_candidates
+        ):
             bi_encoder_top_k = top_k * 3
             stage1_start = time.time()
             before_bi_encoder = list(candidates)
@@ -231,9 +244,13 @@ async def rerank_results(
                 run_key=run_key,
                 main_span=main_span,
                 logger=logger,
-                ab_entity_boost=float(ab_overrides["entity_boost"]) if ab_overrides and "entity_boost" in ab_overrides else None,
+                ab_entity_boost=float(ab_overrides["entity_boost"])
+                if ab_overrides and "entity_boost" in ab_overrides
+                else None,
             )
-            if cross_outcome.error is not None and not getattr(cross_outcome, "relevance_scores", []):
+            if cross_outcome.error is not None and not getattr(
+                cross_outcome, "relevance_scores", []
+            ):
                 logger.warning(
                     "All rerank providers failed; preserving merged candidate order: %s",
                     cross_outcome.error,
@@ -259,9 +276,13 @@ async def rerank_results(
                 session_id=session_id or run_key,
                 main_span=main_span,
                 logger=logger,
-                ab_entity_boost=float(ab_overrides["entity_boost"]) if ab_overrides and "entity_boost" in ab_overrides else None,
+                ab_entity_boost=float(ab_overrides["entity_boost"])
+                if ab_overrides and "entity_boost" in ab_overrides
+                else None,
             )
-            if getattr(llm_outcome, "relevance_scores", []) or getattr(llm_outcome, "output_count", 0):
+            if getattr(llm_outcome, "relevance_scores", []) or getattr(
+                llm_outcome, "output_count", 0
+            ):
                 candidates = llm_outcome.candidates
                 max_rerank_score = llm_outcome.max_score
                 final_provider = llm_outcome.provider
@@ -273,7 +294,9 @@ async def rerank_results(
             candidates=candidates,
             top_k=top_k,
             embedding_ctx=embedding_ctx,
-            mmr_lambda=float(ab_overrides["diversity_weight"]) if ab_overrides and "diversity_weight" in ab_overrides else settings.mmr_lambda_param,
+            mmr_lambda=float(ab_overrides["diversity_weight"])
+            if ab_overrides and "diversity_weight" in ab_overrides
+            else settings.mmr_lambda_param,
             logger=logger,
             run_key=run_key,
             searxng_time_range=searxng_time_range,
@@ -286,9 +309,7 @@ async def rerank_results(
         # position so downstream consumers (analytics, threshold filter) see
         # score-order consistency.
         for position, candidate in enumerate(candidates):
-            candidates[position] = candidate.model_copy(
-                update={"score": math.exp(-0.3 * position)}
-            )
+            candidates[position] = candidate.model_copy(update={"score": math.exp(-0.3 * position)})
         record_diversity_stage(
             input_count=diversity_result.input_count,
             output_count=diversity_result.output_count,
@@ -299,16 +320,16 @@ async def rerank_results(
             else settings.mmr_lambda_param,
             run_key=run_key,
             query_type_hint=query_type_hint,
-            entity_overlap_enabled=getattr(
-                settings, "rerank_entity_overlap_enabled", False
-            ),
+            entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
             main_span=main_span,
             logger=logger,
         )
 
         score_threshold = settings.rerank_score_threshold
         final_results = [
-            result for result in candidates if result.score is None or result.score >= score_threshold
+            result
+            for result in candidates
+            if result.score is None or result.score >= score_threshold
         ][:top_k]
 
         main_span.set_attribute("rerank.final_count", len(final_results))

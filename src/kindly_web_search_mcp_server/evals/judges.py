@@ -85,14 +85,14 @@ def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
     model = model or getattr(settings, "JUDGE_MODEL", None) or "gpt-4o-mini"
     try:
         resp = litellm.completion(
-            model=model,
+            model=model,  # type: ignore[arg-type]
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=300,
             # force json if provider supports
             response_format={"type": "json_object"},
         )
-        content = resp.choices[0].message.content or ""
+        content = resp.choices[0].message.content or ""  # type: ignore[union-attr]
         return content
     except Exception as exc:
         LOGGER.debug("judge llm call failed: %s", exc)
@@ -267,7 +267,7 @@ def _persist_judge_call(
                 eval_run_id=eval_run_id,
                 eval_case_id=eval_case_id,
                 run_key=run_key,
-                model=model,
+                model=model,  # type: ignore[arg-type]
             )
         finally:
             con.close()
@@ -290,7 +290,7 @@ def _send_to_langfuse(
 
         lf = get_langfuse_client()
         # create or attach trace for the eval case
-        trace = lf.trace(
+        trace = lf.trace(  # type: ignore[attr-defined]
             name=f"eval.judge.{metric_name}",
             metadata={
                 "eval_run_id": eval_run_id,

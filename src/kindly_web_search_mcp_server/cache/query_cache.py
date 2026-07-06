@@ -14,21 +14,15 @@ from .observability import emit_cache_lookup_event, emit_cache_store_event
 
 logger = logging.getLogger(__name__)
 
-QUERY_CACHE_DEFAULT_TTL_SECONDS = int(
-    os.environ.get("QUERY_CACHE_TTL_SECONDS", "86400")
-)
-QUERY_CACHE_DEFAULT_MAX_ENTRIES = int(
-    os.environ.get("QUERY_CACHE_MAX_ENTRIES", "1024")
-)
+QUERY_CACHE_DEFAULT_TTL_SECONDS = int(os.environ.get("QUERY_CACHE_TTL_SECONDS", "86400"))
+QUERY_CACHE_DEFAULT_MAX_ENTRIES = int(os.environ.get("QUERY_CACHE_MAX_ENTRIES", "1024"))
 
 
 def provider_cache_key(providers: list[str] | None) -> str:
     """Normalize the caller-specified provider set for cache identity."""
     if not providers:
         return "default"
-    normalized = sorted(
-        {provider.strip().lower() for provider in providers if provider.strip()}
-    )
+    normalized = sorted({provider.strip().lower() for provider in providers if provider.strip()})
     return ",".join(normalized) if normalized else "default"
 
 
@@ -82,9 +76,7 @@ class ExactQueryCache:
         duration = time.time() - start_time
 
         if response is None:
-            record_cache_lookup(
-                cache_type="exact", hit=False, duration_seconds=duration
-            )
+            record_cache_lookup(cache_type="exact", hit=False, duration_seconds=duration)
             emit_cache_lookup_event(
                 logger,
                 "exact",

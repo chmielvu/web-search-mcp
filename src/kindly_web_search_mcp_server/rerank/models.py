@@ -49,6 +49,7 @@ class RerankProvider(Protocol):
         instruction: str | None = None,
     ) -> list[RerankResult]:
         """Return ranked candidate indexes with relevance scores."""
+        ...
 
 
 # =============================================================================

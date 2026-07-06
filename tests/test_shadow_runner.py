@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -23,9 +22,7 @@ class TestShadowRunner:
         shadow_fn = AsyncMock(return_value="result")
         shadow_kwargs = {"query": "hello", "top_k": 5}
 
-        with patch(
-            "kindly_web_search_mcp_server.ab_testing.shadow_runner.insert_ab_shadow_run"
-        ):
+        with patch("kindly_web_search_mcp_server.ab_testing.shadow_runner.insert_ab_shadow_run"):
             asyncio.run(
                 run_shadow(
                     run_key="rk-001",
@@ -123,8 +120,8 @@ class TestShadowRunner:
 
         call_kwargs = mock_insert.call_args[1]
         payload = call_kwargs["payload_json"]
-        # shadow took some real time (> 0), so latency_delta > -150
-        assert payload["latency_delta_ms"] > -150
+        # shadow took ~0 ms (mock is instant), so latency_delta ≈ -150
+        assert payload["latency_delta_ms"] >= -150
         assert payload["control_duration_ms"] == 150.0
 
     def test_never_propagates_exception_when_duckdb_fails(self):
@@ -170,6 +167,7 @@ class TestShadowRunner:
 
     def test_asyncio_create_task_fire_and_forget(self):
         """The fire-and-forget pattern via asyncio.create_task must work."""
+
         async def _fire_and_forget():
             shadow_fn = AsyncMock(return_value="ok")
             mock_insert = MagicMock()

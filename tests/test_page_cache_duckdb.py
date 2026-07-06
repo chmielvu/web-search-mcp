@@ -2,6 +2,7 @@
 
 Written first as failing test per joint plan.
 """
+
 from __future__ import annotations
 
 import sys

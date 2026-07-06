@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import kindly_web_search_mcp_server.search.provider_config as _pc_module
 from kindly_web_search_mcp_server.search.provider_config import (
     PROVIDER_REGISTRY,
     ProviderConfig,
@@ -23,12 +24,15 @@ class TestProviderConfig(unittest.TestCase):
         self._providers_enabled = settings.providers_enabled
         self._disabled_providers = settings.disabled_providers
         self._registry_snapshot = PROVIDER_REGISTRY.copy()
+        self._orig_rr_cursor = _pc_module._SERP_PAID_RR_CURSOR
+        _pc_module._SERP_PAID_RR_CURSOR = 0
 
     def tearDown(self) -> None:
         settings.providers_enabled = self._providers_enabled
         settings.disabled_providers = self._disabled_providers
         PROVIDER_REGISTRY.clear()
         PROVIDER_REGISTRY.update(self._registry_snapshot)
+        _pc_module._SERP_PAID_RR_CURSOR = self._orig_rr_cursor
 
     def test_provider_is_available_no_env_key(self) -> None:
         config = ProviderConfig(

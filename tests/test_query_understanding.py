@@ -15,9 +15,7 @@ class TestQueryUnderstanding(IsolatedAsyncioTestCase):
         result = QueryUnderstandingResult(
             intent="comparison",
             confidence=0.88,
-            entities=[
-                EntitySpan(text="FastAPI", label="package", start=0, end=7, confidence=0.9)
-            ],
+            entities=[EntitySpan(text="FastAPI", label="package", start=0, end=7, confidence=0.9)],
             preserved_terms=["FastAPI", "Pydantic"],
             compared_entities=["FastAPI", "Starlette"],
             rationale="Compare frameworks.",

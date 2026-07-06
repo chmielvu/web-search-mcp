@@ -14,15 +14,13 @@ def build_provider_call_kwargs(
     search_options: SearchOptions | None,
     provider_arguments: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    signature = inspect.signature(provider_fn)
+    signature = inspect.signature(provider_fn)  # type: ignore[arg-type]
     accepts_kwargs = any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in signature.parameters.values()
     )
     kwargs: dict[str, object] = {}
-    if search_options is not None and (
-        "search_options" in signature.parameters or accepts_kwargs
-    ):
+    if search_options is not None and ("search_options" in signature.parameters or accepts_kwargs):
         kwargs["search_options"] = search_options
     if not provider_arguments:
         return kwargs
@@ -39,7 +37,5 @@ def build_provider_call_kwargs(
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         }
     }
-    kwargs.update(
-        {key: value for key, value in provider_arguments.items() if key in allowed}
-    )
+    kwargs.update({key: value for key, value in provider_arguments.items() if key in allowed})
     return kwargs

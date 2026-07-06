@@ -203,6 +203,10 @@ QDRANT_SEARCH_ENABLED="true"       # Enable Qdrant result memory
 ```bash
 RERANK_STACK_MODE="bi_cross_llm"          # bi_cross | bi_llm | bi_cross_llm
 RERANK_PROVIDER="voyage"                  # voyage | cohere_fast | jina | gcp_cloudrun | local_baseline | none
+RERANK_BI_ENCODER_MIN_CANDIDATES="0"      # Extra absolute gate; top_k overfetch guard still applies
+RERANK_BI_ENCODER_TIMEOUT_SECONDS="15.0"  # Single-attempt timeout for candidate embedding shortlist calls
+RERANK_BI_ENCODER_TEXT_MAX_CHARS="384"    # Bounded title/snippet text sent for candidate embeddings
+RERANK_BI_ENCODER_BATCH_SIZE="64"         # Normal rerank windows fit in one bounded embedding request
 RERANK_LLM_CANDIDATE_LIMIT="12"           # Max candidates sent to the GPT-OSS worker ladder
 RERANK_LLM_TIMEOUT_SECONDS="60.0"         # Timeout for the LLM reranker stage
 VOYAGE_API_KEY="..."                       # Voyage reranker auth
@@ -213,7 +217,7 @@ COHERE_RERANK_BASE_URL="https://api.cohere.com/v2/rerank"
 COHERE_RERANK_TIMEOUT="30.0"
 ```
 
-`RERANK_STACK_MODE="bi_llm"` uses the existing GPT-OSS 120B worker ladder that is already configured for query understanding/rewrite routing. `bi_cross_llm` runs the cross-encoder first, then the GPT-OSS reranker on the narrowed candidate set. The default repo/runtime mode now uses `bi_cross_llm` so the LLM reranker is exercised in the normal path.
+`RERANK_STACK_MODE="bi_llm"` uses the existing GPT-OSS 120B worker ladder that is already configured for query understanding/rewrite routing. `bi_cross_llm` runs the bi-encoder shortlist, cross-encoder, GPT-OSS reranker, and diversity stages in the normal path when candidate overfetch justifies reranking. The HF bi-encoder uses bounded title/snippet text and a single normal-window batch; the singleton `AsyncInferenceClient` is reused for connection pooling while per-caller wrappers (Qdrant embedder, bi-encoder batch semaphore) throttle their own traffic.
 
 #### Observability
 

@@ -28,9 +28,7 @@ def _resolve_timeout_seconds(http_client: Any) -> float | None:
     write = getattr(timeout_obj, "write", None)
     pool = getattr(timeout_obj, "pool", None)
     candidates = [
-        value
-        for value in (connect, read, write, pool)
-        if isinstance(value, (int, float))
+        value for value in (connect, read, write, pool) if isinstance(value, (int, float))
     ]
     if not candidates:
         return None
@@ -42,9 +40,7 @@ def _extract_result_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(results_container, list):
         return results_container
     if not isinstance(results_container, dict):
-        raise ComposioLLMSearchError(
-            "Composio LLM Search response was not a results object."
-        )
+        raise ComposioLLMSearchError("Composio LLM Search response was not a results object.")
 
     citations = results_container.get("citations")
     if isinstance(citations, list):

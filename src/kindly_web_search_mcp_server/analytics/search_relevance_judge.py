@@ -71,8 +71,10 @@ def _format_rewrite_variants(rewrite_variants: list[Any] | None) -> str:
     for i, v in enumerate(rewrite_variants):
         query = getattr(v, "query", "") or (v.get("query", "") if isinstance(v, dict) else "")
         kind = getattr(v, "kind", "") or (v.get("kind", "") if isinstance(v, dict) else "")
-        raw_weight = getattr(v, "weight", None) if hasattr(v, "weight") else (
-            v.get("weight", None) if isinstance(v, dict) else None
+        raw_weight = (
+            getattr(v, "weight", None)
+            if hasattr(v, "weight")
+            else (v.get("weight", None) if isinstance(v, dict) else None)
         )
         weight_str = f" (weight={raw_weight:.2f})" if raw_weight is not None else ""
         lines.append(f"  [{i}] {query} [{kind}]{weight_str}")
@@ -164,14 +166,16 @@ class SearchRelevanceJudge:
             if rewrites_text:
                 prompt_parts.append(f"Rewritten query variants:\n{rewrites_text}")
 
-        prompt_parts.extend([
-            "",
-            "--- Search results ---",
-            results_text,
-            "--- End results ---",
-            "",
-            "Evaluate the relevance of these search results to the query.",
-        ])
+        prompt_parts.extend(
+            [
+                "",
+                "--- Search results ---",
+                results_text,
+                "--- End results ---",
+                "",
+                "Evaluate the relevance of these search results to the query.",
+            ]
+        )
 
         user_prompt = "\n".join(prompt_parts)
 
@@ -187,9 +191,7 @@ class SearchRelevanceJudge:
             )
 
             relevance_raw, reasoning = _parse_relevance_response(generation.content)
-            duration_ms = round(
-                (asyncio.get_event_loop().time() - start) * 1000.0, 3
-            )
+            duration_ms = round((asyncio.get_event_loop().time() - start) * 1000.0, 3)
             relevance_score = (relevance_raw - 1) / 3.0  # Normalize to 0.0-1.0
 
             return SearchRelevanceResult(
@@ -198,15 +200,13 @@ class SearchRelevanceJudge:
                 reasoning=reasoning,
                 judge_model=self.model,
                 duration_ms=duration_ms,
-                input_tokens=generation.input_tokens,
-                output_tokens=generation.output_tokens,
+                input_tokens=generation.input_tokens,  # type: ignore[attr-defined]
+                output_tokens=generation.output_tokens,  # type: ignore[attr-defined]
             )
 
         except Exception as exc:
             logger.debug("relevance judge failed: %s", exc)
-            duration_ms = round(
-                (asyncio.get_event_loop().time() - start) * 1000.0, 3
-            )
+            duration_ms = round((asyncio.get_event_loop().time() - start) * 1000.0, 3)
             return SearchRelevanceResult(
                 relevance_raw=1,
                 relevance_score=0.0,

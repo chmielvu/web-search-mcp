@@ -45,12 +45,14 @@ def test_init_telemetry_background_returns_daemon_thread(monkeypatch) -> None:
 def test_otlp_endpoint_resolution_and_header_parsing() -> None:
     from kindly_web_search_mcp_server import telemetry
 
-    assert telemetry._resolve_otlp_signal_endpoint(
-        "traces", base_endpoint="https://example.com/otlp"
-    ) == "https://example.com/otlp/v1/traces"
-    assert telemetry._parse_otlp_headers(
-        "Authorization=Basic%20abc, x-trace-id: 123"
-    ) == {"Authorization": "Basic abc", "x-trace-id": "123"}
+    assert (
+        telemetry._resolve_otlp_signal_endpoint("traces", base_endpoint="https://example.com/otlp")
+        == "https://example.com/otlp/v1/traces"
+    )
+    assert telemetry._parse_otlp_headers("Authorization=Basic%20abc, x-trace-id: 123") == {
+        "Authorization": "Basic abc",
+        "x-trace-id": "123",
+    }
 
 
 def test_phoenix_headers_use_hf_token_when_present(monkeypatch) -> None:
@@ -64,9 +66,7 @@ def test_phoenix_headers_use_hf_token_when_present(monkeypatch) -> None:
     assert telemetry.build_hf_space_headers(hf_token="hf_test_token") == {
         "Authorization": "Bearer hf_test_token"
     }
-    assert telemetry._resolve_phoenix_headers() == {
-        "Authorization": "Bearer hf_test_token"
-    }
+    assert telemetry._resolve_phoenix_headers() == {"Authorization": "Bearer hf_test_token"}
 
 
 def test_phoenix_headers_preserve_explicit_authorization(monkeypatch) -> None:

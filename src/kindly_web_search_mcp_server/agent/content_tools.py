@@ -116,11 +116,9 @@ async def _get_content(
     if summary_mode in {"brief", "detailed"}:
         payload["summary"] = await create_summary(
             sliced.content,
-            mode=summary_mode,
+            mode=summary_mode,  # type: ignore[arg-type]
             focus_query=focus_query,
-            source_urls=[
-                artifact.fetched_url or artifact.normalized_url or artifact.input_url
-            ],
+            source_urls=[artifact.fetched_url or artifact.normalized_url or artifact.input_url],
         )
     if not include_metadata:
         payload["metadata"] = None
@@ -163,15 +161,14 @@ async def _batch_get_content(
     if summary_mode in {"brief", "detailed"}:
         summaries = await create_batch_summaries(
             output["results"],
-            mode=summary_mode,
+            mode=summary_mode,  # type: ignore[arg-type]
             focus_query=focus_query,
             max_concurrency=max_concurrency,
         )
         return {
             **output,
             "results": [
-                {**item, "summary": summaries[idx]}
-                for idx, item in enumerate(output["results"])
+                {**item, "summary": summaries[idx]} for idx, item in enumerate(output["results"])
             ],
         }
     return output

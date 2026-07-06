@@ -25,7 +25,9 @@ class TestWikipedia(unittest.TestCase):
     def test_mobile_host_normalization(self) -> None:
         from kindly_web_search_mcp_server.content.wikipedia import parse_wikipedia_url
 
-        target = parse_wikipedia_url("https://en.m.wikipedia.org/wiki/Python_(programming_language)")
+        target = parse_wikipedia_url(
+            "https://en.m.wikipedia.org/wiki/Python_(programming_language)"
+        )
         self.assertEqual(target.host, "en.wikipedia.org")
 
     def test_render_truncation_marker(self) -> None:

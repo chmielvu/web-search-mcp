@@ -29,6 +29,10 @@ rerank/
 - The default repo/runtime path is `bi_cross_llm`
 - The pipeline still supports bi-encoder, cross-encoder, and optional LLM
   rerank stages
+- The bi-encoder shortlist runs for normal overfetch windows by default. Keep
+  candidate embedding text bounded (`RERANK_BI_ENCODER_TEXT_MAX_CHARS`) and
+  normal windows in one batch (`RERANK_BI_ENCODER_BATCH_SIZE`) so the stage
+  remains functional without stampeding the shared HF embedding client.
 - Diversity is applied after candidate scoring/ordering
 
 ## Testing

@@ -38,8 +38,7 @@ def test_chunk_text_basic_offsets_and_content():
     text = (
         "First paragraph with some content here.\n\n"
         "Second paragraph continues the text for chunking tests. "
-        "We need enough characters to cross chunk boundaries reliably.\n\n"
-        + ("filler text " * 100)
+        "We need enough characters to cross chunk boundaries reliably.\n\n" + ("filler text " * 100)
     )
     chunks = chunk_text(text, chunk_size=120, overlap=20)
     assert len(chunks) >= 2
@@ -55,7 +54,9 @@ def test_chunk_text_basic_offsets_and_content():
 
 def test_offset_correction_pattern():
     """Tests the offset correction pattern used by gliner client and integrators."""
-    raw = "Header text here. Package FastAPI v0.100.0 is mentioned after this point in the document."
+    raw = (
+        "Header text here. Package FastAPI v0.100.0 is mentioned after this point in the document."
+    )
     chunk_offset = 18  # simulate second chunk starting here
     raw[chunk_offset:]
     # Simulated local entities returned by model on the *chunk* text only
@@ -67,9 +68,7 @@ def test_offset_correction_pattern():
     for e in local_entities:
         new_start = e.start + chunk_offset if e.start is not None else None
         new_end = e.end + chunk_offset if e.end is not None else None
-        corrected.append(
-            e.model_copy(update={"start": new_start, "end": new_end})
-        )
+        corrected.append(e.model_copy(update={"start": new_start, "end": new_end}))
     assert corrected[0].start == 26
     assert corrected[0].end == 33
     assert corrected[1].start == 34
