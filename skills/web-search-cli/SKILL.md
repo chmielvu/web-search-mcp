@@ -47,9 +47,7 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `content batch` | Fetch multiple URLs with a total content budget. |
 | `links discover` | Discover links on a page or sitemap. |
 | `links similar` | Find similar links to a known good URL (Composio). |
-| `images search` | Run an image search via Composio. |
 | `ai gemini` | Run a Gemini-grounded search with citations. |
-| `ai perplexity` | Run a Perplexity Sonar search with citations. |
 | `ai grok` | Run a Grok (OpenRouter) live search with citations. |
 | `agent research` | Run an agentic, multi-step web research session. |
 | `youtube search` | Search YouTube videos via the SearXNG YouTube engine. |
@@ -230,19 +228,6 @@ Find similar links to a known good URL (Composio `similarlinks`).
 web-search-cli links similar --url "https://docs.python.org/3/library/asyncio-task.html" --num-results 8
 ```
 
-### `images search`
-
-Run an image search via Composio.
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--query` | string (required) | — | Image search query. |
-| `--num-results` | int | `10` | Number of images to return. |
-| `--page` | int | `0` | Pagination page index. |
-
-```powershell
-web-search-cli images search --query "kindly logo" --num-results 5
-```
 
 ### `ai gemini`
 
@@ -259,19 +244,6 @@ via Gemini).
 web-search-cli ai gemini --query "what changed in python 3.13 asyncio"
 ```
 
-### `ai perplexity`
-
-Run a Perplexity Sonar search with citations (via the Pollinations gateway).
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--query` | string (required) | — | Search query text. |
-| `--depth` | `normal` \| `deep` | `normal` | Sonar reasoning depth. |
-| `--research-goal` | string | — | Optional research goal. |
-
-```powershell
-web-search-cli ai perplexity --query "compare sqlite vs duckdb for embedded analytics" --depth deep
-```
 
 ### `ai grok`
 

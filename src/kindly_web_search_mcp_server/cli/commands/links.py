@@ -12,6 +12,7 @@ from ..services.link_tools import (
     fetch_discover_links_payload,
     fetch_similar_links_payload,
 )
+from ..runtime import run_cli_async
 
 
 links_app = typer.Typer(no_args_is_help=True)
@@ -35,7 +36,7 @@ def discover_cmd(
     ] = None,
 ) -> None:
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_discover_links_payload(
                 url,
                 max_links=max_links,
@@ -73,7 +74,7 @@ def similar_cmd(
     exclude_domain: Annotated[list[str] | None, typer.Option("--exclude-domain")] = None,
 ) -> None:
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_similar_links_payload(
                 url,
                 num_results=num_results,

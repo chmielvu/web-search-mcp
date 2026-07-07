@@ -10,6 +10,7 @@ from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..services.content_batch import fetch_batch_content_payload
 from ..services.content import fetch_content_payload
+from ..runtime import run_cli_async
 
 
 content_app = typer.Typer(no_args_is_help=True)
@@ -44,7 +45,7 @@ def get_cmd(
 ) -> None:
     """Fetch one known URL with bounded windowing."""
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_content_payload(
                 url,
                 char_offset=char_offset,
@@ -117,7 +118,7 @@ def batch_cmd(
     Use focus_query to bias summaries toward a topic, term, or comparison.
     """
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_batch_content_payload(
                 urls=url,
                 cursor=cursor,

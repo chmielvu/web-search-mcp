@@ -21,6 +21,8 @@ async def fetch_web_search_payload(
     searxng_safesearch: int | None = None,
     site_filters: list[str] | None = None,
     domain_filters: list[str] | None = None,
+    domain_boost: list[str] | None = None,
+    domain_block: list[str] | None = None,
 ) -> dict[str, Any]:
     search_options = build_search_options(
         result_offset=result_offset,
@@ -41,4 +43,10 @@ async def fetch_web_search_payload(
         research_goal=research_goal,
         search_options=search_options,
     )
-    return response.model_dump(exclude_none=True)
+    payload = response.model_dump(exclude_none=True)
+    if domain_boost or domain_block:
+        from ...tools._helpers import _apply_domain_filters
+        payload["results"] = _apply_domain_filters(
+            payload.get("results", []), domain_boost, domain_block
+        )
+    return payload

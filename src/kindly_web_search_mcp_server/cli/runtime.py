@@ -51,3 +51,30 @@ def set_runtime(
 
 def get_runtime() -> CliRuntime:
     return _RUNTIME
+
+def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
+    """Run a CLI command coroutine to completion, then drain background tasks and shut down the write executor."""
+    import asyncio
+    from typing import Coroutine, Any
+
+    async def _runner() -> Any:
+        try:
+            return await coro
+        finally:
+            from ..utils.background_tasks import drain_background_tasks
+            from ..analytics.async_writes import shutdown_duckdb_write_executor
+            from ..settings import settings
+
+            try:
+                await drain_background_tasks(
+                    name_prefixes=("analytics.",),
+                    timeout_seconds=settings.analytics_shutdown_drain_timeout_seconds,
+                )
+            except Exception:
+                pass
+            try:
+                shutdown_duckdb_write_executor(wait=True)
+            except Exception:
+                pass
+
+    return asyncio.run(_runner())

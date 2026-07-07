@@ -6051,7 +6051,7 @@ requires-dist = [
     { name = "habanero", specifier = ">=1.0.0" },
     { name = "html2text", specifier = ">=2024.2.26" },
     { name = "httpx" },
-    { name = "huggingface-hub", specifier = ">=1.0.0" },
+    { name = "huggingface-hub", specifier = ">=0.28.0" },
     { name = "instructor", specifier = ">=1.0.0" },
     { name = "judges", specifier = ">=0.1.1" },
     { name = "langchain", specifier = ">=1.3.2" },

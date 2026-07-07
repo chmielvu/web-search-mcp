@@ -8,6 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..runtime import run_cli_async
 
 
 search_app = typer.Typer(no_args_is_help=True)
@@ -21,7 +22,7 @@ def quick_cmd(
     from ..services.quick_search import fetch_quick_web_search_payload
 
     try:
-        payload = asyncio.run(fetch_quick_web_search_payload(query))
+        payload = run_cli_async(fetch_quick_web_search_payload(query))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -69,12 +70,20 @@ def web_cmd(
     ] = None,
     site_filter: Annotated[list[str] | None, typer.Option("--site-filter")] = None,
     domain_filter: Annotated[list[str] | None, typer.Option("--domain-filter")] = None,
+    domain_boost: Annotated[
+        list[str] | None,
+        typer.Option("--domain-boost", help="Domains to boost (move to front)."),
+    ] = None,
+    domain_block: Annotated[
+        list[str] | None,
+        typer.Option("--domain-block", help="Domains to exclude (remove entirely)."),
+    ] = None,
 ) -> None:
     """Run the full multi-provider web search pipeline."""
     from ..services.search_web import fetch_web_search_payload
 
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_web_search_payload(
                 query,
                 num_results=num_results,
@@ -89,6 +98,8 @@ def web_cmd(
                 searxng_safesearch=searxng_safesearch,
                 site_filters=site_filter,
                 domain_filters=domain_filter,
+                domain_boost=domain_boost,
+                domain_block=domain_block,
             )
         )
     except ValueError as exc:
@@ -132,7 +143,7 @@ def academic_cmd(
     from ..services.academic import fetch_academic_search_payload
 
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_academic_search_payload(
                 query,
                 limit=limit,

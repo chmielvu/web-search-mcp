@@ -8,6 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..runtime import run_cli_async
 
 
 agent_app = typer.Typer(no_args_is_help=True)
@@ -24,7 +25,7 @@ def research_cmd(
     from ...agent.runner import run_agentic_web_research
 
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             run_agentic_web_research(
                 AgenticResearchRequest(
                     query=query,

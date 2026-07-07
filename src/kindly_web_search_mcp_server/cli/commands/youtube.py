@@ -12,6 +12,7 @@ from ..services.youtube import (
     fetch_youtube_search_payload,
     fetch_youtube_transcript_payload,
 )
+from ..runtime import run_cli_async
 
 
 youtube_app = typer.Typer(no_args_is_help=True)
@@ -23,7 +24,7 @@ def search_cmd(
     num_results: Annotated[int, typer.Option("--num-results")] = 5,
 ) -> None:
     try:
-        payload = asyncio.run(fetch_youtube_search_payload(query, num_results=num_results))
+        payload = run_cli_async(fetch_youtube_search_payload(query, num_results=num_results))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -53,7 +54,7 @@ def transcript_cmd(
     ] = None,
 ) -> None:
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_youtube_transcript_payload(
                 video_id_or_url,
                 language=language,

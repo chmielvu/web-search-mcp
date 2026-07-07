@@ -8,6 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..runtime import run_cli_async
 
 
 ai_app = typer.Typer(no_args_is_help=True)
@@ -25,7 +26,7 @@ def gemini_cmd(
     from ..services.ai import fetch_gemini_search_payload
 
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_gemini_search_payload(
                 query,
                 structured_output=structured_output,
@@ -56,7 +57,7 @@ def grok_cmd(
     from ..services.ai import fetch_grok_search_payload
 
     try:
-        payload = asyncio.run(
+        payload = run_cli_async(
             fetch_grok_search_payload(
                 query,
                 research_goal=research_goal,
