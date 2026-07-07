@@ -241,7 +241,12 @@ def init_telemetry(
             from ..settings import settings as s
 
             phoenix_endpoint = getattr(s, "phoenix_collector_endpoint", "")
-            if phoenix_endpoint:
+            if phoenix_endpoint and _probe_otlp_endpoint(
+                phoenix_endpoint,
+                _resolve_phoenix_headers(),
+                signal="phoenix",
+                quiet=True,
+            ):
                 phoenix_exporter = _LoggingExporterProxy(
                     OTLPSpanExporter(
                         endpoint=phoenix_endpoint,

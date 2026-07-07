@@ -1,5 +1,3 @@
-"""Shared rerank stage helpers."""
-
 from __future__ import annotations
 
 import logging
@@ -17,6 +15,7 @@ from ..embeddings.hf_inference import (
     EmbeddingTimeoutError,
 )
 from ..models import WebSearchResult
+from ..settings import settings
 from .diversity import maximal_marginal_relevance_rank
 from .models import RerankEmbeddingContext
 from .observability import record_rerank_candidate_rows_async
@@ -140,6 +139,7 @@ async def run_diversity_pruning(
     logger: logging.Logger,
     run_key: str | None = None,
     searxng_time_range: str | None = None,
+    fetch_missing_embeddings: bool = True,
 ) -> DiversityStageOutcome:
     if not query_embedding:
         return DiversityStageOutcome(candidates, len(candidates), len(candidates), 0.0, 0)
@@ -151,44 +151,78 @@ async def run_diversity_pruning(
     diversity_removed = 0
     stage_start = time.time()
     try:
-        embeddings = None
+        embeddings: list[list[float] | None] = []
+        missing_indices: list[int] = []
         if embedding_ctx is not None:
-            embeddings = []
-            for candidate in stage_input:
+            for idx, candidate in enumerate(stage_input):
                 emb = embedding_ctx.find(candidate.link.strip())
                 if emb is not None:
                     embeddings.append(emb.dense)
                 else:
-                    embeddings = None
-                    break
-        if embeddings is None:
-            embeddings = await embed_texts(
-                [f"{candidate.title}\n{candidate.snippet}" for candidate in stage_input],
-                timeout=10.0,
-            )
-        if embeddings and len(embeddings) == len(stage_input):
-            relevance_scores = [
-                candidate.score if candidate.score is not None else 0.0 for candidate in stage_input
-            ]
-            diversified_rank = maximal_marginal_relevance_rank(
-                query_embedding,
-                embeddings,
-                [candidate.link for candidate in stage_input],
-                lambda_param=mmr_lambda,
-                max_per_host=2,
-                relevance_scores=relevance_scores,
-            )
-            candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[
-                top_k * 2 :
-            ]
-            stage_output_count = len(candidates)
-            diversity_removed = len(diversified_rank) - len(diversified_rank[: top_k * 2])
+                    embeddings.append(None)
+                    missing_indices.append(idx)
         else:
+            missing_indices = list(range(len(stage_input)))
+            embeddings = [None] * len(stage_input)
+
+        if missing_indices and not fetch_missing_embeddings:
             logger.warning(
-                "Diversity embedding mismatch: got %s, expected %s, skipping diversity stage",
-                len(embeddings) if embeddings else 0,
+                "Diversity embedding fetch skipped after upstream embedding failure "
+                "(missing=%d, stage_input=%d)",
+                len(missing_indices),
                 len(stage_input),
             )
+            return DiversityStageOutcome(
+                candidates,
+                stage_input_count,
+                stage_output_count,
+                time.time() - stage_start,
+                diversity_removed,
+            )
+
+        if missing_indices:
+            missing_texts = [
+                f"{stage_input[idx].title}\n{stage_input[idx].snippet}" for idx in missing_indices
+            ]
+            missing_embeddings = await embed_texts(
+                missing_texts,
+                timeout=settings.embedding_timeout_seconds,
+            )
+            for idx, emb in zip(missing_indices, missing_embeddings, strict=True):
+                embeddings[idx] = emb
+
+        # Defensive: ensure every slot was filled.
+        if any(emb is None for emb in embeddings) or len(embeddings) != len(stage_input):
+            logger.warning(
+                "Diversity embedding mismatch: got %s, expected %s, skipping diversity stage",
+                len([e for e in embeddings if e is not None]),
+                len(stage_input),
+            )
+            return DiversityStageOutcome(
+                candidates,
+                stage_input_count,
+                stage_output_count,
+                time.time() - stage_start,
+                diversity_removed,
+            )
+
+        dense_embeddings = [emb for emb in embeddings if emb is not None]
+        relevance_scores = [
+            candidate.score if candidate.score is not None else 0.0 for candidate in stage_input
+        ]
+        diversified_rank = maximal_marginal_relevance_rank(
+            query_embedding,
+            dense_embeddings,
+            [candidate.link for candidate in stage_input],
+            lambda_param=mmr_lambda,
+            max_per_host=2,
+            relevance_scores=relevance_scores,
+        )
+        candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[
+            top_k * 2 :
+        ]
+        stage_output_count = len(candidates)
+        diversity_removed = len(diversified_rank) - len(diversified_rank[: top_k * 2])
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
         logger.warning("Diversity embedding failed: %s: %s", type(exc).__name__, exc)
     await record_rerank_candidate_rows_async(
@@ -203,9 +237,9 @@ async def run_diversity_pruning(
         },
     )
     return DiversityStageOutcome(
-        candidates=candidates,
-        input_count=stage_input_count,
-        output_count=stage_output_count,
-        duration_seconds=time.time() - stage_start,
-        removed_count=diversity_removed,
+        candidates,
+        stage_input_count,
+        stage_output_count,
+        time.time() - stage_start,
+        diversity_removed,
     )

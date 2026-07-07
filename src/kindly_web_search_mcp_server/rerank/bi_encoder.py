@@ -87,7 +87,7 @@ async def bi_encoder_filter(
     try:
         _embed_t0 = time.time()
         candidate_vectors = await _embed_candidate_texts(candidate_texts)
-        LOGGER.warning(
+        LOGGER.info(
             "bi_encoder embed_texts took %.2fs for %d texts across %d batches",
             time.time() - _embed_t0,
             len(candidate_texts),

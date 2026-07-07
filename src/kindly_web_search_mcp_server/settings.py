@@ -183,7 +183,8 @@ class Settings:
     rerank_gcp_cloudrun_url: str = os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
     rerank_gcp_model: str = os.environ.get("RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3")
     rerank_gcp_timeout: float = float(os.environ.get("RERANK_GCP_TIMEOUT", "30.0"))
-    rerank_score_threshold: float = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.0"))
+    rerank_score_threshold: float = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.15"))
+    rerank_fusion_alpha: float = float(os.environ.get("RERANK_FUSION_ALPHA", "0.7"))
     diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.7"))
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
@@ -206,6 +207,9 @@ class Settings:
     )
 
     analytics_enabled: bool = os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
+    analytics_shutdown_drain_timeout_seconds: float = float(
+        os.environ.get("ANALYTICS_SHUTDOWN_DRAIN_TIMEOUT_SECONDS", "5.0")
+    )
     analytics_duckdb_path: str = os.environ.get(
         "ANALYTICS_DUCKDB_PATH",
         DEFAULT_ANALYTICS_DB,
@@ -340,6 +344,9 @@ class Settings:
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
     brightdata_bing_timeout_seconds: float = float(
         os.environ.get("BRIGHTDATA_BING_TIMEOUT_SECONDS", "10.0")
+    )
+    brightdata_bing_join_grace_seconds: float = float(
+        os.environ.get("BRIGHTDATA_BING_JOIN_GRACE_SECONDS", "0.25")
     )
     brightdata_google_timeout_seconds: float = float(
         os.environ.get("BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS", "20.0")

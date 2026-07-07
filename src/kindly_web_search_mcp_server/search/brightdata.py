@@ -222,6 +222,38 @@ async def _search_bing(
         return []
 
 
+async def _collect_bing_sidecar(
+    bing_future: asyncio.Future[list[WebSearchResult]],
+    *,
+    grace_seconds: float,
+) -> list[WebSearchResult]:
+    """Collect optional Bing sidecar results without blocking Google SERP return."""
+
+    def _ignore_task_exception(task: asyncio.Future[list[WebSearchResult]]) -> None:
+        try:
+            task.exception()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    try:
+        if bing_future.done():
+            return await bing_future
+        if grace_seconds > 0:
+            return await asyncio.wait_for(asyncio.shield(bing_future), timeout=grace_seconds)
+    except asyncio.TimeoutError:
+        logger.debug(
+            "BrightData Bing sidecar did not finish within %.2fs grace",
+            grace_seconds,
+        )
+    except Exception as exc:
+        logger.warning("BrightData Bing failed: %s", exc)
+        return []
+
+    bing_future.cancel()
+    bing_future.add_done_callback(_ignore_task_exception)
+    return []
+
+
 async def search_brightdata(
     query: str,
     *,
@@ -323,13 +355,14 @@ async def search_brightdata(
 
     bing_results: list[WebSearchResult] = []
     if bing_future is not None:
-        try:
-            bing_results = await bing_future
-        except Exception as exc:
-            logger.warning("BrightData Bing failed: %s", exc)
+        bing_results = await _collect_bing_sidecar(
+            bing_future,
+            grace_seconds=max(0.0, settings.brightdata_bing_join_grace_seconds),
+        )
         bing_results = bing_results[:num_results]
 
     merged = google_results + bing_results
     if not merged:
-        raise BrightDataError(f"BrightData returned no results for query={query!r}")
+        logger.debug("BrightData returned no results for query=%r", query)
+        return []
     return merged[:num_results]

@@ -175,7 +175,12 @@ async def _get_hf_client(
         resolved_key = (
             api_key or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")
         )
-        resolved_timeout = timeout if timeout is not None else settings.embedding_timeout_seconds
+        # The singleton's internal HTTP timeout must be the global maximum so that
+        # per-call deadlines (enforced by asyncio.wait_for in embed_texts) are the
+        # only timeout that matters. Passing per-call timeouts here would pin the
+        # client to whatever the first caller requested, causing later calls with
+        # longer deadlines to still hit the first caller's shorter internal timeout.
+        resolved_timeout = settings.embedding_timeout_seconds
 
         _HF_CLIENT = AsyncInferenceClient(
             provider=resolved_provider,  # type: ignore[arg-type]
@@ -259,10 +264,10 @@ async def embed_texts(
     resolved_dim = expected_dim or settings.embedding_dim
     resolved_timeout = timeout if timeout is not None else settings.embedding_timeout_seconds
 
-    # Use singleton client for connection reuse.  Per-call overrides for
-    # provider/api_key/timeout are ignored after the first creation to keep
-    # the singleton stable; in practice these are always set via settings.
-    client = await _get_hf_client(provider=provider, api_key=api_key, timeout=timeout)
+    # Use singleton client for connection reuse. The singleton is created with the
+    # global embedding timeout so per-call timeout overrides only affect the outer
+    # asyncio.wait_for deadline, not the client's internal HTTP timeout.
+    client = await _get_hf_client(provider=provider, api_key=api_key)
 
     max_retries = max_retries if max_retries is not None else settings.embedding_max_retries
     retry_delay = settings.embedding_retry_delay_seconds

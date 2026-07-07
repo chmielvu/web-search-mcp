@@ -6,8 +6,9 @@ Content acquisition, extraction, and conversion to LLM-ready Markdown.
 
 - Specialized resolvers first: `stackexchange.py`, `github_issues.py`,
   `github_discussions.py`, `wikipedia.py`, `arxiv.py`
-- Crawl4AI remote second: `crawl4ai_client.py`, `fetch_pipeline.py`,
-  `batch_orchestrator.py`, `sitemap.py`
+- Tavily Map sitemap discovery first: `tavily_map.py`, `sitemap.py`
+- Crawl4AI remote fallback: `crawl4ai_client.py`, `legacy_sitemap.py`,
+  `fetch_pipeline.py`, `batch_orchestrator.py`
 - Fallback last: `fallback.py` (Jina Reader -> trafilatura)
 
 ## Structure
@@ -27,9 +28,11 @@ content/
 |-- sanitize.py              # Markdown cleanup
 |-- html_tools.py            # Metadata / link parsing helpers
 |-- crawl4ai_client.py       # Remote Crawl4AI HTTP client
+|-- tavily_map.py            # Tavily Map HTTP client
 |-- fetch_pipeline.py        # Single-URL orchestrator
 |-- batch_orchestrator.py    # Batch fetch orchestration
-|-- sitemap.py               # Crawl4AI semantic sitemap extraction
+|-- sitemap.py               # Tavily-first sitemap orchestration
+|-- legacy_sitemap.py        # Crawl4AI semantic sitemap fallback
 |-- fallback.py              # Jina Reader -> trafilatura fallback chain
 |-- stackexchange.py         # StackExchange resolver
 |-- github_issues.py         # GitHub Issues resolver
@@ -42,8 +45,8 @@ content/
 
 - `fetch_pipeline.py` is the main single-URL path.
 - `batch_orchestrator.py` handles multi-URL fetches and batch budgets.
-- `sitemap.py` is the Crawl4AI deep-crawl path and can generate llms.txt
-  output.
+- `sitemap.py` is the Tavily-first sitemap path and falls back to the legacy
+  Crawl4AI semantic sitemap path when Tavily is unavailable or empty.
 - `CRAWL4AI_BASE_URL` enables remote Crawl4AI; otherwise the stack falls back
   to Jina Reader and then trafilatura.
 

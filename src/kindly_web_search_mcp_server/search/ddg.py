@@ -6,11 +6,14 @@ Free, reliable fallback provider. Uses asyncio.to_thread for blocking ddgs calls
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from ..models import WebSearchResult
 from ..settings import settings
 from .base_provider import run_clientless_provider
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DDGError(RuntimeError):
@@ -71,10 +74,16 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
     results: list[WebSearchResult] = []
 
     with DDGS(timeout=settings.ddg_timeout_seconds) as ddgs:
-        raw_results = ddgs.text(
-            query,
-            max_results=num_results,
-        )
+        try:
+            raw_results = ddgs.text(
+                query,
+                max_results=num_results,
+            )
+        except Exception as exc:
+            if "No results found" in str(exc):
+                LOGGER.debug("DDG returned no results for query=%r", query)
+                return []
+            raise
 
         for item in raw_results:
             if not isinstance(item, dict):

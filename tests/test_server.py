@@ -27,7 +27,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("web_search", tools)
         self.assertIn("get_content", tools)
         self.assertIn("batch_get_content", tools)
-        self.assertIn("generate_semantic_sitemap", tools)
+        self.assertIn("generate_sitemap", tools)
+        self.assertNotIn("generate_semantic_sitemap", tools)
         self.assertIn("youtube_transcript", tools)
         self.assertIn("youtube_search", tools)
 

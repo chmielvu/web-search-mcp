@@ -19,8 +19,8 @@ packages for caching, reranking, observability, and content extraction.
   `IntentSearchPolicy` plus provider plans. Backend `SearchProfile` routing
   is gone.
 - Content lives in `src/kindly_web_search_mcp_server/content/` and resolves
-  specialized sources first, then Crawl4AI remote crawling, then Jina /
-  trafilatura fallback.
+  specialized sources first, then Tavily Map for sitemap discovery, then the
+  legacy Crawl4AI sitemap fallback, then Jina / trafilatura fallback.
 - Reranking lives in `src/kindly_web_search_mcp_server/rerank/` and defaults
   to the `bi_cross_llm` stack mode.
 - Analytics live in `src/kindly_web_search_mcp_server/analytics/` and use
@@ -61,7 +61,8 @@ packages for caching, reranking, observability, and content extraction.
 
 - Search-phase work is past the old profile-routing cleanup and now centers on
   branch/merge/rerank refinement.
-- `generate_semantic_sitemap` is MCP-only for now.
+- `generate_sitemap` is the public sitemap tool across MCP and CLI, with
+  Tavily Map as the primary backend.
 - The root CLI surface is `web-search-cli`; there is no `mcp2cli` wrapper.
 - `CHANGELOG.md` is part of the source of truth for every code or docs change.
 - Update `.agent/CONTINUITY.md` when the repo state or active decisions change.

@@ -9,6 +9,10 @@ All selected providers (free, paid_serp, specialized) fire concurrently.
 Provider selection and SERP round-robin happen upstream in
 ``provider_plan.build_provider_execution_plan`` — this module only handles
 the concurrent execution and deadline enforcement.
+
+Results are collected as providers finish.  As soon as enough results have
+been gathered to satisfy the caller's ``num_results`` request, the remaining
+in-flight providers are cancelled and the merged result set is returned.
 """
 
 from __future__ import annotations
@@ -56,8 +60,10 @@ async def dispatch_providers(
     the deadline boundary, not just into a batch-wait wrapper that leaves
     the underlying work running.
 
-    Returns merged results from all providers that completed before the
-    deadline.  Stragglers are cancelled after a bounded drain window.
+    Returns merged results from providers as they complete.  As soon as
+    enough results are available to satisfy *num_results*, the remaining
+    providers are cancelled so a fast provider (e.g. BrightData ~1s) is not
+    held hostage by a slow provider or the group deadline.
     """
     if not providers:
         return []
@@ -92,49 +98,87 @@ async def dispatch_providers(
         except (asyncio.CancelledError, Exception):
             pass
 
-    tasks = [asyncio.create_task(_call(cfg)) for cfg in providers]
-    done, pending = await asyncio.wait(tasks, timeout=deadline_seconds)
+    tasks = [
+        asyncio.create_task(asyncio.wait_for(_call(cfg), timeout=deadline_seconds))
+        for cfg in providers
+    ]
 
-    if pending:
-        LOGGER.warning(
-            "Cancelling %d provider tasks that exceeded %.1fs deadline",
-            len(pending),
-            deadline_seconds,
-        )
-        for task in pending:
-            task.cancel()
-        drain_done, drain_pending = await asyncio.wait(
-            pending,
-            timeout=3.0,
-        )
-        if drain_pending:
-            LOGGER.warning(
-                "%d provider tasks did not finish cleanup within %.1fs drain window; abandoning",
-                len(drain_pending),
-                3.0,
-            )
-            for task in drain_pending:
-                task.add_done_callback(_ignore_task_exception)
-        done |= drain_done
-
-    # Collect results from tasks that completed before deadline + drain.
     all_results: list[list[WebSearchResult]] = []
-    for task in tasks:
-        if not task.done() or task.cancelled():
-            continue
-        try:
-            exc = task.exception()
-        except asyncio.CancelledError:
-            continue
-        if exc is not None:
-            LOGGER.debug("Provider task failed: %s", exc)
-            continue
-        try:
-            all_results.append(task.result())
-        except asyncio.CancelledError:
-            continue
-        except Exception:
-            pass
+    result_count = 0
+    deadline_handle = asyncio.get_event_loop().time() + deadline_seconds
+
+    while tasks and asyncio.get_event_loop().time() < deadline_handle:
+        remaining = deadline_handle - asyncio.get_event_loop().time()
+        done, pending = await asyncio.wait(
+            tasks, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+        )
+
+        for task in done:
+            tasks.remove(task)
+            try:
+                exc = task.exception()
+            except asyncio.CancelledError:
+                continue
+            if exc is not None:
+                LOGGER.debug("Provider task failed: %s", exc)
+                continue
+            try:
+                result = task.result()
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                continue
+            if result:
+                all_results.append(result)
+                result_count += len(result)
+                if result_count >= num_results:
+                    pending_tasks = list(pending)
+                    LOGGER.info(
+                        "Collected %d results from early-finishing providers "
+                        "(requested %d); cancelling %d remaining providers",
+                        result_count,
+                        num_results,
+                        len(pending_tasks),
+                    )
+                    for pending_task in pending_tasks:
+                        pending_task.cancel()
+                    if pending_tasks:
+                        drain_done, drain_pending = await asyncio.wait(
+                            pending_tasks, timeout=3.0
+                        )
+                        for unhandled in drain_pending:
+                            unhandled.add_done_callback(_ignore_task_exception)
+                        for drain_task in drain_done:
+                            drain_task.add_done_callback(_ignore_task_exception)
+                        for pending_task in pending_tasks:
+                            if pending_task in tasks:
+                                tasks.remove(pending_task)
+                    break
+
+        if result_count >= num_results:
+            break
+
+    # Cancel any stragglers that are still running (deadline fired or enough results).
+    if tasks:
+        if result_count >= num_results:
+            LOGGER.info(
+                "Cancelling %d provider tasks after collecting requested results",
+                len(tasks),
+            )
+        else:
+            LOGGER.warning(
+                "Cancelling %d provider tasks that exceeded %.1fs deadline",
+                len(tasks),
+                deadline_seconds,
+            )
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            drain_done, drain_pending = await asyncio.wait(tasks, timeout=3.0)
+            for unhandled in drain_pending:
+                unhandled.add_done_callback(_ignore_task_exception)
+            for drain_task in drain_done:
+                drain_task.add_done_callback(_ignore_task_exception)
 
     if not all_results:
         return []

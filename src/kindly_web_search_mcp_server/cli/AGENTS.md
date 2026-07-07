@@ -20,7 +20,7 @@ cli/
 |   |-- agent.py             # agent surface commands
 |   |-- experiments.py       # A/B experiment management
 |   |-- server.py            # server/launch helpers
-|   └── sitemap.py           # sitemap command
+|   └── sitemap.py           # sitemap command (Tavily Map + legacy fallback)
 └── services/               # Shared service adapters
     |-- search_web.py        # Web search service adapter
     |-- quick_search.py      # Quick search adapter
@@ -29,7 +29,7 @@ cli/
     |-- link_tools.py        # Link discovery adapter
     |-- ai.py                # AI answer adapters
     |-- academic.py          # Academic search adapter
-    |-- youtube.py           # YouTube adapter
+|-- youtube.py           # YouTube adapter
     └── sitemap.py           # Sitemap adapter
 
 ## Current Behavior
@@ -54,6 +54,7 @@ cli/
 - `web-search-cli analytics query`
 - `web-search-cli analytics report`
 - `web-search-cli experiments list|enable|disable|conclude|stats|create`
+- `web-search-cli sitemap generate`
 
 ## Testing
 

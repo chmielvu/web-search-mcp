@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import time
 from typing import Any
 
@@ -81,18 +80,6 @@ async def rerank_results(
             duration_seconds=0.0,
         )
         return RerankOutput(results=[], embedding_context=None, provider=None, model=None)
-    if len(candidates) <= top_k:
-        logger.debug("Candidates (%s) <= top_k (%s), skipping rerank", len(candidates), top_k)
-        record_rerank_stage(
-            stage="bypass",
-            input_count=len(candidates),
-            output_count=len(candidates),
-            duration_seconds=0.0,
-        )
-        return RerankOutput(
-            results=candidates, embedding_context=None, provider="bypass", model=None
-        )
-
     if ab_overrides:
         if "top_k" in ab_overrides:
             top_k = int(ab_overrides["top_k"])
@@ -166,6 +153,12 @@ async def rerank_results(
     final_provider = "chain"
     final_model: str = ""
     max_rerank_score = 0.0
+    # Genuine cross-encoder (Cohere) relevance scores keyed by link. Captured
+    # here because the optional LLM stage overwrites candidate.score with a
+    # position-decay proxy (exp(-0.3 * rank)), which is an ordering signal, not
+    # a relevance signal. We gate on the real relevance score instead so MMR
+    # diversity promotion can't smuggle an irrelevant doc into the final set.
+    cross_relevance_by_link: dict[str, float] = {}
 
     with tracer.start_as_current_span(
         "rerank.pipeline",
@@ -179,8 +172,9 @@ async def rerank_results(
             "rerank.top_k": top_k,
             "rerank.stack_mode": plan.mode,
         },
-    ) as main_span:
+        ) as main_span:
         stage1_output_count = original_count
+        bi_encoder_attempted = False
         bi_encoder_min_candidates = getattr(
             settings,
             "rerank_bi_encoder_min_candidates",
@@ -188,9 +182,10 @@ async def rerank_results(
         )
         if (
             query_embedding
-            and len(candidates) > top_k * 2
+            and len(candidates) >= top_k
             and len(candidates) >= bi_encoder_min_candidates
         ):
+            bi_encoder_attempted = True
             bi_encoder_top_k = top_k * 3
             stage1_start = time.time()
             before_bi_encoder = list(candidates)
@@ -260,7 +255,13 @@ async def rerank_results(
                 max_rerank_score = cross_outcome.max_score
                 final_provider = cross_outcome.provider
                 final_model = cross_outcome.model or ""
+                cross_relevance_by_link = {
+                    candidate.link: candidate.score
+                    for candidate in candidates
+                    if candidate.score is not None
+                }
 
+        llm_ran = False
         if plan.use_llm_reranker:
             llm_outcome = await run_llm_stage(
                 query=query,
@@ -287,6 +288,27 @@ async def rerank_results(
                 max_rerank_score = llm_outcome.max_score
                 final_provider = llm_outcome.provider
                 final_model = llm_outcome.model or ""
+                llm_ran = True
+
+        # Score fusion: blend the cross-encoder's real relevance score with the
+        # LLM reranker's ordinal score into one authoritative relevance signal.
+        # Guarded so it only runs when BOTH stages produced scores (i.e.
+        # bi_cross_llm mode); in bi_cross the cross score is already on
+        # candidate.score, and in bi_llm there is no cross score to blend.
+        if cross_relevance_by_link and llm_ran:
+            alpha = settings.rerank_fusion_alpha
+            fused: list[WebSearchResult] = []
+            for candidate in candidates:
+                ce = cross_relevance_by_link.get(candidate.link)
+                if ce is None:
+                    fused.append(candidate)
+                    continue
+                llm_score = candidate.score if candidate.score is not None else ce
+                fused.append(
+                    candidate.model_copy(update={"score": alpha * ce + (1.0 - alpha) * llm_score})
+                )
+            candidates = fused
+            logger.info("Rerank score fusion: alpha=%s, fused %d candidates", alpha, len(fused))
 
         diversity_result = await run_diversity_pruning(
             query=query,
@@ -300,16 +322,13 @@ async def rerank_results(
             logger=logger,
             run_key=run_key,
             searxng_time_range=searxng_time_range,
+            fetch_missing_embeddings=not bi_encoder_attempted or embedding_ctx is not None,
         )
         candidates = diversity_result.candidates
 
-        # Update scores to reflect MMR ordering so final scores match final rank.
-        # MMR reorders candidates by relevance+diversity, but candidate.score still
-        # holds the pre-MMR reranker score. Assign decaying scores by MMR rank
-        # position so downstream consumers (analytics, threshold filter) see
-        # score-order consistency.
-        for position, candidate in enumerate(candidates):
-            candidates[position] = candidate.model_copy(update={"score": math.exp(-0.3 * position)})
+        # Record diversity stage metrics BEFORE the relevance gate so the reported
+        # input/output counts reflect the actual diversity stage (pre-gate), not
+        # the post-gate slice.
         record_diversity_stage(
             input_count=diversity_result.input_count,
             output_count=diversity_result.output_count,
@@ -325,12 +344,30 @@ async def rerank_results(
             logger=logger,
         )
 
+        # Relevance gate: reject candidates whose fused relevance score is below
+        # the configured threshold. The fused score (cross-encoder real relevance
+        # blended with the LLM ordinal, or the single signal used when only one
+        # stage ran) is the authoritative relevance signal and survives the whole
+        # pipeline, so this gate is what actually prevents unrelated documents
+        # from reaching the final results.
         score_threshold = settings.rerank_score_threshold
-        final_results = [
-            result
-            for result in candidates
-            if result.score is None or result.score >= score_threshold
-        ][:top_k]
+        if score_threshold > 0:
+            thresholded = [
+                candidate
+                for candidate in candidates
+                if candidate.score is None or candidate.score >= score_threshold
+            ]
+            removed_by_threshold = len(candidates) - len(thresholded)
+            candidates = thresholded
+            logger.info(
+                "Rerank relevance gate: kept %s of %s (threshold=%s, removed=%s)",
+                len(candidates),
+                len(candidates) + removed_by_threshold,
+                score_threshold,
+                removed_by_threshold,
+            )
+
+        final_results = candidates[:top_k]
 
         main_span.set_attribute("rerank.final_count", len(final_results))
         logger.info(

@@ -276,8 +276,17 @@ def install_process_logging(
 
     resolved_ttl = ttl_hours or settings.get("process_logs_ttl_hours", 48)
 
-    # Force root logger to emit everything; handlers do the level filtering.
     root = logging.getLogger()
+    configured_root_level = root.level
+    for existing_handler in root.handlers:
+        if (
+            isinstance(existing_handler, logging.StreamHandler)
+            and existing_handler.level == logging.NOTSET
+        ):
+            existing_handler.setLevel(configured_root_level)
+
+    # Force root logger to emit everything for the queue handler; existing
+    # stream handlers keep the configured console/stderr threshold above.
     root.setLevel(logging.DEBUG)
 
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=queue_maxsize)

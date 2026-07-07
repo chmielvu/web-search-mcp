@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
+from ..content.sitemap import generate_sitemap as _generate_sitemap
 from ..errors import format_tool_error
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success
@@ -13,65 +13,80 @@ from ._helpers import _record_tool_failure, _record_tool_success
 LOGGER = logging.getLogger(__name__)
 
 
-async def generate_semantic_sitemap(
+async def generate_sitemap(
     url: str,
-    max_pages: int = 100,
-    max_depth: int = 3,
-    heading_preview_chars: int = 200,
-    generate_llms_txt: bool = False,
-    keywords: list[str] | None = None,
+    instructions: str | None = None,
+    max_depth: int = 1,
+    max_breadth: int = 20,
+    limit: int = 50,
+    select_paths: list[str] | None = None,
+    select_domains: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
+    exclude_domains: list[str] | None = None,
+    allow_external: bool = False,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Discover and crawl pages from a website, extracting a structured
-    hierarchical outline of each page based on headings (H1-H6).
+    """Generate a sitemap using Tavily Map, with Crawl4AI as fallback.
 
-    Uses Crawl4AI remote deep crawl with BestFirstCrawlingStrategy for
-    intelligent page discovery and prioritization. When keywords are provided,
-    pages are ranked by keyword relevance; otherwise, path depth scoring is used.
+    Tavily Map is the primary backend and exposes its native URL mapping
+    response. The legacy Crawl4AI semantic sitemap path is only used as a
+    fallback when Tavily fails or returns no discovered URLs.
 
-    Returns a JSON structure with page URLs, titles, heading-based sections
-    with text previews, and crawl statistics.
-
-    Set generate_llms_txt=true to also return an llms.txt-formatted markdown
-    summary suitable for direct LLM consumption.
+    Parameters mirror Tavily Map:
+    - instructions: natural-language mapping guidance
+    - max_depth: traversal depth, Tavily-supported range 1..5
+    - max_breadth: per-level breadth limit
+    - limit: maximum total URLs to return
+    - select_paths / select_domains: inclusive regex filters
+    - exclude_paths / exclude_domains: exclusion regex filters
+    - allow_external: follow external links when true
     """
-    from ..content.sitemap import SitemapConfig, crawl_and_extract_pages
-
     emit_tool_observability_event(
         LOGGER,
-        "generate_semantic_sitemap",
+        "generate_sitemap",
         "request",
         url=url,
-        max_pages=max_pages,
+        instructions=instructions,
         max_depth=max_depth,
-        heading_preview_chars=heading_preview_chars,
-        generate_llms_txt=generate_llms_txt,
-        keywords=keywords,
-    )
-
-    config = SitemapConfig(
-        max_pages=max(1, min(max_pages, 500)),
-        max_depth=max(1, min(max_depth, 10)),
-        heading_preview_chars=max(50, min(heading_preview_chars, 1000)),
-        generate_llms_txt=generate_llms_txt,
-        keywords=keywords,
+        max_breadth=max_breadth,
+        limit=limit,
+        select_paths=select_paths,
+        select_domains=select_domains,
+        exclude_paths=exclude_paths,
+        exclude_domains=exclude_domains,
+        allow_external=allow_external,
     )
 
     try:
-        await ctx.report_progress(progress=0, total=100, message="Discovering URLs...")
-        result: dict[str, Any] = await crawl_and_extract_pages(url, config=config)
+        await ctx.report_progress(progress=0, total=100, message="Mapping site...")
+        result = await _generate_sitemap(
+            url,
+            instructions=instructions,
+            max_depth=max_depth,
+            max_breadth=max_breadth,
+            limit=limit,
+            select_paths=select_paths,
+            select_domains=select_domains,
+            exclude_paths=exclude_paths,
+            exclude_domains=exclude_domains,
+            allow_external=allow_external,
+        )
         await ctx.report_progress(progress=100, total=100, message="Done")
-        await ctx.info(
-            f"Crawled {result['stats']['pages_crawled']} pages, "
-            f"{result['stats']['total_sections']} sections"
-        )
-        _record_tool_success(
-            "generate_semantic_sitemap",
-            input_url_count=1,
-            output_result_count=result["stats"]["pages_crawled"],
-        )
+        if isinstance(result, dict) and "results" in result:
+            _record_tool_success(
+                "generate_sitemap",
+                input_url_count=1,
+                output_result_count=len(result.get("results", [])),
+            )
+        else:
+            pages = result.get("pages", []) if isinstance(result, dict) else []
+            _record_tool_success(
+                "generate_sitemap",
+                input_url_count=1,
+                output_result_count=len(pages),
+            )
         return result
     except Exception as e:
-        LOGGER.warning("generate_semantic_sitemap error: %s", e, exc_info=True)
-        _record_tool_failure("generate_semantic_sitemap")
-        return format_tool_error(e, provider="crawl4ai_sitemap")
+        LOGGER.warning("generate_sitemap error: %s", e, exc_info=True)
+        _record_tool_failure("generate_sitemap")
+        return format_tool_error(e, provider="tavily_map")

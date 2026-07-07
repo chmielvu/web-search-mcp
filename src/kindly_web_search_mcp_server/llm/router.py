@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
+import litellm
 from litellm import acompletion
 
 from .phoenix_tracing import LLMTraceContext, openinference_context_scope
@@ -15,6 +17,16 @@ from .config import (
 )
 from .models import LLMEndpoint, LLMGeneration
 from .usage import extract_llm_usage
+
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+litellm.turn_off_message_logging = True
+warnings.filterwarnings(
+    "ignore",
+    message=r"Pydantic serializer warnings:.*",
+    category=UserWarning,
+    module=r"pydantic\.main",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +55,7 @@ class LLMRouter:
                     "api_base": endpoint.base_url,
                     "api_key": endpoint.api_key,
                     "timeout": timeout_seconds or endpoint.timeout_seconds,
+                    "no-log": True,
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format

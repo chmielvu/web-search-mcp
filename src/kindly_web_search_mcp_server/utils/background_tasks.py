@@ -46,6 +46,30 @@ def fire_and_forget(
     return task
 
 
+async def drain_background_tasks(
+    *,
+    name_prefixes: tuple[str, ...] = (),
+    timeout_seconds: float = 5.0,
+) -> None:
+    """Wait briefly for selected background tasks without cancelling them."""
+    if not _background_tasks:
+        return
+    tasks = [
+        task
+        for task in list(_background_tasks)
+        if not task.done()
+        and (
+            not name_prefixes
+            or any(task.get_name().startswith(prefix) for prefix in name_prefixes)
+        )
+    ]
+    if not tasks:
+        return
+    done, _pending = await asyncio.wait(tasks, timeout=max(0.0, timeout_seconds))
+    for task in done:
+        _background_tasks.discard(task)
+
+
 def _on_task_done(task: asyncio.Task[Any]) -> None:
     """Remove completed task from tracking set and log any exception."""
     _background_tasks.discard(task)

@@ -211,7 +211,13 @@ class _OpenInferenceFilteringSpanProcessor(SpanProcessor):
         return self._processor.force_flush(timeout_millis=timeout_millis)
 
 
-def _probe_otlp_endpoint(endpoint: str, headers: dict[str, str], *, signal: str) -> bool:
+def _probe_otlp_endpoint(
+    endpoint: str,
+    headers: dict[str, str],
+    *,
+    signal: str,
+    quiet: bool = False,
+) -> bool:
     """Return False when the configured endpoint looks like an HTML page."""
 
     try:
@@ -221,7 +227,8 @@ def _probe_otlp_endpoint(endpoint: str, headers: dict[str, str], *, signal: str)
                 headers={**headers, "Accept": "text/html,application/json,*/*"},
             )
     except Exception as exc:
-        logging.warning(
+        log = logging.debug if quiet else logging.warning
+        log(
             "OTLP %s endpoint probe could not reach %s: %s",
             signal,
             endpoint,
@@ -232,7 +239,8 @@ def _probe_otlp_endpoint(endpoint: str, headers: dict[str, str], *, signal: str)
     content_type = response.headers.get("content-type", "").casefold()
     body = response.text.lstrip().casefold() if response.text else ""
     if "text/html" in content_type or body.startswith("<!doctype html") or body.startswith("<html"):
-        logging.warning(
+        log = logging.debug if quiet else logging.warning
+        log(
             "OTLP %s endpoint looks like HTML (%s %s); telemetry export disabled",
             signal,
             response.status_code,

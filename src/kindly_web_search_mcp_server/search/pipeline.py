@@ -382,51 +382,65 @@ async def run_search_pipeline(
             get_session_state_store().mark_seen(session_id, result.link)
 
     if settings.web_results_index_enabled and final_results:
-        try:
-            from ..index import index_final_results
-            from ..embeddings import embed_texts
+        # Indexing final results into Qdrant is a non-fatal side-effect: the
+        # block is wrapped in a swallowing try/except inside the task and the
+        # results are already final. A Qdrant upsert with wait=True can take
+        # 10-25s while the actual search took ~2s; awaiting it on the response
+        # critical path multiplies end-to-end latency ~10x. Run it
+        # fire-and-forget — the shared HF/Qdrant clients are server-lifetime
+        # singletons, safe to use from the background task, and none of the
+        # captured locals (final_results, context.intent, normalized_query)
+        # are mutated after this point. Errors are swallowed inside the task.
+        async def _index_results_task() -> None:
+            try:
+                from ..index import index_final_results
+                from ..embeddings import embed_texts
 
-            indexed_results: list = []
-            texts: list[str] = []
-            for r in final_results:
-                if r.providers and "qdrant" in r.providers:
-                    continue
-                t = (
-                    f"{r.title}. {r.snippet}"
-                    if r.title and r.snippet
-                    else (r.title or r.snippet or r.link)
-                )
-                texts.append(t)
-                indexed_results.append(r)
+                indexed_results: list = []
+                texts: list[str] = []
+                for r in final_results:
+                    if r.providers and "qdrant" in r.providers:
+                        continue
+                    t = (
+                        f"{r.title}. {r.snippet}"
+                        if r.title and r.snippet
+                        else (r.title or r.snippet or r.link)
+                    )
+                    texts.append(t)
+                    indexed_results.append(r)
 
-            if indexed_results:
+                if not indexed_results:
+                    return
                 dense_embeddings = await embed_texts(texts, timeout=30.0)
                 if not dense_embeddings:
                     logger.debug("embed_texts returned empty for index write")
-                elif len(dense_embeddings) != len(indexed_results):
+                    return
+                if len(dense_embeddings) != len(indexed_results):
                     logger.debug(
                         "embed_texts count mismatch: %d vs %d",
                         len(dense_embeddings),
                         len(indexed_results),
                     )
-                else:
-                    entity_dicts = [
-                        {"text": e.text, "label": e.label}
-                        for r in final_results
-                        if r.entities
-                        for e in r.entities
-                    ] or None
+                    return
+                entity_dicts = [
+                    {"text": e.text, "label": e.label}
+                    for r in final_results
+                    if r.entities
+                    for e in r.entities
+                ] or None
 
-                    await index_final_results(
-                        normalized_query,
-                        indexed_results,
-                        dense_embeddings,
-                        texts=texts,
-                        intent=context.intent,
-                        entities=entity_dicts,
-                    )
-        except Exception as exc:
-            logger.debug("index_final_results failed (non-fatal): %s", exc)
+                await index_final_results(
+                    normalized_query,
+                    indexed_results,
+                    dense_embeddings,
+                    texts=texts,
+                    intent=context.intent,
+                    entities=entity_dicts,
+                )
+            except Exception as exc:
+                logger.debug("index_final_results failed (non-fatal): %s", exc)
+
+        fire_and_forget(_index_results_task(), name=f"index-{run_key[:8]}")
 
     rewrite_policy = RewritePolicy(
         mode="expand" if rewrite else "bypass",

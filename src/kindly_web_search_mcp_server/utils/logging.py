@@ -17,8 +17,6 @@ def configure_logging() -> None:
     root = logging.getLogger()
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
-    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") and level > logging.INFO:
-        level = logging.INFO
 
     # Only set up basicConfig if nothing configured yet (common for scripts).
     if not root.handlers:
@@ -36,6 +34,9 @@ def configure_logging() -> None:
         "crawl4ai",
         "playwright",
         "patchright",
+        "LiteLLM",
+        "litellm",
+        "primp",
     )
     for name in noisy_loggers:
         # `asyncio` can emit noisy warnings about slow callbacks in some environments.

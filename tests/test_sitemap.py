@@ -7,7 +7,7 @@ import unittest
 
 class TestExtractSectionsFromMarkdown(unittest.TestCase):
     def test_extracts_atx_headings(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_sections_from_markdown,
         )
 
@@ -39,7 +39,7 @@ Content B.
         self.assertEqual(sections[3].heading, "Section B")
 
     def test_text_preview_truncated(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_sections_from_markdown,
         )
 
@@ -50,7 +50,7 @@ Content B.
         self.assertTrue(sections[0].text_preview.endswith("..."))
 
     def test_no_headings_returns_empty(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_sections_from_markdown,
         )
 
@@ -59,7 +59,7 @@ Content B.
         self.assertEqual(sections, [])
 
     def test_empty_markdown(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_sections_from_markdown,
         )
 
@@ -67,7 +67,7 @@ Content B.
         self.assertEqual(sections, [])
 
     def test_preview_chars_respected(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_sections_from_markdown,
         )
 
@@ -79,7 +79,7 @@ Content B.
 
 class TestExtractTitleFromMarkdown(unittest.TestCase):
     def test_extracts_first_h1(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_title_from_markdown,
         )
 
@@ -87,7 +87,7 @@ class TestExtractTitleFromMarkdown(unittest.TestCase):
         self.assertEqual(_extract_title_from_markdown(md), "My Page Title")
 
     def test_skips_h2_h3(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_title_from_markdown,
         )
 
@@ -95,7 +95,7 @@ class TestExtractTitleFromMarkdown(unittest.TestCase):
         self.assertEqual(_extract_title_from_markdown(md), "Actual Title")
 
     def test_fallback_to_first_non_empty_line(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_title_from_markdown,
         )
 
@@ -103,7 +103,7 @@ class TestExtractTitleFromMarkdown(unittest.TestCase):
         self.assertEqual(_extract_title_from_markdown(md), "Hello World")
 
     def test_empty_returns_empty_string(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _extract_title_from_markdown,
         )
 
@@ -112,7 +112,7 @@ class TestExtractTitleFromMarkdown(unittest.TestCase):
 
 class TestBuildLlmsTxtMarkdown(unittest.TestCase):
     def test_basic_output(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             PageSection,
             SitemapPage,
             _build_llms_txt_markdown,
@@ -137,7 +137,7 @@ class TestBuildLlmsTxtMarkdown(unittest.TestCase):
         self.assertIn("- Details", output)
 
     def test_empty_pages(self) -> None:
-        from kindly_web_search_mcp_server.content.sitemap import (
+        from kindly_web_search_mcp_server.content.legacy_sitemap import (
             _build_llms_txt_markdown,
         )
 

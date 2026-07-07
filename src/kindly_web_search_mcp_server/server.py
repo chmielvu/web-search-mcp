@@ -3,6 +3,7 @@ from __future__ import annotations
 
 # Load .env file before any other imports that read environment variables
 from pathlib import Path
+import os
 
 from dotenv import load_dotenv
 
@@ -11,6 +12,9 @@ _package_dir = Path(__file__).parent
 _project_root = _package_dir.parent.parent  # web-search-mcp root
 load_dotenv(_project_root / ".env")
 load_dotenv()  # Also try cwd as fallback
+os.environ.setdefault("FASTMCP_BANNER", "false")
+os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
+os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 
 # Initialize OpenTelemetry BEFORE any other imports
 # This ensures all HTTP calls (httpx, etc.) are auto-instrumented.
@@ -42,19 +46,18 @@ from .tools.resources import (
     get_public_settings_resource,
 )
 from .tools.search import web_search
-from .tools.sitemap import generate_semantic_sitemap
+from .tools.sitemap import generate_sitemap
 from .tools.status import get_features_status, get_providers_status
 from .tools.workflow import get_workflow_doc
 from .tools.youtube import youtube_search, youtube_transcript
 from .utils.logging import configure_logging
 from .utils.observability import emit_observability_event
 
-init_telemetry_background(service_name="web-search-mcp")
 configure_logging()
+init_telemetry_background(service_name="web-search-mcp")
 LOGGER = logging.getLogger(__name__)
 
 import argparse
-import os
 import sys
 from types import MethodType
 from typing import Any, Literal
@@ -236,7 +239,7 @@ mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
 mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
-mcp.tool(**tool_kwargs("generate_semantic_sitemap"))(generate_semantic_sitemap)
+mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 
 
@@ -347,10 +350,11 @@ def main(argv: list[str] | None = None) -> None:
     # Set high recursion limit for deep query trees if needed
     sys.setrecursionlimit(2000)
 
-    # Force all logs to stderr immediately to avoid stdout corruption
+    # Force any late-installed default logs to stderr without lowering LOG_LEVEL.
     import logging
 
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    logging.basicConfig(stream=sys.stderr, level=level)
 
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
@@ -368,15 +372,6 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
 
-    # Disable FastMCP banner via environment
-    os.environ["FASTMCP_BANNER"] = "false"
-    os.environ["FASTMCP_LOG_LEVEL"] = "WARNING"
-
-    # Fast-path background telemetry init doesn't block
-    from .telemetry import init_telemetry_background
-
-    init_telemetry_background(service_name="web-search-mcp")
-
     if transport in ("sse", "streamable-http"):
         host, port = _resolve_host_port(args.host, args.port)
         for key, value in (("host", host), ("port", port)):
@@ -384,9 +379,12 @@ def main(argv: list[str] | None = None) -> None:
                 setattr(mcp.settings, key, value)  # type: ignore[attr-defined]
 
     try:
-        mcp.run(transport=transport, mount_path=args.mount_path)
+        mcp.run(transport=transport, mount_path=args.mount_path, show_banner=False)
     except TypeError:
-        mcp.run(transport=transport)
+        try:
+            mcp.run(transport=transport, show_banner=False)
+        except TypeError:
+            mcp.run(transport=transport)
 
 
 apply_tool_profile(mcp, settings.tool_profile)

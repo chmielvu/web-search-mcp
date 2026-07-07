@@ -21,7 +21,7 @@ class TestRerankSettings(unittest.TestCase):
         self.assertEqual(reloaded.settings.rerank_bi_encoder_min_candidates, 0)
         self.assertEqual(reloaded.settings.rerank_bi_encoder_timeout_seconds, 15.0)
         self.assertEqual(reloaded.settings.rerank_bi_encoder_text_max_chars, 384)
-        self.assertEqual(reloaded.settings.rerank_bi_encoder_batch_size, 64)
+        self.assertEqual(reloaded.settings.rerank_bi_encoder_batch_size, 16)
         self.assertEqual(reloaded.settings.rerank_bi_encoder_max_concurrent_batches, 3)
         self.assertEqual(reloaded.settings.rerank_llm_candidate_limit, 20)
         self.assertEqual(reloaded.settings.rerank_llm_timeout_seconds, 20.0)

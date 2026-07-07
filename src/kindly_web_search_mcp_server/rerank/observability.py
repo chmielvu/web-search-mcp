@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 from ..analytics.rerank_candidate_writes import insert_rerank_candidate_rows_batch
+from ..analytics.async_writes import dispatch_duckdb_write
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..models import WebSearchResult
 from ..utils.observability import emit_observability_event, serialize_search_results
@@ -179,7 +179,7 @@ async def record_rerank_candidate_rows_async(
     after_candidates: list[WebSearchResult],
     payload_json: dict[str, Any] | None = None,
 ) -> None:
-    """Persist one stage's candidate analytics with a single batched thread write."""
+    """Queue one stage's candidate analytics without blocking rerank latency."""
     if not run_key:
         return
     try:
@@ -190,6 +190,9 @@ async def record_rerank_candidate_rows_async(
             after_candidates=after_candidates,
             payload_json=payload_json,
         )
-        await asyncio.to_thread(insert_rerank_candidate_rows_batch, rows)
+        dispatch_duckdb_write(
+            "analytics.rerank_candidates",
+            lambda: insert_rerank_candidate_rows_batch(rows),
+        )
     except Exception as exc:
         logger.debug("analytics insert_rerank_candidates failed: %s", exc)

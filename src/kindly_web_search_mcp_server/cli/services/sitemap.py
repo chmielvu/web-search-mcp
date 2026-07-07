@@ -2,21 +2,31 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...content.sitemap import SitemapConfig, crawl_and_extract_pages
+from ...content.sitemap import generate_sitemap
 
 
-async def fetch_semantic_sitemap_payload(
+async def fetch_sitemap_payload(
     url: str,
     *,
-    max_pages: int,
+    instructions: str | None,
     max_depth: int,
-    heading_preview_chars: int,
-    generate_llms_txt: bool,
+    max_breadth: int,
+    limit: int,
+    select_paths: list[str] | None,
+    select_domains: list[str] | None,
+    exclude_paths: list[str] | None,
+    exclude_domains: list[str] | None,
+    allow_external: bool,
 ) -> dict[str, Any]:
-    config = SitemapConfig(
-        max_pages=max_pages,
+    return await generate_sitemap(
+        url,
+        instructions=instructions,
         max_depth=max_depth,
-        heading_preview_chars=heading_preview_chars,
-        generate_llms_txt=generate_llms_txt,
+        max_breadth=max_breadth,
+        limit=limit,
+        select_paths=select_paths,
+        select_domains=select_domains,
+        exclude_paths=exclude_paths,
+        exclude_domains=exclude_domains,
+        allow_external=allow_external,
     )
-    return await crawl_and_extract_pages(url, config=config)

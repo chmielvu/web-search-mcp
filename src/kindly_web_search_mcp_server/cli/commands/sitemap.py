@@ -8,7 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.sitemap import fetch_semantic_sitemap_payload
+from ..services.sitemap import fetch_sitemap_payload
 
 
 sitemap_app = typer.Typer(no_args_is_help=True)
@@ -16,38 +16,56 @@ sitemap_app = typer.Typer(no_args_is_help=True)
 
 @sitemap_app.command("generate")
 def generate_cmd(
-    url: Annotated[str, typer.Option("--url", help="Website URL to crawl.")],
-    max_pages: Annotated[int, typer.Option("--max-pages")] = 100,
-    max_depth: Annotated[int, typer.Option("--max-depth")] = 3,
-    heading_preview_chars: Annotated[int, typer.Option("--heading-preview-chars")] = 200,
-    generate_llms_txt: Annotated[
+    url: Annotated[str, typer.Option("--url", help="Website URL to map.")],
+    instructions: Annotated[
+        str | None,
+        typer.Option("--instructions", help="Natural-language guidance for Tavily Map."),
+    ] = None,
+    max_depth: Annotated[int, typer.Option("--max-depth")] = 1,
+    max_breadth: Annotated[int, typer.Option("--max-breadth")] = 20,
+    limit: Annotated[int, typer.Option("--limit")] = 50,
+    select_paths: Annotated[
+        list[str] | None,
+        typer.Option("--select-paths", help="Regex path filters. Repeatable."),
+    ] = None,
+    select_domains: Annotated[
+        list[str] | None,
+        typer.Option("--select-domains", help="Regex domain filters. Repeatable."),
+    ] = None,
+    exclude_paths: Annotated[
+        list[str] | None,
+        typer.Option("--exclude-paths", help="Regex path exclusions. Repeatable."),
+    ] = None,
+    exclude_domains: Annotated[
+        list[str] | None,
+        typer.Option("--exclude-domains", help="Regex domain exclusions. Repeatable."),
+    ] = None,
+    allow_external: Annotated[
         bool,
-        typer.Option("--generate-llms-txt/--no-generate-llms-txt"),
+        typer.Option("--allow-external/--no-allow-external"),
     ] = False,
 ) -> None:
-    """Crawl a website and extract a structured heading hierarchy per page.
-
-    Uses Crawl4AI for sitemap discovery and browser-based crawling.
-    Returns page URLs, titles, heading-based sections with text previews,
-    and crawl statistics.
-
-    Set --generate-llms-txt to also produce llms.txt-formatted markdown.
-    """
+    """Generate a sitemap with Tavily Map and legacy Crawl4AI fallback."""
     try:
         payload = asyncio.run(
-            fetch_semantic_sitemap_payload(
+            fetch_sitemap_payload(
                 url,
-                max_pages=max_pages,
+                instructions=instructions,
                 max_depth=max_depth,
-                heading_preview_chars=heading_preview_chars,
-                generate_llms_txt=generate_llms_txt,
+                max_breadth=max_breadth,
+                limit=limit,
+                select_paths=select_paths,
+                select_domains=select_domains,
+                exclude_paths=exclude_paths,
+                exclude_domains=exclude_domains,
+                allow_external=allow_external,
             )
         )
     except Exception as exc:
         raise CliError(
             kind="tool_error",
             message=str(exc),
-            hint="Check the URL and Crawl4AI dependencies. Run `web-search-cli doctor` to verify readiness.",
+            hint="Check the URL and Tavily/Crawl4AI readiness. Run `web-search-cli doctor` to verify.",
             exit_code=ExitCode.INTERNAL_ERROR,
             context={
                 "command": "sitemap generate",

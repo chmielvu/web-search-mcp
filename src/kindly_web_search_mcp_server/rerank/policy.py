@@ -85,7 +85,7 @@ def decide_rerank(
     )
 
     # 1. low count
-    if candidate_count <= top_k:
+    if candidate_count <= 1:
         d = RerankDecision(
             should_rerank=False,
             reason="low_candidate_count",

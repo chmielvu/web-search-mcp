@@ -10,7 +10,7 @@ from collections.abc import Callable
 import httpx
 from qdrant_client import AsyncQdrantClient, models
 
-from ..embeddings import BatchLimitedEmbeddings
+from ..embeddings import embed_query
 from ..index.bm25_encoder import encode_bm25
 from ..models import WebSearchResult
 from ..settings import settings
@@ -28,12 +28,6 @@ class QdrantConfigError(QdrantSearchError):
     pass
 
 
-_EMBEDDER = BatchLimitedEmbeddings(
-    max_batch_size=1,
-    min_delay_seconds=0.25,
-    max_concurrent=1,
-    timeout=20.0,
-)
 _EMBEDDING_CACHE_TTL_SECONDS = 600.0
 _EMBEDDING_CACHE_MAX_SIZE = 256
 _EMBEDDING_CACHE_LOCK = asyncio.Lock()
@@ -85,7 +79,7 @@ async def _embed_qdrant_query(query: str, *, deadline: float = 15.0) -> list[flo
 
 async def _compute_and_cache_embedding(key: str, query: str) -> list[float]:
     try:
-        embedding = await _EMBEDDER.embed_query(query)
+        embedding = await embed_query(query, timeout=20.0)
         async with _EMBEDDING_CACHE_LOCK:
             if len(_EMBEDDING_CACHE) >= _EMBEDDING_CACHE_MAX_SIZE:
                 oldest_key = min(

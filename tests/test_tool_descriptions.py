@@ -136,6 +136,22 @@ def test_discover_links_tool_docstring_exposes_link_discovery_boundary() -> None
     assert re.search(r"\bURLs only\b|\bURLs\b.*\bnot page content\b", doc, flags=re.IGNORECASE)
 
 
+def test_generate_sitemap_tool_docstring_exposes_tavily_map_contract() -> None:
+    from kindly_web_search_mcp_server.server import generate_sitemap
+
+    doc = _doc(generate_sitemap)
+    assert re.search(r"\bTavily\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bMap\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\binstructions\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bmax_depth\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bmax_breadth\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\blimit\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bselect_paths\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bexclude_domains\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\ballow_external\b", doc, flags=re.IGNORECASE)
+    assert re.search(r"\bfallback\b", doc, flags=re.IGNORECASE)
+
+
 def test_server_instructions_are_routing_policy_not_provider_readme() -> None:
     from kindly_web_search_mcp_server.server import mcp
 

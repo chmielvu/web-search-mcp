@@ -13,7 +13,8 @@ from ..analytics.observability_store import (
 )
 from ..settings import settings
 from ..telemetry import record_mcp_tool_call, record_tool_details
-from ..utils.background_tasks import cancel_all_background_tasks
+from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
+from ..analytics.async_writes import shutdown_duckdb_write_executor
 from ..utils.http_client import close_http_client
 from ..utils.observability import current_trace_context, get_current_run_key
 from ..utils.public_output import serialize_public_web_search_response
@@ -181,6 +182,14 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
         await close_http_client()
     except Exception as exc:
         LOGGER.warning("Error closing shared HTTP client during shutdown: %s", exc)
+    try:
+        await drain_background_tasks(
+            name_prefixes=("analytics.",),
+            timeout_seconds=settings.analytics_shutdown_drain_timeout_seconds,
+        )
+        shutdown_duckdb_write_executor(wait=True)
+    except Exception as exc:
+        LOGGER.warning("Error shutting down DuckDB write executor during shutdown: %s", exc)
     try:
         await cancel_all_background_tasks()
     except Exception as exc:
