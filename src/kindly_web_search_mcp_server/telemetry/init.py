@@ -1,4 +1,5 @@
 """OpenTelemetry initialization for the web-search-mcp server."""
+
 from __future__ import annotations
 
 import json
@@ -61,8 +62,6 @@ from ._internal import (
 # ============================================================================
 # INITIALIZATION
 # ============================================================================
-
-
 
 
 def init_telemetry(
@@ -433,6 +432,7 @@ def init_telemetry_background(
     thread.start()
     logging.info("Telemetry init dispatched to background thread")
     return thread
+
 
 __all__ = [
     "init_telemetry",

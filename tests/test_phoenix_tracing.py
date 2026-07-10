@@ -47,7 +47,12 @@ def test_openinference_context_scope_populates_context_attributes() -> None:
     # are no-ops that return {}.  Mock them so context round-trips actually
     # store and retrieve attributes, matching the real library's key mapping.
     stored: dict[str, object] = {}
-    _KEY_MAP = {"session_id": "session.id", "user_id": "user.id", "tags": "tag.tags", "metadata": "metadata"}
+    _KEY_MAP = {
+        "session_id": "session.id",
+        "user_id": "user.id",
+        "tags": "tag.tags",
+        "metadata": "metadata",
+    }
 
     @contextmanager
     def _mock_using_attributes(**attrs):

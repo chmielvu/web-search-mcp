@@ -4,8 +4,17 @@
 
 ### Added
 - DeGoog search aggregator as free provider alongside SearXNG
+- Brave LLM Context replaces the standard Brave web path in `search_brave()` (`/res/v1/llm/context`, `grounding.generic` → `WebSearchResult`).
+- New `brave_news` specialized provider for the `news` intent (`/res/v1/news/search`, `page_age` → `published_date`).
+- `brave_common.py` centralizes Brave API key, headers, query bounds, and freshness translation across Brave surfaces.
+- `BRAVE_GOGGLES_BY_INTENT` settings field (default `{}`) merges intent-configured Goggles into `brave` / `brave_news` provider arguments.
+- `ProviderExecutionPlan.specialized_provider_names` and a `specialized_original` branch wire intent-policy specialized providers (e.g. `telegram`, `brave_news`).
+
+### Breaking changes
+- **2026-07-10 — Query rewrite and reranking overhaul.** This is a clean break: `original_free` routes the original query to `free` providers, `keyword_refined` routes to keyword/SERP providers, and `neural_refined` routes to neural providers. Literal search syntax bypasses the LLM rewrite. RAKE-NLTK extracts ranked `must_keep_terms` from `research_goal`; Brave Autosuggest uses `rich=true` and the separate `BRAVE_SUGGEST_API_KEY`, while spellcheck uses `BRAVE_API_KEY`. Branch results are filtered through the DuckDB-backed URL blocklist before merge. Merge is pure rank-based RRF with per-intent `rrf_k` and no provider/list weights. The Qwen XML listwise-CoT reranker now escapes untrusted candidate fields, shuffles display IDs and remaps them, parses only `<final_ranking>`, and assigns normalized linear ordinal scores. LLM output is accepted only when error-free with non-empty relevance scores. Bi-encoder and cross-encoder stage multipliers form a monotonic funnel, and diversity is terminal with no tail reattachment.
 
 ### Changed
+- **Phase Two — Brave retrieval:** `news` intent policy version `1.1` adds `brave_news` via `specialized_original`; BrightData news URLs map freshness to `tbs=qdr:`; cache identity fingerprints per-provider arguments; DDGS documented as peer `free` provider (not fallback).
 - **Modularized telemetry package** — split `src/kindly_web_search_mcp_server/telemetry.py` into a focused `telemetry/` package (`attributes.py`, `constants.py`, `init.py`, `metrics.py`, `spans.py`, `span_enhancements.py`, `records_*.py`, `_internal.py`). The public API is preserved via `telemetry/__init__.py` re-exports; all existing imports from `.telemetry` continue to work.
 - **Rerank bi-encoder hot path repaired** — the HF bi-encoder now runs for normal overfetch windows by default, embeds bounded title/snippet candidate text (`RERANK_BI_ENCODER_TEXT_MAX_CHARS=384`), keeps normal windows in one batch (`RERANK_BI_ENCODER_BATCH_SIZE=64`), and uses a single latency-sensitive candidate-embedding attempt (`RERANK_BI_ENCODER_TIMEOUT_SECONDS=15.0`). The per-call `AsyncInferenceClient` singleton is reused for connection pooling; concurrency is controlled by the per-caller wrappers (Qdrant `BatchLimitedEmbeddings`, bi-encoder batch semaphore) rather than a process-global gate.
 - **Rerank candidate analytics batched per stage** — candidate-survival rows are now inserted with one DuckDB connection/executemany per stage instead of per-candidate writes inside the awaited rerank path.
@@ -15,11 +24,11 @@
 - **Reranking pipeline overhaul** — MMR now uses reranker scores for relevance instead of embedding cosine similarity. The cross-encoder/LLM reranker scores are min-max normalized and used as the MMR relevance term; embeddings are only used for the diversity (document-to-document) term. This fixes the critical issue where MMR ignored expensive reranker scores and recomputed relevance from weaker embedding similarity.
 - **MMR lambda default changed from 0.5 to 0.7** — relevance-weighted for web search (was 50/50 relevance/diversity, now 70/30). Research consensus: λ=0.7-0.8 for precision search.
 - **Cross-encoder document construction enriched** — now includes Domain, Providers, ProviderCount in addition to Title, Snippet, URL. Snippet moved to second position (after Title) for better semantic importance with Cohere rerank v4.
-- **Bi-encoder filter widened from top_k*2 to top_k*3** (20→30 candidates for top_k=10) — reduces recall bottleneck, gives cross-encoder more candidates to evaluate.
-- **LLM reranker prompt now includes query_type and research_goal** — the cross-encoder already received this context; the LLM reranker (most capable of using it) now gets it too.
-- **LLM reranker scores changed from 1/position to exponential decay** `exp(-0.3*(pos-1))` — smoother relevance gradient (1.0, 0.74, 0.55, 0.41... instead of 1.0, 0.5, 0.33, 0.25...).
-- **Score propagation fixed after MMR** — candidate scores are now updated to reflect MMR ordering using exponential decay, so final scores match final ranking order. Previously, scores reflected pre-MMR LLM ranking while order reflected MMR — causing score-order inconsistency in analytics.
-- **Reranker fallback chain simplified to ONE chain**: `cohere_fast -> cohere_fast_openrouter -> voyage`. Always tries in this order regardless of configured engine. Jina and GCP CloudRun rerankers removed entirely (GCP deprecated, Jina redundant).
+- **Bi-encoder stage target is now configurable** via `RERANK_BI_ENCODER_STAGE_MULTIPLIER` (default `3.0`), preserving a wider shortlist for the cross-encoder without hardcoding a second candidate limit.
+- **LLM reranker prompt uses the Qwen template's query and research_goal fields** — candidate payload remains limited to escaped title, URL, and snippet.
+- **LLM reranker scores use normalized linear ordinal scoring** — the first ranked candidate scores `1.0`, the last scores `0.0` (or `1.0` for a one-candidate list), and scores are remapped after display-ID shuffling.
+- **Terminal diversity ordering** — MMR consumes min-max-normalized reranker relevance scores for relevance and embeddings for the diversity signal, then returns only the diversified top-k slice without reattaching a tail.
+- **Reranker fallback chain simplified to ONE chain**: `cohere_fast -> cohere_fast_openrouter -> voyage`. Always tries in this order regardless of configured engine; the existing Jina and GCP Cloud Run adapter modules remain available for direct integrations.
 - **Modularized `server.py` tool handlers** — split `@mcp.tool` handlers, resources, and prompts into focused modules under `src/kindly_web_search_mcp_server/tools/`. `server.py` is now a thin registry that imports and registers handlers on the `mcp` instance. Fixed the missing `num_results` parameter in `web_search` and replaced logging f-strings with lazy formatting in touched code.
 
 ### Added
@@ -32,6 +41,7 @@
 - Added the repo-doc consolidation note and simplified `CLAUDE.md` to point at `AGENTS.md` as the single workspace guidance source.
 
 ### Fixed
+- **MCP startup import regression** — deferred the experimental agent runner and RAKE-NLTK imports until their respective tools execute, removing LangChain/LangGraph and NLTK from the standard stdio startup path.
 - **LiteLLM route model IDs separated from reported provider model IDs** — Cerebras/Groq worker calls now send provider-qualified route models such as `cerebras/gpt-oss-120b` and `groq/openai/gpt-oss-120b` to LiteLLM while preserving raw provider model IDs in telemetry.
 - **Query rewrite model IDs now match the documented providers** — the rewrite/classifier LLM router now uses the documented Cerebras, Groq, and Vercel model IDs directly instead of inventing nested provider-prefixed strings. This restores the intended Cerebras → Groq → Vercel fallback ladder and avoids the malformed Vercel rewrite default.
 - **Async DuckDB analytics no longer blocks the event loop** — the hot observability and pipeline write paths now dispatch DuckDB inserts through a shared background-write helper, covering search events, provider calls/candidates, rerank stages, final results, search runs, and pipeline observability inserts.

@@ -143,9 +143,7 @@ async def dispatch_providers(
                     for pending_task in pending_tasks:
                         pending_task.cancel()
                     if pending_tasks:
-                        drain_done, drain_pending = await asyncio.wait(
-                            pending_tasks, timeout=3.0
-                        )
+                        drain_done, drain_pending = await asyncio.wait(pending_tasks, timeout=3.0)
                         for unhandled in drain_pending:
                             unhandled.add_done_callback(_ignore_task_exception)
                         for drain_task in drain_done:

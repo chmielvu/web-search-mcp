@@ -277,7 +277,9 @@ async def embed_texts(
         try:
             raw = await asyncio.wait_for(
                 client.feature_extraction(  # type: ignore[arg-type]
-                    texts, model=resolved_model, normalize=True  # type: ignore[arg-type]
+                    texts,
+                    model=resolved_model,
+                    normalize=True,  # type: ignore[arg-type]
                 ),
                 timeout=resolved_timeout,
             )

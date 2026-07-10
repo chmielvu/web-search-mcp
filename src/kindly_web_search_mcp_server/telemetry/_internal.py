@@ -1,4 +1,5 @@
 """Telemetry internal helpers, exporters, and endpoint resolution."""
+
 from __future__ import annotations
 from typing import Any
 
@@ -22,6 +23,7 @@ elif _OTEL_SDK_AVAILABLE:
 else:
     SpanProcessor = object  # type: ignore[assignment, misc]
     BatchSpanProcessor = Any  # type: ignore[misc]
+
 
 def _otel_sdk_version() -> str:
     """Resolve the installed OpenTelemetry SDK version.
@@ -248,6 +250,7 @@ def _probe_otlp_endpoint(
         )
         return False
     return True
+
 
 __all__ = [
     "_LoggingExporterProxy",

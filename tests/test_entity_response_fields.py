@@ -61,7 +61,6 @@ async def test_entities_only_when_enabled_in_search(monkeypatch) -> None:
         ],
         branch_queries=["FastAPI"],
         branch_providers=[["searxng"]],
-        list_weights=[1.0],
         branch_metadata=[{"branch_index": 0}],
     )
 

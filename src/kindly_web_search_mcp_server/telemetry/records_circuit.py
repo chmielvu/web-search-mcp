@@ -1,4 +1,5 @@
 """Telemetry recording helpers for circuit breakers."""
+
 from __future__ import annotations
 
 from .attributes import (
@@ -9,6 +10,7 @@ from .attributes import (
     PROVIDER_NAME,
 )
 from .metrics import get_circuit_metrics
+
 
 def record_circuit_breaker_state(
     provider: str,
@@ -35,6 +37,7 @@ def record_circuit_breaker_state(
         },
     )
 
+
 def record_circuit_breaker_event(
     provider: str,
     event: str,
@@ -56,6 +59,7 @@ def record_circuit_breaker_event(
             CIRCUIT_FAILURE_THRESHOLD: failure_threshold,
         },
     )
+
 
 __all__ = [
     "record_circuit_breaker_event",

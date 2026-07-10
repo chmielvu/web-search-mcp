@@ -59,8 +59,7 @@ async def drain_background_tasks(
         for task in list(_background_tasks)
         if not task.done()
         and (
-            not name_prefixes
-            or any(task.get_name().startswith(prefix) for prefix in name_prefixes)
+            not name_prefixes or any(task.get_name().startswith(prefix) for prefix in name_prefixes)
         )
     ]
     if not tasks:

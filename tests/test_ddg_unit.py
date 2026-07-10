@@ -204,3 +204,23 @@ class TestDDGSyncSearch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_search_ddg_signature_has_no_freshness_kwarg() -> None:
+    import inspect
+
+    from kindly_web_search_mcp_server.search.ddg import search_ddg
+
+    params = inspect.signature(search_ddg).parameters
+    assert "freshness" not in params
+    assert "goggles" not in params
+
+
+def test_ddg_registered_as_free_peer_provider() -> None:
+    from kindly_web_search_mcp_server.search.provider_config import (
+        ProviderGroup,
+        get_provider_configs,
+    )
+
+    config = get_provider_configs()["ddg"]
+    assert config.group == ProviderGroup.free

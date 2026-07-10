@@ -113,7 +113,6 @@ class TestObservabilityFlow(unittest.TestCase):
                 result_lists=[[result]],
                 output=[result],
                 provider_contributions={"searxng": 1},
-                list_weights=[1.0],
                 k=60,
                 discarded_count=0,
                 overlap_rate=0.0,

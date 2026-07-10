@@ -28,11 +28,7 @@ def _as_mapping(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         return value
     if hasattr(value, "__dict__"):
-        return {
-            key: item
-            for key, item in vars(value).items()
-            if not key.startswith("_")
-        }
+        return {key: item for key, item in vars(value).items() if not key.startswith("_")}
     if hasattr(value, "model_dump"):
         dumped = value.model_dump()
         return dumped if isinstance(dumped, dict) else None

@@ -158,7 +158,7 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reranked.results, candidates)
         mock_record_stage.assert_called_once_with(
-            stage="bypass",
+            stage="policy_bypass",
             input_count=1,
             output_count=1,
             duration_seconds=0.0,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json as _json
 import os
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Load .env before class definitions evaluate os.environ.get()
@@ -30,19 +30,6 @@ from .utils.paths import (
 )
 
 
-def _parse_json_dict(raw: str, default: dict) -> dict:
-    """Parse a JSON dict from an environment variable string."""
-    if not raw.strip():
-        return default
-    try:
-        parsed = _json.loads(raw)
-        if isinstance(parsed, dict):
-            return {k: float(v) for k, v in parsed.items()}
-    except (_json.JSONDecodeError, ValueError):
-        pass
-    return default
-
-
 def _parse_csv_env(raw: str) -> tuple[str, ...]:
     """Parse a comma-separated environment string into a normalized tuple."""
     items: list[str] = []
@@ -51,6 +38,33 @@ def _parse_csv_env(raw: str) -> tuple[str, ...]:
         if value:
             items.append(value)
     return tuple(dict.fromkeys(items))
+
+
+def _parse_json_dict_env(raw: str, default: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Parse a JSON object env string into a dict of non-empty string lists.
+
+    Raises ValueError (caught at Settings construction) on invalid JSON or on
+    any key/value that is not a non-empty string / non-empty list of strings.
+    """
+    if not raw or not raw.strip():
+        return dict(default)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"BRAVE_GOGGLES_BY_INTENT must be valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("BRAVE_GOGGLES_BY_INTENT must be a JSON object.")
+    cleaned: dict[str, list[str]] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("BRAVE_GOGGLES_BY_INTENT keys must be non-empty strings.")
+        if not isinstance(value, list) or not value:
+            raise ValueError(f"BRAVE_GOGGLES_BY_INTENT[{key!r}] must be a non-empty list.")
+        items = [str(v).strip() for v in value]
+        if not all(items):
+            raise ValueError(f"BRAVE_GOGGLES_BY_INTENT[{key!r}] entries must be non-empty strings.")
+        cleaned[key.strip()] = items
+    return cleaned
 
 
 @dataclass
@@ -148,7 +162,6 @@ class Settings:
     reranking_enabled: bool = os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
     rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
     rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross_llm").lower()
-    bi_encoder_top_k: int = int(os.environ.get("BI_ENCODER_TOP_K", "100"))
     rerank_bi_encoder_min_candidates: int = int(
         os.environ.get("RERANK_BI_ENCODER_MIN_CANDIDATES", "0")
     )
@@ -162,9 +175,14 @@ class Settings:
     rerank_bi_encoder_max_concurrent_batches: int = int(
         os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
     )
-    rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
-    rerank_llm_candidate_limit: int = int(os.environ.get("RERANK_LLM_CANDIDATE_LIMIT", "20"))
     rerank_llm_timeout_seconds: float = float(os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "20.0"))
+    rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
+    rerank_bi_encoder_stage_multiplier: float = float(
+        os.environ.get("RERANK_BI_ENCODER_STAGE_MULTIPLIER", "3.0")
+    )
+    rerank_cross_encoder_stage_multiplier: float = float(
+        os.environ.get("RERANK_CROSS_ENCODER_STAGE_MULTIPLIER", "2.0")
+    )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
     jina_rerank_model: str = os.environ.get("JINA_RERANK_MODEL", "jina-reranker-v3")
@@ -322,6 +340,13 @@ class Settings:
     search_router_api_key: str = os.environ.get("SEARCH_ROUTER_API_KEY", "")
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
     brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
+    brave_suggest_api_key: str = os.environ.get("BRAVE_SUGGEST_API_KEY", "")
+    brave_spellcheck_api_key: str = os.environ.get("BRAVE_SPELLCHECK_API_KEY", "")
+    brave_goggles_by_intent: dict[str, list[str]] = field(
+        default_factory=lambda: _parse_json_dict_env(
+            os.environ.get("BRAVE_GOGGLES_BY_INTENT", "{}"), {}
+        )
+    )
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     google_cse_engine_id: str = "771d303cf528e4b7c"
@@ -404,7 +429,7 @@ class Settings:
 
     # RRF tuning
     rrf_k: int = int(os.environ.get("RRF_K", "60"))
-    rrf_provider_weights: dict = None  # type: ignore[assignment]  # set in __post_init__
+    blocklist_duckdb_path: str = ""
 
     # Remote web results index (Qdrant on HF Space)
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
@@ -575,37 +600,6 @@ class Settings:
     )
 
     def __post_init__(self) -> None:
-        if self.rrf_provider_weights is None:
-            # Provider weights rationale (Bruch et al. 2022: per-list weighting is more impactful than k tuning):
-            # - tavily: 1.3 (optimized for AI assistants, structured extraction, freshness)
-            # - gemini: 1.2 (Google grounding, high recall for factual/research queries)
-            # - composio_llm_search: 1.15 (LLM-enhanced relevance ranking)
-            # - grok_openrouter: 1.5 (Grok native web+X search on OpenRouter, high relevance)
-            # - jina: 1.1 (semantic search expertise, deep understanding)
-            # - searxng: 1.0 (baseline, free/open-source aggregator with meta-search breadth)
-            # - brave: 1.0 (baseline, independent index, privacy-focused)
-            # - search_router: 1.0 (free general SERP, general-purpose index)
-            # - ddg: 0.7 (aggregator, less freshness for navigational queries, penalized for instant answers)
-            # Note: weights are query-type dependent. Future: adaptive weighting by intent classification.
-            self.rrf_provider_weights = _parse_json_dict(
-                os.environ.get("RRF_PROVIDER_WEIGHTS", ""),
-                default={
-                    "searxng": 1.0,
-                    "ddg": 0.7,
-                    "tavily": 1.3,
-                    "brave": 1.0,
-                    "jina": 1.1,
-                    "gemini": 1.2,
-                    "composio_llm_search": 1.15,
-                    "grok_openrouter": 1.5,
-                    "search_router": 1.0,
-                    "serper": 1.0,
-                    "serpapi": 1.0,
-                    "brightdata": 1.0,
-                    "degoog": 1.0,
-                },
-            )
-
         # Validate numeric parameters
         if not 0.0 <= self.mmr_lambda_param <= 1.0:
             raise ValueError(
@@ -624,10 +618,6 @@ class Settings:
         from .rerank.stack import normalize_rerank_stack_mode
 
         self.rerank_stack_mode = normalize_rerank_stack_mode(self.rerank_stack_mode)
-        if self.rerank_llm_candidate_limit <= 0:
-            raise ValueError(
-                f"rerank_llm_candidate_limit must be > 0, got {self.rerank_llm_candidate_limit!r}."
-            )
         if self.rerank_llm_timeout_seconds <= 0:
             raise ValueError(
                 f"rerank_llm_timeout_seconds must be > 0, got {self.rerank_llm_timeout_seconds!r}."
@@ -660,6 +650,16 @@ class Settings:
         if self.rrf_k <= 0:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. Set RRF_K env var to a positive integer."
+            )
+        if self.rerank_bi_encoder_stage_multiplier <= 0:
+            raise ValueError(
+                "rerank_bi_encoder_stage_multiplier must be > 0, "
+                f"got {self.rerank_bi_encoder_stage_multiplier!r}."
+            )
+        if self.rerank_cross_encoder_stage_multiplier <= 0:
+            raise ValueError(
+                "rerank_cross_encoder_stage_multiplier must be > 0, "
+                f"got {self.rerank_cross_encoder_stage_multiplier!r}."
             )
 
         # OTel / Observability validation
@@ -694,7 +694,22 @@ class Settings:
             raise ValueError("observability_max_items must be >= 1.")
         from .tools.profiles import normalize_tool_profile
 
+        _CANONICAL_SEARCH_INTENTS = frozenset(
+            {
+                "general",
+                "ai_coding_and_infrastructure",
+                "digital_humanities",
+                "comparison",
+                "social_media",
+                "news",
+            }
+        )
         self.tool_profile = normalize_tool_profile(self.tool_profile)
+        for key in self.brave_goggles_by_intent:
+            if key not in _CANONICAL_SEARCH_INTENTS:
+                raise ValueError(
+                    f"BRAVE_GOGGLES_BY_INTENT key {key!r} must be a canonical intent name."
+                )
 
 
 settings = Settings()

@@ -145,7 +145,7 @@ async def run_diversity_pruning(
         return DiversityStageOutcome(candidates, len(candidates), len(candidates), 0.0, 0)
 
     before_candidates = list(candidates)
-    stage_input = candidates[: top_k * 2]
+    stage_input = candidates[:top_k]
     stage_input_count = len(stage_input)
     stage_output_count = stage_input_count
     diversity_removed = 0
@@ -218,11 +218,9 @@ async def run_diversity_pruning(
             max_per_host=2,
             relevance_scores=relevance_scores,
         )
-        candidates = [candidates[i] for i in diversified_rank[: top_k * 2]] + candidates[
-            top_k * 2 :
-        ]
+        candidates = [stage_input[i] for i in diversified_rank[:top_k]]
         stage_output_count = len(candidates)
-        diversity_removed = len(diversified_rank) - len(diversified_rank[: top_k * 2])
+        diversity_removed = len(diversified_rank) - len(diversified_rank[:top_k])
     except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
         logger.warning("Diversity embedding failed: %s: %s", type(exc).__name__, exc)
     await record_rerank_candidate_rows_async(

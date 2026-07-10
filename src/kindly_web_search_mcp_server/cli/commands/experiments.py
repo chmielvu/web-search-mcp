@@ -363,7 +363,7 @@ def create_cmd(
             )
         # Interactive mode
         experiment_id = typer.prompt("Experiment ID")
-        layer = typer.prompt("Layer (e.g. query_understanding, reranking, provider_weights)")
+        layer = typer.prompt("Layer (e.g. query_understanding, reranking)")
         hypothesis = typer.prompt("Hypothesis", default="")
         primary_metric = typer.prompt("Primary metric", default="")
         traffic_pct = float(typer.prompt("Traffic percentage (0-100)", default="10"))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import asyncio
+import importlib
 import json
 import sys
 import types
@@ -168,6 +169,21 @@ def test_system_prompt_mentions_agentic_policy() -> None:
     assert "rerank_candidates" in prompt
     assert "academic_search" in prompt
     assert "full `web_search` pipeline" in prompt
+
+
+def test_mcp_registration_module_does_not_import_agent_runner(monkeypatch) -> None:
+    """Server startup must not pay the agent runner's import cost."""
+    mcp_module_name = "kindly_web_search_mcp_server.agent.mcp"
+    runner_module_name = "kindly_web_search_mcp_server.agent.runner"
+
+    monkeypatch.delitem(sys.modules, runner_module_name, raising=False)
+    monkeypatch.delitem(sys.modules, mcp_module_name, raising=False)
+
+    mcp_module = importlib.import_module(mcp_module_name)
+    assert runner_module_name not in sys.modules
+
+    importlib.reload(mcp_module)
+    assert runner_module_name not in sys.modules
 
 
 def test_register_agentic_web_research_tool_registers_tool(monkeypatch) -> None:

@@ -15,7 +15,6 @@ ab_testing/
 
 1. `query_understanding`
 2. `reranking`
-3. `provider_weights`
 
 ## Current Behavior
 

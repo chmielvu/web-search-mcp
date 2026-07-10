@@ -101,7 +101,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "voyage_rerank_model": settings.voyage_rerank_model,
             "jina_rerank_model": settings.jina_rerank_model,
             "judge_model": settings.judge_model,
-            "rerank_llm_candidate_limit": settings.rerank_llm_candidate_limit,
             "rerank_llm_timeout_seconds": settings.rerank_llm_timeout_seconds,
             "grok_model": settings.grok_model,
             "gliner_model": settings.gliner_model,

@@ -13,7 +13,7 @@ class ABVariant:
 @dataclass
 class ABExperiment:
     experiment_id: str
-    layer: str  # e.g. "query_understanding", "reranking", "provider_weights"
+    layer: str  # e.g. "query_understanding" or "reranking"
     status: str = "draft"  # draft, running, paused, concluded
     hypothesis: str = ""
     primary_metric: str = ""

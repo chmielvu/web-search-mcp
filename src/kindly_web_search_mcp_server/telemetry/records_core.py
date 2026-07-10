@@ -1,4 +1,5 @@
 """Telemetry recording helpers for core search operations."""
+
 from __future__ import annotations
 
 from .attributes import (
@@ -35,6 +36,7 @@ from .metrics import (
     get_rrf_metrics,
     get_search_metrics,
 )
+
 
 def record_provider_call(
     provider: str,
@@ -81,6 +83,7 @@ def record_provider_call(
     if status == STATUS_SUCCESS and result_count > 0:
         results_counter.add(result_count, {PROVIDER_NAME: provider})
 
+
 def record_cache_lookup(cache_type: str, hit: bool, duration_seconds: float | None = None) -> None:
     """Record cache hit/miss and optional latency.
 
@@ -108,6 +111,7 @@ def record_cache_lookup(cache_type: str, hit: bool, duration_seconds: float | No
             },
         )
 
+
 def record_search_request(
     providers_used: list[str],
     duration_seconds: float,
@@ -121,6 +125,7 @@ def record_search_request(
     total_counter.add(1, {SEARCH_PROVIDERS_USED: providers_str})
     duration_histogram.record(duration_seconds, {SEARCH_PROVIDERS_USED: providers_str})
 
+
 def record_merge(duration_seconds: float, input_lists: int, output_count: int) -> None:
     """Record RRF merge metrics."""
     _, _, merge_histogram = get_search_metrics()
@@ -131,6 +136,7 @@ def record_merge(duration_seconds: float, input_lists: int, output_count: int) -
             "merge.output_count": output_count,
         },
     )
+
 
 def record_mcp_tool_call(tool_name: str, success: bool) -> None:
     """Record MCP tool invocation."""
@@ -153,6 +159,7 @@ def record_mcp_tool_call(tool_name: str, success: bool) -> None:
                 ERROR_TYPE: "tool_execution_error",
             },
         )
+
 
 def record_rrf_merge(
     input_lists: int,
@@ -195,6 +202,7 @@ def record_rrf_merge(
             },
         )
 
+
 def record_rrf_score(score: float, position: int) -> None:
     """Record individual RRF score for distribution analysis."""
     _, _, score_histogram = get_rrf_metrics()
@@ -204,6 +212,7 @@ def record_rrf_score(score: float, position: int) -> None:
             RESULT_POSITION: position,
         },
     )
+
 
 def record_query_rewrite(
     policy: str,
@@ -241,6 +250,7 @@ def record_query_rewrite(
             },
         )
 
+
 def record_query_length(
     query_length: int,
     policy: str,
@@ -258,6 +268,7 @@ def record_query_length(
             REWRITE_POLICY: policy,
         },
     )
+
 
 def record_domain_diversity(
     unique_domains: int,
@@ -279,6 +290,7 @@ def record_domain_diversity(
             SEARCH_PROVIDERS_USED: str(providers_used),
         },
     )
+
 
 def record_tool_details(
     tool_name: str,
@@ -308,6 +320,7 @@ def record_tool_details(
         attrs["tool.output.transcript_length"] = output_transcript_length
 
     tool_counter.add(1, attrs)
+
 
 __all__ = [
     "record_cache_lookup",

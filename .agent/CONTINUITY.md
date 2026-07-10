@@ -1,14 +1,29 @@
 # CONTINUITY.md
 
-Canonical session briefing for web-search-mcp. Updated as of 2026-07-06.
+Canonical session briefing for web-search-mcp. Updated as of 2026-07-10.
 
 ## Current State
 
 - **Branch:** `main` (uncommitted changes in working tree)
-- **Ruff:** 0 errors (was 71)
-- **Pyright (src):** 184 errors (was 234)
-- **Tests (verified subset):** 96/97 passed (1 pre-existing failure)
-- **Full suite baseline:** 674 passed, 87 failed, 31 errors, 1 skipped
+- **Ruff:** `ruff check src/ tests/` passes after removing six unused CLI imports and fixing runtime typing imports.
+- **Targeted overhaul tests:** 83 passed with repository-local `--basetemp=.pytest-tmp`; 13 third-party async cleanup warnings remained.
+- **Manual smoke:** CLI schema passed; literal and news searches returned results, with pre-existing qdrant/HuggingFace warnings.
+- **Full suite baseline:** not run for this overhaul.
+
+## MCP Startup Import Repair — 2026-07-10
+
+- 2026-07-10T17:53:50Z [CODE] Deferred `agent.runner` until `agentic_web_research` executes and deferred `rake_nltk.Rake` until `keyword_extract._rake_extract()` executes; standard server startup no longer imports either optional runtime.
+- 2026-07-10T17:53:50Z [DECISIONS] Telemetry and LiteLLM were intentionally left unchanged; the startup repair is limited to the two confirmed eager optional imports.
+- 2026-07-10T17:53:50Z [TOOL] Targeted lazy-import regression tests passed (2); targeted Ruff check and format check passed; post-change MCP stdio `initialize` returned JSON-RPC `2.0` from `web-search` in 25.961s; post-change import profile contained no `rake_nltk` or `nltk` rows.
+
+## Phase Two Brave Retrieval — 2026-07-10
+
+- [CODE] `search_brave()` now calls Brave LLM Context (`/res/v1/llm/context`) and parses `grounding.generic` via `brave_common.py`.
+- [CODE] Added `brave_news` specialized provider; `news` intent policy `1.1` includes `specialized_providers=("telegram", "brave_news")` with `brave_news` freshness args.
+- [CODE] `ProviderExecutionPlan.specialized_provider_names` + `branch_planner` `specialized_original` branch wire specialized providers on the original query.
+- [CODE] `BRAVE_GOGGLES_BY_INTENT` (default `{}`) merges goggles into `brave` / `brave_news` provider arguments at policy resolve time.
+- [CODE] BrightData news Google URLs append `tbs=qdr:<token>` from intent freshness when `search_type=news`.
+- [TOOL] Phase Two verification: 68 focused tests passed (66 component + `test_phase_two_pipeline` plan→branch integration for `news`/`general`); `ruff check` clean on changed paths; `web-search-cli doctor` import smoke OK after settings circular-import fix.
 
 ## Uncommitted Changes
 
@@ -95,8 +110,8 @@ The working tree has a large diff. Consider committing the rehab changes separat
 - 2026-07-07T12:45:11+02:00 [TOOL] The post-fix workload is heavier and broader: average query length rose from 5.0 to 8.6 words, and rewrite-enabled searches dominated the after-fix cohort.
 - 2026-07-07T14:26:49+02:00 [CODE] `search_quality_scores` false-zero rows are explained by async DuckDB writes: `pipeline.py` queues `search_run` and `final_results`, then immediately fire-and-forgets `compute_search_quality()`, which reads DuckDB before queued rows are guaranteed durable.
 - 2026-07-07T14:26:49+02:00 [CODE] `final_results.providers`, `provider_count`, and `entities_count` are never passed as top-level insert args in `search/pipeline.py`; all 1,543 audited final-result rows had those normalized columns null.
-- 2026-07-07T14:26:49+02:00 [CODE] Provider planning still prepends BrightData whenever configured and shards providers across original/rewrite branches, so bad-provider selection and rewrite-enabled comparisons remain non-comparable.
-- 2026-07-07T14:26:49+02:00 [CODE] Rerank default `bi_cross_llm` still runs the LLM stage on normal search, and failed LLM rerank can be accepted as the final reranker because nonzero fallback output count is treated as success.
+- 2026-07-07T14:26:49+02:00 [CODE] Historical audit finding (superseded by the 2026-07-10 explicit target routing): provider planning prepended BrightData whenever configured and sharded providers across original/rewrite branches, so earlier comparisons were non-comparable.
+- 2026-07-07T14:26:49+02:00 [CODE] Historical audit finding (superseded by the 2026-07-10 acceptance gate): the default `bi_cross_llm` path ran the LLM stage on normal search, and a failed LLM outcome could be accepted when only its fallback output count was nonzero.
 
 ## Outcomes
 
@@ -185,3 +200,19 @@ Served at http://localhost:8765 (if running). Static HTML at `test-results/migra
 - 2026-07-06T00:00:00+00:00 [CODE] Committed full working tree snapshot as `95fd286` and pushed `main` to `origin` successfully; commit includes the modularized server/tooling split plus repo-local generated artifacts that were present in the worktree at commit time.
 - 2026-07-06T00:00:00+00:00 [CODE] Cleanup commit `50697bd` removed accidental generated artifacts from the repo snapshot: `MagicMock/` test outputs, `scripts/diagnose_embedding_latency.py`, and two generated `.duckdb` files. `.repomixignore` and `repomix.config.json` were restored because they were intended to stay.
 - 2026-07-06T04:08:04+02:00 [CODE] Renamed the public sitemap tool to `generate_sitemap` and switched it to Tavily Map first with legacy Crawl4AI sitemap fallback. Added `content/tavily_map.py`, split the old semantic sitemap logic into `content/legacy_sitemap.py`, and updated the CLI/tool catalog/server wiring plus focused regression tests.
+
+## Breaking Query Rewrite and Rerank Overhaul — 2026-07-10
+
+- 2026-07-10 [CODE] Query branching now has explicit `original_free` → `free`, `keyword_refined` → keyword/SERP, and `neural_refined` → neural routing. Literal search syntax bypasses the LLM rewrite to preserve operators; specialized community providers remain intent-policy selections rather than branch targets.
+- 2026-07-10 [CODE] Rewrite preprocessing combines caller terms with RAKE-NLTK phrases extracted from `research_goal`. Brave Autosuggest is best-effort, sends `rich=true`, and uses only the separate `BRAVE_SUGGEST_API_KEY`; Brave Spellcheck uses `BRAVE_API_KEY`.
+- 2026-07-10 [CODE] Branch outputs are filtered by the DuckDB-backed `blocklist_patterns` store and cached compiled matcher before merge. Merge uses pure rank-based RRF with intent-specific `rrf_k` (`news=35`, `digital_humanities=70`, otherwise `60`); provider/list weights are removed from scoring and execution plumbing.
+- 2026-07-10 [CODE] The Qwen XML listwise-CoT reranker now escapes untrusted title/URL/snippet fields, deterministically shuffles display IDs and remaps them, parses only `<final_ranking>`, and uses normalized linear ordinal scores.
+- 2026-07-10 [CODE] Rerank acceptance requires an error-free LLM outcome with non-empty relevance scores. Bi-encoder and cross-encoder stage multipliers provide monotonic narrowing, the LLM receives the remaining candidates, and diversity is terminal with no tail concatenation.
+- 2026-07-10 [TOOL] Verification ran `ruff format src/ tests/`, full Ruff (pass), 18 overhaul tests (pass), 62 migrated contract tests with repository-local basetemp (pass), CLI schema, two live CLI searches, Brave Autosuggest mock, RAKE extraction, and DuckDB blocklist lifecycle.
+
+## Recovery and MCP Entrypoint — 2026-07-10
+
+- 2026-07-10T18:54Z [TOOL] Recovered seven Phase One untracked source files from exact `write` payloads in the OMP session transcript at `C:/Users/Jan/.omp/agent/sessions/-Documents-GitHub-1Agents1-.CLI-web-search-mcp/2026-07-10T08-12-52-214Z_019f4b16-2c74-7000-96b6-7db8762478f3.jsonl`; replayed the recorded keyword and blocklist edits.
+- 2026-07-10T18:54Z [CODE] Restored `search/{blocklist,keyword_extract,literal_passthrough,query_rewrite_preprocess}.py` and `prompts/rewrite/{__init__,base,intents}.py`; restored Phase Two `search/{brave_common,brave_news}.py` and focused tests.
+- 2026-07-10T18:54Z [CODE] Fixed the MCP `python -m kindly_web_search_mcp_server.server --transport stdio` entrypoint by calling `main()` under `if __name__ == "__main__"`; this command previously imported then exited code 0 without starting stdio transport.
+- 2026-07-10T18:54Z [TOOL] Full DEBUG stdio probe received an MCP `initialize` JSON-RPC response from `web-search` and confirmed the server remains alive; restored-module checks: Ruff clean, DuckDB blocklist lifecycle passed, 26 focused rewrite/branch/Brave tests passed.

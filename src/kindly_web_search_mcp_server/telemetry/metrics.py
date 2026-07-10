@@ -1,4 +1,5 @@
 """Telemetry metric singletons and accessors."""
+
 from __future__ import annotations
 
 from opentelemetry import metrics
@@ -63,6 +64,7 @@ _youtube_search_counter: metrics.Counter | None = None
 # Query quality metrics (Phase 2)
 _query_length_histogram: metrics.Histogram | None = None
 _domain_diversity_histogram: metrics.Histogram | None = None
+
 
 def get_provider_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Counter]:
     """Get provider metrics (call counter, duration histogram, results counter)."""
@@ -469,6 +471,7 @@ def get_query_quality_metrics() -> tuple[metrics.Histogram, metrics.Histogram]:
         )
 
     return _query_length_histogram, _domain_diversity_histogram
+
 
 __all__ = [
     "get_cache_metrics",

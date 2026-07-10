@@ -13,6 +13,9 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass
+from dataclasses import replace
+
+from .intent_policy import resolve_intent_policy
 from typing import Any
 
 import httpx
@@ -81,7 +84,6 @@ class BranchExecutionBatch:
     result_lists: list[list[WebSearchResult]]
     branch_queries: list[str]
     branch_providers: list[list[str] | None]
-    list_weights: list[float]
     branch_metadata: list[dict[str, Any]]
 
 
@@ -135,7 +137,7 @@ async def execute_search_branches(
     """
     selected_branches = _limit_branches(branches)
     if not selected_branches:
-        return BranchExecutionBatch([], [], [], [], [])
+        return BranchExecutionBatch([], [], [], [])
 
     concurrency = max(
         1,
@@ -155,6 +157,15 @@ async def execute_search_branches(
             provider_options_by_name = spec.provider_options_by_name or (
                 provider_plan.options.bundles if provider_plan else None
             )
+            if spec.branch_type == "keyword_refined" and provider_options_by_name:
+                freshness = resolve_intent_policy(spec.intent).freshness
+                if freshness:
+                    provider_options_by_name = {
+                        name: replace(
+                            bundle, arguments={**bundle.arguments, "freshness": freshness}
+                        )
+                        for name, bundle in provider_options_by_name.items()
+                    }
             resolved_configs: list = []
             if spec.providers and provider_plan:
                 from .provider_config import resolve_provider_configs  # noqa: PLC0415
@@ -247,6 +258,5 @@ async def execute_search_branches(
         result_lists=[result.results for result in branch_results],
         branch_queries=[result.spec.query for result in branch_results],
         branch_providers=[result.spec.providers for result in branch_results],
-        list_weights=[result.spec.weight for result in branch_results],
         branch_metadata=[result.metadata for result in branch_results],
     )

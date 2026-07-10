@@ -46,6 +46,7 @@ async def fetch_web_search_payload(
     payload = response.model_dump(exclude_none=True)
     if domain_boost or domain_block:
         from ...tools._helpers import _apply_domain_filters
+
         payload["results"] = _apply_domain_filters(
             payload.get("results", []), domain_boost, domain_block
         )

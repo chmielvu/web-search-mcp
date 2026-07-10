@@ -412,3 +412,7 @@ if settings.tool_search_enabled:
         enabled=True,
         profile=settings.tool_profile,
     )
+
+
+if __name__ == "__main__":
+    main()

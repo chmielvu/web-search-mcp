@@ -60,6 +60,12 @@ class TestBrightDataURLConstruction(unittest.TestCase):
         url = _build_google_url("openai news", search_type="news")
         self.assertIn("tbm=nws", url)
 
+    def test_google_url_news_freshness_maps_qdr_token(self):
+        from kindly_web_search_mcp_server.search.brightdata import _build_google_url
+
+        url = _build_google_url("openai news", search_type="news", freshness="week")
+        self.assertIn("tbs=qdr:w", url)
+
     def test_google_url_exact_match_off(self):
         from kindly_web_search_mcp_server.search.brightdata import _build_google_url
 
@@ -281,11 +287,8 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
         "kindly_web_search_mcp_server.search.brightdata._resolve_payload_base",
         return_value={"zone": "test", "format": "raw", "data_format": "parsed_light"},
     )
-    def test_search_raises_when_no_results(self, *_):
-        from kindly_web_search_mcp_server.search.brightdata import (
-            search_brightdata,
-            BrightDataError,
-        )
+    def test_search_returns_empty_when_no_results(self, *_):
+        from kindly_web_search_mcp_server.search.brightdata import search_brightdata
 
         run_provider_mock = AsyncMock(return_value=[])
         bing_mock = AsyncMock(return_value=[])
@@ -294,8 +297,8 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
             patch("kindly_web_search_mcp_server.search.brightdata.run_provider", run_provider_mock),
             patch("kindly_web_search_mcp_server.search.brightdata._search_bing", bing_mock),
         ):
-            with self.assertRaises(BrightDataError):
-                _run_async(search_brightdata("test", num_results=5))
+            results = _run_async(search_brightdata("test", num_results=5))
+            self.assertEqual(results, [])
 
     @patch(
         "kindly_web_search_mcp_server.search.brightdata._get_brightdata_api_key",

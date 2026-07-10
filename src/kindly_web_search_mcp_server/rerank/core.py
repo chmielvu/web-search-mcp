@@ -172,7 +172,7 @@ async def rerank_results(
             "rerank.top_k": top_k,
             "rerank.stack_mode": plan.mode,
         },
-        ) as main_span:
+    ) as main_span:
         stage1_output_count = original_count
         bi_encoder_attempted = False
         bi_encoder_min_candidates = getattr(
@@ -186,7 +186,7 @@ async def rerank_results(
             and len(candidates) >= bi_encoder_min_candidates
         ):
             bi_encoder_attempted = True
-            bi_encoder_top_k = top_k * 3
+            bi_encoder_top_k = int(top_k * settings.rerank_bi_encoder_stage_multiplier)
             stage1_start = time.time()
             before_bi_encoder = list(candidates)
             try:
@@ -251,7 +251,9 @@ async def rerank_results(
                     cross_outcome.error,
                 )
             if getattr(cross_outcome, "relevance_scores", []):
-                candidates = cross_outcome.candidates
+                candidates = cross_outcome.candidates[
+                    : int(top_k * settings.rerank_cross_encoder_stage_multiplier)
+                ]
                 max_rerank_score = cross_outcome.max_score
                 final_provider = cross_outcome.provider
                 final_model = cross_outcome.model or ""
@@ -267,7 +269,7 @@ async def rerank_results(
                 query=query,
                 candidates=candidates,
                 top_k=top_k,
-                candidate_limit=settings.rerank_llm_candidate_limit,
+                candidate_limit=len(candidates),
                 query_type_hint=query_type_hint,
                 research_goal=research_goal,
                 instruction=instruction,
@@ -281,14 +283,16 @@ async def rerank_results(
                 if ab_overrides and "entity_boost" in ab_overrides
                 else None,
             )
-            if getattr(llm_outcome, "relevance_scores", []) or getattr(
-                llm_outcome, "output_count", 0
-            ):
+            if llm_outcome.error is None and getattr(llm_outcome, "relevance_scores", []):
                 candidates = llm_outcome.candidates
                 max_rerank_score = llm_outcome.max_score
                 final_provider = llm_outcome.provider
                 final_model = llm_outcome.model or ""
                 llm_ran = True
+            elif llm_outcome.error is not None:
+                logger.warning(
+                    "LLM rerank stage failed, preserving cross-encoder order: %s", llm_outcome.error
+                )
 
         # Score fusion: blend the cross-encoder's real relevance score with the
         # LLM reranker's ordinal score into one authoritative relevance signal.

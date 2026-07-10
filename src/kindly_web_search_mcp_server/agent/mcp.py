@@ -19,7 +19,6 @@ from kindly_web_search_mcp_server.utils.observability import (
 )
 
 from .models import AgenticResearchRequest
-from .runner import run_agentic_web_research
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +60,8 @@ def register_agentic_web_research_tools(mcp: Any) -> None:  # FastMCP instance
                 depth=depth,
             )
             try:
+                from .runner import run_agentic_web_research
+
                 result = await run_agentic_web_research(
                     AgenticResearchRequest(
                         query=query,

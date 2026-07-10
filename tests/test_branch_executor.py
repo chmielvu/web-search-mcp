@@ -20,7 +20,6 @@ def _build_provider_plan():
         intent="general",
         policy_version="1.0",
         provider_names=("searxng", "brave"),
-        provider_weights={"searxng": 1.0, "brave": 1.0},
         search_options=SearchOptions(),
         options=ProviderOptionSet(bundles=bundles),
     )
@@ -134,7 +133,6 @@ def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None
             "branch three",
         ]
         assert batch.branch_queries == ["branch one", "branch two", "branch three"]
-        assert batch.list_weights == [1.2, 0.9, 0.8]
         assert batch.branch_metadata[0]["branch_index"] == 0
         assert batch.branch_metadata[1]["branch_type"] == "comparative"
         assert batch.branch_metadata[2]["branch_result_count"] == 1

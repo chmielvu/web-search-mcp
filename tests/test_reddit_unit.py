@@ -20,7 +20,9 @@ class _DummyResponse:
 class TestRedditUnit(unittest.IsolatedAsyncioTestCase):
     @patch("kindly_web_search_mcp_server.search.reddit.settings")
     @patch("asyncio.sleep", new_callable=AsyncMock)
-    async def test_reddit_delay_is_configurable(self, mock_sleep: AsyncMock, mock_settings: object) -> None:
+    async def test_reddit_delay_is_configurable(
+        self, mock_sleep: AsyncMock, mock_settings: object
+    ) -> None:
 
         mock_settings.reddit_delay_seconds = 0.25
         http_client = type("Client", (), {})()

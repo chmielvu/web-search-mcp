@@ -1,4 +1,5 @@
 """Telemetry semantic convention constants."""
+
 from __future__ import annotations
 
 from ..llm.phoenix_tracing import (

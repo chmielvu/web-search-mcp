@@ -1,4 +1,5 @@
 """Telemetry span helper functions."""
+
 from __future__ import annotations
 
 import json
@@ -44,6 +45,7 @@ from .attributes import (
     URL_FULL,
 )
 
+
 def get_tracer(name: str = "web-search-mcp") -> trace.Tracer:
     """Get tracer for manual span creation."""
     return trace.get_tracer(name)
@@ -52,6 +54,8 @@ def get_tracer(name: str = "web-search-mcp") -> trace.Tracer:
 def get_meter(name: str = "web-search-mcp") -> metrics.Meter:
     """Get meter for custom metrics."""
     return metrics.get_meter(name)
+
+
 def create_search_span(
     query: str,
     num_results: int,
@@ -227,7 +231,6 @@ def create_content_span(
     """Create span for content resolution stage."""
     tracer = get_tracer()
 
-
     parsed = urlparse(url)
 
     return tracer.start_as_current_span(  # type: ignore[return-value]
@@ -338,6 +341,7 @@ def create_cache_span(
         kind=trace.SpanKind.INTERNAL,
         attributes=attributes,
     )
+
 
 __all__ = [
     "create_cache_span",

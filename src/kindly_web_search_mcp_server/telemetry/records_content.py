@@ -1,4 +1,5 @@
 """Telemetry recording helpers for content resolution."""
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +15,7 @@ from .attributes import (
     STATUS_SUCCESS,
 )
 from .metrics import get_content_metrics
+
 
 def record_content_resolution(
     stage: str,
@@ -60,6 +62,7 @@ def record_content_resolution(
         content_status=status,
     )
 
+
 def record_content_fallback(stage: str, url: str, from_stage: str | None = None) -> None:
     """Record a fallback to a later extraction stage."""
     counter = _content_fallback_counter
@@ -85,6 +88,7 @@ def record_content_fallback(stage: str, url: str, from_stage: str | None = None)
         from_stage=from_stage,
     )
 
+
 def record_content_error(stage: str, url: str, error_type: str) -> None:
     """Record a hard error during content resolution."""
     counter = _content_error_counter
@@ -109,6 +113,7 @@ def record_content_error(stage: str, url: str, error_type: str) -> None:
         url=url,
         error_type=error_type,
     )
+
 
 __all__ = [
     "record_content_error",

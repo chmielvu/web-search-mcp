@@ -213,7 +213,6 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 policy_version="1.0",
                 provider_names=["web"],
-                provider_weights={},
                 search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
@@ -223,7 +222,6 @@ class TestPipelineABWiringRerank:
                 result_lists=[],
                 branch_queries=[],
                 branch_providers=[],
-                list_weights=[],
                 branch_metadata={},
             )
             mock_merge.return_value = [
@@ -260,7 +258,7 @@ class TestPipelineABWiringRerank:
                 session_id=None,
             )
 
-            # get_ab_overrides is called for both provider_weights and reranking layers
+            # The pipeline consults only the reranking A/B layer.
             assert mock_get_ab.call_count >= 1
             reranking_calls = [
                 c for c in mock_get_ab.call_args_list if c.kwargs.get("layer") == "reranking"
@@ -330,7 +328,6 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 policy_version="1.0",
                 provider_names=["web"],
-                provider_weights={},
                 search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
@@ -340,7 +337,6 @@ class TestPipelineABWiringRerank:
                 result_lists=[],
                 branch_queries=[],
                 branch_providers=[],
-                list_weights=[],
                 branch_metadata={},
             )
             mock_merge.return_value = [
@@ -458,7 +454,6 @@ class TestPipelineABWiringRerank:
                 intent="general",
                 policy_version="1.0",
                 provider_names=["web"],
-                provider_weights={},
                 search_options=_make_search_options(),
                 options=MagicMock(bundles={}),
             )
@@ -468,7 +463,6 @@ class TestPipelineABWiringRerank:
                 result_lists=[],
                 branch_queries=[],
                 branch_providers=[],
-                list_weights=[],
                 branch_metadata={},
             )
             mock_merge.return_value = [
@@ -505,7 +499,7 @@ class TestPipelineABWiringRerank:
                 session_id=None,
             )
 
-            # verify that get_ab_overrides was called for multiple layers
+            # Only the reranking A/B layer is consulted.
             assert mock_get_ab.call_count >= 1
             # verify that fire_and_forget was called (for shadow task)
             assert mock_fire_and_forget.called, "fire_and_forget should be called for shadow mode"

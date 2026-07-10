@@ -358,7 +358,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.search.run_web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
-            patch("kindly_web_search_mcp_server.tools.search.get_query_cache") as mock_get_query_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.search.get_query_cache"
+            ) as mock_get_query_cache,
         ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None
@@ -418,7 +420,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -459,7 +463,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -514,7 +520,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
         ):
             mock_page_cache = MagicMock()
             mock_page_cache.lookup.return_value = None
@@ -551,7 +559,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
             ) as mock_fetch,
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
             patch(
                 "kindly_web_search_mcp_server.tools.content._resolve_tool_total_timeout_seconds",
                 return_value=0.01,
@@ -600,7 +610,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.search.run_web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
-            patch("kindly_web_search_mcp_server.tools.search.get_query_cache") as mock_get_query_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.search.get_query_cache"
+            ) as mock_get_query_cache,
         ):
             mock_query_cache = MagicMock()
             mock_query_cache.lookup.return_value = None

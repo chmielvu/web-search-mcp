@@ -22,10 +22,11 @@ class ProviderExecutionPlan:
     intent: SearchIntent
     policy_version: str
     provider_names: tuple[str, ...]
-    provider_weights: dict[str, float]
     search_options: SearchOptions | None
     options: ProviderOptionSet
     plan_version: str = "1.0"
+
+    specialized_provider_names: tuple[str, ...] = ()
 
 
 def _merge_provider_names(*groups: list[str]) -> tuple[str, ...]:
@@ -43,7 +44,6 @@ def _merge_provider_names(*groups: list[str]) -> tuple[str, ...]:
 def _build_bundles(
     *,
     provider_names: tuple[str, ...],
-    provider_weights: dict[str, float],
     provider_arguments: dict[str, dict[str, object]],
     search_options: SearchOptions | None,
 ) -> ProviderOptionSet:
@@ -51,7 +51,6 @@ def _build_bundles(
         name: ProviderOptionBundle(
             provider_name=name,
             search_options=search_options,
-            weight=provider_weights.get(name, 1.0),
             arguments=dict(provider_arguments.get(name, {})),
         )
         for name in provider_names
@@ -80,17 +79,16 @@ def build_provider_execution_plan(
     if brightdata_config:
         selected_paid = [brightdata_config[0]] + selected_paid
     specialized_configs = resolve_provider_configs(policy.specialized_providers)
+    specialized_names = tuple(config.name for config in specialized_configs)
 
     provider_names = _merge_provider_names(
         [config.name for config in free_configs],
         [config.name for config in selected_paid],
         [config.name for config in specialized_configs],
     )
-    provider_weights = dict(policy.provider_weights)
     effective_options = policy.apply_search_options(public_options)
     options = _build_bundles(
         provider_names=provider_names,
-        provider_weights=provider_weights,
         provider_arguments=policy.provider_arguments,
         search_options=effective_options,
     )
@@ -98,9 +96,9 @@ def build_provider_execution_plan(
         intent=policy.intent,
         policy_version=policy.policy_version,
         provider_names=provider_names,
-        provider_weights=provider_weights,
         search_options=effective_options,
         options=options,
+        specialized_provider_names=specialized_names,
     )
 
 
@@ -119,8 +117,33 @@ def build_cache_identity(
             provider_plan.policy_version,
             provider_plan.plan_version,
             ",".join(provider_plan.provider_names),
+            _provider_arguments_fingerprint(provider_plan),
             str(search_options.cache_fingerprint() if search_options else ""),
             str(int(rewrite_enabled)),
         ]
     ).encode("utf-8")
     return sha256(payload).hexdigest()[:24]
+
+
+def _provider_arguments_fingerprint(plan: ProviderExecutionPlan) -> str:
+    """Stable serialization of per-provider arguments for cache identity.
+
+    A Goggle or context-size policy change must invalidate a cached retrieval
+    result even when provider names and policy version are unchanged. Returns
+    an empty string when no bundle arguments are present or on unexpected input.
+    """
+    try:
+        bundles = plan.options.bundles
+    except Exception:
+        return ""
+    if not isinstance(bundles, dict):
+        return ""
+    parts: list[str] = []
+    for name in sorted(plan.provider_names):
+        bundle = bundles.get(name)
+        if bundle is None:
+            continue
+        arguments = getattr(bundle, "arguments", None)
+        if arguments:
+            parts.append(f"{name}:{arguments}")
+    return ",".join(parts)

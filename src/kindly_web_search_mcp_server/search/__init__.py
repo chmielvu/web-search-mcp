@@ -1,4 +1,4 @@
-"""Search providers: SearXNG (primary) + DDG (free fallback) → intent-owned providers.
+"""Search providers: SearXNG (primary) + DDG (peer free) → intent-owned providers.
 
 Uses Reciprocal Rank Fusion (RRF) for multi-provider result merging.
 Includes circuit breaker and budget tracking for provider health.
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from .brave import search_brave
+from .brave_news import search_brave_news
 from .brightdata import search_brightdata
 from .serpapi import search_serpapi
 from .serper import search_serper
@@ -216,6 +217,16 @@ def _init_provider_registry() -> None:
             group=ProviderGroup.specialized,
             requires_key=True,
             extra_env_keys=("TELEGRAM_API_HASH",),
+        )
+    )
+
+    register_provider(
+        ProviderConfig(
+            name="brave_news",
+            env_key="BRAVE_API_KEY",
+            search_fn=search_brave_news,
+            group=ProviderGroup.specialized,
+            requires_key=True,
         )
     )
 

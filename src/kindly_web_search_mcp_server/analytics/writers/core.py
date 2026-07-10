@@ -221,9 +221,7 @@ def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     duration_seconds = payload.get("duration_seconds")
-    if isinstance(duration_seconds, (int, float)) and not isinstance(
-        duration_seconds, bool
-    ):
+    if isinstance(duration_seconds, (int, float)) and not isinstance(duration_seconds, bool):
         return round(float(duration_seconds) * 1000.0, 3)
     return None
 
@@ -372,4 +370,3 @@ def append_event(
                 connection.close()
 
     dispatch_duckdb_write("analytics.search_events", _write)
-

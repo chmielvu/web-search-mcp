@@ -30,14 +30,13 @@ def test_provider_plan_selects_free_paid_and_specialized_from_policy(monkeypatch
         "serper": _provider("serper", ProviderGroup.paid_serp),
         "gemini": _provider("gemini", ProviderGroup.specialized),
         "github_graphql": _provider("github_graphql", ProviderGroup.specialized),
+        "brave_news": _provider("brave_news", ProviderGroup.specialized),
     }
-    # TODO: specialized_providers empty for now — intents to be designed later.
     policy = IntentSearchPolicy(
-        intent="general",
-        policy_version="1.0",
-        specialized_providers=(),
-        provider_weights={"searxng": 1.0, "brave": 1.0},
-        provider_arguments={"brave": {"country": "us"}},
+        intent="news",
+        policy_version="1.1",
+        specialized_providers=("brave_news",),
+        provider_arguments={"brave": {"country": "us"}, "brave_news": {"freshness": "week"}},
         search_options_overrides={"searxng_pageno": 2},
         rewrite_temperature=0.0,
     )
@@ -59,19 +58,45 @@ def test_provider_plan_selects_free_paid_and_specialized_from_policy(monkeypatch
         lambda intent: policy,
     )
 
-    plan = build_provider_execution_plan(intent="general", public_options=SearchOptions())
+    plan = build_provider_execution_plan(intent="news", public_options=SearchOptions())
 
-    assert plan.intent == "general"
-    assert plan.policy_version == "1.0"
-    assert plan.provider_names == (
-        "searxng",
-        "ddg",
-        "brave",
-        "serpapi",
+    assert plan.intent == "news"
+    assert plan.policy_version == "1.1"
+    assert "brave_news" in plan.provider_names
+    assert plan.specialized_provider_names == ("brave_news",)
+    assert plan.options.bundle_for("brave_news").arguments == {"freshness": "week"}
+
+
+def test_cache_identity_changes_when_provider_arguments_change(monkeypatch) -> None:
+    from kindly_web_search_mcp_server.search.provider_options import (
+        ProviderOptionBundle,
+        ProviderOptionSet,
     )
-    assert plan.search_options is not None
-    assert plan.search_options.searxng_pageno == 2
-    assert plan.options.bundle_for("brave").arguments == {"country": "us"}
+    from kindly_web_search_mcp_server.search.provider_plan import ProviderExecutionPlan
+
+    def _identity(arguments: dict[str, object]) -> str:
+        plan = ProviderExecutionPlan(
+            intent="news",
+            policy_version="1.1",
+            provider_names=("brave", "brave_news"),
+            search_options=None,
+            options=ProviderOptionSet(
+                bundles={
+                    "brave": ProviderOptionBundle(provider_name="brave", arguments=arguments),
+                    "brave_news": ProviderOptionBundle(provider_name="brave_news"),
+                }
+            ),
+            specialized_provider_names=("brave_news",),
+        )
+        return build_cache_identity(
+            query="headlines",
+            intent="news",
+            provider_plan=plan,
+            search_options=None,
+            rewrite_enabled=True,
+        )
+
+    assert _identity({}) != _identity({"goggles": ["https://example.com/goggle"]})
 
 
 def test_cache_identity_bakes_intent_and_policy_version(monkeypatch) -> None:

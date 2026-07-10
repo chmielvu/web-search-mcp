@@ -104,11 +104,11 @@ def record_ranked_stage(
         except Exception as exc:
             logger.debug("analytics insert_rerank_stages (%s) failed: %s", stage_name, exc)
     event_attributes = {
-            RERANK_STAGE: stage_name,
-            RERANK_INPUT_COUNT: input_count,
-            RERANK_OUTPUT_COUNT: output_count,
-            "rerank.top_score": round(max_score, 4),
-            "rerank.avg_score": round(avg_score, 4),
+        RERANK_STAGE: stage_name,
+        RERANK_INPUT_COUNT: input_count,
+        RERANK_OUTPUT_COUNT: output_count,
+        "rerank.top_score": round(max_score, 4),
+        "rerank.avg_score": round(avg_score, 4),
     }
     if model is not None:
         event_attributes["rerank.model"] = model

@@ -1,9 +1,10 @@
-"""Prompt helpers for the GPT-OSS-backed listwise reranker."""
+"""Prompt helpers for the XML listwise LLM reranker."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from html import escape as _xml_escape
 from pathlib import Path
 from typing import Final
 
@@ -12,7 +13,7 @@ import yaml
 from ..models import WebSearchResult
 from .builders import REASONING_EFFORT_LOW, system_header
 
-_TEMPLATE_PATH: Final = Path(__file__).with_suffix(".yaml")
+_TEMPLATE_PATH: Final[Path] = Path(__file__).with_suffix(".yaml")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,13 +42,20 @@ def load_rerank_prompt_template() -> RerankPromptTemplate:
     )
 
 
+def _escape_prompt_xml(value: str | None) -> str:
+    return _xml_escape(" ".join((value or "").split()), quote=True)
+
+
 def _format_candidate(candidate: WebSearchResult) -> str:
-    parts = [
-        f"Title: {candidate.title}",
-        f"URL: {candidate.link}",
-        f"Snippet: {candidate.snippet}",
-    ]
-    return "\n".join(parts)
+    return "\n".join(
+        [
+            '<candidate_data type="untrusted_search_result">',
+            f"Title: {_escape_prompt_xml(candidate.title)}",
+            f"URL: {_escape_prompt_xml(candidate.link)}",
+            f"Snippet: {_escape_prompt_xml(candidate.snippet)}",
+            "</candidate_data>",
+        ]
+    )
 
 
 def _render_template(template: str, **values: str) -> str:
@@ -60,34 +68,35 @@ def _render_template(template: str, **values: str) -> str:
 def build_llm_rerank_messages(
     *,
     query: str,
-    candidates: list[tuple[int, WebSearchResult]],
+    candidates: list[tuple[int, int, WebSearchResult]],
     research_goal: str | None = None,
     query_type_hint: str | None = None,
 ) -> list[dict[str, str]]:
+    del query_type_hint
     template = load_rerank_prompt_template()
-    context_parts = []
-    if query_type_hint and query_type_hint != "general":
-        context_parts.append(f"Query type: {query_type_hint}.")
-    if research_goal:
-        context_parts.append(f"Research goal: {research_goal}.")
-    context = " ".join(context_parts) + " " if context_parts else ""
     candidate_blocks = [
         _render_template(
             template.body,
-            rank=str(rank),
+            rank=str(display_id),
             candidate=_format_candidate(candidate),
         )
-        for rank, candidate in candidates
+        for display_id, _, candidate in candidates
     ]
     user_content = "\n\n".join(
         [
-            _render_template(template.prefix, query=query, context=context),
-            *candidate_blocks,
-            _render_template(template.suffix, query=query),
+            _render_template(
+                template.prefix,
+                query=_escape_prompt_xml(query),
+                research_goal=_escape_prompt_xml(research_goal or query),
+                candidate_blocks="\n\n".join(candidate_blocks),
+            ),
+            _render_template(template.suffix),
         ]
     )
-    system_content = f"{system_header(REASONING_EFFORT_LOW)}\n\n{template.system_message}"
     return [
-        {"role": "system", "content": system_content},
+        {
+            "role": "system",
+            "content": f"{system_header(REASONING_EFFORT_LOW)}\n\n{template.system_message}",
+        },
         {"role": "user", "content": user_content},
     ]

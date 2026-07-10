@@ -1,24 +1,33 @@
-"""Helper builders for the 0.2 search pipeline."""
+"""Builders for search context and enriched query rewrite variants."""
 
 from __future__ import annotations
 
 import json
+import logging
+import os
+import re
 
+import httpx
 from pydantic import BaseModel, Field
 
-from ..llm.worker import build_llm_worker
-from ..llm.structured import StructuredLLMRequest
 from ..llm.phoenix_tracing import LLMTraceContext
+from ..llm.structured import StructuredLLMRequest
+from ..llm.worker import build_llm_worker
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
-
 from ..settings import settings
+from .brave import spellcheck_brave, suggest_brave_queries
 from .context import SearchContext
 from .intents import SearchIntent
 from .intent_policy import resolve_intent_policy
+from .keyword_extract import extract_must_keep_terms
+from .literal_passthrough import detect_literal_passthrough
 from .normalize import normalize_query
 from .options import SearchOptions
 from .query_rewrite_models import QueryVariant
+from .query_rewrite_preprocess import build_rewrite_preprocess_signals
+
+logger = logging.getLogger(__name__)
 
 
 class RewriteVariantResponse(BaseModel):
@@ -57,23 +66,26 @@ def build_search_context(
 
 
 def parse_variant_payload(payload: object) -> list[QueryVariant]:
-    if not isinstance(payload, dict):
-        raise ValueError("Rewrite worker response must be a JSON object")
-    raw_variants = payload.get("variants", [])
-    if not isinstance(raw_variants, list):
+    """Parse rewrite JSON from an optional ``<final_response>`` wrapper."""
+    if isinstance(payload, dict):
+        data = payload
+    elif isinstance(payload, str):
+        match = re.search(r"<final_response>(.*?)</final_response>", payload, re.DOTALL)
+        json_text = match.group(1).strip() if match else payload.strip()
+        data = json.loads(json_text)
+    else:
+        raise ValueError("Rewrite worker response must be a JSON object or string")
+    if not isinstance(data, dict) or not isinstance(data.get("variants"), list):
         raise ValueError("Rewrite worker response missing variants array")
-    variants: list[QueryVariant] = []
-    seen: set[str] = set()
-    for item in raw_variants:
-        variant = QueryVariant.model_validate(item)
-        key = normalize_query(variant.query).casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        variants.append(variant)
-    if not variants:
-        raise ValueError("Rewrite worker returned no usable variants")
-    return variants
+    variants = [QueryVariant.model_validate(item) for item in data["variants"]]
+    keyword = next((variant for variant in variants if variant.kind == "keyword_refined"), None)
+    neural = next((variant for variant in variants if variant.kind == "neural_refined"), None)
+    if keyword is None or neural is None:
+        raise ValueError(
+            "Rewrite worker must return keyword_refined and neural_refined variants. "
+            f"Got kinds: {[variant.kind for variant in variants]}"
+        )
+    return [keyword, neural]
 
 
 async def build_rewrite_variants(
@@ -81,29 +93,92 @@ async def build_rewrite_variants(
     context: SearchContext,
     understanding_intent: SearchIntent,
     must_keep_terms: list[str],
+    num_results: int | None = None,
+    http_client: httpx.AsyncClient,
 ) -> tuple[list[QueryVariant], str, int | None, int | None]:
     policy = resolve_intent_policy(understanding_intent)
+    research_text = context.research_goal or context.normalized_query
+    try:
+        rake_terms = await extract_must_keep_terms(research_text)
+    except Exception:
+        logger.warning(
+            "RAKE extraction failed; continuing with existing must-keep terms", exc_info=True
+        )
+        rake_terms = []
+    merged_must_keep = list(dict.fromkeys([*must_keep_terms, *rake_terms]))
+    suggestions: list[str] = []
+    entities: list[dict[str, str]] = []
+    spellcheck: str | None = None
+
+    suggest_key = os.environ.get("BRAVE_SUGGEST_API_KEY", settings.brave_suggest_api_key).strip()
+    if suggest_key:
+        try:
+            enrichment = await suggest_brave_queries(
+                context.normalized_query, http_client=http_client
+            )
+            suggestions = enrichment.get("suggestions", [])
+            entities = enrichment.get("entities", [])
+        except Exception:
+            logger.warning(
+                "Brave Autosuggest failed; continuing without suggestions", exc_info=True
+            )
+    if os.environ.get("BRAVE_API_KEY", settings.brave_api_key).strip():
+        try:
+            spellcheck = await spellcheck_brave(context.normalized_query, http_client=http_client)
+        except Exception:
+            logger.debug("Brave Spellcheck failed", exc_info=True)
+
+    signals = build_rewrite_preprocess_signals(
+        context.normalized_query,
+        brave_suggestions=suggestions,
+        brave_entities=entities,
+        brave_spellcheck=spellcheck,
+        must_keep_terms=merged_must_keep,
+    )
+    max_results = num_results or context.num_results
+    if detect_literal_passthrough(context.normalized_query):
+        reason = "Literal-syntax query detected. Bypassing LLM rewrite to preserve exact operators."
+        return (
+            [
+                QueryVariant(
+                    kind="keyword_refined",
+                    target="keyword",
+                    query=context.normalized_query,
+                    why="Literal operators preserved for SERP providers.",
+                    weight=1.0,
+                    branch_type="keyword_refined",
+                    reason=reason,
+                    must_keep_terms=merged_must_keep,
+                    max_results=max_results,
+                ),
+                QueryVariant(
+                    kind="neural_refined",
+                    target="neural",
+                    query=context.normalized_query,
+                    why="Literal query passed through as-is for neural providers.",
+                    weight=1.0,
+                    branch_type="neural_refined",
+                    reason=reason,
+                    must_keep_terms=merged_must_keep,
+                    max_results=max_results,
+                ),
+            ],
+            "",
+            None,
+            None,
+        )
+
     system_prompt, user_prompt = build_prompt(
         "worker_rewrite",
         query=context.normalized_query,
         research_goal=context.research_goal,
         intent=understanding_intent,
-        must_keep_terms=must_keep_terms,
+        must_keep_terms=merged_must_keep,
         provider_name="worker",
-        max_variants=settings.query_rewrite_max_variants,
+        max_variants=2,
+        rewrite_signals=signals.prompt_block(),
     )
-    worker = build_llm_worker()
-    langfuse_trace = LLMTraceContext(
-        trace_name="query_rewrite",
-        session_id=context.session_id,
-        metadata={
-            "task": "worker_rewrite",
-            "intent": understanding_intent,
-            "policy_version": policy.policy_version,
-            "research_goal": context.research_goal or "",
-        },
-    )
-    generation = await worker.complete_structured(
+    generation = await build_llm_worker().complete_structured(
         StructuredLLMRequest(
             task="worker_rewrite",
             messages=[
@@ -114,12 +189,19 @@ async def build_rewrite_variants(
             timeout_seconds=settings.query_rewrite_cascade_timeout_seconds,
             response_model=RewriteVariantResponse,
             reasoning_effort=REASONING_EFFORT_LOW,
-            langfuse=langfuse_trace,
+            langfuse=LLMTraceContext(
+                trace_name="query_rewrite",
+                session_id=context.session_id,
+                metadata={
+                    "task": "worker_rewrite",
+                    "intent": understanding_intent,
+                    "policy_version": policy.policy_version,
+                },
+            ),
         )
     )
-    payload = json.loads(generation.content)
     return (
-        parse_variant_payload(payload),
+        parse_variant_payload(generation.content),
         generation.model_name,
         generation.input_tokens,
         generation.output_tokens,

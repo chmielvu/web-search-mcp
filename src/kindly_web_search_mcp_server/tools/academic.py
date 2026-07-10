@@ -138,7 +138,9 @@ async def academic_search(
         return response
 
     try:
-        flight_key = _academic_search_flight.make_key(normalized_query, limit, sources_key, filter_key)
+        flight_key = _academic_search_flight.make_key(
+            normalized_query, limit, sources_key, filter_key
+        )
         response = await _academic_search_flight.do(flight_key, _execute_academic_search)
 
         _record_tool_success(

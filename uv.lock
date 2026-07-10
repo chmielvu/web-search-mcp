@@ -4618,6 +4618,18 @@ wheels = [
 ]
 
 [[package]]
+name = "rake-nltk"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nltk" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/da/b1/53392b9ba76fdb1e9de3198f63eb1cb92529c80201e0709162d140134b30/rake-nltk-1.0.6.tar.gz", hash = "sha256:7813d680b2ce77b51cdac1757f801a87ff47682c9dbd2982aea3b66730346122", size = 9089, upload-time = "2021-09-15T05:13:18.346Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/e5/18876d587142df57b1c70ef752da34664bb7dd383710ccf3ccaefba2aa0c/rake_nltk-1.0.6-py3-none-any.whl", hash = "sha256:1c1ffdb64cae8cb99d169d53a5ffa4635f1c4abd3a02c6e22d5d083136bdc5c1", size = 9103, upload-time = "2021-09-15T05:13:19.937Z" },
+]
+
+[[package]]
 name = "rank-bm25"
 version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -6005,6 +6017,7 @@ dependencies = [
     { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "qdrant-client" },
+    { name = "rake-nltk" },
     { name = "rich" },
     { name = "semanticscholar" },
     { name = "structlog" },
@@ -6083,6 +6096,7 @@ requires-dist = [
     { name = "pymupdf4llm", marker = "python_full_version < '3.14' and extra == 'pdf-advanced'", specifier = ">=0.2.7" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "qdrant-client", specifier = ">=1.7.0" },
+    { name = "rake-nltk", specifier = ">=1.0.6" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "semanticscholar", specifier = ">=0.8.0" },
     { name = "structlog", specifier = ">=24.0.0" },

@@ -287,6 +287,7 @@ future-plans/
 # Local analytics data (binary DuckDB files)
 .kindly/
 duckdb_data/
+data/blocklist.duckdb
 
 # DuckDB binary extensions (platform-specific)
 .duckdb_extensions/
@@ -347,3 +348,4 @@ custom_search_json_api/
 evals/
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+.mcp-debug/

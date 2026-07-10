@@ -1,4 +1,5 @@
 """Telemetry recording helpers for AI/YouTube tools."""
+
 from __future__ import annotations
 
 from .attributes import (
@@ -27,6 +28,7 @@ from .metrics import (
     get_perplexity_metrics,
     get_youtube_metrics,
 )
+
 
 def record_agentic_research(
     *,
@@ -67,6 +69,7 @@ def record_agentic_research(
             },
         )
 
+
 def record_gemini_search(
     grounding_queries: int,
     grounding_chunks: int,
@@ -84,6 +87,7 @@ def record_gemini_search(
         },
     )
 
+
 def record_perplexity_search(
     depth: str,
     source_count: int,
@@ -100,6 +104,7 @@ def record_perplexity_search(
             PERPLEXITY_MODEL: model,
         },
     )
+
 
 def record_youtube_transcript(
     format: str,
@@ -121,6 +126,7 @@ def record_youtube_transcript(
         },
     )
 
+
 def record_youtube_search(
     num_results: int,
     duration_seconds: float | None = None,
@@ -135,6 +141,7 @@ def record_youtube_search(
             YOUTUBE_SEARCH_BACKEND: search_backend,
         },
     )
+
 
 __all__ = [
     "record_agentic_research",

@@ -81,7 +81,6 @@ def emit_result_lists_summary(
     result_lists: list[list[WebSearchResult]],
     branch_queries: list[str],
     branch_providers: list[list[str] | None],
-    list_weights: list[float],
     branch_metadata: list[dict[str, Any]] | None = None,
 ) -> None:
     summaries = [
@@ -89,7 +88,7 @@ def emit_result_lists_summary(
             index=index,
             query=branch_queries[index] if index < len(branch_queries) else query,
             providers=branch_providers[index] if index < len(branch_providers) else None,
-            weight=list_weights[index] if index < len(list_weights) else 1.0,
+            weight=1.0,
             results=results,
             metadata=(
                 branch_metadata[index] if branch_metadata and index < len(branch_metadata) else None

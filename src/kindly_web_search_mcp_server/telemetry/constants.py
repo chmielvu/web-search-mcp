@@ -1,4 +1,5 @@
 """Telemetry internal constants and availability flags."""
+
 from __future__ import annotations
 
 import importlib.util

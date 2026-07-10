@@ -1,4 +1,5 @@
 """Telemetry package with OTEL instrumentation helpers."""
+
 # ruff: noqa: F401, F403, F405
 from __future__ import annotations
 

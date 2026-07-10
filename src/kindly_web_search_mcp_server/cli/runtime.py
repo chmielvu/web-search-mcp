@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Coroutine, Literal
 
 
 OutputMode = Literal["agent", "human"]
@@ -52,10 +53,10 @@ def set_runtime(
 def get_runtime() -> CliRuntime:
     return _RUNTIME
 
+
 def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
     """Run a CLI command coroutine to completion, then drain background tasks and shut down the write executor."""
-    import asyncio
-    from typing import Coroutine, Any
+    # Local shutdown dependencies remain lazy to avoid import-time side effects.
 
     async def _runner() -> Any:
         try:

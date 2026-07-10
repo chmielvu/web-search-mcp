@@ -1,4 +1,5 @@
 """Telemetry recording helpers for reranking."""
+
 from __future__ import annotations
 
 from .attributes import (
@@ -11,6 +12,7 @@ from .attributes import (
     RERANK_STAGE,
 )
 from .metrics import get_rerank_metrics
+
 
 def record_rerank_stage(
     stage: str,
@@ -70,6 +72,7 @@ def record_rerank_stage(
                 },
             )
 
+
 def record_diversity_removal(
     similarity_score: float,
     threshold: float = 0.85,
@@ -83,6 +86,7 @@ def record_diversity_removal(
             RERANK_SIMILARITY_SCORE: round(similarity_score, 3),
         },
     )
+
 
 __all__ = [
     "record_diversity_removal",

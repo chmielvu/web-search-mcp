@@ -1,4 +1,5 @@
 """Telemetry span enhancement helpers."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -218,6 +219,7 @@ def set_span_success(span: trace.Span, result_count: int | None = None) -> None:
     span.set_status(trace.StatusCode.OK)
     if result_count is not None:
         span.set_attribute(SEARCH_NUM_RESULTS_RETURNED, result_count)
+
 
 __all__ = [
     "add_query_rewrite_variants_to_span",

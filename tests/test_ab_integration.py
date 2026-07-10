@@ -486,19 +486,15 @@ class TestLayerMutualExclusion:
         exps = [
             _make_running_exp("qu-exp", "query_understanding", variants),
             _make_running_exp("rerank-exp", "reranking", variants),
-            _make_running_exp("provider-exp", "provider_weights", variants),
         ]
 
         qu_result = get_assigned_variant("run-1", "query_understanding", exps)
         rerank_result = get_assigned_variant("run-1", "reranking", exps)
-        provider_result = get_assigned_variant("run-1", "provider_weights", exps)
 
         assert qu_result is not None
         assert qu_result.experiment_id == "qu-exp"
         assert rerank_result is not None
         assert rerank_result.experiment_id == "rerank-exp"
-        assert provider_result is not None
-        assert provider_result.experiment_id == "provider-exp"
 
     def test_non_running_experiments_ignored(self):
         """Draft/paused/concluded experiments don't participate in mutual exclusion."""

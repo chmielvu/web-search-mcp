@@ -98,6 +98,7 @@ async def run_search_pipeline(
         search_options=search_options,
         rewrite_enabled=rewrite,
     )
+    client = await get_http_client()
     if rewrite:
         (
             rewrite_variants,
@@ -108,6 +109,8 @@ async def run_search_pipeline(
             context=context,
             understanding_intent=context.intent,
             must_keep_terms=list(context.must_keep_terms),
+            num_results=num_results,
+            http_client=client,
         )
     else:
         # When rewrite is disabled we must not inject an "original" variant here;
@@ -161,7 +164,6 @@ async def run_search_pipeline(
 
     active_provider_names = list(provider_plan.provider_names)
     # Use the server-level shared client (created lazily, closed on shutdown).
-    client = await get_http_client()
     branch_specs = build_search_branch_specs(
         intent=context.intent,
         normalized_query=normalized_query,
@@ -185,7 +187,6 @@ async def run_search_pipeline(
     result_lists = branch_batch.result_lists
     branch_queries = branch_batch.branch_queries
     branch_providers = branch_batch.branch_providers
-    list_weights = branch_batch.list_weights
 
     emit_result_lists_summary(
         logger,
@@ -194,85 +195,15 @@ async def run_search_pipeline(
         result_lists=result_lists,
         branch_queries=branch_queries,
         branch_providers=branch_providers,
-        list_weights=list_weights,
         branch_metadata=branch_batch.branch_metadata,
     )
 
-    # ------------------------------------------------------------------
-    # A/B experiment override: check if this run_key is enrolled in
-    # a provider_weights experiment
-    # ------------------------------------------------------------------
-    base_provider_weights = provider_plan.provider_weights
-    pw_ab_overrides = (
-        get_ab_overrides(run_key=run_key, layer="provider_weights") if run_key else None
-    )
-    pw_shadow_mode = bool(pw_ab_overrides and pw_ab_overrides.get("shadow_mode"))
+    from .blocklist import filter_blocked_results
+    from .intent_policy import resolve_intent_policy
 
-    if pw_ab_overrides and not pw_shadow_mode:
-        pw_config = pw_ab_overrides.get("config", {})
-        variant_weights = pw_config.get("provider_weights", {})
-        if variant_weights:
-            merged_weights = dict(base_provider_weights)
-            merged_weights.update(variant_weights)
-            effective_weights = merged_weights
-        else:
-            effective_weights = base_provider_weights
-    else:
-        effective_weights = base_provider_weights
-
-    merged = merge_search_results(
-        result_lists,
-        list_weights=list_weights,
-        provider_weights=effective_weights,
-        run_key=run_key,
-    )
-
-    # Shadow mode: fire-and-forget variant merge and record comparison
-    if pw_shadow_mode and pw_ab_overrides and run_key:
-        pw_ab_config = pw_ab_overrides.get("config", {})
-        shadow_variant_weights = pw_ab_config.get("provider_weights", {})
-        if shadow_variant_weights:
-            shadow_weights = dict(base_provider_weights)
-            shadow_weights.update(shadow_variant_weights)
-        else:
-            shadow_weights = base_provider_weights
-
-        control_result_summary = {
-            "num_results": len(merged),
-            "domains": len(set(r.domain for r in merged if r.domain)),
-        }
-
-        async def _shadow_merge_fn(
-            result_lists=result_lists,
-            list_weights=list_weights,
-            shadow_weights=shadow_weights,
-            run_key=run_key,
-        ) -> dict:
-            shadow_merged = merge_search_results(
-                result_lists,
-                list_weights=list_weights,
-                provider_weights=shadow_weights,
-                run_key=run_key,
-            )
-            return {
-                "num_results": len(shadow_merged),
-                "domains": len(set(r.domain for r in shadow_merged if r.domain)),
-                "top_links": [r.link for r in shadow_merged[:5]],
-            }
-
-        fire_and_forget(
-            run_shadow(
-                run_key=run_key,
-                experiment_id=pw_ab_overrides["experiment_id"],
-                variant=pw_ab_overrides["variant_key"],
-                layer="provider_weights",
-                shadow_fn=_shadow_merge_fn,
-                shadow_kwargs={},
-                control_duration_ms=0.0,
-                control_result_summary=control_result_summary,
-            ),
-            name=f"shadow-merge-{run_key[:8]}",
-        )
+    result_lists = [filter_blocked_results(results) for results in result_lists]
+    policy = resolve_intent_policy(context.intent)
+    merged = merge_search_results(result_lists, k=policy.rrf_k, run_key=run_key)
 
     record_domain_diversity(
         len(set(r.domain for r in merged if r.domain)),

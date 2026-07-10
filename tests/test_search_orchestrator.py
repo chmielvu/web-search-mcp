@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -45,8 +46,31 @@ def _branch_batch(branches: list[tuple[str, str]]) -> BranchExecutionBatch:
         result_lists=result_lists,
         branch_queries=[query for query, _ in branches],
         branch_providers=[["searxng"] for _ in branches],
-        list_weights=[1.0 for _ in branches],
         branch_metadata=[{"branch_index": idx} for idx, _ in enumerate(branches)],
+    )
+
+
+def test_keyword_extractor_defers_rake_import_until_extraction(monkeypatch) -> None:
+    """Query-rewrite setup must not load the RAKE runtime before extraction."""
+    keyword_module_name = "kindly_web_search_mcp_server.search.keyword_extract"
+    rake_module_name = "rake_nltk"
+    module_names_to_clear = [
+        module_name
+        for module_name in sys.modules
+        if module_name == keyword_module_name
+        or module_name.startswith(f"{keyword_module_name}.")
+        or module_name == rake_module_name
+        or module_name.startswith(f"{rake_module_name}.")
+    ]
+    for module_name in module_names_to_clear:
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
+
+    keyword_extract = importlib.import_module(keyword_module_name)
+    importlib.reload(keyword_extract)
+
+    assert not any(
+        module_name == rake_module_name or module_name.startswith(f"{rake_module_name}.")
+        for module_name in sys.modules
     )
 
 
@@ -178,14 +202,14 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
             mock_rewrite.return_value = (
                 [
                     QueryVariant(
-                        kind="original",
+                        kind="keyword_refined",
                         target="keyword",
                         query="FastMCP resources tools",
                         why="original",
                         weight=1.0,
                     ),
                     QueryVariant(
-                        kind="neural_task",
+                        kind="neural_refined",
                         target="neural",
                         query="Find official FastMCP documentation and examples.",
                         why="neural",
@@ -220,10 +244,11 @@ def test_run_search_pipeline_routes_variant_targets_to_matching_providers() -> N
             )
 
         branch_specs = captured["branch_specs"]
-        # original + up to 2 rewrite variants from build_rewrite_variants
+        # Original free branch plus target-routed rewrite branches.
         assert len(branch_specs) >= 2
-        # Both branches get the same provider list (no per-target routing)
+        assert branch_specs[0].branch_type == "original_free"
         assert branch_specs[0].providers is not None
+        assert branch_specs[1].branch_type == "keyword_refined"
         assert branch_specs[1].providers is not None
         assert mock_rewrite.awaited
         assert mock_execute.awaited

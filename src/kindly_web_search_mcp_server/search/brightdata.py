@@ -62,6 +62,7 @@ def _build_google_url(
     language: str = "en",
     search_type: str = "web",
     exact_match: bool = True,
+    freshness: str | None = None,
 ) -> str:
     q = quote_plus(query)
     url = f"https://www.google.com/search?q={q}"
@@ -74,7 +75,30 @@ def _build_google_url(
     url += "&brd_json=1"
     if search_type == "news":
         url += "&tbm=nws"
+        token = _brightdata_freshness_token(freshness)
+        if token:
+            url += f"&tbs=qdr:{token}"
     return url
+
+
+_BRIGHTDATA_FRESHNESS_MAP: dict[str, str] = {
+    "day": "d",
+    "week": "w",
+    "month": "m",
+    "year": "y",
+    "pd": "d",
+    "pw": "w",
+    "pm": "m",
+    "py": "y",
+}
+
+
+def _brightdata_freshness_token(value: str | None) -> str | None:
+    """Map an intent freshness word/token to a Google news ``qdr:`` token."""
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    return _BRIGHTDATA_FRESHNESS_MAP.get(normalized)
 
 
 def _build_bing_url(
@@ -264,6 +288,7 @@ async def search_brightdata(
     search_type: str = "web",
     exact_match: bool = True,
     use_bing: bool = True,
+    freshness: str | None = None,
 ) -> list[WebSearchResult]:
     """Query Bright Data SERP API via direct REST call for Google + optional Bing.
 
@@ -298,7 +323,9 @@ async def search_brightdata(
     google_timeout = httpx.Timeout(settings.brightdata_google_timeout_seconds)
 
     async def _google_request(client: httpx.AsyncClient) -> dict:
-        google_url = _build_google_url(query, country, language, search_type, exact_match)
+        google_url = _build_google_url(
+            query, country, language, search_type, exact_match, freshness
+        )
         body = {**payload_base, "url": google_url}
         logger.debug("BrightData Google request: %s", google_url)
         response = await client.post(

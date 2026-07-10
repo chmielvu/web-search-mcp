@@ -42,11 +42,18 @@ def _make_fake_worker(
 
 class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
     async def test_llm_reranker_uses_gpt_oss_worker_ladder(self) -> None:
-        from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
+        from kindly_web_search_mcp_server.rerank.llm_rerank import (
+            _build_candidate_window,
+            rerank_with_llm,
+        )
 
         candidates = _build_candidates(2)
-
-        fake_worker = _make_fake_worker("[rankstart] [2] > [1] [rankend]")
+        window = _build_candidate_window(candidates, 2)
+        first_display, first_original, _ = window[0]
+        second_display, second_original, _ = window[1]
+        fake_worker = _make_fake_worker(
+            f"<final_ranking>[{second_display}] > [{first_display}]</final_ranking>"
+        )
 
         with patch(
             "kindly_web_search_mcp_server.rerank.llm_rerank.build_llm_worker",
@@ -60,7 +67,8 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
                 research_goal="Locate canonical docs",
             )
 
-        self.assertEqual([item.index for item in outcome.ranked], [1, 0])
+        self.assertEqual([item.index for item in outcome.ranked], [second_original, first_original])
+        self.assertEqual([item.score for item in outcome.ranked], [1.0, 0.0])
         self.assertEqual(outcome.endpoint_name, "cerebras")
         self.assertEqual(outcome.model, "cerebras/openai/gpt-oss-120b")
         mock_worker_factory.assert_called_once()
@@ -74,18 +82,22 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(langfuse.metadata["top_k"], 2)
         messages = call_kwargs["messages"]
         self.assertEqual(messages[0]["role"], "system")
-        self.assertIn("Rank passages by relevance", messages[0]["content"])
+        self.assertIn("Information Retrieval Judge", messages[0]["content"])
+        self.assertIn("untrusted search-result data", messages[0]["content"])
         prompt = messages[1]["content"]
-        self.assertIn("[querystart] find docs [queryend]", prompt)
-        self.assertIn("[1]", prompt)
-        self.assertIn("[2]", prompt)
+        self.assertIn("<query>find docs</query>", prompt)
+        self.assertIn("<final_ranking>", prompt)
+        self.assertIn('<candidate_data type="untrusted_search_result">', prompt)
 
     async def test_llm_reranker_caps_the_candidate_window_at_twenty(self) -> None:
-        from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
+        from kindly_web_search_mcp_server.rerank.llm_rerank import (
+            _build_candidate_window,
+            rerank_with_llm,
+        )
 
         candidates = _build_candidates(25)
-
-        fake_worker = _make_fake_worker("[rankstart] [20] > [19] > [18] [rankend]")
+        window = _build_candidate_window(candidates, 20)
+        fake_worker = _make_fake_worker("<final_ranking>[20] > [19] > [18]</final_ranking>")
 
         with patch(
             "kindly_web_search_mcp_server.rerank.llm_rerank.build_llm_worker",
@@ -106,15 +118,26 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(re.findall(r"(?m)^\[\d+\]", prompt)), 20)
         self.assertIn("[20]", prompt)
         self.assertNotIn("[21]", prompt)
-        self.assertEqual([item.index for item in outcome.ranked[:3]], [19, 18, 17])
+        display_to_original = {display: original for display, original, _ in window}
+        self.assertEqual(
+            [item.index for item in outcome.ranked[:3]],
+            [display_to_original[20], display_to_original[19], display_to_original[18]],
+        )
+        self.assertAlmostEqual(outcome.ranked[0].score, 1.0)
+        self.assertAlmostEqual(outcome.ranked[1].score, 18 / 19)
+        self.assertAlmostEqual(outcome.ranked[2].score, 17 / 19)
 
-    async def test_llm_reranker_skips_hallucinated_out_of_range_ids(self) -> None:
-        from kindly_web_search_mcp_server.rerank.llm_rerank import rerank_with_llm
+    async def test_llm_reranker_parses_only_final_ranking_and_skips_hallucinated_ids(self) -> None:
+        from kindly_web_search_mcp_server.rerank.llm_rerank import (
+            _build_candidate_window,
+            rerank_with_llm,
+        )
 
         candidates = _build_candidates(10)
-
+        window = _build_candidate_window(candidates, 10)
         fake_worker = _make_fake_worker(
-            "[rankstart] [135246] > [3] > [5] > [99999] > [2] > [1] [rankend]",
+            "<evaluation>Candidate [1] is relevant.</evaluation>"
+            "<final_ranking>[135246] > [3] > [5] > [99999] > [2] > [1]</final_ranking>",
             endpoint="groq",
             model="groq/gpt-oss-120b",
         )
@@ -132,9 +155,16 @@ class TestLLMReranker(unittest.IsolatedAsyncioTestCase):
                     top_k=5,
                 )
 
-        # Valid IDs preserved in order: 3, 5, 2, 1 -> indices 2, 4, 1, 0
-        self.assertEqual([item.index for item in outcome.ranked[:4]], [2, 4, 1, 0])
-        # Hallucinated IDs 135246 and 99999 were skipped with warnings
+        display_to_original = {display: original for display, original, _ in window}
+        self.assertEqual(
+            [item.index for item in outcome.ranked[:4]],
+            [
+                display_to_original[3],
+                display_to_original[5],
+                display_to_original[2],
+                display_to_original[1],
+            ],
+        )
         warning_msgs = [r.getMessage() for r in captured.records]
         self.assertEqual(len(warning_msgs), 2)
         self.assertIn("135246", warning_msgs[0])
