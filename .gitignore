@@ -349,3 +349,13 @@ evals/
 # CocoIndex Code (ccc)
 /.cocoindex_code/
 .mcp-debug/
+
+# Test artifacts and leaked mock objects
+.pytest-tmp/
+MagicMock/
+
+# Binary databases (not for version control)
+process_logs.duckdb
+
+# Watchdog config (machine-specific)
+WATCHDOG.yml
