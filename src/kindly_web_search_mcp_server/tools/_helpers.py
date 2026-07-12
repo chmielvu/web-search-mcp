@@ -3,26 +3,21 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from fastmcp.server.context import Context
-
-from ..analytics.observability_store import (
-    build_response_result_rows,
-    insert_web_search_tool_call,
-)
+from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
 from ..telemetry import record_mcp_tool_call, record_tool_details
+from ..telemetry.init import shutdown_telemetry
 from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
 from ..analytics.async_writes import shutdown_duckdb_write_executor
 from ..utils.http_client import close_http_client
-from ..utils.observability import current_trace_context, get_current_run_key
 from ..utils.public_output import serialize_public_web_search_response
 from ..utils.singleflight import SingleFlight
 
 LOGGER = logging.getLogger(__name__)
 
-_search_flight = SingleFlight()
 _academic_search_flight = SingleFlight()
 
 
@@ -121,26 +116,15 @@ def _public_settings_snapshot() -> dict[str, object]:
 def _cache_stats_snapshot() -> dict[str, object]:
     """Return public cache topology and configured limits."""
     from ..cache.page_cache import PAGE_CACHE_DEFAULT_TTL_SECONDS
-    from ..cache.query_cache import (
-        QUERY_CACHE_DEFAULT_MAX_ENTRIES,
-        QUERY_CACHE_DEFAULT_TTL_SECONDS,
-    )
 
     return {
         "exact_query_cache": {
-            "backend": "in_memory_lru",
-            "ttl_seconds": QUERY_CACHE_DEFAULT_TTL_SECONDS,
-            "max_entries": QUERY_CACHE_DEFAULT_MAX_ENTRIES,
+            "backend": "removed",
         },
         "page_cache": {
             "backend": "duckdb",
             "path": settings.page_cache_duckdb_path,
             "ttl_seconds": PAGE_CACHE_DEFAULT_TTL_SECONDS,
-        },
-        "result_memory": {
-            "backend": "qdrant",
-            "enabled": settings.web_results_index_enabled,
-            "space_url": settings.qdrant_space_url,
         },
     }
 
@@ -175,24 +159,27 @@ def _analytics_report_snapshot(
 
 @asynccontextmanager
 async def _app_lifespan(app: object) -> AsyncIterator[dict]:
-    """Server lifespan: startup yields an empty state, shutdown closes shared clients."""
+    """Drain outcomes before persistence, transport, and telemetry shutdown."""
+    del app
     yield {}
     try:
-        await close_http_client()
-    except Exception as exc:
-        LOGGER.warning("Error closing shared HTTP client during shutdown: %s", exc)
-    try:
+        await drain_search_outcomes(settings.analytics_shutdown_drain_timeout_seconds)
         await drain_background_tasks(
             name_prefixes=("analytics.",),
             timeout_seconds=settings.analytics_shutdown_drain_timeout_seconds,
         )
         shutdown_duckdb_write_executor(wait=True)
     except Exception as exc:
-        LOGGER.warning("Error shutting down DuckDB write executor during shutdown: %s", exc)
+        LOGGER.warning("Error draining persistence during shutdown: %s", type(exc).__name__)
+    try:
+        await close_http_client()
+    except Exception as exc:
+        LOGGER.warning("Error closing shared HTTP client during shutdown: %s", type(exc).__name__)
     try:
         await cancel_all_background_tasks()
     except Exception as exc:
-        LOGGER.warning("Error cancelling background tasks during shutdown: %s", exc)
+        LOGGER.warning("Error cancelling background tasks during shutdown: %s", type(exc).__name__)
+    shutdown_telemetry()
 
 
 def _get_int_env(key: str, default: int) -> int:
@@ -318,60 +305,3 @@ def _apply_domain_filters(
 
     return results
 
-
-def _record_web_search_return(
-    *,
-    tool_call_id: str,
-    cache_hit: str,
-    query: str,
-    normalized_query: str,
-    research_goal: str,
-    rewrite_enabled: bool,
-    result_offset: int,
-    num_results_requested: int,
-    search_identity_key: str,
-    search_options: Any,
-    response: dict[str, Any],
-    domain_boost: list[str] | None = None,
-    domain_block: list[str] | None = None,
-) -> None:
-    run_key = get_current_run_key()
-    trace_context = current_trace_context()
-    try:
-        search_options_json = (
-            search_options.to_dict() if hasattr(search_options, "to_dict") else search_options
-        )
-        insert_web_search_tool_call(
-            tool_call_id=tool_call_id,
-            run_key=run_key,
-            cache_hit=cache_hit,
-            query=query,
-            normalized_query=normalized_query,
-            research_goal=research_goal,
-            rewrite_enabled=rewrite_enabled,
-            result_offset=result_offset,
-            num_results_requested=num_results_requested,
-            num_results_returned=len(response.get("results", [])),
-            cache_identity=search_identity_key,
-            providers_requested=search_options_json.get("providers")
-            if isinstance(search_options_json, dict)
-            else None,
-            providers_used=response.get("providers_used", []),
-            search_options_json=search_options_json,
-            response_json=response,
-            trace_id=trace_context.get("trace_id"),
-            span_id=trace_context.get("span_id"),
-            payload_json={
-                "domain_boost": domain_boost,
-                "domain_block": domain_block,
-            },
-        )
-        build_response_result_rows(
-            tool_call_id=tool_call_id,
-            run_key=run_key,
-            cache_hit=cache_hit,
-            results=response.get("results", []),
-            db_path=settings.analytics_duckdb_path,
-        )
-    except Exception as exc:
-        LOGGER.debug("web_search observability write failed: %s", exc)

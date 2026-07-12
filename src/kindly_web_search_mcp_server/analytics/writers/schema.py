@@ -1,464 +1,484 @@
-"""CREATE TABLE / _ensure_* schema bootstrap for analytics writers."""
+"""CREATE TABLE schema bootstrap for analytics writers.
+
+Clean-cutover redesign: 7 wide fact tables at clear pipeline grains +
+2 embedding tables for vss vector similarity search.  Old ``search_events``
+log and 5 of 6 observability tables are dropped entirely.
+``provider_health_transitions`` moved here from ``observability_schema.py``.
+"""
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import duckdb
 
-from .connection import _db_path, _ensure_columns, _LOCK
-from .migrations import apply_search_events_migrations
+from .connection import _db_path, _LOCK
 from .table_names import (
+    _CE_TABLE_NAME,
     _FR_TABLE_NAME,
     _JE_TABLE_NAME,
-    _MC_TABLE_NAME,
     _PC_TABLE_NAME,
-    _PRC_TABLE_NAME,
-    _QR_TABLE_NAME,
-    _QU_TABLE_NAME,
+    _PH_TABLE_NAME,
+    _QE_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
+    _SB_TABLE_NAME,
+    _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
-    _TABLE_NAME,
 )
 
 if TYPE_CHECKING:
     pass
 
+_logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 def _create_table(
     connection: duckdb.DuckDBPyConnection,
     table_name: str,
-    columns: list[tuple[str, str]],
-    indexes: list[tuple[str, str]] | None = None,
-    constraints: list[str] | None = None,
+    ddl_body: str,
 ) -> None:
-    col_defs = [f"{name} {type_}" for name, type_ in columns]
-    if constraints:
-        col_defs.extend(constraints)
-    col_block = ",\n            ".join(col_defs)
+    """Execute a raw CREATE TABLE IF NOT EXISTS statement."""
     connection.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {table_name} (
-            {col_block}
-        )
-        """
+        f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)"
     )
-    if indexes:
-        for index_name, index_columns in indexes:
-            connection.execute(
-                f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({index_columns})"
-            )
 
 
-def _ensure_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create ``search_events`` (with backfill migrations) if absent."""
+# ---------------------------------------------------------------------------
+# 1. search_runs — one row per search run (Grain 1: per-request)
+# ---------------------------------------------------------------------------
+def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
     _create_table(
         connection,
-        _TABLE_NAME,
-        [
-            ("event_id", "VARCHAR"),
-            ("event_name", "VARCHAR"),
-            ("recorded_at", "TIMESTAMP"),
-            ("run_key", "VARCHAR"),
-            ("tool_name", "VARCHAR"),
-            ("phase", "VARCHAR"),
-            ("query", "VARCHAR"),
-            ("normalized_query", "VARCHAR"),
-            ("research_goal", "VARCHAR"),
-            ("provider", "VARCHAR"),
-            ("model", "VARCHAR"),
-            ("model_used", "VARCHAR"),
-            ("duration_ms", "DOUBLE"),
-            ("input_count", "INTEGER"),
-            ("output_count", "INTEGER"),
-            ("input_tokens", "INTEGER"),
-            ("output_tokens", "INTEGER"),
-            ("trace_id", "VARCHAR"),
-            ("span_id", "VARCHAR"),
-            ("cache_hit", "VARCHAR"),
-            ("payload_json", "VARCHAR"),
-        ],
+        _RUNS_TABLE_NAME,
+        """
+        recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key               VARCHAR NOT NULL,
+        tool_call_id          VARCHAR,
+        session_id            VARCHAR,
+        query                 VARCHAR NOT NULL,
+        normalized_query      VARCHAR,
+        research_goal         VARCHAR,
+        intent                VARCHAR,
+        understanding_confidence DOUBLE,
+        num_results_requested INTEGER,
+        rewrite_enabled       BOOLEAN,
+        result_offset         INTEGER,
+        selected_providers    VARCHAR[],
+        skipped_providers     VARCHAR[],
+        branch_count          INTEGER,
+        provider_count        INTEGER,
+        merged_count          INTEGER,
+        reranked_count        INTEGER,
+        final_result_count    INTEGER,
+        candidate_count       INTEGER,
+        has_more              BOOLEAN,
+        status                VARCHAR,
+        error_type            VARCHAR,
+        duration_ms           DOUBLE,
+        reranker_provider     VARCHAR,
+        reranker_model        VARCHAR,
+        rake_terms             VARCHAR[],
+        brave_autosuggest     VARCHAR[],
+        brave_spellcheck      VARCHAR,
+        rewrite_prompt        VARCHAR,
+        rewrite_model         VARCHAR,
+        rewrite_input_tokens  INTEGER,
+        rewrite_output_tokens INTEGER,
+        rewrite_latency_ms    DOUBLE,
+        rewrite_error         VARCHAR,
+        payload_json          JSON
+        """,
     )
-    _ensure_columns(
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runs_run_key ON search_runs(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON search_runs(recorded_at)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2. search_branches — one row per branch per run
+# ---------------------------------------------------------------------------
+def _ensure_search_branches(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
         connection,
-        _TABLE_NAME,
-        {
-            "event_id": "VARCHAR",
-            "run_key": "VARCHAR",
-            "tool_name": "VARCHAR",
-            "phase": "VARCHAR",
-            "cache_hit": "VARCHAR",
-            "model_used": "VARCHAR",
-            "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-        },
+        _SB_TABLE_NAME,
+        """
+        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key            VARCHAR NOT NULL,
+        branch_index       INTEGER NOT NULL,
+        branch_target      VARCHAR NOT NULL,
+        branch_query       VARCHAR NOT NULL,
+        branch_why         VARCHAR,
+        branch_weight      DOUBLE,
+        must_keep_terms    VARCHAR[],
+        max_results        INTEGER,
+        assigned_providers VARCHAR[],
+        attempted_providers VARCHAR[],
+        skipped_providers  VARCHAR[],
+        results_count      INTEGER,
+        latency_ms         DOUBLE,
+        payload_json       JSON
+        """,
     )
-    apply_search_events_migrations(connection)
 
 
-def ensure_store_schema(*, db_path: str | None = None) -> None:
-    path = _db_path(db_path)
-    if not path.exists():
-        return
-    with _LOCK:
-        connection = duckdb.connect(str(path))
-        try:
-            _ensure_schema(connection)
-        finally:
-            connection.close()
+# ---------------------------------------------------------------------------
+# 3. provider_calls — one row per provider call per branch (Grain 2)
+# ---------------------------------------------------------------------------
+def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _PC_TABLE_NAME,
+        """
+        recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key               VARCHAR NOT NULL,
+        branch_index          INTEGER,
+        branch_target         VARCHAR,
+        provider              VARCHAR NOT NULL,
+        branch_query          VARCHAR,
+        status                VARCHAR NOT NULL,
+        num_results_requested INTEGER,
+        num_results_returned  INTEGER,
+        latency_ms            DOUBLE,
+        error_type            VARCHAR,
+        error_message         VARCHAR,
+        candidate_urls        VARCHAR[],
+        payload_json          JSON
+        """,
+    )
 
 
-def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
-    """Ensure the tables needed by quality scoring and judge writes exist.
+# ---------------------------------------------------------------------------
+# 4. search_candidates — one row per unique candidate URL per run
+# ---------------------------------------------------------------------------
+def _ensure_search_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _SC_TABLE_NAME,
+        """
+        recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key        VARCHAR NOT NULL,
+        link           VARCHAR NOT NULL,
+        title          VARCHAR,
+        snippet        VARCHAR,
+        domain         VARCHAR,
+        rrf_score      DOUBLE,
+        provider_count INTEGER,
+        providers      VARCHAR[],
+        overlap_flag   BOOLEAN,
+        payload_json   JSON
+        """,
+    )
 
-    This is a light bootstrap/migration pass for fresh or legacy DuckDB files.
-    It creates the pipeline tables that quality metrics query before the score
-    row is written, plus the judge table used by the background judge writer.
+
+# ---------------------------------------------------------------------------
+# 5. rerank_stages — one row per rerank stage per run (Grain 4)
+# ---------------------------------------------------------------------------
+def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _RS_TABLE_NAME,
+        """
+        recorded_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key                  VARCHAR NOT NULL,
+        stage                    VARCHAR NOT NULL,
+        provider                 VARCHAR,
+        model                    VARCHAR,
+        input_count              INTEGER,
+        output_count             INTEGER,
+        duration_ms              DOUBLE,
+        max_score                DOUBLE,
+        avg_score                DOUBLE,
+        score_threshold          DOUBLE,
+        alpha_blend              DOUBLE,
+        input_tokens             INTEGER,
+        output_tokens            INTEGER,
+        status                   VARCHAR,
+        error_type               VARCHAR,
+        instruction_present      BOOLEAN,
+        instruction_length       INTEGER,
+        query_type_hint          VARCHAR,
+        entity_overlap_enabled   BOOLEAN,
+        payload_json             JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. rerank_candidates — one row per candidate per stage (Grain 3)
+# ---------------------------------------------------------------------------
+def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _RC_TABLE_NAME,
+        """
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key              VARCHAR NOT NULL,
+        stage                VARCHAR NOT NULL,
+        link                 VARCHAR NOT NULL,
+        candidate_id         VARCHAR,
+        canonical_result_id  VARCHAR,
+        rank_before          INTEGER,
+        rank_after           INTEGER,
+        score_before         DOUBLE,
+        score_after          DOUBLE,
+        bm25_score           DOUBLE,
+        bm25_rank            INTEGER,
+        dense_score          DOUBLE,
+        dense_rank           INTEGER,
+        cross_encoder_raw    DOUBLE,
+        llm_raw_score        DOUBLE,
+        fused_score          DOUBLE,
+        hybrid_rrf_score     DOUBLE,
+        recency_boost        DOUBLE,
+        entity_overlap_score DOUBLE,
+        diversity_removed    BOOLEAN,
+        payload_json         JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. final_results — one row per returned result
+# ---------------------------------------------------------------------------
+def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _FR_TABLE_NAME,
+        """
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key              VARCHAR NOT NULL,
+        rank                 INTEGER,
+        title                VARCHAR,
+        link                 VARCHAR,
+        snippet              VARCHAR,
+        domain               VARCHAR,
+        final_score          DOUBLE,
+        providers            VARCHAR[],
+        provider_count       INTEGER,
+        entities_count       INTEGER,
+        candidate_id         VARCHAR,
+        canonical_result_id  VARCHAR,
+        payload_json         JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. query_embeddings — one row per run, stores the query embedding
+# ---------------------------------------------------------------------------
+def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _QE_TABLE_NAME,
+        """
+        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key       VARCHAR NOT NULL,
+        embedding     FLOAT[1024],
+        model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
+        payload_json  JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qemb_run_key ON query_embeddings(run_key)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. candidate_embeddings — one row per candidate per run
+# ---------------------------------------------------------------------------
+def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CE_TABLE_NAME,
+        """
+        recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key       VARCHAR NOT NULL,
+        link          VARCHAR NOT NULL,
+        title         VARCHAR,
+        embedding     FLOAT[1024],
+        model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
+        payload_json  JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cemb_run_key ON candidate_embeddings(run_key)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# provider_health_transitions — moved from observability_schema.py
+# ---------------------------------------------------------------------------
+def _ensure_provider_health_transitions(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_table(
+        connection,
+        _PH_TABLE_NAME,
+        """
+        provider VARCHAR NOT NULL,
+        transition VARCHAR NOT NULL,
+        run_key VARCHAR,
+        tool_call_id VARCHAR,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        status VARCHAR,
+        consecutive_failures INTEGER,
+        cooldown_seconds DOUBLE,
+        cooldown_remaining_s DOUBLE,
+        total_successes INTEGER,
+        total_failures INTEGER,
+        error_type VARCHAR,
+        is_rate_limit BOOLEAN,
+        circuit_state VARCHAR,
+        payload_json JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quality / judge tables (kept, with upgraded judge_evaluations DDL)
+# ---------------------------------------------------------------------------
+def _ensure_search_quality_scores(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_table(
+        connection,
+        _SQS_TABLE_NAME,
+        """
+        run_key               VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        provider_overlap_rate DOUBLE,
+        domain_diversity_count INTEGER,
+        domain_diversity_ratio DOUBLE,
+        rerank_compression_ratio DOUBLE,
+        avg_rrf_score         DOUBLE,
+        top_score             DOUBLE,
+        p95_score             DOUBLE,
+        rewrite_variant_count INTEGER,
+        provider_count        INTEGER,
+        branch_count          INTEGER,
+        total_candidates_input INTEGER,
+        total_candidates_merged INTEGER,
+        total_candidates_reranked INTEGER,
+        total_final_results   INTEGER,
+        ndcg_at_10            DOUBLE,
+        payload_json          JSON
+        """,
+    )
+
+
+def _ensure_judge_evaluations(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    _create_table(
+        connection,
+        _JE_TABLE_NAME,
+        """
+        run_key              VARCHAR NOT NULL,
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        evaluated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        tool_name            VARCHAR,
+        judge_model          VARCHAR,
+        model_used           VARCHAR,
+        link                 VARCHAR,
+        relevance_grade      VARCHAR,
+        relevance_score      DOUBLE,
+        accuracy_grade       VARCHAR,
+        accuracy_score       DOUBLE,
+        completeness_grade   VARCHAR,
+        completeness_score   DOUBLE,
+        source_quality_grade VARCHAR,
+        source_quality_score DOUBLE,
+        overall_score        DOUBLE,
+        rationale            VARCHAR,
+        duration_ms          DOUBLE,
+        input_tokens         INTEGER,
+        output_tokens        INTEGER,
+        tokens_used          INTEGER,
+        cost_usd             DOUBLE,
+        payload_json         JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# vss extension — HNSW vector indexes on embedding tables
+# ---------------------------------------------------------------------------
+_vss_initialized = False
+
+def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
+    """Install/load vss, create HNSW indexes on embedding tables.
+
+    Falls back gracefully: if vss is unavailable (old DuckDB, no network),
+    embedding tables still work — similarity queries use brute-force
+    array_distance() scans (slower but correct).
     """
+    global _vss_initialized
+    if _vss_initialized:
+        return
+    try:
+        connection.execute("INSTALL vss;")
+        connection.execute("LOAD vss;")
+        connection.execute("SET hnsw_enable_experimental_persistence = true;")
+        _vss_initialized = True
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qemb_hnsw "
+            "ON query_embeddings USING HNSW (embedding);"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cemb_hnsw "
+            "ON candidate_embeddings USING HNSW (embedding);"
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logger.warning(
+            "vss extension unavailable — embedding tables work without HNSW "
+            "(similarity search falls back to brute-force array_distance scan). "
+            "Error: %s",
+            exc,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Public entrypoints
+# ---------------------------------------------------------------------------
+def ensure_store_schema(*, db_path: str | None = None) -> None:
+    """Create all pipeline + embedding + health tables if absent."""
+    from ...settings import settings
+
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _LOCK:
         connection = duckdb.connect(str(path))
         try:
-            _ensure_schema(connection)
             _ensure_search_runs(connection)
+            _ensure_search_branches(connection)
             _ensure_provider_calls(connection)
-            _ensure_provider_candidates(connection)
-            _ensure_merged_candidates(connection)
+            _ensure_search_candidates(connection)
             _ensure_rerank_stages(connection)
             _ensure_rerank_candidates(connection)
             _ensure_final_results(connection)
-            _ensure_query_rewrites(connection)
+            _ensure_query_embeddings(connection)
+            _ensure_candidate_embeddings(connection)
+            _ensure_provider_health_transitions(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
+            if settings.vss_enabled:
+                ensure_vss_extension(connection)
         finally:
             connection.close()
 
 
-def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create search_runs table with indexes if it doesn't exist."""
-    _create_table(
-        connection,
-        _RUNS_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("query", "VARCHAR NOT NULL"),
-            ("normalized_query", "VARCHAR"),
-            ("research_goal", "VARCHAR"),
-            ("num_results_requested", "INTEGER"),
-            ("rewrite_enabled", "BOOLEAN"),
-            ("session_id", "VARCHAR"),
-            ("tool_name", "VARCHAR DEFAULT 'web_search'"),
-            ("duration_ms", "DOUBLE"),
-            ("final_result_count", "INTEGER"),
-            ("candidate_count", "INTEGER"),
-            ("has_more", "BOOLEAN"),
-            ("result_offset", "INTEGER"),
-            ("status", "VARCHAR"),
-            ("error_type", "VARCHAR"),
-            ("reranker_provider", "VARCHAR"),
-            ("reranker_model", "VARCHAR"),
-            ("payload_json", "JSON"),
-        ],
-        indexes=[
-            ("idx_runs_run_key", "run_key"),
-            ("idx_runs_recorded_at", "recorded_at"),
-        ],
-    )
-    _ensure_columns(
-        connection,
-        _RUNS_TABLE_NAME,
-        {
-            "reranker_provider": "VARCHAR",
-            "reranker_model": "VARCHAR",
-        },
-    )
-
-
-def _ensure_query_understanding(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create query_understanding table with index if it doesn't exist."""
-    _create_table(
-        connection,
-        _QU_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("intent", "VARCHAR"),
-            ("confidence", "DOUBLE"),
-            ("should_decompose", "BOOLEAN"),
-            ("rationale", "VARCHAR"),
-            ("model", "VARCHAR"),
-            ("model_used", "VARCHAR"),
-            ("provider", "VARCHAR"),
-            ("duration_ms", "DOUBLE"),
-            ("fallback_used", "BOOLEAN"),
-            ("entities_count", "INTEGER"),
-            ("input_tokens", "INTEGER"),
-            ("output_tokens", "INTEGER"),
-            ("preserved_terms", "VARCHAR[]"),
-            ("time_sensitivity", "VARCHAR"),
-            ("payload_json", "JSON"),
-        ],
-    )
-    _ensure_columns(
-        connection,
-        _QU_TABLE_NAME,
-        {
-            "model_used": "VARCHAR",
-            "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-        },
-    )
-
-
-def _ensure_query_rewrites(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create query_rewrites table with index if it doesn't exist."""
-    _create_table(
-        connection,
-        _QR_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("variant_index", "INTEGER"),
-            ("branch_type", "VARCHAR"),
-            ("kind", "VARCHAR"),
-            ("target", "VARCHAR"),
-            ("query", "VARCHAR NOT NULL"),
-            ("weight", "DOUBLE"),
-            ("reason", "VARCHAR"),
-            ("max_results", "INTEGER"),
-            ("model", "VARCHAR"),
-            ("model_used", "VARCHAR"),
-            ("duration_ms", "DOUBLE"),
-            ("input_tokens", "INTEGER"),
-            ("output_tokens", "INTEGER"),
-            ("payload_json", "JSON"),
-        ],
-    )
-    _ensure_columns(
-        connection,
-        _QR_TABLE_NAME,
-        {
-            "model_used": "VARCHAR",
-            "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-        },
-    )
-
-
-def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _PC_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("provider", "VARCHAR NOT NULL"),
-            ("branch_index", "INTEGER"),
-            ("branch_query", "VARCHAR"),
-            ("num_results_requested", "INTEGER"),
-            ("num_results_returned", "INTEGER"),
-            ("duration_ms", "DOUBLE"),
-            ("error_code", "VARCHAR"),
-            ("error_message", "VARCHAR"),
-            ("http_status", "INTEGER"),
-            ("tokens_used", "INTEGER"),
-            ("cost_usd", "DOUBLE"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_provider_candidates(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _PRC_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("provider", "VARCHAR NOT NULL"),
-            ("branch_index", "INTEGER"),
-            ("rank", "INTEGER"),
-            ("title", "VARCHAR"),
-            ("link", "VARCHAR"),
-            ("snippet", "VARCHAR"),
-            ("domain", "VARCHAR"),
-            ("score", "DOUBLE"),
-            ("published_date", "VARCHAR"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_merged_candidates(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _MC_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("rank", "INTEGER"),
-            ("title", "VARCHAR"),
-            ("link", "VARCHAR"),
-            ("snippet", "VARCHAR"),
-            ("domain", "VARCHAR"),
-            ("rrf_score", "DOUBLE"),
-            ("provider_count", "INTEGER"),
-            ("providers", "VARCHAR[]"),
-            ("overlap_flag", "BOOLEAN"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _RS_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("stage", "VARCHAR NOT NULL"),
-            ("provider", "VARCHAR"),
-            ("model", "VARCHAR"),
-            ("model_used", "VARCHAR"),
-            ("input_count", "INTEGER"),
-            ("output_count", "INTEGER"),
-            ("input_tokens", "INTEGER"),
-            ("output_tokens", "INTEGER"),
-            ("duration_ms", "DOUBLE"),
-            ("max_score", "DOUBLE"),
-            ("avg_score", "DOUBLE"),
-            ("score_threshold", "DOUBLE"),
-            ("instruction_present", "BOOLEAN"),
-            ("instruction_length", "INTEGER"),
-            ("query_type_hint", "VARCHAR"),
-            ("entity_overlap_enabled", "BOOLEAN"),
-            ("payload_json", "JSON"),
-        ],
-    )
-    _ensure_columns(
-        connection,
-        _RS_TABLE_NAME,
-        {
-            "model_used": "VARCHAR",
-            "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-        },
-    )
-
-
-def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _RC_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("stage", "VARCHAR NOT NULL"),
-            ("link", "VARCHAR NOT NULL"),
-            ("rank_before", "INTEGER"),
-            ("rank_after", "INTEGER"),
-            ("score_before", "DOUBLE"),
-            ("score_after", "DOUBLE"),
-            ("score_after_relevance", "DOUBLE"),
-            ("score_after_recency", "DOUBLE"),
-            ("score_after_entity", "DOUBLE"),
-            ("recency_boost", "DOUBLE"),
-            ("entity_overlap_score", "DOUBLE"),
-            ("diversity_removed", "BOOLEAN"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _FR_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("rank", "INTEGER"),
-            ("title", "VARCHAR"),
-            ("link", "VARCHAR"),
-            ("snippet", "VARCHAR"),
-            ("domain", "VARCHAR"),
-            ("final_score", "DOUBLE"),
-            ("providers", "VARCHAR[]"),
-            ("provider_count", "INTEGER"),
-            ("entities_count", "INTEGER"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_search_quality_scores(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _SQS_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL PRIMARY KEY"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("provider_overlap_rate", "DOUBLE"),
-            ("domain_diversity_count", "INTEGER"),
-            ("domain_diversity_ratio", "DOUBLE"),
-            ("rerank_compression_ratio", "DOUBLE"),
-            ("avg_rrf_score", "DOUBLE"),
-            ("top_score", "DOUBLE"),
-            ("p95_score", "DOUBLE"),
-            ("rewrite_variant_count", "INTEGER"),
-            ("provider_count", "INTEGER"),
-            ("branch_count", "INTEGER"),
-            ("total_candidates_input", "INTEGER"),
-            ("total_candidates_merged", "INTEGER"),
-            ("total_candidates_reranked", "INTEGER"),
-            ("total_final_results", "INTEGER"),
-            ("payload_json", "JSON"),
-        ],
-    )
-
-
-def _ensure_judge_evaluations(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _JE_TABLE_NAME,
-        [
-            ("run_key", "VARCHAR NOT NULL"),
-            ("recorded_at", "TIMESTAMPTZ NOT NULL DEFAULT now()"),
-            ("tool_name", "VARCHAR"),
-            ("judge_model", "VARCHAR"),
-            ("model_used", "VARCHAR"),
-            ("relevance_score", "DOUBLE"),
-            ("relevance_raw", "INTEGER"),
-            ("relevance_scale", "VARCHAR"),
-            ("accuracy_score", "DOUBLE"),
-            ("completeness_score", "DOUBLE"),
-            ("source_quality_score", "DOUBLE"),
-            ("overall_score", "DOUBLE"),
-            ("rationale", "VARCHAR"),
-            ("duration_ms", "DOUBLE"),
-            ("input_tokens", "INTEGER"),
-            ("output_tokens", "INTEGER"),
-            ("tokens_used", "INTEGER"),
-            ("cost_usd", "DOUBLE"),
-            ("payload_json", "JSON"),
-        ],
-    )
-    _ensure_columns(
-        connection,
-        _JE_TABLE_NAME,
-        {
-            "model_used": "VARCHAR",
-            "input_tokens": "INTEGER",
-            "output_tokens": "INTEGER",
-            "tokens_used": "INTEGER",
-        },
-    )
-
+def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
+    """Ensure all tables needed by quality scoring and judge writes exist."""
+    ensure_store_schema(db_path=db_path)
 
 from .ab_schema import (  # noqa: E402
     _ensure_ab_assignments,  # noqa: F401

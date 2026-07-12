@@ -31,7 +31,17 @@ class LLMGeneration:
     endpoint: LLMEndpoint
     content: str
     usage: LLMUsage | None = None
+    annotations: tuple[object, ...] = ()
+    provider_specific_fields: dict[str, object] | None = None
 
     @property
     def model_used(self) -> str:
         return self.endpoint.model
+
+    @property
+    def input_tokens(self) -> int | None:
+        return self.usage.input_tokens if self.usage else None
+
+    @property
+    def output_tokens(self) -> int | None:
+        return self.usage.output_tokens if self.usage else None

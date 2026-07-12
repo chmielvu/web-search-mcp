@@ -1,0 +1,195 @@
+"""Validated search boundaries and immutable execution records."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from types import MappingProxyType
+from typing import Any, Literal, Mapping, Sequence
+
+import httpx
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from typing_extensions import Annotated
+
+from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
+from .options import SearchOptions
+from .understanding.models import QueryUnderstandingResult
+
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class ContractModel(BaseModel):
+    """Strict immutable model used at untrusted boundaries."""
+
+    model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+
+class ProviderGroup(str, Enum):
+    FREE = "free"
+    PAID_SERP = "paid_serp"
+    SPECIALIZED = "specialized"
+
+
+class ProviderTarget(str, Enum):
+    ORIGINAL = "original"
+    KEYWORD = "keyword"
+    NEURAL = "neural"
+    COMMUNITY = "community"
+
+
+class QueryBranch(ContractModel):
+    target: ProviderTarget
+    query: NonBlank
+    why: str = ""
+    weight: float = Field(default=1.0, gt=0)
+    must_keep_terms: tuple[str, ...] = ()
+    max_results: int = Field(ge=1, le=100)
+
+
+class WebSearchRequest(ContractModel):
+    query: NonBlank
+    research_goal: NonBlank
+    num_results: int = Field(default=15, ge=15, le=50)
+    rewrite: bool = True
+    options: SearchOptions = Field(default_factory=SearchOptions)
+
+
+@dataclass(frozen=True, slots=True)
+class SearchPlan:
+    normalized_query: str
+    relevance_query: str
+    understanding: QueryUnderstandingResult
+    options: SearchOptions
+    selected_provider_names: tuple[str, ...]
+    provider_arguments: Mapping[str, Mapping[str, Any]]
+    branches: tuple[QueryBranch, ...]
+    policy_version: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        normalized_query: str,
+        relevance_query: str,
+        understanding: QueryUnderstandingResult,
+        options: SearchOptions,
+        selected_provider_names: Sequence[str],
+        provider_arguments: Mapping[str, Mapping[str, Any]],
+        branches: Sequence[QueryBranch],
+        policy_version: str,
+    ) -> "SearchPlan":
+        copied = {
+            name: MappingProxyType(dict(values)) for name, values in provider_arguments.items()
+        }
+        return cls(
+            normalized_query=normalized_query,
+            relevance_query=relevance_query,
+            understanding=understanding,
+            options=options,
+            selected_provider_names=tuple(selected_provider_names),
+            provider_arguments=MappingProxyType(copied),
+            branches=tuple(branches),
+            policy_version=policy_version,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class BranchOutcome:
+    branch: QueryBranch
+    attempted_provider_names: tuple[str, ...] = ()
+    skipped_provider_names: tuple[str, ...] = ()
+    results: tuple[WebSearchResult, ...] = ()
+    warnings: tuple[ProviderWarning, ...] = ()
+    elapsed_seconds: float = 0.0
+    deadline_reached: bool = False
+    cancelled: bool = False
+    provider_calls: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass
+class DiagnosticsCollector:
+    """Mutable per-run diagnostics gathered across plan / retrieve / rank."""
+
+    enrichment: dict[str, Any] | None = None
+    rewrite_metadata: dict[str, Any] | None = None
+    intent: str | None = None
+    understanding_confidence: float | None = None
+    branch_results: list[dict[str, Any]] = field(default_factory=list)
+    merge_counts: dict[str, int] = field(default_factory=dict)
+    rerank_stage_summaries: list[dict[str, Any]] = field(default_factory=list)
+    phase_timings: dict[str, float] = field(default_factory=dict)
+    query_embedding: list[float] | None = None
+    merged_candidates: list[Any] = field(default_factory=list)
+    candidate_embeddings: list[dict[str, Any]] = field(default_factory=list)
+    total_latency_ms: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SearchOutcome:
+    run_key: str
+    status: Literal["success", "error", "cancelled"]
+    request: WebSearchRequest
+    plan: SearchPlan | None
+    outcomes: tuple[BranchOutcome, ...]
+    response: WebSearchResponse | None
+    error_summary: str | None
+    rerank_metadata: Mapping[str, Any]
+    timings: Mapping[str, float]
+    tool_call_id: str | None
+    session_id: str | None
+
+@dataclass(slots=True)
+class SearchRun:
+    request: WebSearchRequest
+    http_client: httpx.AsyncClient
+    run_key: str
+    tool_call_id: str | None = None
+    session_id: str | None = None
+    progress: Any | None = None
+    plan: SearchPlan | None = None
+    outcomes: tuple[BranchOutcome, ...] = ()
+    rerank_metadata: dict[str, Any] = field(default_factory=dict)
+    timings: dict[str, float] = field(default_factory=dict)
+    status: Literal["running", "success", "error", "cancelled"] = "running"
+    response: WebSearchResponse | None = None
+    error_summary: str | None = None
+    diagnostics: DiagnosticsCollector = field(default_factory=DiagnosticsCollector)
+
+    def _transition(
+        self,
+        status: Literal["success", "error", "cancelled"],
+        *,
+        response: WebSearchResponse | None = None,
+        error_summary: str | None = None,
+    ) -> None:
+        if self.status != "running":
+            raise RuntimeError(f"SearchRun already completed with status {self.status!r}")
+        self.status = status
+        self.response = response
+        self.error_summary = error_summary
+
+    def succeed(self, response: WebSearchResponse) -> None:
+        self._transition("success", response=response)
+
+    def fail(self, error_summary: str) -> None:
+        self._transition("error", error_summary=error_summary)
+
+    def cancel(self, error_summary: str) -> None:
+        self._transition("cancelled", error_summary=error_summary)
+
+    def snapshot(self) -> SearchOutcome:
+        if self.status == "running":
+            raise RuntimeError("Cannot snapshot a running SearchRun")
+        return SearchOutcome(
+            run_key=self.run_key,
+            status=self.status,
+            request=self.request,
+            plan=self.plan,
+            outcomes=tuple(self.outcomes),
+            response=self.response.model_copy(deep=True) if self.response is not None else None,
+            error_summary=self.error_summary,
+            rerank_metadata=MappingProxyType(dict(self.rerank_metadata)),
+            timings=MappingProxyType(dict(self.timings)),
+            tool_call_id=self.tool_call_id,
+            session_id=self.session_id,
+        )

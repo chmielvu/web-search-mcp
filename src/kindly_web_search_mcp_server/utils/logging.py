@@ -4,7 +4,7 @@ import logging
 import os
 
 
-def configure_logging() -> None:
+def configure_logging(*, level: int | str | None = None) -> None:
     """
     Configure logging defaults for both local runs and MCP stdio hosts.
 
@@ -15,8 +15,10 @@ def configure_logging() -> None:
       for centralized DuckDB log storage with 48h TTL.
     """
     root = logging.getLogger()
-    level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
+    if level is None:
+        level = os.environ.get("LOG_LEVEL", "INFO")
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
 
     # Only set up basicConfig if nothing configured yet (common for scripts).
     if not root.handlers:

@@ -82,12 +82,12 @@ def _gemini_is_healthy() -> bool:
     """Check if the gemini provider is configured and not in cooldown."""
     try:
         from ..search.provider_health import get_provider_health  # noqa: PLC0415
-        from ..search.provider_config import PROVIDER_REGISTRY  # noqa: PLC0415
+        from ..search.provider_registry import PROVIDER_DEFINITIONS, provider_is_reachable  # noqa: PLC0415
 
-        cfg = PROVIDER_REGISTRY.get("gemini")
-        if cfg is None or not cfg.is_available():
+        definition = PROVIDER_DEFINITIONS.get("gemma")
+        if definition is None or not provider_is_reachable(definition):
             return False
-        return get_provider_health().is_healthy("gemini")
+        return get_provider_health().is_healthy("gemma")
     except Exception:
         return False
 

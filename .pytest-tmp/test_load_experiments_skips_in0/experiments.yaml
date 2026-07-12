@@ -1,0 +1,11 @@
+experiments:
+- experiment_id: valid
+  layer: reranking
+  variants: []
+- experiment_id: valid-2
+  layer: reranking
+  variants:
+  - variant_key: a
+    weight: 50
+  - variant_key: b
+    weight: 50

@@ -1,121 +1,57 @@
-# AGENTS.md - Search Pipeline Core
+# AGENTS.md - Search Application Service
 
-This directory contains the live search orchestration stack and its provider-facing query controls.
+This directory owns the shared MCP/CLI web-search pipeline.
 
-## Current Structure
+## Live Path
 
-search/
-|-- pipeline.py              # understand -> plan -> execute -> blocklist -> merge -> rerank -> finalize
-|-- pipeline_builders.py     # SearchContext, rewrite enrichment, and variant parsing
-|-- branch_planner.py        # Explicit target routing for rewrite variants
-|-- branch_executor.py       # Branch execution, deadlines, and intent freshness
-|-- provider_dispatch.py     # Provider dispatch and selection orchestration
-|-- provider_plan.py         # Intent-owned provider bundles and arguments
-|-- provider_options.py      # Provider-specific argument construction
-|-- provider_call.py         # Single-provider execution wrapper
-|-- provider_config.py       # Provider registry and configuration
-|-- provider_health.py       # Provider health / cooldown tracking
-|-- merge.py                 # Pure rank-based RRF merge
-|-- blocklist.py             # DuckDB-backed URL blocklist and compiled matcher
-|-- keyword_extract.py       # RAKE-NLTK phrase extraction
-|-- literal_passthrough.py  # Expert-syntax detection
-|-- query_rewrite_preprocess.py # Rewrite signal bundle and XML prompt block
-|-- finalize_results.py      # Final result shaping and public output
-|-- intent_policy.py         # Intent routing, freshness, and RRF-k policy
-|-- query_rewrite_models.py  # Query rewrite data models
-|-- search_router.py         # Router helpers for search variants
-|-- options.py               # Search option normalization
-|-- context.py               # SearchContext and request context helpers
-|-- budget.py                # Branch/result budget helpers
-|-- normalize.py             # Query and URL normalization
-|-- understanding/resolver.py # Query understanding / intent resolution
-|-- flow_observability.py    # Pipeline flow events
-|-- merge_observability.py   # Merge-stage events
-└-- provider adapters        # Brave, SERP, free-text, neural, and specialized sources
+- `service.py` — `execute_web_search` and `run_search_core`; sole terminal owner.
+- `contracts.py` — strict boundary models plus immutable plan/outcome records.
+- `planning.py` — normalize, understand, enrich, rewrite, provider selection, target coverage.
+- `provider_registry.py` — immutable 19-provider definitions and adapters.
+- `retrieval.py` — structured branch/provider fanout and cooldown handling.
+- `ranking.py` — blocklist, merge, BM25/rerank, global pagination, response.
+- `outcomes.py` — detached terminal snapshots and bounded shutdown drain.
+- `provider_health.py` — process-wide provider cooldown state.
+- `merge.py` — canonical deduplication and provider RRF.
+- `blocklist.py` — DuckDB-backed URL blocking; apply before every scoring stage.
+- `intent_policy.py` — intent-specialized providers, arguments, freshness, and RRF-k.
 
-## Query Rewrite and Target Routing
+MCP `tools/search.py` and CLI `cli/services/search_web.py` must both construct
+`WebSearchRequest` and call `execute_web_search`. Do not add orchestration to
+either adapter.
 
-- Non-literal searches produce an original branch plus rewrite variants. The
-  `original_free` variant targets `free` providers and preserves the normalized
-  user query. `keyword_refined` targets `keyword`/SERP providers, while
-  `neural_refined` targets `neural`/semantic providers.
-- The target maps are explicit in `branch_planner.py`. Free providers include
-  SearXNG, DDG, Gemma, and DeGoog; keyword/SERP routing includes Brave,
-  BrightData, Serper, SerpApi, Search Router, SearXNG, DDG, and DeGoog; neural
-  routing includes Tavily, Jina, Gemini Search, Grok OpenRouter, Composio,
-  Qdrant, and Pollinations. Specialized community providers are selected by
-  `IntentSearchPolicy.specialized_providers`, not by these three targets.
-- Literal search syntax (quoted phrases, boolean operators, `site:`,
-  `filetype:`, `intitle:`, `inbody:`, `ext:`, inclusion, or exclusion operators)
-  bypasses the LLM rewrite so the original syntax is preserved. The resulting
-  variants still carry the target labels used by the planner.
-- Rewrite preprocessing extracts ranked phrases from `research_goal` with
-  RAKE-NLTK and merges them into `must_keep_terms`. `keyword_extract.py` imports
-  the RAKE runtime inside `_rake_extract()` so standard MCP startup does not load
-  NLTK. Brave Autosuggest is requested with `rich=true` only when
-  `BRAVE_SUGGEST_API_KEY` is configured; that key is deliberately separate from
-  `BRAVE_API_KEY`, and missing suggest credentials skip enrichment rather than
-  failing the rewrite. Brave Spellcheck uses the standard `BRAVE_API_KEY` and is
-  also best-effort.
-- News intent policy sets `freshness="week"`; `branch_executor.py` threads that
-  value into keyword-provider arguments while other intents leave freshness unset.
+## Contracts
 
-## Brave Retrieval (Phase Two)
+- `research_goal` is required and nonblank.
+- `num_results` is strictly 15–50; do not clamp invalid values.
+- `rewrite=False` skips only the rewrite LLM. Keyword extraction, Brave
+  Autosuggest, and Brave Spellcheck still run with independent 10-second bounds.
+- Planning emits at most 10 ordered branches and covers every target represented
+  by selected providers.
+- Provider assignment is only `branch.target in definition.targets`.
+- Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
+- Pagination is global; providers receive retrieval depth, never result offset.
+- `execute_web_search` submits exactly one immutable success/error/cancelled
+  `SearchOutcome`; background tasks never receive the live `SearchRun`.
 
-- `search/brave.py::search_brave` now calls Brave LLM Context
-  (`/res/v1/llm/context`) and parses `grounding.generic` into normalized
-  `WebSearchResult` rows. It does not synthesize an answer from Context text.
-- `search/brave_news.py` is a specialized provider for the `news` intent. It
-  calls `/res/v1/news/search`, maps `page_age` to `published_date`, and is
-  scheduled through the `specialized_original` branch rather than paid-SERP
-  fan-out.
-- Shared Brave request invariants live in `search/brave_common.py` (API key,
-  headers, query bounds, freshness translation). `BRAVE_SUGGEST_API_KEY` remains
-  suggest-only enrichment; `BRAVE_API_KEY` is required for LLM Context and News.
-- Intent Goggles are policy-owned via `BRAVE_GOGGLES_BY_INTENT` (default empty).
-  When configured, resolved `goggles` lists are merged into `provider_arguments`
-  for `brave` and `brave_news`. The historical yasten Social Goggle URL is an
-  operator example only and must not be enabled by default.
-- DDGS remains a peer `free` provider (`DDGS.text` only). It is not a fallback
-  path and does not accept new freshness/goggle kwargs.
+## Providers
 
-Focused provider tests:
+Registry selection is ordered: all reachable free providers, reachable Bright
+Data plus one other paid SERP provider by locked round-robin, then only
+intent-selected reachable specialized providers. Credentials and disabled
+providers are checked during planning; dynamic cooldown is checked immediately
+before dispatch.
 
-```bash
-python -m pytest tests/test_brave_providers.py tests/test_provider_plan.py tests/test_branch_planner.py tests/test_intent_policy.py tests/test_ddg_unit.py tests/test_brightdata_provider.py --basetemp=.pytest-tmp
-```
-
-## Merge and Result Hygiene
-
-- Branch result lists are filtered by the DuckDB-backed blocklist immediately
-  after branch execution. Patterns are seeded from `uBlacklist.txt`, stored in
-  `blocklist_patterns`, compiled into a cached regex, and can be added,
-  deactivated, and reloaded at runtime through `blocklist.py`.
-- `merge_search_results` performs pure rank-based Reciprocal Rank Fusion:
-  each occurrence contributes `1 / (k + rank)`. The intent policy supplies
-  `rrf_k` (`news=35`, `digital_humanities=70`, and `60` otherwise). Provider and
-  list weights are not part of merge scoring; snippet length is the only
-  duplicate-result tie-breaker.
-- Provider failures remain observable and non-fatal. Provider option bundles
-  may carry call arguments, but no obsolete provider/list weight plumbing may
-  be added to branch execution or merge APIs.
-
-## Adding or Changing a Provider
-
-1. Implement a normalized provider module in `search/`.
-2. Register it in `search/provider_config.py` and the package wiring when needed.
-3. Assign it to an explicit branch target or intent-policy specialization only
-   when its query semantics match that target.
-4. Add focused tests covering the provider and the orchestrator path that uses it.
+Provider-specific option translation belongs in the provider adapter. Never
+reintroduce signature inspection, hard-coded branch provider sets, or silent
+option emulation.
 
 ## Testing
 
-- `python -m pytest tests/test_search_orchestrator.py tests/test_search_router.py`
-- `python -m pytest tests/test_provider_plan.py tests/test_provider_config.py`
-- `python -m pytest tests/test_branch_executor.py tests/test_branch_planner.py`
+```powershell
+python -m pytest --basetemp=.pytest-tmp tests/test_provider_registry.py tests/test_bm25_rerank.py tests/test_search_service.py
+```
 
-## Conventions
-
-- Return normalized result objects from provider code.
-- Keep provider failures observable but non-fatal to the whole request.
-- Treat `TOOL_PROFILE` as exposure-only, not as provider-routing logic.
+Keep provider errors attributed and nonfatal when another provider returns
+usable rows. Caller cancellation must cancel and await every child task before
+being re-raised.

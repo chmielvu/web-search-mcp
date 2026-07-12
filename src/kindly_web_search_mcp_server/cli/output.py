@@ -26,6 +26,7 @@ def emit_json(data: dict[str, Any], *, command: str) -> None:
             "output_mode": runtime.output_mode,
             "quiet": runtime.quiet,
             "log_level": runtime.log_level,
+            "debug": runtime.debug,
             "non_interactive": runtime.non_interactive,
             "duration_ms": 0,
             "generated_at": utc_now(),

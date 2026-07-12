@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 import logging
 from threading import Lock
 
@@ -38,6 +38,20 @@ def shutdown_duckdb_write_executor(*, wait: bool = False) -> None:
         executor.shutdown(wait=wait, cancel_futures=not wait)
 
 
+def drain_duckdb_writes(*, timeout: float = 10.0) -> None:
+    """Wait for pending DuckDB write futures to complete.
+
+    Synchronous — uses ``concurrent.futures.wait`` so it works even as
+    the event loop winds down.  Call from a worker thread (e.g. via
+    ``asyncio.to_thread``) when invoked from an async context.
+    """
+    with _DUCKDB_WRITE_FUTURES_LOCK:
+        pending = set(_DUCKDB_WRITE_FUTURES)
+    if not pending:
+        return
+    wait(pending, timeout=timeout)
+
+
 def _track_write_future(future: Future[None]) -> None:
     with _DUCKDB_WRITE_FUTURES_LOCK:
         _DUCKDB_WRITE_FUTURES.add(future)
@@ -45,10 +59,12 @@ def _track_write_future(future: Future[None]) -> None:
     def _done(completed: Future[None]) -> None:
         with _DUCKDB_WRITE_FUTURES_LOCK:
             _DUCKDB_WRITE_FUTURES.discard(completed)
+        if completed.cancelled():
+            return
         try:
             completed.result()
         except Exception as exc:
-            LOGGER.debug("DuckDB analytics write failed: %s", exc)
+            LOGGER.debug("DuckDB analytics write failed: %s: %s", type(exc).__name__, exc)
 
     future.add_done_callback(_done)
 

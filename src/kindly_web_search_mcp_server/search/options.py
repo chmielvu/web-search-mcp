@@ -6,7 +6,6 @@ from hashlib import sha256
 from urllib.parse import urlparse
 
 from ..search.normalize import normalize_query
-from ..cache.query_cache import provider_cache_key
 
 
 SEARCH_TIME_RANGES = frozenset({"day", "week", "month", "year"})
@@ -125,7 +124,8 @@ def build_search_identity_key(
     providers: list[str] | None,
     search_options: SearchOptions | None,
 ) -> str:
-    provider_key = provider_cache_key(providers)
+    """Return a stable identity key for a search request (no cache)."""
+    provider_key = ",".join(sorted(providers or []))
     if search_options is None:
         return provider_key
     fingerprint = search_options.cache_fingerprint()

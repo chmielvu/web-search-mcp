@@ -14,6 +14,7 @@ class CliRuntime:
     profile: str = "full"
     quiet: bool = False
     log_level: str = "error"
+    debug: bool = False
     non_interactive: bool = True
 
     def as_dict(self) -> dict[str, object]:
@@ -22,6 +23,7 @@ class CliRuntime:
             "profile": self.profile,
             "quiet": self.quiet,
             "log_level": self.log_level,
+            "debug": self.debug,
             "non_interactive": self.non_interactive,
         }
 
@@ -36,6 +38,7 @@ def set_runtime(
     quiet: bool = False,
     profile: str = "full",
     log_level: str = "error",
+    debug: bool = False,
     non_interactive: bool = True,
 ) -> CliRuntime:
     runtime = CliRuntime(
@@ -43,6 +46,7 @@ def set_runtime(
         profile=profile,
         quiet=quiet,
         log_level=log_level,
+        debug=debug,
         non_interactive=non_interactive,
     )
     global _RUNTIME
@@ -64,8 +68,15 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
         finally:
             from ..utils.background_tasks import drain_background_tasks
             from ..analytics.async_writes import shutdown_duckdb_write_executor
+            from ..search.outcomes import drain_search_outcomes
             from ..settings import settings
+            from ..telemetry.init import shutdown_telemetry
+            from ..utils.http_client import close_http_client
 
+            try:
+                await drain_search_outcomes(settings.analytics_shutdown_drain_timeout_seconds)
+            except Exception:
+                pass
             try:
                 await drain_background_tasks(
                     name_prefixes=("analytics.",),
@@ -77,5 +88,9 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
                 shutdown_duckdb_write_executor(wait=True)
             except Exception:
                 pass
+            try:
+                await close_http_client()
+            finally:
+                shutdown_telemetry()
 
     return asyncio.run(_runner())

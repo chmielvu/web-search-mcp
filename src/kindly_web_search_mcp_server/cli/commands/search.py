@@ -40,12 +40,12 @@ def quick_cmd(
 @search_app.command("web")
 def web_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
-    num_results: Annotated[int, typer.Option("--num-results")] = 5,
+    num_results: Annotated[int, typer.Option("--num-results", min=15, max=50)] = 15,
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
     research_goal: Annotated[
-        str | None,
-        typer.Option("--research-goal"),
-    ] = None,
+        str,
+        typer.Option("--research-goal", help="Required search objective."),
+    ] = ...,
     result_offset: Annotated[int, typer.Option("--result-offset")] = 0,
     searxng_category: Annotated[
         list[str] | None,
@@ -78,6 +78,10 @@ def web_cmd(
         list[str] | None,
         typer.Option("--domain-block", help="Domains to exclude (remove entirely)."),
     ] = None,
+    diagnostics: Annotated[
+        bool,
+        typer.Option("--diagnostics", help="Include full pipeline diagnostics in output."),
+    ] = False,
 ) -> None:
     """Run the full multi-provider web search pipeline."""
     from ..services.search_web import fetch_web_search_payload
@@ -100,6 +104,7 @@ def web_cmd(
                 domain_filters=domain_filter,
                 domain_boost=domain_boost,
                 domain_block=domain_block,
+                diagnostics=diagnostics,
             )
         )
     except ValueError as exc:

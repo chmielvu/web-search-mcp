@@ -164,4 +164,26 @@ def test_configure_logging_applies_info_level_with_existing_handlers(monkeypatch
     finally:
         root.handlers = original_handlers
         root.setLevel(original_level)
+
+
+def test_configure_logging_accepts_an_explicit_level(monkeypatch) -> None:
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    root = logging.getLogger()
+    original_handlers = root.handlers[:]
+    original_level = root.level
+
+    try:
+        root.handlers = []
+        sentinel = _ListHandler()
+        root.addHandler(sentinel)
+        root.setLevel(logging.WARNING)
+
+        configure_logging(level=logging.DEBUG)
+
+        assert sentinel in root.handlers
+        assert root.level == logging.DEBUG
+    finally:
+        root.handlers = original_handlers
+        root.setLevel(original_level)
         os.environ.pop("LOG_LEVEL", None)

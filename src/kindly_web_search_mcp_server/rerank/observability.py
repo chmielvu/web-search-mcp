@@ -74,10 +74,6 @@ def emit_rerank_summary(
     )
 
 
-# Policy-level rerank events (Task 3.2). Core and policy use emit_observability_event
-# directly for "rerank.eligibility|engine_selected|completed|bypassed" to keep
-# payload flexible; these helpers exist for future standardization and to satisfy
-# the plan's "modify rerank/observability.py".
 def emit_rerank_policy_decision(
     logger: logging.Logger,
     *,
@@ -95,6 +91,16 @@ def record_rerank_candidate_rows(
     before_candidates: list[WebSearchResult],
     after_candidates: list[WebSearchResult],
     payload_json: dict[str, Any] | None = None,
+    bm25_scores: dict[str, float] | None = None,
+    bm25_ranks: dict[str, int] | None = None,
+    dense_scores: dict[str, float] | None = None,
+    dense_ranks: dict[str, int] | None = None,
+    cross_encoder_scores: dict[str, float] | None = None,
+    llm_scores: dict[str, float] | None = None,
+    fused_scores: dict[str, float] | None = None,
+    hybrid_rrf_scores: dict[str, float] | None = None,
+    recency_boosts: dict[str, float] | None = None,
+    entity_overlap_scores: dict[str, float] | None = None,
 ) -> None:
     if not run_key:
         return
@@ -105,6 +111,16 @@ def record_rerank_candidate_rows(
             before_candidates=before_candidates,
             after_candidates=after_candidates,
             payload_json=payload_json,
+            bm25_scores=bm25_scores,
+            bm25_ranks=bm25_ranks,
+            dense_scores=dense_scores,
+            dense_ranks=dense_ranks,
+            cross_encoder_scores=cross_encoder_scores,
+            llm_scores=llm_scores,
+            fused_scores=fused_scores,
+            hybrid_rrf_scores=hybrid_rrf_scores,
+            recency_boosts=recency_boosts,
+            entity_overlap_scores=entity_overlap_scores,
         )
         insert_rerank_candidate_rows_batch(rows)
     except Exception as exc:
@@ -118,6 +134,16 @@ def build_rerank_candidate_rows(
     before_candidates: list[WebSearchResult],
     after_candidates: list[WebSearchResult],
     payload_json: dict[str, Any] | None = None,
+    bm25_scores: dict[str, float] | None = None,
+    bm25_ranks: dict[str, int] | None = None,
+    dense_scores: dict[str, float] | None = None,
+    dense_ranks: dict[str, int] | None = None,
+    cross_encoder_scores: dict[str, float] | None = None,
+    llm_scores: dict[str, float] | None = None,
+    fused_scores: dict[str, float] | None = None,
+    hybrid_rrf_scores: dict[str, float] | None = None,
+    recency_boosts: dict[str, float] | None = None,
+    entity_overlap_scores: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
@@ -139,32 +165,32 @@ def build_rerank_candidate_rows(
             candidate = after_candidate or before_candidate
             if candidate is None:
                 continue
-            rows.append(
-                {
-                    "run_key": run_key,
-                    "stage": stage,
-                    "link": link,
-                    "rank_before": before_rank,
-                    "rank_after": after_rank,
-                    "score_before": getattr(before_candidate, "score", None),
-                    "score_after": getattr(after_candidate, "score", None),
-                    "score_after_relevance": getattr(after_candidate, "score", None),
-                    "score_after_recency": None,
-                    "score_after_entity": None,
-                    "recency_boost": None,
-                    "entity_overlap_score": None,
-                    "diversity_removed": after_candidate is None,
-                    "payload_json": {
-                        **(payload_json or {}),
-                        "candidate_id": _candidate_id(
-                            link,
-                            candidate.title,
-                            candidate.snippet,
-                        ),
-                        "canonical_result_id": _canonical_result_id(link),
-                    },
+            row = {
+                "run_key": run_key,
+                "stage": stage,
+                "link": link,
+                "candidate_id": _candidate_id(link, candidate.title, candidate.snippet),
+                "canonical_result_id": _canonical_result_id(link),
+                "rank_before": before_rank,
+                "rank_after": after_rank,
+                "score_before": getattr(before_candidate, "score", None),
+                "score_after": getattr(after_candidate, "score", None),
+                "bm25_score": bm25_scores.get(link) if bm25_scores else None,
+                "bm25_rank": bm25_ranks.get(link) if bm25_ranks else None,
+                "dense_score": dense_scores.get(link) if dense_scores else None,
+                "dense_rank": dense_ranks.get(link) if dense_ranks else None,
+                "cross_encoder_raw": cross_encoder_scores.get(link) if cross_encoder_scores else None,
+                "llm_raw_score": llm_scores.get(link) if llm_scores else None,
+                "fused_score": fused_scores.get(link) if fused_scores else None,
+                "hybrid_rrf_score": hybrid_rrf_scores.get(link) if hybrid_rrf_scores else None,
+                "recency_boost": recency_boosts.get(link) if recency_boosts else None,
+                "entity_overlap_score": entity_overlap_scores.get(link) if entity_overlap_scores else None,
+                "diversity_removed": after_candidate is None,
+                "payload_json": {
+                    **(payload_json or {}),
                 },
-            )
+            }
+            rows.append(row)
     except Exception as exc:
         raise ValueError("failed to build rerank candidate rows") from exc
     return rows
@@ -178,21 +204,42 @@ async def record_rerank_candidate_rows_async(
     before_candidates: list[WebSearchResult],
     after_candidates: list[WebSearchResult],
     payload_json: dict[str, Any] | None = None,
+    bm25_scores: dict[str, float] | None = None,
+    bm25_ranks: dict[str, int] | None = None,
+    dense_scores: dict[str, float] | None = None,
+    dense_ranks: dict[str, int] | None = None,
+    cross_encoder_scores: dict[str, float] | None = None,
+    llm_scores: dict[str, float] | None = None,
+    fused_scores: dict[str, float] | None = None,
+    hybrid_rrf_scores: dict[str, float] | None = None,
+    recency_boosts: dict[str, float] | None = None,
+    entity_overlap_scores: dict[str, float] | None = None,
 ) -> None:
     """Queue one stage's candidate analytics without blocking rerank latency."""
     if not run_key:
         return
-    try:
-        rows = build_rerank_candidate_rows(
-            run_key=run_key,
-            stage=stage,
-            before_candidates=before_candidates,
-            after_candidates=after_candidates,
-            payload_json=payload_json,
-        )
-        dispatch_duckdb_write(
-            "analytics.rerank_candidates",
-            lambda: insert_rerank_candidate_rows_batch(rows),
-        )
-    except Exception as exc:
-        logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+
+    def _write():
+        try:
+            rows = build_rerank_candidate_rows(
+                run_key=run_key,
+                stage=stage,
+                before_candidates=before_candidates,
+                after_candidates=after_candidates,
+                payload_json=payload_json,
+                bm25_scores=bm25_scores,
+                bm25_ranks=bm25_ranks,
+                dense_scores=dense_scores,
+                dense_ranks=dense_ranks,
+                cross_encoder_scores=cross_encoder_scores,
+                llm_scores=llm_scores,
+                fused_scores=fused_scores,
+                hybrid_rrf_scores=hybrid_rrf_scores,
+                recency_boosts=recency_boosts,
+                entity_overlap_scores=entity_overlap_scores,
+            )
+            insert_rerank_candidate_rows_batch(rows)
+        except Exception as exc:
+            logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+
+    dispatch_duckdb_write(f"analytics.rerank_candidates.{stage}", _write)

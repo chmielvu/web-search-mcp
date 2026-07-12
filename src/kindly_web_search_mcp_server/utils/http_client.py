@@ -10,7 +10,8 @@ client solves all of those problems.
 from __future__ import annotations
 
 import asyncio
-from typing import TypeVar
+from collections.abc import Mapping
+from typing import Any, Literal, TypeVar
 
 import httpx
 
@@ -73,3 +74,101 @@ def reset_http_client_for_tests(client: httpx.AsyncClient | None = None) -> None
     """Replace the singleton client, used only by tests."""
     global _shared_client
     _shared_client = client
+
+
+class OutboundCallError(RuntimeError):
+    """Sanitized outbound transport or response failure."""
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        category: Literal["timeout", "network", "http_status", "invalid_json", "invalid_shape"],
+        method: str,
+        url: str,
+        status_code: int | None = None,
+    ) -> None:
+        parsed = httpx.URL(url)
+        self.provider = provider
+        self.category = category
+        self.status_code = status_code
+        self.method = method.upper()
+        self.host = parsed.host or ""
+        self.path = parsed.path
+        super().__init__(f"{provider} {category}: {self.method} {self.host}{self.path}")
+
+
+async def request_json_value(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    provider: str,
+    expected_type: type[T],
+    params: Mapping[str, Any] | None = None,
+    json_body: Any | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float | httpx.Timeout | None = None,
+) -> T:
+    try:
+        response = await client.request(
+            method,
+            url,
+            params=params,
+            json=json_body,
+            headers=headers,
+            timeout=timeout,
+        )
+    except httpx.TimeoutException:
+        raise OutboundCallError(
+            provider=provider, category="timeout", method=method, url=url
+        ) from None
+    except httpx.RequestError:
+        raise OutboundCallError(
+            provider=provider, category="network", method=method, url=url
+        ) from None
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError:
+        raise OutboundCallError(
+            provider=provider,
+            category="http_status",
+            method=method,
+            url=url,
+            status_code=response.status_code,
+        ) from None
+    try:
+        value = response.json()
+    except ValueError:
+        raise OutboundCallError(
+            provider=provider, category="invalid_json", method=method, url=url
+        ) from None
+    if not isinstance(value, expected_type):
+        raise OutboundCallError(
+            provider=provider, category="invalid_shape", method=method, url=url
+        ) from None
+    return value
+
+
+async def request_json(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    provider: str,
+    params: Mapping[str, Any] | None = None,
+    json_body: Any | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout: float | httpx.Timeout | None = None,
+) -> dict[str, Any]:
+    return await request_json_value(
+        client,
+        method,
+        url,
+        provider=provider,
+        expected_type=dict,
+        params=params,
+        json_body=json_body,
+        headers=headers,
+        timeout=timeout,
+    )

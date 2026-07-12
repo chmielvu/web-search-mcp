@@ -44,6 +44,9 @@ class LLMRouter:
         response_format: Any | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        web_search_options: dict[str, Any] | None = None,
+        provider_fields: dict[str, Any] | None = None,
     ) -> LLMGeneration:
         errors: list[Exception] = []
         for endpoint in self.endpoints:
@@ -59,6 +62,12 @@ class LLMRouter:
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format
+                if tools is not None:
+                    request_kwargs["tools"] = tools
+                if web_search_options is not None:
+                    request_kwargs["web_search_options"] = web_search_options
+                if provider_fields:
+                    request_kwargs.update(provider_fields)
                 if reasoning_effort is not None and endpoint.name not in {
                     "groq",
                     "cerebras",
@@ -67,12 +76,19 @@ class LLMRouter:
                     request_kwargs["reasoning_effort"] = reasoning_effort
                 with openinference_context_scope(langfuse):
                     response = await acompletion(**request_kwargs)
-                content = response.choices[0].message.content or ""  # type: ignore[union-attr]
-                if content.strip():
+                message = response.choices[0].message
+                content = message.content or ""  # type: ignore[union-attr]
+                annotations = tuple(getattr(message, "annotations", None) or ())
+                provider_specific_fields = (
+                    getattr(message, "provider_specific_fields", None) or None
+                )
+                if content.strip() or annotations or provider_specific_fields:
                     return LLMGeneration(
                         endpoint=endpoint,
                         content=content,
                         usage=extract_llm_usage(response),
+                        annotations=annotations,
+                        provider_specific_fields=provider_specific_fields,
                     )
                 raise RuntimeError(f"{endpoint.name} returned empty content")
             except Exception as exc:  # sequential provider ladder, no hidden fallback
@@ -91,6 +107,9 @@ class LLMRouter:
         response_model: type[Any] | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        web_search_options: dict[str, Any] | None = None,
+        provider_fields: dict[str, Any] | None = None,
     ) -> LLMGeneration:
         return await self._complete(
             messages=messages,
@@ -99,6 +118,9 @@ class LLMRouter:
             response_format=response_model or {"type": "json_object"},
             reasoning_effort=reasoning_effort,
             langfuse=langfuse,
+            tools=tools,
+            web_search_options=web_search_options,
+            provider_fields=provider_fields,
         )
 
     async def complete_text(
@@ -109,6 +131,9 @@ class LLMRouter:
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        web_search_options: dict[str, Any] | None = None,
+        provider_fields: dict[str, Any] | None = None,
     ) -> LLMGeneration:
         return await self._complete(
             messages=messages,
@@ -117,6 +142,9 @@ class LLMRouter:
             response_format=None,
             reasoning_effort=reasoning_effort,
             langfuse=langfuse,
+            tools=tools,
+            web_search_options=web_search_options,
+            provider_fields=provider_fields,
         )
 
 

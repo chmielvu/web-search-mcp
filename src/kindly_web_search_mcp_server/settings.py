@@ -67,6 +67,20 @@ def _parse_json_dict_env(raw: str, default: dict[str, list[str]]) -> dict[str, l
     return cleaned
 
 
+def _parse_string_dict_env(raw: str, *, name: str) -> dict[str, str]:
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} must be valid JSON: {exc}") from exc
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    ):
+        raise ValueError(f"{name} must be a JSON object of string values.")
+    return dict(value)
+
+
 @dataclass
 class Settings:
     """Runtime configuration (env-first).
@@ -175,7 +189,7 @@ class Settings:
     rerank_bi_encoder_max_concurrent_batches: int = int(
         os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
     )
-    rerank_llm_timeout_seconds: float = float(os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "20.0"))
+    rerank_llm_timeout_seconds: float = float(os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "5.0"))
     rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
     rerank_bi_encoder_stage_multiplier: float = float(
         os.environ.get("RERANK_BI_ENCODER_STAGE_MULTIPLIER", "3.0")
@@ -232,6 +246,7 @@ class Settings:
         "ANALYTICS_DUCKDB_PATH",
         DEFAULT_ANALYTICS_DB,
     )
+    vss_enabled: bool = os.environ.get("VSS_ENABLED", "true").lower() == "true"
 
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
     process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
@@ -482,10 +497,16 @@ class Settings:
     grafana_cloud_api_key: str = os.environ.get("GRAFANA_CLOUD_API_KEY", "")
     grafana_cloud_otlp_endpoint: str = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
-    # Phoenix (Arize) observability via OTLP
+    # Phoenix (Arize) observability through the local SSH forward.
+    phoenix_project_name: str = os.environ.get("PHOENIX_PROJECT_NAME", "WebSearchMCP")
     phoenix_collector_endpoint: str = os.environ.get(
-        "PHOENIX_COLLECTOR_ENDPOINT",
-        "https://chmielvu-phoenix-observability.hf.space/v1/traces",
+        "PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces"
+    )
+    phoenix_client_headers: dict[str, str] = field(
+        default_factory=lambda: _parse_string_dict_env(
+            os.environ.get("PHOENIX_CLIENT_HEADERS", ""),
+            name="PHOENIX_CLIENT_HEADERS",
+        )
     )
 
     # =====================================================================

@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 
 from opentelemetry import trace
 
-from ..analytics.duckdb_store import insert_merged_candidates as analytics_insert_merged_candidates
 from ..models import WebSearchResult
 from ..settings import settings
 from ..telemetry import record_merge, record_rrf_merge, record_rrf_score
@@ -160,22 +159,4 @@ def merge_search_results(
         for rank, result in enumerate(output[:10], start=1):
             if result.score is not None:
                 record_rrf_score(result.score, rank)
-    if run_key:
-        try:
-            for rank, result in enumerate(output, start=1):
-                analytics_insert_merged_candidates(
-                    run_key=run_key,
-                    rank=rank,
-                    link=result.link,
-                    title=result.title,
-                    snippet=result.snippet,
-                    domain=result.domain or "",
-                    rrf_score=result.score or 0.0,
-                    provider_count=result.provider_count,
-                    providers=result.providers or [],
-                    overlap_flag=canonicalize_url(result.link) in overlapping_urls,
-                    payload_json={"k": k, "overlap_rate": round(overlap_rate, 4)},
-                )
-        except Exception as exc:
-            logger.debug("analytics insert_merged_candidates failed: %s", exc)
     return output

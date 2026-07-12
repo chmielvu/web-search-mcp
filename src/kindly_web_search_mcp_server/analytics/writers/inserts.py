@@ -6,112 +6,97 @@ from .core import TableWriter
 from .table_names import (
     _ABE_TABLE_NAME,
     _ABS_TABLE_NAME,
+    _CE_TABLE_NAME,
     _FR_TABLE_NAME,
     _JE_TABLE_NAME,
-    _MC_TABLE_NAME,
     _PC_TABLE_NAME,
-    _PRC_TABLE_NAME,
-    _QR_TABLE_NAME,
-    _QU_TABLE_NAME,
+    _QE_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
+    _SB_TABLE_NAME,
+    _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
 )
 
+# ---------------------------------------------------------------------------
+# Column lists (must match DDL in schema.py)
+# ---------------------------------------------------------------------------
 _SEARCH_RUN_COLUMNS = [
     "run_key",
+    "tool_call_id",
+    "session_id",
     "query",
     "normalized_query",
     "research_goal",
+    "intent",
+    "understanding_confidence",
     "num_results_requested",
     "rewrite_enabled",
-    "session_id",
-    "tool_name",
-    "duration_ms",
+    "result_offset",
+    "selected_providers",
+    "skipped_providers",
+    "branch_count",
+    "provider_count",
+    "merged_count",
+    "reranked_count",
     "final_result_count",
     "candidate_count",
     "has_more",
-    "result_offset",
     "status",
     "error_type",
+    "duration_ms",
     "reranker_provider",
     "reranker_model",
+    "rake_terms",
+    "brave_autosuggest",
+    "brave_spellcheck",
+    "rewrite_prompt",
+    "rewrite_model",
+    "rewrite_input_tokens",
+    "rewrite_output_tokens",
+    "rewrite_latency_ms",
+    "rewrite_error",
     "payload_json",
 ]
 
-_QUERY_UNDERSTANDING_COLUMNS = [
+_SEARCH_BRANCH_COLUMNS = [
     "run_key",
-    "intent",
-    "confidence",
-    "should_decompose",
-    "rationale",
-    "model",
-    "model_used",
-    "provider",
-    "duration_ms",
-    "fallback_used",
-    "entities_count",
-    "input_tokens",
-    "output_tokens",
-    "preserved_terms",
-    "time_sensitivity",
-    "payload_json",
-]
-
-_QUERY_REWRITES_COLUMNS = [
-    "run_key",
-    "variant_index",
-    "branch_type",
-    "kind",
-    "target",
-    "query",
-    "weight",
-    "reason",
+    "branch_index",
+    "branch_target",
+    "branch_query",
+    "branch_why",
+    "branch_weight",
+    "must_keep_terms",
     "max_results",
-    "model",
-    "model_used",
-    "duration_ms",
-    "input_tokens",
-    "output_tokens",
+    "assigned_providers",
+    "attempted_providers",
+    "skipped_providers",
+    "results_count",
+    "latency_ms",
     "payload_json",
 ]
 
 _PROVIDER_CALL_COLUMNS = [
     "run_key",
-    "provider",
     "branch_index",
+    "branch_target",
+    "provider",
     "branch_query",
+    "status",
     "num_results_requested",
     "num_results_returned",
-    "duration_ms",
-    "error_code",
+    "latency_ms",
+    "error_type",
     "error_message",
-    "http_status",
-    "tokens_used",
-    "cost_usd",
+    "candidate_urls",
     "payload_json",
 ]
 
-_PROVIDER_CANDIDATE_COLUMNS = [
+_SEARCH_CANDIDATE_COLUMNS = [
     "run_key",
-    "provider",
-    "branch_index",
-    "rank",
-    "title",
     "link",
-    "snippet",
-    "domain",
-    "score",
-    "published_date",
-    "payload_json",
-]
-
-_MERGED_CANDIDATE_COLUMNS = [
-    "run_key",
-    "rank",
     "title",
-    "link",
     "snippet",
     "domain",
     "rrf_score",
@@ -126,15 +111,17 @@ _RERANK_STAGE_COLUMNS = [
     "stage",
     "provider",
     "model",
-    "model_used",
     "input_count",
     "output_count",
-    "input_tokens",
-    "output_tokens",
     "duration_ms",
     "max_score",
     "avg_score",
     "score_threshold",
+    "alpha_blend",
+    "input_tokens",
+    "output_tokens",
+    "status",
+    "error_type",
     "instruction_present",
     "instruction_length",
     "query_type_hint",
@@ -146,13 +133,20 @@ _RERANK_CANDIDATE_COLUMNS = [
     "run_key",
     "stage",
     "link",
+    "candidate_id",
+    "canonical_result_id",
     "rank_before",
     "rank_after",
     "score_before",
     "score_after",
-    "score_after_relevance",
-    "score_after_recency",
-    "score_after_entity",
+    "bm25_score",
+    "bm25_rank",
+    "dense_score",
+    "dense_rank",
+    "cross_encoder_raw",
+    "llm_raw_score",
+    "fused_score",
+    "hybrid_rrf_score",
     "recency_boost",
     "entity_overlap_score",
     "diversity_removed",
@@ -170,6 +164,24 @@ _FINAL_RESULT_COLUMNS = [
     "providers",
     "provider_count",
     "entities_count",
+    "candidate_id",
+    "canonical_result_id",
+    "payload_json",
+]
+
+_QUERY_EMBEDDING_COLUMNS = [
+    "run_key",
+    "embedding",
+    "model_id",
+    "payload_json",
+]
+
+_CANDIDATE_EMBEDDING_COLUMNS = [
+    "run_key",
+    "link",
+    "title",
+    "embedding",
+    "model_id",
     "payload_json",
 ]
 
@@ -189,6 +201,7 @@ _SEARCH_QUALITY_SCORE_COLUMNS = [
     "total_candidates_merged",
     "total_candidates_reranked",
     "total_final_results",
+    "ndcg_at_10",
     "payload_json",
 ]
 
@@ -197,11 +210,14 @@ _JUDGE_EVALUATION_COLUMNS = [
     "tool_name",
     "judge_model",
     "model_used",
+    "link",
+    "relevance_grade",
     "relevance_score",
-    "relevance_raw",
-    "relevance_scale",
+    "accuracy_grade",
     "accuracy_score",
+    "completeness_grade",
     "completeness_score",
+    "source_quality_grade",
     "source_quality_score",
     "overall_score",
     "rationale",
@@ -240,24 +256,20 @@ _AB_SHADOW_RUN_COLUMNS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# TableWriter instances
+# ---------------------------------------------------------------------------
 _SEARCH_RUN_WRITER = TableWriter(
     table_name=_RUNS_TABLE_NAME,
     ensure_name="_ensure_search_runs",
     columns=_SEARCH_RUN_COLUMNS,
-    defaults={"tool_name": "web_search"},
     task_name="analytics.search_run",
 )
-_QUERY_UNDERSTANDING_WRITER = TableWriter(
-    table_name=_QU_TABLE_NAME,
-    ensure_name="_ensure_query_understanding",
-    columns=_QUERY_UNDERSTANDING_COLUMNS,
-    task_name="analytics.query_understanding",
-)
-_QUERY_REWRITES_WRITER = TableWriter(
-    table_name=_QR_TABLE_NAME,
-    ensure_name="_ensure_query_rewrites",
-    columns=_QUERY_REWRITES_COLUMNS,
-    task_name="analytics.query_rewrites",
+_SEARCH_BRANCHES_WRITER = TableWriter(
+    table_name=_SB_TABLE_NAME,
+    ensure_name="_ensure_search_branches",
+    columns=_SEARCH_BRANCH_COLUMNS,
+    task_name="analytics.search_branches",
 )
 _PROVIDER_CALLS_WRITER = TableWriter(
     table_name=_PC_TABLE_NAME,
@@ -265,17 +277,11 @@ _PROVIDER_CALLS_WRITER = TableWriter(
     columns=_PROVIDER_CALL_COLUMNS,
     task_name="analytics.provider_calls",
 )
-_PROVIDER_CANDIDATES_WRITER = TableWriter(
-    table_name=_PRC_TABLE_NAME,
-    ensure_name="_ensure_provider_candidates",
-    columns=_PROVIDER_CANDIDATE_COLUMNS,
-    task_name="analytics.provider_candidates",
-)
-_MERGED_CANDIDATES_WRITER = TableWriter(
-    table_name=_MC_TABLE_NAME,
-    ensure_name="_ensure_merged_candidates",
-    columns=_MERGED_CANDIDATE_COLUMNS,
-    task_name="analytics.merged_candidates",
+_SEARCH_CANDIDATES_WRITER = TableWriter(
+    table_name=_SC_TABLE_NAME,
+    ensure_name="_ensure_search_candidates",
+    columns=_SEARCH_CANDIDATE_COLUMNS,
+    task_name="analytics.search_candidates",
 )
 _RERANK_STAGES_WRITER = TableWriter(
     table_name=_RS_TABLE_NAME,
@@ -294,6 +300,18 @@ _FINAL_RESULTS_WRITER = TableWriter(
     ensure_name="_ensure_final_results",
     columns=_FINAL_RESULT_COLUMNS,
     task_name="analytics.final_results",
+)
+_QUERY_EMBEDDINGS_WRITER = TableWriter(
+    table_name=_QE_TABLE_NAME,
+    ensure_name="_ensure_query_embeddings",
+    columns=_QUERY_EMBEDDING_COLUMNS,
+    task_name="analytics.query_embeddings",
+)
+_CANDIDATE_EMBEDDINGS_WRITER = TableWriter(
+    table_name=_CE_TABLE_NAME,
+    ensure_name="_ensure_candidate_embeddings",
+    columns=_CANDIDATE_EMBEDDING_COLUMNS,
+    task_name="analytics.candidate_embeddings",
 )
 _SEARCH_QUALITY_SCORES_WRITER = TableWriter(
     table_name=_SQS_TABLE_NAME,

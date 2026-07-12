@@ -2,32 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import json
-import uuid
+import logging
+import sys
+from collections.abc import Callable
 from typing import Any
 
 import duckdb
 
-from ...llm.usage import extract_llm_usage
-from ...settings import settings
-from .table_names import _TABLE_NAME
-
-from ..async_writes import dispatch_duckdb_write
 from .connection import _db_path, _LOCK
+from ..async_writes import dispatch_duckdb_write
+from ...llm.usage import extract_llm_usage
 
+_logger = logging.getLogger(__name__)
 _FACADE_MODULE = "kindly_web_search_mcp_server.analytics.duckdb_store"
 
 
 def _resolve_ensure(name: str) -> Callable[[duckdb.DuckDBPyConnection], None]:
     """Resolve an ``_ensure_*`` callable on the facade module at call time.
 
-    Tests patch ``duckdb_store._ensure_schema`` / ``duckdb_store._ensure_*`` to
-    stub out schema setup, so writers look up the callable through the facade at
-    insert time rather than holding a direct reference.
+    This avoids circular imports: the facade imports from ``writers`` which
+    imports from ``core``; resolving at call-time breaks the cycle.
     """
-    import sys
-
     return getattr(sys.modules[_FACADE_MODULE], name)
 
 
@@ -36,70 +32,119 @@ class TableWriter:
 
     def __init__(
         self,
-        *,
         table_name: str,
         ensure_name: str,
         columns: list[str],
-        task_name: str,
         defaults: dict[str, Any] | None = None,
-        on_conflict: str = "",
+        on_conflict: str | None = None,
+        task_name: str | None = None,
     ) -> None:
         self.table_name = table_name
         self.ensure_name = ensure_name
         self.columns = columns
-        self.task_name = task_name
         self.defaults = defaults or {}
-        placeholders = ", ".join("?" for _ in columns)
-        col_list = ", ".join(columns)
-        sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
-        if on_conflict:
-            sql = f"{sql} {on_conflict}"
-        self.insert_sql = sql
+        self.on_conflict = on_conflict or ""
+        self.task_name = task_name or f"analytics.{table_name}"
 
-    def insert(self, *, db_path: str | None = None, **kwargs: Any) -> None:
-        """Insert a single row from the supplied keyword values."""
-        from ...settings import settings
+    def insert(
+        self,
+        *,
+        db_path: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Insert one row synchronously (called inside dispatch_duckdb_write)."""
+        path = _db_path(db_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _resolve_ensure(self.ensure_name)(connection)
+                col_list = ", ".join(self.columns)
+                placeholders = ", ".join(["?"] * len(self.columns))
+                conflict = f" {self.on_conflict}" if self.on_conflict else ""
+                connection.execute(
+                    f"INSERT INTO {self.table_name} ({col_list}) "
+                    f"VALUES ({placeholders}){conflict}",
+                    [kwargs.get(c, self.defaults.get(c)) for c in self.columns],
+                )
+            finally:
+                connection.close()
 
-        if not settings.analytics_enabled:
+    def insert_batch(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        db_path: str | None = None,
+    ) -> None:
+        """Insert multiple rows in a single connection."""
+        if not rows:
             return
         path = _db_path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        for key, value in self.defaults.items():
-            if kwargs.get(key) is None:
-                kwargs[key] = value
-        values = [kwargs.get(col) for col in self.columns]
-        ensure_name = self.ensure_name
-        insert_sql = self.insert_sql
+        with _LOCK:
+            connection = duckdb.connect(str(path))
+            try:
+                _resolve_ensure(self.ensure_name)(connection)
+                col_list = ", ".join(self.columns)
+                placeholders = ", ".join(["?"] * len(self.columns))
+                conflict = f" {self.on_conflict}" if self.on_conflict else ""
+                sql = (
+                    f"INSERT INTO {self.table_name} ({col_list}) "
+                    f"VALUES ({placeholders}){conflict}"
+                )
+                connection.executemany(
+                    sql,
+                    [
+                        [r.get(c, self.defaults.get(c)) for c in self.columns]
+                        for r in rows
+                    ],
+                )
+            finally:
+                connection.close()
+
+    def dispatch_insert(
+        self,
+        *,
+        db_path: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Fire-and-forget insert via the dedicated DuckDB write executor."""
         task_name = self.task_name
 
         def _write() -> None:
-            with _LOCK:
-                connection = duckdb.connect(str(path))
-                try:
-                    _resolve_ensure(ensure_name)(connection)
-                    connection.execute(insert_sql, values)
-                finally:
-                    connection.close()
+            self.insert(db_path=db_path, **kwargs)
+
+        dispatch_duckdb_write(task_name, _write)
+
+    def dispatch_insert_batch(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        db_path: str | None = None,
+    ) -> None:
+        if not rows:
+            return
+        task_name = self.task_name
+
+        def _write() -> None:
+            self.insert_batch(rows, db_path=db_path)
 
         dispatch_duckdb_write(task_name, _write)
 
 
+# ---------------------------------------------------------------------------
+# Public insert wrappers (lazy-import writers to avoid circular imports)
+# ---------------------------------------------------------------------------
 def insert_search_run(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _SEARCH_RUN_WRITER
 
     _SEARCH_RUN_WRITER.insert(db_path=db_path, **kwargs)
 
 
-def insert_query_understanding(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _QUERY_UNDERSTANDING_WRITER
+def insert_search_branches(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _SEARCH_BRANCHES_WRITER
 
-    _QUERY_UNDERSTANDING_WRITER.insert(db_path=db_path, **kwargs)
-
-
-def insert_query_rewrites(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _QUERY_REWRITES_WRITER
-
-    _QUERY_REWRITES_WRITER.insert(db_path=db_path, **kwargs)
+    _SEARCH_BRANCHES_WRITER.insert(db_path=db_path, **kwargs)
 
 
 def insert_provider_calls(*, db_path: str | None = None, **kwargs: Any) -> None:
@@ -108,16 +153,10 @@ def insert_provider_calls(*, db_path: str | None = None, **kwargs: Any) -> None:
     _PROVIDER_CALLS_WRITER.insert(db_path=db_path, **kwargs)
 
 
-def insert_provider_candidates(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _PROVIDER_CANDIDATES_WRITER
+def insert_search_candidates(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _SEARCH_CANDIDATES_WRITER
 
-    _PROVIDER_CANDIDATES_WRITER.insert(db_path=db_path, **kwargs)
-
-
-def insert_merged_candidates(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _MERGED_CANDIDATES_WRITER
-
-    _MERGED_CANDIDATES_WRITER.insert(db_path=db_path, **kwargs)
+    _SEARCH_CANDIDATES_WRITER.insert(db_path=db_path, **kwargs)
 
 
 def insert_rerank_stages(*, db_path: str | None = None, **kwargs: Any) -> None:
@@ -136,6 +175,18 @@ def insert_final_results(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _FINAL_RESULTS_WRITER
 
     _FINAL_RESULTS_WRITER.insert(db_path=db_path, **kwargs)
+
+
+def insert_query_embeddings(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _QUERY_EMBEDDINGS_WRITER
+
+    _QUERY_EMBEDDINGS_WRITER.insert(db_path=db_path, **kwargs)
+
+
+def insert_candidate_embeddings(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _CANDIDATE_EMBEDDINGS_WRITER
+
+    _CANDIDATE_EMBEDDINGS_WRITER.insert(db_path=db_path, **kwargs)
 
 
 def insert_search_quality_scores(*, db_path: str | None = None, **kwargs: Any) -> None:
@@ -163,51 +214,46 @@ def insert_ab_shadow_run(*, db_path: str | None = None, **kwargs: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Value-extraction helpers used by append_event
+# Value-extraction helpers (kept for backward compat with any callers)
 # ---------------------------------------------------------------------------
 def _event_value(payload: dict[str, Any], key: str) -> str | int | float | None:
     value = payload.get(key)
-    if value is None or isinstance(value, (str, int, float)):
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float)):
         return value
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
 def _provider_value(payload: dict[str, Any]) -> str | None:
     value = payload.get("provider")
-    if value is None:
-        value = payload.get("provider_name")
-    return value if isinstance(value, str) else None
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def _model_used_value(payload: dict[str, Any]) -> str | None:
     value = payload.get("model_used")
-    if value is None:
-        value = payload.get("model")
-    return value if isinstance(value, str) else None
+    if isinstance(value, str):
+        return value
+    return None
 
 
 def _int_value(payload: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     for key in keys:
         value = payload.get(key)
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
+        if isinstance(value, int) and not isinstance(value, bool):
             return value
     return None
 
 
 def _run_key(payload: dict[str, Any]) -> str | None:
-    # Check run_key first (explicit search run key)
     run_key = payload.get("run_key")
-    if isinstance(run_key, str) and run_key:
+    if isinstance(run_key, str):
         return run_key
-    # Fallback: use trace_id or request_fingerprint
-    trace_id = payload.get("trace_id")
-    if isinstance(trace_id, str) and trace_id:
-        return trace_id
-    fingerprint = payload.get("request_fingerprint")
-    if isinstance(fingerprint, str) and fingerprint:
-        return fingerprint
+    tool_call_id = payload.get("tool_call_id")
+    if isinstance(tool_call_id, str):
+        return tool_call_id
     return None
 
 
@@ -220,42 +266,33 @@ def _duration_ms_value(payload: dict[str, Any]) -> float | None:
     value = payload.get("duration_ms")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
-    duration_seconds = payload.get("duration_seconds")
-    if isinstance(duration_seconds, (int, float)) and not isinstance(duration_seconds, bool):
-        return round(float(duration_seconds) * 1000.0, 3)
     return None
 
 
 def _input_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
         payload,
-        (
-            "input_count",
-            "input_result_count",
-            "input_list_count",
-            "num_results_requested",
-            "num_results",
-            "tool_calls_count",
-        ),
+        ("input_count", "candidates_input", "candidate_count"),
     )
-    return value
+    if value is not None:
+        return value
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        return len(candidates)
+    return None
 
 
 def _output_count_value(payload: dict[str, Any]) -> int | None:
     value = _int_value(
         payload,
-        (
-            "output_count",
-            "result_count",
-            "merged_result_count",
-            "final_result_count",
-            "output_result_count",
-            "total_returned",
-            "success_count",
-            "sources_count",
-        ),
+        ("output_count", "candidates_output", "result_count", "final_count"),
     )
-    return value
+    if value is not None:
+        return value
+    results = payload.get("results")
+    if isinstance(results, list):
+        return len(results)
+    return None
 
 
 def _input_tokens_value(payload: dict[str, Any]) -> int | None:
@@ -274,99 +311,14 @@ def append_event(
     *,
     db_path: str | None = None,
 ) -> None:
-    """Append a normalized observability payload to DuckDB.
+    """Append a normalized observability payload to the legacy event log.
 
-    The store is best-effort and is disabled when
-    `ANALYTICS_ENABLED=false`.
+    .. deprecated:: The ``search_events`` table is removed in the new schema.
+       This function is retained as a no-op stub for any callers that have not
+       yet migrated to the new table-specific insert functions.
     """
-
-    if not settings.analytics_enabled:
-        return
-
-    path = _db_path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    usage = extract_llm_usage(payload)
-    model_used = _model_used_value(payload)
-
-    record = (
-        str(uuid.uuid4()),
+    _logger.debug(
+        "append_event called for '%s' — search_events table removed; "
+        "use table-specific insert_* functions instead.",
         event_name,
-        _run_key(payload),
-        _event_value(payload, "tool_name"),
-        _phase(event_name),
-        _event_value(payload, "query"),
-        _event_value(payload, "normalized_query"),
-        _event_value(payload, "research_goal"),
-        _provider_value(payload),
-        model_used,
-        model_used,
-        _duration_ms_value(payload),
-        _input_count_value(payload),
-        _output_count_value(payload),
-        usage.input_tokens if usage else _input_tokens_value(payload),
-        usage.output_tokens if usage else _output_tokens_value(payload),
-        _event_value(payload, "trace_id"),
-        _event_value(payload, "span_id"),
-        _event_value(payload, "cache_hit"),
-        json.dumps(payload, ensure_ascii=False, default=str),
     )
-
-    def _write() -> None:
-        with _LOCK:
-            connection = duckdb.connect(str(path))
-            try:
-                _resolve_ensure("_ensure_schema")(connection)
-                connection.execute(
-                    f"""
-                    INSERT INTO {_TABLE_NAME} (
-                        event_id,
-                        event_name,
-                        recorded_at,
-                        run_key,
-                        tool_name,
-                        phase,
-                        query,
-                        normalized_query,
-                        research_goal,
-                        provider,
-                        model,
-                        model_used,
-                        duration_ms,
-                        input_count,
-                        output_count,
-                        input_tokens,
-                        output_tokens,
-                        trace_id,
-                        span_id,
-                        cache_hit,
-                        payload_json
-                    ) VALUES (
-                        ?,
-                        ?,
-                        CURRENT_TIMESTAMP,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?,
-                        ?
-                    )
-                    """,
-                    record,
-                )
-            finally:
-                connection.close()
-
-    dispatch_duckdb_write("analytics.search_events", _write)

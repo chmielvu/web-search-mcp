@@ -50,7 +50,8 @@ async def run_judge_evaluation(
     query : str
         The original user query.
     intent : str
-        Search intent: 'general', 'ai_coding_and_infrastructure', 'digital_humanities', 'comparison', 'social_media', or 'news'.
+        Search intent: 'general', 'ai_coding_and_infrastructure',
+        'digital_humanities', 'comparison', 'social_media', or 'news'.
     results : list[WebSearchResult]
         The final result list returned to the user.
     tool_name : str
@@ -97,22 +98,23 @@ async def run_judge_evaluation(
             tool_name=tool_name,
             judge_model=result.judge_model,
             model_used=result.model_used,
+            link=None,  # judge evaluates the full result set, not one URL
+            relevance_grade=result.relevance_grade,
             relevance_score=result.relevance_score,
-            relevance_raw=result.relevance_raw,
-            relevance_scale="1-4",
-            accuracy_score=None,
-            completeness_score=None,
-            source_quality_score=None,
-            overall_score=result.relevance_score,
-            rationale=result.reasoning,
+            accuracy_grade=result.accuracy_grade,
+            accuracy_score=result.accuracy_score,
+            completeness_grade=result.completeness_grade,
+            completeness_score=result.completeness_score,
+            source_quality_grade=result.source_quality_grade,
+            source_quality_score=result.source_quality_score,
+            overall_score=result.overall_score,
+            rationale=result.rationale,
             duration_ms=result.duration_ms,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             tokens_used=tokens_used,
             cost_usd=None,
             payload_json={
-                "relevance_raw": result.relevance_raw,
-                "relevance_scale": "1-4",
                 "result_count": len(results),
                 "error": result.error,
             },

@@ -1,0 +1,8 @@
+experiments:
+- experiment_id: good
+  layer: reranking
+  variants: []
+- experiment_id: bad
+  layer: reranking
+  variants:
+  - variant_key: only

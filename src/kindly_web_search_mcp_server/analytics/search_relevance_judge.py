@@ -1,26 +1,94 @@
-"""Search result set relevance judge using GPT-OSS 120B."""
+"""Search result set relevance judge — 4-dimensional evaluation.
+
+Uses GPT-OSS 120B via worker router (Cerebras -> Groq -> Vercel fallback).
+Evaluates search results across four dimensions: relevance, accuracy,
+completeness, and source_quality. Each dimension gets a discrete grade
+(excellent|good|fair|poor) and a float score (0.0-1.0), plus an
+overall_score and rationale.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
-from ..settings import settings
+from pydantic import BaseModel, Field
+
 from ..llm.phoenix_tracing import LLMTraceContext
 from ..llm.router import build_worker_router
+from ..settings import settings
+from .judge_prompt import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Pydantic models for 4-D structured output
+# ---------------------------------------------------------------------------
+
+
+class DimensionScore(BaseModel):
+    """One of the four evaluation dimensions."""
+
+    grade: Annotated[
+        str,
+        Field(description="Discrete grade: excellent|good|fair|poor"),
+    ]
+    score: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, description="Numeric score 0.0-1.0"),
+    ]
+    rationale: Annotated[
+        str,
+        Field(description="Brief 1-2 sentence explanation of the score"),
+    ]
+
+
+class Judge4DResponse(BaseModel):
+    """Full 4-D judge response schema."""
+
+    relevance: DimensionScore
+    accuracy: DimensionScore
+    completeness: DimensionScore
+    source_quality: DimensionScore
+    overall_score: Annotated[
+        float,
+        Field(ge=0.0, le=1.0, description="Overall holistic quality score 0.0-1.0"),
+    ]
+    overall_rationale: Annotated[
+        str,
+        Field(description="1-3 sentence explanation of the overall score"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Result dataclass
+# ---------------------------------------------------------------------------
+
+
 @dataclass(slots=True)
 class SearchRelevanceResult:
-    """Structured result for search result set relevance."""
+    """Structured result for 4-D search result set evaluation."""
 
-    relevance_raw: int  # 1-4 (Irrelevant -> Perfectly relevant)
-    relevance_score: float  # 0.0-1.0 normalized
-    reasoning: str
+    # Per-dimension grades (excellent|good|fair|poor)
+    relevance_grade: str
+    accuracy_grade: str
+    completeness_grade: str
+    source_quality_grade: str
+
+    # Per-dimension scores (0.0-1.0)
+    relevance_score: float
+    accuracy_score: float
+    completeness_score: float
+    source_quality_score: float
+
+    # Overall
+    overall_score: float
+    rationale: str
+
+    # Metadata
     judge_model: str
     duration_ms: float
     input_tokens: int | None = None
@@ -32,24 +100,9 @@ class SearchRelevanceResult:
         return self.judge_model
 
 
-_RELEVANCE_SYSTEM_PROMPT = """You are an information retrieval evaluation expert.
-Your task is to evaluate how relevant a set of search results is to a user's query.
-
-Consider:
-- The user's original query and their research goal (if provided)
-- The search intent: general research, ai_coding_and_infrastructure, digital_humanities, comparison, social_media, or news
-- The rewritten query variants used for multi-branch search
-- How well each result matches the query topic
-- Whether the results collectively address the user's information need
-
-Return a JSON object with exactly these fields:
-{"score": <1-4>, "reasoning": "<brief explanation>"}
-
-Scoring scale:
-1 = Irrelevant: Results do not match the query at all
-2 = Related: Results are loosely related but miss key aspects
-3 = Highly relevant: Results directly address the query with good coverage
-4 = Perfectly relevant: Results comprehensively and precisely answer the query"""
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
 
 
 def _format_results_text(results: list[Any]) -> str:
@@ -63,57 +116,9 @@ def _format_results_text(results: list[Any]) -> str:
     return "\n\n".join(lines) if lines else "(no results)"
 
 
-def _format_rewrite_variants(rewrite_variants: list[Any] | None) -> str:
-    """Format rewrite variants for the judge prompt."""
-    if not rewrite_variants:
-        return ""
-    lines: list[str] = []
-    for i, v in enumerate(rewrite_variants):
-        query = getattr(v, "query", "") or (v.get("query", "") if isinstance(v, dict) else "")
-        kind = getattr(v, "kind", "") or (v.get("kind", "") if isinstance(v, dict) else "")
-        raw_weight = (
-            getattr(v, "weight", None)
-            if hasattr(v, "weight")
-            else (v.get("weight", None) if isinstance(v, dict) else None)
-        )
-        weight_str = f" (weight={raw_weight:.2f})" if raw_weight is not None else ""
-        lines.append(f"  [{i}] {query} [{kind}]{weight_str}")
-    return "\n".join(lines)
-
-
-def _parse_relevance_response(response_text: str) -> tuple[int, str]:
-    """Parse structured JSON response from judge LLM."""
-    import json
-
-    s = (response_text or "").strip()
-    if not s:
-        return 1, "empty response"
-
-    # Strip markdown code fences if present
-    if s.startswith("```"):
-        parts = s.split("```")
-        if len(parts) >= 2:
-            inner = parts[1].strip()
-            if inner.lower().startswith("json"):
-                inner = inner[4:].strip()
-            s = inner
-
-    # Find first balanced { ... }
-    if not s.startswith("{"):
-        start = s.find("{")
-        end = s.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            s = s[start : end + 1]
-
-    try:
-        data = json.loads(s)
-        score = int(data.get("score", 1))
-        reasoning = str(data.get("reasoning", ""))
-        # Clamp to valid range
-        score = max(1, min(4, score))
-        return score, reasoning
-    except (json.JSONDecodeError, ValueError, TypeError):
-        return 1, f"parse error: {response_text[:200]}"
+# ---------------------------------------------------------------------------
+# Judge class
+# ---------------------------------------------------------------------------
 
 
 class SearchRelevanceJudge:
@@ -136,12 +141,19 @@ class SearchRelevanceJudge:
         rewrite_variants: list[Any] | None = None,
         langfuse: LLMTraceContext | None = None,
     ) -> SearchRelevanceResult:
-        """Evaluate relevance of search result set to query."""
+        """Evaluate search results across 4 dimensions."""
         if not results:
             return SearchRelevanceResult(
-                relevance_raw=1,
+                relevance_grade="poor",
+                accuracy_grade="poor",
+                completeness_grade="poor",
+                source_quality_grade="poor",
                 relevance_score=0.0,
-                reasoning="No results to evaluate",
+                accuracy_score=0.0,
+                completeness_score=0.0,
+                source_quality_score=0.0,
+                overall_score=0.0,
+                rationale="No results to evaluate.",
                 judge_model=self.model,
                 duration_ms=0.0,
                 input_tokens=None,
@@ -151,66 +163,60 @@ class SearchRelevanceJudge:
 
         start = asyncio.get_event_loop().time()
         results_text = _format_results_text(results)
-
-        # Build prompt sections
-        prompt_parts = [
-            f"Query: {query}",
-            f"Search intent: {intent}",
-        ]
-
-        if research_goal:
-            prompt_parts.append(f"Research goal: {research_goal}")
-
-        if rewrite_variants:
-            rewrites_text = _format_rewrite_variants(rewrite_variants)
-            if rewrites_text:
-                prompt_parts.append(f"Rewritten query variants:\n{rewrites_text}")
-
-        prompt_parts.extend(
-            [
-                "",
-                "--- Search results ---",
-                results_text,
-                "--- End results ---",
-                "",
-                "Evaluate the relevance of these search results to the query.",
-            ]
+        user_prompt = build_judge_user_prompt(
+            query=query,
+            intent=intent,
+            results_text=results_text,
+            tool_name="web_search",
         )
-
-        user_prompt = "\n".join(prompt_parts)
 
         try:
             generation = await self._router.complete_json(
                 messages=[
-                    {"role": "system", "content": _RELEVANCE_SYSTEM_PROMPT},
+                    {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=0.0,
                 timeout_seconds=settings.judge_timeout_seconds,
+                response_model=Judge4DResponse,
                 langfuse=langfuse,
             )
 
-            relevance_raw, reasoning = _parse_relevance_response(generation.content)
+            judge_output: Judge4DResponse = generation.content  # type: ignore[assignment]
+
             duration_ms = round((asyncio.get_event_loop().time() - start) * 1000.0, 3)
-            relevance_score = (relevance_raw - 1) / 3.0  # Normalize to 0.0-1.0
 
             return SearchRelevanceResult(
-                relevance_raw=relevance_raw,
-                relevance_score=relevance_score,
-                reasoning=reasoning,
+                relevance_grade=judge_output.relevance.grade,
+                accuracy_grade=judge_output.accuracy.grade,
+                completeness_grade=judge_output.completeness.grade,
+                source_quality_grade=judge_output.source_quality.grade,
+                relevance_score=judge_output.relevance.score,
+                accuracy_score=judge_output.accuracy.score,
+                completeness_score=judge_output.completeness.score,
+                source_quality_score=judge_output.source_quality.score,
+                overall_score=judge_output.overall_score,
+                rationale=judge_output.overall_rationale,
                 judge_model=self.model,
                 duration_ms=duration_ms,
-                input_tokens=generation.input_tokens,  # type: ignore[attr-defined]
-                output_tokens=generation.output_tokens,  # type: ignore[attr-defined]
+                input_tokens=generation.input_tokens,
+                output_tokens=generation.output_tokens,
             )
 
         except Exception as exc:
-            logger.debug("relevance judge failed: %s", exc)
+            logger.debug("4-D judge failed: %s", exc)
             duration_ms = round((asyncio.get_event_loop().time() - start) * 1000.0, 3)
             return SearchRelevanceResult(
-                relevance_raw=1,
+                relevance_grade="poor",
+                accuracy_grade="poor",
+                completeness_grade="poor",
+                source_quality_grade="poor",
                 relevance_score=0.0,
-                reasoning="",
+                accuracy_score=0.0,
+                completeness_score=0.0,
+                source_quality_score=0.0,
+                overall_score=0.0,
+                rationale="",
                 judge_model=self.model,
                 duration_ms=duration_ms,
                 input_tokens=None,

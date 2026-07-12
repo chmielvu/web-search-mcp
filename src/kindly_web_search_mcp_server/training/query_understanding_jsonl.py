@@ -6,13 +6,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..search.context import SearchContext
 from ..search.understanding.models import QueryUnderstanding
 
 
 async def append_query_understanding_record(
     *,
-    context: SearchContext,
+    raw_query: str,
+    normalized_query: str,
+    research_goal: str | None,
     understanding: QueryUnderstanding,
     model_name: str,
     prompt_name: str,
@@ -23,9 +24,9 @@ async def append_query_understanding_record(
     target.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "query": context.raw_query,
-        "normalized_query": context.normalized_query,
-        "research_goal": context.research_goal,
+        "query": raw_query,
+        "normalized_query": normalized_query,
+        "research_goal": research_goal,
         "intent": understanding.intent,
         "confidence": understanding.confidence,
         "should_decompose": understanding.should_decompose,
@@ -42,7 +43,9 @@ async def append_query_understanding_record(
 
 async def append_query_outcome_record(
     *,
-    context: SearchContext,
+    raw_query: str,
+    normalized_query: str,
+    research_goal: str | None,
     understanding: QueryUnderstanding,
     results: list[dict[str, object]],
     path: str,
@@ -52,12 +55,11 @@ async def append_query_outcome_record(
     target.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "query": context.raw_query,
-        "normalized_query": context.normalized_query,
-        "research_goal": context.research_goal,
+        "query": raw_query,
+        "normalized_query": normalized_query,
+        "research_goal": research_goal,
         "intent": understanding.intent,
         "confidence": understanding.confidence,
-        "result_count": len(results),
         "results": results,
         "session_id": session_id,
     }
@@ -66,11 +68,7 @@ async def append_query_outcome_record(
 
 
 async def _append_line(path: Path, line: str) -> None:
-    from asyncio import to_thread
+    import aiofiles
 
-    def _write() -> None:
-        with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(line)
-            handle.write("\n")
-
-    await to_thread(_write)
+    async with aiofiles.open(path, "a", encoding="utf-8") as handle:
+        await handle.write(line + "\n")

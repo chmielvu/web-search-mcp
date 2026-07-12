@@ -1,0 +1,148 @@
+"""Detached background persistence lifecycle for completed searches."""
+from __future__ import annotations
+import asyncio
+import logging
+LOGGER = logging.getLogger(__name__)
+_OUTCOME_TASKS: set[asyncio.Task[None]] = set()
+_EMBEDDING_DIM = 1024
+def _validate_embedding(vec, label):
+    if len(vec) == _EMBEDDING_DIM:
+        return vec
+    LOGGER.warning("Embedding %s dim=%d expected %d", label, len(vec), _EMBEDDING_DIM)
+    return vec
+def _provider_targets_for(name):
+    from .provider_registry import get_provider_definition
+    try:
+        return [t.value for t in get_provider_definition(name).targets]
+    except Exception:
+        return []
+async def persist_search_outcome(run):
+    from ..analytics.async_writes import dispatch_duckdb_write
+    from ..analytics.duckdb_store import (
+        insert_candidate_embeddings, insert_final_results, insert_provider_calls,
+        insert_query_embeddings, insert_rerank_stages, insert_search_branches,
+        insert_search_candidates, insert_search_run)
+    from .diagnostics import build_diagnostics
+    outcome = run.snapshot()
+    total = run.diagnostics.total_latency_ms or 0.0
+    try:
+        d = build_diagnostics(run, total)
+        diag = d.model_dump() if hasattr(d, "model_dump") else {}
+    except Exception:
+        diag = {}
+    r = outcome.response
+    w = outcome.request.options.result_window if r is not None else None
+    rk = outcome.run_key
+    dc = run.diagnostics
+    en = diag.get("enrichment", {})
+    rw = diag.get("rewrite", {})
+    mc = dc.merge_counts or {}
+    writes = []
+    writes.append({"_w": insert_search_run, "run_key": rk, "query": outcome.request.query,
+        "normalized_query": outcome.plan.normalized_query if outcome.plan else "",
+        "research_goal": outcome.request.research_goal, "intent": dc.intent or "",
+        "understanding_confidence": dc.understanding_confidence,
+        "num_results_requested": outcome.request.num_results,
+        "rewrite_enabled": outcome.request.rewrite,
+        "result_offset": outcome.request.options.result_offset,
+        "selected_providers": list(outcome.plan.selected_provider_names) if outcome.plan else [],
+        "skipped_providers": [], "branch_count": len(outcome.outcomes),
+        "provider_count": mc.get("provider_count", 0), "merged_count": mc.get("merged_count", 0),
+        "reranked_count": mc.get("reranked_count", 0),
+        "final_result_count": len(r.results) if r is not None else 0,
+        "candidate_count": w.candidate_count if w is not None else 0,
+        "has_more": w.has_more if w is not None else False, "status": outcome.status,
+        "error_type": outcome.error_summary,
+        "duration_ms": dc.total_latency_ms or sum(outcome.timings.values()),
+        "reranker_provider": outcome.rerank_metadata.get("reranker_provider"),
+        "reranker_model": outcome.rerank_metadata.get("reranker_model"),
+        "rake_terms": en.get("rake_terms", []), "brave_autosuggest": en.get("brave_autosuggest", []),
+        "brave_spellcheck": en.get("brave_spellcheck"), "rewrite_prompt": rw.get("prompt"),
+        "rewrite_model": rw.get("model"), "rewrite_input_tokens": rw.get("input_tokens"),
+        "rewrite_output_tokens": rw.get("output_tokens"), "rewrite_latency_ms": rw.get("latency_ms"),
+        "rewrite_error": rw.get("error"),
+        "payload_json": {"tool_call_id": outcome.tool_call_id, "session_id": outcome.session_id,
+            "phase_timings": dc.phase_timings,
+            "rewritten_branch_queries": [o.branch.query for o in outcome.outcomes]}})
+    for i, ob in enumerate(outcome.outcomes):
+        b = ob.branch
+        ap = [n for n in (outcome.plan.selected_provider_names if outcome.plan else []) if b.target.value in _provider_targets_for(n)] if outcome.plan else []
+        writes.append({"_w": insert_search_branches, "run_key": rk, "branch_index": i,
+            "branch_target": b.target.value, "branch_query": b.query, "branch_why": b.why,
+            "branch_weight": b.weight, "must_keep_terms": list(b.must_keep_terms),
+            "max_results": b.max_results, "assigned_providers": ap,
+            "attempted_providers": list(ob.attempted_provider_names),
+            "skipped_providers": list(ob.skipped_provider_names),
+            "results_count": len(ob.results), "latency_ms": ob.elapsed_seconds * 1000.0,
+            "payload_json": {"cancelled": ob.cancelled}})
+    for br in dc.branch_results:
+        for c in br.get("provider_calls", []):
+            writes.append({"_w": insert_provider_calls, "run_key": rk,
+                "branch_index": br.get("branch_index"), "branch_target": c.get("branch_target"),
+                "provider": c.get("provider"), "branch_query": br.get("branch_query"),
+                "status": c.get("status", "unknown"), "num_results_requested": br.get("max_results"),
+                "num_results_returned": c.get("num_results_returned", 0),
+                "latency_ms": c.get("latency_ms"), "error_type": c.get("error_type"),
+                "error_message": c.get("error_message"), "candidate_urls": c.get("candidate_urls", []),
+                "payload_json": {}})
+    for rank, res in enumerate(dc.merged_candidates, start=1):
+        writes.append({"_w": insert_search_candidates, "run_key": rk, "link": res.link,
+            "title": res.title, "snippet": res.snippet, "domain": res.domain or "",
+            "rrf_score": res.score or 0.0, "provider_count": res.provider_count or 0,
+            "providers": list(res.providers or []), "overlap_flag": (res.provider_count or 0) > 1,
+            "payload_json": {"rank": rank}})
+    if r is not None:
+        for rank, res in enumerate(r.results, start=1):
+            writes.append({"_w": insert_final_results, "run_key": rk, "rank": rank,
+                "title": res.title, "link": res.link, "snippet": res.snippet,
+                "domain": res.domain or "", "final_score": res.score,
+                "providers": list(res.providers or []), "provider_count": res.provider_count or 0,
+                "entities_count": 0, "candidate_id": None, "canonical_result_id": None,
+                "payload_json": {}})
+    if dc.query_embedding is not None:
+        v = _validate_embedding(dc.query_embedding, "query")
+        writes.append({"_w": insert_query_embeddings, "run_key": rk, "embedding": v,
+            "model_id": "intfloat/multilingual-e5-large-instruct", "payload_json": {"dim": len(v)}})
+    for c in dc.candidate_embeddings:
+        v = _validate_embedding(c.get("dense", []), "cand:" + c.get("url", ""))
+        t = (c.get("text") or "").split("\n", 1)[0] if c.get("text") else ""
+        writes.append({"_w": insert_candidate_embeddings, "run_key": rk, "link": c.get("url", ""),
+            "title": t, "embedding": v, "model_id": "intfloat/multilingual-e5-large-instruct",
+            "payload_json": {"dim": len(v), "text_preview": (c.get("text") or "")[:200]}})
+    for s in dc.rerank_stage_summaries:
+        writes.append({"_w": insert_rerank_stages, "run_key": rk, "stage": s.get("stage"),
+            "provider": s.get("provider"), "model": s.get("model"),
+            "input_count": s.get("input_count"), "output_count": s.get("output_count"),
+            "duration_ms": s.get("duration_ms"), "max_score": s.get("max_score"),
+            "avg_score": s.get("avg_score"), "score_threshold": s.get("score_threshold"),
+            "alpha_blend": s.get("alpha_blend"), "input_tokens": s.get("input_tokens"),
+            "output_tokens": s.get("output_tokens"), "status": s.get("status"),
+            "error_type": s.get("error_type"), "instruction_present": s.get("instruction_present"),
+            "instruction_length": s.get("instruction_length"),
+            "query_type_hint": s.get("query_type_hint"),
+            "entity_overlap_enabled": s.get("entity_overlap_enabled"), "payload_json": {}})
+    def _write():
+        for w in writes:
+            fn = w.pop("_w")
+            try:
+                fn(**w)
+            except Exception as e:
+                LOGGER.debug("persist %s failed: %s", fn.__name__, e)
+    dispatch_duckdb_write("search.outcome." + rk, _write)
+def submit_search_outcome(run):
+    task = asyncio.create_task(persist_search_outcome(run), name="search.outcome." + run.run_key)
+    _OUTCOME_TASKS.add(task)
+    task.add_done_callback(_OUTCOME_TASKS.discard)
+    return task
+async def drain_search_outcomes(timeout_seconds=10.0):
+    if not _OUTCOME_TASKS:
+        return
+    tasks = tuple(_OUTCOME_TASKS)
+    try:
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout_seconds)
+    except TimeoutError:
+        unfinished = [t for t in tasks if not t.done()]
+        LOGGER.error("Timed out draining: %s", [t.get_name() for t in unfinished])
+        for t in unfinished:
+            t.cancel()
+        await asyncio.gather(*unfinished, return_exceptions=True)

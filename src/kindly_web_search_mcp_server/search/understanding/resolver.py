@@ -15,14 +15,10 @@ from ...prompts.registry import build_prompt
 from ...training.session_state import get_session_state_store
 from ...training.query_understanding_jsonl import append_query_understanding_record
 from ...utils.observability import emit_observability_event
-from ...analytics.duckdb_store import (
-    insert_query_understanding as analytics_insert_query_understanding,
-)
 from ...ab_testing.wiring import get_ab_overrides
 from ...ab_testing.shadow_runner import run_shadow
 from ..intents import SearchIntent, normalize_intent
 from ..normalize import normalize_query
-from ..context import SearchContext
 from .models import QueryUnderstandingResult
 
 logger = logging.getLogger(__name__)
@@ -99,20 +95,9 @@ async def resolve_query_understanding(
         if settings.query_understanding_jsonl_enabled:
             try:
                 await append_query_understanding_record(
-                    context=SearchContext(
-                        raw_query=query,
-                        normalized_query=normalized_query,
-                        research_goal=research_goal,
-                        session_id=session_id,
-                        intent=understanding.intent,
-                        confidence=understanding.confidence,
-                        should_decompose=False,
-                        rationale="onnx-classifier",
-                        entities=tuple(),
-                        must_keep_terms=tuple(),
-                        num_results=0,
-                        search_options=None,
-                    ),
+                    raw_query=query,
+                    normalized_query=normalized_query,
+                    research_goal=research_goal,
                     understanding=understanding,
                     model_name="tinybert-4l-onnx-int8",
                     prompt_name="onnx-classifier",
@@ -124,27 +109,6 @@ async def resolve_query_understanding(
             except Exception as exc:
                 logger.warning("query understanding JSONL write failed: %s", exc)
 
-        if run_key:
-            try:
-                analytics_insert_query_understanding(
-                    run_key=run_key,
-                    intent=understanding.intent,
-                    confidence=understanding.confidence,
-                    should_decompose=False,
-                    model="tinybert-4l-onnx-int8",
-                    model_used="tinybert-4l-onnx-int8",
-                    provider="onnx",
-                    fallback_used=False,
-                    rationale="onnx-classifier",
-                    entities_count=0,
-                    input_tokens=None,
-                    output_tokens=None,
-                    preserved_terms=[],
-                    time_sensitivity="none",
-                    payload_json={"query": normalized_query},
-                )
-            except Exception as exc:
-                logger.debug("analytics insert_query_understanding failed: %s", exc)
 
         return understanding
 
@@ -325,20 +289,9 @@ async def resolve_query_understanding(
     if settings.query_understanding_jsonl_enabled:
         try:
             await append_query_understanding_record(
-                context=SearchContext(
-                    raw_query=query,
-                    normalized_query=normalized_query,
-                    research_goal=research_goal,
-                    session_id=session_id,
-                    intent=understanding.intent,
-                    confidence=understanding.confidence,
-                    should_decompose=understanding.should_decompose,
-                    rationale=understanding.rationale,
-                    entities=tuple(understanding.entities),
-                    must_keep_terms=tuple(understanding.must_keep_terms),
-                    num_results=0,
-                    search_options=None,
-                ),
+                raw_query=query,
+                normalized_query=normalized_query,
+                research_goal=research_goal,
                 understanding=understanding,
                 model_name=result_model_name,
                 prompt_name="query_understanding",
@@ -350,29 +303,4 @@ async def resolve_query_understanding(
         except Exception as exc:
             logger.warning("query understanding JSONL write failed: %s", exc)
 
-    # Best-effort dual-write to analytics tables
-    if run_key:
-        try:
-            analytics_insert_query_understanding(
-                run_key=run_key,
-                intent=understanding.intent,
-                confidence=understanding.confidence,
-                should_decompose=understanding.should_decompose,
-                model=result_model_name,
-                model_used=result_model_name,
-                provider=result_provider_name,
-                fallback_used=fallback_used,
-                rationale=understanding.rationale,
-                entities_count=len(understanding.entities or []),
-                input_tokens=result_input_tokens,
-                output_tokens=result_output_tokens,
-                preserved_terms=understanding.preserved_terms or [],
-                time_sensitivity=understanding.time_sensitivity,
-                payload_json={
-                    "query": normalized_query,
-                    "rewrite_variant_count": len(understanding.preserved_terms or []),
-                },
-            )
-        except Exception as exc:
-            logger.debug("analytics insert_query_understanding failed: %s", exc)
     return understanding

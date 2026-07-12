@@ -112,6 +112,9 @@ async def spellcheck_brave(
     async def _with_client(client: httpx.AsyncClient) -> str | None:
         response = await client.get(url, params={"q": query}, headers=headers)
         response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            return None
         data = response.json()
         correction = data.get("correction") if isinstance(data, dict) else None
         return correction.strip() if isinstance(correction, str) and correction.strip() else None

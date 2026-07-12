@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Annotated
 
@@ -28,6 +29,7 @@ from .exit_codes import ExitCode
 from .metadata import build_help_payload, cli_brief, cli_version
 from .output import emit_error, emit_json
 from .runtime import set_runtime
+from ..utils.logging import configure_logging
 
 
 app = typer.Typer(
@@ -61,18 +63,30 @@ def global_options(
         str,
         typer.Option("--log-level", envvar="WEB_SEARCH_CLI_LOG_LEVEL"),
     ] = "error",
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", envvar="WEB_SEARCH_CLI_DEBUG"),
+    ] = False,
     non_interactive: Annotated[
         bool,
         typer.Option("--non-interactive", envvar="WEB_SEARCH_CLI_NON_INTERACTIVE"),
     ] = True,
 ) -> None:
     """Native JSON-first CLI for web-search-mcp."""
+    effective_log_level: int | str = log_level
+    if debug:
+        effective_log_level = logging.DEBUG
+    configure_logging(level=effective_log_level)
+
     runtime = set_runtime(
         agent=agent,
         human=human,
         quiet=quiet,
         profile=profile,
-        log_level=log_level,
+        log_level=logging.getLevelName(effective_log_level)
+        if isinstance(effective_log_level, int)
+        else effective_log_level,
+        debug=debug,
         non_interactive=non_interactive,
     )
     ctx.obj = runtime.as_dict()

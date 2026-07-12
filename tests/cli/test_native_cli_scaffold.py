@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from unittest.mock import Mock
 import json
 from unittest.mock import AsyncMock
 from typer.testing import CliRunner
@@ -61,6 +63,19 @@ def test_global_profile_flows_into_json_meta() -> None:
 
     assert payload["meta"]["profile"] == "research"
     assert payload["meta"]["output_mode"] == "agent"
+
+
+def test_debug_enables_debug_logging(monkeypatch) -> None:
+    configure_logging = Mock()
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.cli.app.configure_logging",
+        configure_logging,
+    )
+
+    payload = _payload(runner.invoke(app, ["--debug", "doctor"]))
+
+    configure_logging.assert_called_once_with(level=logging.DEBUG)
+    assert payload["meta"]["debug"] is True
 
 
 def test_version_prints_project_version(capsys) -> None:

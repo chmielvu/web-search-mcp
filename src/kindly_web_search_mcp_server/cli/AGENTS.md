@@ -36,7 +36,9 @@ cli/
 
 - `app.py` wires all commands into a JSON-first CLI.
 - Global runtime flags include `--agent`, `--human`, `--quiet`,
-  `--profile`, `--log-level`, and `--non-interactive`.
+  `--profile`, `--log-level`, `--debug`, and `--non-interactive`.
+- `--debug` sets the CLI application log level to `DEBUG` and emits logs on
+  stderr; structured command output remains on stdout.
 - The CLI is the first-class surface; there is no `mcp2cli` compatibility
   wrapper.
 

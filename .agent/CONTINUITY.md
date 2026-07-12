@@ -1,6 +1,25 @@
+## Observability VSS Uplift — 2026-07-12
+
+- 2026-07-12T20:35Z [USER] Approved `local://observability-vss-uplift-plan.md` (662 lines): clean-cutover observability redesign — 9 DuckDB fact/embedding tables, human-readable views, SearchDiagnostics/DiagnosticsCollector, per-phase diagnostics collection, non-blocking persistence, --diagnostics CLI, OTEL spans, DuckDB vss, 4D LLM-as-judge.
+- 2026-07-12T20:35Z [CODE] Steps 1–2 done: `writers/schema.py` (9 tables + `ensure_vss_extension`), `table_names.py`, `inserts.py`, `core.py`, `views.py` (10 dashboard views). Stripped `observability_schema.py` to `provider_health_transitions` shim. Deleted `base_views.py`, `candidate_views.py`, `candidate_survival_views.py`, `derived_views.py`.
+- 2026-07-12T20:35Z [CODE] Step 3 done: `search/diagnostics.py` (`SearchDiagnostics`, nested models, `build_diagnostics()`, `branch_outcome_preview`); `contracts.py` `DiagnosticsCollector` + `SearchRun.diagnostics` field.
+- 2026-07-12T20:40Z [CODE] Step 4 done: instrumented `planning.py` (enrichment, intent, rewrite metadata, `search.plan` span), `retrieval.py` (per-provider calls with latency/status/URLs on `BranchOutcome.provider_calls`, `search.retrieve` span), `ranking.py` (merge_counts, rerank provider/model, embedding context, `search.rank` span), `service.py` (`total_latency_ms`). All collection is in-memory — no extra awaits on the hot path.
+- 2026-07-12T20:40Z [USER] User requested non-blocking observability: no latency impact. Honored via: (1) `DiagnosticsCollector` writes are in-memory dict/list appends only; (2) `persist_search_outcome` uses `dispatch_duckdb_write` (fire-and-forget executor) not synchronous DuckDB; (3) candidate URLs capped at 32 per provider call; (4) candidate embeddings capped at 40 entries; (5) OTEL spans use `start_as_current_span` (SDK exports in background thread); (6) legacy synchronous `insert_search_run` replaced with dispatched write.
+- 2026-07-12T20:45Z [CODE] Clean-cutover import chain repair: stripped `observability_inserts.py` to `insert_provider_health_transition` only; stripped `observability_tables.py`, `observability_rows.py`, `observability_store.py` to match; removed `insert_web_search_tool_call` + `build_response_result_rows` from `tools/_helpers.py`; removed legacy `insert_merged_candidates` from `merge.py`; removed `insert_query_understanding` calls from `understanding/resolver.py` (data now on `search_runs` columns); added `insert_query_embeddings` + `insert_final_results` + `insert_judge_evaluation` to `duckdb_store` and `writers/__init__` re-exports.
+- 2026-07-12T20:50Z [TOOL] Import smoke: all modified modules import OK. Ruff: all checks pass. `test_server.py` failure is pre-existing (`openinference.instrumentation.langchain` not installed — environment issue, not code).
+- 2026-07-12T20:50Z [DECISIONS] `BranchOutcome.provider_calls` tuple flows through `dispatch_branch` → `retrieve_branches` to avoid parallel writes to `run.diagnostics`. `branch_index` injected in `retrieve_branches` when building `branch_results`, not in `dispatch_branch` signature. `_rewrite_branches` returns `(branches, metadata)` tuple; `plan_search` unpacks and stores metadata on `dc.rewrite_metadata`.
+- 2026-07-12T20:50Z [DISCOVERIES] GitNexus reported `insert_query_understanding` in `writers/core.py` but it was never created in Step 1 — the function existed only in the old `observability_inserts.py`. Understanding data (intent, confidence) is now captured on `search_runs` columns and `run.diagnostics`, making the separate insert redundant.
+- 2026-07-12T21:00Z [CODE] Step 5 done: rewrote `outcomes.py` — `submit_search_outcome` now accepts `SearchRun` (not `SearchOutcome`), builds `build_diagnostics(run, total_latency_ms)` in the background task, writes 7 tables (search_runs, search_branches, provider_calls, search_candidates, final_results, query_embeddings, candidate_embeddings) via a single `dispatch_duckdb_write` (non-blocking). `rerank_stages` and `rerank_candidates` already written by `rerank/reporting.py` + `rerank/observability.py`. Added `merged_candidates` field to `DiagnosticsCollector`; `ranking.py` assigns `dc.merged_candidates = merged` for persistence. `service.py` now passes `run` to `submit_search_outcome` (not `run.snapshot()`). Added `return_run: bool = False` to `execute_web_search` for CLI diagnostics.
+- 2026-07-12T21:05Z [CODE] Steps 6–7 done: `--diagnostics` flag added to `web_cmd`; `fetch_web_search_payload` accepts `diagnostics=True`, calls `execute_web_search(return_run=True)`, appends `_diagnostics` key to output payload. OTEL spans (`search.plan`, `search.retrieve`, `search.rank`) already implemented in Steps 4–5.
+- 2026-07-12T21:05Z [CODE] Step 8 confirmed done (from Step 1): `ensure_vss_extension()` in `schema.py` installs/loads vss, creates HNSW indexes on embedding tables. `settings.vss_enabled` exists. Graceful fallback to brute-force `array_distance()` scans if vss unavailable.
+- 2026-07-12T21:10Z [CODE] Step 9 done (subagent): `search_relevance_judge.py` upgraded from 1D to 4D. `JUDGE_SYSTEM_PROMPT` wired from `judge_prompt.py`. Pydantic models `DimensionScore` + `Judge4DResponse` defined. `SearchRelevanceResult` carries all 4 grades + scores, overall_score, rationale. `evaluate()` uses `complete_json(response_model=Judge4DResponse)`. `judge_runner.py` passes all 5 score columns + 4 grade columns + rationale to `insert_judge_evaluation`. LLM cascade unchanged.
+- 2026-07-12T21:15Z [TOOL] Final verification: all modified files ruff clean. Import smoke passes for all 10 steps. Pre-existing ruff errors in `contracts/base.py` (unused pydantic imports) — not our changes. Pre-existing test failure in `test_server.py` (`openinference.instrumentation.langchain` not installed) — environment issue, not code.
+- 2026-07-12T21:15Z [OUTCOMES] Observability VSS Uplift plan (662 lines, 10 steps) fully implemented. 9 DuckDB fact/embedding tables, 10 dashboard views, `SearchDiagnostics`/`DiagnosticsCollector`, non-blocking pipeline instrumentation, `--diagnostics` CLI flag, OTEL spans, `vss` extension, 4D LLM-as-judge. All observability is non-blocking: in-memory collection on hot path, `dispatch_duckdb_write` for persistence, URL/embedding caps, no extra awaits.
+
+
 # CONTINUITY.md
 
-Canonical session briefing for web-search-mcp. Updated as of 2026-07-10.
+Canonical session briefing for web-search-mcp. Updated as of 2026-07-12.
 
 ## Current State
 
@@ -9,6 +28,26 @@ Canonical session briefing for web-search-mcp. Updated as of 2026-07-10.
 - **Targeted overhaul tests:** 83 passed with repository-local `--basetemp=.pytest-tmp`; 13 third-party async cleanup warnings remained.
 - **Manual smoke:** CLI schema passed; literal and news searches returned results, with pre-existing qdrant/HuggingFace warnings.
 - **Full suite baseline:** not run for this overhaul.
+
+## Provider Fanout / Phoenix Cutover — 2026-07-12
+
+- 2026-07-12T12:12:42+02:00 [USER] Approved `local://provider-fanout-phoenix-plan.md` as the authoritative clean-cutover plan.
+- 2026-07-12T12:12:42+02:00 [CODE] Added strict request/branch/provider contracts, the immutable 19-provider registry, deterministic enrichment and LLM rewrite planning, structured branch retrieval, BM25 scoring, detached outcomes, and one shared `execute_web_search` service used by MCP and CLI.
+- 2026-07-12T12:12:42+02:00 [CODE] Replaced custom Phoenix export initialization with official `phoenix.otel.register`, explicit LiteLLM/LangChain/HTTPX instrumentation, local tunnel defaults, and ordered outcome/HTTP/telemetry shutdown.
+- 2026-07-12T12:12:42+02:00 [TOOL] Focused new behavior suite passed 13 tests; CLI schema and doctor completed; live no-rewrite and rewrite-enabled searches both returned results through the shared service.
+- 2026-07-12T12:12:42+02:00 [DISCOVERIES] `uv sync` is currently blocked because another process holds `.venv/Scripts/web-search-mcp.exe`; `uv lock` and direct dependency installs succeeded. Live searches still emit a pre-existing Hugging Face `AsyncInferenceClient.__del__` warning.
+
+## CLI Debug Logging — 2026-07-10
+
+- 2026-07-10T19:41Z [CODE] Added the global `web-search-cli --debug` flag. It configures the shared logging infrastructure at `DEBUG`, writes application logs to stderr, preserves JSON command output on stdout, and exposes `debug` plus the effective log level in response metadata.
+- 2026-07-10T19:41Z [TOOL] Current CLI smoke checks succeeded: `web-search-cli schema`, `web-search-cli doctor`, and `web-search-cli --debug doctor`; the debug invocation returned `"log_level": "DEBUG"` and `"debug": true`.
+- 2026-07-10T19:41Z [TOOL] Regression verification passed: `python -m pytest tests/cli/test_*.py` reported 27 passed; focused CLI/logging tests reported 19 passed; Ruff format and lint checks on all touched Python paths passed.
+
+## CLI Search Latency Trace — 2026-07-10
+
+- 2026-07-10T22:56+02:00 [TOOL] Read the complete DEBUG CLI trace and queried `duckdb_data/{analytics/search_events,logs/process_logs}.duckdb` for run `b5878b34-d76f-4d13-8781-11347e183d0a`. Persisted source-event timestamps show 39.734s in the search pipeline: 26.273s from query-understanding completion to completed rewrite plan, 9.626s for concurrent branches (slowest `composio_llm_search` 8.108s), and 2.881s for reranking.
+- 2026-07-10T22:56+02:00 [CODE] The last commit newly executes RAKE extraction, Brave Autosuggest, and Brave Spellcheck sequentially before the Cerebras rewrite in `search/pipeline_builders.py`. The trace proves this new pre-rewrite block is the 26.273s segment, but lacks per-step timing, so the relative contribution of RAKE versus the two Brave calls is UNCONFIRMED.
+- 2026-07-10T22:56+02:00 [TOOL] The 142.48s shell wall time included a 77.595s gap after `search.orchestrator.response` and before CLI JSON output. The test had concurrent DuckDB lock failures caused by the temporary server process started during debugging; [INFERENCE] `run_cli_async()` cleanup waited for blocked analytics writes. `cli/runtime.py` had only import-formatting changes in the last commit, so this post-pipeline gap is not attributable to that commit's source changes.
 
 ## MCP Startup Import Repair — 2026-07-10
 
