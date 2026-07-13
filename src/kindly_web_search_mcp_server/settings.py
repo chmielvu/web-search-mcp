@@ -498,7 +498,7 @@ class Settings:
     grafana_cloud_otlp_endpoint: str = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
     # Phoenix (Arize) observability through the local SSH forward.
-    phoenix_project_name: str = os.environ.get("PHOENIX_PROJECT_NAME", "WebSearchMCP")
+    phoenix_project_name: str = os.environ.get("PHOENIX_PROJECT_NAME", "web-search-mcp")
     phoenix_collector_endpoint: str = os.environ.get(
         "PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces"
     )
