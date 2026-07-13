@@ -9,7 +9,6 @@ import typer
 
 from . import bootstrap  # noqa: F401
 from .commands import (
-    agent,
     ai,
     analytics,
     content,
@@ -102,7 +101,6 @@ links.register(app)
 ai.register(app)
 youtube.register(app)
 analytics.register(app)
-agent.register(app)
 experiments.register(app)
 server.register(app)
 sitemap.register(app)

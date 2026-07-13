@@ -5,7 +5,6 @@ PERSISTED_EVENT_PREFIXES = (
     "search.",
     "provider.",
     "tool.",
-    "agentic.",
     "content.",
     "middleware.",
     "session.",

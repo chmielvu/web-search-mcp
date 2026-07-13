@@ -22,7 +22,6 @@ os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 # OTLP endpoint (Grafana Cloud) never blocks MCP startup (~70s hang).
 import logging
 
-from .agent.mcp import register_agentic_web_research_tools
 from .composio_tools import register_composio_tools
 from .settings import settings
 from .telemetry import init_telemetry_background
@@ -101,7 +100,6 @@ from .middleware import create_dynamic_guidance_middleware
 
 mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
-register_agentic_web_research_tools(mcp)
 
 
 _base_list_resources = mcp.list_resources

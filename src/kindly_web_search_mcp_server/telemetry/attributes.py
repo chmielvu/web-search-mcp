@@ -132,11 +132,6 @@ YOUTUBE_DURATION_SECONDS = "youtube.duration_seconds"
 YOUTUBE_BACKEND_USED = "youtube.backend_used"
 YOUTUBE_SEARCH_BACKEND = "youtube.search_backend"
 
-# --- Agentic Performance Attributes ---
-TASK_SUCCESS = "task.success"
-TASK_TURNS_TO_COMPLETION = "task.turns_to_completion"
-SELF_CORRECTION_ATTEMPTS = "self_correction.attempts"
-TOOL_HALLUCINATION = "tool.hallucination_detected"
 
 # --- Span Status Values ---
 STATUS_SUCCESS = "success"
@@ -262,15 +257,11 @@ __all__ = [
     "SEARCH_PROVIDERS_REQUESTED",
     "SEARCH_PROVIDERS_USED",
     "SEARCH_QUERY",
-    "SELF_CORRECTION_ATTEMPTS",
     "SERVER_ADDRESS",
     "SERVER_PORT",
     "STATUS_ERROR",
     "STATUS_SUCCESS",
     "STATUS_TIMEOUT",
-    "TASK_SUCCESS",
-    "TASK_TURNS_TO_COMPLETION",
-    "TOOL_HALLUCINATION",
     "URL_FULL",
     "YOUTUBE_BACKEND_USED",
     "YOUTUBE_DURATION_SECONDS",

@@ -21,7 +21,6 @@ Start with `quick_web_search` for initial topic scoping before deeper research.
 | Find videos | youtube_search | SearXNG YouTube engine |
 | Extract captions | youtube_transcript | Timestamped/text/JSON, translation |
 | Similar pages | composio_similarlinks | Neural similarity from known URL |
-| Multi-step research | agentic_web_research | ReAct agent, experimental |
 
 ## Query
 rewrite=true for normal discovery; rewrite=false for exact literals (errors, URLs, hashes).

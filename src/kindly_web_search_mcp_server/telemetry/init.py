@@ -35,7 +35,6 @@ def init_telemetry(
     if not settings.otel_enabled:
         LOGGER.info("OTEL_ENABLED=false — telemetry initialization skipped")
         return
-    from openinference.instrumentation.langchain import LangChainInstrumentor
     from openinference.instrumentation.litellm import LiteLLMInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from phoenix.otel import register
@@ -49,7 +48,6 @@ def init_telemetry(
         set_global_tracer_provider=True,
     )
     LiteLLMInstrumentor().instrument(tracer_provider=_provider)
-    LangChainInstrumentor().instrument(tracer_provider=_provider)
     HTTPXClientInstrumentor().instrument(
         tracer_provider=_provider,
         async_request_hook=sanitize_httpx_request_span,

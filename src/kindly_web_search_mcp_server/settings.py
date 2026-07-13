@@ -508,76 +508,6 @@ class Settings:
             name="PHOENIX_CLIENT_HEADERS",
         )
     )
-
-    # =====================================================================
-    # Agentic Research (LangChain/LangGraph ReAct module: agentic_web_research)
-    # =====================================================================
-    # Centralized parsing of AGENTIC_RESEARCH_* + NANOGPT_API_KEY.
-    # This replaces the previous direct os.environ reads in agent/config.py
-    # for consistency with OTel, analytics, rate limits, etc.
-    # The agent/ subpackage now delegates to Settings for defaults.
-
-    agentic_research_model: str = os.environ.get(
-        "AGENTIC_RESEARCH_MODEL", "Alibaba-NLP/Tongyi-DeepResearch-30B-A3B"
-    )
-    agentic_research_fallback_models: str = os.environ.get(
-        "AGENTIC_RESEARCH_FALLBACK_MODELS",
-        "minimax/minimax-m3:thinking,mistralai/mistral-small-4-119b-2603:thinking",
-    )
-    agentic_research_gemini_fallback_model: str = os.environ.get(
-        "AGENTIC_RESEARCH_GEMINI_FALLBACK_MODEL", "gemini-3.5-flash"
-    )
-    agentic_research_hf_router_base_url: str = os.environ.get(
-        "AGENTIC_RESEARCH_HF_ROUTER_BASE_URL",
-        "https://router.huggingface.co/v1",
-    )
-    agentic_research_hf_fallback_model: str = os.environ.get(
-        "AGENTIC_RESEARCH_HF_FALLBACK_MODEL",
-        "openai/gpt-oss-120b:novita",
-    )
-    agentic_research_base_url: str = os.environ.get(
-        "AGENTIC_RESEARCH_BASE_URL", "https://nano-gpt.com/api/subscription/v1"
-    )
-    # NANOGPT_API_KEY is the canonical key name used by the default agentic model provider
-    nanogpt_api_key: str = os.environ.get("NANOGPT_API_KEY", "")
-    agentic_research_temperature: float = float(os.environ.get("AGENTIC_RESEARCH_TEMPERATURE", "0"))
-    agentic_research_timeout_seconds: float = float(
-        os.environ.get("AGENTIC_RESEARCH_TIMEOUT_SECONDS", "180")
-    )
-    agentic_research_max_retries: int = int(os.environ.get("AGENTIC_RESEARCH_MAX_RETRIES", "2"))
-
-    # Depth profile controls (quick/normal/deep affect tool budget + timeout)
-    agentic_research_quick_run_limit: int = int(
-        os.environ.get("AGENTIC_RESEARCH_QUICK_RUN_LIMIT", "6")
-    )
-    agentic_research_normal_run_limit: int = int(
-        os.environ.get("AGENTIC_RESEARCH_NORMAL_RUN_LIMIT", "10")
-    )
-    agentic_research_deep_run_limit: int = int(
-        os.environ.get("AGENTIC_RESEARCH_DEEP_RUN_LIMIT", "16")
-    )
-    agentic_research_quick_timeout_seconds: float = float(
-        os.environ.get("AGENTIC_RESEARCH_QUICK_TIMEOUT_SECONDS", "120")
-    )
-    agentic_research_normal_timeout_seconds: float = float(
-        os.environ.get("AGENTIC_RESEARCH_NORMAL_TIMEOUT_SECONDS", "180")
-    )
-    agentic_research_deep_timeout_seconds: float = float(
-        os.environ.get("AGENTIC_RESEARCH_DEEP_TIMEOUT_SECONDS", "300")
-    )
-    agentic_research_default_num_results: int = int(
-        os.environ.get("AGENTIC_RESEARCH_DEFAULT_NUM_RESULTS", "5")
-    )
-
-    # External MCP tools (via langchain-mcp-adapters) for the ReAct agent.
-    # If AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG is set (JSON string or filesystem path
-    # to a servers config), the runner will best-effort load and merge additional tools
-    # (no master enable flag; the presence of a non-empty config enables the attempt).
-    # Example: '{"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]}}'
-    agentic_research_external_mcp_config: str = os.environ.get(
-        "AGENTIC_RESEARCH_EXTERNAL_MCP_CONFIG", ""
-    )
-
     # Prometheus sidecar / Alloy scrape support
     prometheus_enabled: bool = os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
     prometheus_port: int = int(os.environ.get("PROMETHEUS_PORT", "0"))  # 0 = disabled / dynamic
@@ -696,21 +626,6 @@ class Settings:
 
         # Phoenix collector endpoint is optional — when set, OTLP traces go to Phoenix.
 
-        # Agentic research validation (run limits and timeouts must be positive)
-        for name, val in [
-            ("quick_run_limit", self.agentic_research_quick_run_limit),
-            ("normal_run_limit", self.agentic_research_normal_run_limit),
-            ("deep_run_limit", self.agentic_research_deep_run_limit),
-            ("quick_timeout_seconds", self.agentic_research_quick_timeout_seconds),
-            ("normal_timeout_seconds", self.agentic_research_normal_timeout_seconds),
-            ("deep_timeout_seconds", self.agentic_research_deep_timeout_seconds),
-            ("default_num_results", self.agentic_research_default_num_results),
-        ]:
-            if val <= 0:
-                raise ValueError(
-                    f"agentic_research_{name} must be > 0, got {val}. "
-                    f"Check AGENTIC_RESEARCH_* env var."
-                )
         if self.observability_max_items < 1:
             raise ValueError("observability_max_items must be >= 1.")
         from .tools.profiles import normalize_tool_profile

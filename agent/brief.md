@@ -1,1 +1,0 @@
-web-search-cli is the native, JSON-first command-line surface for the Kindly Web Search MCP server. It mirrors the live MCP tool catalog and adds operational commands for schema discovery, readiness checks, skill lookup, reference coverage, analytics, and server startup so agents can discover and use the stack from a shell without relying on the MCP transport.

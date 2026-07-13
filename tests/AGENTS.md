@@ -18,9 +18,10 @@ This directory holds the runtime regression suite for the current tree.
   `test_ai_search_provider_tracing.py`, `test_grafana_dashboard_json.py`
 - Cache and index: `test_cache_*.py`, `test_page_cache_duckdb.py`,
   `test_exact_lru_cache.py`, `test_qdrant_search.py`
-- Agent, CLI, AB testing, and training: `test_agent*.py`,
+- CLI, AB testing, training, and client-steering middleware:
   `tests/cli/test_*.py`, `test_ab_*.py`, `test_training_jsonl.py`,
-  `test_query_understanding*.py`, `test_prompt_registry.py`
+  `test_agent_steering_middleware.py`, `test_query_understanding*.py`,
+  `test_prompt_registry.py`
 - Provider-specific smoke/unit coverage: `test_ddg_unit.py`,
   `test_searxng_unit.py`, `test_tavily_unit.py`, `test_brightdata_provider.py`,
   `test_composio_*.py`, `test_github_*.py`, `test_hackernews_provider.py`

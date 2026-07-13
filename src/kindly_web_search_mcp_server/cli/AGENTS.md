@@ -17,7 +17,6 @@ cli/
 |   |-- ai.py                # AI/search synthesis commands
 |   |-- youtube.py           # YouTube commands
 |   |-- analytics.py         # analytics query/report commands
-|   |-- agent.py             # agent surface commands
 |   |-- experiments.py       # A/B experiment management
 |   |-- server.py            # server/launch helpers
 |   └── sitemap.py           # sitemap command (Tavily Map + legacy fallback)

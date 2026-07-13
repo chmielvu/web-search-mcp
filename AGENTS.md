@@ -2,8 +2,8 @@
 
 Kindly Web Search MCP Server is a FastMCP app plus a native Typer CLI.
 This repo also contains a separate intent-classifier service, analytics
-helpers, an experimental agentic research module, and supporting utility
-packages for caching, reranking, observability, and content extraction.
+helpers, and supporting utility packages for caching, reranking,
+observability, and content extraction.
 
 ## Entry Points
 
@@ -27,8 +27,6 @@ packages for caching, reranking, observability, and content extraction.
   DuckDB for runs, views, quality metrics, reports, and judge evaluation.
 - Caching lives in `src/kindly_web_search_mcp_server/cache/`; exact query
   lookup is in-memory LRU, while page and transcript caches use DuckDB files.
-- Agentic research lives in `src/kindly_web_search_mcp_server/agent/` and is
-  experimental.
 - Tool visibility is controlled by `TOOL_PROFILE`; `TOOL_SEARCH_ENABLED` is
   an opt-in FastMCP search transform.
 - `index/` is a write-only remote Qdrant web-results index, not the primary
@@ -42,7 +40,6 @@ packages for caching, reranking, observability, and content extraction.
 - [content](src/kindly_web_search_mcp_server/content/AGENTS.md)
 - [analytics](src/kindly_web_search_mcp_server/analytics/AGENTS.md)
 - [cli](src/kindly_web_search_mcp_server/cli/AGENTS.md)
-- [agent](src/kindly_web_search_mcp_server/agent/AGENTS.md)
 - [rerank](src/kindly_web_search_mcp_server/rerank/AGENTS.md)
 - [cache](src/kindly_web_search_mcp_server/cache/AGENTS.md)
 - [embeddings](src/kindly_web_search_mcp_server/embeddings/AGENTS.md)
@@ -96,7 +93,7 @@ commands and rules.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (7560 symbols, 12652 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (7492 symbols, 13228 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

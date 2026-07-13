@@ -9,7 +9,6 @@ from .introspection import build_schema_payload, find_command_node
 from .skill_paths import DEV_SKILL_PATH, USER_SKILL_PATH
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_BRIEF_PATH = _REPO_ROOT / "agent" / "brief.md"
 _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
 
 
@@ -30,8 +29,6 @@ def cli_version() -> str:
 
 
 def cli_brief() -> str:
-    if _BRIEF_PATH.exists():
-        return _read_text(_BRIEF_PATH)
     return _first_paragraph(USER_SKILL_PATH)
 
 

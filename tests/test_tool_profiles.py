@@ -42,7 +42,6 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
         assert kwargs["annotations"] == entry.annotations
 
     assert TOOL_CATALOG["grok_search"].expensive is True
-    assert TOOL_CATALOG["agentic_web_research"].experimental is True
     assert TOOL_CATALOG["generate_sitemap"].expensive is True
     assert TOOL_CATALOG["youtube_search"].open_world is True
     assert TOOL_CATALOG["youtube_transcript"].open_world is True
@@ -67,7 +66,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
     assert tools_for_profile("full") == frozenset(
         {
             "academic_search",
-            "agentic_web_research",
             "batch_get_content",
             "composio_similarlinks",
             "discover_links",
@@ -154,9 +152,6 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     def grok_search() -> str:
         return "ok"
 
-    @mcp.tool(**tool_kwargs("agentic_web_research"))
-    def agentic_web_research() -> str:
-        return "ok"
 
     apply_tool_profile(mcp, "regular")
 
@@ -164,4 +159,3 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     assert {"web_search", "quick_web_search"}.issubset(tool_names)
     assert "composio_similarlinks" not in tool_names
     assert "grok_search" not in tool_names
-    assert "agentic_web_research" not in tool_names

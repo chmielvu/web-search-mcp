@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 from .attributes import (
-    ERROR_TYPE,
     GEMINI_GROUNDING_CHUNKS,
     GEMINI_GROUNDING_QUERIES,
     GEMINI_STRUCTURED_OUTPUT,
-    GEN_AI_TOOL_NAME,
     PERPLEXITY_DEPTH,
     PERPLEXITY_MODEL,
     PERPLEXITY_SOURCE_COUNT,
-    PROVIDER_STATUS,
     SEARCH_NUM_RESULTS_RETURNED,
-    STATUS_ERROR,
-    STATUS_SUCCESS,
     YOUTUBE_BACKEND_USED,
     YOUTUBE_DURATION_SECONDS,
     YOUTUBE_FORMAT,
@@ -24,51 +19,9 @@ from .attributes import (
 )
 from .metrics import (
     get_gemini_metrics,
-    get_mcp_metrics,
     get_perplexity_metrics,
     get_youtube_metrics,
 )
-
-
-def record_agentic_research(
-    *,
-    depth: str,
-    model: str,
-    success: bool,
-    sources_count: int = 0,
-    tool_calls_count: int = 0,
-    uncertainties_count: int = 0,
-    duration_seconds: float = 0.0,
-    run_limit: int = 0,
-) -> None:
-    """Record agentic ReAct research invocation (Layer 3 signals).
-
-    Feeds MCP metrics + custom agentic counters/histograms. The structured
-    completion event is emitted by the agent runner so the payload shape can
-    stay canonical (`agentic.research.completed`) while this helper remains
-    metrics-only.
-    """
-    # Reuse mcp counters for the tool itself (agentic_web_research)
-    tool_counter, error_counter = get_mcp_metrics()
-    status = STATUS_SUCCESS if success else STATUS_ERROR
-    tool_counter.add(
-        1,
-        {
-            GEN_AI_TOOL_NAME: "agentic_web_research",
-            PROVIDER_STATUS: status,
-            "agent.depth": depth,
-            "agent.model": model[:100],  # truncate
-        },
-    )
-    if not success:
-        error_counter.add(
-            1,
-            {
-                GEN_AI_TOOL_NAME: "agentic_web_research",
-                ERROR_TYPE: "tool_execution_error",
-            },
-        )
-
 
 def record_gemini_search(
     grounding_queries: int,
@@ -144,7 +97,6 @@ def record_youtube_search(
 
 
 __all__ = [
-    "record_agentic_research",
     "record_gemini_search",
     "record_perplexity_search",
     "record_youtube_search",

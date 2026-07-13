@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 import pytest
 from typer.testing import CliRunner
 
-from kindly_web_search_mcp_server.agent.models import AgenticResearchResult
 from kindly_web_search_mcp_server.cli.app import app, main as cli_main
 
 
@@ -245,28 +244,6 @@ def test_experiments_create_requires_config_when_non_interactive(capsys) -> None
     assert "non-interactive mode" in payload["error"]["message"]
 
 
-def test_agent_research_emits_json_payload(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "kindly_web_search_mcp_server.agent.runner.run_agentic_web_research",
-        AsyncMock(
-            return_value=AgenticResearchResult(
-                query="test",
-                model="mock",
-                answer="final",
-                sources=[],
-            )
-        ),
-    )
-
-    payload = _payload(
-        runner.invoke(
-            app,
-            ["agent", "research", "--query", "test"],
-        )
-    )
-
-    assert payload["meta"]["command"] == "agent research"
-    assert payload["data"]["model"] == "mock"
 
 
 def test_links_similar_and_quick_search_emit_json_payload(monkeypatch) -> None:

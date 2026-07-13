@@ -223,16 +223,3 @@ def test_workflow_prompt_returns_messages() -> None:
     assert result[0].role == "user"
 
 
-def test_agentic_web_research_tool_is_registered_and_docstring_is_research_oriented() -> None:
-    """Ensure the agentic tool is present after server import and its docstring
-    mentions the ReAct research agent (not the legacy pipeline).
-    """
-
-    # The server module triggers register_agentic_web_research_tools on import.
-    # Verify it's registered by checking the source module docstring.
-    from kindly_web_search_mcp_server.agent import mcp as agent_mcp_mod
-
-    src = open(agent_mcp_mod.__file__, encoding="utf-8").read()
-    assert "ReAct agent" in src
-    assert "autonomously" in src.lower() or "autonomous" in src.lower()
-    assert "experimental" in src.lower()

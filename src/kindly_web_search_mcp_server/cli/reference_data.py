@@ -74,12 +74,6 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "required": ["report_name"],
     },
     {
-        "tool": "agentic_web_research",
-        "command": "agent research",
-        "profiles": ["research", "experimental", "full"],
-        "required": ["query"],
-    },
-    {
         "tool": "youtube_search",
         "command": "youtube search",
         "profiles": ["default", "media", "experimental", "full"],
@@ -124,7 +118,6 @@ COMMANDS: tuple[str, ...] = (
     "links similar",
     "ai gemini",
     "ai grok",
-    "agent research",
     "youtube search",
     "youtube transcript",
     "analytics query",

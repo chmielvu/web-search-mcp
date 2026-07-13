@@ -86,13 +86,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     ),
     "academic_search": _entry("academic_search", "Academic Search", {"full"}),
     "composio_similarlinks": _entry("composio_similarlinks", "Composio Similarlinks", {"full"}),
-    "agentic_web_research": _entry(
-        "agentic_web_research",
-        "Agentic Web Research",
-        {"full"},
-        experimental=True,
-        idempotent=False,
-    ),
     "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
     "youtube_transcript": _entry("youtube_transcript", "YouTube Transcript", {"regular", "full"}),
     "generate_sitemap": _entry(
