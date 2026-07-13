@@ -1,11 +1,7 @@
-"""Content extraction using trafilatura with two-pass strategy.
+"""Content extraction using BS4 + markdownify.
 
-Pass 1: precision-focused (clean output, deduplicated).
-Pass 2: recall-focused (fallback for weak/noisy pages).
-
-References:
-  https://trafilatura.readthedocs.io/en/latest/usage-python.html#extraction-settings
-  https://trafilatura.readthedocs.io/en/latest/deduplication.html
+Primary: BS4 + markdownify (fast, no heavy deps).
+Fallback: regex-based HTML→Markdown when BS4 unavailable.
 """
 
 from __future__ import annotations
@@ -13,8 +9,6 @@ from __future__ import annotations
 import html as _html
 import logging
 import re
-
-from trafilatura import extract as _trafilatura_extract  # type: ignore
 
 try:
     from bs4 import BeautifulSoup  # type: ignore
@@ -28,8 +22,7 @@ except Exception:  # pragma: no cover
 
 LOGGER = logging.getLogger(__name__)
 
-# Thresholds for two-pass strategy
-_MIN_OUTPUT_CHARS = 200  # Below this, switch to recall pass
+_MIN_OUTPUT_CHARS = 200
 
 
 def _strip_tags_keep_text(raw_html: str) -> str:
@@ -70,81 +63,29 @@ def _simple_html_to_markdown(raw_html: str) -> str:
 
 
 def _bs4_markdownify_fallback(html: str) -> str:
-    """BS4 + markdownify extraction, used when trafilatura is unavailable."""
+    """BS4 + markdownify extraction."""
     if BeautifulSoup is not None and md is not None:
         soup = BeautifulSoup(html, "html.parser")
         for element in soup(["script", "style", "header", "footer", "nav", "aside"]):
             element.decompose()
-        main_content = soup.find("main") or soup.find("article") or soup.find("body")
-        if main_content:
-            return md(str(main_content), heading_style="ATX", strip=["a", "assets"])
-        return "Could not extract main content."
+        return md(str(soup))
     return _simple_html_to_markdown(html)
 
 
-def _trafilatura_extract_pass(
-    html: str,
-    url: str | None = None,
-    *,
-    precision: bool = False,
-    recall: bool = False,
-) -> str | None:
-    """Single trafilatura pass with configurable precision/recall.
-
-    Args:
-        html: Raw HTML content.
-        url: Page URL for absolute link resolution.
-        precision: If True, favor precision (cleaner output, less noise).
-        recall: If True, favor recall (more content, less strict filtering).
-    """
-    try:
-        text = _trafilatura_extract(
-            html,
-            output_format="markdown",
-            include_comments=False,
-            include_tables=True,
-            include_links=True,
-            deduplicate=True,
-            url=url,
-            favor_precision=precision,
-            favor_recall=recall,
-        )
-        if text:
-            return text
-    except Exception as exc:
-        LOGGER.warning(
-            "Trafilatura %s extraction failed: %s",
-            "precision" if precision else "recall" if recall else "default",
-            exc,
-        )
-    return None
-
-
 def extract_content_as_markdown(html: str, *, url: str | None = None) -> str:
-    """Extract content from HTML using two-pass trafilatura strategy.
+    """Extract content from HTML using BS4 + markdownify.
 
-    Pass 1: precision-focused with deduplication.
-    Pass 2: recall-focused if output is too short or noisy.
-
-    Falls back to BS4/markdownify if trafilatura produces nothing.
+    Falls back to regex-based extraction if BS4/markdownify unavailable.
     """
-    # Pass 1: precision (clean, deduplicated output)
-    result = _trafilatura_extract_pass(html, url=url, precision=True)
-    if result is not None and len(result) >= _MIN_OUTPUT_CHARS:
-        LOGGER.info("Extracted via trafilatura precision pass: %d chars", len(result))
+    result = _bs4_markdownify_fallback(html)
+    if result and len(result) >= _MIN_OUTPUT_CHARS:
+        LOGGER.info("Extracted via BS4+markdownify: %d chars", len(result))
         return result
 
-    # Pass 2: recall (higher coverage, fallback for weak pages)
     LOGGER.info(
-        "Trafilatura precision weak (%s chars), retrying with recall",
+        "BS4+markdownify output short (%s chars), using regex fallback",
         len(result) if result else 0,
     )
-    result = _trafilatura_extract_pass(html, url=url, recall=True)
-    if result is not None:
-        LOGGER.info("Extracted via trafilatura recall pass: %d chars", len(result))
-        return result
-
-    # Fallback: BS4/markdownify
-    fallback = _bs4_markdownify_fallback(html)
-    LOGGER.info("Trafilatura failed, BS4 fallback: %d chars", len(fallback))
+    fallback = _simple_html_to_markdown(html)
+    LOGGER.info("Regex fallback extraction: %d chars", len(fallback))
     return fallback

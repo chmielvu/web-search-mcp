@@ -1,7 +1,7 @@
 """Consolidated fallback content extraction chain.
 
 Used when Crawl4AI remote is unavailable or fails.
-Pipeline: Jina Reader (free, no API key) → trafilatura (offline, pure HTTP).
+Pipeline: Jina Reader (free, no API key) → local extraction.
 
 Both backends are fast (~2-5s) and have no browser dependency.
 """
@@ -51,15 +51,15 @@ async def fallback_fetch_content(
     *,
     options: FetchOptions | None = None,
 ) -> ContentArtifact:
-    """Fallback content extraction: Jina Reader → trafilatura.
+    """Fallback content extraction: Jina Reader → BS4+markdownify.
 
     Used when Crawl4AI remote is unavailable or fails.
 
     Stage 1: Jina Reader — free tier (no API key), returns clean markdown.
     If Jina rate-limited (429) or fails → Stage 2.
 
-    Stage 2: Trafilatura — offline, pure HTTP GET + local extraction.
-    Handles PDFs, metadata, and link extraction from raw HTML.
+    Stage 2: BS4+markdownify — offline, pure HTTP GET + local extraction.
+    Handles metadata and link extraction from raw HTML.
     """
     opts = options or FetchOptions()
     canonical = canonicalize_url(url)
@@ -84,15 +84,15 @@ async def fallback_fetch_content(
                 word_count=len(jina_markdown.split()),
                 quality_score=0.9,
             )
-        # Jina returned content but quality is low — try trafilatura
-        LOGGER.info("Jina Reader quality low (%s), trying trafilatura", cls.reason)
+        # Jina returned content but quality is low — try local extraction
+        LOGGER.info("Jina Reader quality low (%s), trying local extraction", cls.reason)
     except JinaReaderError as exc:
         LOGGER.debug("Jina Reader failed: %s", exc)
     except Exception as exc:
         LOGGER.debug("Jina Reader unexpected error: %s", exc)
 
     # ------------------------------------------------------------------
-    # Stage 2: Trafilatura (offline, pure HTTP)
+    # Stage 2: Local extraction (offline, pure HTTP)
     # ------------------------------------------------------------------
     try:
         fetched = await safe_fetch_url(url)
@@ -165,7 +165,7 @@ async def fallback_fetch_content(
             same_domain_only=False,
         )
 
-    # Trafilatura extraction
+    # Local extraction
     markdown = extract_content_as_markdown(html, url=fetched.fetched_url)
     cls = classify_markdown(markdown)
 
@@ -175,7 +175,7 @@ async def fallback_fetch_content(
         fetched_url=fetched.fetched_url,
         status=cls.status,
         source_type="html",
-        fetch_backend="trafilatura",
+        fetch_backend="local",
         content_type=fetched.content_type,
         markdown=markdown,
         metadata=metadata,

@@ -9,7 +9,7 @@ Content acquisition, extraction, and conversion to LLM-ready Markdown.
 - Tavily Map sitemap discovery first: `tavily_map.py`, `sitemap.py`
 - Crawl4AI remote fallback: `crawl4ai_client.py`, `legacy_sitemap.py`,
   `fetch_pipeline.py`, `batch_orchestrator.py`
-- Fallback last: `fallback.py` (Jina Reader -> trafilatura)
+- Fallback last: `fallback.py` (Jina Reader)
 
 ## Structure
 
@@ -24,7 +24,7 @@ content/
 |-- summary.py               # Gemini-backed URL/context summaries
 |-- summary_backend.py       # Summary backend plumbing
 |-- summary_models.py        # Summary models
-|-- extract.py               # Trafilatura extraction helpers
+|-- extract.py               # HTML extraction helpers
 |-- sanitize.py              # Markdown cleanup
 |-- html_tools.py            # Metadata / link parsing helpers
 |-- crawl4ai_client.py       # Remote Crawl4AI HTTP client
@@ -33,7 +33,7 @@ content/
 |-- batch_orchestrator.py    # Batch fetch orchestration
 |-- sitemap.py               # Tavily-first sitemap orchestration
 |-- legacy_sitemap.py        # Crawl4AI semantic sitemap fallback
-|-- fallback.py              # Jina Reader -> trafilatura fallback chain
+|-- fallback.py              # Jina Reader fallback chain
 |-- stackexchange.py         # StackExchange resolver
 |-- github_issues.py         # GitHub Issues resolver
 |-- github_discussions.py    # GitHub Discussions resolver
@@ -48,7 +48,7 @@ content/
 - `sitemap.py` is the Tavily-first sitemap path and falls back to the legacy
   Crawl4AI semantic sitemap path when Tavily is unavailable or empty.
 - `CRAWL4AI_BASE_URL` enables remote Crawl4AI; otherwise the stack falls back
-  to Jina Reader and then trafilatura.
+  to Jina Reader.
 
 ## Adding a New Specialized Resolver
 

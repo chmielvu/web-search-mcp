@@ -211,6 +211,29 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
         """,
     )
 
+    # Migrate pre-existing tables that lack columns added in the new schema
+    _migrate_rerank_stages(connection)
+
+
+def _migrate_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add columns that exist in the new schema but not in pre-existing tables."""
+    for column, definition in [
+        ("alpha_blend", "DOUBLE"),
+        ("status", "VARCHAR"),
+        ("error_type", "VARCHAR"),
+        ("instruction_present", "BOOLEAN"),
+        ("instruction_length", "INTEGER"),
+        ("query_type_hint", "VARCHAR"),
+        ("entity_overlap_enabled", "BOOLEAN"),
+        ("payload_json", "JSON"),
+    ]:
+        try:
+            connection.execute(
+                f"ALTER TABLE {_RS_TABLE_NAME} ADD COLUMN IF NOT EXISTS {column} {definition}"
+            )
+        except Exception:
+            pass
+
 
 # ---------------------------------------------------------------------------
 # 6. rerank_candidates — one row per candidate per stage (Grain 3)

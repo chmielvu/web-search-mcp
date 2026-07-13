@@ -240,7 +240,7 @@ def get_content_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     if _content_fallback_counter is None:
         _content_fallback_counter = meter.create_counter(
             name="web_search_content_fallback_total",
-            description="Content resolution fallbacks to later stages (trafilatura, jina, browser)",
+            description="Content resolution fallbacks to later stages (bs4_markdownify, jina, browser)",
             unit="1",
         )
 

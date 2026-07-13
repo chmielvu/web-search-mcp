@@ -127,7 +127,7 @@ async def rank_and_finalize(
                     "model": rerank_model,
                     "input_count": len(merged),
                     "output_count": len(ranked_pool),
-                    "duration_ms": dc.phase_timings.get("search.rank"),
+                    "duration_ms": (time.monotonic() - rank_started) * 1000.0,
                 }
             )
         dc.phase_timings["search.rank"] = (time.monotonic() - rank_started) * 1000.0

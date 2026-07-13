@@ -600,7 +600,7 @@ class Settings:
     # =====================================================================
     crawl4ai_base_url: str = os.environ.get("CRAWL4AI_BASE_URL", "")
     # When set (e.g. http://vps-ip:11235), all Crawl4AI calls go remote.
-    # When empty, Crawl4AI is skipped; fallback to Jina Reader → trafilatura.
+    # When empty, Crawl4AI is skipped; fallback to Jina Reader.
 
     crawl4ai_timeout_seconds: float = float(os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120"))
     crawl4ai_max_pages_sitemap: int = int(os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100"))

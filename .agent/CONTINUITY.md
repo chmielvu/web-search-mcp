@@ -1,3 +1,12 @@
+## Latency Fix — 2026-07-13
+
+- 2026-07-13T00:50Z [DISCOVERIES] Root cause of 66s `search.rank` latency: Cerebras API returns 429 with `retry-after: 60` header. OpenAI client (used by LiteLLM) has built-in retry that respects the 60s header, blocking the event loop. LiteLLM's `num_retries=0` and `max_retries=0` kwargs do NOT disable the OpenAI client's internal retry — they only control LiteLLM's own retry layer. DuckDB logs confirmed: `search.rerank.summary` events with 63s durations on multiple runs.
+- 2026-07-13T00:50Z [DISCOVERIES] Second bug: `rerank_stages` DuckDB table schema drift — `inserts.py` `_RERANK_STAGE_COLUMNS` includes `alpha_blend` column but the actual table (created by old schema) lacks it. Every `analytics_insert_rerank_stages` call fails with `BinderError: Table "rerank_stages" does not have a column with name "alpha_blend"`. Caught by try/except but wastes I/O.
+- 2026-07-13T00:50Z [CODE] Fix 1: `llm/router.py` — wrapped `acompletion()` call with `asyncio.wait_for(timeout=effective_timeout + 5.0)` so the 60s Cerebras retry sleep is cancelled after the endpoint timeout. Router falls through to next provider (Groq) via the sequential ladder. Rerank latency dropped from 65s to 17s.
+- 2026-07-13T00:50Z [CODE] Fix 2: `analytics/writers/schema.py` — added `_migrate_rerank_stages()` that runs `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for each new column. Called after `_ensure_rerank_stages()` in `ensure_store_schema()`.
+- 2026-07-13T00:50Z [CODE] Trafilatura removed completely: `pyproject.toml` dep removed, `content/extract.py` rewritten to use BS4+markdownify, all references cleaned. `uv sync` uninstalled trafilatura + 9 transitive deps. Server startup dropped from 37s to 17s.
+- 2026-07-13T00:50Z [TOOL] Verification: rerank 17.3s (was 65s), `provider: "groq"` (fell through from Cerebras 429), `alpha_blend` column present in DuckDB, ruff clean, all imports OK.
+
 ## Observability VSS Uplift — 2026-07-12
 
 - 2026-07-12T20:35Z [USER] Approved `local://observability-vss-uplift-plan.md` (662 lines): clean-cutover observability redesign — 9 DuckDB fact/embedding tables, human-readable views, SearchDiagnostics/DiagnosticsCollector, per-phase diagnostics collection, non-blocking persistence, --diagnostics CLI, OTEL spans, DuckDB vss, 4D LLM-as-judge.

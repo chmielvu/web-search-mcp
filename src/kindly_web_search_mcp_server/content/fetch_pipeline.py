@@ -1,7 +1,7 @@
 """Content fetch pipeline — two-tier architecture.
 
 Tier 1: Specialized resolvers (StackExchange, GitHub, Wikipedia, arXiv).
-Tier 2: Crawl4AI remote (primary) → fallback.py (Jina Reader → trafilatura).
+Tier 2: Crawl4AI remote (primary) → fallback.py (Jina Reader).
 """
 
 from __future__ import annotations
@@ -290,7 +290,7 @@ async def fetch_content_artifact(
     Tier 2 — Generic extraction (any URL):
       6. Crawl4AI remote: /crawl → fit_markdown + html + links
          Falls back to Stage 7 if VPS unreachable or fails.
-      7. fallback.py: Jina Reader (free) → trafilatura (offline)
+      7. fallback.py: Jina Reader (free)
     """
     with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
         span.set_attribute("content.url", url)
@@ -442,7 +442,7 @@ async def fetch_content_artifact(
             record_content_error(stage="crawl4ai_remote", url=url, error_type="crawl4ai_failed")
             # fall through to fallback
 
-    # Stage 7: Fallback — Jina Reader → trafilatura
+    # Stage 7: Fallback — Jina Reader
     artifact = await fallback_fetch_content(url, options=options)
 
     # Entity extraction hook: after clean markdown, before return to caller.

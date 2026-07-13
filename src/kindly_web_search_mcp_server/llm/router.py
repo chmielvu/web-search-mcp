@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from dataclasses import dataclass
 from typing import Any
@@ -59,6 +60,7 @@ class LLMRouter:
                     "api_key": endpoint.api_key,
                     "timeout": timeout_seconds or endpoint.timeout_seconds,
                     "no-log": True,
+                    "num_retries": 0,
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format
@@ -74,8 +76,12 @@ class LLMRouter:
                     "vercel",
                 }:
                     request_kwargs["reasoning_effort"] = reasoning_effort
+                effective_timeout = timeout_seconds or endpoint.timeout_seconds
                 with openinference_context_scope(langfuse):
-                    response = await acompletion(**request_kwargs)
+                    response = await asyncio.wait_for(
+                        acompletion(**request_kwargs),
+                        timeout=effective_timeout + 5.0,
+                    )
                 message = response.choices[0].message
                 content = message.content or ""  # type: ignore[union-attr]
                 annotations = tuple(getattr(message, "annotations", None) or ())
@@ -98,6 +104,23 @@ class LLMRouter:
             + "; ".join(f"{type(error).__name__}: {error}" for error in errors)
         )
 
+    async def complete_text_messages(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        timeout_seconds: float | None = None,
+        reasoning_effort: str | None = None,
+        langfuse: LLMTraceContext | None = None,
+    ) -> LLMGeneration:
+        return await self._complete(
+            messages=messages,
+            temperature=temperature,
+            timeout_seconds=timeout_seconds,
+            reasoning_effort=reasoning_effort,
+            langfuse=langfuse,
+        )
+
     async def complete_json(
         self,
         *,
@@ -107,9 +130,6 @@ class LLMRouter:
         response_model: type[Any] | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
-        tools: list[dict[str, Any]] | None = None,
-        web_search_options: dict[str, Any] | None = None,
-        provider_fields: dict[str, Any] | None = None,
     ) -> LLMGeneration:
         return await self._complete(
             messages=messages,
@@ -118,9 +138,6 @@ class LLMRouter:
             response_format=response_model or {"type": "json_object"},
             reasoning_effort=reasoning_effort,
             langfuse=langfuse,
-            tools=tools,
-            web_search_options=web_search_options,
-            provider_fields=provider_fields,
         )
 
     async def complete_text(
@@ -139,7 +156,6 @@ class LLMRouter:
             messages=messages,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
-            response_format=None,
             reasoning_effort=reasoning_effort,
             langfuse=langfuse,
             tools=tools,
@@ -149,9 +165,8 @@ class LLMRouter:
 
 
 def build_classifier_router() -> LLMRouter:
-    """Classifier prefers Groq GPT-OSS 20B, then falls back to Vercel GPT-OSS."""
     return LLMRouter(
-        (
+        endpoints=(
             build_classifier_endpoint(),
             build_vercel_gpt_oss_endpoint(timeout_seconds=20.0),
         )
@@ -159,5 +174,5 @@ def build_classifier_router() -> LLMRouter:
 
 
 def build_worker_router() -> LLMRouter:
-    """Worker ladder: Cerebras GPT-OSS 120B → Groq GPT-OSS 120B → Vercel Groq GPT-OSS-20B."""
+    """Worker ladder: Cerebras GPT-OSS 120B -> Groq GPT-OSS 120B -> Vercel Groq GPT-OSS-20B."""
     return LLMRouter(build_worker_endpoints())

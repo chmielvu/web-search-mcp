@@ -15,7 +15,6 @@ dependencies = [
     "beautifulsoup4",
     "composio",
     "markdownify",
-    "trafilatura",
     "html2text>=2024.2.26",
     "crawl4ai>=0.8.0",
     "PyMuPDF",
