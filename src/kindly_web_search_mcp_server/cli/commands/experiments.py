@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -10,10 +10,21 @@ from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..runtime import get_runtime
-from ...ab_testing.models import ABExperiment, ABVariant
-from ...ab_testing.yaml_loader import load_experiments, save_experiments
-from ...settings import settings
-from ...utils.paths import DEFAULT_EXPERIMENTS_YAML
+
+if TYPE_CHECKING:
+    from ...ab_testing.models import ABExperiment
+
+
+def _load_experiments(config_path: Path) -> list[ABExperiment]:
+    from ...ab_testing.yaml_loader import load_experiments
+
+    return load_experiments(config_path)
+
+
+def _save_experiments(experiments: list[ABExperiment], config_path: Path) -> None:
+    from ...ab_testing.yaml_loader import save_experiments
+
+    save_experiments(experiments, config_path)
 
 
 experiments_app = typer.Typer(no_args_is_help=True)
@@ -21,6 +32,9 @@ experiments_app = typer.Typer(no_args_is_help=True)
 
 def _resolve_config_path() -> Path:
     """Resolve the A/B config path from settings or default."""
+    from ...settings import settings
+    from ...utils.paths import DEFAULT_EXPERIMENTS_YAML
+
     raw = settings.ab_config_path
     if raw:
         return Path(raw)
@@ -45,7 +59,7 @@ def list_cmd() -> None:
     """List all experiments from the A/B config YAML."""
     config_path = _resolve_config_path()
     try:
-        experiments = load_experiments(config_path)
+        experiments = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -78,7 +92,7 @@ def enable_cmd(
     """Set an experiment status to 'running' and save."""
     config_path = _resolve_config_path()
     try:
-        experiments = load_experiments(config_path)
+        experiments = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -110,7 +124,7 @@ def enable_cmd(
 
     exp.status = "running"
     try:
-        save_experiments(experiments, config_path)
+        _save_experiments(experiments, config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -137,7 +151,7 @@ def disable_cmd(
     """Set an experiment status to 'paused' and save."""
     config_path = _resolve_config_path()
     try:
-        experiments = load_experiments(config_path)
+        experiments = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -169,7 +183,7 @@ def disable_cmd(
 
     exp.status = "paused"
     try:
-        save_experiments(experiments, config_path)
+        _save_experiments(experiments, config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -197,7 +211,7 @@ def conclude_cmd(
     """Set an experiment status to 'concluded' with a winning variant."""
     config_path = _resolve_config_path()
     try:
-        experiments = load_experiments(config_path)
+        experiments = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -241,7 +255,7 @@ def conclude_cmd(
     exp.status = "concluded"
     exp.winning_variant = winner
     try:
-        save_experiments(experiments, config_path)
+        _save_experiments(experiments, config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -272,7 +286,7 @@ def stats_cmd(
     """Show basic stats for an experiment."""
     config_path = _resolve_config_path()
     try:
-        experiments = load_experiments(config_path)
+        experiments = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -318,6 +332,8 @@ def create_cmd(
     ] = None,
 ) -> None:
     """Scaffold a new experiment interactively or from a JSON config."""
+    from ...ab_testing.models import ABExperiment, ABVariant
+
     config_path = _resolve_config_path()
     runtime = get_runtime()
 
@@ -408,7 +424,7 @@ def create_cmd(
         )
 
     try:
-        existing = load_experiments(config_path)
+        existing = _load_experiments(config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -434,7 +450,7 @@ def create_cmd(
 
     existing.append(exp)
     try:
-        save_experiments(existing, config_path)
+        _save_experiments(existing, config_path)
     except Exception as exc:
         raise CliError(
             kind="tool_error",

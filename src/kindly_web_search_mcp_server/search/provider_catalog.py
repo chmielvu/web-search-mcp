@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import Field
 
+from ..settings import settings
 from .contracts import ContractModel, ProviderGroup
 
 
@@ -34,6 +35,19 @@ def _definition(
         default_timeout_seconds=timeout,
         requires_embedding=requires_embedding,
     )
+
+
+def brightdata_provider_call_timeout_seconds() -> float:
+    """Budget for ``retrieval._call_provider`` around Bright Data adapters.
+
+    Must cover ``run_provider`` (up to 3 attempts with 1s/2s transient backoff)
+    and the larger of Google/Yandex vs Bing HTTP read timeouts.
+    """
+    per_attempt = max(
+        settings.brightdata_google_timeout_seconds,
+        settings.brightdata_bing_timeout_seconds,
+    )
+    return per_attempt * 3.0 + 3.0
 
 
 PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
@@ -93,18 +107,21 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         ProviderGroup.PAID_SERP,
         "Bright Data Google",
         all_of=("BRIGHTDATA_API_KEY",),
+        timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "brightdata_bing",
         ProviderGroup.PAID_SERP,
         "Bright Data Bing",
         all_of=("BRIGHTDATA_API_KEY",),
+        timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "brightdata_yandex",
         ProviderGroup.PAID_SERP,
         "Bright Data Yandex",
         all_of=("BRIGHTDATA_API_KEY",),
+        timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "tavily",

@@ -106,8 +106,6 @@ def configure_structlog(json_output: bool = True) -> None:
         "httpcore",
         "urllib3",
         "asyncio",
-        "LiteLLM",
-        "litellm",
         "primp",
     )
     for name in noisy_loggers:

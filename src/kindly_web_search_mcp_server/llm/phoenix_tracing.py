@@ -1,6 +1,6 @@
-"""Phoenix/OpenInference helpers for LiteLLM-backed model calls.
+"""Phoenix/OpenInference helpers for OpenAI-compatible model calls.
 
-The LiteLLM instrumentor creates the actual LLM span. This module only
+The OpenAI instrumentor creates the actual LLM span. This module only
 propagates OpenInference context attributes and builds attribute payloads that
 match Phoenix/OpenInference conventions.
 """
@@ -60,7 +60,7 @@ class LLMTraceContext:
     """Context propagated into OTel spans for LLM calls.
 
     Unlike the old LangfuseTraceContext, this does NOT require passing
-    credentials or metadata through LiteLLM kwargs. Instead, it sets
+    credentials or metadata through model-provider kwargs. Instead, it sets
     OTel span attributes on the current span.
     """
 

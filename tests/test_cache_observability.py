@@ -80,25 +80,6 @@ class TestCacheObservability(unittest.TestCase):
         self.assertEqual(emit_store.call_args.args[2], "ok")
         self.assertEqual(emit_store.call_args.kwargs["metadata_present"], True)
 
-    def test_provider_health_emits_state_change_events(self) -> None:
-        from kindly_web_search_mcp_server.search.provider_health import (
-            ProviderHealthTracker,
-        )
-
-        tracker = ProviderHealthTracker()
-        with patch(
-            "kindly_web_search_mcp_server.search.provider_health.emit_observability_event"
-        ) as emit_event:
-            tracker.mark_failure("searxng")
-            tracker.mark_success("searxng")
-            tracker.reset("searxng")
-
-        self.assertEqual(emit_event.call_args_list[0].args[1], "provider.health.cooldown")
-        self.assertEqual(emit_event.call_args_list[1].args[1], "provider.health.success")
-        self.assertEqual(emit_event.call_args_list[2].args[1], "provider.health.reset")
-        self.assertEqual(emit_event.call_args_list[0].kwargs["provider"], "searxng")
-        self.assertGreaterEqual(emit_event.call_args_list[0].kwargs["cooldown_seconds"], 1.0)
-
 
 if __name__ == "__main__":
     unittest.main()

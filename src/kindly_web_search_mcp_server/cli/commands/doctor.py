@@ -29,7 +29,7 @@ def register(app: typer.Typer) -> None:
             {"name": "duckdb_cli", "ok": shutil.which("duckdb") is not None, "required": False},
             {
                 "name": "phoenix_instrumentor",
-                "ok": _safe_find_spec("openinference.instrumentation.litellm") is not None,
+                "ok": _safe_find_spec("openinference.instrumentation.openai") is not None,
                 "required": False,
             },
             {"name": "repo_root", "ok": REPO_ROOT.exists(), "path": str(REPO_ROOT)},

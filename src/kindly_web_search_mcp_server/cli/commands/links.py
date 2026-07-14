@@ -8,10 +8,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.link_tools import (
-    fetch_discover_links_payload,
-    fetch_similar_links_payload,
-)
 from ..runtime import run_cli_async
 
 
@@ -35,6 +31,8 @@ def discover_cmd(
         typer.Option("--strip-selectors"),
     ] = None,
 ) -> None:
+    from ..services.link_tools import fetch_discover_links_payload
+
     try:
         payload = run_cli_async(
             fetch_discover_links_payload(
@@ -73,6 +71,8 @@ def similar_cmd(
     include_domain: Annotated[list[str] | None, typer.Option("--include-domain")] = None,
     exclude_domain: Annotated[list[str] | None, typer.Option("--exclude-domain")] = None,
 ) -> None:
+    from ..services.link_tools import fetch_similar_links_payload
+
     try:
         payload = run_cli_async(
             fetch_similar_links_payload(

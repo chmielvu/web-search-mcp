@@ -25,6 +25,8 @@ class DiagnosticsEnrichment(_DiagBase):
     intent: str | None = None
     understanding_confidence: float | None = None
     policy_version: str | None = None
+    retrieve_budget_seconds: float | None = None
+    retrieve_budget_exceeded: bool | None = None
 
 
 class DiagnosticsRewrite(_DiagBase):
@@ -131,22 +133,32 @@ def _enrichment_from_run(run: SearchRun, dc: DiagnosticsCollector) -> Diagnostic
     return DiagnosticsEnrichment(
         rake_terms=_coerce_str_tuple(raw.get("rake_terms")),
         brave_autosuggest=_coerce_str_tuple(raw.get("brave_autosuggest")),
-        brave_spellcheck=raw.get("brave_spellcheck") if isinstance(raw.get("brave_spellcheck"), str) else None,
+        brave_spellcheck=raw.get("brave_spellcheck")
+        if isinstance(raw.get("brave_spellcheck"), str)
+        else None,
         intent=intent,
         understanding_confidence=confidence,
         policy_version=plan.policy_version if plan is not None else None,
+        retrieve_budget_seconds=raw.get("retrieve_budget_seconds"),
+        retrieve_budget_exceeded=raw.get("retrieve_budget_exceeded"),
     )
 
 
-def _rewrite_from_collector(dc: DiagnosticsCollector, *, rewrite_enabled: bool) -> DiagnosticsRewrite:
+def _rewrite_from_collector(
+    dc: DiagnosticsCollector, *, rewrite_enabled: bool
+) -> DiagnosticsRewrite:
     raw = dc.rewrite_metadata if isinstance(dc.rewrite_metadata, dict) else {}
     return DiagnosticsRewrite(
         enabled=rewrite_enabled,
         model=raw.get("model") if isinstance(raw.get("model"), str) else None,
         prompt=raw.get("prompt") if isinstance(raw.get("prompt"), str) else None,
         input_tokens=raw.get("input_tokens") if isinstance(raw.get("input_tokens"), int) else None,
-        output_tokens=raw.get("output_tokens") if isinstance(raw.get("output_tokens"), int) else None,
-        latency_ms=raw.get("latency_ms") if isinstance(raw.get("latency_ms"), (int, float)) else None,
+        output_tokens=raw.get("output_tokens")
+        if isinstance(raw.get("output_tokens"), int)
+        else None,
+        latency_ms=raw.get("latency_ms")
+        if isinstance(raw.get("latency_ms"), (int, float))
+        else None,
         error=raw.get("error") if isinstance(raw.get("error"), str) else None,
         branch_count=raw.get("branch_count") if isinstance(raw.get("branch_count"), int) else None,
     )
@@ -170,7 +182,9 @@ def _provider_call_from_dict(row: dict[str, Any]) -> DiagnosticsProviderCall | N
         else None,
         latency_ms=float(latency) if isinstance(latency, (int, float)) else None,
         error_type=row.get("error_type") if isinstance(row.get("error_type"), str) else None,
-        error_message=row.get("error_message") if isinstance(row.get("error_message"), str) else None,
+        error_message=row.get("error_message")
+        if isinstance(row.get("error_message"), str)
+        else None,
         candidate_urls=url_tuple,
     )
 
@@ -274,13 +288,23 @@ def _rerank_stages(dc: DiagnosticsCollector) -> tuple[DiagnosticsRerankStage, ..
                 stage=stage,
                 provider=row.get("provider") if isinstance(row.get("provider"), str) else None,
                 model=row.get("model") if isinstance(row.get("model"), str) else None,
-                input_count=row.get("input_count") if isinstance(row.get("input_count"), int) else None,
-                output_count=row.get("output_count") if isinstance(row.get("output_count"), int) else None,
+                input_count=row.get("input_count")
+                if isinstance(row.get("input_count"), int)
+                else None,
+                output_count=row.get("output_count")
+                if isinstance(row.get("output_count"), int)
+                else None,
                 duration_ms=float(duration) if isinstance(duration, (int, float)) else None,
-                max_score=row.get("max_score") if isinstance(row.get("max_score"), (int, float)) else None,
-                avg_score=row.get("avg_score") if isinstance(row.get("avg_score"), (int, float)) else None,
+                max_score=row.get("max_score")
+                if isinstance(row.get("max_score"), (int, float))
+                else None,
+                avg_score=row.get("avg_score")
+                if isinstance(row.get("avg_score"), (int, float))
+                else None,
                 status=row.get("status") if isinstance(row.get("status"), str) else None,
-                error_type=row.get("error_type") if isinstance(row.get("error_type"), str) else None,
+                error_type=row.get("error_type")
+                if isinstance(row.get("error_type"), str)
+                else None,
             )
         )
     return tuple(stages)
@@ -298,8 +322,10 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
     """Project a completed or in-flight ``SearchRun`` into an immutable diagnostics payload."""
     dc = run.diagnostics
     plan = run.plan
-    timings = tuple(sorted(dc.phase_timings.items())) if dc.phase_timings else tuple(
-        sorted(run.timings.items())
+    timings = (
+        tuple(sorted(dc.phase_timings.items()))
+        if dc.phase_timings
+        else tuple(sorted(run.timings.items()))
     )
     selected: tuple[str, ...] = ()
     if plan is not None:
@@ -318,7 +344,9 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
     return SearchDiagnostics(
         run_key=run.run_key,
         query=run.request.query,
-        total_latency_ms=float(dc.total_latency_ms if dc.total_latency_ms is not None else total_latency_ms),
+        total_latency_ms=float(
+            dc.total_latency_ms if dc.total_latency_ms is not None else total_latency_ms
+        ),
         enrichment=_enrichment_from_run(run, dc),
         rewrite=_rewrite_from_collector(dc, rewrite_enabled=run.request.rewrite),
         branches=_branches_from_run(run, dc),

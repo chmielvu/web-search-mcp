@@ -8,8 +8,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.content_batch import fetch_batch_content_payload
-from ..services.content import fetch_content_payload
 from ..runtime import run_cli_async
 
 
@@ -44,6 +42,8 @@ def get_cmd(
     ] = None,
 ) -> None:
     """Fetch one known URL with bounded windowing."""
+    from ..services.content import fetch_content_payload
+
     try:
         payload = run_cli_async(
             fetch_content_payload(
@@ -117,6 +117,8 @@ def batch_cmd(
     Optional summary_mode=brief|detailed adds a Gemini summary to each returned item.
     Use focus_query to bias summaries toward a topic, term, or comparison.
     """
+    from ..services.content_batch import fetch_batch_content_payload
+
     try:
         payload = run_cli_async(
             fetch_batch_content_payload(

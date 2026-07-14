@@ -177,7 +177,13 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 brave_fallback = _keyword_query(sugg, terms)
                 break
 
-        fallback = (brave_fallback, keyword_query, keyword_query, normalized_query, normalized_query)
+        fallback = (
+            brave_fallback,
+            keyword_query,
+            keyword_query,
+            normalized_query,
+            normalized_query,
+        )
 
         # --- resolve query texts ---
         if request.rewrite:
@@ -199,7 +205,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                     normalize_query(rewrite.specialized),
                 )
             except Exception as exc:
-                LOGGER.warning("Query rewrite failed; using deterministic fallback: %s", type(exc).__name__)
+                LOGGER.warning(
+                    "Query rewrite failed; using deterministic fallback: %s", type(exc).__name__
+                )
                 dc.rewrite_metadata = {"error": type(exc).__name__, "branch_count": 6}
                 queries = fallback
         else:
@@ -220,7 +228,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_BRAVE,
                 query=queries[0],
                 provider_names=paid_brave,
-                why="LLM paid_brave" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic Brave query",
+                why="LLM paid_brave"
+                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+                else "deterministic Brave query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -228,7 +238,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_GOOGLE,
                 query=queries[1],
                 provider_names=paid_google,
-                why="LLM paid_google" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic Google query",
+                why="LLM paid_google"
+                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+                else "deterministic Google query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -236,7 +248,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_OTHER,
                 query=queries[2],
                 provider_names=paid_other,
-                why="LLM paid_other" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic paid-other query",
+                why="LLM paid_other"
+                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+                else "deterministic paid-other query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -244,7 +258,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.NEURAL,
                 query=queries[3],
                 provider_names=neural,
-                why="LLM neural" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic neural query",
+                why="LLM neural"
+                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+                else "deterministic neural query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -252,7 +268,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.SPECIALIZED,
                 query=queries[4],
                 provider_names=specialized,
-                why="LLM specialized" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic specialized query",
+                why="LLM specialized"
+                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+                else "deterministic specialized query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -270,7 +288,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "language": str(brightdata_base.get("language", "en")),
             "yandex_region": "84",
             "search_type": "web",
-            "use_bing": False,
         }
         provider_arguments["brightdata_bing"] = {
             **brightdata_base,
@@ -278,7 +295,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "country": str(brightdata_base.get("country", "us")),
             "language": str(brightdata_base.get("language", "en")),
             "search_type": "web",
-            "use_bing": False,
         }
         provider_arguments["serpapi"] = {
             **provider_arguments.get("serpapi", {}),

@@ -27,7 +27,7 @@ dependencies = [
     "google-genai>=0.3.0",
     "python-dotenv>=1.0.0",
     "mistralai>=1.8.0",
-    "litellm>=1.60.0",  # Multi-provider router for query rewrite load distribution
+    "openai>=2.36.0",
     "pybreaker>=1.4.1",
     "huggingface-hub>=0.28.0",
     "youtube-transcript-api>=0.6.0",
@@ -46,7 +46,7 @@ dependencies = [
     "opentelemetry-instrumentation-logging>=0.40b0",
     "prometheus-client>=0.20.0",
     "structlog>=24.0.0",
-    "openinference-instrumentation-litellm",
+    "openinference-instrumentation-openai",
     "arize-phoenix-otel",
     "arize-phoenix",
     "prefab-ui>=0.20.2",

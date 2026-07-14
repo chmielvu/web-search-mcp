@@ -1,3 +1,22 @@
+## Query Embedding Propagation Fix — 2026-07-14
+- 2026-07-14 [CODE] Fixed query embedding dropout in `ranking.py:95`: added `dc.query_embedding = list(ctx.query_embedding)` inside the `if ctx is not None:` block, immediately after the candidate embedding comprehension. The bi-encoder already produces the 1024-dim vector; the collector and persistence layer already accept it.
+- 2026-07-14 [CODE] Added regression test `tests/test_query_embedding_propagation.py` with three test functions: (1) `test_rank_and_finalize_propagates_query_embedding_when_context_is_not_none` — collector state after `rank_and_finalize`; (2) `test_build_diagnostics_reports_query_embedding_dim_from_rerank_context` — `build_diagnostics` projection; (3) `test_persist_search_outcome_writes_query_embedding_row_when_context_is_not_none` — DuckDB write dispatcher via patched `analytics.duckdb_store.insert_query_embeddings` and `analytics.async_writes.dispatch_duckdb_write`.
+- 2026-07-14 [TOOL] Verification: `ruff check` zero findings on `ranking.py` and `test_query_embedding_propagation.py`; `ruff format` applied; `pytest --basetemp=.pytest-tmp tests/test_query_embedding_propagation.py -v` — 3/3 pass.
+## Retrieve Budget and Provider Health Removal — 2026-07-14
+
+- 2026-07-14T10:08Z [DECISIONS] Runtime provider health/cooldown state is removed. Planning selects configured/reachable providers, and retrieval attempts every provider on every planned branch without consulting prior request outcomes.
+- 2026-07-14T10:08Z [DECISIONS] The complete provider fan-out has one phase-level retrieve budget: `SEARCH_RETRIEVE_BUDGET_SECONDS`, default 30 seconds. Completed work continues to ranking; pending tasks are cancelled, drained, and recorded as `incomplete` / `retrieve_budget`.
+- 2026-07-14T10:08Z [TOOL] Five-second live proof: `search.retrieve` completed in 5.027s with `retrieve_budget_exceeded=true`; completed providers contributed 15 final results and seven pending calls were recorded as `incomplete` / `retrieve_budget`.
+- 2026-07-14T10:08Z [TOOL] Default-budget live proof: `search.retrieve` completed in 20.789s with `retrieve_budget_exceeded=false`; provider timeouts/errors remained ordinary `error` outcomes. Normal CLI wall time was 66.35s. DEBUG proof was 119.47s wall / 65.77s pipeline because `search.rank` expanded to 40.26s after a Hugging Face embedding timeout; the retrieve change reduces retrieval tail latency but does not by itself guarantee lower total CLI latency.
+
+## Direct OpenAI Client Migration - 2026-07-14
+
+- 2026-07-14 [CODE] Added Hugging Face Inference Providers/Nscale as the third worker: Cerebras -> Groq -> `openai/gpt-oss-120b:nscale` -> Vercel. The synchronous `InferenceClient` call runs off the event loop and remains bounded by the router timeout.
+- 2026-07-14 [CODE] Removed the runtime LiteLLM dependency and migrated the remaining offline judge call to `openai.OpenAI` using the configured OpenAI-compatible endpoint.
+- 2026-07-14 [CODE] OpenAI-compatible clients use explicit endpoint timeouts and `max_retries=0`; provider fallback remains in the orchestration router, preventing SDK retries from honoring a 60-second `Retry-After` inside a single attempt.
+- 2026-07-14 [CODE] Replaced LiteLLM OpenInference instrumentation and doctor checks with the OpenAI instrumentor. `uv lock --offline` removed `openinference-instrumentation-litellm`.
+- 2026-07-14 [NOTE] LiteLLM remains only as an optional transitive dependency of `mcpevals -> dspy`; removing it completely from the lock would require removing or replacing the existing eval extra.
+
 ## Fixed Six-Branch Provider Debugging — 2026-07-14
 
 - 2026-07-14T02:06Z [CODE] Bright Data Yandex now uses the documented `https://www.yandex.com/search/?text=...&lr=...&lang=...` URL without `brd_json=1`; raw Yandex HTML is parsed from `li.serp-item`, with ad containers excluded.
@@ -7,6 +26,7 @@
 - 2026-07-14T04:12Z [CODE] Fixed the live six-branch Qdrant `TypeError`: `provider_registry` injected the shared `query_embedding`, but `search_qdrant` did not accept it. The provider now consumes the precomputed vector and avoids duplicate Hugging Face embedding work.
 - 2026-07-14T04:12Z [CODE] Search quality computation now runs after unified fact inserts inside the same dedicated DuckDB writer callback, eliminating the asynchronous read-before-write race.
 - 2026-07-14T04:12Z [TOOL] End-to-end live proof persisted six ordered branch-role rows and a `search_quality_scores` row with `branch_count=6` and `total_final_results=15`; the focused shared-embedding Qdrant adapter probe returned five results.
+- 2026-07-14 [CODE] Bright Data manufactured timeouts: `provider_catalog` 10s outer `retrieval._call_provider` envelope was shorter than `run_provider` (20s × 3 + backoff). Added `brightdata_provider_call_timeout_seconds()` (63s at defaults) for all three Bright Data providers; removed redundant `asyncio.wait_for` on Bing sidecar HTTP.
 
 ## Camoufox Content Restructure — 2026-07-13
 

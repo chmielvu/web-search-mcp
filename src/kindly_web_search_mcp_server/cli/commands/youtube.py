@@ -8,10 +8,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.youtube import (
-    fetch_youtube_search_payload,
-    fetch_youtube_transcript_payload,
-)
 from ..runtime import run_cli_async
 
 
@@ -23,6 +19,8 @@ def search_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
     num_results: Annotated[int, typer.Option("--num-results")] = 5,
 ) -> None:
+    from ..services.youtube import fetch_youtube_search_payload
+
     try:
         payload = run_cli_async(fetch_youtube_search_payload(query, num_results=num_results))
     except Exception as exc:
@@ -53,6 +51,8 @@ def transcript_cmd(
         typer.Option("--backend", help="Transcript backend: auto, ytdlp, api."),
     ] = None,
 ) -> None:
+    from ..services.youtube import fetch_youtube_transcript_payload
+
     try:
         payload = run_cli_async(
             fetch_youtube_transcript_payload(

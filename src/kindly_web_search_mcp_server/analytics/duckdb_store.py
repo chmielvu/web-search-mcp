@@ -74,6 +74,7 @@ from .writers import (  # explicit re-export for IDE / static analysis
     insert_search_branches,
     insert_search_candidates,
     insert_search_quality_scores,
+    insert_search_outcome_batches,
     insert_search_run,
 )
 
@@ -141,6 +142,7 @@ __all__ = [
     "insert_search_branches",
     "insert_search_candidates",
     "insert_search_quality_scores",
+    "insert_search_outcome_batches",
     "insert_search_run",
     "settings",
 ]

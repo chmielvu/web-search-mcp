@@ -80,7 +80,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         specialized_providers=("telegram", "brave_news"),
         search_options_overrides={"searxng_categories": ("news", "general")},
         provider_arguments={
-            "brightdata": {"search_type": "news", "language": "en", "use_bing": False},
+            "brightdata": {"search_type": "news", "language": "en"},
             "brave_news": {"freshness": "week"},
         },
         **_BASE_POLICY_KWARGS,

@@ -11,24 +11,17 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from ..models import ProviderWarning, WebSearchResult
+from ..settings import settings
 from ..telemetry.spans import get_tracer
 from .contracts import BranchOutcome, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
-from .provider_health import get_provider_health
 from .provider_registry import get_provider_adapter, get_provider_definition
 
 
 def _canonical_url(url: str) -> str:
     parsed = urlsplit(url)
-    return urlunsplit(
-        (
-            parsed.scheme.casefold(),
-            parsed.netloc.casefold(),
-            parsed.path.rstrip("/"),
-            parsed.query,
-            "",
-        )
-    )
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit((parsed.scheme, parsed.netloc.lower(), path, parsed.query, ""))
 
 
 def _warning(provider: str, error_type: str, error: str) -> ProviderWarning:
@@ -59,147 +52,108 @@ async def _call_provider(
             item.model_copy(update={"providers": sorted({*(item.providers or []), provider_name})})
             for item in result
         ]
-        get_provider_health().mark_success(provider_name)
         return provider_name, normalized
     except asyncio.CancelledError:
         raise
     except TimeoutError:
-        if provider_name != "degoog":
-            get_provider_health().mark_failure_with_type(provider_name, error_type="timeout")
         return provider_name, TimeoutError()
     except Exception as exc:
-        if provider_name != "degoog":
-            get_provider_health().mark_failure_with_type(provider_name, error_type=type(exc).__name__)
         return provider_name, exc
 
 
-async def dispatch_branch(
-    run: SearchRun,
+_MAX_URLS = 32
+
+
+def _record_provider_result(
+    *,
     branch: QueryBranch,
-    embedding_task: Awaitable[Sequence[float]] | None,
-) -> BranchOutcome:
-    started = time.monotonic()
-    assigned_names = branch.provider_names
-    if not assigned_names:
-        return BranchOutcome(
-            branch=branch,
-            attempted_provider_names=(),
-            skipped_provider_names=(),
-            results=(),
-            warnings=(),
-            elapsed_seconds=0.0,
-            provider_calls=(),
-        )
-
-    skipped: list[str] = []
-    attempted: list[str] = []
-    warnings_by_name: dict[str, ProviderWarning] = {}
-    provider_calls: list[dict[str, Any]] = []
-    _MAX_URLS = 32
-
-    # Partition into healthy (attempted) and cooldown (skipped)
-    tasks: list[asyncio.Task[tuple[str, Sequence[WebSearchResult] | BaseException, float]]] = []
-    task_order: list[str] = []
-    for name in assigned_names:
-        if name != "degoog" and not get_provider_health().is_healthy(name):
-            skipped.append(name)
-            warnings_by_name[name] = _warning(name, "cooldown", "provider cooldown active")
-            provider_calls.append(
-                {
-                    "provider": name,
-                    "status": "skipped",
-                    "branch_role": branch.role.value,
-                    "error_type": "cooldown",
-                    "error_message": "provider cooldown active",
-                    "num_results_returned": 0,
-                    "latency_ms": 0.0,
-                    "candidate_urls": [],
-                }
-            )
-            continue
-        attempted.append(name)
-        task_order.append(name)
-
-        async def _invoke(n: str) -> tuple[str, Sequence[WebSearchResult] | BaseException, float]:
-            call_started = time.monotonic()
-            _name, value = await _call_provider(run, branch, n, embedding_task)
-            return _name, value, (time.monotonic() - call_started) * 1000.0
-
-        tasks.append(asyncio.create_task(_invoke(name), name=f"search.provider.{name}"))
-
-    if not tasks:
-        return BranchOutcome(
-            branch=branch,
-            attempted_provider_names=tuple(attempted),
-            skipped_provider_names=tuple(skipped),
-            results=(),
-            warnings=tuple(warnings_by_name[name] for name in assigned_names if name in warnings_by_name),
-            elapsed_seconds=time.monotonic() - started,
-            provider_calls=tuple(provider_calls),
-        )
-
-    # Concurrent gather all healthy provider tasks
-    try:
-        gathered = await asyncio.gather(*tasks, return_exceptions=False)
-    except asyncio.CancelledError:
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        raise
-
-    # Process in original provider_names order, canonical-deduplicate
-    rows_by_name: dict[str, tuple[str, Sequence[WebSearchResult] | BaseException, float]] = {}
-    for name, result in zip(task_order, gathered):
-        rows_by_name[name] = result
-
-    rows: OrderedDict[str, WebSearchResult] = OrderedDict()
-    for name in assigned_names:
-        if name not in rows_by_name:
-            continue
-        _name, value, latency_ms = rows_by_name[name]
-        if isinstance(value, BaseException):
-            error_type = "timeout" if isinstance(value, TimeoutError) else "provider_error"
-            warnings_by_name[name] = _warning(name, error_type, error_type)
-            provider_calls.append(
-                {
-                    "provider": name,
-                    "status": "error",
-                    "branch_role": branch.role.value,
-                    "error_type": error_type,
-                    "error_message": str(value)[:500],
-                    "num_results_returned": 0,
-                    "latency_ms": latency_ms,
-                    "candidate_urls": [],
-                }
-            )
-            continue
-        for item in value:
-            key = _canonical_url(item.link)
-            if key not in rows:
-                rows[key] = item
-            else:
-                existing = rows[key]
-                existing.providers = sorted({*existing.providers, *(item.providers or []), name})
-                existing.provider_count = len(existing.providers)
+    name: str,
+    value: Sequence[WebSearchResult] | BaseException | None,
+    latency_ms: float,
+    rows: OrderedDict[str, WebSearchResult],
+    warnings_by_name: dict[str, ProviderWarning],
+    provider_calls: list[dict[str, Any]],
+    status_override: str | None = None,
+    error_type_override: str | None = None,
+    error_message_override: str | None = None,
+) -> None:
+    if status_override == "incomplete":
+        warnings_by_name[name] = _warning(name, "retrieve_budget", "retrieve budget exhausted")
         provider_calls.append(
             {
                 "provider": name,
-                "status": "success",
+                "status": "incomplete",
                 "branch_role": branch.role.value,
-                "num_results_returned": len(value),
+                "error_type": error_type_override or "retrieve_budget",
+                "error_message": error_message_override or "retrieve budget exhausted",
+                "num_results_returned": 0,
                 "latency_ms": latency_ms,
-                "candidate_urls": [item.link for item in value][:_MAX_URLS],
+                "candidate_urls": [],
             }
         )
+        return
 
+    if value is None:
+        return
+
+    if isinstance(value, BaseException):
+        error_type = error_type_override or (
+            "timeout" if isinstance(value, TimeoutError) else "provider_error"
+        )
+        warnings_by_name[name] = _warning(name, error_type, error_type)
+        provider_calls.append(
+            {
+                "provider": name,
+                "status": status_override or "error",
+                "branch_role": branch.role.value,
+                "error_type": error_type,
+                "error_message": (error_message_override or str(value))[:500],
+                "num_results_returned": 0,
+                "latency_ms": latency_ms,
+                "candidate_urls": [],
+            }
+        )
+        return
+
+    for item in value:
+        key = _canonical_url(item.link)
+        if key not in rows:
+            rows[key] = item
+        else:
+            existing = rows[key]
+            existing.providers = sorted({*existing.providers, *(item.providers or []), name})
+            existing.provider_count = len(existing.providers)
+    provider_calls.append(
+        {
+            "provider": name,
+            "status": "success",
+            "branch_role": branch.role.value,
+            "num_results_returned": len(value),
+            "latency_ms": latency_ms,
+            "candidate_urls": [item.link for item in value][:_MAX_URLS],
+        }
+    )
+
+
+def _assemble_branch_outcome(
+    branch: QueryBranch,
+    *,
+    assigned_names: tuple[str, ...],
+    skipped: tuple[str, ...],
+    attempted: tuple[str, ...],
+    rows: OrderedDict[str, WebSearchResult],
+    warnings_by_name: dict[str, ProviderWarning],
+    provider_calls: list[dict[str, Any]],
+    elapsed_seconds: float,
+) -> BranchOutcome:
     warnings = tuple(warnings_by_name[name] for name in assigned_names if name in warnings_by_name)
     return BranchOutcome(
         branch=branch,
-        attempted_provider_names=tuple(attempted),
-        skipped_provider_names=tuple(skipped),
+        attempted_provider_names=attempted,
+        skipped_provider_names=skipped,
         results=tuple(rows.values()),
         warnings=warnings,
-        elapsed_seconds=time.monotonic() - started,
+        elapsed_seconds=elapsed_seconds,
         provider_calls=tuple(provider_calls),
     )
 
@@ -213,21 +167,143 @@ async def retrieve_branches(
         raise RuntimeError("Search must be planned before retrieval")
     tracer = get_tracer()
     retrieve_started = time.monotonic()
+    retrieve_budget_seconds = settings.search_retrieve_budget_seconds
+
     with tracer.start_as_current_span("search.retrieve") as span:
         span.set_attribute("search.run_key", run.run_key)
         span.set_attribute("search.branch_count", len(run.plan.branches))
-        tasks: list[asyncio.Task[BranchOutcome]] = []
-        async with asyncio.TaskGroup() as group:
-            for branch in run.plan.branches:
-                tasks.append(
-                    group.create_task(
-                        dispatch_branch(run, branch, embedding_task),
-                        name=f"search.branch.{branch.role.value}",
-                    )
+        span.set_attribute("search.retrieve_budget_seconds", retrieve_budget_seconds)
+
+        branch_assigned: list[tuple[str, ...]] = []
+        branch_attempted: list[list[str]] = []
+        branch_rows: list[OrderedDict[str, WebSearchResult]] = []
+        branch_warnings: list[dict[str, ProviderWarning]] = []
+        branch_calls: list[list[dict[str, Any]]] = []
+
+        tasks: list[asyncio.Task[tuple[str, Sequence[WebSearchResult] | BaseException, float]]] = []
+        slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
+
+        for branch_index, branch in enumerate(run.plan.branches):
+            assigned_names = branch.provider_names
+            branch_assigned.append(assigned_names)
+            attempted: list[str] = []
+            branch_attempted.append(attempted)
+            branch_rows.append(OrderedDict())
+            branch_warnings.append({})
+            branch_calls.append([])
+
+            for name in assigned_names:
+
+                async def _invoke(
+                    b: QueryBranch = branch,
+                    n: str = name,
+                ) -> tuple[str, Sequence[WebSearchResult] | BaseException, float]:
+                    call_started = time.monotonic()
+                    provider_name, value = await _call_provider(run, b, n, embedding_task)
+                    return provider_name, value, (time.monotonic() - call_started) * 1000.0
+
+                task = asyncio.create_task(_invoke(), name=f"search.provider.{name}")
+                tasks.append(task)
+                slot_by_task[task] = (branch_index, name)
+                attempted.append(name)
+
+        done: set[asyncio.Task[Any]] = set()
+        pending: set[asyncio.Task[Any]] = set()
+        try:
+            if tasks:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    timeout=max(0.0, retrieve_budget_seconds),
                 )
-        outcomes = tuple(task.result() for task in tasks)
+            retrieve_budget_exceeded = bool(pending)
+
+            if pending:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+
+            retrieve_elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
+            for task in tasks:
+                branch_index, provider_name = slot_by_task[task]
+                branch = run.plan.branches[branch_index]
+                rows = branch_rows[branch_index]
+                warnings_by_name = branch_warnings[branch_index]
+                calls = branch_calls[branch_index]
+
+                if task in pending:
+                    _record_provider_result(
+                        branch=branch,
+                        name=provider_name,
+                        value=None,
+                        latency_ms=retrieve_elapsed_ms,
+                        rows=rows,
+                        warnings_by_name=warnings_by_name,
+                        provider_calls=calls,
+                        status_override="incomplete",
+                    )
+                    continue
+
+                if task not in done:
+                    raise RuntimeError("Provider task missing from asyncio.wait partition")
+
+                try:
+                    _returned_name, value, latency_ms = task.result()
+                except asyncio.CancelledError as exc:
+                    _record_provider_result(
+                        branch=branch,
+                        name=provider_name,
+                        value=exc,
+                        latency_ms=0.0,
+                        rows=rows,
+                        warnings_by_name=warnings_by_name,
+                        provider_calls=calls,
+                    )
+                    continue
+                except Exception as exc:
+                    _record_provider_result(
+                        branch=branch,
+                        name=provider_name,
+                        value=exc,
+                        latency_ms=0.0,
+                        rows=rows,
+                        warnings_by_name=warnings_by_name,
+                        provider_calls=calls,
+                    )
+                    continue
+                _record_provider_result(
+                    branch=branch,
+                    name=provider_name,
+                    value=value,
+                    latency_ms=latency_ms,
+                    rows=rows,
+                    warnings_by_name=warnings_by_name,
+                    provider_calls=calls,
+                )
+        except asyncio.CancelledError:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
+        outcomes_list: list[BranchOutcome] = []
+        for branch_index, branch in enumerate(run.plan.branches):
+            outcomes_list.append(
+                _assemble_branch_outcome(
+                    branch,
+                    assigned_names=branch_assigned[branch_index],
+                    skipped=(),
+                    attempted=tuple(branch_attempted[branch_index]),
+                    rows=branch_rows[branch_index],
+                    warnings_by_name=branch_warnings[branch_index],
+                    provider_calls=branch_calls[branch_index],
+                    elapsed_seconds=time.monotonic() - retrieve_started,
+                )
+            )
+
+        outcomes = tuple(outcomes_list)
         run.outcomes = outcomes
-        branch_rows: list[dict[str, Any]] = []
+        branch_rows_diag: list[dict[str, Any]] = []
         for index, outcome in enumerate(outcomes):
             preview = branch_outcome_preview(outcome)
             preview["branch_index"] = index
@@ -237,10 +313,14 @@ async def retrieve_branches(
                 row["branch_index"] = index
                 calls_with_index.append(row)
             preview["provider_calls"] = calls_with_index
-            branch_rows.append(preview)
-        run.diagnostics.branch_results = branch_rows
-        run.diagnostics.phase_timings["search.retrieve"] = (
-            time.monotonic() - retrieve_started
-        ) * 1000.0
+            branch_rows_diag.append(preview)
+        run.diagnostics.branch_results = branch_rows_diag
+        elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
+        run.diagnostics.phase_timings["search.retrieve"] = elapsed_ms
+        if run.diagnostics.enrichment is None:
+            run.diagnostics.enrichment = {}
+        run.diagnostics.enrichment["retrieve_budget_seconds"] = retrieve_budget_seconds
+        run.diagnostics.enrichment["retrieve_budget_exceeded"] = retrieve_budget_exceeded
         span.set_attribute("search.provider_outcome_count", len(outcomes))
+        span.set_attribute("search.retrieve_budget_exceeded", retrieve_budget_exceeded)
         return outcomes

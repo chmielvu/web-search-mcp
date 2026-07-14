@@ -78,16 +78,13 @@ def _has_domain(urls: list[str], pattern: str) -> bool:
 # ── Per-tool guidance generators ──────────────────────────────────────
 
 
-def _gemini_is_healthy() -> bool:
-    """Check if the gemini provider is configured and not in cooldown."""
+def _gemini_is_available() -> bool:
+    """Check whether the gemini provider is configured and reachable."""
     try:
-        from ..search.provider_health import get_provider_health  # noqa: PLC0415
         from ..search.provider_registry import PROVIDER_DEFINITIONS, provider_is_reachable  # noqa: PLC0415
 
         definition = PROVIDER_DEFINITIONS.get("gemma")
-        if definition is None or not provider_is_reachable(definition):
-            return False
-        return get_provider_health().is_healthy("gemma")
+        return definition is not None and provider_is_reachable(definition)
     except Exception:
         return False
 
@@ -100,7 +97,7 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     next_tools: list[str] = []
     next_prompts: list[str] = ["evaluate_web_results"]
     parts: list[str] = []
-    gemini_ok = _gemini_is_healthy()
+    gemini_ok = _gemini_is_available()
 
     if not results:
         guidance = "Zero results. Broaden: remove specific terms, set rewrite=true."

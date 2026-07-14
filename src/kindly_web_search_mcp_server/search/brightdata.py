@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import httpx
@@ -14,7 +13,6 @@ from .brightdata_common import (
     BrightDataError,
     build_google_url,
     build_yandex_url,
-    collect_bing_sidecar,
     get_brightdata_api_key,
     parse_brightdata_response,
     resolve_payload_base,
@@ -36,7 +34,6 @@ async def search_brightdata(
     language: str = "en",
     search_type: str = "web",
     exact_match: bool = True,
-    use_bing: bool = True,
     freshness: str | None = None,
     provider_name: str = "brightdata",
     yandex_region: str = "84",
@@ -98,8 +95,8 @@ async def search_brightdata(
     def _google_parse(data: dict) -> list[WebSearchResult]:
         return parse_brightdata_response(data, search_type, num_results)
 
-    google_future = asyncio.ensure_future(
-        run_provider(
+    try:
+        return await run_provider(
             provider_name,
             query,
             num_results,
@@ -108,39 +105,9 @@ async def search_brightdata(
             http_client=http_client,
             timeout_seconds=google_timeout,
         )
-    )
-
-    bing_future: asyncio.Future[list[WebSearchResult]] | None = None
-    if use_bing and search_type != "news":
-        bing_future = asyncio.ensure_future(
-            search_bing_sidecar(
-                query,
-                num_results,
-                http_client,
-                api_key,
-                payload_base,
-                req_headers,
-                country,
-                language,
-            )
-        )
-
-    try:
-        google_results = await google_future
     except Exception as exc:
-        google_results = []
         logger.warning("BrightData Google failed: %s", exc)
-
-    bing_results: list[WebSearchResult] = []
-    if bing_future is not None:
-        bing_results = await collect_bing_sidecar(
-            bing_future,
-            grace_seconds=max(0.0, settings.brightdata_bing_join_grace_seconds),
-        )
-        bing_results = bing_results[:num_results]
-
-    merged = google_results + bing_results
-    return merged[:num_results] if merged else []
+        return []
 
 
 def _endpoint() -> str:

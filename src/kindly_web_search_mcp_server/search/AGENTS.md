@@ -8,10 +8,9 @@ This directory owns the shared MCP/CLI web-search pipeline.
 - `contracts.py` — strict boundary models plus immutable plan/outcome records.
 - `planning.py` — normalize, understand, enrich, rewrite, provider selection, target coverage.
 - `provider_registry.py` — immutable 19-provider definitions and adapters.
-- `retrieval.py` — structured branch/provider fanout and cooldown handling.
+- `retrieval.py` — structured branch/provider fanout with one phase-level retrieve budget.
 - `ranking.py` — blocklist, merge, BM25/rerank, global pagination, response.
 - `outcomes.py` — detached terminal snapshots and bounded shutdown drain.
-- `provider_health.py` — process-wide provider cooldown state.
 - `merge.py` — canonical deduplication and provider RRF.
 - `blocklist.py` — DuckDB-backed URL blocking; apply before every scoring stage.
 - `intent_policy.py` — intent-specialized providers, arguments, freshness, and RRF-k.
@@ -30,6 +29,7 @@ either adapter.
   by selected providers.
 - Provider assignment is only `branch.target in definition.targets`.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
+- `rank_and_finalize` projects every non-None `RerankEmbeddingContext` into the diagnostics collector as both `candidate_embeddings` AND `query_embedding`; analytics `query_embeddings` persistence must remain non-zero on any rerank path that returned a context.
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable success/error/cancelled
   `SearchOutcome`; background tasks never receive the live `SearchRun`.
@@ -39,8 +39,7 @@ either adapter.
 Registry selection is ordered: all reachable free providers, reachable Bright
 Data plus one other paid SERP provider by locked round-robin, then only
 intent-selected reachable specialized providers. Credentials and disabled
-providers are checked during planning; dynamic cooldown is checked immediately
-before dispatch.
+providers are checked during planning; every planned provider is attempted.
 
 Provider-specific option translation belongs in the provider adapter. Never
 reintroduce signature inspection, hard-coded branch provider sets, or silent

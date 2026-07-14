@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Coroutine, Literal
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 OutputMode = Literal["agent", "human"]
@@ -61,6 +66,7 @@ def get_runtime() -> CliRuntime:
 def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
     """Run a CLI command coroutine to completion, then drain background tasks and shut down the write executor."""
     # Local shutdown dependencies remain lazy to avoid import-time side effects.
+    runner_finished: float | None = None
 
     async def _runner() -> Any:
         try:
@@ -73,24 +79,80 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             from ..telemetry.init import shutdown_telemetry
             from ..utils.http_client import close_http_client
 
+            shutdown_started = time.perf_counter()
+            timings: dict[str, float] = {}
+
+            step_started = time.perf_counter()
             try:
                 await drain_search_outcomes(settings.analytics_shutdown_drain_timeout_seconds)
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Failed to drain search outcomes: %s", exc)
+            timings["search_outcomes"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
             try:
                 await drain_background_tasks(
                     name_prefixes=("analytics.",),
                     timeout_seconds=settings.analytics_shutdown_drain_timeout_seconds,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Failed to drain analytics background tasks: %s", exc)
+            timings["background_tasks"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
             try:
                 shutdown_duckdb_write_executor(wait=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.warning("Failed to shut down DuckDB write executor: %s", exc)
+            timings["duckdb_executor"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
             try:
                 await close_http_client()
-            finally:
-                shutdown_telemetry()
+            except Exception as exc:
+                LOGGER.warning("Failed to close shared HTTP client: %s", exc)
+            timings["http_client"] = time.perf_counter() - step_started
 
-    return asyncio.run(_runner())
+            step_started = time.perf_counter()
+            try:
+                shutdown_telemetry()
+            except Exception as exc:
+                LOGGER.warning("Failed to shut down telemetry: %s", exc)
+            timings["telemetry"] = time.perf_counter() - step_started
+
+            LOGGER.info(
+                "CLI shutdown finished in %.3fs "
+                "(search_outcomes=%.3fs background_tasks=%.3fs "
+                "duckdb_executor=%.3fs http_client=%.3fs telemetry=%.3fs)",
+                time.perf_counter() - shutdown_started,
+                timings["search_outcomes"],
+                timings["background_tasks"],
+                timings["duckdb_executor"],
+                timings["http_client"],
+                timings["telemetry"],
+            )
+
+    async def _marked_runner() -> Any:
+        nonlocal runner_finished
+        try:
+            return await _runner()
+        finally:
+            runner_finished = time.perf_counter()
+
+    lifecycle_started = time.perf_counter()
+    try:
+        return asyncio.run(_marked_runner())
+    finally:
+        lifecycle_finished = time.perf_counter()
+        post_runner = lifecycle_finished - runner_finished if runner_finished is not None else None
+        if post_runner is None:
+            LOGGER.info(
+                "CLI asyncio lifecycle finished in %.3fs (post_runner=unavailable)",
+                lifecycle_finished - lifecycle_started,
+            )
+        else:
+            LOGGER.info(
+                "CLI asyncio lifecycle finished in %.3fs (post_runner=%.3fs)",
+                lifecycle_finished - lifecycle_started,
+                post_runner,
+            )

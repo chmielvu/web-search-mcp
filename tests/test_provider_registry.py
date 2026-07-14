@@ -23,6 +23,22 @@ def test_registry_has_exact_provider_matrix() -> None:
     assert not hasattr(PROVIDER_DEFINITIONS["ddg"], "targets")
 
 
+def test_brightdata_outer_timeout_covers_run_provider_budget() -> None:
+    from kindly_web_search_mcp_server.search.provider_catalog import (
+        brightdata_provider_call_timeout_seconds,
+    )
+    from kindly_web_search_mcp_server.settings import settings
+
+    outer = PROVIDER_DEFINITIONS["brightdata"].default_timeout_seconds
+    per_attempt = max(
+        settings.brightdata_google_timeout_seconds,
+        settings.brightdata_bing_timeout_seconds,
+    )
+    assert outer == brightdata_provider_call_timeout_seconds()
+    assert outer >= per_attempt * 3.0 + 3.0
+    assert outer > 10.0
+
+
 def test_request_enforces_goal_and_result_window() -> None:
     with pytest.raises(ValidationError):
         WebSearchRequest(query="query", research_goal="")

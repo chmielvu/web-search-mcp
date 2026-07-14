@@ -8,7 +8,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ..services.sitemap import fetch_sitemap_payload
 from ..runtime import run_cli_async
 
 
@@ -47,6 +46,8 @@ def generate_cmd(
     ] = False,
 ) -> None:
     """Generate a sitemap with Tavily Map and legacy Crawl4AI fallback."""
+    from ..services.sitemap import fetch_sitemap_payload
+
     try:
         payload = run_cli_async(
             fetch_sitemap_payload(

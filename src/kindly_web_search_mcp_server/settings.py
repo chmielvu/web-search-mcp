@@ -132,6 +132,9 @@ class Settings:
     search_http_read_timeout_seconds: float = float(
         os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
     )
+    search_retrieve_budget_seconds: float = float(
+        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "30")
+    )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
     )
@@ -155,6 +158,9 @@ class Settings:
     )
     cerebras_rewrite_model: str = os.environ.get("CEREBRAS_REWRITE_MODEL", "gpt-oss-120b")
     groq_rewrite_model: str = os.environ.get("GROQ_REWRITE_MODEL", "openai/gpt-oss-120b")
+    huggingface_rewrite_model: str = os.environ.get(
+        "HUGGINGFACE_REWRITE_MODEL", "openai/gpt-oss-120b:nscale"
+    )
     vercel_rewrite_model: str = os.environ.get("VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b")
 
     # Embeddings (Hugging Face Inference Provider)
@@ -402,18 +408,6 @@ class Settings:
         os.environ.get("PROVIDER_GROUP_DEADLINE_SECONDS", "15")
     )
 
-    # Unified provider health / circuit breaker
-    provider_failure_threshold: int = int(os.environ.get("PROVIDER_FAILURE_THRESHOLD", "3"))
-    provider_cooldown_cap_seconds: float = float(
-        os.environ.get("PROVIDER_COOLDOWN_CAP_SECONDS", "30.0")
-    )
-    provider_rate_limit_initial_cooldown: float = float(
-        os.environ.get("PROVIDER_RATE_LIMIT_INITIAL_COOLDOWN", "60.0")
-    )
-    provider_rate_limit_cap_seconds: float = float(
-        os.environ.get("PROVIDER_RATE_LIMIT_CAP_SECONDS", "300.0")
-    )
-
     # SearXNG config (consolidated from raw os.environ reads in searxng.py)
     searxng_base_url: str = os.environ.get("SEARXNG_BASE_URL", "")
     searxng_headers_json: str = os.environ.get("SEARXNG_HEADERS_JSON", "")
@@ -545,7 +539,9 @@ class Settings:
     # When set (e.g. http://127.0.0.1:3000 via SSH tunnel), Camoufox is the last-resort browser.
     # When empty, Camoufox stage is skipped.
     camoufox_timeout_seconds: float = float(os.environ.get("CAMOUFOX_TIMEOUT_SECONDS", "30"))
-    camoufox_health_cache_seconds: float = float(os.environ.get("CAMOUFOX_HEALTH_CACHE_SECONDS", "30"))
+    camoufox_health_cache_seconds: float = float(
+        os.environ.get("CAMOUFOX_HEALTH_CACHE_SECONDS", "30")
+    )
 
     # =====================================================================
     # A/B Testing Framework (opt-in, experiment config via YAML)

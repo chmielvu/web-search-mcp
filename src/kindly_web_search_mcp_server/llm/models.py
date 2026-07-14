@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .usage import LLMUsage
 
@@ -16,12 +17,7 @@ class LLMEndpoint:
     base_url: str
     api_key: str
     timeout_seconds: float
-    route_model: str | None = None
-
-    @property
-    def litellm_model(self) -> str:
-        """Provider-qualified model string sent to LiteLLM."""
-        return self.route_model or self.model
+    client_type: Literal["openai", "huggingface"] = "openai"
 
 
 @dataclass(frozen=True, slots=True)

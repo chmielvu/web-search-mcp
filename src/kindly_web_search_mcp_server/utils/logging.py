@@ -31,8 +31,6 @@ def configure_logging(*, level: int | str | None = None) -> None:
         "httpcore",
         "urllib3",
         "asyncio",
-        "LiteLLM",
-        "litellm",
         "primp",
     )
     for name in noisy_loggers:

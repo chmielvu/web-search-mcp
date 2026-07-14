@@ -10,7 +10,10 @@ import json
 import logging
 from typing import Any
 
+from openai import OpenAI
+
 from ..analytics.evals import ensure_eval_tables
+from ..llm.config import build_classifier_endpoint
 from ..settings import settings
 
 LOGGER = logging.getLogger(__name__)
@@ -73,27 +76,24 @@ def _parse_strict_json(text: str) -> dict[str, Any]:
 
 
 def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
-    """Best effort LLM call for judge. Uses litellm if available for multi-provider.
-    Never invoked from hot user paths.
-    """
+    """Call the configured OpenAI-compatible endpoint for an offline judge."""
+    endpoint = build_classifier_endpoint()
+    model = model or getattr(settings, "JUDGE_MODEL", None) or endpoint.model
     try:
-        import litellm  # type: ignore
-    except Exception as exc:  # pragma: no cover
-        LOGGER.warning("litellm not available for judge; returning neutral: %s", exc)
-        return json.dumps({"score": 0.5, "reason": "judge llm unavailable (litellm missing)"})
-
-    model = model or getattr(settings, "JUDGE_MODEL", None) or "gpt-4o-mini"
-    try:
-        resp = litellm.completion(
-            model=model,  # type: ignore[arg-type]
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=300,
-            # force json if provider supports
-            response_format={"type": "json_object"},
-        )
-        content = resp.choices[0].message.content or ""  # type: ignore[union-attr]
-        return content
+        with OpenAI(
+            api_key=endpoint.api_key,
+            base_url=endpoint.base_url,
+            timeout=endpoint.timeout_seconds,
+            max_retries=0,
+        ) as client:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+        return response.choices[0].message.content or ""
     except Exception as exc:
         LOGGER.debug("judge llm call failed: %s", exc)
         return json.dumps({"score": 0.0, "reason": f"judge call error: {exc}"})
@@ -125,7 +125,7 @@ def judge_tool_choice_correct(
             eval_run_id=eval_run_id,
             eval_case_id=eval_case_id,
             run_key=run_key,
-            model="litellm-judge",
+            model="openai-compatible-judge",
             payload={"raw": data},
         )
     return {"score": score, "reason": data.get("reason", ""), "raw": data}
@@ -154,7 +154,7 @@ def judge_argument_correctness(
             eval_run_id=eval_run_id,
             eval_case_id=eval_case_id,
             run_key=run_key,
-            model="litellm-judge",
+            model="openai-compatible-judge",
             payload={"raw": data},
         )
     return {"score": score, "reason": data.get("reason", ""), "raw": data}
@@ -182,7 +182,7 @@ def judge_source_usefulness(
             eval_run_id=eval_run_id,
             eval_case_id=eval_case_id,
             run_key=run_key,
-            model="litellm-judge",
+            model="openai-compatible-judge",
             payload={"raw": data},
         )
     return {"score": score, "reason": data.get("reason", ""), "raw": data}
@@ -213,7 +213,7 @@ def judge_ranking_quality(
             eval_run_id=eval_run_id,
             eval_case_id=eval_case_id,
             run_key=run_key,
-            model="litellm-judge",
+            model="openai-compatible-judge",
             payload={"raw": data},
         )
     return {"score": score, "reason": data.get("reason", ""), "raw": data}

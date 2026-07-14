@@ -27,13 +27,11 @@ def join_terms(terms: list[str]) -> str:
 # ``Reasoning:`` keyword in the system message content to configure the
 # reasoning level.
 #
-# LiteLLM also accepts ``reasoning_effort`` as a top-level kwarg which is
-# forwarded to Groq / Cerebras / Vercel AI Gateway.  We set both as
-# belt-and-suspenders.
+# OpenAI-compatible endpoints also accept ``reasoning_effort`` as a top-level
+# parameter. We set both forms for providers that inspect the system header.
 #
 # See: https://console.groq.com/docs/reasoning
 # See: https://inference-docs.cerebras.ai/api-reference/chat-completions
-# See: https://docs.litellm.ai/docs/reasoning_content
 # ---------------------------------------------------------------------------
 
 #: Canonical reasoning-effort levels for GPT-OSS tasks.

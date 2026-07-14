@@ -235,14 +235,12 @@ async def search_bing_sidecar(
             return parse_brightdata_response(data, "web", num_results)
 
         if http_client is not None:
-            result = await asyncio.wait_for(_do_bing(http_client), timeout=bing_timeout)
-        else:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=5.0, read=bing_timeout)
-            ) as client:
-                result = await asyncio.wait_for(_do_bing(client), timeout=bing_timeout)
-        return result
-    except asyncio.TimeoutError:
+            return await _do_bing(http_client)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=bing_timeout)
+        ) as client:
+            return await _do_bing(client)
+    except (asyncio.TimeoutError, httpx.TimeoutException):
         logger.debug("BrightData Bing search timed out after %.1fs", bing_timeout)
         return []
     except asyncio.CancelledError:

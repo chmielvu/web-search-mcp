@@ -13,6 +13,7 @@ from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
 from .merge import merge_search_results
 
+
 def _candidate_text(result: WebSearchResult) -> str:
     return f"{result.title}\n{result.snippet}"[:4000]
 
@@ -91,6 +92,7 @@ async def rank_and_finalize(
                     {"url": c.url, "text": c.text, "dense": list(c.dense)}
                     for c in ctx.candidates[:40]
                 ]
+                dc.query_embedding = list(ctx.query_embedding)
             elif embedding_task is not None:
                 try:
                     vec = await embedding_task

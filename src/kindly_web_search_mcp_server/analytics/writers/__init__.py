@@ -35,6 +35,7 @@ from .core import (
     insert_search_candidates,
     insert_search_quality_scores,
     insert_search_run,
+    insert_search_outcome_batches,
 )
 from .schema import (
     _ensure_ab_assignments,
@@ -161,5 +162,6 @@ __all__ = [
     "insert_search_branches",
     "insert_search_candidates",
     "insert_search_quality_scores",
+    "insert_search_outcome_batches",
     "insert_search_run",
 ]

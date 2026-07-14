@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import os
 
-from ..search.provider_health import get_provider_health
 from ..settings import settings
 
 
 def get_providers_status() -> str:
-    """Which search providers are configured and their health state."""
+    """Report which search providers are configured."""
     lines = [
         "# Search Provider Status",
         "",
@@ -31,26 +30,7 @@ def get_providers_status() -> str:
         "",
         "## Other",
         f"**GitHub Token**: {'✓ Configured' if os.environ.get('GITHUB_TOKEN') else '✗ Not configured'}",
-        "",
-        "## Provider Health",
     ]
-
-    tracker = get_provider_health()
-    for state in tracker.all_states():
-        if state["cooldown_remaining_s"] > 0:
-            lines.append(
-                f"- **{state['provider']}**: ⚠️ IN COOLDOWN ({state['cooldown_remaining_s']}s remaining) — "
-                f"{state['consecutive_failures']} consecutive failures"
-            )
-        elif state["total_failures"] > 0:
-            lines.append(
-                f"- **{state['provider']}**: ✓ healthy — "
-                f"{state['total_successes']} successes, {state['total_failures']} failures"
-            )
-
-    if not tracker.all_states():
-        lines.append("- No providers have been called yet.")
-
     return "\n".join(lines)
 
 

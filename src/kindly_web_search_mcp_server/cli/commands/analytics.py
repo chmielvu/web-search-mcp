@@ -7,9 +7,6 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
-from ...analytics.formatting import json_safe_rows
-from ...analytics.queries import run_analytics_query
-from ...analytics.reports import available_reports, run_report
 
 
 analytics_app = typer.Typer(no_args_is_help=True)
@@ -22,6 +19,8 @@ def query_cmd(
     max_rows: Annotated[int, typer.Option("--max-rows")] = 100,
     db_path: Annotated[str | None, typer.Option("--db-path")] = None,
 ) -> None:
+    from ...analytics.queries import run_analytics_query
+
     try:
         payload = run_analytics_query(
             question,
@@ -65,6 +64,9 @@ def report_cmd(
     days: Annotated[int, typer.Option("--days")] = 7,
     db_path: Annotated[str | None, typer.Option("--db-path")] = None,
 ) -> None:
+    from ...analytics.formatting import json_safe_rows
+    from ...analytics.reports import available_reports, run_report
+
     try:
         table = run_report(report_name, days=days, db_path=db_path)
     except FileNotFoundError as exc:

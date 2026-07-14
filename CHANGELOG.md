@@ -2,12 +2,29 @@
 
 ## [Unreleased]
 
+### Changed - Direct OpenAI-compatible LLM clients
+- Replaced LiteLLM with `openai.OpenAI` / `openai.AsyncOpenAI` across runtime and offline judge calls. Provider endpoints retain their configured `base_url`, timeout, and model, while client retries are disabled with `max_retries=0` so 429 `Retry-After: 60` responses cannot reintroduce the orchestration latency spike.
+- Replaced LiteLLM OpenInference instrumentation with the OpenAI instrumentor and removed the direct LiteLLM dependency. The optional `mcpevals` extra still brings LiteLLM transitively through DSPy.
+- Added `openai/gpt-oss-120b:nscale` through `huggingface_hub.InferenceClient` between Groq and Vercel in the worker ladder. The synchronous Hugging Face call is isolated with `asyncio.to_thread` and bounded by the same per-endpoint timeout/failover loop.
+
+### Changed - Search retrieve budget
+- Every planned provider is now attempted without runtime health/cooldown gating. One phase-level retrieve budget preserves completed results for ranking and records budget-exceeded provider tasks as `incomplete` with `error_type="retrieve_budget"`.
 
 ### Fixed — Analytics cutover to fixed six-branch model
 - **Analytics DuckDB schema aligned to the fixed six-branch topology.** `search_branches` and `provider_calls` now use `branch_role` (not `branch_target`), `support_terms` (not `must_keep_terms`), and no `branch_weight`. `search_quality_scores` no longer has `rewrite_variant_count`; `branch_count` is computed from `search_branches`. Quality metrics query the live unified tables (`search_candidates`, not `merged_candidates`; no `query_rewrites`). Daily summaries read from `search_runs` and `provider_calls` with correct column names (`latency_ms`/`error_type`, not `duration_ms`/`error_code`); `summary_intent_daily` replaces `decomposition_rate`/`fallback_rate`/`avg_rewrite_variants` with `avg_branch_count` (observability invariant, expect 6.0). `summary_rerank_daily` normalizes NULL providers to `'internal'` with `COALESCE` and declares `provider NOT NULL` to match the composite PK. The `_migrate_rerank_stages()` compatibility path is removed; the analytics database is disposable and recreated from fresh DDL with no migration. `reports.candidate_survival` reads from `provider_calls.candidate_urls`, `search_candidates`, and `final_results` (not `merged_candidates`). `vw_branch_summary` includes `support_terms`. `vw_rerank_timeline` uses live rerank stage names. Stale `search_events`/`query_understanding`/`query_rewrites`/`provider_candidates`/`merged_candidates` references removed from analytics AGENTS guide and DuckDB schema docs.
 - **Search quality persistence ordering fixed.** Quality metrics now run inside the same dedicated DuckDB worker callback after all unified fact rows have been inserted, eliminating the asynchronous read-before-write race that produced false zero candidate/final-result counts.
 - **Shared Qdrant embedding dispatch fixed.** `search_qdrant` now accepts the six-branch service’s precomputed query embedding; the provider adapter no longer raises `TypeError` by injecting an unsupported keyword and no longer recomputes the same Hugging Face embedding.
 - **Bright Data Yandex raw-response support added.** Yandex URLs follow the documented `text`/`lr`/`lang` contract without unsupported `brd_json=1`; raw organic result HTML is parsed while advertisement containers are excluded.
+- **Bright Data retrieval timeout envelope aligned with provider HTTP budget.** `retrieval._call_provider` no longer wraps Bright Data adapters in a 10s catalog default while `run_provider` allows ~20s × 3 attempts plus backoff; outer timeout now derives from `BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS` / `BRIGHTDATA_BING_TIMEOUT_SECONDS`. Removed redundant `asyncio.wait_for` around Bing sidecar HTTP (httpx timeout only).
+### Fixed — Query embedding dropped from analytics when rerank produced a context
+- **Query embedding dropped from analytics when rerank produced a context.**
+  `ranking.py` now copies `RerankEmbeddingContext.query_embedding` onto
+  `DiagnosticsCollector.query_embedding` alongside the candidate copy, so
+  `query_embedding_dim` is no longer null and `query_embeddings` persistence
+  is no longer skipped. Add a regression test
+  (`tests/test_query_embedding_propagation.py`) covering the collector state,
+  the `build_diagnostics` projection, and the `persist_search_outcome` write
+  dispatcher.
 
 ### Removed
 - Perplexity search surface removed entirely: `PerplexitySearchResponse` model and `PerplexitySearchResultType` alias from `models.py`, `perplexity_search` from `EXPENSIVE_TOOLS` in `rate_limits.py`, "Perplexity Sonar" steering message replaced with generic expensive-tool guidance in `expensive_tool_protection.py`.

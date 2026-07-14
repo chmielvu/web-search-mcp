@@ -1,14 +1,14 @@
-"""Ordered LLM worker routing for classification and rewrite tasks."""
+"""Ordered OpenAI-compatible routing for classification and rewrite tasks."""
 
 from __future__ import annotations
 
 import asyncio
-import warnings
 from dataclasses import dataclass
 from typing import Any
 
-import litellm
-from litellm import acompletion
+from huggingface_hub import InferenceClient
+from openai import AsyncOpenAI
+from pydantic import BaseModel
 
 from .phoenix_tracing import LLMTraceContext, openinference_context_scope
 from .config import (
@@ -19,20 +19,33 @@ from .config import (
 from .models import LLMEndpoint, LLMGeneration
 from .usage import extract_llm_usage
 
-litellm.suppress_debug_info = True
-litellm.set_verbose = False
-litellm.turn_off_message_logging = True
-warnings.filterwarnings(
-    "ignore",
-    message=r"Pydantic serializer warnings:.*",
-    category=UserWarning,
-    module=r"pydantic\.main",
-)
 
+def _huggingface_completion(
+    endpoint: LLMEndpoint,
+    request_kwargs: dict[str, Any],
+    response_format: Any | None,
+    timeout_seconds: float,
+) -> Any:
+    """Run one synchronous Hugging Face request in a worker thread."""
+    huggingface_kwargs = dict(request_kwargs)
+    if isinstance(response_format, type) and issubclass(response_format, BaseModel):
+        huggingface_kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_format.__name__,
+                "schema": response_format.model_json_schema(),
+                "strict": True,
+            },
+        }
+    elif response_format is not None:
+        huggingface_kwargs["response_format"] = response_format
+
+    client = InferenceClient(api_key=endpoint.api_key, timeout=timeout_seconds)
+    return client.chat.completions.create(**huggingface_kwargs)
 
 @dataclass(frozen=True, slots=True)
 class LLMRouter:
-    """Sequential LiteLLM router across configured endpoints."""
+    """Sequential router across OpenAI-compatible endpoints."""
 
     endpoints: tuple[LLMEndpoint, ...]
 
@@ -53,41 +66,72 @@ class LLMRouter:
         for endpoint in self.endpoints:
             try:
                 request_kwargs: dict[str, Any] = {
-                    "model": endpoint.litellm_model,
+                    "model": endpoint.model,
                     "messages": messages,
                     "temperature": temperature,
-                    "api_base": endpoint.base_url,
-                    "api_key": endpoint.api_key,
-                    "timeout": timeout_seconds or endpoint.timeout_seconds,
-                    "no-log": True,
-                    "num_retries": 0,
-                    "max_retries": 0,
                 }
-                if response_format is not None:
-                    request_kwargs["response_format"] = response_format
                 if tools is not None:
                     request_kwargs["tools"] = tools
                 if web_search_options is not None:
                     request_kwargs["web_search_options"] = web_search_options
                 if provider_fields:
-                    request_kwargs.update(provider_fields)
+                    request_kwargs["extra_body"] = provider_fields
                 if reasoning_effort is not None and endpoint.name not in {
                     "groq",
                     "cerebras",
+                    "huggingface",
                     "vercel",
                 }:
                     request_kwargs["reasoning_effort"] = reasoning_effort
                 effective_timeout = timeout_seconds or endpoint.timeout_seconds
                 with openinference_context_scope(langfuse):
-                    response = await asyncio.wait_for(
-                        acompletion(**request_kwargs),
-                        timeout=effective_timeout + 5.0,
-                    )
+                    if endpoint.client_type == "huggingface":
+                        response = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                _huggingface_completion,
+                                endpoint,
+                                request_kwargs,
+                                response_format,
+                                effective_timeout,
+                            ),
+                            timeout=effective_timeout + 5.0,
+                        )
+                    else:
+                        async with AsyncOpenAI(
+                            api_key=endpoint.api_key,
+                            base_url=endpoint.base_url,
+                            timeout=effective_timeout,
+                            max_retries=0,
+                        ) as client:
+                            if isinstance(response_format, type) and issubclass(
+                                response_format, BaseModel
+                            ):
+                                response = await asyncio.wait_for(
+                                    client.chat.completions.parse(
+                                        **request_kwargs,
+                                        response_format=response_format,
+                                    ),
+                                    timeout=effective_timeout + 5.0,
+                                )
+                            else:
+                                if response_format is not None:
+                                    request_kwargs["response_format"] = response_format
+                                response = await asyncio.wait_for(
+                                    client.chat.completions.create(**request_kwargs),
+                                    timeout=effective_timeout + 5.0,
+                                )
                 message = response.choices[0].message
-                content = message.content or ""  # type: ignore[union-attr]
+                parsed = getattr(message, "parsed", None)
+                content = (
+                    parsed.model_dump_json()
+                    if isinstance(parsed, BaseModel)
+                    else (message.content or "")
+                )
                 annotations = tuple(getattr(message, "annotations", None) or ())
                 provider_specific_fields = (
-                    getattr(message, "provider_specific_fields", None) or None
+                    getattr(message, "provider_specific_fields", None)
+                    or getattr(message, "model_extra", None)
+                    or None
                 )
                 if content.strip() or annotations or provider_specific_fields:
                     return LLMGeneration(
@@ -175,5 +219,5 @@ def build_classifier_router() -> LLMRouter:
 
 
 def build_worker_router() -> LLMRouter:
-    """Worker ladder: Cerebras GPT-OSS 120B -> Groq GPT-OSS 120B -> Vercel Groq GPT-OSS-20B."""
+    """Worker ladder: Cerebras -> Groq -> Hugging Face/Nscale -> Vercel."""
     return LLMRouter(build_worker_endpoints())

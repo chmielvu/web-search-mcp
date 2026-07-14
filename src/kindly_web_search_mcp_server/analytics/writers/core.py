@@ -63,8 +63,7 @@ class TableWriter:
                 placeholders = ", ".join(["?"] * len(self.columns))
                 conflict = f" {self.on_conflict}" if self.on_conflict else ""
                 connection.execute(
-                    f"INSERT INTO {self.table_name} ({col_list}) "
-                    f"VALUES ({placeholders}){conflict}",
+                    f"INSERT INTO {self.table_name} ({col_list}) VALUES ({placeholders}){conflict}",
                     [kwargs.get(c, self.defaults.get(c)) for c in self.columns],
                 )
             finally:
@@ -89,15 +88,11 @@ class TableWriter:
                 placeholders = ", ".join(["?"] * len(self.columns))
                 conflict = f" {self.on_conflict}" if self.on_conflict else ""
                 sql = (
-                    f"INSERT INTO {self.table_name} ({col_list}) "
-                    f"VALUES ({placeholders}){conflict}"
+                    f"INSERT INTO {self.table_name} ({col_list}) VALUES ({placeholders}){conflict}"
                 )
                 connection.executemany(
                     sql,
-                    [
-                        [r.get(c, self.defaults.get(c)) for c in self.columns]
-                        for r in rows
-                    ],
+                    [[r.get(c, self.defaults.get(c)) for c in self.columns] for r in rows],
                 )
             finally:
                 connection.close()
@@ -211,6 +206,44 @@ def insert_ab_shadow_run(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _AB_SHADOW_RUN_WRITER
 
     _AB_SHADOW_RUN_WRITER.insert(db_path=db_path, **kwargs)
+
+
+def insert_search_outcome_batches(
+    *,
+    search_runs: list[dict[str, Any]],
+    search_branches: list[dict[str, Any]],
+    provider_calls: list[dict[str, Any]],
+    search_candidates: list[dict[str, Any]],
+    final_results: list[dict[str, Any]],
+    query_embeddings: list[dict[str, Any]],
+    candidate_embeddings: list[dict[str, Any]],
+    rerank_stages: list[dict[str, Any]],
+    db_path: str | None = None,
+) -> None:
+    """Persist one search outcome with one connection per populated table."""
+    from .inserts import (
+        _CANDIDATE_EMBEDDINGS_WRITER,
+        _FINAL_RESULTS_WRITER,
+        _PROVIDER_CALLS_WRITER,
+        _QUERY_EMBEDDINGS_WRITER,
+        _RERANK_STAGES_WRITER,
+        _SEARCH_BRANCHES_WRITER,
+        _SEARCH_CANDIDATES_WRITER,
+        _SEARCH_RUN_WRITER,
+    )
+
+    batches = (
+        (_SEARCH_RUN_WRITER, search_runs),
+        (_SEARCH_BRANCHES_WRITER, search_branches),
+        (_PROVIDER_CALLS_WRITER, provider_calls),
+        (_SEARCH_CANDIDATES_WRITER, search_candidates),
+        (_FINAL_RESULTS_WRITER, final_results),
+        (_QUERY_EMBEDDINGS_WRITER, query_embeddings),
+        (_CANDIDATE_EMBEDDINGS_WRITER, candidate_embeddings),
+        (_RERANK_STAGES_WRITER, rerank_stages),
+    )
+    for writer, rows in batches:
+        writer.insert_batch(rows, db_path=db_path)
 
 
 # ---------------------------------------------------------------------------
