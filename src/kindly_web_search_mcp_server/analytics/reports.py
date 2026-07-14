@@ -132,22 +132,19 @@ def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table
         WITH stage_rows AS (
             SELECT
                 'provider' AS stage,
-                recorded_at,
-                run_key,
-                coalesce(
-                    json_extract_string(payload_json, '$.link'),
-                    json_extract_string(payload_json, '$.url')
-                ) AS url
-            FROM search_events
-            WHERE event_name = 'provider.search.result'
-              AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+                p.recorded_at,
+                p.run_key,
+                urls.url
+            FROM provider_calls AS p,
+                 UNNEST(p.candidate_urls) AS urls(url)
+            WHERE p.recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
             UNION ALL
             SELECT
                 'merged' AS stage,
                 recorded_at,
                 run_key,
                 link AS url
-            FROM merged_candidates
+            FROM search_candidates
             WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
             UNION ALL
             SELECT

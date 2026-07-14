@@ -274,12 +274,12 @@ class TestAnalyticsViews:
                 "middleware.rate_limit.throttled",
                 {
                     "run_key": "run-002",
-                    "tool_name": "perplexity_search",
+                    "tool_name": "grok_search",
                     "bucket": "expensive",
                     "waited_seconds": 2.5,
                     "attempt_count": 3,
                     "session_id": "session-1",
-                    "provider": "perplexity",
+                    "provider": "grok",
                 },
                 db_path,
             )
@@ -347,7 +347,7 @@ class TestAnalyticsViews:
             assert cache_row == ("exact", "hit", "true", 0.91)
             assert middleware_row == (
                 "rate_limit",
-                "perplexity_search",
+                "grok_search",
                 "expensive",
                 2.5,
                 3,

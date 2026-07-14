@@ -13,7 +13,7 @@ middleware/
 
 ## Current Behavior
 
-- `perplexity_search` and `grok_search` are protected by query-quality gating
+- `grok_search` is protected by query-quality gating
 - Cheap and expensive tool groups use separate rate-limit buckets
 - Guidance is appended to tool results when the middleware can improve the next
   agent action

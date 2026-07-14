@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..search.intents import SearchIntent
-from .builders import REASONING_EFFORT_LOW, join_terms, system_header
+from .builders import REASONING_EFFORT_LOW, system_header
 
 
 def build_query_understanding_prompt(
@@ -11,7 +11,6 @@ def build_query_understanding_prompt(
     query: str,
     research_goal: str | None,
     intent: SearchIntent | None,
-    must_keep_terms: list[str],
     provider_name: str = "worker",
 ) -> tuple[str, str]:
     goal = research_goal or query
@@ -19,8 +18,8 @@ def build_query_understanding_prompt(
 
 Classify and annotate web search queries.
 Return JSON only.
-Schema:
-- schema_version: "0.2"
+Schema version 0.3:
+- schema_version: "0.3"
 - intent: general | ai_coding_and_infrastructure | digital_humanities | comparison | social_media | news
 - confidence: 0 to 1
 - entities: array of {{text,label,start,end,confidence}}
@@ -28,9 +27,8 @@ Schema:
 - compared_entities: array of named items
 - time_sensitivity: none | recent | current | historical
 - domain_hints: array of short labels
-- provider_hints: object with keyword/neural/community booleans
-- rewrite_hints: object with style, variant_count, preserve_order
 - rationale: short string
+- should_decompose: boolean
 
 Rules:
 - general = broad exploration or mixed intent.
@@ -51,9 +49,6 @@ RESEARCH_GOAL:
 
 INTENT_HINT:
 {intent or "none"}
-
-MUST_KEEP_TERMS:
-{join_terms(must_keep_terms)}
 
 Return JSON only."""
     return system, user

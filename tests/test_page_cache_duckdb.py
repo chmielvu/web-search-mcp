@@ -81,7 +81,7 @@ class TestPageCacheDuckDB(unittest.TestCase):
             cache.store(
                 canonical_url=url,
                 page_content="content",
-                extraction_method="nodriver",
+                extraction_method="camoufox_remote",
                 metadata=meta,
             )
 

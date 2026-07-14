@@ -15,7 +15,6 @@ prompts/
 |-- entity_extraction.py     # Entity extraction prompts
 |-- provider_gemini.py       # Gemini provider prompt family
 |-- provider_grok.py         # Grok provider prompt family
-|-- provider_perplexity.py    # Perplexity provider prompt family
 |-- models.py                # Prompt-related models
 └── rerank_llm.yaml          # LLM rerank prompt config
 

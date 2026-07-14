@@ -1,4 +1,4 @@
-"""DuckDB-backed URL blocklist seeded from uBlacklist patterns."""
+"""DuckDB-backed URL blocklist (patterns managed via add_blocklist_pattern)."""
 
 from __future__ import annotations
 
@@ -41,10 +41,6 @@ def _translate_ublacklist_to_regex(pattern: str) -> str:
     return f"^{scheme}{subdomain}{escaped}$"
 
 
-def _source_path() -> Path:
-    return Path(__file__).parents[3] / "planning" / "rewrite-and-query-overhaul" / "uBlacklist.txt"
-
-
 def _ensure_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with duckdb.connect(str(db_path)) as con:
@@ -64,26 +60,6 @@ def _ensure_db(db_path: Path) -> None:
         con.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_blocklist_glob ON blocklist_patterns (glob_pattern)"
         )
-        if con.execute("SELECT COUNT(*) FROM blocklist_patterns").fetchone()[0] > 0:
-            return
-        source = _source_path()
-        if not source.is_file():
-            logger.warning("uBlacklist.txt not found at %s", source)
-            return
-        rows: list[tuple[str, str, str]] = []
-        for line in source.read_text(encoding="utf-8").splitlines():
-            value = line.strip()
-            if not value or value.startswith(("#", "---", "name:", "description:", "homepage:")):
-                continue
-            try:
-                rows.append((value, _translate_ublacklist_to_regex(value), "ublacklist"))
-            except ValueError:
-                logger.warning("Skipping invalid blocklist pattern %r", value)
-        if rows:
-            con.executemany(
-                "INSERT INTO blocklist_patterns (glob_pattern, regex_pattern, source) VALUES (?, ?, ?)",
-                rows,
-            )
 
 
 def _compile_regex(db_path: Path) -> re.Pattern[str]:

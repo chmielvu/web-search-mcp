@@ -20,10 +20,10 @@ from .writers.connection import _LOCK
 def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str, object]:
     """Query DuckDB tables for *run_key* and insert computed quality metrics.
 
-    Metrics are computed from the pipeline tables (merged_candidates,
-    final_results, rerank_stages, rerank_candidates, query_rewrites,
-    provider_calls) and written to ``search_quality_scores`` using the
-    existing ``insert_search_quality_scores`` function.
+    Metrics are computed from the live pipeline tables: ``search_candidates``,
+    ``final_results``, ``rerank_stages``, ``rerank_candidates``,
+    ``search_branches``, and ``provider_calls``. The result is written to
+    ``search_quality_scores`` using ``insert_search_quality_scores``.
 
     Parameters
     ----------
@@ -45,13 +45,13 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
         con = duckdb.connect(str(path))
         try:
             # ── provider_overlap_rate ──────────────────────────────────────────
-            # fraction of merged_candidates where overlap_flag is true
+            # Fraction of search_candidates with provider overlap.
             row = con.execute(
                 """
                 SELECT
                     CAST(SUM(CASE WHEN overlap_flag THEN 1 ELSE 0 END) AS DOUBLE)
                     / NULLIF(COUNT(*), 0)
-                FROM merged_candidates
+                FROM search_candidates
                 WHERE run_key = ?
                 """,
                 [run_key],
@@ -94,7 +94,7 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
 
             # ── avg_rrf_score ──────────────────────────────────────────────────
             row = con.execute(
-                "SELECT AVG(rrf_score) FROM merged_candidates WHERE run_key = ?",
+                "SELECT AVG(rrf_score) FROM search_candidates WHERE run_key = ?",
                 [run_key],
             ).fetchone()
             avg_rrf_score = row[0] if row else None
@@ -117,13 +117,12 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
             ).fetchone()
             p95_score = row[0] if row else None
 
-            # ── rewrite_variant_count (and alias branch_count) ─────────────────
+            # ── branch_count from search_branches ──────────────────
             row = con.execute(
-                "SELECT COUNT(*) FROM query_rewrites WHERE run_key = ?",
+                "SELECT COUNT(*) FROM search_branches WHERE run_key = ?",
                 [run_key],
             ).fetchone()
-            rewrite_variant_count = row[0] if row else None
-            branch_count = rewrite_variant_count  # alias per plan
+            branch_count = row[0] if row else None
 
             # ── provider_count ─────────────────────────────────────────────────
             row = con.execute(
@@ -141,7 +140,7 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
 
             # ── total_candidates_merged ────────────────────────────────────────
             row = con.execute(
-                "SELECT COUNT(*) FROM merged_candidates WHERE run_key = ?",
+                "SELECT COUNT(*) FROM search_candidates WHERE run_key = ?",
                 [run_key],
             ).fetchone()
             total_candidates_merged = row[0] if row else None
@@ -165,7 +164,6 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
         "avg_rrf_score": _to_float(avg_rrf_score),
         "top_score": _to_float(top_score),
         "p95_score": _to_float(p95_score),
-        "rewrite_variant_count": _to_int(rewrite_variant_count),
         "provider_count": _to_int(provider_count),
         "branch_count": _to_int(branch_count),
         "total_candidates_input": _to_int(total_candidates_input),

@@ -1,3 +1,5 @@
+"""Tests for Tavily-only sitemap orchestration."""
+
 from __future__ import annotations
 
 import unittest
@@ -15,16 +17,10 @@ class TestGenerateSitemapOrchestrator(unittest.IsolatedAsyncioTestCase):
             "response_time": 1.23,
         }
 
-        with (
-            patch(
-                "kindly_web_search_mcp_server.content.sitemap.map_site",
-                new=AsyncMock(return_value=tavily_result),
-            ) as map_mock,
-            patch(
-                "kindly_web_search_mcp_server.content.sitemap.crawl_legacy_sitemap",
-                new=AsyncMock(),
-            ) as legacy_mock,
-        ):
+        with patch(
+            "kindly_web_search_mcp_server.content.sitemap.map_site",
+            new=AsyncMock(return_value=tavily_result),
+        ) as map_mock:
             from kindly_web_search_mcp_server.content.sitemap import generate_sitemap
 
             result = await generate_sitemap(
@@ -42,32 +38,64 @@ class TestGenerateSitemapOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, tavily_result)
         map_mock.assert_awaited_once()
-        legacy_mock.assert_not_awaited()
 
-    async def test_falls_back_to_legacy_sitemap_when_tavily_empty(self) -> None:
-        legacy_result = {
-            "query_url": "https://docs.tavily.com",
-            "pages": [{"url": "https://docs.tavily.com/welcome"}],
-            "stats": {"pages_crawled": 1, "pages_failed": 0, "total_sections": 1},
-        }
+    async def test_returns_empty_tavily_result_as_is(self) -> None:
+        empty_result = {"base_url": "docs.tavily.com", "results": []}
 
-        with (
-            patch(
-                "kindly_web_search_mcp_server.content.sitemap.map_site",
-                new=AsyncMock(return_value={"base_url": "docs.tavily.com", "results": []}),
-            ),
-            patch(
-                "kindly_web_search_mcp_server.content.sitemap.crawl_legacy_sitemap",
-                new=AsyncMock(return_value=legacy_result),
-            ) as legacy_mock,
+        with patch(
+            "kindly_web_search_mcp_server.content.sitemap.map_site",
+            new=AsyncMock(return_value=empty_result),
+        ) as map_mock:
+            from kindly_web_search_mcp_server.content.sitemap import generate_sitemap
+
+            result = await generate_sitemap("https://docs.tavily.com")
+
+        self.assertEqual(result, empty_result)
+        self.assertEqual(result["results"], [])
+        map_mock.assert_awaited_once()
+
+    async def test_forwards_all_options_to_tavily(self) -> None:
+        tavily_result = {"base_url": "docs.tavily.com", "results": ["/welcome"]}
+
+        with patch(
+            "kindly_web_search_mcp_server.content.sitemap.map_site",
+            new=AsyncMock(return_value=tavily_result),
+        ) as map_mock:
+            from kindly_web_search_mcp_server.content.sitemap import generate_sitemap
+
+            result = await generate_sitemap(
+                "https://docs.tavily.com",
+                instructions="Map docs",
+                max_depth=2,
+                max_breadth=10,
+                limit=25,
+                select_paths=["/docs/.*"],
+                select_domains=["^docs\\.tavily\\.com$"],
+                exclude_paths=["/private/.*"],
+                exclude_domains=["^private\\.tavily\\.com$"],
+                allow_external=True,
+            )
+
+        self.assertEqual(result, tavily_result)
+        map_mock.assert_awaited_once_with(
+            "https://docs.tavily.com",
+            instructions="Map docs",
+            max_depth=2,
+            max_breadth=10,
+            limit=25,
+            select_paths=["/docs/.*"],
+            select_domains=["^docs\\.tavily\\.com$"],
+            exclude_paths=["/private/.*"],
+            exclude_domains=["^private\\.tavily\\.com$"],
+            allow_external=True,
+        )
+
+    async def test_propagates_tavily_error(self) -> None:
+        with patch(
+            "kindly_web_search_mcp_server.content.sitemap.map_site",
+            new=AsyncMock(side_effect=RuntimeError("Tavily unavailable")),
         ):
             from kindly_web_search_mcp_server.content.sitemap import generate_sitemap
 
-            result = await generate_sitemap("https://docs.tavily.com", limit=10)
-
-        self.assertEqual(result, legacy_result)
-        legacy_mock.assert_awaited_once()
-
-
-if __name__ == "__main__":
-    unittest.main()
+            with self.assertRaises(RuntimeError):
+                await generate_sitemap("https://docs.tavily.com")

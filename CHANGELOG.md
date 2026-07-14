@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+
+### Fixed — Analytics cutover to fixed six-branch model
+- **Analytics DuckDB schema aligned to the fixed six-branch topology.** `search_branches` and `provider_calls` now use `branch_role` (not `branch_target`), `support_terms` (not `must_keep_terms`), and no `branch_weight`. `search_quality_scores` no longer has `rewrite_variant_count`; `branch_count` is computed from `search_branches`. Quality metrics query the live unified tables (`search_candidates`, not `merged_candidates`; no `query_rewrites`). Daily summaries read from `search_runs` and `provider_calls` with correct column names (`latency_ms`/`error_type`, not `duration_ms`/`error_code`); `summary_intent_daily` replaces `decomposition_rate`/`fallback_rate`/`avg_rewrite_variants` with `avg_branch_count` (observability invariant, expect 6.0). `summary_rerank_daily` normalizes NULL providers to `'internal'` with `COALESCE` and declares `provider NOT NULL` to match the composite PK. The `_migrate_rerank_stages()` compatibility path is removed; the analytics database is disposable and recreated from fresh DDL with no migration. `reports.candidate_survival` reads from `provider_calls.candidate_urls`, `search_candidates`, and `final_results` (not `merged_candidates`). `vw_branch_summary` includes `support_terms`. `vw_rerank_timeline` uses live rerank stage names. Stale `search_events`/`query_understanding`/`query_rewrites`/`provider_candidates`/`merged_candidates` references removed from analytics AGENTS guide and DuckDB schema docs.
+- **Search quality persistence ordering fixed.** Quality metrics now run inside the same dedicated DuckDB worker callback after all unified fact rows have been inserted, eliminating the asynchronous read-before-write race that produced false zero candidate/final-result counts.
+- **Shared Qdrant embedding dispatch fixed.** `search_qdrant` now accepts the six-branch service’s precomputed query embedding; the provider adapter no longer raises `TypeError` by injecting an unsupported keyword and no longer recomputes the same Hugging Face embedding.
+- **Bright Data Yandex raw-response support added.** Yandex URLs follow the documented `text`/`lr`/`lang` contract without unsupported `brd_json=1`; raw organic result HTML is parsed while advertisement containers are excluded.
+
+### Removed
+- Perplexity search surface removed entirely: `PerplexitySearchResponse` model and `PerplexitySearchResultType` alias from `models.py`, `perplexity_search` from `EXPENSIVE_TOOLS` in `rate_limits.py`, "Perplexity Sonar" steering message replaced with generic expensive-tool guidance in `expensive_tool_protection.py`.
+- Perplexity telemetry removed: `record_perplexity_search`, `get_perplexity_metrics`, `PERPLEXITY_DEPTH`/`PERPLEXITY_SOURCE_COUNT`/`PERPLEXITY_MODEL` constants and their re-exports from `telemetry/__init__.py`, `attributes.py`, `metrics.py`, `records_ai.py`.
+- `POLLINATIONS_API_KEY` removed from environment docs in `CLAUDE.md`, `README.md`, and `skills/web-search-cli/SKILL.md`.
+- `skills/web-search-cli/SKILL.md` fully refreshed to match current CLI shape: added `--debug` global flag, `sitemap generate`, `experiments` group; removed `agent research`; updated `search web` to require `--research-goal`, default `--num-results` 15 (clamped 15–50), added `--diagnostics`, removed `--provider`; added `--summary-mode`/`--focus-query` to `content batch`; added `--backend` to `youtube transcript`.
 ### Added
 - DeGoog search aggregator as free provider alongside SearXNG
 - Brave LLM Context replaces the standard Brave web path in `search_brave()` (`/res/v1/llm/context`, `grounding.generic` → `WebSearchResult`).
@@ -11,6 +23,12 @@
 - `ProviderExecutionPlan.specialized_provider_names` and a `specialized_original` branch wire intent-policy specialized providers (e.g. `telegram`, `brave_news`).
 - `web-search-cli --debug` to enable DEBUG-level application logging on stderr while keeping command JSON on stdout.
 - Strict `WebSearchRequest`/`QueryBranch` contracts, immutable 19-provider metadata registry, `bm25s` lexical scoring, and detached search-outcome lifecycle.
+- Camoufox stealth-Firefox sidecar as last-resort browser fallback.
+- `CamoufoxClient` / `CamoufoxClientError` in `remote_clients.py` with 503 retry, 8 MiB cap, health cache.
+- `_fetch_via_camoufox` stage in `stages.py` (raw HTML -> markdown + metadata + links).
+- `specialized_pipeline.py` module extracted for Tier-1 resolver orchestration.
+- `CAMOUFOX_BASE_URL`, `CAMOUFOX_TIMEOUT_SECONDS`, `CAMOUFOX_HEALTH_CACHE_SECONDS` settings.
+- `CONTENT_STAGE_CAMOUFOX` telemetry attribute.
 
 ### Breaking changes
 - **2026-07-12 — Shared web-search service cutover.** MCP and CLI now construct the same validated request and call `execute_web_search`; `research_goal` is required and `num_results` accepts only 15–50. Explicit `rewrite=False` retains deterministic keyword/Autosuggest/Spellcheck enrichment instead of literal-syntax auto-bypass.
@@ -18,9 +36,22 @@
 
 ### Removed
 - Removed the experimental LangChain/LangGraph agentic research stack, its `agent` CLI command, tool registration, telemetry, settings, dependencies, and dedicated tests.
+- Local `crawl4ai` Python package + transitive `playwright`/`playwright-stealth` deps.
+- `legacy_sitemap.py` (Crawl4AI deep-crawl sitemap fallback).
+- `CONTENT_STAGE_NODRIVER` telemetry attribute.
+- `BROWSER_EXECUTABLE_PATH` env var from README.
 
 ### Changed
+- Tier-2 order: Jina Reader -> Crawl4AI /md -> local BS4 (conditional) -> Camoufox last-resort.
+- `crawl4ai_client.py` renamed to `remote_clients.py`; `Crawl4AIClient.crawl()`/`deep_crawl()` removed.
+- `fallback.py` renamed to `stages.py`; `fallback_fetch_content` wrapper removed.
+- `fetch_pipeline.py` rewritten to delegate stages to `stages.py` and `specialized_pipeline.py`.
+- `batch_orchestrator.py` simplified to per-URL `fetch_content_artifact` only.
+- `sitemap.py` simplified to Tavily-only; legacy fallback deleted.
+- 6 specialized resolvers moved to `content/resolvers/` subfolder.
 - **Phoenix tracing lifecycle** now uses `phoenix.otel.register` with the `WebSearchMCP` project and local SSH-forward endpoint `http://127.0.0.1:6006/v1/traces`; LiteLLM, LangChain, and HTTPX instrumentation share one provider and shutdown follows outcome drain → persistence → HTTP → telemetry.
+- **VPS service endpoints corrected** — `.env` now targets SearXNG at `127.0.0.1:8080`, DeGoog at `127.0.0.1:4444`, and Phoenix OTLP HTTP at `127.0.0.1:6006/v1/traces`, matching the SSH-forwarded VPS services; Hermes keepalive job `7acbeb2b3573` now specifies the complete manifest forward list.
+- **Crawl4AI remote endpoint enabled** — `.env` now points `CRAWL4AI_BASE_URL` to the manifest-mapped SSH forward `http://127.0.0.1:11235`.
 - **Phase Two — Brave retrieval:** `news` intent policy version `1.1` adds `brave_news` via `specialized_original`; BrightData news URLs map freshness to `tbs=qdr:`; cache identity fingerprints per-provider arguments; DDGS documented as peer `free` provider (not fallback).
 - **Modularized telemetry package** — split `src/kindly_web_search_mcp_server/telemetry.py` into a focused `telemetry/` package (`attributes.py`, `constants.py`, `init.py`, `metrics.py`, `spans.py`, `span_enhancements.py`, `records_*.py`, `_internal.py`). The public API is preserved via `telemetry/__init__.py` re-exports; all existing imports from `.telemetry` continue to work.
 - **Rerank bi-encoder hot path repaired** — the HF bi-encoder now runs for normal overfetch windows by default, embeds bounded title/snippet candidate text (`RERANK_BI_ENCODER_TEXT_MAX_CHARS=384`), keeps normal windows in one batch (`RERANK_BI_ENCODER_BATCH_SIZE=64`), and uses a single latency-sensitive candidate-embedding attempt (`RERANK_BI_ENCODER_TIMEOUT_SECONDS=15.0`). The per-call `AsyncInferenceClient` singleton is reused for connection pooling; concurrency is controlled by the per-caller wrappers (Qdrant `BatchLimitedEmbeddings`, bi-encoder batch semaphore) rather than a process-global gate.

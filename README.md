@@ -72,7 +72,7 @@ mcp-server --http --port 8000
 | `batch_get_content` | Fetch content from multiple URLs concurrently with optional per-item Gemini summaries |
 | `discover_links` | Discover and categorize links from a page |
 | `gemini_search` | AI-synthesized answers via Gemini + Google Search |
-| `perplexity_search` | AI-synthesized answers via Perplexity Sonar |
+
 | `grok_search` | AI-synthesized answers via Grok/xAI |
 | `academic_search` | Search across academic databases (arXiv, PubMed, Semantic Scholar, OpenAlex, CrossRef) |
 | `youtube_search` | Search YouTube videos |
@@ -166,7 +166,7 @@ JINA_API_KEY="jina_..."                     # Jina API key
 
 # Optional providers
 GROK_API_KEY="..."                         # xAI/Grok
-POLLINATIONS_API_KEY="..."                 # Perplexity Sonar via Pollinations
+
 
 # Provider controls
 PROVIDERS_ENABLED="true"                   # Master switch for all providers
@@ -177,7 +177,6 @@ DISABLED_PROVIDERS="reddit"                # Comma-separated provider denylist
 
 ```bash
 GITHUB_TOKEN="..."                         # Better GitHub Issue/Discussion extraction
-BROWSER_EXECUTABLE_PATH="/path/to/chrome"  # Browser for JS-heavy sites
 ```
 
 #### Query Understanding

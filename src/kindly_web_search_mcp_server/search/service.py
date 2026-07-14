@@ -19,8 +19,8 @@ from .retrieval import retrieve_branches
 async def run_search_core(run: SearchRun) -> WebSearchResponse:
     core_started = time.monotonic()
     plan = await plan_search(run)
-    needs_embedding = (
-        any(name == "qdrant" for name in plan.selected_provider_names) or len(plan.branches) > 0
+    needs_embedding = any(
+        "qdrant" in branch.provider_names for branch in plan.branches
     )
     embedding_task: asyncio.Task[Sequence[float]] | None = None
     if needs_embedding:

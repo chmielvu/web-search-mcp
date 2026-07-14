@@ -71,7 +71,7 @@ class DifferentiatedRateLimitMiddleware(Middleware):
             "quick_web_search",
         }
     )
-    EXPENSIVE_TOOLS = frozenset({"perplexity_search", "grok_search"})
+    EXPENSIVE_TOOLS = frozenset({"grok_search"})
 
     def __init__(
         self,

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 class TestGitHubDiscussions(unittest.TestCase):
     def test_parse_github_discussion_url(self) -> None:
-        from kindly_web_search_mcp_server.content.github_discussions import (
+        from kindly_web_search_mcp_server.content.resolvers.github_discussions import (
             GitHubDiscussionTarget,
             parse_github_discussion_url,
         )
@@ -32,7 +32,7 @@ class TestGitHubDiscussions(unittest.TestCase):
         self.assertEqual(target2.number, 123)
 
     def test_parse_rejects_non_discussion_urls(self) -> None:
-        from kindly_web_search_mcp_server.content.github_discussions import (
+        from kindly_web_search_mcp_server.content.resolvers.github_discussions import (
             GitHubDiscussionError,
             parse_github_discussion_url,
         )
@@ -47,7 +47,7 @@ class TestGitHubDiscussions(unittest.TestCase):
             parse_github_discussion_url("https://example.com/owner/repo/discussions/1")
 
     def test_render_markdown_structure(self) -> None:
-        from kindly_web_search_mcp_server.content.github_discussions import (
+        from kindly_web_search_mcp_server.content.resolvers.github_discussions import (
             render_discussion_thread_markdown,
         )
 

@@ -186,15 +186,6 @@ class GeminiSearchResponse(BaseModel):
     error: str | None = None
 
 
-class PerplexitySearchResponse(BaseModel):
-    """Response from perplexity_search tool (AI-synthesized search)."""
-
-    query: str
-    answer: str | None = None
-    sources: list[str] | None = None
-    model: str | None = None
-    steering_message: str | None = None
-    error: str | None = None
 
 
 class GrokCitation(BaseModel):
@@ -343,7 +334,6 @@ WebSearchResultType = WebSearchResponse | ToolErrorResponse
 GetContentResultType = GetContentResponse | ToolErrorResponse
 GeminiSearchResultType = GeminiSearchResponse | ToolErrorResponse
 GrokSearchResultType = GrokSearchResponse | ToolErrorResponse
-PerplexitySearchResultType = PerplexitySearchResponse | ToolErrorResponse
 YouTubeTranscriptResultType = YouTubeTranscriptResponse | ToolErrorResponse
 YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse
 SimilarLinksResultType = SimilarLinksResponse | ToolErrorResponse

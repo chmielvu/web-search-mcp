@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import httpx
 from qdrant_client import AsyncQdrantClient, models
@@ -102,6 +102,7 @@ async def search_qdrant(
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
     search_options: SearchOptions | None = None,
+    query_embedding: Sequence[float] | None = None,
 ) -> list[WebSearchResult]:
     """Query Qdrant index using hybrid search (dense + sparse with RRF fusion).
 
@@ -121,10 +122,13 @@ async def search_qdrant(
         return []
 
     async def _request() -> list[WebSearchResult]:
-        query_embedding = await _embed_qdrant_query(
-            query, deadline=max(5.0, settings.provider_group_deadline_seconds * 0.8)
-        )
-        if not query_embedding:
+        dense_embedding = query_embedding
+        if dense_embedding is None:
+            dense_embedding = await _embed_qdrant_query(
+                query,
+                deadline=max(5.0, settings.provider_group_deadline_seconds * 0.8),
+            )
+        if not dense_embedding:
             return []
 
         sparse = encode_bm25(query)
@@ -149,7 +153,7 @@ async def search_qdrant(
                 collection_name="web_results",
                 prefetch=[
                     models.Prefetch(
-                        query=query_embedding,
+                        query=dense_embedding,
                         using="dense",
                         limit=50,
                     ),

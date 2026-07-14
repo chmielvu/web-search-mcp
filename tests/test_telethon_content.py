@@ -1,7 +1,7 @@
 """Tests for Telegram content resolver (URL parsing only — no API calls)."""
 
 import unittest
-from kindly_web_search_mcp_server.content.telegram import (
+from kindly_web_search_mcp_server.content.resolvers.telegram import (
     parse_telegram_url,
     TelegramContentError,
 )

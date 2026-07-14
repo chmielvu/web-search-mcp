@@ -5,7 +5,6 @@ import os
 
 import pytest
 
-from kindly_web_search_mcp_server.server import get_content
 
 TIMEOUT_URLS = [
     "https://docs.cloud.google.com/batch/docs/troubleshooting",
@@ -22,6 +21,8 @@ def _can_run_live_tests() -> bool:
     reason="Live fetch tests require RUN_LIVE_TESTS=1 and BROWSER_EXECUTABLE_PATH",
 )
 def test_get_content_timeout_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kindly_web_search_mcp_server.server import get_content
+
     monkeypatch.setenv("TOOL_TOTAL_TIMEOUT_SECONDS", "180")
     monkeypatch.setenv("HTML_TOTAL_TIMEOUT_SECONDS", "90")
 

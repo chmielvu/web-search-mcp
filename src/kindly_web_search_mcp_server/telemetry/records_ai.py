@@ -6,9 +6,6 @@ from .attributes import (
     GEMINI_GROUNDING_CHUNKS,
     GEMINI_GROUNDING_QUERIES,
     GEMINI_STRUCTURED_OUTPUT,
-    PERPLEXITY_DEPTH,
-    PERPLEXITY_MODEL,
-    PERPLEXITY_SOURCE_COUNT,
     SEARCH_NUM_RESULTS_RETURNED,
     YOUTUBE_BACKEND_USED,
     YOUTUBE_DURATION_SECONDS,
@@ -19,7 +16,6 @@ from .attributes import (
 )
 from .metrics import (
     get_gemini_metrics,
-    get_perplexity_metrics,
     get_youtube_metrics,
 )
 
@@ -40,23 +36,6 @@ def record_gemini_search(
         },
     )
 
-
-def record_perplexity_search(
-    depth: str,
-    source_count: int,
-    model: str = "sonar",
-    duration_seconds: float | None = None,
-) -> None:
-    """Record Perplexity search specifics."""
-    perplexity_counter = get_perplexity_metrics()
-    perplexity_counter.add(
-        1,
-        {
-            PERPLEXITY_DEPTH: depth,
-            PERPLEXITY_SOURCE_COUNT: source_count,
-            PERPLEXITY_MODEL: model,
-        },
-    )
 
 
 def record_youtube_transcript(
@@ -98,7 +77,6 @@ def record_youtube_search(
 
 __all__ = [
     "record_gemini_search",
-    "record_perplexity_search",
-    "record_youtube_search",
+        "record_youtube_search",
     "record_youtube_transcript",
 ]

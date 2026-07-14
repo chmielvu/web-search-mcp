@@ -6,9 +6,10 @@ description: JSON-first native Typer CLI for the web-search-mcp server. Use when
 # web-search-cli
 
 The `web-search-cli` is the native, JSON-first command-line surface for the
-Kindly Web Search MCP server. It mirrors the MCP tools exposed by
-`server.py` and adds operational commands (`schema`, `doctor`, `getskill`,
-`reference`, `server`) that are only meaningful outside of MCP.
+Kindly Web Search MCP server. It covers the supported subset of MCP tools
+exposed by `server.py` and adds operational commands (`schema`, `doctor`,
+`getskill`, `reference`, `server`, `experiments`) that are only meaningful
+outside of MCP.
 
 All commands emit a single JSON envelope on stdout (or a JSON error envelope
 on stderr) and use the exit codes defined in
@@ -29,7 +30,11 @@ web-search-cli [GLOBAL-OPTIONS] COMMAND [ARGS] [COMMAND-OPTIONS]
 | `--quiet` / `-q` | bool | `False` | Suppress non-essential diagnostics. |
 | `--profile` | string | `full` | Active capability profile: `default`, `research`, `media`, `diagnostic`, `experimental`, `full`. |
 | `--log-level` | string | `error` | Log level for stderr diagnostics. |
+| `--debug` | bool | `False` | Set log level to `DEBUG` and emit application logs on stderr. Structured command output remains on stdout. |
 | `--non-interactive` | bool | `True` | Disallow interactive prompts. |
+
+All global flags also accept the corresponding `WEB_SEARCH_CLI_*` envvar
+(e.g. `WEB_SEARCH_CLI_DEBUG=true`, `WEB_SEARCH_CLI_PROFILE=research`).
 
 ## Command tree
 
@@ -49,11 +54,17 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `links similar` | Find similar links to a known good URL (Composio). |
 | `ai gemini` | Run a Gemini-grounded search with citations. |
 | `ai grok` | Run a Grok (OpenRouter) live search with citations. |
-| `agent research` | Run an agentic, multi-step web research session. |
 | `youtube search` | Search YouTube videos via the SearXNG YouTube engine. |
 | `youtube transcript` | Fetch a YouTube transcript with optional translation/formatting. |
 | `analytics query` | Run a natural-language analytics question against DuckDB. |
 | `analytics report` | Run a deterministic analytics report. |
+| `sitemap generate` | Generate a sitemap with Tavily Map and legacy Crawl4AI fallback. |
+| `experiments list` | List all experiments from the A/B config YAML. |
+| `experiments enable` | Set an experiment status to `running`. |
+| `experiments disable` | Set an experiment status to `paused`. |
+| `experiments conclude` | Set an experiment status to `concluded` with a winning variant. |
+| `experiments stats` | Show basic stats for an experiment. |
+| `experiments create` | Scaffold a new experiment interactively or from a JSON config. |
 | `reference tools` | Emit MCP-tool to CLI-command coverage. |
 | `reference external-tools` | Emit companion CLI tools to invoke directly. |
 | `server start` | Start the MCP server with the chosen transport. |
@@ -73,7 +84,8 @@ web-search-cli schema
 Validate scaffold readiness without provider calls. No arguments.
 
 Checks reported: `package_importable`, `typer_importable`, `user_skill`,
-`dev_skill`, `duckdb_cli` (optional), `langfuse_cli` (optional), `repo_root`.
+`dev_skill`, `duckdb_cli` (optional), `phoenix_instrumentor` (optional),
+`repo_root`.
 
 ```powershell
 web-search-cli doctor
@@ -102,10 +114,9 @@ search → RRF merge → rerank).
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--query` | string (required) | — | Search query text. |
-| `--num-results` | int | `5` | Number of results to return. |
+| `--research-goal` | string (required) | — | Required search objective that drives the query policy layer. |
+| `--num-results` | int | `15` | Number of results to return (clamped `15`–`50`). |
 | `--rewrite` / `--no-rewrite` | bool | `True` | Run query rewrite/expansion before searching. |
-| `--provider` | list[str] | — | Restrict to specific provider(s); repeatable. |
-| `--research-goal` | string | — | Optional research goal used by the query policy layer. |
 | `--result-offset` | int | `0` | Skip the first N merged results. |
 | `--searxng-category` | list[str] | — | SearXNG categories; repeatable. |
 | `--searxng-engine` | list[str] | — | SearXNG engines; repeatable. |
@@ -115,10 +126,14 @@ search → RRF merge → rerank).
 | `--searxng-safesearch` | int | — | SearXNG safesearch level (`0`–`2`). |
 | `--site-filter` | list[str] | — | Restrict results to given sites; repeatable. |
 | `--domain-filter` | list[str] | — | Restrict results to given domains; repeatable. |
+| `--domain-boost` | list[str] | — | Domains to boost (move to front); repeatable. |
+| `--domain-block` | list[str] | — | Domains to exclude (remove entirely); repeatable. |
+| `--diagnostics` | bool | `False` | Include full pipeline diagnostics in the output under `_diagnostics`. |
 
 ```powershell
-web-search-cli search web --query "function calling best practices 2026" --num-results 8
-web-search-cli search web --query "arxiv 2401.01234" --searxng-engine arxiv --searxng-engine google_scholar
+web-search-cli search web --query "function calling best practices 2026" --research-goal "find current best practices for LLM function calling"
+web-search-cli search web --query "arxiv 2401.01234" --research-goal "locate and review this paper" --searxng-engine arxiv --searxng-engine google_scholar
+web-search-cli search web --query "async python patterns" --research-goal "survey async patterns" --domain-boost docs.python.org --domain-block pinterest.com --diagnostics
 ```
 
 ### `search quick`
@@ -186,6 +201,8 @@ Fetch multiple URLs with a total content budget and bounded concurrency.
 | `--per-item-char-length` | int | `12000` | Max characters per URL. |
 | `--total-char-budget` | int | `120000` | Max total characters across the batch. |
 | `--per-url-timeout-seconds` | float | `120.0` | Per-URL fetch timeout. |
+| `--summary-mode` | `none` \| `brief` \| `detailed` | `none` | Optional summary level for each fetched URL. |
+| `--focus-query` | string | — | Optional focus query for the summaries. |
 | `--include-metadata` / `--no-include-metadata` | bool | `True` | Include page metadata. |
 | `--include-links` / `--no-include-links` | bool | `False` | Include extracted links. |
 | `--max-links` | int | `25` | Cap on extracted links per URL. |
@@ -193,6 +210,7 @@ Fetch multiple URLs with a total content budget and bounded concurrency.
 
 ```powershell
 web-search-cli content batch --url "https://a.example/post" --url "https://b.example/post" --total-char-budget 60000
+web-search-cli content batch --url "https://a.example/post" --url "https://b.example/post" --summary-mode brief --focus-query "API changes"
 ```
 
 ### `links discover`
@@ -228,7 +246,6 @@ Find similar links to a known good URL (Composio `similarlinks`).
 web-search-cli links similar --url "https://docs.python.org/3/library/asyncio-task.html" --num-results 8
 ```
 
-
 ### `ai gemini`
 
 Run a Gemini-grounded search with citations (uses Google Search grounding
@@ -243,7 +260,6 @@ via Gemini).
 ```powershell
 web-search-cli ai gemini --query "what changed in python 3.13 asyncio"
 ```
-
 
 ### `ai grok`
 
@@ -261,22 +277,6 @@ Run a Grok (OpenRouter) live search with citations.
 
 ```powershell
 web-search-cli ai grok --query "breaking news on regulation 2024-EU-AI-Act" --num-results 8
-```
-
-### `agent research`
-
-Run an agentic, multi-step web research session using the local
-`agentic_web_research` runner.
-
-| Flag | Type | Default | Description |
-| --- | --- | --- | --- |
-| `--query` | string (required) | — | Research query text. |
-| `--research-goal` | string | — | Optional research goal. |
-| `--session-id` | string | — | Resume an existing session by id. |
-| `--depth` | `quick` \| `normal` \| `deep` | `normal` | Research depth. |
-
-```powershell
-web-search-cli agent research --query "what are the tradeoffs of pgvector vs lance db" --depth deep
 ```
 
 ### `youtube search`
@@ -302,9 +302,11 @@ Fetch a YouTube transcript with optional language/translation/formatting.
 | `--language` | string | — | Preferred transcript language code (e.g. `en`). |
 | `--translate-to` | string | — | Translate the transcript into this language code. |
 | `--format` | `text` \| `timestamped` \| `json` | `text` | Transcript output format. |
+| `--backend` | string | — | Transcript backend: `auto` (cascade), `ytdlp`, `api`. |
 
 ```powershell
 web-search-cli youtube transcript --video-id-or-url "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --format timestamped
+web-search-cli youtube transcript --video-id-or-url "dQw4w9WgXcQ" --language en --backend ytdlp
 ```
 
 ### `analytics query`
@@ -336,6 +338,109 @@ or the `analytics.queries.AVAILABLE_REPORTS` helper to list report names.
 
 ```powershell
 web-search-cli analytics report --report-name "provider_health" --days 14
+```
+
+### `sitemap generate`
+
+Generate a sitemap using Tavily Map as the primary backend, with legacy
+Crawl4AI as fallback. Tavily Map supports natural-language mapping
+instructions and regex path/domain filters.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--url` | string (required) | — | Website URL to map. |
+| `--instructions` | string | — | Natural-language guidance for Tavily Map. |
+| `--max-depth` | int | `1` | Traversal depth (Tavily-supported range `1`–`5`). |
+| `--max-breadth` | int | `20` | Per-level breadth limit. |
+| `--limit` | int | `50` | Maximum total URLs to return. |
+| `--select-paths` | list[str] | — | Regex path filters; repeatable. |
+| `--select-domains` | list[str] | — | Regex domain filters; repeatable. |
+| `--exclude-paths` | list[str] | — | Regex path exclusions; repeatable. |
+| `--exclude-domains` | list[str] | — | Regex domain exclusions; repeatable. |
+| `--allow-external` / `--no-allow-external` | bool | `False` | Follow external links when true. |
+
+```powershell
+web-search-cli sitemap generate --url "https://docs.python.org/3/" --max-depth 2
+web-search-cli sitemap generate --url "https://example.com/docs" --instructions "only API reference pages" --select-paths "/api/" --exclude-paths "/draft/"
+```
+
+### `experiments`
+
+Manage A/B experiments backed by a YAML config file
+(`experiments.yaml` or `AB_TESTING_CONFIG_PATH`).
+
+#### `experiments list`
+
+List all experiments with their status and variant configuration. No arguments.
+
+```powershell
+web-search-cli experiments list
+```
+
+#### `experiments enable`
+
+Set an experiment status to `running`.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `EXPERIMENT_ID` | string (required) | Experiment ID to enable. |
+
+```powershell
+web-search-cli experiments enable my-query-rewrite-test
+```
+
+#### `experiments disable`
+
+Set an experiment status to `paused`.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `EXPERIMENT_ID` | string (required) | Experiment ID to disable. |
+
+```powershell
+web-search-cli experiments disable my-query-rewrite-test
+```
+
+#### `experiments conclude`
+
+Set an experiment status to `concluded` with a winning variant.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `EXPERIMENT_ID` | string (required) | Experiment ID to conclude. |
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--winner` | string (required) | — | Winning variant key. |
+
+```powershell
+web-search-cli experiments conclude my-query-rewrite-test --winner variant-b
+```
+
+#### `experiments stats`
+
+Show basic stats for an experiment (status, variants, weights, winner).
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `EXPERIMENT_ID` | string (required) | Experiment ID to show stats for. |
+
+```powershell
+web-search-cli experiments stats my-query-rewrite-test
+```
+
+#### `experiments create`
+
+Scaffold a new experiment. In non-interactive mode (default), pass a JSON
+config via `--config`. In interactive mode (`--non-interactive=false`),
+prompts walk through experiment setup.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--config` | string | — | JSON string with experiment config (id, layer, hypothesis, primary_metric, traffic_pct, guardrail_metrics, variants). |
+
+```powershell
+web-search-cli experiments create --config '{"experiment_id":"rerank-test","layer":"reranking","status":"draft","hypothesis":"Bi-encoder first improves latency","primary_metric":"p95_latency_ms","traffic_pct":10,"variants":[{"variant_key":"control","weight":1,"description":"current pipeline"},{"variant_key":"bi-first","weight":1,"description":"bi-encoder before cross-encoder"}]}'
 ```
 
 ### `reference tools`
@@ -399,6 +504,9 @@ like:
 }
 ```
 
+When `--debug` is set, `meta` also includes `"log_level": "DEBUG"` and
+`"debug": true`.
+
 ## JSON envelope (error)
 
 Errors are written as JSON to stderr and exit with a non-zero code from
@@ -436,7 +544,7 @@ Error envelope:
 ## Agent guidance
 
 The guidance below is derived directly from the MCP tool docstrings
-(`server.py`, `composio_tools.py`, `agent/mcp.py`, `analytics/tools.py`),
+(`server.py`, `composio_tools.py`, `analytics/tools.py`),
 the tool catalog annotations (`tools/catalog.py`), the seven MCP prompts
 defined in `server.py`, and the `docs://workflow` resource.
 
@@ -451,23 +559,20 @@ MCP surfaces stay in sync.
 | Find URLs about a topic | `search web` | `web_search` | Lightweight results, multi-provider merge, `provider_count` agreement signal. |
 | Quick factual answer with citations | `ai gemini` | `gemini_search` | Google-grounding, `[N]` inline citations, fast. |
 | Web + X/Twitter with synthesis | `ai grok` | `grok_search` | AI-synthesized, real-time web and social data, native xAI search. |
-| Deep reasoning across many sources | `ai perplexity` | `perplexity_search` | AI-synthesized, expensive — refine the query first. |
 | Scholarly papers with filters | `search academic` | `academic_search` | 6 sources (S2, ArXiv, PubMed, OpenAlex, CrossRef, CORE), field/venue/year filters. |
 | Read one known URL | `content get` | `get_content` | 7-stage resolution (StackExchange → GitHub Issues/Discussions → Wikipedia → arXiv → HTTP → browser). |
 | Read 3+ URLs with a budget | `content batch` | `batch_get_content` | Parallel fetch, `total_char_budget`, cursor continuation. |
 | Expand a known URL into outgoing links | `links discover` | `discover_links` | Page/sitemap link discovery without body extraction. |
 | Find videos | `youtube search` | `youtube_search` | SearXNG YouTube engine. |
 | Extract video speech | `youtube transcript` | `youtube_transcript` | Timestamped or plain text, optional translation. |
-| Quick synthesized answer (Exa) | `search quick` | `quick_web_search` | Exa-backed, lighter than Perplexity. |
+| Quick synthesized answer (Exa) | `search quick` | `quick_web_search` | Exa-backed, lighter than Gemini/Grok. |
 | Expand from a known good URL | `links similar` | `composio_similarlinks` | Neural similarity, include/exclude domain filters. |
-| Image search | `images search` | `composio_image_search` | Returns URLs + metadata, not bytes. |
-| Multi-step agentic research | `agent research` | `agentic_web_research` | ReAct agent that picks tools itself; experimental, not idempotent. |
 | Local analytics question | `analytics query` | `analytics_query` | Guarded, allowlisted DuckDB query. |
 | Deterministic analytics report | `analytics report` | `analytics_report` | Fixed report catalog with `--days` window. |
 
 ### Query formulation
 
-The `web_search` command is the primary discovery path. Follow the rules
+The `search web` command is the primary discovery path. Follow the rules
 from the `web_search` docstring:
 
 - **`--rewrite` (default `True`)**: Mistral expands the query for broader
@@ -475,13 +580,13 @@ from the `web_search` docstring:
 - **`--no-rewrite`**: exact-literal search. Use for stack traces, quoted
   error messages, URLs, package versions, hashes, UUIDs, CLI flags,
   function names, or other strings that must not be paraphrased.
-- **`--num-results`**: 3 for fast existence checks, 5 (default) for
-  standard coverage, 7 for broad coverage, max 10. Results are
-  diversity-pruned, so 5–7 already gives good breadth.
-- **`--provider`**: standard providers (`searxng`, `ddg`, `gemini`) fire
-  automatically when configured. Request `tavily`/`brave`/`jina`
-  explicitly. Available: `searxng`, `ddg`, `tavily`, `brave`, `jina`,
-  `gemini`, `composio_llm_search`.
+- **`--research-goal` (required)**: a concise statement of the search
+  objective. This drives the query policy layer (intent classification,
+  provider selection, branch planning). Make it specific: "find current
+  best practices for LLM function calling in 2026", not "function calling".
+- **`--num-results`**: default `15`, clamped to `15`–`50`. Results are
+  diversity-pruned, so 15 already gives good breadth. Use 30+ for deep
+  research, 15 for standard discovery.
 - **`--domain-boost`** moves matches to the front of results
   (`stackoverflow.com`, `github.com`). **`--domain-block`** removes them
   (`pinterest.com`, `quora.com`). Both support subdomain and path-aware
@@ -497,10 +602,10 @@ Mirror of the server's `_SEARCH_TOOL_ROUTING` depth block:
 
 - **quick**: `ai gemini` or `search quick`. Skip content extraction
   unless really needed.
-- **medium**: `search web` (`--num-results 5`) → `content batch` on the
+- **medium**: `search web` (`--num-results 15`) → `content batch` on the
   best 2–3 → `ai gemini` for synthesis.
-- **deep**: `search web` (`--num-results 7`, default rewrite) →
-  `content batch` on the top 5 → `ai perplexity` on the refined query →
+- **deep**: `search web` (`--num-results 30`, default rewrite) →
+  `content batch` on the top 5 → `ai grok` on the refined query →
   `search academic` if scholarly sources are required.
 
 ### Result evaluation
@@ -531,7 +636,7 @@ Decision rules after evaluating results:
 - Thin snippets on otherwise promising URLs → `content get` first,
   then decide.
 - Deep analysis needed → refine to ONE focused question, then
-  `ai perplexity`.
+  `ai grok`.
 
 ### Pagination awareness
 
@@ -590,8 +695,8 @@ Termination criteria — stop when **all** apply:
 
 Breadth decay (each iteration narrower than the last):
 
-- Round 1: broad discovery (`search web --num-results 5-7`, rewrite on).
-- Round 2: targeted follow-up (2–3 refined queries, `--num-results 3`).
+- Round 1: broad discovery (`search web --num-results 15`, rewrite on).
+- Round 2: targeted follow-up (2–3 refined queries, `--num-results 15`).
 - Round 3: pinpoint verification (1–2 precise queries, `--no-rewrite`).
 - `links similar` on the best URL from round 1 to discover adjacent
   pages.
@@ -666,14 +771,9 @@ From `_SOURCE_TRIAGE_RULES`:
 Some commands are explicitly marked as expensive or non-idempotent in
 `tools/catalog.py`:
 
-- `ai perplexity` is **expensive** and rate-limited. The first call
-  returns a steering message with query-writing best practices; refine
-  the query and retry.
 - `ai grok` is **expensive** and **not idempotent** (live web + X data).
   Default cost: Grok 4.3 tokens ($1.25/$2.50 per 1M) + search tool
   usage. Requires `OPENROUTER_API_KEY`.
-- `agent research` is **experimental** and **not idempotent**. Use only
-  for multi-step, open-ended research.
 - `content batch` is bounded by `BATCH_GET_CONTENT_MAX_URLS`
   (default 30) and `BATCH_TOTAL_CHAR_BUDGET_MAX` (default
   300 000) server-side.
@@ -687,10 +787,10 @@ The default for the CLI global option is `full`.
 | Profile | Tools exposed |
 | --- | --- |
 | `default` | `web_search`, `get_content`, `batch_get_content`, `discover_links` |
-| `research` | `default` + `gemini_search`, `perplexity_search`, `grok_search`, `academic_search`, `quick_web_search`, `composio_similarlinks`, `agentic_web_research` |
-| `media` | `default` + `composio_image_search`, `youtube_search`, `youtube_transcript` |
+| `research` | `default` + `gemini_search`, `grok_search`, `academic_search`, `quick_web_search`, `composio_similarlinks` |
+| `media` | `default` + `youtube_search`, `youtube_transcript` |
 | `diagnostic` | `default` + `analytics_query`, `analytics_report` |
-| `experimental` | All non-`default` tools (including `agentic_web_research`) |
+| `experimental` | All non-`default` tools |
 | `full` | All tools (CLI default) |
 
 Run `web-search-cli reference tools --profile <name>` to see the exact
@@ -698,7 +798,7 @@ coverage.
 
 ### MCP prompts (for MCP clients)
 
-The server also exposes eight reusable prompts. CLI consumers can mirror
+The server also exposes seven reusable prompts. CLI consumers can mirror
 their intent by chaining the commands listed below.
 
 | Prompt | Description | Suggested CLI chain |
@@ -706,7 +806,6 @@ their intent by chaining the commands listed below.
 | `plan_web_research` | Plan research approach: choose tool, formulate queries, set depth. Use **before** any search. | `reference tools` → `search web` |
 | `evaluate_web_results` | Assess result quality and decide next action. Use **after** `search web` or `search academic`. | `content get` (or `content batch`) on best URLs |
 | `research_gap_analysis` | Identify what's missing, decompose remaining questions, plan next iteration. | Round 2 `search web` with refined terms |
-| `suggest_tool` | Recommend the best tool(s) and parameters for a task. | `reference tools --profile ...` |
 | `research_workflow` | Full discovery → extraction → synthesis workflow. | `search web` → `content batch` → `ai gemini` |
 | `academic_deep_dive` | Scholarly research pass with `search academic` first. | `search academic` → `content get` on selected papers |
 | `video_research` | YouTube-first research. | `youtube search` → `youtube transcript` |
@@ -749,18 +848,11 @@ docstring's `When to use` and `When not to use` blocks.
 - **`links discover`**: have a URL, want outbound links. Don't use it
   to read article text or to discover the starting URL.
 - **`links similar`**: have one known-good URL and want adjacent pages.
-- **`images search`**: image URLs/metadata only. URL accessibility and
-  licensing must be verified.
 - **`ai gemini`**: need a quick grounded answer with `[N]` citations.
   Don't use it to compare multiple web pages — use `search web` for
   that.
-- **`ai perplexity`**: need AI synthesis across many sources. Don't use
-  it for browsing specific URLs (use `search web` + `content get`) and
-  refine the query first.
 - **`ai grok`**: need both web and X/Twitter in one synthesised answer.
   Don't use for raw URL lists or when you already have URLs.
-- **`agent research`**: multi-step open-ended research where the agent
-  should pick tools itself. Experimental and not idempotent.
 - **`youtube search`**: discover videos. Don't use to read content
   (transcript instead) or for general web search.
 - **`youtube transcript`**: video is captioned and public. Don't use
@@ -779,7 +871,7 @@ the top result:
 
 ```powershell
 web-search-cli schema
-web-search-cli search web --query "function calling best practices 2026" --num-results 5
+web-search-cli search web --query "function calling best practices 2026" --research-goal "find current best practices for LLM function calling" --num-results 15
 web-search-cli content get --url "<top-result-url>" --char-length 8000
 ```
 
@@ -789,6 +881,12 @@ sources:
 ```powershell
 web-search-cli doctor
 web-search-cli analytics report --report-name "provider_health" --days 7
+```
+
+Enable debug logging to diagnose a slow search:
+
+```powershell
+web-search-cli --debug search web --query "test query" --research-goal "diagnose latency" --diagnostics
 ```
 
 ## Environment
@@ -806,10 +904,9 @@ Optional for advanced features:
 
 ```powershell
 $env:MISTRAL_API_KEY = "..."                       # query rewrite
-$env:GEMINI_API_KEY = "..."                 # ai gemini
-$env:POLLINATIONS_API_KEY = "..."                  # ai perplexity
+$env:GEMINI_API_KEY = "..."                        # ai gemini
 $env:OPENROUTER_API_KEY = "..."                    # ai grok
-$env:YOUTUBE_TRANSCRIPT_PROXY_URL = "..."   # youtube transcript from cloud IPs
+$env:YOUTUBE_TRANSCRIPT_PROXY_URL = "..."          # youtube transcript from cloud IPs
 ```
 
 ## Implementation pointers

@@ -186,7 +186,7 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             COUNT(*) FILTER (WHERE status = 'success') AS success_count,
             ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'success') / COUNT(*), 1) AS success_rate_pct,
             ROUND(AVG(latency_ms), 0) AS avg_latency_ms,
-            ROUND(quantile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0) AS p95_latency_ms,
+            ROUND(quantile_cont(latency_ms, 0.95), 0) AS p95_latency_ms,
             SUM(num_results_returned) AS total_results_returned,
             COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
             MODE(error_type) AS most_common_error
@@ -200,10 +200,10 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         SELECT
             run_key,
             branch_index,
-            branch_target,
+            branch_role,
             branch_query,
             branch_why,
-            ROUND(branch_weight, 3) AS branch_weight,
+            support_terms,
             assigned_providers,
             attempted_providers,
             results_count,
@@ -257,11 +257,12 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             rs.recorded_at,
             rs.stage,
             CASE
-                WHEN rs.stage = 'bm25' THEN '1. BM25 Sparse'
-                WHEN rs.stage = 'dense' THEN '2. Dense Vector'
-                WHEN rs.stage = 'cross_encoder' THEN '3. Cross-Encoder'
-                WHEN rs.stage = 'llm' THEN '4. LLM Rerank'
-                WHEN rs.stage = 'final' THEN '5. Final Fusion'
+                WHEN rs.stage = 'bi_encoder' THEN '1. Bi-Encoder'
+                WHEN rs.stage IN ('cohere_fast', 'cohere_fast_openrouter', 'voyage')
+                    THEN '2. Cross-Encoder'
+                WHEN rs.stage = 'llm_rerank' THEN '3. LLM Rerank'
+                WHEN rs.stage = 'diversity' THEN '4. Diversity'
+                WHEN rs.stage = 'rerank.final' THEN '5. Final Rerank'
                 ELSE rs.stage
             END AS stage_label,
             rs.provider, rs.model,
@@ -276,8 +277,8 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         UNION ALL
         SELECT
             run_key, recorded_at, 'search_run' AS stage, '0. Search Run' AS stage_label,
-            NULL, NULL, NULL, NULL,
-            NULL, NULL, NULL,
+            reranker_provider, reranker_model, merged_count, reranked_count,
+            ROUND(100.0 * reranked_count / NULLIF(merged_count, 0), 1),
             ROUND(duration_ms, 1), NULL, NULL, status, error_type, NULL, NULL
         FROM search_runs
         ORDER BY run_key, recorded_at
@@ -314,7 +315,7 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
                 COUNT(*) AS run_count,
                 COUNT(*) FILTER (WHERE status = 'success') AS success_count,
                 ROUND(AVG(duration_ms), 1) AS avg_latency_ms,
-                ROUND(quantile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms), 1) AS p95_latency_ms,
+                ROUND(quantile_cont(duration_ms, 0.95), 1) AS p95_latency_ms,
                 COUNT(*) FILTER (WHERE final_result_count = 0) AS zero_result_count
             FROM search_runs
             WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'
@@ -346,7 +347,7 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             END AS quality_tier,
             COUNT(*) AS result_count,
             ROUND(AVG(overall_score), 3) AS avg_score,
-            ROUND(quantile_cont(0.50) WITHIN GROUP (ORDER BY overall_score), 3) AS median_score
+            ROUND(quantile_cont(overall_score, 0.50), 3) AS median_score
         FROM judge_evaluations
         WHERE evaluated_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
         GROUP BY relevance_grade, quality_tier

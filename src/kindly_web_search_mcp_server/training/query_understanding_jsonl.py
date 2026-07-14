@@ -31,7 +31,7 @@ async def append_query_understanding_record(
         "confidence": understanding.confidence,
         "should_decompose": understanding.should_decompose,
         "rationale": understanding.rationale,
-        "must_keep_terms": understanding.must_keep_terms,
+        "preserved_terms": understanding.preserved_terms,
         "entities": [entity.model_dump() for entity in understanding.entities],
         "model": model_name,
         "prompt": prompt_name,

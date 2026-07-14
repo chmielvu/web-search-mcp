@@ -60,9 +60,7 @@ def _ensure_summary_intent_daily(connection: duckdb.DuckDBPyConnection) -> None:
             ("intent", "VARCHAR NOT NULL"),
             ("query_count", "BIGINT"),
             ("avg_confidence", "DOUBLE"),
-            ("decomposition_rate", "DOUBLE"),
-            ("fallback_rate", "DOUBLE"),
-            ("avg_rewrite_variants", "DOUBLE"),
+            ("avg_branch_count", "DOUBLE"),
         ],
         constraints=["PRIMARY KEY (day, intent)"],
     )
@@ -75,7 +73,7 @@ def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
         [
             ("day", "DATE NOT NULL"),
             ("stage", "VARCHAR NOT NULL"),
-            ("provider", "VARCHAR"),
+            ("provider", "VARCHAR NOT NULL"),
             ("runs_count", "BIGINT"),
             ("avg_compression_ratio", "DOUBLE"),
             ("avg_max_score", "DOUBLE"),

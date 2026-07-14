@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from kindly_web_search_mcp_server.search.contracts import (
-    ProviderTarget,
+    BranchRole,
     QueryBranch,
     WebSearchRequest,
 )
@@ -16,10 +16,11 @@ from kindly_web_search_mcp_server.search.provider_registry import (
 
 def test_registry_has_exact_provider_matrix() -> None:
     assert tuple(PROVIDER_DEFINITIONS) == tuple(PROVIDER_ADAPTERS)
-    assert len(PROVIDER_DEFINITIONS) == 19
-    assert all(definition.search_engine is None for definition in PROVIDER_DEFINITIONS.values())
+    assert len(PROVIDER_DEFINITIONS) == 21
     assert PROVIDER_DEFINITIONS["qdrant"].requires_embedding is True
-    assert ProviderTarget.COMMUNITY in PROVIDER_DEFINITIONS["brave_news"].targets
+    assert "brightdata_bing" in PROVIDER_DEFINITIONS
+    assert "brightdata_yandex" in PROVIDER_DEFINITIONS
+    assert not hasattr(PROVIDER_DEFINITIONS["ddg"], "targets")
 
 
 def test_request_enforces_goal_and_result_window() -> None:
@@ -36,11 +37,14 @@ def test_request_enforces_goal_and_result_window() -> None:
         )
 
 
-def test_query_branch_has_no_redundant_kind() -> None:
+def test_query_branch_uses_role_and_provider_names() -> None:
     branch = QueryBranch(
-        target=ProviderTarget.KEYWORD,
+        role=BranchRole.PAID_BRAVE,
         query="alpha",
+        provider_names=("brave",),
         why="test",
         max_results=15,
     )
-    assert "kind" not in branch.model_dump()
+    dumped = branch.model_dump()
+    assert dumped["role"] == "paid_brave"
+    assert dumped["provider_names"] == ("brave",)

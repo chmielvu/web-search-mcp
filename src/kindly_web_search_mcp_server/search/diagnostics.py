@@ -12,7 +12,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import BranchOutcome, DiagnosticsCollector, SearchRun
-from .provider_registry import get_provider_definition
 
 
 class _DiagBase(BaseModel):
@@ -43,7 +42,7 @@ class DiagnosticsProviderCall(_DiagBase):
     provider: str
     status: str
     branch_index: int | None = None
-    branch_target: str | None = None
+    branch_role: str | None = None
     num_results_returned: int | None = None
     latency_ms: float | None = None
     error_type: str | None = None
@@ -53,11 +52,10 @@ class DiagnosticsProviderCall(_DiagBase):
 
 class DiagnosticsBranch(_DiagBase):
     branch_index: int
-    branch_target: str
+    branch_role: str
     branch_query: str
     branch_why: str = ""
-    branch_weight: float = 1.0
-    must_keep_terms: tuple[str, ...] = ()
+    support_terms: tuple[str, ...] = ()
     max_results: int = 15
     assigned_providers: tuple[str, ...] = ()
     attempted_providers: tuple[str, ...] = ()
@@ -166,7 +164,7 @@ def _provider_call_from_dict(row: dict[str, Any]) -> DiagnosticsProviderCall | N
         provider=provider,
         status=status,
         branch_index=row.get("branch_index") if isinstance(row.get("branch_index"), int) else None,
-        branch_target=row.get("branch_target") if isinstance(row.get("branch_target"), str) else None,
+        branch_role=row.get("branch_role") if isinstance(row.get("branch_role"), str) else None,
         num_results_returned=row.get("num_results_returned")
         if isinstance(row.get("num_results_returned"), int)
         else None,
@@ -192,9 +190,9 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
                 )
                 if parsed is not None
             )
-            target = row.get("branch_target")
+            role = row.get("branch_role")
             query = row.get("branch_query")
-            if not isinstance(target, str) or not isinstance(query, str):
+            if not isinstance(role, str) or not isinstance(query, str):
                 continue
             latency = row.get("latency_ms")
             branches.append(
@@ -202,11 +200,10 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
                     branch_index=row.get("branch_index", index)
                     if isinstance(row.get("branch_index"), int)
                     else index,
-                    branch_target=target,
+                    branch_role=role,
                     branch_query=query,
                     branch_why=str(row.get("branch_why") or ""),
-                    branch_weight=float(row.get("branch_weight") or 1.0),
-                    must_keep_terms=_coerce_str_tuple(row.get("must_keep_terms")),
+                    support_terms=_coerce_str_tuple(row.get("support_terms")),
                     max_results=int(row.get("max_results") or 15),
                     assigned_providers=_coerce_str_tuple(row.get("assigned_providers")),
                     attempted_providers=_coerce_str_tuple(row.get("attempted_providers")),
@@ -223,21 +220,15 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
         return ()
     output: list[DiagnosticsBranch] = []
     for index, (branch, outcome) in enumerate(zip(plan.branches, run.outcomes, strict=False)):
-        assigned = tuple(
-            name
-            for name in plan.selected_provider_names
-            if branch.target in get_provider_definition(name).targets
-        )
         output.append(
             DiagnosticsBranch(
                 branch_index=index,
-                branch_target=branch.target.value,
+                branch_role=branch.role.value,
                 branch_query=branch.query,
                 branch_why=branch.why,
-                branch_weight=branch.weight,
-                must_keep_terms=branch.must_keep_terms,
+                support_terms=branch.support_terms,
                 max_results=branch.max_results,
-                assigned_providers=assigned,
+                assigned_providers=branch.provider_names,
                 attempted_providers=outcome.attempted_provider_names,
                 skipped_providers=outcome.skipped_provider_names,
                 results_count=len(outcome.results),
@@ -310,7 +301,12 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
     timings = tuple(sorted(dc.phase_timings.items())) if dc.phase_timings else tuple(
         sorted(run.timings.items())
     )
-    selected = plan.selected_provider_names if plan is not None else ()
+    selected: tuple[str, ...] = ()
+    if plan is not None:
+        names: set[str] = set()
+        for b in plan.branches:
+            names.update(b.provider_names)
+        selected = tuple(sorted(names))
     skipped: set[str] = set()
     for outcome in run.outcomes:
         skipped.update(outcome.skipped_provider_names)
@@ -338,11 +334,10 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
 def branch_outcome_preview(outcome: BranchOutcome) -> dict[str, Any]:
     """Lightweight dict used when populating ``DiagnosticsCollector.branch_results``."""
     return {
-        "branch_target": outcome.branch.target.value,
+        "branch_role": outcome.branch.role.value,
         "branch_query": outcome.branch.query,
         "branch_why": outcome.branch.why,
-        "branch_weight": outcome.branch.weight,
-        "must_keep_terms": list(outcome.branch.must_keep_terms),
+        "support_terms": list(outcome.branch.support_terms),
         "max_results": outcome.branch.max_results,
         "attempted_providers": list(outcome.attempted_provider_names),
         "skipped_providers": list(outcome.skipped_provider_names),

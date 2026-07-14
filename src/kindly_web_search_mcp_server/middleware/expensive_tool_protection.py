@@ -29,9 +29,9 @@ SESSION_TIMEOUT_SECONDS = 300  # 5 minutes
 
 # Best practices message for query writing - concise but dense
 QUERY_QUALITY_STEERING_MESSAGE = """
-⚠️ PERPLEXITY SONAR: EXPENSIVE RESOURCE — QUERY QUALITY REQUIRED
+⚠️ EXPENSIVE RESOURCE — QUERY QUALITY REQUIRED
 
-Perplexity Sonar is rate-limited and costly. Before retrying, refine your query:
+This tool is rate-limited and costly. Before retrying, refine your query:
 
 **MANDATORY RULES:**
 1. **Add 2-3 words of context** — transforms vague queries into precise searches

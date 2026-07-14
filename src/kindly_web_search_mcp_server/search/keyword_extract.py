@@ -64,7 +64,7 @@ def _restore_casing(phrase: str, source: str) -> str:
     return source[start : start + len(phrase)] if start >= 0 else phrase
 
 
-async def extract_must_keep_terms(
+async def extract_support_terms(
     research_goal: str,
     *,
     max_terms: int = 8,
@@ -73,3 +73,4 @@ async def extract_must_keep_terms(
     loop = asyncio.get_running_loop()
     raw_phrases = await loop.run_in_executor(None, _rake_extract, research_goal, max_terms)
     return [_restore_casing(phrase, research_goal) for phrase in raw_phrases]
+

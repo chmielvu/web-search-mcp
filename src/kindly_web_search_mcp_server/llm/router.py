@@ -61,6 +61,7 @@ class LLMRouter:
                     "timeout": timeout_seconds or endpoint.timeout_seconds,
                     "no-log": True,
                     "num_retries": 0,
+                    "max_retries": 0,
                 }
                 if response_format is not None:
                     request_kwargs["response_format"] = response_format

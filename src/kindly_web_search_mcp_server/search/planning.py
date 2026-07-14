@@ -1,34 +1,43 @@
-"""Deterministic request planning for the shared web-search service."""
+"""Deterministic six-branch planning for the shared web-search service."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any, Awaitable
+from typing import Any, Awaitable, Sequence
 
 from ..llm.router import build_worker_router
 from ..telemetry.spans import get_tracer
 from .brave import spellcheck_brave, suggest_brave_queries
-from .contracts import ContractModel, ProviderTarget, QueryBranch, SearchPlan, SearchRun
+from .contracts import BranchRole, ContractModel, QueryBranch, SearchPlan, SearchRun
 from .intent_policy import resolve_intent_policy
-from .keyword_extract import extract_must_keep_terms
-from .normalize import normalize_query
-from .provider_registry import PROVIDER_DEFINITIONS, select_provider_names
+from .keyword_extract import extract_support_terms
 from .understanding.resolver import resolve_query_understanding
+from .normalize import normalize_query
+from .provider_registry import select_paid_google_provider, select_provider_names
 
 LOGGER = logging.getLogger(__name__)
-_ENRICHMENT_TIMEOUT_SECONDS = 10.0
-_TARGET_PRIORITY = (
-    ProviderTarget.ORIGINAL,
-    ProviderTarget.KEYWORD,
-    ProviderTarget.NEURAL,
-    ProviderTarget.COMMUNITY,
-)
+_ENRICHMENT_TIMEOUT_SECONDS = 3.0
+
+_ORIGINAL_FREE_CANDIDATES = ("searxng", "ddg", "gemma", "degoog")
+_PAID_BRAVE_CANDIDATES = ("brave",)
+_PAID_GOOGLE_CANDIDATES = ("brightdata", "serper", "search_router")
+_PAID_OTHER_CANDIDATES = ("brightdata_yandex", "brightdata_bing", "serpapi")
+_NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search")
 
 
-class _RewriteBranches(ContractModel):
-    branches: tuple[QueryBranch, ...]
+class _RewriteQueries(ContractModel):
+    paid_brave: str
+    paid_google: str
+    paid_other: str
+    neural: str
+    specialized: str
+
+
+def _branch_names(candidates: Sequence[str], available: Sequence[str]) -> tuple[str, ...]:
+    avail_set = set(available)
+    return tuple(n for n in candidates if n in avail_set)
 
 
 async def _bounded(awaitable: Awaitable[Any]) -> Any:
@@ -62,18 +71,23 @@ def _suggestions(payload: object) -> tuple[str, ...]:
     return _stable_terms(output)
 
 
-async def _rewrite_branches(
+def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
+    folded = base.casefold()
+    additions = [term for term in terms[:4] if term.casefold() not in folded]
+    return normalize_query(" ".join((base, *additions)))
+
+
+async def _rewrite_queries(
     *,
     query: str,
     research_goal: str,
     terms: tuple[str, ...],
     suggestions: tuple[str, ...],
     correction: str | None,
-    num_results: int,
-) -> tuple[tuple[QueryBranch, ...], dict[str, Any]]:
+) -> tuple[_RewriteQueries, dict[str, Any]]:
     evidence = {
-        "must_keep_terms": terms,
-        "suggestions": suggestions,
+        "support_terms": list(terms),
+        "suggestions": list(suggestions),
         "spell_correction": correction,
     }
     started = time.monotonic()
@@ -82,10 +96,14 @@ async def _rewrite_branches(
             {
                 "role": "system",
                 "content": (
-                    "Return at most five search branches as JSON {branches:[...]}. "
-                    "Each branch must contain target (keyword, neural, or community), "
-                    "query, why, weight, must_keep_terms, and max_results. Preserve "
-                    "the user's operators and mandatory terms."
+                    "Return five role-specific search queries as JSON. "
+                    "Fields: paid_brave, paid_google, paid_other, neural, specialized. "
+                    "Each field is a natural-language search query string. "
+                    "paid_brave is for Brave Search. paid_google is for Google/BrightData. "
+                    "paid_other is for Bing/Yandex/Baidu. neural is for semantic/vector search. "
+                    "specialized is for intent-specific providers. "
+                    "Use the support_terms, suggestions, and spell_correction as evidence. "
+                    "Preserve the user's operators and mandatory terms."
                 ),
             },
             {
@@ -93,59 +111,18 @@ async def _rewrite_branches(
                 "content": f"query={query!r}\nresearch_goal={research_goal!r}\nevidence={evidence!r}",
             },
         ],
-        response_model=_RewriteBranches,
+        response_model=_RewriteQueries,
         timeout_seconds=20.0,
     )
-    parsed = _RewriteBranches.model_validate_json(generation.content)
-    branches = tuple(
-        branch.model_copy(update={"max_results": num_results})
-        for branch in parsed.branches[:5]
-        if normalize_query(branch.query)
-    )
+    parsed = _RewriteQueries.model_validate_json(generation.content)
     metadata = {
         "model": generation.model_used,
         "input_tokens": generation.input_tokens,
         "output_tokens": generation.output_tokens,
         "latency_ms": (time.monotonic() - started) * 1000.0,
-        "branch_count": len(branches),
         "prompt": f"query={query!r}\nresearch_goal={research_goal!r}",
     }
-    return branches, metadata
-
-def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
-    folded = base.casefold()
-    additions = [term for term in terms[:4] if term.casefold() not in folded]
-    return normalize_query(" ".join((base, *additions)))
-
-
-def _dedupe_and_cover(
-    branches: list[QueryBranch], selected_provider_names: tuple[str, ...], num_results: int
-) -> tuple[QueryBranch, ...]:
-    represented_targets = {
-        target for name in selected_provider_names for target in PROVIDER_DEFINITIONS[name].targets
-    }
-    existing_targets = {branch.target for branch in branches}
-    original_query = branches[0].query
-    for target in _TARGET_PRIORITY:
-        if target in represented_targets and target not in existing_targets:
-            branches.append(
-                QueryBranch(
-                    target=target,
-                    query=original_query,
-                    why="selected-provider target coverage",
-                    max_results=num_results,
-                )
-            )
-            existing_targets.add(target)
-    seen: set[tuple[ProviderTarget, str]] = set()
-    output: list[QueryBranch] = []
-    for branch in branches:
-        key = (branch.target, normalize_query(branch.query).casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        output.append(branch)
-    return tuple(output[:10])
+    return parsed, metadata
 
 
 async def plan_search(run: SearchRun) -> SearchPlan:
@@ -164,7 +141,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         )
         policy = resolve_intent_policy(understanding.intent)
         enrichment = await asyncio.gather(
-            _bounded(extract_must_keep_terms(request.research_goal)),
+            _bounded(extract_support_terms(request.research_goal)),
             _bounded(suggest_brave_queries(normalized_query, http_client=run.http_client)),
             _bounded(spellcheck_brave(normalized_query, http_client=run.http_client)),
             return_exceptions=True,
@@ -172,7 +149,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         terms = _stable_terms(enrichment[0]) if isinstance(enrichment[0], list) else ()
         suggestions = _suggestions(enrichment[1])
         correction = enrichment[2] if isinstance(enrichment[2], str) else None
-        selected = select_provider_names(policy.specialized_providers)
+        available = select_provider_names(policy.specialized_providers)
         dc = run.diagnostics
         dc.intent = str(understanding.intent)
         dc.understanding_confidence = understanding.confidence
@@ -181,75 +158,144 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "brave_autosuggest": list(suggestions),
             "brave_spellcheck": correction,
         }
-        branches = [
-            QueryBranch(
-                target=ProviderTarget.ORIGINAL,
-                query=normalized_query,
-                why="original normalized query",
-                must_keep_terms=terms,
-                max_results=request.num_results,
-            )
-        ]
-        keyword_query = _keyword_query(
-            normalize_query(correction) if correction else normalized_query,
-            terms,
-        )
+
+        # --- materialize six independent allowlists ---
+        original_free = _branch_names(_ORIGINAL_FREE_CANDIDATES, available)
+        paid_brave = _branch_names(_PAID_BRAVE_CANDIDATES, available)
+        paid_google_name = select_paid_google_provider(available)
+        paid_google = (paid_google_name,) if paid_google_name else ()
+        paid_other = _branch_names(_PAID_OTHER_CANDIDATES, available)
+        neural = _branch_names(_NEURAL_CANDIDATES, available)
+        specialized = _branch_names(policy.specialized_providers, available)
+
+        # --- compute deterministic fallback queries ---
+        keyword_base = normalize_query(correction) if correction else normalized_query
+        keyword_query = _keyword_query(keyword_base, terms)
+        brave_fallback = keyword_query
+        for sugg in suggestions:
+            if sugg.casefold() not in {normalized_query.casefold(), keyword_query.casefold()}:
+                brave_fallback = _keyword_query(sugg, terms)
+                break
+
+        fallback = (brave_fallback, keyword_query, keyword_query, normalized_query, normalized_query)
+
+        # --- resolve query texts ---
         if request.rewrite:
             try:
-                rewrite_branches, rewrite_meta = await _rewrite_branches(
+                rewrite, rewrite_meta = await _rewrite_queries(
                     query=normalized_query,
                     research_goal=request.research_goal,
                     terms=terms,
                     suggestions=suggestions,
                     correction=correction,
-                    num_results=request.num_results,
                 )
-                branches.extend(rewrite_branches)
+                rewrite_meta["branch_count"] = 6
                 dc.rewrite_metadata = rewrite_meta
+                queries = (
+                    normalize_query(rewrite.paid_brave),
+                    normalize_query(rewrite.paid_google),
+                    normalize_query(rewrite.paid_other),
+                    normalize_query(rewrite.neural),
+                    normalize_query(rewrite.specialized),
+                )
             except Exception as exc:
-                LOGGER.warning(
-                    "Query rewrite failed; using target coverage: %s", type(exc).__name__
-                )
-                dc.rewrite_metadata = {"error": type(exc).__name__}
+                LOGGER.warning("Query rewrite failed; using deterministic fallback: %s", type(exc).__name__)
+                dc.rewrite_metadata = {"error": type(exc).__name__, "branch_count": 6}
+                queries = fallback
         else:
-            if keyword_query:
-                branches.append(
-                    QueryBranch(
-                        target=ProviderTarget.KEYWORD,
-                        query=keyword_query,
-                        why="deterministic spellcheck and keyword enrichment",
-                        must_keep_terms=terms,
-                        max_results=request.num_results,
-                    )
-                )
-            for suggestion in suggestions:
-                if suggestion.casefold() not in {
-                    normalized_query.casefold(),
-                    keyword_query.casefold(),
-                }:
-                    branches.append(
-                        QueryBranch(
-                            target=ProviderTarget.KEYWORD,
-                            query=suggestion,
-                            why="Brave Autosuggest",
-                            must_keep_terms=terms,
-                            max_results=request.num_results,
-                        )
-                    )
-                    break
-        branches_tuple = _dedupe_and_cover(branches, selected, request.num_results)
+            dc.rewrite_metadata = {"branch_count": 6}
+            queries = fallback
+
+        # --- build six branches in fixed role order ---
+        branches: tuple[QueryBranch, ...] = (
+            QueryBranch(
+                role=BranchRole.ORIGINAL_FREE,
+                query=normalized_query,
+                provider_names=original_free,
+                why="original normalized query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+            QueryBranch(
+                role=BranchRole.PAID_BRAVE,
+                query=queries[0],
+                provider_names=paid_brave,
+                why="LLM paid_brave" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic Brave query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+            QueryBranch(
+                role=BranchRole.PAID_GOOGLE,
+                query=queries[1],
+                provider_names=paid_google,
+                why="LLM paid_google" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic Google query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+            QueryBranch(
+                role=BranchRole.PAID_OTHER,
+                query=queries[2],
+                provider_names=paid_other,
+                why="LLM paid_other" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic paid-other query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+            QueryBranch(
+                role=BranchRole.NEURAL,
+                query=queries[3],
+                provider_names=neural,
+                why="LLM neural" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic neural query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+            QueryBranch(
+                role=BranchRole.SPECIALIZED,
+                query=queries[4],
+                provider_names=specialized,
+                why="LLM specialized" if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata else "deterministic specialized query",
+                support_terms=terms,
+                max_results=request.num_results,
+            ),
+        )
+
+        # --- build provider arguments with engine-specific overrides ---
+        provider_arguments = {
+            name: dict(bundle) if isinstance(bundle, dict) else {}
+            for name, bundle in (policy.provider_arguments or {}).items()
+        }
+        brightdata_base = provider_arguments.get("brightdata", {})
+        provider_arguments["brightdata_yandex"] = {
+            **brightdata_base,
+            "provider_name": "brightdata_yandex",
+            "language": str(brightdata_base.get("language", "en")),
+            "yandex_region": "84",
+            "search_type": "web",
+            "use_bing": False,
+        }
+        provider_arguments["brightdata_bing"] = {
+            **brightdata_base,
+            "provider_name": "brightdata_bing",
+            "country": str(brightdata_base.get("country", "us")),
+            "language": str(brightdata_base.get("language", "en")),
+            "search_type": "web",
+            "use_bing": False,
+        }
+        provider_arguments["serpapi"] = {
+            **provider_arguments.get("serpapi", {}),
+            "engine": "baidu",
+        }
+
         plan = SearchPlan.create(
             normalized_query=normalized_query,
             relevance_query=f"{normalized_query}\n{request.research_goal}",
             understanding=understanding,
             options=request.options,
-            selected_provider_names=selected,
-            provider_arguments=policy.provider_arguments,
-            branches=branches_tuple,
+            provider_arguments=provider_arguments,
+            branches=branches,
             policy_version=policy.policy_version,
         )
         run.plan = plan
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0
-        span.set_attribute("search.branch_count", len(branches_tuple))
+        span.set_attribute("search.branch_count", len(branches))
         span.set_attribute("search.intent", dc.intent or "")
         return plan

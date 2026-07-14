@@ -6,8 +6,6 @@ import tempfile
 from pathlib import Path
 
 from kindly_web_search_mcp_server.entity.models import EntitySpan
-from kindly_web_search_mcp_server.search.context import SearchContext
-from kindly_web_search_mcp_server.search.options import SearchOptions
 from kindly_web_search_mcp_server.search.understanding.models import QueryUnderstandingResult
 from kindly_web_search_mcp_server.training.query_understanding_jsonl import (
     append_query_outcome_record,
@@ -16,20 +14,6 @@ from kindly_web_search_mcp_server.training.query_understanding_jsonl import (
 
 
 def test_training_jsonl_writes_understanding_and_outcome() -> None:
-    context = SearchContext(
-        raw_query="FastAPI docs",
-        normalized_query="FastAPI docs",
-        research_goal="find docs",
-        session_id="session-1",
-        intent="general",
-        confidence=0.9,
-        should_decompose=False,
-        rationale="clear request",
-        entities=(),
-        must_keep_terms=("FastAPI",),
-        num_results=5,
-        search_options=SearchOptions(),
-    )
     understanding = QueryUnderstandingResult(
         intent="general",
         confidence=0.9,
@@ -42,21 +26,25 @@ def test_training_jsonl_writes_understanding_and_outcome() -> None:
 
         asyncio.run(
             append_query_understanding_record(
-                context=context,
+                raw_query="FastAPI docs",
+                normalized_query="FastAPI docs",
+                research_goal="find docs",
                 understanding=understanding,
                 model_name="vercel/amazon-nova-micro",
                 prompt_name="query_understanding",
                 path=str(path),
-                session_id=context.session_id,
+                session_id="session-1",
             )
         )
         asyncio.run(
             append_query_outcome_record(
-                context=context,
+                raw_query="FastAPI docs",
+                normalized_query="FastAPI docs",
+                research_goal="find docs",
                 understanding=understanding,
                 results=[{"title": "FastAPI", "link": "https://example.com", "snippet": "docs"}],
                 path=str(path),
-                session_id=context.session_id,
+                session_id="session-1",
             )
         )
 
@@ -66,4 +54,6 @@ def test_training_jsonl_writes_understanding_and_outcome() -> None:
         second = json.loads(lines[1])
         assert first["session_id"] == "session-1"
         assert first["intent"] == "general"
+        assert "preserved_terms" in first
+        assert first["preserved_terms"] == ["FastAPI"]
         assert second["result_count"] == 1

@@ -116,13 +116,10 @@ RESULT_DOMAIN = "result.domain"
 RESULT_TITLE = "result.title"
 RESULT_URL = "result.url"
 
-# --- Gemini/Perplexity Attributes ---
+# --- Gemini Attributes ---
 GEMINI_GROUNDING_QUERIES = "gemini.grounding_queries"
 GEMINI_GROUNDING_CHUNKS = "gemini.grounding_chunks"
 GEMINI_STRUCTURED_OUTPUT = "gemini.structured_output"
-PERPLEXITY_DEPTH = "perplexity.depth"
-PERPLEXITY_SOURCE_COUNT = "perplexity.source_count"
-PERPLEXITY_MODEL = "perplexity.model"
 
 # --- YouTube Attributes ---
 YOUTUBE_FORMAT = "youtube.format"
@@ -152,7 +149,7 @@ CONTENT_STAGE_GITHUB = "github_issue"
 CONTENT_STAGE_WIKIPEDIA = "wikipedia"
 CONTENT_STAGE_ARXIV = "arxiv"
 CONTENT_STAGE_HTTP_EXTRACT = "http_extract"
-CONTENT_STAGE_NODRIVER = "nodriver"  # Deprecated: kept for backward compat
+CONTENT_STAGE_CAMOUFOX = "camoufox"
 CONTENT_STAGE_CRAWL4AI = "crawl4ai"
 
 __all__ = [
@@ -170,10 +167,10 @@ __all__ = [
     "CONTENT_SIZE_BYTES",
     "CONTENT_STAGE",
     "CONTENT_STAGE_ARXIV",
+    "CONTENT_STAGE_CAMOUFOX",
     "CONTENT_STAGE_CRAWL4AI",
     "CONTENT_STAGE_GITHUB",
     "CONTENT_STAGE_HTTP_EXTRACT",
-    "CONTENT_STAGE_NODRIVER",
     "CONTENT_STAGE_STACKEXCHANGE",
     "CONTENT_STAGE_WIKIPEDIA",
     "CONTENT_STATUS",
@@ -202,10 +199,7 @@ __all__ = [
     "OPENINFERENCE_SPAN_KIND",
     "OPENINFERENCE_SPAN_KIND_CHAIN",
     "OPENINFERENCE_SPAN_KIND_LLM",
-    "PERPLEXITY_DEPTH",
-    "PERPLEXITY_MODEL",
-    "PERPLEXITY_SOURCE_COUNT",
-    "PROVIDER_BRAVE",
+        "PROVIDER_BRAVE",
     "PROVIDER_DDG",
     "PROVIDER_DURATION_MS",
     "PROVIDER_ERROR_TYPE",

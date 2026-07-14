@@ -179,14 +179,18 @@ async def search_brave(
         for entry in generic:
             if not isinstance(entry, dict):
                 continue
-            link = entry.get("source")
+            link = entry.get("url") or entry.get("source")
             if not isinstance(link, str) or not link.strip():
                 continue
             link = link.strip()
             title = entry.get("title")
             if not isinstance(title, str) or not title.strip():
                 title = link.split("//")[-1].split("/")[0] or link
-            snippet = entry.get("snippet") or entry.get("content") or entry.get("description") or ""
+            snippets_raw = entry.get("snippets")
+            if isinstance(snippets_raw, list):
+                snippet = " ".join(s for s in snippets_raw if isinstance(s, str))
+            else:
+                snippet = entry.get("snippet") or entry.get("content") or entry.get("description") or ""
             if not isinstance(snippet, str):
                 snippet = ""
             results.append(WebSearchResult(title=title, link=link, snippet=snippet.strip()))

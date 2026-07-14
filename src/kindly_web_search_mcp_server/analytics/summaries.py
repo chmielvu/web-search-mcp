@@ -45,10 +45,10 @@ def refresh_summary_tables(db_path: str | None = None) -> None:
                     count(*) AS query_count,
                     avg(num_results_returned) AS avg_results_returned,
                     approx_quantile(num_results_returned, 0.5) AS p50_results_returned,
-                    avg(duration_ms) AS avg_latency_ms,
-                    approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
-                    approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
-                    count(*) FILTER (WHERE error_code IS NOT NULL) * 1.0 / count(*) AS error_rate,
+                    avg(latency_ms) AS avg_latency_ms,
+                    approx_quantile(latency_ms, 0.5) AS p50_latency_ms,
+                    approx_quantile(latency_ms, 0.95) AS p95_latency_ms,
+                    count(*) FILTER (WHERE error_type IS NOT NULL) * 1.0 / count(*) AS error_rate,
                     count(DISTINCT run_key) AS distinct_queries
                 FROM provider_calls
                 WHERE recorded_at >= now() - INTERVAL '2 days'
@@ -70,28 +70,19 @@ def refresh_summary_tables(db_path: str | None = None) -> None:
                 f"""
                 INSERT INTO {_SUM_ID_TABLE_NAME} BY NAME
                 SELECT
-                    date_trunc('day', qu.recorded_at)::DATE AS day,
-                    qu.intent,
+                    date_trunc('day', recorded_at)::DATE AS day,
+                    intent,
                     count(*) AS query_count,
-                    avg(qu.confidence) AS avg_confidence,
-                    count(*) FILTER (WHERE qu.should_decompose) * 1.0 / count(*) AS decomposition_rate,
-                    count(*) FILTER (WHERE qu.fallback_used) * 1.0 / count(*) AS fallback_rate,
-                    avg(COALESCE(qr.cnt, 0)) AS avg_rewrite_variants
-                FROM query_understanding qu
-                LEFT JOIN (
-                    SELECT run_key, COUNT(*) AS cnt
-                    FROM query_rewrites
-                    GROUP BY run_key
-                ) qr ON qu.run_key = qr.run_key
-                WHERE qu.recorded_at >= now() - INTERVAL '2 days'
-                    AND qu.intent IS NOT NULL
+                    avg(understanding_confidence) AS avg_confidence,
+                    avg(COALESCE(branch_count, 0)) AS avg_branch_count
+                FROM search_runs
+                WHERE recorded_at >= now() - INTERVAL '2 days'
+                    AND intent IS NOT NULL
                 GROUP BY ALL
                 ON CONFLICT (day, intent) DO UPDATE SET
                     query_count = excluded.query_count,
                     avg_confidence = excluded.avg_confidence,
-                    decomposition_rate = excluded.decomposition_rate,
-                    fallback_rate = excluded.fallback_rate,
-                    avg_rewrite_variants = excluded.avg_rewrite_variants
+                    avg_branch_count = excluded.avg_branch_count
                 """
             )
 
@@ -102,7 +93,7 @@ def refresh_summary_tables(db_path: str | None = None) -> None:
                 SELECT
                     date_trunc('day', recorded_at)::DATE AS day,
                     stage,
-                    provider,
+                    COALESCE(provider, 'internal') AS provider,
                     count(*) AS runs_count,
                     avg(input_count * 1.0 / NULLIF(output_count, 0)) AS avg_compression_ratio,
                     avg(max_score) AS avg_max_score,

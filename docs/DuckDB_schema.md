@@ -2,93 +2,76 @@
 
 > Full schema documentation for the web-search-mcp analytics and A/B testing database.
 
-**21 tables** · **13 views** · **3 modules** (Analytics, A/B Testing, Summaries)
+**9 fact/embedding tables + provider_health + quality + judge + 4 summary tables + A/B tables** · **10 dashboard views + A/B views + eval views**
 
 ---
 
 ## Table of Contents
 
-1. [Raw Event Store](#1-search_events-raw-event-store)
-2. [Search Pipeline Tables (Tables 5–10)](#search-pipeline-tables)
-3. [Quality & Judge Tables (Tables 11–16)](#quality--judge-tables)
-4. [A/B Testing Tables (Tables 17–21)](#ab-testing-tables)
-5. [Summary Tables (Tables 12–15)](#summary-tables)
-6. [Views](#views)
-7. [Module Map](#module-map)
-8. [Settings Reference](#settings-reference)
-9. [A/B Pipeline Wiring](#ab-pipeline-wiring)
-10. [ER Relationships](#er-relationships)
-
----
-
-## 1. search_events (raw event store)
-
-**Table name:** `search_events`
-**DDL location:** `duckdb_store.py` → `_ensure_schema()`
-**Write function:** `append_event()`
-**Purpose:** Generic append-only observability event store. Every observability event (any phase, any tool) lands here first. Column values are normalised from `payload_json` via backfill UPDATEs.
-
-### Columns
-
-| Column | Type | Notes |
-|---|---|---|
-| `event_id` | `VARCHAR` | Auto-generated UUID |
-| `event_name` | `VARCHAR` | Dot-notation e.g. `web_search.provider_call` |
-| `recorded_at` | `TIMESTAMP` | Set to `CURRENT_TIMESTAMP` on insert |
-| `run_key` | `VARCHAR` | Extracted from `trace_id` or `request_fingerprint` in payload |
-| `tool_name` | `VARCHAR` | Extracted from `$.tool_name` in payload_json |
-| `phase` | `VARCHAR` | Last component of `event_name` after `.` |
-| `query` | `VARCHAR` | Original query from payload |
-| `normalized_query` | `VARCHAR` | Normalised query from payload |
-| `research_goal` | `VARCHAR` | Research goal from payload |
-| `provider` | `VARCHAR` | Coalesced from `$.provider`, `$.provider_name` |
-| `model` | `VARCHAR` | Model identifier from payload |
-| `duration_ms` | `DOUBLE` | Coalesced from `$.duration_ms` or `$.duration_seconds * 1000` |
-| `input_count` | `INTEGER` | Coalesced from multiple payload keys |
-| `output_count` | `INTEGER` | Coalesced from multiple payload keys |
-| `trace_id` | `VARCHAR` | Trace identifier from payload |
-| `span_id` | `VARCHAR` | Span identifier from payload |
-| `cache_hit` | `VARCHAR` | Cache status from payload |
-| `payload_json` | `VARCHAR` | Full original payload as JSON string |
-
-### Notes
-
-- **Backfill strategy:** Columns that can be derived from `payload_json` are backfilled via UPDATE statements after table creation. New rows always get explicit values.
-- **Not primary-keyed** — designed as a write-once, append-only log.
+1. [Search Pipeline Tables](#search-pipeline-tables)
+2. [Embedding Tables](#embedding-tables)
+3. [Quality & Judge Tables](#quality--judge-tables)
+4. [Provider Health](#provider-health)
+5. [Summary Tables](#summary-tables)
+6. [A/B Testing Tables](#ab-testing-tables)
+7. [Views](#views)
+8. [Branch-Role Model](#branch-role-model)
 
 ---
 
 ## Search Pipeline Tables
 
-These 9 tables capture the lifecycle of a single web-search run through the pipeline: run start → query understanding → query rewriting → provider calls → provider candidates → merge → rerank → final results.
+These tables capture the lifecycle of a single web-search run through the
+fixed six-branch topology: run start → branch execution → provider calls →
+merge → rerank → final results.
 
-### 2. search_runs
+### 1. search_runs
 
 **Table name:** `search_runs`
-**DDL location:** `duckdb_store.py` → `_ensure_search_runs()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_search_runs()`
 **Write function:** `insert_search_run()`
-**Purpose:** One row per search pipeline invocation. Root entity for the entire run lifecycle.
+**Purpose:** One row per search pipeline invocation. Root entity for the
+entire run lifecycle.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | Unique run identifier |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | Unique run identifier |
+| `tool_call_id` | `VARCHAR` | MCP tool call ID |
+| `session_id` | `VARCHAR` | User session identifier |
 | `query` | `VARCHAR NOT NULL` | Original user query |
-| `normalized_query` | `VARCHAR` | Normalised/cleaned query |
-| `research_goal` | `VARCHAR` | Inferred user research goal |
+| `normalized_query` | `VARCHAR` | Normalised query from plan |
+| `research_goal` | `VARCHAR` | Research goal from request |
+| `intent` | `VARCHAR` | Classified intent |
+| `understanding_confidence` | `DOUBLE` | LLM confidence in classification |
 | `num_results_requested` | `INTEGER` | How many results the caller requested |
 | `rewrite_enabled` | `BOOLEAN` | Whether query rewriting was active |
-| `session_id` | `VARCHAR` | User session identifier |
-| `tool_name` | `VARCHAR` | `DEFAULT 'web_search'` |
-| `duration_ms` | `DOUBLE` | Total pipeline duration |
-| `final_result_count` | `INTEGER` | Count of results returned to user |
-| `candidate_count` | `INTEGER` | Total raw candidates gathered |
-| `has_more` | `BOOLEAN` | Whether more results exist beyond returned set |
 | `result_offset` | `INTEGER` | Pagination offset |
-| `status` | `VARCHAR` | Run status (success, error, timeout, etc.) |
+| `selected_providers` | `VARCHAR[]` | Union of all branch provider lists |
+| `skipped_providers` | `VARCHAR[]` | Providers skipped (cooldown/disabled) |
+| `branch_count` | `INTEGER` | Number of branches (normally 6) |
+| `provider_count` | `INTEGER` | Distinct providers that returned results |
+| `merged_count` | `INTEGER` | Unique candidates after RRF merge |
+| `reranked_count` | `INTEGER` | Candidates after reranking |
+| `final_result_count` | `INTEGER` | Results returned to user |
+| `candidate_count` | `INTEGER` | Total candidates in ranked pool |
+| `has_more` | `BOOLEAN` | Whether more results exist beyond returned set |
+| `status` | `VARCHAR` | Run status (success, error, partial) |
 | `error_type` | `VARCHAR` | Error classification if run failed |
+| `duration_ms` | `DOUBLE` | Total pipeline duration |
+| `reranker_provider` | `VARCHAR` | Rerank provider used |
+| `reranker_model` | `VARCHAR` | Rerank model used |
+| `rake_terms` | `VARCHAR[]` | RAKE-extracted support terms |
+| `brave_autosuggest` | `VARCHAR[]` | Brave autosuggest suggestions |
+| `brave_spellcheck` | `VARCHAR` | Brave spellcheck correction |
+| `rewrite_prompt` | `VARCHAR` | LLM rewrite prompt |
+| `rewrite_model` | `VARCHAR` | LLM model used for rewrite |
+| `rewrite_input_tokens` | `INTEGER` | Rewrite input tokens |
+| `rewrite_output_tokens` | `INTEGER` | Rewrite output tokens |
+| `rewrite_latency_ms` | `DOUBLE` | Rewrite latency |
+| `rewrite_error` | `VARCHAR` | Rewrite error type if failed |
 | `payload_json` | `JSON` | Full run payload |
 
 #### Indexes
@@ -100,133 +83,82 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 
 ---
 
-### 3. query_understanding
+### 2. search_branches
 
-**Table name:** `query_understanding`
-**DDL location:** `duckdb_store.py` → `_ensure_query_understanding()`
-**Write function:** `insert_query_understanding()`
-**Purpose:** LLM-based query classification results — intent, decomposition decision, entities, time sensitivity.
-
-#### Columns
-
-| Column | Type | Notes |
-|---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `intent` | `VARCHAR` | Classified intent (informational, navigational, transactional, etc.) |
-| `confidence` | `DOUBLE` | LLM confidence in classification (0–1) |
-| `should_decompose` | `BOOLEAN` | Whether query should be decomposed into sub-queries |
-| `rationale` | `VARCHAR` | LLM reasoning for classification |
-| `model` | `VARCHAR` | LLM model used |
-| `provider` | `VARCHAR` | LLM provider used |
-| `duration_ms` | `DOUBLE` | Time taken for classification |
-| `fallback_used` | `BOOLEAN` | Whether fallback classification was used |
-| `entities_count` | `INTEGER` | Number of named entities detected |
-| `preserved_terms` | `VARCHAR[]` | Array of terms preserved from original query |
-| `time_sensitivity` | `VARCHAR` | Time sensitivity classification (fresh, recent, evergreen) |
-| `payload_json` | `JSON` | Full payload |
-
----
-
-### 4. query_rewrites
-
-**Table name:** `query_rewrites`
-**DDL location:** `duckdb_store.py` → `_ensure_query_rewrites()`
-**Write function:** `insert_query_rewrites()`
-**Purpose:** Rewritten query variants — each row is one variant of the original query for multi-branch search.
+**Table name:** `search_branches`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_search_branches()`
+**Write function:** `insert_search_branches()`
+**Purpose:** One row per branch per run. Captures the fixed six-branch
+topology with explicit provider allowlists.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `variant_index` | `INTEGER` | Index of this variant (0-based) |
-| `branch_type` | `VARCHAR` | Type of branching (semantic, decomposition, synonym, etc.) |
-| `kind` | `VARCHAR` | Kind of rewrite (expansion, reformulation, translation) |
-| `target` | `VARCHAR` | Target provider or domain for this variant |
-| `query` | `VARCHAR NOT NULL` | The rewritten query text |
-| `weight` | `DOUBLE` | Branch weight for merging |
-| `reason` | `VARCHAR` | LLM rationale for this rewrite |
-| `max_results` | `INTEGER` | Max results to request for this variant |
-| `model` | `VARCHAR` | LLM model used |
-| `duration_ms` | `DOUBLE` | Time taken for rewrite |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
+| `branch_index` | `INTEGER NOT NULL` | 0–5 branch position |
+| `branch_role` | `VARCHAR NOT NULL` | One of the six fixed roles |
+| `branch_query` | `VARCHAR NOT NULL` | Query text for this branch |
+| `branch_why` | `VARCHAR` | Static role description |
+| `support_terms` | `VARCHAR[]` | RAKE-extracted support terms |
+| `max_results` | `INTEGER` | Per-provider request depth |
+| `assigned_providers` | `VARCHAR[]` | Explicit branch allowlist |
+| `attempted_providers` | `VARCHAR[]` | Providers that executed |
+| `skipped_providers` | `VARCHAR[]` | Providers skipped (cooldown/disabled) |
+| `results_count` | `INTEGER` | Deduplicated results from this branch |
+| `latency_ms` | `DOUBLE` | Branch wall-clock latency |
 | `payload_json` | `JSON` | Full payload |
 
 ---
 
-### 5. provider_calls
+### 3. provider_calls
 
 **Table name:** `provider_calls`
-**DDL location:** `duckdb_store.py` → `_ensure_provider_calls()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_provider_calls()`
 **Write function:** `insert_provider_calls()`
-**Purpose:** Every outbound API call to a search provider (Google, Bing, Tavily, SerpAPI, etc.).
+**Purpose:** Every outbound API call to a search provider, attributed to a
+branch role.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
+| `branch_index` | `INTEGER` | Which branch this call belongs to |
+| `branch_role` | `VARCHAR` | Branch role for this call |
 | `provider` | `VARCHAR NOT NULL` | Provider name |
-| `branch_index` | `INTEGER` | Which query branch this call belongs to |
 | `branch_query` | `VARCHAR` | The query sent to this provider |
+| `status` | `VARCHAR NOT NULL` | success / error / timeout / skipped |
 | `num_results_requested` | `INTEGER` | Results requested |
 | `num_results_returned` | `INTEGER` | Results actually returned |
-| `duration_ms` | `DOUBLE` | Provider API latency |
-| `error_code` | `VARCHAR` | Error code if call failed |
+| `latency_ms` | `DOUBLE` | Provider API latency |
+| `error_type` | `VARCHAR` | Error type if call failed |
 | `error_message` | `VARCHAR` | Error message if call failed |
-| `http_status` | `INTEGER` | HTTP status code |
-| `tokens_used` | `INTEGER` | Token consumption (if LLM-based provider) |
-| `cost_usd` | `DOUBLE` | Estimated cost in USD |
+| `candidate_urls` | `VARCHAR[]` | URLs returned (capped at 32) |
 | `payload_json` | `JSON` | Full payload |
 
 ---
 
-### 6. provider_candidates
+### 4. search_candidates
 
-**Table name:** `provider_candidates`
-**DDL location:** `duckdb_store.py` → `_ensure_provider_candidates()`
-**Write function:** `insert_provider_candidates()`
-**Purpose:** Individual search results returned by each provider before merging.
+**Table name:** `search_candidates`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_search_candidates()`
+**Write function:** `insert_search_candidates()`
+**Purpose:** Deduplicated, RRF-scored candidates after merging across all
+branches and providers. Each row is one unique result URL per run.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `provider` | `VARCHAR NOT NULL` | Source provider |
-| `branch_index` | `INTEGER` | Which branch produced this candidate |
-| `rank` | `INTEGER` | Rank within provider's result set |
-| `title` | `VARCHAR` | Result title |
-| `link` | `VARCHAR` | Result URL |
-| `snippet` | `VARCHAR` | Result snippet/description |
-| `domain` | `VARCHAR` | Extracted domain from link |
-| `score` | `DOUBLE` | Provider's native relevance score |
-| `published_date` | `VARCHAR` | Publication date string |
-| `payload_json` | `JSON` | Full payload |
-
----
-
-### 7. merged_candidates
-
-**Table name:** `merged_candidates`
-**DDL location:** `duckdb_store.py` → `_ensure_merged_candidates()`
-**Write function:** `insert_merged_candidates()`
-**Purpose:** Deduplicated, RRF-scored candidates after merging across providers. Each row is one unique result.
-
-#### Columns
-
-| Column | Type | Notes |
-|---|---|---|
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `rank` | `INTEGER` | Merged rank position |
+| `link` | `VARCHAR NOT NULL` | Result URL |
 | `title` | `VARCHAR` | Result title |
-| `link` | `VARCHAR` | Result URL |
 | `snippet` | `VARCHAR` | Result snippet |
-| `domain` | `VARCHAR` | Extracted domain |
+| `domain` | `VARCHAR` | Extracted domain from link |
 | `rrf_score` | `DOUBLE` | Reciprocal Rank Fusion score |
 | `provider_count` | `INTEGER` | How many providers returned this result |
 | `providers` | `VARCHAR[]` | Array of providers that returned this result |
@@ -235,28 +167,34 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 
 ---
 
-### 8. rerank_stages
+### 5. rerank_stages
 
 **Table name:** `rerank_stages`
-**DDL location:** `duckdb_store.py` → `_ensure_rerank_stages()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_rerank_stages()`
 **Write function:** `insert_rerank_stages()`
-**Purpose:** Metadata for each reranking stage (e.g. relevance, recency, entity overlap, LLM rerank).
+**Purpose:** Metadata for each reranking stage (bi_encoder, cross-encoder,
+llm_rerank, diversity, rerank.final).
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `stage` | `VARCHAR NOT NULL` | Stage name (relevance, recency, entity, llm_rerank, etc.) |
-| `provider` | `VARCHAR` | Rerank provider if external |
-| `model` | `VARCHAR` | Rerank model if LLM-based |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
+| `stage` | `VARCHAR NOT NULL` | Stage name |
+| `provider` | `VARCHAR` | Rerank provider (NULL for internal stages) |
+| `model` | `VARCHAR` | Rerank model |
 | `input_count` | `INTEGER` | Candidates input to this stage |
 | `output_count` | `INTEGER` | Candidates output from this stage |
 | `duration_ms` | `DOUBLE` | Stage execution time |
 | `max_score` | `DOUBLE` | Maximum score assigned in this stage |
 | `avg_score` | `DOUBLE` | Average score assigned in this stage |
 | `score_threshold` | `DOUBLE` | Threshold applied to filter candidates |
+| `alpha_blend` | `DOUBLE` | Alpha blend weight if applicable |
+| `input_tokens` | `INTEGER` | Input tokens consumed |
+| `output_tokens` | `INTEGER` | Output tokens consumed |
+| `status` | `VARCHAR` | Stage status |
+| `error_type` | `VARCHAR` | Error type if stage failed |
 | `instruction_present` | `BOOLEAN` | Whether custom rerank instruction was provided |
 | `instruction_length` | `INTEGER` | Length of rerank instruction in characters |
 | `query_type_hint` | `VARCHAR` | Query type hint used for rerank |
@@ -265,48 +203,55 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 
 ---
 
-### 9. rerank_candidates
+### 6. rerank_candidates
 
 **Table name:** `rerank_candidates`
-**DDL location:** `duckdb_store.py` → `_ensure_rerank_candidates()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_rerank_candidates()`
 **Write function:** `insert_rerank_candidates()`
-**Purpose:** Per-candidate scores before and after each reranking stage. Tracks how individual results move through reranking.
+**Purpose:** Per-candidate scores before and after each reranking stage.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `stage` | `VARCHAR NOT NULL` | Rerank stage name |
-| `link` | `VARCHAR NOT NULL` | Result URL (identifies candidate) |
+| `link` | `VARCHAR NOT NULL` | Result URL |
+| `candidate_id` | `VARCHAR` | Content-based candidate ID |
+| `canonical_result_id` | `VARCHAR` | Canonical URL ID |
 | `rank_before` | `INTEGER` | Rank before this stage |
 | `rank_after` | `INTEGER` | Rank after this stage |
 | `score_before` | `DOUBLE` | Score before this stage |
 | `score_after` | `DOUBLE` | Score after this stage |
-| `score_after_relevance` | `DOUBLE` | Relevance component of score after |
-| `score_after_recency` | `DOUBLE` | Recency component of score after |
-| `score_after_entity` | `DOUBLE` | Entity overlap component of score after |
-| `recency_boost` | `DOUBLE` | Recency boost multiplier applied |
+| `bm25_score` | `DOUBLE` | BM25 sparse score |
+| `bm25_rank` | `INTEGER` | BM25 rank |
+| `dense_score` | `DOUBLE` | Dense vector score |
+| `dense_rank` | `INTEGER` | Dense rank |
+| `cross_encoder_raw` | `DOUBLE` | Cross-encoder raw score |
+| `llm_raw_score` | `DOUBLE` | LLM raw score |
+| `fused_score` | `DOUBLE` | Fused composite score |
+| `hybrid_rrf_score` | `DOUBLE` | Hybrid RRF score |
+| `recency_boost` | `DOUBLE` | Recency boost multiplier |
 | `entity_overlap_score` | `DOUBLE` | Entity overlap similarity score |
-| `diversity_removed` | `BOOLEAN` | Whether this candidate was removed by diversity filter |
+| `diversity_removed` | `BOOLEAN` | Removed by diversity filter |
 | `payload_json` | `JSON` | Full payload |
 
 ---
 
-### 10. final_results
+### 7. final_results
 
 **Table name:** `final_results`
-**DDL location:** `duckdb_store.py` → `_ensure_final_results()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_final_results()`
 **Write function:** `insert_final_results()`
-**Purpose:** The final result list returned to the user after all reranking stages.
+**Purpose:** The final result list returned to the user after all reranking.
 
 #### Columns
 
 | Column | Type | Notes |
 |---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `rank` | `INTEGER` | Final rank position |
 | `title` | `VARCHAR` | Result title |
 | `link` | `VARCHAR` | Result URL |
@@ -315,20 +260,81 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 | `final_score` | `DOUBLE` | Final composite score |
 | `providers` | `VARCHAR[]` | Providers that contributed this result |
 | `provider_count` | `INTEGER` | Number of contributing providers |
-| `entities_count` | `INTEGER` | Number of entities matched in this result |
+| `entities_count` | `INTEGER` | Number of entities matched |
+| `candidate_id` | `VARCHAR` | Content-based candidate ID |
+| `canonical_result_id` | `VARCHAR` | Canonical URL ID |
 | `payload_json` | `JSON` | Full payload |
+
+---
+
+## Embedding Tables
+
+### 8. query_embeddings
+
+**Table name:** `query_embeddings`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_query_embeddings()`
+**Write function:** `insert_query_embeddings()`
+**Purpose:** One row per run storing the query embedding for vss similarity
+search.
+
+#### Columns
+
+| Column | Type | Notes |
+|---|---|---|
+| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
+| `embedding` | `FLOAT[1024]` | Query embedding vector |
+| `model_id` | `VARCHAR` | Embedding model ID |
+| `payload_json` | `JSON` | Full payload |
+
+#### Indexes
+
+| Index Name | Columns |
+|---|---|
+| `idx_qemb_run_key` | `run_key` |
+| `idx_qemb_hnsw` | `embedding` (HNSW, if vss available) |
+
+---
+
+### 9. candidate_embeddings
+
+**Table name:** `candidate_embeddings`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_candidate_embeddings()`
+**Write function:** `insert_candidate_embeddings()`
+**Purpose:** One row per candidate per run storing the candidate embedding
+for vss similarity search.
+
+#### Columns
+
+| Column | Type | Notes |
+|---|---|---|
+| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
+| `link` | `VARCHAR NOT NULL` | Result URL |
+| `title` | `VARCHAR` | Result title (first line) |
+| `embedding` | `FLOAT[1024]` | Candidate embedding vector |
+| `model_id` | `VARCHAR` | Embedding model ID |
+| `payload_json` | `JSON` | Full payload |
+
+#### Indexes
+
+| Index Name | Columns |
+|---|---|
+| `idx_cemb_run_key` | `run_key` |
+| `idx_cemb_hnsw` | `embedding` (HNSW, if vss available) |
 
 ---
 
 ## Quality & Judge Tables
 
-### 11. search_quality_scores
+### 10. search_quality_scores
 
 **Table name:** `search_quality_scores`
-**DDL location:** `duckdb_store.py` → `_ensure_search_quality_scores()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_search_quality_scores()`
 **Write function:** `insert_search_quality_scores()` (with `ON CONFLICT DO NOTHING`)
-**Compute logic:** `quality_metrics.py` → `compute_search_quality()`
-**Purpose:** Per-run derived quality metrics computed by querying pipeline tables after a run completes.
+**Compute logic:** `analytics/quality_metrics.py` → `compute_search_quality()`
+**Purpose:** Per-run derived quality metrics computed from the live pipeline
+tables.
 
 #### Columns
 
@@ -336,30 +342,31 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 |---|---|---|
 | `run_key` | `VARCHAR NOT NULL` | **PRIMARY KEY** |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `provider_overlap_rate` | `DOUBLE` | Fraction of merged_candidates where `overlap_flag = true` |
-| `domain_diversity_count` | `INTEGER` | Distinct domains in final_results |
+| `provider_overlap_rate` | `DOUBLE` | Fraction of `search_candidates` with overlap |
+| `domain_diversity_count` | `INTEGER` | Distinct domains in `final_results` |
 | `domain_diversity_ratio` | `DOUBLE` | `domain_diversity_count / total_final_results` |
-| `rerank_compression_ratio` | `DOUBLE` | `SUM(input_count) / SUM(output_count)` across rerank_stages |
-| `avg_rrf_score` | `DOUBLE` | Average RRF score from merged_candidates |
-| `top_score` | `DOUBLE` | Max `score_after` from rerank_candidates |
-| `p95_score` | `DOUBLE` | Approx 95th percentile of `score_after` from rerank_candidates |
-| `rewrite_variant_count` | `INTEGER` | Number of query_rewrites for this run |
-| `provider_count` | `INTEGER` | Distinct providers used |
-| `branch_count` | `INTEGER` | Alias for `rewrite_variant_count` |
-| `total_candidates_input` | `INTEGER` | `SUM(num_results_returned)` from provider_calls |
-| `total_candidates_merged` | `INTEGER` | `COUNT(*)` from merged_candidates |
-| `total_candidates_reranked` | `INTEGER` | `SUM(output_count)` from rerank_stages |
-| `total_final_results` | `INTEGER` | `COUNT(*)` from final_results |
+| `rerank_compression_ratio` | `DOUBLE` | `SUM(input_count) / SUM(output_count)` from `rerank_stages` |
+| `avg_rrf_score` | `DOUBLE` | Average RRF score from `search_candidates` |
+| `top_score` | `DOUBLE` | Max `score_after` from `rerank_candidates` |
+| `p95_score` | `DOUBLE` | Approx 95th percentile of `score_after` |
+| `provider_count` | `INTEGER` | Distinct providers from `provider_calls` |
+| `branch_count` | `INTEGER` | Count from `search_branches` (normally 6) |
+| `total_candidates_input` | `INTEGER` | `SUM(num_results_returned)` from `provider_calls` |
+| `total_candidates_merged` | `INTEGER` | `COUNT(*)` from `search_candidates` |
+| `total_candidates_reranked` | `INTEGER` | `SUM(output_count)` from `rerank_stages` |
+| `total_final_results` | `INTEGER` | `COUNT(*)` from `final_results` |
+| `ndcg_at_10` | `DOUBLE` | NDCG@10 if judge scores available |
 | `payload_json` | `JSON` | Full payload |
 
 ---
 
-### 12. judge_evaluations
+### 11. judge_evaluations
 
 **Table name:** `judge_evaluations`
-**DDL location:** `duckdb_store.py` → `_ensure_judge_evaluations()`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_judge_evaluations()`
 **Write function:** `insert_judge_evaluation()`
-**Purpose:** LLM-as-judge quality scores for search results. Fire-and-forget via `judge_runner.py`.
+**Purpose:** 4D LLM-as-judge quality scores for search results.
+Fire-and-forget via `judge_runner.py`.
 
 #### Columns
 
@@ -367,24 +374,45 @@ These 9 tables capture the lifecycle of a single web-search run through the pipe
 |---|---|---|
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
+| `evaluated_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
 | `tool_name` | `VARCHAR` | Tool being evaluated |
 | `judge_model` | `VARCHAR` | LLM model acting as judge |
-| `relevance_score` | `DOUBLE` | Relevance of results to query (0–1) |
-| `accuracy_score` | `DOUBLE` | Factual accuracy of results (0–1) |
-| `completeness_score` | `DOUBLE` | Completeness of coverage (0–1) |
-| `source_quality_score` | `DOUBLE` | Quality/authority of sources (0–1) |
+| `model_used` | `VARCHAR` | Actual model used |
+| `link` | `VARCHAR` | Result URL being judged |
+| `relevance_grade` | `VARCHAR` | Relevance grade |
+| `relevance_score` | `DOUBLE` | Relevance score (0–1) |
+| `accuracy_grade` | `VARCHAR` | Accuracy grade |
+| `accuracy_score` | `DOUBLE` | Accuracy score (0–1) |
+| `completeness_grade` | `VARCHAR` | Completeness grade |
+| `completeness_score` | `DOUBLE` | Completeness score (0–1) |
+| `source_quality_grade` | `VARCHAR` | Source quality grade |
+| `source_quality_score` | `DOUBLE` | Source quality score (0–1) |
 | `overall_score` | `DOUBLE` | Composite overall quality score (0–1) |
 | `rationale` | `VARCHAR` | LLM rationale for scores |
 | `duration_ms` | `DOUBLE` | Judge LLM call latency |
-| `tokens_used` | `INTEGER` | Token consumption |
+| `input_tokens` | `INTEGER` | Input tokens |
+| `output_tokens` | `INTEGER` | Output tokens |
+| `tokens_used` | `INTEGER` | Total tokens |
 | `cost_usd` | `DOUBLE` | Estimated cost |
-| `payload_json` | `JSON` | Full payload (includes `scores_raw`, `result_count`, or `error`) |
+| `payload_json` | `JSON` | Full payload |
+
+---
+
+## Provider Health
+
+### 12. provider_health_transitions
+
+**Table name:** `provider_health_transitions`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_provider_health_transitions()`
+**Purpose:** Circuit-breaker state transitions.
 
 ---
 
 ## Summary Tables
 
-Materialised daily aggregates refreshed by `summaries.py` → `refresh_summary_tables()`. All process only the last 2 days of data. Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
+Materialised daily aggregates refreshed by `summaries.py` →
+`refresh_summary_tables()`. All process only the last 2 days of data.
+Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
 
 ### 13. summary_provider_daily
 
@@ -402,24 +430,22 @@ Materialised daily aggregates refreshed by `summaries.py` → `refresh_summary_t
 | `avg_latency_ms` | `DOUBLE` | Average latency |
 | `p50_latency_ms` | `DOUBLE` | Median latency |
 | `p95_latency_ms` | `DOUBLE` | P95 latency |
-| `error_rate` | `DOUBLE` | Fraction of calls with errors |
+| `error_rate` | `DOUBLE` | Fraction of calls with `error_type IS NOT NULL` |
 | `distinct_queries` | `BIGINT` | Distinct run_keys |
 
 ### 14. summary_intent_daily
 
 **Table name:** `summary_intent_daily`
 **Composite PK:** `(day, intent)`
-**Source:** `query_understanding` + `query_rewrites`
+**Source:** `search_runs`
 
 | Column | Type | Notes |
 |---|---|---|
 | `day` | `DATE NOT NULL` | PK |
 | `intent` | `VARCHAR NOT NULL` | PK |
 | `query_count` | `BIGINT` | Number of queries |
-| `avg_confidence` | `DOUBLE` | Average classification confidence |
-| `decomposition_rate` | `DOUBLE` | Fraction where `should_decompose = true` |
-| `fallback_rate` | `DOUBLE` | Fraction where `fallback_used = true` |
-| `avg_rewrite_variants` | `DOUBLE` | Average number of rewrite variants per query |
+| `avg_confidence` | `DOUBLE` | Average `understanding_confidence` |
+| `avg_branch_count` | `DOUBLE` | Average `branch_count` (observability invariant, expect 6.0) |
 
 ### 15. summary_rerank_daily
 
@@ -431,13 +457,13 @@ Materialised daily aggregates refreshed by `summaries.py` → `refresh_summary_t
 |---|---|---|
 | `day` | `DATE NOT NULL` | PK |
 | `stage` | `VARCHAR NOT NULL` | PK |
-| `provider` | `VARCHAR` | PK (nullable, e.g. local stages have no provider) |
+| `provider` | `VARCHAR NOT NULL` | PK (NULL normalized to `'internal'`) |
 | `runs_count` | `BIGINT` | Number of rerank stage invocations |
 | `avg_compression_ratio` | `DOUBLE` | Average `input_count / output_count` |
 | `avg_max_score` | `DOUBLE` | Average max_score across stages |
 | `p50_latency_ms` | `DOUBLE` | Median stage latency |
 | `p95_latency_ms` | `DOUBLE` | P95 stage latency |
-| `entity_overlap_runs` | `BIGINT` | Number of runs where entity overlap was enabled |
+| `entity_overlap_runs` | `BIGINT` | Runs where entity overlap was enabled |
 
 ### 16. summary_quality_daily
 
@@ -458,293 +484,57 @@ Materialised daily aggregates refreshed by `summaries.py` → `refresh_summary_t
 
 ## A/B Testing Tables
 
-### 17. ab_experiments
-
-**Table name:** `ab_experiments`
-**DDL location:** `duckdb_store.py` → `_ensure_ab_experiments()`
-**Purpose:** A/B experiment definitions — one row per experiment.
-
-| Column | Type | Notes |
-|---|---|---|
-| `experiment_id` | `VARCHAR NOT NULL` | **PRIMARY KEY** |
-| `created_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `layer` | `VARCHAR NOT NULL` | Pipeline layer (query_understanding, reranking, provider_weights) |
-| `variant_a` | `VARCHAR NOT NULL` | Control variant name |
-| `variant_b` | `VARCHAR NOT NULL` | Treatment variant name |
-| `allocation_rate` | `DOUBLE NOT NULL` | `DEFAULT 0.5` — fraction of traffic assigned to variant_b |
-| `status` | `VARCHAR NOT NULL` | `DEFAULT 'active'` — active, paused, concluded |
-| `start_date` | `DATE` | When experiment started |
-| `end_date` | `DATE` | When experiment concluded |
-| `min_sample_size` | `INTEGER` | Minimum sample size for statistical significance |
-| `payload_json` | `JSON` | Full payload |
-
-### 18. ab_shadow_runs
-
-**Table name:** `ab_shadow_runs`
-**DDL location:** `duckdb_store.py` → `_ensure_ab_shadow_runs()`
-**Write function:** `insert_ab_shadow_run()`
-**Purpose:** Fire-and-forget shadow execution results. Records how the treatment variant performed compared to control.
-
-| Column | Type | Notes |
-|---|---|---|
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `experiment_id` | `VARCHAR NOT NULL` | FK → `ab_experiments.experiment_id` |
-| `variant` | `VARCHAR NOT NULL` | Variant key that was shadowed |
-| `layer` | `VARCHAR NOT NULL` | Pipeline layer |
-| `duration_ms` | `DOUBLE` | Shadow execution duration |
-| `judge_score` | `DOUBLE` | Judge quality score for shadow results |
-| `tokens_used` | `INTEGER` | Token consumption |
-| `cost_usd` | `DOUBLE` | Estimated cost |
-| `error_type` | `VARCHAR` | Error type if shadow failed |
-| `payload_json` | `JSON` | Includes `control_duration_ms`, `latency_delta_ms`, summaries |
-
-### 19. ab_experiment_variants
-
-**Table name:** `ab_experiment_variants`
-**DDL location:** `duckdb_store.py` → `_ensure_ab_experiment_variants()`
-**Purpose:** Detailed variant definitions with configuration.
-
-| Column | Type | Notes |
-|---|---|---|
-| `variant_id` | `VARCHAR NOT NULL` | **PRIMARY KEY** |
-| `experiment_id` | `VARCHAR NOT NULL` | FK → `ab_experiments.experiment_id` |
-| `variant_name` | `VARCHAR NOT NULL` | Human-readable variant name |
-| `description` | `VARCHAR` | Description of what this variant changes |
-| `config_json` | `JSON` | Configuration overrides for this variant |
-| `created_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-
-### 20. ab_assignments
-
-**Table name:** `ab_assignments`
-**DDL location:** `duckdb_store.py` → `_ensure_ab_assignments()`
-**Purpose:** Sticky run-to-variant assignments. Records which variant each run_key was assigned to.
-
-| Column | Type | Notes |
-|---|---|---|
-| `assignment_id` | `VARCHAR NOT NULL` | **PRIMARY KEY** |
-| `experiment_id` | `VARCHAR NOT NULL` | FK → `ab_experiments.experiment_id` |
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `variant` | `VARCHAR NOT NULL` | Assigned variant |
-| `assigned_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `payload_json` | `JSON` | Full payload |
-
-### 21. ab_results
-
-**Table name:** `ab_results`
-**DDL location:** `duckdb_store.py` → `_ensure_ab_results()`
-**Purpose:** Measured outcomes for each assigned run. Primary and secondary metrics for statistical analysis.
-
-| Column | Type | Notes |
-|---|---|---|
-| `result_id` | `VARCHAR NOT NULL` | **PRIMARY KEY** |
-| `experiment_id` | `VARCHAR NOT NULL` | FK → `ab_experiments.experiment_id` |
-| `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `variant` | `VARCHAR NOT NULL` | Variant used |
-| `primary_metric` | `DOUBLE` | Primary outcome metric |
-| `secondary_metric` | `DOUBLE` | Secondary outcome metric |
-| `duration_ms` | `DOUBLE` | Execution duration |
-| `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
-| `payload_json` | `JSON` | Full payload |
+A/B experiment, variant, assignment, result, and shadow-run tables are
+defined in `analytics/writers/ab_schema.py`. See that module for DDL.
 
 ---
 
 ## Views
 
-All views are created idempotently via `CREATE OR REPLACE VIEW` in `views.py` → `ensure_views()`. There are 13 views.
+10 dashboard views are defined in `analytics/views.py` →
+`_build_dashboard_view_sql()`:
 
-### v_search_run_story
+1. `vw_run_summary` — run-level summary with latency tiers and rewrite status
+2. `vw_provider_performance` — per-provider success/latency/error aggregation
+3. `vw_branch_summary` — per-branch role/query/provider/status with `support_terms`
+4. `vw_candidate_funnel` — candidate survival funnel from provider → merged → rerank → final
+5. `vw_rerank_timeline` — rerank stage timeline unioned with search-run rows
+6. `vw_rewrite_diagnostics` — rewrite-enabled runs with RAKE/Brave/LLM metadata
+7. `vw_daily_trend` — gap-free 30-day daily trend
+8. `vw_quality_distribution` — judge evaluation quality tiers
+9. `vw_provider_health` — provider health transitions
+10. `vw_judge_quality` — 4D judge quality summary with grade labels
 
-**Purpose:** Per-run join across all pipeline tables — one row per `run_key` with counts and summary metrics from every pipeline stage.
-
-**Columns provided:** `run_key`, `query`, `normalized_query`, `research_goal`, `status`, `total_duration_ms`, `candidate_count`, `rewrite_enabled`, `run_recorded_at`, `rewrite_variant_count`, `provider_call_count`, `provider_candidate_count`, `merged_candidate_count`, `final_result_count`, `avg_provider_latency_ms`, `avg_rerank_latency_ms`, `intent`, `confidence`, `overlap_rate`, `domain_diversity`
-
-**Tables joined:** `search_runs` + `query_understanding` + `query_rewrites`(agg) + `provider_calls`(agg) + `provider_candidates`(agg) + `merged_candidates`(agg) + `final_results`(agg) + `rerank_stages`(agg) + `search_quality_scores`
-
-### v_provider_survival_funnel
-
-**Purpose:** Per-provider funnel analysis — how many candidates each provider contributes, how many survive merging, and how many make it to final results.
-
-**Key metric:** `survival_rate_pct` — percentage of provider's candidates that reach final_results.
-
-**Tables joined:** `provider_candidates` + `merged_candidates` + `final_results`
-
-### v_rewrite_effectiveness
-
-**Purpose:** Per-run summary of query rewriting effectiveness — variant count, providers used, distinct candidates gathered, final result count.
-
-**Tables joined:** `search_runs` + `query_rewrites` + `provider_calls` + `provider_candidates`
-
-### v_rerank_stage_performance
-
-**Purpose:** Aggregate rerank stage performance over all time by `(stage, provider, model)`.
-
-**Metrics:** `runs`, `avg_input_count`, `avg_output_count`, `avg_duration_ms`, `avg_max_score`, `avg_avg_score`, `entity_overlap_runs`
-
-**Source:** `rerank_stages`
-
-### v_query_classification_distribution
-
-**Purpose:** Daily query intent distribution over the last 30 days.
-
-**Metrics:** `day`, `intent`, `count`, `avg_confidence`, `fallback_count`, `decomposed_count`
-
-**Source:** `query_understanding` (filtered to last 30 days)
-
-### v_provider_quality_trend
-
-**Purpose:** Daily provider call quality metrics over the last 30 days.
-
-**Metrics:** `day`, `provider`, `calls`, `avg_results`, `avg_latency_ms`, `p50_latency_ms`, `p95_latency_ms`, `error_rate`, `distinct_runs`
-
-**Source:** `provider_calls` (filtered to last 30 days)
-
-### v_rerank_stage_impact
-
-**Purpose:** Per-run rerank stage detail with derived metrics.
-
-**Derived columns:** `compression_ratio` (= `input_count / output_count`), `avg_score_delta` (= `AVG(score_after - score_before)`), `diversity_removed_count`
-
-**Tables joined:** `rerank_stages` + `rerank_candidates`
-
-### v_daily_quality_summary
-
-**Purpose:** Daily aggregate of search quality metrics over all time.
-
-**Metrics:** `day`, `query_count`, `avg_total_latency_ms`, `avg_overlap_rate`, `avg_domain_diversity`, `avg_compression_ratio`, `avg_top_score`, `avg_judge_score`
-
-**Tables joined:** `search_runs` + `search_quality_scores` + `judge_evaluations`
-
-### v_judge_score_distribution
-
-**Purpose:** Judge model score distribution over the last 30 days by `(tool_name, judge_model)`.
-
-**Metrics:** `evaluations`, `avg_relevance`, `avg_accuracy`, `avg_completeness`, `avg_source_quality`, `avg_overall`, `p50_overall`, `p95_overall`
-
-**Source:** `judge_evaluations` (filtered to last 30 days)
-
-### v_judge_trend
-
-**Purpose:** Daily judge evaluation trend over the last 30 days.
-
-**Metrics:** `day`, `tool_name`, `evaluations`, `avg_overall`, `avg_judge_latency_ms`, `avg_tokens`
-
-**Source:** `judge_evaluations` (filtered to last 30 days)
-
-### v_ab_experiment_summary
-
-**Purpose:** Complete A/B experiment overview — joins experiments, variants, assignments, and results into one row per experiment.
-
-**Metrics:** `experiment_id`, `layer`, `status`, `variant_a`, `variant_b`, `allocation_rate`, `min_sample_size`, `variant_count`, `assignment_count`, `unique_run_count`, `avg_primary_metric`, `avg_secondary_metric`, `avg_duration_ms`, `result_count`
-
-**Tables joined:** `ab_experiments` + `ab_experiment_variants`(agg) + `ab_assignments`(agg) + `ab_results`(agg)
-
-### v_ab_variant_comparison
-
-**Purpose:** Per-variant metrics with STDDEV and control/treatment labelling for statistical comparison.
-
-**Key columns:** `variant_role` (`'control'` / `'treatment'` / `'other'`), `avg_primary_metric`, `avg_secondary_metric`, `stddev_primary_metric`, `run_count`, `result_count`
-
-**Tables joined:** `ab_experiments` + `ab_results`
-
-### v_ab_shadow_run_analysis
-
-**Purpose:** Shadow run analysis with windowed metrics — compares each shadow run against its variant's average.
-
-**Windowed columns:** `variant_avg_latency_ms`, `latency_delta_ms` (= `duration_ms - variant_avg`), `variant_avg_judge_score`, `judge_score_delta` (= `judge_score - variant_avg`)
-
-**Tables joined:** `ab_shadow_runs` + `ab_experiments`
+A/B views (`v_ab_experiment_summary`, `v_ab_variant_comparison`,
+`v_ab_shadow_run_analysis`) and eval views are also created by
+`ensure_views()`.
 
 ---
 
-## Module Map
+## Branch-Role Model
 
-| File | Purpose |
-|---|---|
-| `analytics/duckdb_store.py` | All table DDL (`_ensure_*` functions), insert functions, `append_event()`, `BatchWriter` |
-| `analytics/views.py` | `ensure_views()` — 13 `CREATE OR REPLACE VIEW` statements in `VIEW_DEFINITIONS` dict |
-| `analytics/quality_metrics.py` | `compute_search_quality()` — queries pipeline tables for a `run_key`, inserts into `search_quality_scores` |
-| `analytics/summaries.py` | `refresh_summary_tables()` — idempotent daily aggregation into 4 summary tables |
-| `analytics/judge_prompt.py` | Judge system prompt, `build_judge_user_prompt()`, `parse_judge_response()` |
-| `analytics/judge_runner.py` | `run_judge_evaluation()` — fire-and-forget LLM judge call, inserts into `judge_evaluations` |
-| `analytics/judge_calibration.py` | Judge score calibration utilities |
-| `ab_testing/models.py` | `ABExperiment`, `ABVariant`, `Assignment` dataclasses |
-| `ab_testing/assignment.py` | `get_assigned_variant()` — deterministic hash-based bucket allocation |
-| `ab_testing/yaml_loader.py` | `load_experiments()`, `save_experiments()` — YAML ↔ ABExperiment |
-| `ab_testing/wiring.py` | `get_ab_overrides()` — glue between YAML experiments and pipeline stages |
-| `ab_testing/shadow_runner.py` | `run_shadow()` — fire-and-forget shadow execution with DuckDB persistence |
+The fixed six-branch topology stores `branch_role` (not `branch_target`)
+on `search_branches` and `provider_calls`. The six roles are:
 
----
-
-## Settings Reference
-
-| Setting | Default | Description |
+| # | Branch role | Provider membership |
 |---|---|---|
-| `ANALYTICS_ENABLED` | `true` | Global analytics toggle — all inserts/views skip when `false` |
-| `AB_TESTING_ENABLED` | `false` | A/B testing toggle |
-| `AB_CONFIG_PATH` | `.kindly/experiments.yaml` | Experiment YAML config file path |
-| `AB_SHADOW_MODE_DEFAULT` | `true` | Default shadow mode for A/B variants |
-| `AB_ASSIGNMENT_CACHE_TTL_SECONDS` | `300` | Sticky assignment cache TTL |
-| `JUDGE_EVALUATION_ENABLED` | `false` | LLM judge evaluation toggle |
-| `JUDGE_MODEL` | `google/gemini-2.0-flash-001` | Judge LLM model |
-| `JUDGE_TIMEOUT_SECONDS` | `10.0` | Judge LLM call timeout |
+| 1 | `original_free` | Reachable from `("searxng", "ddg", "gemma", "degoog")` |
+| 2 | `paid_brave` | `("brave",)` when reachable |
+| 3 | `paid_google` | One of `("brightdata", "serper", "search_router")` round-robin |
+| 4 | `paid_other` | `("brightdata_yandex", "brightdata_bing", "serpapi")` |
+| 5 | `neural` | `("gemma", "qdrant", "composio_llm_search")` |
+| 6 | `specialized` | Intent-policy-selected providers |
+
+Each branch owns its `assigned_providers` tuple explicitly. `support_terms`
+replaces the old `must_keep_terms`. Branch weights are removed.
+`search_runs.branch_count` should normally be 6.
+
+`summary_intent_daily.avg_branch_count` is the daily per-intent average of
+`branch_count` and serves as an observability invariant: 6.0 means the
+fixed topology was preserved.
 
 ---
 
-## A/B Pipeline Wiring
-
-A/B overrides are wired into 3 pipeline layers via `get_ab_overrides(run_key, layer)`:
-
-1. **`query_understanding`** — overrides LLM model, prompt variant, decomposition settings
-2. **`reranking`** — overrides rerank provider, top_k, diversity_weight
-3. **`provider_weights`** — overrides per-provider RRF weights
-
-### Shadow Mode
-
-When a variant has `shadow: True` in its config, the override is applied as a **background task** (fire-and-forget via `asyncio.create_task` in `shadow_runner.py`), not on the production path. The production path uses the control configuration; the variant runs invisibly alongside and results are recorded in `ab_shadow_runs`.
-
-### CLI
-
-Managed via `web-search-cli experiments` subcommands:
-
-| Command | Description |
-|---|---|
-| `list` | List all experiments |
-| `enable` | Enable/start an experiment |
-| `disable` | Disable/pause an experiment |
-| `conclude` | Conclude an experiment with a winner |
-| `stats` | Show experiment statistics |
-| `create` | Create a new experiment |
-
----
-
-## ER Relationships
-
-```
-search_runs (1) ──── (N) query_understanding
-search_runs (1) ──── (N) query_rewrites
-search_runs (1) ──── (N) provider_calls
-search_runs (1) ──── (N) provider_candidates
-search_runs (1) ──── (N) merged_candidates
-search_runs (1) ──── (N) rerank_stages
-search_runs (1) ──── (N) rerank_candidates
-search_runs (1) ──── (N) final_results
-search_runs (1) ──── (1) search_quality_scores        [PK = run_key]
-search_runs (1) ──── (N) judge_evaluations
-search_runs (1) ──── (N) ab_assignments
-search_runs (1) ──── (N) ab_results
-search_runs (1) ──── (N) ab_shadow_runs
-
-ab_experiments (1) ──── (N) ab_experiment_variants
-ab_experiments (1) ──── (N) ab_assignments
-ab_experiments (1) ──── (N) ab_results
-ab_experiments (1) ──── (N) ab_shadow_runs
-
-rerank_stages (1) ──── (N) rerank_candidates          [via run_key + stage]
-```
-
-All relationships are joined via `run_key` (a `VARCHAR` unique per pipeline invocation) unless otherwise noted.
-
----
-
-*Generated from source: `duckdb_store.py`, `views.py`, `quality_metrics.py`, `summaries.py`, `judge_runner.py`, `assignment.py`, `wiring.py`, `shadow_runner.py`, `models.py`*
+*Generated from `analytics/writers/schema.py`, `analytics/writers/summary_schema.py`,
+`analytics/writers/inserts.py`, `analytics/views.py`, `analytics/quality_metrics.py`,
+`analytics/summaries.py`, `analytics/reports.py`, `analytics/writers/ab_schema.py`*

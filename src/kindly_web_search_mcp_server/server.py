@@ -83,7 +83,7 @@ mcp.add_middleware(create_expensive_tool_middleware())
 
 # Add differentiated rate limiting:
 # - Higher throughput for lightweight tools (web_search/get_content/gemini_search)
-# - Stricter quota for expensive tool (perplexity_search)
+# - Stricter quota for expensive tools (grok_search)
 from .middleware import create_differentiated_rate_limit_middleware
 
 mcp.add_middleware(

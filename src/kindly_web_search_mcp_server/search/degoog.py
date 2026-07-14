@@ -15,7 +15,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from .base_provider import run_provider
+from .base_provider import _attach_provider_name
 
 
 class DeGoogError(RuntimeError):
@@ -69,14 +69,13 @@ async def search_degoog(
     base_url = _get_degoog_base_url()
     url = f"{base_url}/api/search"
 
-    body: dict[str, Any] = {"query": query}
-
-    body["type"] = "web"
+    body: dict[str, Any] = {"query": query, "type": "web"}
+    headers = {"Accept": "application/json"}
 
     timeout_seconds = settings.degoog_timeout_seconds
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        resp = await client.post(url, json=body, timeout=timeout_seconds)
+        resp = await client.post(url, json=body, headers=headers, timeout=timeout_seconds)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -143,12 +142,11 @@ async def search_degoog(
 
         return results
 
-    return await run_provider(
-        "degoog",
-        query,
-        num_results,
-        request=_do_request,
-        parse_response=_parse_response,
-        http_client=http_client,
-        timeout_seconds=timeout_seconds,
-    )
+    # Direct call without retry_with_backoff — DeGoog gets one 10s attempt.
+    if http_client is not None:
+        payload = await _do_request(http_client)
+    else:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
+            payload = await _do_request(client)
+    results = _parse_response(payload)
+    return _attach_provider_name(results, "degoog")[:num_results]

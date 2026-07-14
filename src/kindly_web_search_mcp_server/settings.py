@@ -424,7 +424,7 @@ class Settings:
 
     # DeGoog search aggregator (self-hosted)
     degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")
-    degoog_timeout_seconds: float = float(os.environ.get("DEGOOG_TIMEOUT_SECONDS", "15"))
+    degoog_timeout_seconds: float = float(os.environ.get("DEGOOG_TIMEOUT_SECONDS", "10"))
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
@@ -498,7 +498,7 @@ class Settings:
     grafana_cloud_otlp_endpoint: str = os.environ.get("GRAFANA_CLOUD_OTLP_ENDPOINT", "")
 
     # Phoenix (Arize) observability through the local SSH forward.
-    phoenix_project_name: str = os.environ.get("PHOENIX_PROJECT_NAME", "WebSearchMCP")
+    phoenix_project_name: str = os.environ.get("PHOENIX_PROJECT_NAME", "web-search-mcp")
     phoenix_collector_endpoint: str = os.environ.get(
         "PHOENIX_COLLECTOR_ENDPOINT", "http://127.0.0.1:6006/v1/traces"
     )
@@ -537,6 +537,15 @@ class Settings:
     crawl4ai_health_cache_seconds: float = float(
         os.environ.get("CRAWL4AI_HEALTH_CACHE_SECONDS", "30")
     )
+
+    # =====================================================================
+    # Camoufox sidecar (stealth-Firefox on VPS)
+    # =====================================================================
+    camoufox_base_url: str = os.environ.get("CAMOUFOX_BASE_URL", "")
+    # When set (e.g. http://127.0.0.1:3000 via SSH tunnel), Camoufox is the last-resort browser.
+    # When empty, Camoufox stage is skipped.
+    camoufox_timeout_seconds: float = float(os.environ.get("CAMOUFOX_TIMEOUT_SECONDS", "30"))
+    camoufox_health_cache_seconds: float = float(os.environ.get("CAMOUFOX_HEALTH_CACHE_SECONDS", "30"))
 
     # =====================================================================
     # A/B Testing Framework (opt-in, experiment config via YAML)

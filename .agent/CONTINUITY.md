@@ -1,3 +1,37 @@
+## Fixed Six-Branch Provider Debugging — 2026-07-14
+
+- 2026-07-14T02:06Z [CODE] Bright Data Yandex now uses the documented `https://www.yandex.com/search/?text=...&lr=...&lang=...` URL without `brd_json=1`; raw Yandex HTML is parsed from `li.serp-item`, with ad containers excluded.
+- 2026-07-14T02:06Z [TOOL] Yandex parser contract smoke passed and Ruff passed for both Bright Data modules. Live Bright Data Yandex retrieval timed out before returning HTML, so provider-level Yandex success remains UNCONFIRMED.
+- 2026-07-14T02:06Z [TOOL] `uv run hf spaces logs chmielvu/Web-Index` proved the Qdrant HTTP 500 occurred during an 18-second HF Space cold start. After Qdrant recovered `web_results` and began listening, the same direct provider probe returned five results.
+- 2026-07-14T02:06Z [TOOL] Hugging Face `AsyncInferenceClient` with provider `hf-inference` returned a 1024-dimensional `intfloat/multilingual-e5-large-instruct` embedding; the previously observed `TypeError` is no longer reproducible with repo `huggingface_hub==1.11.0`.
+- 2026-07-14T04:12Z [CODE] Fixed the live six-branch Qdrant `TypeError`: `provider_registry` injected the shared `query_embedding`, but `search_qdrant` did not accept it. The provider now consumes the precomputed vector and avoids duplicate Hugging Face embedding work.
+- 2026-07-14T04:12Z [CODE] Search quality computation now runs after unified fact inserts inside the same dedicated DuckDB writer callback, eliminating the asynchronous read-before-write race.
+- 2026-07-14T04:12Z [TOOL] End-to-end live proof persisted six ordered branch-role rows and a `search_quality_scores` row with `branch_count=6` and `total_final_results=15`; the focused shared-embedding Qdrant adapter probe returned five results.
+
+## Camoufox Content Restructure — 2026-07-13
+
+- 2026-07-13T17:00Z [CODE] Steps 1–8 of the Camoufox content fallback plan implemented: moved 6 resolvers to content/resolvers/, renamed crawl4ai_client.py -> remote_clients.py with CamoufoxClient, replaced fallback.py with stages.py (4 stage functions), rewrote fetch_pipeline.py with Tier-2 orchestration, extracted specialized_pipeline.py, simplified batch_orchestrator.py to per-URL, simplified sitemap.py to Tavily-only, removed crawl4ai/playwright deps, added Camoufox settings/telemetry.
+- 2026-07-13T17:00Z [CODE] VPS docker-compose: added `127.0.0.1:3000:3000` port publish to camoufox service, container recreated. WSL SSH tunnel: added `-L 3000:127.0.0.1:3000` to existing tunnel process. .env: added `CAMOUFOX_BASE_URL=http://127.0.0.1:3000`. Verified: /health returns {"status":"ok"}, /content returns HTML from example.com.
+- 2026-07-13T17:00Z [CODE] Code review fixes: fixed content/__init__.py docstring (correct Tier-2 order), removed unreachable `raise` after retry loop in `remote_clients.py:CamoufoxClient.fetch_html`, ran ruff format on 3 files. CHANGELOG.md updated.
+- 2026-07-13T17:00Z [TOOL] Verification: ruff check clean, ruff format --check clean, py_compile passes for all 4 changed files. Resolver tests: 30/30 pass. Stale sitemap tests: 13 fail (reference deleted legacy_sitemap module — Step 10). Import smoke blocked by `litellm.acompletion` import error at `llm/router.py:11`.
+
+## Perplexity Cleanup + CLI Skill Refresh — 2026-07-13
+
+- 2026-07-13T19:30Z [CODE] Removed all Perplexity search surface: `PerplexitySearchResponse` model + alias from `models.py`, `perplexity_search` from rate-limit `EXPENSIVE_TOOLS`, Perplexity Sonar steering message replaced with generic expensive-tool guidance in `expensive_tool_protection.py`, all Perplexity telemetry (attributes, metrics, records, re-exports) from `telemetry/`.
+- 2026-07-13T19:30Z [CODE] Removed Perplexity/Pollinations references from `CLAUDE.md`, `README.md`, `middleware/AGENTS.md`, `prompts/AGENTS.md`. Updated `test_analytics_views.py` to use `grok_search` instead of `perplexity_search`.
+- 2026-07-13T19:30Z [CODE] `skills/web-search-cli/SKILL.md` fully refreshed to match current CLI: added `--debug`, `sitemap generate`, `experiments`; removed `agent research`; updated `search web` (required `--research-goal`, `--num-results` 15–50, `--diagnostics`, removed `--provider`); added `--summary-mode`/`--focus-query` to `content batch`, `--backend` to `youtube transcript`.
+
+## VPS Endpoint/Tunnel Audit — 2026-07-13
+
+- 2026-07-13T13:02:55+02:00 [TOOL] Read `\\wsl.localhost\Ubuntu\home\an\projects\Contabo-Zawady\vps-services-manifest.md`: VPS SearXNG binds `127.0.0.1:8080`, DeGoog `127.0.0.1:4444`, Phoenix UI/OTLP HTTP `127.0.0.1:6006`, OTLP gRPC `127.0.0.1:4317`; only Qdrant is public.
+- 2026-07-13T13:02:55+02:00 [DISCOVERIES] `.env` had `SEARXNG_BASE_URL=http://127.0.0.1:18080` and no DeGoog/Phoenix endpoint entries. The active WSL SSH tunnel was stale/partial, forwarding only the older service set; local `:4444` initially refused connections.
+- 2026-07-13T13:02:55+02:00 [CODE] Corrected `.env` to `127.0.0.1:8080`, `127.0.0.1:4444`, and `127.0.0.1:6006/v1/traces`; added missing SSH forwards for `4444`, `8000`, `8765`, `8686`, and `4317` with keepalive/forward-failure options; updated Hermes job `7acbeb2b3573` prompt with the complete manifest forward list.
+- 2026-07-13T13:02:55+02:00 [TOOL] Verification: SearXNG `/search` 200, DeGoog `/api/search` 200 using Bing-only engine, Phoenix `/healthz` 200, Phoenix `/v1/traces` 200; all manifest tunnel ports listen on localhost through WSL relay PID 16108. Focused provider/Phoenix tests: 22 passed.
+- 2026-07-13T13:02:55+02:00 [CODE] Crawl4AI audit: manifest and client both use `/health` on port `11235`; `.env` now enables `CRAWL4AI_BASE_URL=http://127.0.0.1:11235`, and `get_crawl4ai_client().health_check()` returned true through the tunnel.
+- 2026-07-13T13:02:55+02:00 [TOOL] Verified local `127.0.0.1:11235` listener via WSL relay PID 16108, `GET /health` returned HTTP 200, and focused content tests passed 8/8.
+- 2026-07-13T13:58:04+02:00 [TOOL] Verified active profile cron record `~/.hermes/profiles/python-software/cron/jobs.json`: job `7acbeb2b3573` is enabled, `script=null`, `no_agent=false`, and its stored prompt contains the complete manifest forward list including Crawl4AI `11235`, SearXNG `8080`, DeGoog `4444`, Phoenix `6006`, and `4317`.
+- 2026-07-13T13:58:04+02:00 [TOOL] Latest Hermes run reported all 10 requested ports open and both persistent SSH processes alive; the automatic recovery job is using the complete list, not only the supplemental five ports.
+
 ## Latency Fix — 2026-07-13
 
 - 2026-07-13T00:50Z [DISCOVERIES] Root cause of 66s `search.rank` latency: Cerebras API returns 429 with `retry-after: 60` header. OpenAI client (used by LiteLLM) has built-in retry that respects the 60s header, blocking the event loop. LiteLLM's `num_retries=0` and `max_retries=0` kwargs do NOT disable the OpenAI client's internal retry — they only control LiteLLM's own retry layer. DuckDB logs confirmed: `search.rerank.summary` events with 63s durations on multiple runs.

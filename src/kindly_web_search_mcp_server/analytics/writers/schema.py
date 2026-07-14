@@ -114,11 +114,10 @@ def _ensure_search_branches(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key            VARCHAR NOT NULL,
         branch_index       INTEGER NOT NULL,
-        branch_target      VARCHAR NOT NULL,
+        branch_role        VARCHAR NOT NULL,
         branch_query       VARCHAR NOT NULL,
         branch_why         VARCHAR,
-        branch_weight      DOUBLE,
-        must_keep_terms    VARCHAR[],
+        support_terms      VARCHAR[],
         max_results        INTEGER,
         assigned_providers VARCHAR[],
         attempted_providers VARCHAR[],
@@ -141,7 +140,7 @@ def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key               VARCHAR NOT NULL,
         branch_index          INTEGER,
-        branch_target         VARCHAR,
+        branch_role           VARCHAR,
         provider              VARCHAR NOT NULL,
         branch_query          VARCHAR,
         status                VARCHAR NOT NULL,
@@ -211,28 +210,8 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
         """,
     )
 
-    # Migrate pre-existing tables that lack columns added in the new schema
-    _migrate_rerank_stages(connection)
 
 
-def _migrate_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
-    """Add columns that exist in the new schema but not in pre-existing tables."""
-    for column, definition in [
-        ("alpha_blend", "DOUBLE"),
-        ("status", "VARCHAR"),
-        ("error_type", "VARCHAR"),
-        ("instruction_present", "BOOLEAN"),
-        ("instruction_length", "INTEGER"),
-        ("query_type_hint", "VARCHAR"),
-        ("entity_overlap_enabled", "BOOLEAN"),
-        ("payload_json", "JSON"),
-    ]:
-        try:
-            connection.execute(
-                f"ALTER TABLE {_RS_TABLE_NAME} ADD COLUMN IF NOT EXISTS {column} {definition}"
-            )
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +364,6 @@ def _ensure_search_quality_scores(
         avg_rrf_score         DOUBLE,
         top_score             DOUBLE,
         p95_score             DOUBLE,
-        rewrite_variant_count INTEGER,
         provider_count        INTEGER,
         branch_count          INTEGER,
         total_candidates_input INTEGER,

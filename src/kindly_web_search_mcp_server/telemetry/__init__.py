@@ -60,8 +60,7 @@ __all__ = [
     "record_circuit_breaker_event",
     # Tool-specific metrics (NEW)
     "record_gemini_search",
-    "record_perplexity_search",
-    "record_youtube_transcript",
+        "record_youtube_transcript",
     "record_youtube_search",
     "record_tool_details",
     # Query quality metrics (Phase 2)
@@ -167,10 +166,7 @@ __all__ = [
     "GEMINI_GROUNDING_QUERIES",
     "GEMINI_GROUNDING_CHUNKS",
     "GEMINI_STRUCTURED_OUTPUT",
-    "PERPLEXITY_DEPTH",
-    "PERPLEXITY_SOURCE_COUNT",
-    "PERPLEXITY_MODEL",
-    "YOUTUBE_FORMAT",
+        "YOUTUBE_FORMAT",
     "YOUTUBE_LANGUAGE",
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_DURATION_SECONDS",
@@ -190,5 +186,5 @@ __all__ = [
     "CONTENT_STAGE_WIKIPEDIA",
     "CONTENT_STAGE_ARXIV",
     "CONTENT_STAGE_HTTP_EXTRACT",
-    "CONTENT_STAGE_NODRIVER",
+    "CONTENT_STAGE_CAMOUFOX",
 ]

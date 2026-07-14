@@ -16,7 +16,6 @@ dependencies = [
     "composio",
     "markdownify",
     "html2text>=2024.2.26",
-    "crawl4ai>=0.8.0",
     "PyMuPDF",
     "flashrank>=0.2.0",  # local rerank baseline (cross-encoder/ms-marco-MiniLM-L6-v2)
     "duckdb>=1.1.0,<1.5.3",

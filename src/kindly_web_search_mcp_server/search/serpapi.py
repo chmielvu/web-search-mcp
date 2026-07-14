@@ -138,27 +138,14 @@ async def search_serpapi(
     *,
     num_results: int,
     http_client: Any = None,
+    engine: str | None = None,
 ) -> list[WebSearchResult]:
-    """Query SerpApi across configured engines and return concatenated results.
-
-    When ``SERPAPI_ENGINES`` lists multiple engines (e.g. ``yahoo,baidu,naver``),
-    all are queried in parallel and results are concatenated. The pipeline's
-    global RRF merge handles dedup and scoring — no local RRF here.
-
-    SerpApi endpoint:
-    - GET https://serpapi.com/search
-    - Params: q, num, api_key, engine
-    - Supports: google, baidu, naver, bing, and 40+ other engines
-
-    Docs:
-    - https://serpapi.com/baidu-search-api
-    - https://serpapi.com/naver-search-api
-    """
+    """Query SerpApi across configured engines and return concatenated results."""
     if not query.strip() or num_results < 1:
         return []
 
     api_key = _get_serpapi_api_key()
-    engines = _get_engines()
+    engines = [engine] if engine else _get_engines()
 
     # Single engine: direct pass-through
     if len(engines) == 1:

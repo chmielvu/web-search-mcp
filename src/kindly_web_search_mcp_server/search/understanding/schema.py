@@ -6,7 +6,7 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "schema_version": {"type": "string", "enum": ["0.2"]},
+        "schema_version": {"type": "string", "enum": ["0.3"]},
         "intent": {
             "type": "string",
             "enum": [
@@ -50,26 +50,6 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
         },
-        "provider_hints": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "keyword": {"type": "boolean"},
-                "neural": {"type": "boolean"},
-                "community": {"type": "boolean"},
-            },
-            "required": ["keyword", "neural", "community"],
-        },
-        "rewrite_hints": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "style": {"type": "string"},
-                "variant_count": {"type": "integer"},
-                "preserve_order": {"type": "boolean"},
-            },
-            "required": ["style", "variant_count", "preserve_order"],
-        },
         "rationale": {"type": "string"},
         "should_decompose": {"type": "boolean"},
     },
@@ -82,8 +62,6 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
         "compared_entities",
         "time_sensitivity",
         "domain_hints",
-        "provider_hints",
-        "rewrite_hints",
         "rationale",
     ],
 }

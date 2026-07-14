@@ -101,17 +101,11 @@ def configure_structlog(json_output: bool = True) -> None:
     handler.setFormatter(structlog.stdlib.ProcessorFormatter(processors=processors))
     root_logger.addHandler(handler)
 
-    # Silence noisy third-party loggers
     noisy_loggers = (
         "httpx",
         "httpcore",
         "urllib3",
         "asyncio",
-        "nodriver",
-        "undetected_chromedriver",
-        "crawl4ai",
-        "playwright",
-        "patchright",
         "LiteLLM",
         "litellm",
         "primp",

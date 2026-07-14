@@ -48,7 +48,7 @@ For async: use `AsyncMock` with `unittest.IsolatedAsyncioTestCase`.
 ### Tool contracts
 - `web_search` returns **lightweight results only** (title, link, snippet) — no page_content
 - `get_content` returns **LLM-ready markdown** for a single URL
-- `perplexity_search` returns **AI-synthesized answers with citations** (uses Perplexity Sonar)
+
 - `gemini_search` returns **grounded answers with citations** (uses Gemini + Google Search)
 - `youtube_transcript` returns **video transcripts** with optional translation/formatting
 - `youtube_search` returns **YouTube video results** via YouTube Data API v3 (when `GOOGLE_API_KEY` set) or SearXNG fallback
@@ -88,7 +88,7 @@ $env:CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
 $env:GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
 $env:VERCEL_REWRITE_MODEL="groq/gpt-oss-20b"
 $env:GEMINI_API_KEY="..."  # gemini_search grounding
-$env:POLLINATIONS_API_KEY="..."  # perplexity_search (Perplexity Sonar via Pollinations)
+
 $env:YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud IPs)
 ```
 
@@ -105,7 +105,7 @@ $env:YOUTUBE_TRANSCRIPT_PROXY_URL="..."  # YouTube transcript proxy (for cloud I
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (7560 symbols, 12652 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (7661 symbols, 14350 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

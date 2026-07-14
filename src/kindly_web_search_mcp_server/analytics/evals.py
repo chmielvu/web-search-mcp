@@ -150,29 +150,30 @@ def build_eval_view_sql(target: str) -> list[str]:
             c.expected_output_json,
             c.labels_json,
             c.run_key,
-            t.first_seen_at,
-            t.last_seen_at,
-            t.event_count,
-            t.rewrite_events,
-            t.rerank_events,
-            t.fetch_events,
-            t.answer_events
+            r.recorded_at AS first_seen_at,
+            r.recorded_at AS last_seen_at,
+            r.status,
+            r.duration_ms,
+            r.branch_count,
+            r.final_result_count,
+            r.error_type,
+            (SELECT COUNT(*) FROM {target}.rerank_stages rs WHERE rs.run_key = c.run_key) AS rerank_events
         FROM {target}.eval_cases AS c
-        LEFT JOIN {target}.vw_run_timeline AS t
-          ON t.run_key = c.run_key
+        LEFT JOIN {target}.search_runs AS r
+          ON r.run_key = c.run_key
         """,
         f"""
         CREATE OR REPLACE VIEW {target}.vw_eval_candidate_survival AS
         SELECT
             c.eval_run_id,
             c.eval_case_id,
-            s.stage,
-            COUNT(*) AS rows,
-            COUNT(DISTINCT s.run_key) AS runs,
-            COUNT(DISTINCT s.url) AS unique_urls
+            rc.stage,
+            COUNT(rc.run_key) AS rows,
+            COUNT(DISTINCT rc.run_key) AS runs,
+            COUNT(DISTINCT rc.link) AS unique_urls
         FROM {target}.eval_cases AS c
-        LEFT JOIN {target}.vw_candidate_survival AS s
-          ON s.run_key = c.run_key
+        LEFT JOIN {target}.rerank_candidates AS rc
+          ON rc.run_key = c.run_key
         GROUP BY 1, 2, 3
         """,
         f"""
@@ -191,21 +192,6 @@ def build_eval_view_sql(target: str) -> list[str]:
         LEFT JOIN {target}.eval_observations AS o
           ON o.eval_case_id = c.eval_case_id
         GROUP BY 1, 2, 3
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.vw_eval_fetch_quality AS
-        SELECT
-            c.eval_run_id,
-            c.eval_case_id,
-            coalesce(f.fetch_backend, 'unknown') AS fetch_backend,
-            coalesce(f.status, 'unknown') AS status,
-            COUNT(*) AS fetch_events,
-            AVG(f.word_count) AS avg_word_count,
-            AVG(f.page_char_count) AS avg_page_char_count
-        FROM {target}.eval_cases AS c
-        LEFT JOIN {target}.vw_fetch_events AS f
-          ON f.run_key = c.run_key
-        GROUP BY 1, 2, 3, 4
         """,
         f"""
         CREATE OR REPLACE VIEW {target}.vw_eval_pass_rate AS

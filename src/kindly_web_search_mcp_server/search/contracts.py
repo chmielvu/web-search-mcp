@@ -30,19 +30,21 @@ class ProviderGroup(str, Enum):
     SPECIALIZED = "specialized"
 
 
-class ProviderTarget(str, Enum):
-    ORIGINAL = "original"
-    KEYWORD = "keyword"
+class BranchRole(str, Enum):
+    ORIGINAL_FREE = "original_free"
+    PAID_BRAVE = "paid_brave"
+    PAID_GOOGLE = "paid_google"
+    PAID_OTHER = "paid_other"
     NEURAL = "neural"
-    COMMUNITY = "community"
+    SPECIALIZED = "specialized"
 
 
 class QueryBranch(ContractModel):
-    target: ProviderTarget
+    role: BranchRole
     query: NonBlank
+    provider_names: tuple[str, ...]
     why: str = ""
-    weight: float = Field(default=1.0, gt=0)
-    must_keep_terms: tuple[str, ...] = ()
+    support_terms: tuple[str, ...] = ()
     max_results: int = Field(ge=1, le=100)
 
 
@@ -60,7 +62,6 @@ class SearchPlan:
     relevance_query: str
     understanding: QueryUnderstandingResult
     options: SearchOptions
-    selected_provider_names: tuple[str, ...]
     provider_arguments: Mapping[str, Mapping[str, Any]]
     branches: tuple[QueryBranch, ...]
     policy_version: str
@@ -73,7 +74,6 @@ class SearchPlan:
         relevance_query: str,
         understanding: QueryUnderstandingResult,
         options: SearchOptions,
-        selected_provider_names: Sequence[str],
         provider_arguments: Mapping[str, Mapping[str, Any]],
         branches: Sequence[QueryBranch],
         policy_version: str,
@@ -86,7 +86,6 @@ class SearchPlan:
             relevance_query=relevance_query,
             understanding=understanding,
             options=options,
-            selected_provider_names=tuple(selected_provider_names),
             provider_arguments=MappingProxyType(copied),
             branches=tuple(branches),
             policy_version=policy_version,
@@ -101,8 +100,6 @@ class BranchOutcome:
     results: tuple[WebSearchResult, ...] = ()
     warnings: tuple[ProviderWarning, ...] = ()
     elapsed_seconds: float = 0.0
-    deadline_reached: bool = False
-    cancelled: bool = False
     provider_calls: tuple[dict[str, Any], ...] = ()
 
 

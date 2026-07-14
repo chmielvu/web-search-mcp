@@ -123,7 +123,6 @@ async def resolve_query_understanding(
         query=normalized_query,
         research_goal=research_goal,
         intent=intent_hint,
-        must_keep_terms=[],
         provider_name="groq",
     )
 

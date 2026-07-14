@@ -53,10 +53,7 @@ _rerank_diversity_counter: metrics.Counter | None = None
 _circuit_state_gauge: metrics.UpDownCounter | None = None
 _circuit_event_counter: metrics.Counter | None = None
 
-# Gemini/Perplexity metrics
-_gemini_counter: metrics.Counter | None = None
-_perplexity_counter: metrics.Counter | None = None
-
+# Gemini metrics\n_gemini_counter: metrics.Counter | None = None\n
 # YouTube metrics
 _youtube_transcript_counter: metrics.Counter | None = None
 _youtube_search_counter: metrics.Counter | None = None
@@ -406,21 +403,6 @@ def get_gemini_metrics() -> metrics.Counter:
     return _gemini_counter
 
 
-def get_perplexity_metrics() -> metrics.Counter:
-    """Get Perplexity search metrics."""
-    meter = get_meter()
-    global _perplexity_counter
-
-    if _perplexity_counter is None:
-        _perplexity_counter = meter.create_counter(
-            name="mcp_perplexity_search_details",
-            description="Perplexity search specifics (depth, source count, model)",
-            unit="1",
-        )
-
-    return _perplexity_counter
-
-
 def get_youtube_metrics() -> tuple[metrics.Counter, metrics.Counter]:
     """Get YouTube metrics."""
     meter = get_meter()
@@ -479,8 +461,7 @@ __all__ = [
     "get_content_metrics",
     "get_gemini_metrics",
     "get_mcp_metrics",
-    "get_perplexity_metrics",
-    "get_provider_metrics",
+        "get_provider_metrics",
     "get_query_quality_metrics",
     "get_rerank_metrics",
     "get_rewrite_metrics",

@@ -3,16 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 from dataclasses import dataclass
 
 from .artifact import ContentArtifact, ContentError
 from .fetch_pipeline import fetch_content_artifact
 from .options import FetchOptions
 from .windowing import slice_content
-
-import logging
-from .crawl4ai_client import Crawl4AIClient, Crawl4AIClientError, get_crawl4ai_client
-from .status_classifier import classify_markdown
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,144 +44,6 @@ def _normalize_urls(urls: list[str]) -> list[str]:
     return normalized
 
 
-async def _batch_via_crawl4ai(
-    client: Crawl4AIClient,
-    urls: list[str],
-    params: BatchParams,
-    cursor: str | None,
-    fetch_options: FetchOptions | None,
-    offsets: dict[str, int],
-    start_index: int,
-) -> dict:
-    """Fetch multiple URLs in a single Crawl4AI /crawl request (batch mode)."""
-    try:
-        results_raw = await client.crawl(urls)
-    except Crawl4AIClientError:
-        raise
-    except Exception as exc:
-        raise Crawl4AIClientError(f"Unexpected error in batch crawl: {exc}") from exc
-
-    artifacts: list[ContentArtifact] = []
-    url_to_result: dict[str, dict] = {}
-    for r in results_raw:
-        url_to_result[r.get("url", "")] = r
-
-    # Ensure we have results in the same order as input urls
-    for url in urls:
-        r = url_to_result.get(url, {})
-        if r.get("success") is True:
-            md_data = r.get("markdown", {})
-            if isinstance(md_data, dict):
-                markdown = md_data.get("fit_markdown") or md_data.get("raw_markdown") or ""
-            else:
-                markdown = str(md_data)
-            cls = classify_markdown(markdown)
-            word_count = len(markdown.split())
-            quality_score = 1.0 if cls.status == "success" else 0.6
-            artifacts.append(
-                ContentArtifact(
-                    input_url=url,
-                    normalized_url=url,
-                    fetched_url=r.get("url"),
-                    status=cls.status,
-                    source_type="html",
-                    fetch_backend="crawl4ai_batch",
-                    content_type="text/markdown",
-                    markdown=markdown,
-                    word_count=word_count,
-                    quality_score=quality_score,
-                )
-            )
-        else:
-            artifacts.append(
-                ContentArtifact(
-                    input_url=url,
-                    normalized_url=url,
-                    fetched_url=r.get("url"),
-                    status="error",
-                    source_type="unknown",
-                    fetch_backend="crawl4ai_batch",
-                    content_type=None,
-                    markdown="",
-                    error=ContentError(
-                        code="crawl4ai_failed",
-                        message=r.get("error_message", "Crawl4AI crawl failed"),
-                    ),
-                )
-            )
-
-    remaining_budget = max(1, params.total_char_budget)
-    results: list[dict] = []
-    next_index = start_index
-    processed_urls: set[str] = set()
-
-    for idx, artifact in enumerate(artifacts):
-        if remaining_budget <= 0:
-            break
-        processed_urls.add(artifact.input_url)
-        length = min(params.per_item_char_length, remaining_budget)
-        offset = int(offsets.get(artifact.input_url, 0))
-        sliced = slice_content(artifact.markdown, offset=offset, length=length)
-        offsets[artifact.input_url] = sliced.window.next_offset or 0
-        remaining_budget -= sliced.window.returned_chars
-
-        results.append(
-            {
-                "input_url": artifact.input_url,
-                "normalized_url": artifact.normalized_url,
-                "fetched_url": artifact.fetched_url,
-                "status": artifact.status,
-                "source_type": artifact.source_type,
-                "fetch_backend": artifact.fetch_backend,
-                "content_type": artifact.content_type,
-                "page_content": sliced.content,
-                "window": sliced.window.__dict__,
-                "metadata": artifact.metadata,
-                "links": artifact.links,
-                "continuation_notice": sliced.window.continuation_notice,
-                "error": None
-                if artifact.error is None
-                else {
-                    "code": artifact.error.code,
-                    "message": artifact.error.message,
-                    "retryable": artifact.error.retryable,
-                },
-            }
-        )
-
-        if not sliced.window.has_more:
-            offsets.pop(artifact.input_url, None)
-
-        # Advance past fully-consumed URLs
-        while next_index < len(urls):
-            u = urls[next_index]
-            if u in processed_urls and offsets.get(u, 0) == 0:
-                next_index += 1
-            else:
-                break
-
-    total_chars = sum(len(item["page_content"]) for item in results)
-    has_more = next_index < len(urls)
-    next_cursor = None
-    if has_more:
-        next_cursor = _encode_cursor(
-            {
-                "index": next_index,
-                "offsets": offsets,
-                "urls": urls,
-            }
-        )
-
-    return {
-        "results": results,
-        "total_requested": len(urls),
-        "total_returned": len(results),
-        "total_chars_returned": total_chars,
-        "has_more": has_more,
-        "cursor": next_cursor,
-    }
-
-
 async def run_batch_fetch(
     *,
     urls: list[str] | None,
@@ -214,16 +73,6 @@ async def run_batch_fetch(
         decoded = _decode_cursor(cursor)
         offsets.update(decoded.get("offsets", {}))
         start_index = int(decoded.get("index", 0))
-
-    # Try Crawl4AI batch mode for 2+ URLs
-    client = get_crawl4ai_client()
-    if client is not None and len(normalized_urls) >= 2:
-        try:
-            return await _batch_via_crawl4ai(
-                client, normalized_urls, params, cursor, fetch_options, offsets, start_index
-            )
-        except (Crawl4AIClientError, Exception) as exc:
-            LOGGER.debug("Crawl4AI batch failed, falling back to per-URL: %s", exc)
 
     sem = asyncio.Semaphore(max(1, min(params.max_concurrency, 8)))
 
