@@ -133,7 +133,7 @@ class Settings:
         os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
     )
     search_retrieve_budget_seconds: float = float(
-        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "30")
+        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "10")
     )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
@@ -176,7 +176,6 @@ class Settings:
     )
 
     # Reranking (Cohere primary, OpenRouter Cohere 4-fast fallback, Voyage last;
-    # gcp_cloudrun for custom GCP Cloud Run / TEI / FastAPI supported;
     # listwise LLM reranker stays in the default stack but is tightly bounded)
 
     reranking_enabled: bool = os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
@@ -217,10 +216,6 @@ class Settings:
         "OPENROUTER_RERANK_BASE_URL", "https://openrouter.ai/api/v1/rerank"
     )
     openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "30.0"))
-    # GCP Cloud Run reranker (TEI or custom FastAPI /rerank endpoint). Private by default; client handles IAM ID tokens.
-    rerank_gcp_cloudrun_url: str = os.environ.get("RERANK_GCP_CLOUDRUN_URL", "")
-    rerank_gcp_model: str = os.environ.get("RERANK_GCP_MODEL", "BAAI/bge-reranker-v2-m3")
-    rerank_gcp_timeout: float = float(os.environ.get("RERANK_GCP_TIMEOUT", "30.0"))
     rerank_score_threshold: float = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.15"))
     rerank_fusion_alpha: float = float(os.environ.get("RERANK_FUSION_ALPHA", "0.7"))
     diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 from enum import Enum
@@ -98,7 +99,7 @@ def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
             provider_arguments=arguments,
         )
         if query_embedding is not None and module_name == "qdrant":
-            kwargs["query_embedding"] = await query_embedding
+            kwargs["query_embedding"] = await asyncio.shield(query_embedding)
         return await resolved_function(
             query,
             num_results=num_results,

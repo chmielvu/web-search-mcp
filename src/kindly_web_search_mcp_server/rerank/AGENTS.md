@@ -18,7 +18,7 @@ rerank/
 |-- reporting.py             # Rerank reporting helpers
 |-- observability.py         # Rerank observability helpers
 |-- cohere.py, openrouter.py, voyage.py
-└-- jina.py, gcp_cloudrun.py # Provider adapters retained for direct integrations
+└-- jina.py                  # Provider adapter retained for direct integration
 
 ## Current Behavior
 

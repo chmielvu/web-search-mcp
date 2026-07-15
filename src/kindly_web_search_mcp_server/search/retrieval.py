@@ -182,7 +182,7 @@ async def retrieve_branches(
 
         tasks: list[asyncio.Task[tuple[str, Sequence[WebSearchResult] | BaseException, float]]] = []
         slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
-
+        started_at: dict[str, float] = {}
         for branch_index, branch in enumerate(run.plan.branches):
             assigned_names = branch.provider_names
             branch_assigned.append(assigned_names)
@@ -199,6 +199,7 @@ async def retrieve_branches(
                     n: str = name,
                 ) -> tuple[str, Sequence[WebSearchResult] | BaseException, float]:
                     call_started = time.monotonic()
+                    started_at[n] = call_started
                     provider_name, value = await _call_provider(run, b, n, embedding_task)
                     return provider_name, value, (time.monotonic() - call_started) * 1000.0
 
@@ -211,9 +212,10 @@ async def retrieve_branches(
         pending: set[asyncio.Task[Any]] = set()
         try:
             if tasks:
+                wait_timeout = max(0.0, retrieve_budget_seconds - 0.5)
                 done, pending = await asyncio.wait(
                     tasks,
-                    timeout=max(0.0, retrieve_budget_seconds),
+                    timeout=wait_timeout,
                 )
             retrieve_budget_exceeded = bool(pending)
 
@@ -231,11 +233,14 @@ async def retrieve_branches(
                 calls = branch_calls[branch_index]
 
                 if task in pending:
+                    elapsed_ms = (
+                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                    ) * 1000.0
                     _record_provider_result(
                         branch=branch,
                         name=provider_name,
                         value=None,
-                        latency_ms=retrieve_elapsed_ms,
+                        latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
@@ -249,22 +254,28 @@ async def retrieve_branches(
                 try:
                     _returned_name, value, latency_ms = task.result()
                 except asyncio.CancelledError as exc:
+                    elapsed_ms = (
+                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                    ) * 1000.0
                     _record_provider_result(
                         branch=branch,
                         name=provider_name,
                         value=exc,
-                        latency_ms=0.0,
+                        latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                     )
                     continue
                 except Exception as exc:
+                    elapsed_ms = (
+                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                    ) * 1000.0
                     _record_provider_result(
                         branch=branch,
                         name=provider_name,
                         value=exc,
-                        latency_ms=0.0,
+                        latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,

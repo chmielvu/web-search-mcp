@@ -20,7 +20,6 @@ from typing import Any
 import httpx
 
 from ..models import WebSearchResult
-from ..retry import retry_with_backoff
 from ..settings import get_env_value, settings
 from .base_provider import _attach_provider_name
 
@@ -152,28 +151,21 @@ async def search_serpapi(
         return await _search_one_engine(query, engines[0], api_key, num_results, http_client)
 
     # Multi-engine: parallel gather, concatenate all results
-    async def _do_search() -> list[WebSearchResult]:
-        engine_results_raw = await asyncio.gather(
-            *[_search_one_engine(query, e, api_key, num_results, http_client) for e in engines],
-            return_exceptions=True,
-        )
-
-        for raw in engine_results_raw:
-            if isinstance(raw, asyncio.CancelledError):
-                raise raw
-
-        all_results: list[WebSearchResult] = []
-        for raw in engine_results_raw:
-            if isinstance(raw, BaseException):
-                continue
-            if raw:
-                all_results.extend(raw)
-
-        return all_results[:num_results]
-
-    results = await retry_with_backoff(
-        _do_search,
-        provider_name="serpapi",
-        max_retries=2,
+    engine_results_raw = await asyncio.gather(
+        *[_search_one_engine(query, e, api_key, num_results, http_client) for e in engines],
+        return_exceptions=True,
     )
+
+    for raw in engine_results_raw:
+        if isinstance(raw, asyncio.CancelledError):
+            raise raw
+
+    all_results: list[WebSearchResult] = []
+    for raw in engine_results_raw:
+        if isinstance(raw, BaseException):
+            continue
+        if raw:
+            all_results.extend(raw)
+
+    results = all_results[:num_results]
     return _attach_provider_name(results, "serpapi")[:num_results]

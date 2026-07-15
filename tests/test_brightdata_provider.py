@@ -132,26 +132,6 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
                 raise asyncio.CancelledError()
 
         with self.assertRaises(asyncio.CancelledError):
-            _run_async(search_bing_sidecar("test", 5, _CancelledClient(), "key", {}, {}, "us", "en"))
-
-
-class TestRetry429(unittest.TestCase):
-    def test_429_is_transient(self):
-        from kindly_web_search_mcp_server.retry import is_transient_error
-
-        error = httpx.HTTPStatusError(
-            "rate limited",
-            request=httpx.Request("GET", "https://example.com"),
-            response=httpx.Response(429),
-        )
-        self.assertTrue(is_transient_error(error))
-
-    def test_403_is_not_transient(self):
-        from kindly_web_search_mcp_server.retry import is_transient_error
-
-        error = httpx.HTTPStatusError(
-            "forbidden",
-            request=httpx.Request("GET", "https://example.com"),
-            response=httpx.Response(403),
-        )
-        self.assertFalse(is_transient_error(error))
+            _run_async(
+                search_bing_sidecar("test", 5, _CancelledClient(), "key", {}, {}, "us", "en")
+            )

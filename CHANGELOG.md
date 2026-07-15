@@ -32,6 +32,8 @@
 - `POLLINATIONS_API_KEY` removed from environment docs in `CLAUDE.md`, `README.md`, and `skills/web-search-cli/SKILL.md`.
 - `skills/web-search-cli/SKILL.md` fully refreshed to match current CLI shape: added `--debug` global flag, `sitemap generate`, `experiments` group; removed `agent research`; updated `search web` to require `--research-goal`, default `--num-results` 15 (clamped 15–50), added `--diagnostics`, removed `--provider`; added `--summary-mode`/`--focus-query` to `content batch`; added `--backend` to `youtube transcript`.
 ### Added
+- Added `scripts/live_web_search_quality.py` and a fixed 50-query corpus for a resumable FastMCP stdio quality campaign: ten batches of five concurrent rewrite-enabled searches, a first-batch DuckDB/debug-log gate, exact-attempt accounting, raw MCP/progress capture, structured analytics exports, aggregate quality metrics, and deterministic manual-review artifacts.
+- Added pandas 3.x/pyarrow exports for campaign calls, progress, per-query quality, manual review, process logs, and analytics tables. Each `pandas/*.parquet` file uses Zstandard compression, omits the DataFrame index, JSON-encodes nested object values, and is read back to verify its row count.
 - DeGoog search aggregator as free provider alongside SearXNG
 - Brave LLM Context replaces the standard Brave web path in `search_brave()` (`/res/v1/llm/context`, `grounding.generic` → `WebSearchResult`).
 - New `brave_news` specialized provider for the `news` intent (`/res/v1/news/search`, `page_age` → `published_date`).

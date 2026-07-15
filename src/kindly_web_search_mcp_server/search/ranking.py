@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 import time
 from collections.abc import Awaitable, Sequence
 
@@ -94,17 +98,35 @@ async def rank_and_finalize(
                 ]
                 dc.query_embedding = list(ctx.query_embedding)
             elif embedding_task is not None:
-                try:
-                    vec = await embedding_task
-                    dc.query_embedding = list(vec)
-                except Exception:
-                    pass
+                if embedding_task.done() and embedding_task.cancelled():
+                    logger.warning("Shared embedding task was cancelled; continuing without it")
+                else:
+                    try:
+                        vec = await asyncio.shield(embedding_task)
+                        dc.query_embedding = list(vec)
+                    except asyncio.CancelledError:
+                        if embedding_task.cancelled():
+                            logger.warning(
+                                "Shared embedding task was cancelled; continuing without it"
+                            )
+                        else:
+                            raise
+                    except Exception as exc:
+                        logger.warning("Failed to retrieve query embedding: %s", exc)
         elif embedding_task is not None:
-            try:
-                vec = await embedding_task
-                dc.query_embedding = list(vec)
-            except Exception:
-                pass
+            if embedding_task.done() and embedding_task.cancelled():
+                logger.warning("Shared embedding task was cancelled; continuing without it")
+            else:
+                try:
+                    vec = await asyncio.shield(embedding_task)
+                    dc.query_embedding = list(vec)
+                except asyncio.CancelledError:
+                    if embedding_task.cancelled():
+                        logger.warning("Shared embedding task was cancelled; continuing without it")
+                    else:
+                        raise
+                except Exception as exc:
+                    logger.warning("Failed to retrieve query embedding: %s", exc)
         offset = run.request.options.result_offset
         final_results = ranked_pool[offset : offset + run.request.num_results]
         candidate_count = len(ranked_pool)

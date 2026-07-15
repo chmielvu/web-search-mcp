@@ -85,7 +85,7 @@ async def suggest_brave_queries(
 
     if http_client is not None:
         return await _with_client(http_client)
-    async with httpx.AsyncClient(timeout=settings.provider_timeout_seconds) as client:
+    async with httpx.AsyncClient(timeout=settings.search_retrieve_budget_seconds) as client:
         return await _with_client(client)
 
 
@@ -121,7 +121,7 @@ async def spellcheck_brave(
 
     if http_client is not None:
         return await _with_client(http_client)
-    async with httpx.AsyncClient(timeout=settings.provider_timeout_seconds) as client:
+    async with httpx.AsyncClient(timeout=settings.search_retrieve_budget_seconds) as client:
         return await _with_client(client)
 
 
@@ -190,7 +190,9 @@ async def search_brave(
             if isinstance(snippets_raw, list):
                 snippet = " ".join(s for s in snippets_raw if isinstance(s, str))
             else:
-                snippet = entry.get("snippet") or entry.get("content") or entry.get("description") or ""
+                snippet = (
+                    entry.get("snippet") or entry.get("content") or entry.get("description") or ""
+                )
             if not isinstance(snippet, str):
                 snippet = ""
             results.append(WebSearchResult(title=title, link=link, snippet=snippet.strip()))

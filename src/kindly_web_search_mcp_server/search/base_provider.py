@@ -8,7 +8,7 @@ from typing import TypeVar
 import httpx
 
 from ..models import WebSearchResult
-from ..retry import retry_with_backoff
+from ..settings import settings
 
 TResponse = TypeVar("TResponse")
 
@@ -39,18 +39,17 @@ async def run_provider(
     request: RequestFn[TResponse],
     parse_response: ParseFn[TResponse],
     http_client: httpx.AsyncClient | None = None,
-    timeout_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
 ) -> list[WebSearchResult]:
-    """Execute a provider request with retries, client lifecycle, and normalization."""
+    """Execute a provider request, client lifecycle, and normalization."""
     if not query.strip() or num_results < 1:
         return []
 
+    if timeout_seconds is None:
+        timeout_seconds = settings.search_retrieve_budget_seconds
+
     async def _fetch(client: httpx.AsyncClient) -> list[WebSearchResult]:
-        payload = await retry_with_backoff(
-            lambda: request(client),
-            provider_name=provider_name,
-            max_retries=2,
-        )
+        payload = await request(client)
         results = parse_response(payload)
         return _attach_provider_name(results, provider_name)[:num_results]
 
@@ -75,10 +74,6 @@ async def run_clientless_provider(
     if not query.strip() or num_results < 1:
         return []
 
-    payload = await retry_with_backoff(
-        request,
-        provider_name=provider_name,
-        max_retries=2,
-    )
+    payload = await request()
     results = parse_response(payload)
     return _attach_provider_name(results, provider_name)[:num_results]

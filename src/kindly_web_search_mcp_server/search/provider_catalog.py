@@ -38,16 +38,7 @@ def _definition(
 
 
 def brightdata_provider_call_timeout_seconds() -> float:
-    """Budget for ``retrieval._call_provider`` around Bright Data adapters.
-
-    Must cover ``run_provider`` (up to 3 attempts with 1s/2s transient backoff)
-    and the larger of Google/Yandex vs Bing HTTP read timeouts.
-    """
-    per_attempt = max(
-        settings.brightdata_google_timeout_seconds,
-        settings.brightdata_bing_timeout_seconds,
-    )
-    return per_attempt * 3.0 + 3.0
+    return settings.search_retrieve_budget_seconds
 
 
 PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (

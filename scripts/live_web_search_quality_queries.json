@@ -1,0 +1,352 @@
+[
+  {
+    "id": "N01",
+    "batch": 1,
+    "topic": "retrieval",
+    "query": "Compare production-ready hybrid web retrieval architectures in 2025–2026 that combine BM25, learned sparse retrieval such as SPLADE, dense embeddings, and late-interaction models such as ColBERTv2. Include current open-source implementations, benchmark evidence on BEIR or MS MARCO, fusion methods, index cost, and latency trade-offs.",
+    "research_goal": "Produce an evidence-based architecture comparison for a modern multi-provider web search engine, separating benchmark quality from serving cost and identifying reproducible open-source stacks."
+  },
+  {
+    "id": "N02",
+    "batch": 1,
+    "topic": "query-reformulation",
+    "query": "What is the strongest recent evidence on LLM-based query reformulation for web search compared with supervised sequence-to-sequence rewriting, pseudo-relevance feedback, and classical term expansion? Focus on 2023–2026 studies, public datasets, ablations, failure modes, and whether gains survive end-to-end retrieval evaluation.",
+    "research_goal": "Assess whether LLM rewriting materially improves retrieval rather than only producing plausible paraphrases, and identify evaluation designs suitable for a live search system."
+  },
+  {
+    "id": "S01",
+    "batch": 1,
+    "topic": "x-data-access",
+    "query": "Map the current 2025–2026 options for collecting research-grade public data from X/Twitter for social-network and media analysis: official API tiers, academic access changes, compliant archives, third-party datasets, and defensible alternatives. Include cost, rate limits, reproducibility, legal/ethical constraints, and deletion compliance.",
+    "research_goal": "Design a realistic and compliant data-acquisition strategy for longitudinal X/Twitter research without assuming obsolete Academic API access."
+  },
+  {
+    "id": "S02",
+    "batch": 1,
+    "topic": "graph-tooling",
+    "query": "Benchmark NetworkX 3.x against python-igraph, graph-tool, NetworKit, and RAPIDS cuGraph for social-network analysis on graphs from one million to one billion edges. Compare algorithm coverage, memory model, parallelism, GPU requirements, interoperability, and reproducible performance evidence.",
+    "research_goal": "Choose a Python graph-analysis stack by workload size and algorithm needs, with a migration path from exploratory NetworkX code to scalable execution."
+  },
+  {
+    "id": "S03",
+    "batch": 1,
+    "topic": "sentiment-stance",
+    "query": "Explain when sentiment analysis, emotion classification, stance detection, and framing analysis answer different questions in political or media discourse on X. Compare modern transformer and instruction-tuned approaches, annotation schemes, multilingual transfer, sarcasm handling, calibration, and recommended evaluation metrics.",
+    "research_goal": "Define a methodologically valid text-analysis design that does not mistake positive/negative sentiment for stance or media framing."
+  },
+  {
+    "id": "N03",
+    "batch": 2,
+    "topic": "query-expansion",
+    "query": "Compare HyDE, multi-query generation, query2doc, pseudo-relevance feedback, and LLM-generated subqueries for difficult informational web searches. Identify recent head-to-head results, sensitivity to hallucinated expansion terms, computational cost, and safeguards for preserving the original user intent.",
+    "research_goal": "Select expansion strategies for complex research queries and define failure checks for topic drift and unsupported generated terms."
+  },
+  {
+    "id": "N04",
+    "batch": 2,
+    "topic": "multilingual-retrieval",
+    "query": "Evaluate current multilingual retrieval models and pipelines for mixed-language web search, including multilingual-e5, BGE-M3, Jina embeddings, language-specific sparse retrieval, translation-based retrieval, and cross-lingual rerankers. Cover MIRACL or comparable benchmarks, low-resource languages, code-switching, and serving constraints.",
+    "research_goal": "Specify a multilingual hybrid retrieval stack that balances cross-lingual recall, language fidelity, and production latency."
+  },
+  {
+    "id": "S04",
+    "batch": 2,
+    "topic": "community-detection",
+    "query": "Compare Louvain, Leiden, Infomap, label propagation, stochastic block models, and overlapping-community methods for large noisy social-media graphs. Explain resolution limits, stability across random seeds, weighted/directed support, consensus clustering, and how to validate communities without ground truth.",
+    "research_goal": "Choose and validate community-detection methods for interaction networks while avoiding overinterpretation of one unstable partition."
+  },
+  {
+    "id": "S05",
+    "batch": 2,
+    "topic": "temporal-networks",
+    "query": "Survey practical methods for temporal social-network analysis of bursty X/Twitter interactions: snapshot graphs, temporal motifs, event graphs, relational event models, dynamic stochastic block models, and streaming community detection. Include Python/R tooling and trade-offs between temporal fidelity and interpretability.",
+    "research_goal": "Design a temporal analysis pipeline that preserves diffusion timing instead of collapsing all interactions into one static graph."
+  },
+  {
+    "id": "N05",
+    "batch": 2,
+    "topic": "conversational-rewrite",
+    "query": "How should a conversational search system rewrite context-dependent follow-up questions into standalone search queries without losing constraints or introducing unsupported assumptions? Compare recent benchmarks, rewrite models, retrieval-aware training, history selection, and evaluation beyond lexical overlap.",
+    "research_goal": "Define a context-rewriting component and tests that measure downstream retrieval fidelity, constraint preservation, and harmful context carryover."
+  },
+  {
+    "id": "N06",
+    "batch": 3,
+    "topic": "llm-reranking",
+    "query": "Compare pointwise, pairwise, listwise, and setwise LLM reranking for web search in 2024–2026 against cross-encoders and late-interaction rerankers. Include quality, token cost, order bias, prompt sensitivity, latency, distillation options, and open reproducible implementations.",
+    "research_goal": "Determine where an LLM reranking stage adds measurable value and how to bound its latency and nondeterminism."
+  },
+  {
+    "id": "N07",
+    "batch": 3,
+    "topic": "reranker-distillation",
+    "query": "What methods currently work best for distilling expensive cross-encoder or LLM relevance judgments into efficient rerankers? Cover hard-negative mining, listwise distillation, synthetic labels, teacher bias, calibration, domain shift, and public results on web or passage retrieval benchmarks.",
+    "research_goal": "Plan a low-latency reranker training pipeline that retains teacher quality while exposing label noise and domain-shift risks."
+  },
+  {
+    "id": "S06",
+    "batch": 3,
+    "topic": "coordination-detection",
+    "query": "Review state-of-the-art methods for detecting coordinated inauthentic behavior on X and other social platforms using timing, shared URLs, text similarity, account metadata, and graph structure. Distinguish coordination from automation and organic mobilization, and include unsupervised validation strategies.",
+    "research_goal": "Build a defensible multimodal coordination-detection design with explicit false-positive controls and reproducible graph construction."
+  },
+  {
+    "id": "S07",
+    "batch": 3,
+    "topic": "bot-detection",
+    "query": "Assess the reproducibility of modern social-bot detection after Botometer-era API and platform changes. Compare account-level classifiers, behavior sequences, graph-based models, foundation-model features, adversarial adaptation, public datasets, and cross-event generalization.",
+    "research_goal": "Determine which bot-detection claims remain operationally testable in 2026 and define an evaluation that resists dataset leakage and temporal decay."
+  },
+  {
+    "id": "N08",
+    "batch": 3,
+    "topic": "search-evaluation",
+    "query": "Which metrics and experimental designs best evaluate generative or answer-oriented web search beyond NDCG and MRR? Compare citation correctness, source coverage, factual support, diversity, freshness, usefulness, calibrated uncertainty, session success, and human preference protocols.",
+    "research_goal": "Create a multidimensional evaluation framework for web search responses that separates retrieval quality, answer grounding, and user usefulness."
+  },
+  {
+    "id": "N09",
+    "batch": 4,
+    "topic": "learned-sparse",
+    "query": "Analyze the current production trade-offs of learned sparse retrieval models such as SPLADE and uniCOIL versus BM25 and dense retrieval. Include index expansion, quantization, pruning, impact scoring, CPU serving, update cost, and evidence from large-scale deployments or reproducible benchmarks.",
+    "research_goal": "Decide whether learned sparse retrieval earns its index and serving complexity in a frequently updated web corpus."
+  },
+  {
+    "id": "N10",
+    "batch": 4,
+    "topic": "late-interaction",
+    "query": "Survey practical indexing and serving optimizations for ColBERT-style late-interaction retrieval in 2024–2026, including residual compression, PLAID, quantization, pruning, approximate search, and multi-vector database support. Report quality/latency/memory trade-offs.",
+    "research_goal": "Estimate whether late interaction can fit a production latency and memory budget while preserving its relevance advantage."
+  },
+  {
+    "id": "S08",
+    "batch": 4,
+    "topic": "misinformation-diffusion",
+    "query": "Compare descriptive network analysis, epidemic diffusion models, Hawkes processes, causal inference, and counterfactual simulation for studying misinformation spread on social media. State what causal claims each design can and cannot support under observational platform data.",
+    "research_goal": "Choose methods that distinguish diffusion description from causal attribution and intervention claims."
+  },
+  {
+    "id": "S09",
+    "batch": 4,
+    "topic": "polarization",
+    "query": "Compare network and text-based measures of political polarization and echo chambers, including assortativity, modularity, random-walk controversy, exposure diversity, ideological embedding, and stance segregation. Explain null models, sensitivity to sampling, and validation against external labels.",
+    "research_goal": "Define a robust polarization measurement suite that avoids equating any community structure with ideological echo chambers."
+  },
+  {
+    "id": "S10",
+    "batch": 4,
+    "topic": "centrality-robustness",
+    "query": "How robust are degree, betweenness, eigenvector, PageRank, k-core, and collective-influence rankings when social-media graphs have missing nodes, API sampling, deleted posts, and uncertain edge direction? Summarize perturbation tests, confidence intervals, and scalable implementations.",
+    "research_goal": "Quantify uncertainty in influential-account rankings rather than reporting unstable centrality point estimates."
+  },
+  {
+    "id": "N11",
+    "batch": 5,
+    "topic": "intent-modeling",
+    "query": "Review modern taxonomies and models for web-search intent classification beyond navigational/informational/transactional labels. Include task complexity, freshness, locality, authority needs, ambiguity, multi-intent queries, confidence calibration, and how intent should alter provider routing and ranking.",
+    "research_goal": "Design an intent representation that produces observable routing decisions and calibrated fallbacks for ambiguous research queries."
+  },
+  {
+    "id": "N12",
+    "batch": 5,
+    "topic": "entity-aware-retrieval",
+    "query": "Evaluate entity-aware retrieval for web search using entity linking, knowledge graphs, entity embeddings, and graph-based expansion. Identify when entity signals improve disambiguation or recall, when they amplify linker errors, and how modern neural retrievers incorporate them.",
+    "research_goal": "Decide where entity signals belong in query understanding, candidate generation, and reranking, with explicit error containment."
+  },
+  {
+    "id": "S11",
+    "batch": 5,
+    "topic": "url-cascades",
+    "query": "What graph constructions best reveal coordinated or organic information diffusion from shared URLs on X: user–URL bipartite graphs, user projections, retweet cascades, domain graphs, and temporal co-sharing networks? Compare normalization, popular-URL bias, time windows, and significance tests.",
+    "research_goal": "Specify a URL-sharing network design that detects meaningful coordination without treating globally popular links as evidence."
+  },
+  {
+    "id": "S12",
+    "batch": 5,
+    "topic": "hashtag-networks",
+    "query": "Critically evaluate hashtag co-occurrence networks for media and movement research. Cover edge weighting, window choice, hypergraph alternatives, semantic normalization, multilingual hashtags, community interpretation, and null models for frequency-driven links.",
+    "research_goal": "Turn hashtag analysis into a statistically defensible method rather than a visually appealing but frequency-dominated graph."
+  },
+  {
+    "id": "N13",
+    "batch": 5,
+    "topic": "semantic-deduplication",
+    "query": "Compare URL canonicalization, MinHash/SimHash, embedding similarity, entity overlap, and learned duplicate detection for merging multi-provider web search results. Address syndicated articles, mirrored pages, evolving pages, near-duplicate snippets, and evaluation of false merges.",
+    "research_goal": "Design a deduplication cascade that improves result diversity without collapsing distinct reporting or versions of a story."
+  },
+  {
+    "id": "N14",
+    "batch": 6,
+    "topic": "synthetic-query-training",
+    "query": "Assess synthetic query generation for training retrievers and rerankers: doc2query, InPars, Promptagator, LLM-generated hard queries, filtering, teacher scoring, and contamination risks. Focus on domain adaptation and evidence that synthetic data transfers to real user queries.",
+    "research_goal": "Build a synthetic-data pipeline with quality filters and a real-query holdout that can reveal teacher imitation and benchmark leakage."
+  },
+  {
+    "id": "N15",
+    "batch": 6,
+    "topic": "click-models",
+    "query": "Compare click models and counterfactual learning-to-rank methods for debiasing position, trust, examination, and selection effects in web search logs. Include PBM, DBN, UBM, inverse propensity scoring, interventions, privacy constraints, and offline validation.",
+    "research_goal": "Determine what relevance signal can be recovered from interaction logs and which assumptions require randomized traffic."
+  },
+  {
+    "id": "S13",
+    "batch": 6,
+    "topic": "bipartite-networks",
+    "query": "Explain best practices for analyzing user–content and user–hashtag bipartite networks without lossy one-mode projection. Compare bipartite centrality, community detection, latent block models, hypergraphs, and statistically validated projections.",
+    "research_goal": "Choose representations that preserve affiliation structure and control spurious similarity created by high-degree content nodes."
+  },
+  {
+    "id": "S14",
+    "batch": 6,
+    "topic": "signed-networks",
+    "query": "Survey signed and antagonistic social-network analysis for reply, mention, endorsement, and opposition relations. Cover structural balance, status theory, signed community detection, edge-sign inference from text, uncertainty, and the danger of inferring hostility from interaction alone.",
+    "research_goal": "Design a signed-network study that separates observed interaction from inferred support/opposition and propagates classification uncertainty."
+  },
+  {
+    "id": "S15",
+    "batch": 6,
+    "topic": "multilayer-networks",
+    "query": "Compare methods for multilayer or multiplex analysis of the same discourse across X, Reddit, YouTube, Telegram, and news media. Address identity resolution, platform-specific edges, interlayer coupling, diffusion comparison, missing data, and ethical constraints.",
+    "research_goal": "Specify a cross-platform network model that respects platform differences and does not rely on unjustified account linkage."
+  },
+  {
+    "id": "N16",
+    "batch": 7,
+    "topic": "freshness",
+    "query": "How should web search systems retrieve and rank time-sensitive information when documents, facts, and source authority change rapidly? Compare temporal query classification, freshness priors, recency decay, event detection, incremental indexing, and evaluation with time-aware relevance judgments.",
+    "research_goal": "Define a freshness-aware retrieval and ranking policy that avoids both stale authority bias and indiscriminate recency boosting."
+  },
+  {
+    "id": "N17",
+    "batch": 7,
+    "topic": "provenance",
+    "query": "Review methods for preserving provenance and citation integrity in multi-source web search and RAG: canonical source selection, claim–source alignment, citation entailment, source authority, quote verification, archived versions, and conflicting evidence.",
+    "research_goal": "Design a result and diagnostics schema that lets users trace claims to stable, directly supporting sources."
+  },
+  {
+    "id": "S16",
+    "batch": 7,
+    "topic": "social-gnns",
+    "query": "Evaluate graph neural networks for social-network classification and diffusion tasks against strong feature-based and classical graph baselines. Cover heterophily, temporal leakage, neighbor sampling, oversmoothing, explainability, fairness, and inductive generalization across events.",
+    "research_goal": "Determine when a GNN is justified and define leakage-resistant baselines and splits for social-media graphs."
+  },
+  {
+    "id": "S17",
+    "batch": 7,
+    "topic": "dynamic-embeddings",
+    "query": "Compare dynamic network embedding methods for tracking communities, roles, and ideological movement over time. Include temporal random walks, matrix/tensor factorization, temporal GNNs, alignment across snapshots, drift detection, and uncertainty.",
+    "research_goal": "Choose an embedding approach that makes longitudinal movement identifiable rather than confusing rotation or retraining noise with real change."
+  },
+  {
+    "id": "N18",
+    "batch": 7,
+    "topic": "retrieval-uncertainty",
+    "query": "What techniques can calibrate uncertainty in retrieval and reranking systems? Review score calibration, conformal prediction, selective retrieval, query-performance prediction, ensemble disagreement, out-of-domain detection, and abstention or fallback policies.",
+    "research_goal": "Add calibrated confidence signals that can trigger broader search or warn users when candidate coverage is weak."
+  },
+  {
+    "id": "N19",
+    "batch": 8,
+    "topic": "topic-modeling",
+    "query": "Compare BERTopic, contextualized topic models, Top2Vec, neural clustering, dynamic topic models, and LLM-assisted topic labeling for large evolving media corpora. Address stability, coherence, multilingual text, short posts, human validation, and reproducibility.",
+    "research_goal": "Select a topic-discovery pipeline that supports longitudinal media analysis without treating generated labels as validated topics."
+  },
+  {
+    "id": "N20",
+    "batch": 8,
+    "topic": "text-mining-pipeline",
+    "query": "Design a modern, reproducible text-mining pipeline for noisy web and social-media text from collection through language identification, normalization, deduplication, entity linking, embedding, clustering, annotation, and evaluation. Identify which preprocessing steps harm transformer models.",
+    "research_goal": "Produce an auditable pipeline with versioned intermediate data and evidence-based preprocessing choices."
+  },
+  {
+    "id": "S18",
+    "batch": 8,
+    "topic": "media-framing",
+    "query": "Compare computational approaches to media-frame analysis: supervised frame classification, weak supervision, semantic role or narrative analysis, topic models, embedding-based discovery, and LLM coding. Include construct validity, codebook design, intercoder reliability, temporal drift, and cross-outlet comparison.",
+    "research_goal": "Define a mixed-method frame-analysis protocol where automated labels remain tied to a validated communication-science construct."
+  },
+  {
+    "id": "S19",
+    "batch": 8,
+    "topic": "agenda-setting",
+    "query": "How can researchers test agenda-setting and intermedia agenda-setting across news outlets and social media using time series, transfer entropy, Granger-style models, event studies, and causal designs? Explain lag selection, common shocks, stationarity, and limits on causal interpretation.",
+    "research_goal": "Choose a temporal design that distinguishes lead–lag association from influence and controls major confounders."
+  },
+  {
+    "id": "S20",
+    "batch": 8,
+    "topic": "sarcasm-emotion",
+    "query": "Review practical methods for sarcasm, irony, and implicit emotion detection in short social-media posts, including conversation context, user history, multimodal cues, multilingual transfer, annotation disagreement, and calibration. Identify realistic performance limits.",
+    "research_goal": "Quantify when sentiment or emotion outputs are unreliable and define abstention and human-review rules."
+  },
+  {
+    "id": "N21",
+    "batch": 9,
+    "topic": "adversarial-search",
+    "query": "Analyze how LLM query rewriting and neural ranking interact with SEO spam, prompt injection in indexed pages, keyword stuffing, content farms, and adversarially generated documents. Summarize current attacks, robust ranking defenses, provenance checks, and red-team evaluations.",
+    "research_goal": "Define an adversarial test suite and defense layers for a web search pipeline that uses generated rewrites and LLM reranking."
+  },
+  {
+    "id": "N22",
+    "batch": 9,
+    "topic": "agentic-search",
+    "query": "What evidence supports agentic search strategies that decompose a research question into parallel branches, route branches to specialized providers, merge candidates, and iteratively refine gaps? Compare published systems, benchmarks, stopping rules, cost, latency, and failure propagation.",
+    "research_goal": "Evaluate whether branch-based search planning improves coverage enough to justify its orchestration complexity and identify measurable stopping criteria."
+  },
+  {
+    "id": "S21",
+    "batch": 9,
+    "topic": "sampling-bias",
+    "query": "Quantify how streaming APIs, search APIs, keyword filters, rate limits, deleted content, and snowball sampling bias estimates in social-media research. Review auditing methods, capture–recapture ideas, sensitivity analysis, and reporting standards.",
+    "research_goal": "Create a sampling-bias audit that makes dataset coverage limitations explicit before network or sentiment conclusions are drawn."
+  },
+  {
+    "id": "S22",
+    "batch": 9,
+    "topic": "privacy-ethics",
+    "query": "Summarize current ethical, privacy, and governance standards for large-scale public social-media analysis in 2025–2026, including consent expectations, quoting and re-identification risk, vulnerable groups, data minimization, retention, platform terms, GDPR, and reproducible sharing.",
+    "research_goal": "Define a compliant research data-management and publication protocol that preserves auditability without exposing users."
+  },
+  {
+    "id": "N23",
+    "batch": 9,
+    "topic": "embedding-efficiency",
+    "query": "Compare Matryoshka embeddings, dimensionality reduction, scalar/product/binary quantization, and approximate nearest-neighbor indexes for modern text retrieval. Report quality degradation, memory and latency gains, retraining needs, and current vector-database support.",
+    "research_goal": "Select an embedding compression and ANN strategy using measurable recall, latency, and memory budgets."
+  },
+  {
+    "id": "N24",
+    "batch": 10,
+    "topic": "domain-adaptation",
+    "query": "Compare unsupervised, weakly supervised, and few-shot domain adaptation for retrievers and rerankers in specialized domains with little labeled data. Include continued pretraining, synthetic queries, adapters, hard negatives, teacher models, and evaluation under vocabulary and temporal shift.",
+    "research_goal": "Plan a domain-adaptation experiment that separates gains from synthetic supervision, corpus memorization, and benchmark leakage."
+  },
+  {
+    "id": "N25",
+    "batch": 10,
+    "topic": "query-understanding",
+    "query": "Design an end-to-end query-understanding pipeline for complex web research queries that combines normalization, spell correction, entity extraction, intent and freshness classification, ambiguity detection, support-term extraction, LLM rewriting, and provider planning. Compare serial and parallel designs and identify observability needed for each decision.",
+    "research_goal": "Produce a modular query-understanding architecture whose transformations are measurable, reversible, and attributable in diagnostics."
+  },
+  {
+    "id": "S23",
+    "batch": 10,
+    "topic": "influence-causality",
+    "query": "Distinguish network centrality, observed diffusion reach, persuasion, and causal influence in social-media studies. Compare influence maximization, peer-effects models, instrumental variables, natural experiments, and randomized interventions, with assumptions and common identification failures.",
+    "research_goal": "Prevent central accounts from being mislabeled as causally influential and select designs that support the intended claim."
+  },
+  {
+    "id": "S24",
+    "batch": 10,
+    "topic": "network-text-fusion",
+    "query": "Compare principled ways to combine network structure with text, stance, sentiment, entities, and topics in media analysis: feature fusion, multilayer graphs, relational topic models, graph neural networks, and joint embeddings. Address leakage, interpretability, missing modalities, and ablation design.",
+    "research_goal": "Choose a network–text fusion strategy with clear baselines and ablations that reveal which modality drives each conclusion."
+  },
+  {
+    "id": "S25",
+    "batch": 10,
+    "topic": "integrated-case-study",
+    "query": "Design a reproducible 2026 study of how AI regulation narratives spread between news media, policymakers, experts, activists, and coordinated accounts on X and other public platforms. Specify research questions, compliant data sources, sampling, temporal network construction, stance/frame annotation, community and diffusion analysis, causal limits, validation, and open-science outputs.",
+    "research_goal": "Synthesize modern SNA, NLP, media-analysis, and research-governance practices into one feasible end-to-end study protocol."
+  }
+]

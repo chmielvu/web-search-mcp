@@ -354,6 +354,9 @@ evals/
 .pytest-tmp/
 MagicMock/
 
+# Local live-search quality campaign artifacts
+test-results/live-web-search/
+
 # Binary databases (not for version control)
 process_logs.duckdb
 

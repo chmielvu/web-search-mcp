@@ -215,7 +215,6 @@ async def _search_yandex(
     yandex_url: str,
 ) -> list[WebSearchResult]:
     """Fetch Yandex SERP via BrightData and parse the raw HTML response."""
-    timeout = settings.brightdata_google_timeout_seconds
     body = {**payload_base, "url": yandex_url}
 
     async def _request(client: httpx.AsyncClient) -> str:
@@ -223,16 +222,19 @@ async def _search_yandex(
             _endpoint(),
             json=body,
             headers=req_headers,
-            timeout=httpx.Timeout(timeout),
         )
         response.raise_for_status()
         return response.text
 
-    async def _fetch(client: httpx.AsyncClient) -> list[WebSearchResult]:
-        html = await _request(client)
+    def _parse(html: str) -> list[WebSearchResult]:
         return parse_yandex_html_response(html, num_results)
 
-    if http_client is not None:
-        return await _fetch(http_client)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
-        return await _fetch(client)
+    return await run_provider(
+        provider_name="brightdata_yandex",
+        query=query,
+        num_results=num_results,
+        request=_request,
+        parse_response=_parse,
+        http_client=http_client,
+        timeout_seconds=settings.brightdata_google_timeout_seconds,
+    )
