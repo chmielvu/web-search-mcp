@@ -1,168 +1,99 @@
 from __future__ import annotations
 
-import sys
+import json
 import unittest
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.rerank import core
+from kindly_web_search_mcp_server.rerank.conditional_bi import ConditionalBiOutcome
+from kindly_web_search_mcp_server.rerank.diversity_stage import DiversityStageOutcome
 from kindly_web_search_mcp_server.rerank.stage_runner import RankedStageOutcome
-from kindly_web_search_mcp_server.rerank.stages import DiversityStageOutcome
 
 
 def _make_candidates(n: int) -> list[WebSearchResult]:
     return [
         WebSearchResult(
-            title=f"doc{i}",
-            link=f"https://example.com/c{i}",
-            snippet=f"snippet {i}",
+            title=f"doc{index}",
+            link=f"https://example.com/c{index}",
+            snippet=f"snippet {index}",
             score=0.5,
+            hybrid_rrf_score=0.5,
         )
-        for i in range(n)
+        for index in range(n)
     ]
 
 
-def _scored(candidates: list[WebSearchResult], scores: list[float]) -> list[WebSearchResult]:
-    return [c.model_copy(update={"score": s}) for c, s in zip(candidates, scores)]
-
-
-class TestRerankFusionAndGate(unittest.IsolatedAsyncioTestCase):
-    """Validate score fusion (cross-encoder + LLM) and the relevance gate.
-
-    These directly exercise the fix for unrelated documents surviving rerank:
-    the cross-encoder real relevance and the LLM ordinal are fused into one
-    score, and the gate rejects low-fused candidates before the top_k slice.
-    """
-
-    async def _run(self, stack_mode: str, top_k: int, threshold: float, alpha: float):
-        base = _make_candidates(6)
-        # Cross-encoder: real relevance. c4/c5 are "unrelated" (very low).
-        ce_scores = [0.9, 0.8, 0.5, 0.4, 0.05, 0.02]
-        # LLM ordinal (minmax of exp(-0.3*rank)); also ranks c4/c5 last.
-        llm_scores = [1.0, 0.9, 0.7, 0.6, 0.2, 0.1]
-
+class TestRerankCore(unittest.IsolatedAsyncioTestCase):
+    async def test_monotone_funnel_success(self) -> None:
+        base = _make_candidates(40)
+        bi_outcome = ConditionalBiOutcome(
+            candidates=base,
+            embedding_context=None,
+            duration_seconds=0.01,
+            status="applied",
+        )
+        cross_order = base[:30]
         cross_outcome = RankedStageOutcome(
-            candidates=_scored(base, ce_scores),
+            candidates=cross_order,
             provider="cohere_fast",
             model="rerank-v4.0-fast",
-            stage_name="cohere_fast",
-            input_count=6,
-            output_count=6,
-            duration_seconds=0.1,
-            relevance_scores=ce_scores,
+            stage_name="cross_encoder",
+            input_count=40,
+            output_count=30,
+            duration_seconds=0.01,
+            relevance_scores=[0.9] * 30,
             max_score=0.9,
         )
+        llm_order = base[:15]
         llm_outcome = RankedStageOutcome(
-            candidates=_scored(base, llm_scores),
-            provider="gpt-oss-worker",
-            model="gpt-oss-120b",
-            stage_name="llm_rerank",
-            input_count=6,
-            output_count=6,
-            duration_seconds=0.1,
-            relevance_scores=llm_scores,
-            max_score=1.0,
+            candidates=llm_order,
+            provider="openrouter",
+            model="nvidia/nemotron-3-nano-30b-a3b:free",
+            stage_name="rankllm",
+            input_count=30,
+            output_count=15,
+            duration_seconds=0.01,
+            relevance_scores=[],
+            max_score=0.0,
+            input_tokens=100,
+            output_tokens=50,
         )
 
-        async def fake_diversity(**kwargs):
-            cands = kwargs["candidates"]
-            return DiversityStageOutcome(
-                candidates=cands,
-                input_count=len(cands),
-                output_count=len(cands),
-                duration_seconds=0.1,
-                removed_count=0,
-            )
-
-        mock_cross = AsyncMock(return_value=cross_outcome)
-        mock_llm = AsyncMock(return_value=llm_outcome)
-        mock_diversity = AsyncMock(side_effect=fake_diversity)
-        mock_embed = AsyncMock(return_value=[0.0] * 64)
-
         with (
-            patch.object(core.settings, "rerank_stack_mode", stack_mode),
-            patch.object(core.settings, "rerank_score_threshold", threshold),
-            patch.object(core.settings, "rerank_fusion_alpha", alpha),
-            patch("kindly_web_search_mcp_server.rerank.core.run_cross_encoder_stage", mock_cross),
-            patch("kindly_web_search_mcp_server.rerank.core.run_llm_stage", mock_llm),
-            patch("kindly_web_search_mcp_server.rerank.core.run_diversity_pruning", mock_diversity),
-            patch("kindly_web_search_mcp_server.rerank.core.embed_query", mock_embed),
+            patch.object(
+                core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)
+            ) as mock_bi,
+            patch.object(
+                core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)
+            ) as mock_cross,
+            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)) as mock_llm,
         ):
             result = await core.rerank_results(
                 "How do bridges stay standing?",
                 base,
-                top_k=top_k,
+                research_goal="Find primary engineering evidence",
                 query_type_hint="general",
             )
-        return result
 
-    async def test_bi_cross_llm_fusion_blends_and_gate_removes_unrelated(self) -> None:
-        result = await self._run("bi_cross_llm", top_k=3, threshold=0.15, alpha=0.7)
-        links = [r.link for r in result.results]
-        # Unrelated documents (c4, c5) must NOT survive the fused gate.
-        self.assertNotIn("https://example.com/c4", links)
-        self.assertNotIn("https://example.com/c5", links)
-        # Fused = 0.7*ce + 0.3*llm: c0 -> 0.93, c1 -> 0.83, c2 -> 0.56 (top 3).
-        self.assertEqual(
-            links,
-            [
-                "https://example.com/c0",
-                "https://example.com/c1",
-                "https://example.com/c2",
-            ],
-        )
-        self.assertAlmostEqual(result.results[0].score, 0.93, places=4)
-        self.assertAlmostEqual(result.results[1].score, 0.83, places=4)
+        assert result is not None
+        self.assertEqual(len(result.results), 15)
+        self.assertEqual(result.provider, "openrouter")
+        self.assertEqual(result.model, "nvidia/nemotron-3-nano-30b-a3b:free")
+        self.assertEqual(result.funnel_counts["input_count"], 40)
+        self.assertEqual(result.funnel_counts["bi_output_count"], 40)
+        self.assertEqual(result.funnel_counts["cross_output_count"], 30)
+        self.assertEqual(result.funnel_counts["rankllm_output_count"], 15)
+        self.assertEqual(len(result.stage_summaries), 3)
 
-    async def test_bi_llm_mode_gate_uses_llm_ordinal(self) -> None:
-        # No cross-encoder: gate operates on LLM ordinal only; c5 (0.1) < 0.15 dropped.
-        result = await self._run("bi_llm", top_k=3, threshold=0.15, alpha=0.7)
-        links = [r.link for r in result.results]
-        self.assertNotIn("https://example.com/c5", links)
-        self.assertEqual(
-            links,
-            [
-                "https://example.com/c0",
-                "https://example.com/c1",
-                "https://example.com/c2",
-            ],
-        )
+    async def test_blank_research_goal_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "research_goal must be non-blank"):
+            await core.rerank_results("query", _make_candidates(2), research_goal="  ")
 
-
-class TestRerankCore(unittest.IsolatedAsyncioTestCase):
-    async def test_short_circuit_rerank_records_bypass_metric(self) -> None:
-        from kindly_web_search_mcp_server.rerank.core import rerank_results
-
-        candidates = [
-            WebSearchResult(
-                title="A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                score=0.5,
-            )
-        ]
-
-        with patch(
-            "kindly_web_search_mcp_server.rerank.core.record_rerank_stage",
-        ) as mock_record_stage:
-            reranked = await rerank_results(
-                "example query",
-                candidates,
-                top_k=10,
-                research_goal="Find authoritative docs for the deployment flow",
-                query_type_hint="comparison",
-            )
-
-        self.assertEqual(reranked.results, candidates)
-        mock_record_stage.assert_called_once_with(
-            stage="policy_bypass",
-            input_count=1,
-            output_count=1,
-            duration_seconds=0.0,
-        )
+    async def test_empty_candidates_returns_immediately(self) -> None:
+        result = await core.rerank_results("query", [], research_goal="goal")
+        self.assertEqual(result.results, [])
+        self.assertIsNone(result.provider)
 
 
 if __name__ == "__main__":

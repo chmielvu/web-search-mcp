@@ -48,7 +48,6 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
             ["doc a", "doc b"],
             api_key="cohere-test-key",
             model="rerank-v4.0-fast",
-            instruction="Prefer official docs.",
             http_client=mock_client,
             base_url="https://api.cohere.com/v2/rerank",
         )
@@ -56,7 +55,7 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ranked, [(1, 0.95), (0, 0.5)])
         payload = mock_client.post.await_args.kwargs["json"]
         self.assertEqual(payload["model"], "rerank-v4.0-fast")
-        self.assertEqual(payload["query"], "Prefer official docs.\n\nsite reliability docs")
+        self.assertEqual(payload["query"], "site reliability docs")
         self.assertEqual(payload["documents"], ["doc a", "doc b"])
         self.assertEqual(payload["top_n"], 2)
         self.assertEqual(
@@ -84,7 +83,6 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
             ["doc a", "doc b"],
             api_key="openrouter-test-key",
             model="cohere/rerank-4-fast",
-            instruction="Prefer official docs.",
             http_client=mock_client,
             base_url="https://openrouter.ai/api/v1/rerank",
         )
@@ -92,7 +90,7 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ranked, [(1, 0.93), (0, 0.4)])
         payload = mock_client.post.await_args.kwargs["json"]
         self.assertEqual(payload["model"], "cohere/rerank-4-fast")
-        self.assertEqual(payload["query"], "Prefer official docs.\n\nsite reliability docs")
+        self.assertEqual(payload["query"], "site reliability docs")
         self.assertEqual(payload["documents"], ["doc a", "doc b"])
         self.assertEqual(payload["top_n"], 2)
         self.assertEqual(
@@ -104,7 +102,7 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
             "application/json",
         )
 
-    async def test_voyage_rerank_prepends_instruction_to_query(self) -> None:
+    async def test_voyage_rerank_sends_exact_query(self) -> None:
         from kindly_web_search_mcp_server.rerank.voyage import voyage_rerank
 
         response = MagicMock()
@@ -125,16 +123,89 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
                 "site reliability docs",
                 ["doc a", "doc b"],
                 api_key="voyage-test-key",
-                instruction="Prioritize official docs and canonical references.",
             )
 
         self.assertEqual(ranked, [(1, 0.9), (0, 0.8)])
         payload = mock_client.post.await_args.kwargs["json"]
         self.assertEqual(
             payload["query"],
-            "Prioritize official docs and canonical references.\n\nsite reliability docs",
+            "site reliability docs",
         )
         self.assertEqual(payload["top_k"], 2)
+
+    def test_ordered_yaml_candidate_serialization_escapes_content(self) -> None:
+        import yaml
+
+        from kindly_web_search_mcp_server.rerank.providers import build_rerank_candidates
+
+        candidate = WebSearchResult(
+            title="A: title\nwith newline",
+            link="https://example.com/a?x=1&y=2",
+            snippet="Unicode π and YAML: [not, structure]",
+            domain="example.com",
+            providers=["cohere", "brave"],
+            provider_count=2,
+        )
+        document = build_rerank_candidates([candidate])[0].document
+        self.assertEqual(
+            [
+                line.split(":", 1)[0]
+                for line in document.splitlines()
+                if line and not line.startswith((" ", "-"))
+            ],
+            ["Title", "Snippet", "URL", "Domain", "Providers", "ProviderCount"],
+        )
+        parsed = yaml.safe_load(document)
+        self.assertEqual(parsed["Title"], candidate.title)
+        self.assertEqual(parsed["Snippet"], candidate.snippet)
+        self.assertEqual(parsed["Providers"], ["cohere", "brave"])
+
+    def test_cohere_parsers_reject_incomplete_or_invalid_permutations(self) -> None:
+        from kindly_web_search_mcp_server.rerank.cohere import (
+            _parse_rerank_results as parse_cohere,
+        )
+        from kindly_web_search_mcp_server.rerank.openrouter import (
+            _parse_rerank_results as parse_openrouter,
+        )
+
+        invalid_payloads = [
+            {"results": [{"index": 0, "relevance_score": 0.5}]},
+            {
+                "results": [
+                    {"index": 0, "relevance_score": 0.5},
+                    {"index": 0, "relevance_score": 0.4},
+                ]
+            },
+            {
+                "results": [
+                    {"index": 0, "relevance_score": 0.5},
+                    {"index": 2, "relevance_score": 0.4},
+                ]
+            },
+            {
+                "results": [
+                    {"index": 0, "relevance_score": float("nan")},
+                    {"index": 1, "relevance_score": 0.4},
+                ]
+            },
+            {
+                "results": [
+                    {"index": 0, "relevance_score": -0.1},
+                    {"index": 1, "relevance_score": 0.4},
+                ]
+            },
+            {
+                "results": [
+                    {"index": 0, "relevance_score": 1.1},
+                    {"index": 1, "relevance_score": 0.4},
+                ]
+            },
+        ]
+        for parser in (parse_cohere, parse_openrouter):
+            for payload in invalid_payloads:
+                with self.subTest(parser=parser.__module__, payload=payload):
+                    with self.assertRaises(ValueError):
+                        parser(payload, 2)
 
 
 if __name__ == "__main__":

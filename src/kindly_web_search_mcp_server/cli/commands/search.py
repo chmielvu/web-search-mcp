@@ -40,13 +40,11 @@ def quick_cmd(
 @search_app.command("web")
 def web_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
-    num_results: Annotated[int, typer.Option("--num-results", min=15, max=50)] = 15,
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
     research_goal: Annotated[
         str,
         typer.Option("--research-goal", help="Required search objective."),
     ] = ...,
-    result_offset: Annotated[int, typer.Option("--result-offset")] = 0,
     searxng_category: Annotated[
         list[str] | None,
         typer.Option("--searxng-category"),
@@ -90,10 +88,8 @@ def web_cmd(
         payload = run_cli_async(
             fetch_web_search_payload(
                 query,
-                num_results=num_results,
                 rewrite=rewrite,
                 research_goal=research_goal,
-                result_offset=result_offset,
                 searxng_categories=searxng_category,
                 searxng_engines=searxng_engine,
                 searxng_language=searxng_language,

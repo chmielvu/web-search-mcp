@@ -47,7 +47,6 @@ _rewrite_duration_histogram: metrics.Histogram | None = None
 _rerank_counter: metrics.Counter | None = None
 _rerank_duration_histogram: metrics.Histogram | None = None
 _rerank_score_histogram: metrics.Histogram | None = None
-_rerank_diversity_counter: metrics.Counter | None = None
 
 # Circuit breaker metrics
 _circuit_state_gauge: metrics.UpDownCounter | None = None
@@ -304,16 +303,10 @@ def get_rewrite_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     return _rewrite_counter, _rewrite_duration_histogram
 
 
-def get_rerank_metrics() -> tuple[
-    metrics.Counter, metrics.Histogram, metrics.Histogram, metrics.Counter
-]:
+def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Histogram]:
     """Get reranking metrics."""
     meter = get_meter()
-    global \
-        _rerank_counter, \
-        _rerank_duration_histogram, \
-        _rerank_score_histogram, \
-        _rerank_diversity_counter
+    global _rerank_counter, _rerank_duration_histogram, _rerank_score_histogram
 
     if _rerank_counter is None:
         _rerank_counter = meter.create_counter(
@@ -351,18 +344,10 @@ def get_rerank_metrics() -> tuple[
             ],
         )
 
-    if _rerank_diversity_counter is None:
-        _rerank_diversity_counter = meter.create_counter(
-            name="web_search_rerank_diversity_removals",
-            description="Results removed by diversity pruning",
-            unit="1",
-        )
-
     return (
         _rerank_counter,
         _rerank_duration_histogram,
         _rerank_score_histogram,
-        _rerank_diversity_counter,
     )
 
 
@@ -461,7 +446,7 @@ __all__ = [
     "get_content_metrics",
     "get_gemini_metrics",
     "get_mcp_metrics",
-        "get_provider_metrics",
+    "get_provider_metrics",
     "get_query_quality_metrics",
     "get_rerank_metrics",
     "get_rewrite_metrics",

@@ -79,5 +79,75 @@ class TestBiEncoderFilter(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(context.candidates), 10)
 
 
+class TestConditionalBiEncoder(unittest.IsolatedAsyncioTestCase):
+    async def test_exactly_one_hundred_skips_bi_encoder(self) -> None:
+        from kindly_web_search_mcp_server.rerank import conditional_bi
+
+        candidates = [_candidate(index) for index in range(100)]
+        with (
+            patch.object(conditional_bi, "embed_query", new_callable=AsyncMock) as embed_query,
+            patch.object(conditional_bi, "bi_encoder_rank", new_callable=AsyncMock) as rank,
+        ):
+            outcome = await conditional_bi.run_conditional_bi_encoder(
+                "query",
+                candidates,
+                precomputed_embedding=None,
+                logger=conditional_bi.logging.getLogger("test"),
+            )
+        embed_query.assert_not_awaited()
+        rank.assert_not_awaited()
+        self.assertEqual(outcome.candidates, candidates)
+        self.assertEqual(outcome.status, "candidate_count_not_above_cross_limit")
+
+    async def test_one_hundred_one_ranks_full_pool_and_retains_head(self) -> None:
+        from kindly_web_search_mcp_server.rerank import conditional_bi
+
+        candidates = [_candidate(index) for index in range(101)]
+        ranked = list(reversed(candidates))
+        context = object()
+        with (
+            patch.object(
+                conditional_bi,
+                "embed_query",
+                new=AsyncMock(return_value=[1.0, 0.0]),
+            ),
+            patch.object(
+                conditional_bi,
+                "bi_encoder_rank",
+                new=AsyncMock(return_value=(ranked, context)),
+            ) as rank,
+        ):
+            outcome = await conditional_bi.run_conditional_bi_encoder(
+                "query",
+                candidates,
+                precomputed_embedding=None,
+                logger=conditional_bi.logging.getLogger("test"),
+            )
+        rank.assert_awaited_once()
+        self.assertEqual(outcome.candidates, ranked[:100])
+        self.assertIs(outcome.embedding_context, context)
+        self.assertEqual(outcome.status, "applied")
+
+    async def test_embedding_failure_retains_incoming_head(self) -> None:
+        from kindly_web_search_mcp_server.rerank import conditional_bi
+
+        candidates = [_candidate(index) for index in range(101)]
+        with (
+            patch.object(
+                conditional_bi,
+                "embed_query",
+                new=AsyncMock(side_effect=TimeoutError("timeout")),
+            ),
+        ):
+            outcome = await conditional_bi.run_conditional_bi_encoder(
+                "query",
+                candidates,
+                precomputed_embedding=None,
+                logger=conditional_bi.logging.getLogger("test"),
+            )
+        self.assertEqual(outcome.candidates, candidates[:100])
+        self.assertEqual(outcome.status, "query_embedding_failure")
+
+
 if __name__ == "__main__":
     unittest.main()

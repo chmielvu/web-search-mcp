@@ -39,8 +39,6 @@ class TestSearchRunsSchema:
                 duration_ms=1234.5,
                 final_result_count=8,
                 candidate_count=15,
-                has_more=False,
-                result_offset=0,
                 status="success",
                 error_type=None,
                 payload_json=json.dumps({"sources": ["searxng", "brave"]}),
@@ -62,8 +60,6 @@ class TestSearchRunsSchema:
                     duration_ms,
                     final_result_count,
                     candidate_count,
-                    has_more,
-                    result_offset,
                     status,
                     error_type,
                     payload_json
@@ -84,11 +80,9 @@ class TestSearchRunsSchema:
             assert row[8] == 1234.5
             assert row[9] == 8
             assert row[10] == 15
-            assert row[11] is False
-            assert row[12] == 0
-            assert row[13] == "success"
-            assert row[14] is None
-            assert json.loads(row[15]) == {"sources": ["searxng", "brave"]}
+            assert row[11] == "success"
+            assert row[12] is None
+            assert json.loads(row[13]) == {"sources": ["searxng", "brave"]}
 
         finally:
             if db_path.exists():
@@ -159,8 +153,6 @@ class TestSearchRunsSchema:
                     duration_ms,
                     final_result_count,
                     candidate_count,
-                    has_more,
-                    result_offset,
                     status,
                     error_type,
                     payload_json
@@ -180,8 +172,6 @@ class TestSearchRunsSchema:
             assert row[7] is None
             assert row[8] is None
             assert row[9] is None
-            assert row[10] is None
-            assert row[11] is None
 
         finally:
             if db_path.exists():

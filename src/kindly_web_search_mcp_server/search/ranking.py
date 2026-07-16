@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-
-logger = logging.getLogger(__name__)
-import time
+from collections import Counter
 from collections.abc import Awaitable, Sequence
+import logging
+import time
 
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from ..rerank.bm25 import score_candidates
 from ..rerank.core import rerank_results
+from ..settings import settings
 from ..telemetry.spans import get_tracer
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
-from .merge import merge_search_results
+from .merge import reciprocal_rank_fusion
+from .normalize import canonicalize_url
+
+logger = logging.getLogger(__name__)
 
 
 def _candidate_text(result: WebSearchResult) -> str:
@@ -44,17 +47,76 @@ async def rank_and_finalize(
     rank_started = time.monotonic()
     dc = run.diagnostics
     with tracer.start_as_current_span("search.rank") as span:
-        filtered_lists = [filter_blocked_results(list(outcome.results)) for outcome in outcomes]
-        merged = (
-            merge_search_results(
-                filtered_lists,
-                enable_telemetry=False,
-                run_key=None,
+        provider_result_lists = []
+        for outcome in outcomes:
+            for prr in outcome.provider_ranked_results:
+                filtered = filter_blocked_results(list(prr.results))
+                if filtered:
+                    provider_result_lists.append(filtered)
+
+        merged: list[WebSearchResult] = []
+        rrf_k = settings.rrf_k
+        bm25_scores: list[float] = []
+        first_stage_url_scores: dict[str, float] = {}
+        second_stage_scores: tuple[float, ...] = ()
+        overlap_rate = 0.0
+
+        if provider_result_lists:
+            # 1. RRF once into provider_consensus
+            provider_consensus_with_scores = reciprocal_rank_fusion(
+                provider_result_lists,
+                k=rrf_k,
             )
-            if any(filtered_lists)
-            else []
-        )
-        dc.merged_candidates = merged
+            provider_consensus_list = [res for res, _ in provider_consensus_with_scores]
+
+            first_stage_url_scores = {
+                canonicalize_url(res.link): score for res, score in provider_consensus_with_scores
+            }
+            url_occurrences: Counter[str] = Counter(
+                canonicalize_url(result.link)
+                for results in provider_result_lists
+                for result in results
+            )
+            overlap_rate = (
+                sum(count > 1 for count in url_occurrences.values()) / len(url_occurrences)
+                if url_occurrences
+                else 0.0
+            )
+
+            # 2. Compute BM25 ranking over those same canonical candidates
+            bm25_scores = score_candidates(
+                run.plan.relevance_query if run.plan else run.request.query,
+                [_candidate_text(result) for result in provider_consensus_list],
+            )
+            bm25_order_indices = sorted(
+                range(len(provider_consensus_list)),
+                key=lambda index: (-(bm25_scores[index] if bm25_scores[index] > 0 else 0.0), index),
+            )
+            bm25_order = [provider_consensus_list[index] for index in bm25_order_indices]
+
+            # 3. Run RRF a second time over provider_consensus and bm25_order
+            hybrid_order_with_scores = reciprocal_rank_fusion(
+                [provider_consensus_list, bm25_order],
+                k=rrf_k,
+            )
+            second_stage_scores = tuple(score for _, score in hybrid_order_with_scores)
+
+            # Keep provider consensus, hybrid RRF, and later neural scores distinct.
+            for res, second_stage_score in hybrid_order_with_scores:
+                url_key = canonicalize_url(res.link)
+                first_stage_score = first_stage_url_scores.get(url_key, 0.0)
+                res_updated = res.model_copy(
+                    update={
+                        "score": second_stage_score,
+                        "hybrid_rrf_score": second_stage_score,
+                        "provider_consensus_rrf_score": first_stage_score,
+                    }
+                )
+                merged.append(res_updated)
+
+        dc.merged_candidates = [result.model_copy() for result in merged]
+        span.set_attribute("search.merge_algorithm", "provider_consensus_rrf_then_bm25_rrf")
+
         providers_used_set: set[str] = set()
         for outcome in outcomes:
             providers_used_set.update(outcome.attempted_provider_names)
@@ -62,19 +124,11 @@ async def rank_and_finalize(
         rerank_provider: str | None = None
         rerank_model: str | None = None
         if merged:
-            bm25_scores = score_candidates(
-                run.plan.relevance_query if run.plan else run.request.query,
-                [_candidate_text(result) for result in merged],
-            )
-            order = sorted(
-                range(len(merged)),
-                key=lambda index: (-(bm25_scores[index] if bm25_scores[index] > 0 else 0.0), index),
-            )
-            lexical = [merged[index] for index in order]
+            # Cross-encoder query construction receives the goal separately; RankLLM
+            # intentionally receives only the normalized relevance query.
             reranked = await rerank_results(
-                run.plan.relevance_query if run.plan else run.request.query,
-                lexical,
-                top_k=min(100, run.request.options.result_offset + run.request.num_results),
+                run.plan.normalized_query if run.plan else run.request.query,
+                [result.model_copy() for result in merged],
                 research_goal=run.request.research_goal,
                 query_type_hint=(run.plan.understanding.intent if run.plan else None),
                 run_key=run.run_key,
@@ -83,37 +137,15 @@ async def rank_and_finalize(
             ranked_pool = list(reranked.results)
             rerank_provider = reranked.provider
             rerank_model = reranked.model
-            run.rerank_metadata.update(
-                {
-                    "bm25_scores": tuple(bm25_scores),
-                    "reranker_provider": rerank_provider,
-                    "reranker_model": rerank_model,
-                }
-            )
             ctx = reranked.embedding_context
             if ctx is not None:
                 dc.candidate_embeddings = [
                     {"url": c.url, "text": c.text, "dense": list(c.dense)}
                     for c in ctx.candidates[:40]
                 ]
-                dc.query_embedding = list(ctx.query_embedding)
-            elif embedding_task is not None:
-                if embedding_task.done() and embedding_task.cancelled():
-                    logger.warning("Shared embedding task was cancelled; continuing without it")
-                else:
-                    try:
-                        vec = await asyncio.shield(embedding_task)
-                        dc.query_embedding = list(vec)
-                    except asyncio.CancelledError:
-                        if embedding_task.cancelled():
-                            logger.warning(
-                                "Shared embedding task was cancelled; continuing without it"
-                            )
-                        else:
-                            raise
-                    except Exception as exc:
-                        logger.warning("Failed to retrieve query embedding: %s", exc)
-        elif embedding_task is not None:
+                if ctx.query_embedding:
+                    dc.query_embedding = list(ctx.query_embedding)
+        if dc.query_embedding is None and embedding_task is not None:
             if embedding_task.done() and embedding_task.cancelled():
                 logger.warning("Shared embedding task was cancelled; continuing without it")
             else:
@@ -127,11 +159,26 @@ async def rank_and_finalize(
                         raise
                 except Exception as exc:
                     logger.warning("Failed to retrieve query embedding: %s", exc)
-        offset = run.request.options.result_offset
-        final_results = ranked_pool[offset : offset + run.request.num_results]
-        candidate_count = len(ranked_pool)
+        run.rerank_metadata.update(
+            {
+                "merge_algorithm": "provider_consensus_rrf_then_bm25_rrf",
+                "effective_rrf_k": rrf_k,
+                "provider_list_count": len(provider_result_lists),
+                "overlap_rate": overlap_rate,
+                "zero_list_degradation": len(provider_result_lists) == 0,
+                "single_list_degradation": len(provider_result_lists) == 1,
+                "bm25_scores": tuple(bm25_scores),
+                "first_stage_scores": tuple(first_stage_url_scores.values()),
+                "second_stage_scores": second_stage_scores,
+                "reranker_provider": rerank_provider,
+                "reranker_model": rerank_model,
+            }
+        )
+        if merged:
+            run.rerank_metadata["funnel_counts"] = reranked.funnel_counts
+        final_results = ranked_pool
+        candidate_count = len(merged)
         returned = len(final_results)
-        has_more = offset + returned < candidate_count
         providers_used = sorted(
             {provider for result in final_results for provider in (result.providers or [])}
         )
@@ -143,17 +190,8 @@ async def rank_and_finalize(
             "branch_count": len(outcomes),
             "provider_count": len(providers_used_set),
         }
-        if rerank_provider:
-            dc.rerank_stage_summaries.append(
-                {
-                    "stage": "rerank.final",
-                    "provider": rerank_provider,
-                    "model": rerank_model,
-                    "input_count": len(merged),
-                    "output_count": len(ranked_pool),
-                    "duration_ms": (time.monotonic() - rank_started) * 1000.0,
-                }
-            )
+        if merged:
+            dc.rerank_stage_summaries.extend([s.model_dump() for s in reranked.stage_summaries])
         dc.phase_timings["search.rank"] = (time.monotonic() - rank_started) * 1000.0
         span.set_attribute("search.merged_count", len(merged))
         span.set_attribute("search.final_count", returned)
@@ -161,13 +199,6 @@ async def rank_and_finalize(
             query=run.request.query,
             results=final_results,
             total_results=returned,
-            result_window={
-                "offset": offset,
-                "returned": returned,
-                "candidate_count": candidate_count,
-                "has_more": has_more,
-                "next_offset": offset + returned if has_more else None,
-            },
             providers_used=providers_used,
             warnings=_stable_warnings(outcomes) or None,
         )

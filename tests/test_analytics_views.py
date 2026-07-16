@@ -170,7 +170,7 @@ class TestAnalyticsViews:
                 score_after_entity=None,
                 recency_boost=None,
                 entity_overlap_score=None,
-                diversity_removed=False,
+                survived=True,
                 payload_json={
                     "candidate_id": "candidate-1",
                     "canonical_result_id": "result-1",
@@ -224,8 +224,8 @@ class TestAnalyticsViews:
                 branch_rows = con.execute(
                     "SELECT branch_index, branch_query, result_index, url FROM vw_branch_candidates WHERE run_key = 'run-001'"
                 ).fetchall()
-                survival_rows = con.execute(
-                    "SELECT stage, COUNT(*) AS rows FROM vw_candidate_survival WHERE run_key = 'run-001' GROUP BY 1 ORDER BY 1"
+                funnel_rows = con.execute(
+                    "SELECT link, bi_rank, cross_rank, rankllm_rank, final_rank FROM vw_candidate_funnel WHERE run_key = 'run-001'"
                 ).fetchall()
                 event_row = con.execute(
                     "SELECT event_name, provider, query FROM vw_events WHERE run_key = 'run-001' AND event_name = 'provider.search.result'"
@@ -236,13 +236,8 @@ class TestAnalyticsViews:
             assert event_row == ("provider.search.result", "searxng", "FastMCP Python SDK")
             assert provider_rows == [("searxng", "FastMCP", 0.95, 1)]
             assert branch_rows == [(0, "FastMCP Python SDK", 0, "https://fastmcp.dev")]
-            assert survival_rows == [
-                ("branch", 1),
-                ("cross_encoder", 1),
-                ("final", 1),
-                ("merged", 1),
-                ("provider", 1),
-                ("returned", 1),
+            assert funnel_rows == [
+                ("https://fastmcp.dev", None, 1, None, 1),
             ]
         finally:
             if db_path.exists():

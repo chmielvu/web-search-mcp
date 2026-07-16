@@ -33,7 +33,6 @@ _SEARCH_RUN_COLUMNS = [
     "understanding_confidence",
     "num_results_requested",
     "rewrite_enabled",
-    "result_offset",
     "selected_providers",
     "skipped_providers",
     "branch_count",
@@ -42,7 +41,6 @@ _SEARCH_RUN_COLUMNS = [
     "reranked_count",
     "final_result_count",
     "candidate_count",
-    "has_more",
     "status",
     "error_type",
     "duration_ms",
@@ -148,7 +146,7 @@ _RERANK_CANDIDATE_COLUMNS = [
     "hybrid_rrf_score",
     "recency_boost",
     "entity_overlap_score",
-    "diversity_removed",
+    "survived",
     "payload_json",
 ]
 

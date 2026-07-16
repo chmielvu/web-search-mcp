@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, Literal
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,22 @@ class RerankResult:
 
     index: int
     score: float
+
+
+class RerankStageSummary(BaseModel):
+    stage: Literal["bi_encoder", "cross_encoder", "rankllm"]
+    provider: str | None = None
+    model: str | None = None
+    input_count: int
+    output_count: int
+    duration_ms: float
+    status: Literal["success", "skipped", "fallback_success", "failed_open"]
+    error_type: str | None = None
+    max_score: float | None = None
+    avg_score: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    payload_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class RerankLLMOutput(BaseModel):
@@ -110,3 +126,5 @@ class RerankOutput(BaseModel):
         default=None,
         description="Model used by the reranker provider",
     )
+    stage_summaries: tuple[RerankStageSummary, ...] = ()
+    funnel_counts: dict[str, int] = Field(default_factory=dict)

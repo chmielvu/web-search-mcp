@@ -25,7 +25,7 @@ def test_insert_rerank_candidate_rows_batch_persists_stage_rows(tmp_path) -> Non
                 "score_after_entity": None,
                 "recency_boost": None,
                 "entity_overlap_score": None,
-                "diversity_removed": False,
+                "survived": True,
                 "payload_json": {"candidate_id": "a"},
             },
             {
@@ -41,7 +41,7 @@ def test_insert_rerank_candidate_rows_batch_persists_stage_rows(tmp_path) -> Non
                 "score_after_entity": None,
                 "recency_boost": None,
                 "entity_overlap_score": None,
-                "diversity_removed": True,
+                "survived": False,
                 "payload_json": {"candidate_id": "b"},
             },
         ],
@@ -51,13 +51,13 @@ def test_insert_rerank_candidate_rows_batch_persists_stage_rows(tmp_path) -> Non
     with duckdb.connect(str(db_path), read_only=True) as con:
         rows = con.execute(
             """
-            SELECT link, rank_before, rank_after, score_after, diversity_removed
+            SELECT link, rank_before, rank_after, score_after, survived
             FROM rerank_candidates
             ORDER BY link
             """
         ).fetchall()
 
     assert rows == [
-        ("https://example.com/a", 2, 1, 0.9, False),
-        ("https://example.com/b", 1, None, None, True),
+        ("https://example.com/a", 2, 1, 0.9, True),
+        ("https://example.com/b", 1, None, None, False),
     ]

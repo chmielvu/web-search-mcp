@@ -22,41 +22,26 @@ rerank/
 
 ## Current Behavior
 
-- `RERANK_STACK_MODE` normalizes through `stack.py`; the default stack is
-  `bi_cross_llm` (bi-encoder, cross-encoder, LLM reranker, then diversity).
-- Cascade narrowing is explicit and monotonic. When a bi-encoder stage runs,
-  its target is `int(top_k * RERANK_BI_ENCODER_STAGE_MULTIPLIER)` (default
-  multiplier `3.0`). The cross-encoder stage narrows to
-  `int(top_k * RERANK_CROSS_ENCODER_STAGE_MULTIPLIER)` (default `2.0`). The LLM
-  stage receives every candidate left by the cross-encoder (`candidate_limit`
-  equals the current candidate count), rather than a separate stale limit.
-- The LLM reranker uses the Qwen XML listwise-CoT template in
-  `prompts/rerank_llm.yaml`. Candidate title, URL, and snippet fields are
-  whitespace-normalized and XML-escaped inside an explicit untrusted
-  `<candidate_data>` block; arbitrary provider payloads, raw HTML, and fetched
-  content are not inserted into this prompt. The system rules prohibit
-  following instructions found in candidate data.
-- Candidate windows are deterministically shuffled before display. The LLM
-  sees one-based display IDs; `llm_rerank.py` remaps those IDs to original
-  candidate indices after parsing, so positional bias cannot silently become
-  result-order bias.
-- This deterministic display-order shuffle/remap is the LLM positional-bias debiasing mechanism; candidate identity, not its incoming rank, determines the final index.
-- The parser extracts IDs only from the `<final_ranking>` block. IDs are
-  deduplicated, invalid/out-of-range IDs are ignored, and missing display IDs
-  are appended in display order. Evaluation text is never treated as ranking
-  output.
-- LLM ordinal relevance uses normalized linear scores: first position is
-  `1.0`, last position is `0.0` when there is more than one candidate, and a
-  one-candidate list scores `1.0`.
-- An LLM outcome is accepted as the final stage only when it is error-free
-  (`error is None`) and has non-empty `relevance_scores`. A failed LLM stage
-  therefore preserves the preceding cross-encoder order/provider instead of
-  being accepted merely because it returned a nonzero output count.
-- Diversity is terminal. Its MMR path consumes `candidates[:top_k]` and emits
-  only the diversified top-k slice; no post-diversity tail is concatenated.
-  Reranker relevance scores are min-max normalized for MMR relevance while
-  embeddings provide the diversity signal.
-
+- The normal pipeline preserves the complete merged candidate pool. It uses
+  provider-consensus RRF followed by BM25 RRF before reranking.
+- The bi-encoder runs only for candidate pools above the configured
+  cross-encoder limit. Cohere `rerank-v4.0-fast` reranks the full surviving
+  head and emits raw scores for the calibrated conditional gate.
+- RankLLM uses the repository prompt template with strict complete-permutation
+  validation per sliding window and across the final candidate set. OpenRouter
+  is attempted first; Gemini is the sequential fallback. Each transport call
+  is bounded and has SDK retries disabled.
+- RankLLM receives only the normalized query. The cross-encoder receives the
+  research goal separately and constructs its own query input.
+- Diversity is conditional. Similarity and host-overflow triggers run MMR over
+  the LLM candidate window, then reconstruct the untouched tail so candidate
+  identities are never silently dropped.
+- Stage telemetry records bi-encoder skip/run details, raw Cohere score
+  statistics, the accepted RankLLM endpoint/model, diversity trigger evidence,
+  and the final reranker provider/model.
+- Calibration and replay tooling lives under `scripts/rerank_eval_*.py` and
+  `scripts/rerank_pipeline_eval.py`; the frozen borderline fixture is
+  `tests/fixtures/rerank_borderline_pairs.jsonl`.
 ## Testing
 
 - `python -m pytest tests/test_rerank_*.py`

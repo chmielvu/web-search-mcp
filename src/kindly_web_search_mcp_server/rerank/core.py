@@ -8,157 +8,42 @@ from typing import Any
 
 from opentelemetry import trace
 
-from ..embeddings import embed_query
-from ..embeddings.hf_inference import CircuitOpenError, EmbeddingAPIError, EmbeddingTimeoutError
 from ..models import WebSearchResult
-from ..prompts.rerank import build_rerank_instruction
-from ..settings import settings
-from ..telemetry import (
-    INPUT_MIME_TYPE,
-    INPUT_VALUE,
-    RERANK_INPUT_COUNT,
-    SEARCH_QUERY,
-    record_rerank_stage,
-)
+from ..prompts.rerank import build_cross_encoder_query
+from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
+from ..telemetry import record_rerank_stage
 from ..utils.observability import emit_observability_event
-from .bi_encoder import bi_encoder_filter
-from .models import RerankEmbeddingContext, RerankOutput
-from .observability import emit_rerank_summary, record_rerank_candidate_rows_async
-from .policy import decide_rerank
-from .reporting import record_bi_encoder_stage, record_diversity_stage
-from .stack import build_rerank_stack_plan
+from .conditional_bi import run_conditional_bi_encoder
+from .models import RerankOutput, RerankStageSummary
+from .observability import emit_rerank_summary
+from .reporting import record_bi_encoder_stage
 from .stage_runner import run_cross_encoder_stage, run_llm_stage
-from .stages import run_diversity_pruning
 
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
 
 
-def _normalize_instruction_text(text: str | None, max_length: int) -> str | None:
-    if text is None:
-        return None
-    cleaned = " ".join(text.split()).strip()
-    if not cleaned:
-        return None
-    if len(cleaned) <= max_length:
-        return cleaned
-    return cleaned[: max_length - 1].rstrip() + "…"
-
-
-def _build_rerank_instruction(
-    *,
-    research_goal: str | None = None,
-    query_type_hint: str | None = None,
-) -> str | None:
-    return build_rerank_instruction(
-        query="",
-        query_type=(query_type_hint or "general").strip().lower(),
-        research_goal=_normalize_instruction_text(research_goal, 180),
-    )
-
-
 async def rerank_results(
     query: str,
     candidates: list[WebSearchResult],
-    top_k: int = 10,
     *,
-    searxng_time_range: str | None = None,
-    query_entities: list | None = None,
-    research_goal: str | None = None,
+    research_goal: str,
     query_type_hint: str | None = None,
     run_key: str | None = None,
     session_id: str | None = None,
-    ab_overrides: dict | None = None,
     precomputed_embedding: list[float] | None = None,
 ) -> RerankOutput:
-    """Rerank web search results with stack-selected rerank stages."""
+    """Apply conditional bi, cross, and RankLLM funnel stages."""
+    if not research_goal or not research_goal.strip():
+        raise ValueError("research_goal must be non-blank")
     if not candidates:
-        record_rerank_stage(
-            stage="empty",
-            input_count=0,
-            output_count=0,
-            duration_seconds=0.0,
-        )
+        record_rerank_stage(stage="empty", input_count=0, output_count=0, duration_seconds=0.0)
         return RerankOutput(results=[], embedding_context=None, provider=None, model=None)
-    if ab_overrides:
-        if "top_k" in ab_overrides:
-            top_k = int(ab_overrides["top_k"])
-            logger.debug("A/B override: top_k -> %s", top_k)
-        if "provider" in ab_overrides:
-            logger.debug("A/B override: provider -> %s", ab_overrides["provider"])
-        if "diversity_weight" in ab_overrides:
-            logger.debug("A/B override: diversity_weight -> %s", ab_overrides["diversity_weight"])
-        if "entity_boost" in ab_overrides:
-            logger.debug("A/B override: entity_boost -> %s", ab_overrides["entity_boost"])
-
-    instruction = _build_rerank_instruction(
-        research_goal=research_goal,
-        query_type_hint=query_type_hint,
-    )
-    instruction_length = len(instruction) if instruction else None
-
-    decision = decide_rerank(
-        query=query,
-        candidate_count=len(candidates),
-        top_k=top_k,
-        query_type_hint=query_type_hint,
-    )
-    if not decision.should_rerank:
-        logger.info(
-            "Rerank bypassed by policy: reason=%s count=%s",
-            decision.reason,
-            len(candidates),
-        )
-        record_rerank_stage(
-            stage="policy_bypass",
-            input_count=len(candidates),
-            output_count=len(candidates),
-            duration_seconds=0.0,
-        )
-        emit_observability_event(
-            logger,
-            "rerank.bypassed",
-            reason=decision.reason,
-            query=query[:200],
-            candidate_count=len(candidates),
-        )
-        return RerankOutput(
-            results=candidates, embedding_context=None, provider="bypass", model=None
-        )
 
     original_count = len(candidates)
-    pipeline_start = time.time()
-    plan = build_rerank_stack_plan(settings.rerank_stack_mode)
-    logger.info(
-        "Starting rerank pipeline: count=%s top_k=%s mode=%s",
-        original_count,
-        top_k,
-        plan.mode,
-    )
-
-    query_embedding: list[float] | None = None
-    try:
-        if precomputed_embedding is not None:
-            query_embedding = precomputed_embedding
-        else:
-            query_embedding = await embed_query(query, timeout=15.0)
-    except (EmbeddingTimeoutError, EmbeddingAPIError, CircuitOpenError, Exception) as exc:
-        logger.warning(
-            "Query embedding failed: %s: %s; bi-encoder and diversity will be skipped",
-            type(exc).__name__,
-            exc,
-        )
-
-    embedding_ctx: RerankEmbeddingContext | None = None
-    final_provider = "chain"
-    final_model: str = ""
-    max_rerank_score = 0.0
-    # Genuine cross-encoder (Cohere) relevance scores keyed by link. Captured
-    # here because the optional LLM stage overwrites candidate.score with a
-    # position-decay proxy (exp(-0.3 * rank)), which is an ordering signal, not
-    # a relevance signal. We gate on the real relevance score instead so MMR
-    # diversity promotion can't smuggle an irrelevant doc into the final set.
-    cross_relevance_by_link: dict[str, float] = {}
+    pipeline_started = time.monotonic()
+    stage_summaries: list[RerankStageSummary] = []
+    funnel_counts: dict[str, int] = {"input_count": original_count}
 
     with tracer.start_as_current_span(
         "rerank.pipeline",
@@ -169,229 +54,163 @@ async def rerank_results(
             INPUT_MIME_TYPE: "text/plain",
             SEARCH_QUERY: query[:500],
             RERANK_INPUT_COUNT: original_count,
-            "rerank.top_k": top_k,
-            "rerank.stack_mode": plan.mode,
         },
     ) as main_span:
-        stage1_output_count = original_count
-        bi_encoder_attempted = False
-        bi_encoder_min_candidates = getattr(
-            settings,
-            "rerank_bi_encoder_min_candidates",
-            top_k * 2 + 1,
-        )
-        if (
-            query_embedding
-            and len(candidates) >= top_k
-            and len(candidates) >= bi_encoder_min_candidates
-        ):
-            bi_encoder_attempted = True
-            bi_encoder_top_k = int(top_k * settings.rerank_bi_encoder_stage_multiplier)
-            stage1_start = time.time()
-            before_bi_encoder = list(candidates)
-            try:
-                candidates, embedding_ctx = await bi_encoder_filter(
-                    query_embedding,
-                    candidates,
-                    top_k=bi_encoder_top_k,
-                )
-                stage1_output_count = len(candidates)
-            except Exception as exc:
-                logger.warning(
-                    "Bi-encoder filter failed: %s: %s, using top_k*2 slice",
-                    type(exc).__name__,
-                    exc,
-                )
-                candidates = candidates[:bi_encoder_top_k]
-                stage1_output_count = len(candidates)
-            stage1_duration = time.time() - stage1_start
-            await record_rerank_candidate_rows_async(
-                logger,
-                run_key=run_key,
-                stage="bi_encoder",
-                before_candidates=before_bi_encoder,
-                after_candidates=candidates,
-                payload_json={
-                    "original_count": original_count,
-                    "bi_encoder_top_k": bi_encoder_top_k,
-                },
-            )
-            record_bi_encoder_stage(
-                original_count=original_count,
-                output_count=stage1_output_count,
-                duration_seconds=stage1_duration,
-                run_key=run_key,
-                query_type_hint=query_type_hint,
-                entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
-                main_span=main_span,
-                logger=logger,
-            )
-
-        if plan.use_cross_encoder:
-            cross_outcome = await run_cross_encoder_stage(
-                query=query,
-                candidates=candidates,
-                instruction=instruction,
-                query_type_hint=query_type_hint,
-                query_entities=query_entities,
-                searxng_time_range=searxng_time_range,
-                original_count=original_count,
-                run_key=run_key,
-                main_span=main_span,
-                logger=logger,
-                ab_entity_boost=float(ab_overrides["entity_boost"])
-                if ab_overrides and "entity_boost" in ab_overrides
-                else None,
-            )
-            if cross_outcome.error is not None and not getattr(
-                cross_outcome, "relevance_scores", []
-            ):
-                logger.warning(
-                    "All rerank providers failed; preserving merged candidate order: %s",
-                    cross_outcome.error,
-                )
-            if getattr(cross_outcome, "relevance_scores", []):
-                candidates = cross_outcome.candidates[
-                    : int(top_k * settings.rerank_cross_encoder_stage_multiplier)
-                ]
-                max_rerank_score = cross_outcome.max_score
-                final_provider = cross_outcome.provider
-                final_model = cross_outcome.model or ""
-                cross_relevance_by_link = {
-                    candidate.link: candidate.score
-                    for candidate in candidates
-                    if candidate.score is not None
-                }
-
-        llm_ran = False
-        if plan.use_llm_reranker:
-            llm_outcome = await run_llm_stage(
-                query=query,
-                candidates=candidates,
-                top_k=top_k,
-                candidate_limit=len(candidates),
-                query_type_hint=query_type_hint,
-                research_goal=research_goal,
-                instruction=instruction,
-                query_entities=query_entities,
-                searxng_time_range=searxng_time_range,
-                run_key=run_key,
-                session_id=session_id or run_key,
-                main_span=main_span,
-                logger=logger,
-                ab_entity_boost=float(ab_overrides["entity_boost"])
-                if ab_overrides and "entity_boost" in ab_overrides
-                else None,
-            )
-            if llm_outcome.error is None and getattr(llm_outcome, "relevance_scores", []):
-                candidates = llm_outcome.candidates
-                max_rerank_score = llm_outcome.max_score
-                final_provider = llm_outcome.provider
-                final_model = llm_outcome.model or ""
-                llm_ran = True
-            elif llm_outcome.error is not None:
-                logger.warning(
-                    "LLM rerank stage failed, preserving cross-encoder order: %s", llm_outcome.error
-                )
-
-        # Score fusion: blend the cross-encoder's real relevance score with the
-        # LLM reranker's ordinal score into one authoritative relevance signal.
-        # Guarded so it only runs when BOTH stages produced scores (i.e.
-        # bi_cross_llm mode); in bi_cross the cross score is already on
-        # candidate.score, and in bi_llm there is no cross score to blend.
-        if cross_relevance_by_link and llm_ran:
-            alpha = settings.rerank_fusion_alpha
-            fused: list[WebSearchResult] = []
-            for candidate in candidates:
-                ce = cross_relevance_by_link.get(candidate.link)
-                if ce is None:
-                    fused.append(candidate)
-                    continue
-                llm_score = candidate.score if candidate.score is not None else ce
-                fused.append(
-                    candidate.model_copy(update={"score": alpha * ce + (1.0 - alpha) * llm_score})
-                )
-            candidates = fused
-            logger.info("Rerank score fusion: alpha=%s, fused %d candidates", alpha, len(fused))
-
-        diversity_result = await run_diversity_pruning(
-            query=query,
-            query_embedding=query_embedding,
-            candidates=candidates,
-            top_k=top_k,
-            embedding_ctx=embedding_ctx,
-            mmr_lambda=float(ab_overrides["diversity_weight"])
-            if ab_overrides and "diversity_weight" in ab_overrides
-            else settings.mmr_lambda_param,
+        # 1. Bi-encoder Stage (truncates to 100)
+        bi_start = time.monotonic()
+        bi_outcome = await run_conditional_bi_encoder(
+            query,
+            candidates,
+            precomputed_embedding=precomputed_embedding,
             logger=logger,
-            run_key=run_key,
-            searxng_time_range=searxng_time_range,
-            fetch_missing_embeddings=not bi_encoder_attempted or embedding_ctx is not None,
         )
-        candidates = diversity_result.candidates
+        bi_candidates = bi_outcome.candidates
+        bi_duration = (time.monotonic() - bi_start) * 1000.0
 
-        # Record diversity stage metrics BEFORE the relevance gate so the reported
-        # input/output counts reflect the actual diversity stage (pre-gate), not
-        # the post-gate slice.
-        record_diversity_stage(
-            input_count=diversity_result.input_count,
-            output_count=diversity_result.output_count,
-            duration_seconds=diversity_result.duration_seconds,
-            removed_count=diversity_result.removed_count,
-            mmr_lambda=float(ab_overrides["diversity_weight"])
-            if ab_overrides and "diversity_weight" in ab_overrides
-            else settings.mmr_lambda_param,
+        bi_status = "skipped"
+        if original_count > 100:
+            bi_status = "success" if bi_outcome.status == "applied" else "failed_open"
+
+        bi_summary = RerankStageSummary(
+            stage="bi_encoder",
+            provider=None,
+            model=None,
+            input_count=original_count,
+            output_count=len(bi_candidates),
+            duration_ms=bi_duration,
+            status=bi_status,
+            error_type=bi_outcome.status if bi_status == "failed_open" else None,
+            max_score=None,
+            avg_score=None,
+            payload_json={"status": bi_outcome.status},
+        )
+        stage_summaries.append(bi_summary)
+        funnel_counts["bi_output_count"] = len(bi_candidates)
+
+        record_bi_encoder_stage(
+            original_count=original_count,
+            output_count=len(bi_candidates),
+            duration_seconds=bi_duration / 1000.0,
             run_key=run_key,
             query_type_hint=query_type_hint,
-            entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+            entity_overlap_enabled=False,
+            main_span=main_span,
+            logger=logger,
+            payload_json={"status": bi_outcome.status},
+        )
+
+        # 2. Cross-encoder Stage (ranks and truncates to 30)
+        cross_start = time.monotonic()
+        cross_outcome = await run_cross_encoder_stage(
+            query=build_cross_encoder_query(query, query_type_hint, research_goal),
+            candidates=bi_candidates,
+            query_type_hint=query_type_hint,
+            original_count=original_count,
+            run_key=run_key,
             main_span=main_span,
             logger=logger,
         )
+        cross_candidates = cross_outcome.candidates
+        cross_duration = (time.monotonic() - cross_start) * 1000.0
 
-        # Relevance gate: reject candidates whose fused relevance score is below
-        # the configured threshold. The fused score (cross-encoder real relevance
-        # blended with the LLM ordinal, or the single signal used when only one
-        # stage ran) is the authoritative relevance signal and survives the whole
-        # pipeline, so this gate is what actually prevents unrelated documents
-        # from reaching the final results.
-        score_threshold = settings.rerank_score_threshold
-        if score_threshold > 0:
-            thresholded = [
-                candidate
-                for candidate in candidates
-                if candidate.score is None or candidate.score >= score_threshold
-            ]
-            removed_by_threshold = len(candidates) - len(thresholded)
-            candidates = thresholded
-            logger.info(
-                "Rerank relevance gate: kept %s of %s (threshold=%s, removed=%s)",
-                len(candidates),
-                len(candidates) + removed_by_threshold,
-                score_threshold,
-                removed_by_threshold,
+        cross_status = "failed_open"
+        if cross_outcome.error is None:
+            cross_status = (
+                "success" if cross_outcome.provider == "cohere_fast" else "fallback_success"
             )
 
-        final_results = candidates[:top_k]
-
-        main_span.set_attribute("rerank.final_count", len(final_results))
-        logger.info(
-            "Rerank pipeline complete: %s -> %s results",
-            original_count,
-            len(final_results),
+        cross_max_score = (
+            max(cross_outcome.relevance_scores) if cross_outcome.relevance_scores else None
         )
+        cross_avg_score = (
+            sum(cross_outcome.relevance_scores) / len(cross_outcome.relevance_scores)
+            if cross_outcome.relevance_scores
+            else None
+        )
+
+        cross_summary = RerankStageSummary(
+            stage="cross_encoder",
+            provider=cross_outcome.provider,
+            model=cross_outcome.model,
+            input_count=len(bi_candidates),
+            output_count=len(cross_candidates),
+            duration_ms=cross_duration,
+            status=cross_status,
+            error_type=type(cross_outcome.error).__name__ if cross_outcome.error else None,
+            max_score=cross_max_score,
+            avg_score=cross_avg_score,
+            payload_json={},
+        )
+        stage_summaries.append(cross_summary)
+        funnel_counts["cross_output_count"] = len(cross_candidates)
+
+        # 3. RankLLM Stage (ranks and truncates to 15)
+        llm_start = time.monotonic()
+        llm_outcome = await run_llm_stage(
+            query=query,
+            candidates=cross_candidates,
+            request_id=session_id or run_key,
+            query_type_hint=query_type_hint,
+            run_key=run_key,
+            main_span=main_span,
+            logger=logger,
+        )
+        llm_candidates = llm_outcome.candidates
+        llm_duration = (time.monotonic() - llm_start) * 1000.0
+
+        llm_status = "failed_open"
+        if llm_outcome.error is None:
+            llm_status = "success" if llm_outcome.provider == "gemini" else "fallback_success"
+
+        llm_summary = RerankStageSummary(
+            stage="rankllm",
+            provider=llm_outcome.provider,
+            model=llm_outcome.model,
+            input_count=len(cross_candidates),
+            output_count=len(llm_candidates),
+            duration_ms=llm_duration,
+            status=llm_status,
+            error_type=type(llm_outcome.error).__name__ if llm_outcome.error else None,
+            max_score=None,
+            avg_score=None,
+            input_tokens=llm_outcome.input_tokens,
+            output_tokens=llm_outcome.output_tokens,
+            payload_json={},
+        )
+        stage_summaries.append(llm_summary)
+        funnel_counts["rankllm_output_count"] = len(llm_candidates)
+
+        # Establish final provider and model based on the RankLLM outcome
+        if llm_status in ("success", "fallback_success"):
+            final_provider = llm_outcome.provider
+            final_model = llm_outcome.model
+        else:
+            final_provider = cross_outcome.provider
+            final_model = cross_outcome.model
+
+        # Assert monotone funnel count invariant
+        assert (
+            original_count >= len(bi_candidates) >= len(cross_candidates) >= len(llm_candidates)
+        ), (
+            f"Funnel cardinalities drift: {original_count} >= {len(bi_candidates)} >= {len(cross_candidates)} >= {len(llm_candidates)}"
+        )
+
+        main_span.set_attribute("rerank.final_count", len(llm_candidates))
+        duration_seconds = time.monotonic() - pipeline_started
+
         emit_rerank_summary(
             logger,
             query=query,
             input_count=original_count,
-            output=final_results,
-            top_k=top_k,
-            duration_seconds=time.time() - pipeline_start,
-            score_threshold=score_threshold,
+            output=llm_candidates,
+            top_k=15,
+            duration_seconds=duration_seconds,
+            score_threshold=0.0,
             provider=final_provider,
-            model=final_model,
-            max_score=max_rerank_score,
-            instruction_present=bool(instruction),
-            instruction_length=instruction_length,
+            model=final_model or "",
+            max_score=cross_max_score or 0.0,
+            instruction_present=False,
+            instruction_length=None,
             query_type_hint=query_type_hint,
         )
         emit_observability_event(
@@ -399,16 +218,15 @@ async def rerank_results(
             "rerank.completed",
             query=query[:200],
             input_count=original_count,
-            output_count=len(final_results),
+            output_count=len(llm_candidates),
             bypassed=False,
-            reason="policy_eligible",
-            instruction_present=bool(instruction),
-            instruction_length=instruction_length,
             query_type_hint=query_type_hint,
         )
         return RerankOutput(
-            results=final_results,
-            embedding_context=embedding_ctx,
+            results=llm_candidates,
+            embedding_context=bi_outcome.embedding_context,
             provider=final_provider,
             model=final_model,
+            stage_summaries=tuple(stage_summaries),
+            funnel_counts=funnel_counts,
         )

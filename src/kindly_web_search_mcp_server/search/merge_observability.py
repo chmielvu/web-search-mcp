@@ -24,8 +24,6 @@ def emit_merge_summary(
     discarded_count: int,
     overlap_rate: float,
     duration_seconds: float,
-    max_per_host: int,
-    host_cap_top_k: int | None,
 ) -> None:
     emit_observability_event(
         logger,
@@ -40,8 +38,6 @@ def emit_merge_summary(
         duration_ms=round(duration_seconds * 1000, 3),
         rrf_k=k,
         provider_contributions=dict(provider_contributions),
-        max_per_host=max_per_host,
-        host_cap_top_k=host_cap_top_k,
         output_host_counts=_host_counts(output),
         top_results=serialize_search_results(output, max_results=5),
     )

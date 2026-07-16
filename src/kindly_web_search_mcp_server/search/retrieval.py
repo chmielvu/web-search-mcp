@@ -13,7 +13,8 @@ from urllib.parse import urlsplit, urlunsplit
 from ..models import ProviderWarning, WebSearchResult
 from ..settings import settings
 from ..telemetry.spans import get_tracer
-from .contracts import BranchOutcome, QueryBranch, SearchRun
+from ..utils.task_scope import cancel_and_drain_tasks
+from .contracts import BranchOutcome, ProviderRankedResults, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
 from .provider_registry import get_provider_adapter, get_provider_definition
 
@@ -67,12 +68,14 @@ _MAX_URLS = 32
 def _record_provider_result(
     *,
     branch: QueryBranch,
+    branch_index: int,
     name: str,
     value: Sequence[WebSearchResult] | BaseException | None,
     latency_ms: float,
     rows: OrderedDict[str, WebSearchResult],
     warnings_by_name: dict[str, ProviderWarning],
     provider_calls: list[dict[str, Any]],
+    provider_ranked_results_list: list[ProviderRankedResults],
     status_override: str | None = None,
     error_type_override: str | None = None,
     error_message_override: str | None = None,
@@ -115,6 +118,22 @@ def _record_provider_result(
         )
         return
 
+    seen_urls = set()
+    deduped_results = []
+    for item in value:
+        url_key = _canonical_url(item.link)
+        if url_key not in seen_urls:
+            seen_urls.add(url_key)
+            deduped_results.append(item)
+    provider_ranked_results_list.append(
+        ProviderRankedResults(
+            branch_index=branch_index,
+            branch_role=branch.role,
+            provider_name=name,
+            results=tuple(deduped_results),
+        )
+    )
+
     for item in value:
         key = _canonical_url(item.link)
         if key not in rows:
@@ -144,6 +163,7 @@ def _assemble_branch_outcome(
     rows: OrderedDict[str, WebSearchResult],
     warnings_by_name: dict[str, ProviderWarning],
     provider_calls: list[dict[str, Any]],
+    provider_ranked_results: tuple[ProviderRankedResults, ...],
     elapsed_seconds: float,
 ) -> BranchOutcome:
     warnings = tuple(warnings_by_name[name] for name in assigned_names if name in warnings_by_name)
@@ -155,6 +175,7 @@ def _assemble_branch_outcome(
         warnings=warnings,
         elapsed_seconds=elapsed_seconds,
         provider_calls=tuple(provider_calls),
+        provider_ranked_results=provider_ranked_results,
     )
 
 
@@ -179,6 +200,9 @@ async def retrieve_branches(
         branch_rows: list[OrderedDict[str, WebSearchResult]] = []
         branch_warnings: list[dict[str, ProviderWarning]] = []
         branch_calls: list[list[dict[str, Any]]] = []
+        branch_provider_ranked_results: list[list[ProviderRankedResults]] = [
+            [] for _ in range(len(run.plan.branches))
+        ]
 
         tasks: list[asyncio.Task[tuple[str, Sequence[WebSearchResult] | BaseException, float]]] = []
         slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
@@ -220,11 +244,8 @@ async def retrieve_branches(
             retrieve_budget_exceeded = bool(pending)
 
             if pending:
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
+                await cancel_and_drain_tasks(pending)
 
-            retrieve_elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
             for task in tasks:
                 branch_index, provider_name = slot_by_task[task]
                 branch = run.plan.branches[branch_index]
@@ -238,12 +259,14 @@ async def retrieve_branches(
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
+                        branch_index=branch_index,
                         name=provider_name,
                         value=None,
                         latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
+                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
                         status_override="incomplete",
                     )
                     continue
@@ -259,12 +282,14 @@ async def retrieve_branches(
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
+                        branch_index=branch_index,
                         name=provider_name,
                         value=exc,
                         latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
+                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
                     )
                     continue
                 except Exception as exc:
@@ -273,28 +298,29 @@ async def retrieve_branches(
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
+                        branch_index=branch_index,
                         name=provider_name,
                         value=exc,
                         latency_ms=elapsed_ms,
                         rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
+                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
                     )
                     continue
                 _record_provider_result(
                     branch=branch,
+                    branch_index=branch_index,
                     name=provider_name,
                     value=value,
                     latency_ms=latency_ms,
                     rows=rows,
                     warnings_by_name=warnings_by_name,
                     provider_calls=calls,
+                    provider_ranked_results_list=branch_provider_ranked_results[branch_index],
                 )
         except asyncio.CancelledError:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await cancel_and_drain_tasks(tasks)
             raise
 
         outcomes_list: list[BranchOutcome] = []
@@ -308,6 +334,7 @@ async def retrieve_branches(
                     rows=branch_rows[branch_index],
                     warnings_by_name=branch_warnings[branch_index],
                     provider_calls=branch_calls[branch_index],
+                    provider_ranked_results=tuple(branch_provider_ranked_results[branch_index]),
                     elapsed_seconds=time.monotonic() - retrieve_started,
                 )
             )

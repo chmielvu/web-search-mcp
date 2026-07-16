@@ -49,15 +49,12 @@ class TestIntentToCategoryRouting:
         so = policy.apply_search_options(user_so)
         assert so.searxng_categories == ("it",)
 
-    def test_news_uses_freshness_and_tighter_rrf_k(self):
+    def test_intents_share_the_global_rrf_setting(self):
         news = resolve_intent_policy("news")
+        digital_humanities = resolve_intent_policy("digital_humanities")
         assert news.freshness == "week"
-        assert news.rrf_k == 35
-
-    def test_digital_humanities_uses_wider_rrf_k(self):
-        policy = resolve_intent_policy("digital_humanities")
-        assert policy.freshness is None
-        assert policy.rrf_k == 70
+        assert not hasattr(news, "rrf_k")
+        assert not hasattr(digital_humanities, "rrf_k")
 
 
 def test_news_policy_includes_brave_news_specialized_provider() -> None:

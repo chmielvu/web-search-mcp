@@ -1,0 +1,76 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-07-16T15:50:48.575Z",
+  "pages": {
+    "sources/obs-2026-07-16-conditional-rankllm-live-pipeline-verified": {
+      "type": "source",
+      "title": "\"Observation: Conditional RankLLM live pipeline verified\"",
+      "created": "2026-07-16",
+      "updated": "2026-07-16",
+      "slug": "obs-2026-07-16-conditional-rankllm-live-pipeline-verified",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-16T13:13:23.622Z",
+      "tags": [
+        "rerank",
+        "rankllm",
+        "live-verification",
+        "search"
+      ],
+      "source_context": "\"End-to-end normal pipeline verification of conditional reranking\""
+    },
+    "sources/obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage": {
+      "type": "source",
+      "title": "\"Observation: Gemini promoted to primary RankLLM stage\"",
+      "created": "2026-07-16",
+      "updated": "2026-07-16",
+      "slug": "obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage",
+      "status": "observation",
+      "relevance": "critical",
+      "observed_at": "2026-07-16T15:50:48.515Z",
+      "tags": [
+        "rerank",
+        "gemini",
+        "openrouter",
+        "optimization",
+        "latency"
+      ],
+      "source_context": "\"Promoting Gemini to primary RankLLM stage for production latency optimization\""
+    },
+    "sources/obs-2026-07-16-openrouter-completions-routing-and-context-latency-documente": {
+      "type": "source",
+      "title": "\"Observation: OpenRouter completions routing and context latency documented\"",
+      "created": "2026-07-16",
+      "updated": "2026-07-16",
+      "slug": "obs-2026-07-16-openrouter-completions-routing-and-context-latency-documente",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-16T15:44:49.342Z",
+      "tags": [
+        "rerank",
+        "openrouter",
+        "litellm",
+        "latency"
+      ],
+      "source_context": "\"Debugging OpenRouter routing and latency during monotone funnel integration\""
+    },
+    "sources/obs-2026-07-16-post-edit-rankllm-production-rerun-passed": {
+      "type": "source",
+      "title": "\"Observation: Post-edit RankLLM production rerun passed\"",
+      "created": "2026-07-16",
+      "updated": "2026-07-16",
+      "slug": "obs-2026-07-16-post-edit-rankllm-production-rerun-passed",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-16T13:27:53.210Z",
+      "tags": [
+        "rerank",
+        "rankllm",
+        "production",
+        "smoke",
+        "verification"
+      ],
+      "source_context": "\"Fresh real-life verification after code edits\""
+    }
+  }
+}

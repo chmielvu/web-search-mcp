@@ -179,13 +179,17 @@ def build_rerank_candidate_rows(
                 "bm25_rank": bm25_ranks.get(link) if bm25_ranks else None,
                 "dense_score": dense_scores.get(link) if dense_scores else None,
                 "dense_rank": dense_ranks.get(link) if dense_ranks else None,
-                "cross_encoder_raw": cross_encoder_scores.get(link) if cross_encoder_scores else None,
+                "cross_encoder_raw": cross_encoder_scores.get(link)
+                if cross_encoder_scores
+                else None,
                 "llm_raw_score": llm_scores.get(link) if llm_scores else None,
                 "fused_score": fused_scores.get(link) if fused_scores else None,
                 "hybrid_rrf_score": hybrid_rrf_scores.get(link) if hybrid_rrf_scores else None,
                 "recency_boost": recency_boosts.get(link) if recency_boosts else None,
-                "entity_overlap_score": entity_overlap_scores.get(link) if entity_overlap_scores else None,
-                "diversity_removed": after_candidate is None,
+                "entity_overlap_score": entity_overlap_scores.get(link)
+                if entity_overlap_scores
+                else None,
+                "survived": after_candidate is not None,
                 "payload_json": {
                     **(payload_json or {}),
                 },

@@ -19,7 +19,6 @@ class IntentSearchPolicy:
     search_options_overrides: dict[str, object] = field(default_factory=dict)
     rewrite_temperature: float = 0.0
     freshness: str | None = None
-    rrf_k: int = 60
 
     def apply_search_options(self, search_options: SearchOptions | None) -> SearchOptions | None:
         if search_options is None and not self.search_options_overrides:
@@ -50,7 +49,6 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "digital_humanities": IntentSearchPolicy(
         intent="digital_humanities",
-        rrf_k=70,
         search_options_overrides={"searxng_categories": ("it", "science")},
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False}
@@ -75,7 +73,6 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "news": IntentSearchPolicy(
         intent="news",
         policy_version="1.1",
-        rrf_k=35,
         freshness="week",
         specialized_providers=("telegram", "brave_news"),
         search_options_overrides={"searxng_categories": ("news", "general")},

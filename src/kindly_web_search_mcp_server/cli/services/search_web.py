@@ -13,10 +13,8 @@ from ...utils.http_client import get_http_client
 async def fetch_web_search_payload(
     query: str,
     *,
-    num_results: int,
     rewrite: bool,
     research_goal: str,
-    result_offset: int = 0,
     site_filters: list[str] | None = None,
     domain_filters: list[str] | None = None,
     domain_boost: list[str] | None = None,
@@ -25,13 +23,11 @@ async def fetch_web_search_payload(
     **_obsolete_options: object,
 ) -> dict[str, Any]:
     search_options = build_search_options(
-        result_offset=result_offset,
         site_filters=[*(site_filters or []), *(domain_filters or [])],
     )
     request = WebSearchRequest(
         query=query,
         research_goal=research_goal,
-        num_results=num_results,
         rewrite=rewrite,
         options=search_options,
     )

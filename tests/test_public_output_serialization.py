@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from kindly_web_search_mcp_server.models import (
     ProviderWarning,
-    SearchResultWindow,
     WebSearchResponse,
     WebSearchResult,
 )
@@ -60,12 +58,6 @@ class TestPublicOutputSerialization(unittest.TestCase):
             query="fastmcp docs",
             results=[result],
             total_results=1,
-            result_window=SearchResultWindow(
-                offset=0,
-                returned=1,
-                candidate_count=1,
-                has_more=False,
-            ),
             providers_used=["searxng"],
             warnings=[ProviderWarning(provider="ddg", error="timeout", error_type="timeout")],
             diagnostics=[{"provider": "searxng", "score": 0.42}],
@@ -76,7 +68,6 @@ class TestPublicOutputSerialization(unittest.TestCase):
         self.assertEqual(public["query"], "fastmcp docs")
         self.assertEqual(public["total_results"], 1)
         self.assertEqual(public["providers_used"], ["searxng"])
-        self.assertEqual(public["result_window"]["offset"], 0)
         self.assertEqual(public["warnings"][0]["provider"], "ddg")
         self.assertEqual(public["results"][0]["title"], "FastMCP docs")
         self.assertNotIn("score", public["results"][0])

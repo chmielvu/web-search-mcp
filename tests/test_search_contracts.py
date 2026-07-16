@@ -55,7 +55,7 @@ def test_search_plan_create_preserves_relevance_query_and_options() -> None:
         confidence=0.9,
         rationale="test",
     )
-    options = SearchOptions(result_offset=3)
+    options = SearchOptions()
     branch = QueryBranch(
         role=BranchRole.ORIGINAL_FREE,
         query="normalized query",
@@ -72,7 +72,6 @@ def test_search_plan_create_preserves_relevance_query_and_options() -> None:
         policy_version="1.0",
     )
     assert plan.relevance_query == "relevance text"
-    assert plan.options.result_offset == 3
     assert plan.branches[0].role is BranchRole.ORIGINAL_FREE
     assert not hasattr(plan, "selected_provider_names")
 
@@ -93,4 +92,4 @@ def test_request_enforces_goal_and_result_window() -> None:
     with pytest.raises(ValidationError):
         WebSearchRequest(query="query", research_goal="")
     with pytest.raises(ValidationError):
-        WebSearchRequest(query="query", research_goal="goal", num_results=14)
+        WebSearchRequest(query="query", research_goal="goal", num_results=16)

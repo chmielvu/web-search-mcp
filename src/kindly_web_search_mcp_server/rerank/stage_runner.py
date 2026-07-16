@@ -1,18 +1,20 @@
-"""Execution helpers for ranked rerank stages."""
+"""Execution helpers for cross-encoder and RankLLM stages."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+from statistics import median
 import time
+from typing import Any
 
 from ..models import WebSearchResult
-from ..settings import settings
-from .providers import rerank_with_provider_fallback
 from .llm_rerank import rerank_with_llm
+from .limits import RANKLLM_INPUT_LIMIT
 from .observability import record_rerank_candidate_rows_async
+from .providers import rerank_with_provider_fallback
 from .reporting import record_ranked_stage
-from .stages import apply_entity_overlap_boost, apply_ranked_results
+from .stages import apply_ranked_results
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,49 +41,44 @@ async def _apply_ranked_stage(
     input_tokens: int | None,
     output_tokens: int | None,
     input_candidates: list[WebSearchResult],
-    ranked_results: list,
+    ranked_results: list[Any],
     duration_seconds: float,
     query_type_hint: str | None,
-    query_entities: list | None,
-    searxng_time_range: str | None,
-    payload_json: dict,
+    payload_json: dict[str, Any],
     run_key: str | None,
-    main_span,
+    main_span: Any,
     logger: logging.Logger,
-    preserve_raw_scores: bool = False,
+    store_cross_scores: bool = False,
+    output_limit: int | None = None,
 ) -> RankedStageOutcome:
     before_candidates = [candidate.model_copy() for candidate in input_candidates]
     candidates, relevance_scores, _, _ = apply_ranked_results(
-        input_candidates,
+        list(input_candidates),
         ranked_results,
-        preserve_raw_scores=preserve_raw_scores,
-        recency_weight=settings.rerank_recency_weight,
-        half_life_days=settings.rerank_recency_half_life_days,
-        searxng_time_range=searxng_time_range,
+        preserve_raw_scores=True,
+        store_cross_scores=store_cross_scores,
+        update_score=False,
+        recency_weight=0.0,
     )
-    apply_entity_overlap_boost(
-        candidates,
-        query_entities=query_entities,
-        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
-        entity_overlap_weight=getattr(settings, "rerank_entity_overlap_weight", 0.15),
-        logger=logger,
-        ab_weight=float(payload_json.get("entity_boost"))  # type: ignore[arg-type]
-        if payload_json.get("entity_boost") is not None
-        else None,
-    )
+    cross_encoder_scores = None
+    if store_cross_scores:
+        cross_encoder_scores = {
+            c.link: getattr(c, "cross_relevance_score", 0.0)
+            for c in candidates
+            if getattr(c, "cross_relevance_score", None) is not None
+        }
+
+    sliced_candidates = candidates[:output_limit] if output_limit is not None else candidates
+
     await record_rerank_candidate_rows_async(
         logger,
         run_key=run_key,
         stage=stage_name,
         before_candidates=before_candidates,
-        after_candidates=candidates,
+        after_candidates=sliced_candidates,
         payload_json=payload_json,
+        cross_encoder_scores=cross_encoder_scores,
     )
-    relevance_scores = [
-        candidate.score
-        for candidate in candidates[: min(10, len(candidates))]
-        if candidate.score is not None
-    ]
     max_score, _ = record_ranked_stage(
         stage_name=stage_name,
         provider=provider,
@@ -89,26 +86,26 @@ async def _apply_ranked_stage(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         input_count=len(input_candidates),
-        output_count=len(candidates),
+        output_count=len(sliced_candidates),
         duration_seconds=duration_seconds,
-        relevance_scores=relevance_scores,
+        relevance_scores=relevance_scores if stage_name != "rankllm" else [],
         payload_json=payload_json,
         query_type_hint=query_type_hint,
-        entity_overlap_enabled=getattr(settings, "rerank_entity_overlap_enabled", False),
+        entity_overlap_enabled=False,
         run_key=run_key,
         main_span=main_span,
         logger=logger,
     )
     return RankedStageOutcome(
-        candidates=candidates,
+        candidates=sliced_candidates,
         provider=provider,
         model=model,
         stage_name=stage_name,
         input_count=len(input_candidates),
-        output_count=len(candidates),
+        output_count=len(sliced_candidates),
         duration_seconds=duration_seconds,
-        relevance_scores=relevance_scores,
-        max_score=max_score,
+        relevance_scores=relevance_scores if stage_name != "rankllm" else [],
+        max_score=max_score if stage_name != "rankllm" else 0.0,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
@@ -118,47 +115,43 @@ async def run_cross_encoder_stage(
     *,
     query: str,
     candidates: list[WebSearchResult],
-    instruction: str | None,
     query_type_hint: str | None,
-    query_entities: list | None,
-    searxng_time_range: str | None,
     original_count: int,
     run_key: str | None,
-    main_span,
+    main_span: Any,
     logger: logging.Logger,
-    ab_entity_boost: float | None = None,
-    entity_boost: float = 0.15,
+    output_limit: int = RANKLLM_INPUT_LIMIT,
 ) -> RankedStageOutcome:
-    stage_start = time.time()
-    outcome = await rerank_with_provider_fallback(
-        query,
-        candidates,
-        instruction=instruction,
-    )
-    duration_seconds = time.time() - stage_start
+    stage_start = time.monotonic()
+    outcome = await rerank_with_provider_fallback(query, candidates)
+    duration_seconds = time.monotonic() - stage_start
     if not outcome.ranked:
+        sliced_candidates = candidates[:output_limit]
         return RankedStageOutcome(
-            candidates=candidates,
-            provider=outcome.provider_id,
+            candidates=sliced_candidates,
+            provider=outcome.provider_id or "chain_failed",
             model=outcome.model,
-            stage_name=outcome.provider_id,
+            stage_name="cross_encoder",
             input_count=len(candidates),
-            output_count=len(candidates),
+            output_count=len(sliced_candidates),
             duration_seconds=duration_seconds,
             relevance_scores=[],
             max_score=0.0,
-            input_tokens=None,
-            output_tokens=None,
             error=outcome.error,
         )
+
+    raw_scores = [float(result.score) for result in outcome.ranked]
     payload_json = {
         "original_count": original_count,
-        "recency_weight": settings.rerank_recency_weight,
-        "apply_recency": searxng_time_range is None and settings.rerank_recency_weight > 0,
-        "entity_boost": ab_entity_boost,
+        "document_format": "ordered_yaml_v1",
+        "input_count": len(candidates),
+        "top_n": len(candidates),
+        "raw_score_min": min(raw_scores),
+        "raw_score_median": median(raw_scores),
+        "raw_score_max": max(raw_scores),
     }
     return await _apply_ranked_stage(
-        stage_name=outcome.provider_id,
+        stage_name="cross_encoder",
         provider=outcome.provider_id,
         model=outcome.model,
         input_tokens=None,
@@ -167,13 +160,12 @@ async def run_cross_encoder_stage(
         ranked_results=outcome.ranked,
         duration_seconds=duration_seconds,
         query_type_hint=query_type_hint,
-        query_entities=query_entities,
-        searxng_time_range=searxng_time_range,
         payload_json=payload_json,
         run_key=run_key,
         main_span=main_span,
         logger=logger,
-        preserve_raw_scores=outcome.provider_id == "voyage",
+        store_cross_scores=True,
+        output_limit=output_limit,
     )
 
 
@@ -181,72 +173,47 @@ async def run_llm_stage(
     *,
     query: str,
     candidates: list[WebSearchResult],
-    top_k: int,
-    candidate_limit: int,
+    request_id: str | None,
     query_type_hint: str | None,
-    research_goal: str | None,
-    instruction: str | None,
-    query_entities: list | None,
-    searxng_time_range: str | None,
     run_key: str | None,
-    main_span,
+    main_span: Any,
     logger: logging.Logger,
-    session_id: str | None = None,
-    ab_entity_boost: float | None = None,
-    entity_boost: float = 0.15,
 ) -> RankedStageOutcome:
-    stage_start = time.time()
+    stage_start = time.monotonic()
     try:
-        outcome = await rerank_with_llm(
-            query,
-            candidates,
-            top_k=top_k,
-            candidate_limit=candidate_limit,
-            query_type_hint=query_type_hint,
-            research_goal=research_goal,
-            instruction=instruction,
-            timeout_seconds=settings.rerank_llm_timeout_seconds,
-            session_id=session_id,
-        )
+        outcome = await rerank_with_llm(query, candidates, request_id=request_id)
     except Exception as exc:
-        duration_seconds = time.time() - stage_start
-        logger.warning("LLM rerank failed: %s: %s", type(exc).__name__, exc)
+        outcome = None
+        error = exc
+    else:
+        error = outcome.error
+    duration_seconds = time.monotonic() - stage_start
+
+    if outcome is None or not outcome.ranked:
+        sliced_candidates = candidates[:15]
         return RankedStageOutcome(
-            candidates=candidates,
-            provider="gpt-oss-worker",
-            model=None,
-            stage_name="llm_rerank",
+            candidates=sliced_candidates,
+            provider=outcome.endpoint_name if outcome else "chain_failed",
+            model=outcome.model if outcome else None,
+            stage_name="rankllm",
             input_count=len(candidates),
-            output_count=len(candidates),
+            output_count=len(sliced_candidates),
             duration_seconds=duration_seconds,
             relevance_scores=[],
             max_score=0.0,
-            input_tokens=None,
-            output_tokens=None,
-            error=exc,
+            input_tokens=outcome.input_tokens if outcome else None,
+            output_tokens=outcome.output_tokens if outcome else None,
+            error=error,
         )
-    duration_seconds = time.time() - stage_start
-    if not outcome.ranked:
-        return RankedStageOutcome(
-            candidates=candidates,
-            provider=outcome.endpoint_name,
-            model=outcome.model,
-            stage_name="llm_rerank",
-            input_count=len(candidates),
-            output_count=len(candidates),
-            duration_seconds=duration_seconds,
-            relevance_scores=[],
-            max_score=0.0,
-            input_tokens=outcome.input_tokens,
-            output_tokens=outcome.output_tokens,
-        )
+
     payload_json = {
         "original_count": len(candidates),
-        "llm_candidate_limit": candidate_limit,
-        "entity_boost": ab_entity_boost,
+        "llm_candidate_limit": len(candidates),
+        "rankllm_provider": outcome.endpoint_name,
+        "rankllm_model": outcome.model,
     }
     return await _apply_ranked_stage(
-        stage_name="llm_rerank",
+        stage_name="rankllm",
         provider=outcome.endpoint_name,
         model=outcome.model,
         input_tokens=outcome.input_tokens,
@@ -255,10 +222,9 @@ async def run_llm_stage(
         ranked_results=outcome.ranked,
         duration_seconds=duration_seconds,
         query_type_hint=query_type_hint,
-        query_entities=query_entities,
-        searxng_time_range=searxng_time_range,
         payload_json=payload_json,
         run_key=run_key,
         main_span=main_span,
         logger=logger,
+        output_limit=15,
     )

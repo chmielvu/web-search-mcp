@@ -22,32 +22,47 @@ def _get_cohere_client(timeout: float = 30.0) -> httpx.AsyncClient:
     return client
 
 
-def _apply_instruction(query: str, instruction: str | None) -> str:
-    cleaned_instruction = (instruction or "").strip()
-    if not cleaned_instruction:
-        return query
-    return f"{cleaned_instruction}\n\n{query}"
-
-
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
     results = data.get("results")
     if not isinstance(results, list):
         raise ValueError("Cohere rerank response missing results list")
 
+    if len(results) != document_count:
+        raise ValueError(
+            f"Cohere rerank returned {len(results)} results, expected {document_count}"
+        )
+
     ranked: list[tuple[int, float]] = []
+    seen_indices = set()
     for item in results:
         if not isinstance(item, dict):
             raise ValueError("Cohere rerank result item is not an object")
         index = item.get("index")
         score = item.get("relevance_score")
-        if not isinstance(index, int) or not 0 <= index < document_count:
-            raise ValueError(f"Cohere rerank returned invalid index: {index!r}")
-        if not isinstance(score, (int, float)):
-            raise ValueError(f"Cohere rerank returned invalid score: {score!r}")
-        ranked.append((index, float(score)))
 
-    if not ranked and document_count:
-        raise ValueError("Cohere rerank returned no ranked documents")
+        # Validate index
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise ValueError(f"Cohere rerank returned non-integer index: {index!r}")
+        if not 0 <= index < document_count:
+            raise ValueError(f"Cohere rerank returned index out of bounds: {index!r}")
+        if index in seen_indices:
+            raise ValueError(f"Cohere rerank returned duplicate index: {index!r}")
+        seen_indices.add(index)
+
+        # Validate score
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            raise ValueError(f"Cohere rerank returned non-numeric score: {score!r}")
+        f_score = float(score)
+        import math
+
+        if not math.isfinite(f_score) or not 0.0 <= f_score <= 1.0:
+            raise ValueError(f"Cohere rerank returned out of range / non-finite score: {score!r}")
+
+        ranked.append((index, f_score))
+
+    if len(seen_indices) != document_count:
+        raise ValueError("Cohere rerank response is not a complete permutation of document indices")
+
     return ranked
 
 
@@ -58,7 +73,6 @@ async def cohere_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
-    instruction: str | None = None,
     timeout: float = 30.0,
     http_client: httpx.AsyncClient | None = None,
     base_url: str | None = None,
@@ -74,7 +88,7 @@ async def cohere_rerank(
 
     payload = {
         "model": model or settings.cohere_rerank_model,
-        "query": _apply_instruction(query, instruction),
+        "query": query,
         "documents": documents,
         "top_n": top_n or len(documents),
         "max_tokens_per_doc": 4096,

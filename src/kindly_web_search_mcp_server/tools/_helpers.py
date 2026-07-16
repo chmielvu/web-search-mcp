@@ -89,8 +89,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
         "models": {
-            "rerank_provider": settings.rerank_provider,
-            "rerank_stack_mode": settings.rerank_stack_mode,
             "cohere_rerank_model": settings.cohere_rerank_model,
             "openrouter_rerank_model": settings.openrouter_rerank_model,
             "voyage_rerank_model": settings.voyage_rerank_model,
@@ -304,4 +302,3 @@ def _apply_domain_filters(
         results = boosted + normal
 
     return results
-

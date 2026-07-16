@@ -51,7 +51,7 @@ class QueryBranch(ContractModel):
 class WebSearchRequest(ContractModel):
     query: NonBlank
     research_goal: NonBlank
-    num_results: int = Field(default=15, ge=15, le=50)
+    num_results: Literal[15] = 15
     rewrite: bool = True
     options: SearchOptions = Field(default_factory=SearchOptions)
 
@@ -93,6 +93,14 @@ class SearchPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderRankedResults:
+    branch_index: int
+    branch_role: BranchRole
+    provider_name: str
+    results: tuple[WebSearchResult, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class BranchOutcome:
     branch: QueryBranch
     attempted_provider_names: tuple[str, ...] = ()
@@ -101,6 +109,7 @@ class BranchOutcome:
     warnings: tuple[ProviderWarning, ...] = ()
     elapsed_seconds: float = 0.0
     provider_calls: tuple[dict[str, Any], ...] = ()
+    provider_ranked_results: tuple[ProviderRankedResults, ...] = ()
 
 
 @dataclass
@@ -134,6 +143,7 @@ class SearchOutcome:
     timings: Mapping[str, float]
     tool_call_id: str | None
     session_id: str | None
+
 
 @dataclass(slots=True)
 class SearchRun:

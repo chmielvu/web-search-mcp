@@ -30,9 +30,13 @@ either adapter.
 - Provider assignment is only `branch.target in definition.targets`.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
 - `rank_and_finalize` projects every non-None `RerankEmbeddingContext` into the diagnostics collector as both `candidate_embeddings` AND `query_embedding`; analytics `query_embeddings` persistence must remain non-zero on any rerank path that returned a context.
+- BM25 uses `SearchPlan.relevance_query` (normalized query plus research goal).
+  Neural reranking passes the normalized query and research goal separately so
+  the cross-encoder can use both while RankLLM receives the plain query only.
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable success/error/cancelled
   `SearchOutcome`; background tasks never receive the live `SearchRun`.
+- Provider-task cancellation drains are bounded with `cancel_and_drain_tasks`; shared query embeddings remain shielded and available to downstream ranking.
 
 ## Providers
 

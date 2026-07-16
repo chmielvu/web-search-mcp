@@ -254,7 +254,7 @@ def create_merge_span(input_lists: int, total_input: int) -> trace.Span:
         "rrf_merge",
         kind=trace.SpanKind.INTERNAL,
         attributes={
-            SEARCH_MERGE_ALGORITHM: "rrf_k60",
+            SEARCH_MERGE_ALGORITHM: "provider_consensus_rrf_then_bm25_rrf",
             "merge.input_lists": input_lists,
             "merge.input_total": total_input,
         },

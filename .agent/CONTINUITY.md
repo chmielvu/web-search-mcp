@@ -1,3 +1,36 @@
+## Rerank and JSONL Production Repair — 2026-07-16
+
+- 2026-07-16T17:35:00+02:00 [USER] Approved the repair plan (100 -> 30 -> 15 monotone funnel, Nemotron-3-nano listwise RankLLM, no MMR/stack modes/diversity, clean three-stage analytics views, aiofiles runtime dependency/import fix, outcome JSONL result count).
+- 2026-07-16T17:35:00+02:00 [CODE] Implemented the monotone funnel limits, settings parameters cleanup, signature overrides removal, `SearchResultWindow` deletion, cross-encoder and RankLLM stage limit truncations, `RerankStageSummary` telemetry collection, `vw_candidate_funnel` and `vw_rerank_timeline` views updates, `survived` field replacement in schema/observability, `aiofiles` dependency injection, and JSONL writer fixes.
+- 2026-07-16T17:35:00+02:00 [TOOL] Verification checks:
+  1. Python limits/settings check printed exactly `100 30 15 nvidia/nemotron-3-nano-30b-a3b:free`.
+  2. CLI schema and help queries proved that `num_results` and `result_offset` are removed from user options and `result_window` from output schemas.
+  3. Direct temporary JSONL write smoke test passed sequentially with correct `result_count`.
+  4. Isolated 30-candidate RankLLM model probe completed in one single invocation (9.86s, 1995 input tokens, 1057 output tokens) returning complete bijective permutation.
+  5. Live CLI search on `"RankLLM sliding window" full-list reranking` executed successfully (no bypass, 15 unique results returned, Gemini fallback, no warnings/errors).
+  6. Recreated DuckDB query read-only and proved exact three canonical stages (`bi_encoder`, `cross_encoder`, `rankllm`), non-null statuses, n_0>=n_1>=n_2>=n_3 (66>=66>=30>=15), payload funnel counts, correct `vw_candidate_funnel` ranks, and `vw_rerank_timeline` chronological order.
+  7. Ruff check on all touched files passed with zero findings; compileall check succeeded with no errors.
+
+## Post-edit Production Reverification — 2026-07-16
+
+- 2026-07-16T15:27:00+02:00 [USER] Required a fresh real-life `web-search-cli search web` run after subsequent edits and explicitly prohibited further pytest runs.
+- 2026-07-16T15:27:00+02:00 [TOOL] Fresh production run `23df2bb5-d1b0-4d22-8c42-3388f01ea4ab` succeeded for `Cohere Rerank v4 calibration threshold guidance`: 61 unique candidates, Cohere full-pool 61/61, OpenRouter bounded at 20s, Gemini RankLLM accepted 30/30, conditional MMR reconstructed 30/30, final pool 61/61, and 15/15 unique final links persisted. Pipeline duration was 49.318s; shell wall time was 78.31s.
+- 2026-07-16T15:27:00+02:00 [DISCOVERIES] Live output still emits LiteLLM debug noise and `Logging.async_success_handler was never awaited` during event-loop handoff. Search result, rerank telemetry, and persistence completed successfully despite the warning.
+
+## Conditional RankLLM Live Verification — 2026-07-16
+
+- 2026-07-16T15:05:00+02:00 [USER] Requested live end-to-end verification of the new reranking through the normal CLI pipeline.
+- 2026-07-16T15:05:00+02:00 [CODE] Kept research-goal input cross-encoder-only while RankLLM receives the normalized query; fixed `rce` risk matching inside `primary-source`, native async RankLLM transport timeout, strict sliding-window permutation validation via `ast.literal_eval`, constructor stdout suppression, empty-provider overlap metadata, and the batched rerank-candidate column contract.
+- 2026-07-16T15:05:00+02:00 [TOOL] Live CLI run `b348df7c-ab02-4809-9bf9-1cccc4d23be1` succeeded with 61 candidates and 15 unique persisted results in 52.784s pipeline time. Cohere reranked all 61 in 461.98ms; OpenRouter timed out at 20s; Gemini completed two RankLLM windows and was accepted for 30/30 candidates; conditional MMR triggered and reconstructed 30/30; final provider/model was `gemini` / `gemini-3.1-flash-lite`.
+- 2026-07-16T15:05:00+02:00 [TOOL] Verification passed: Ruff on rerank, ranking, analytics candidate writer, and related tests; rerank-focused suite 79 passed plus 17 subtests.
+
+## Bounded Retrieval Cancellation — 2026-07-15
+
+- 2026-07-15T11:20:00+02:00 [CODE] Extracted the bounded cancellation drain pattern into `cancel_and_drain_tasks` in `utils/task_scope.py`. Refactored `TaskScope.wait_and_cancel` to call it.
+- 2026-07-15T11:20:00+02:00 [CODE] Wired the new `cancel_and_drain_tasks` at the two main unbounded cleanup sites in `search/retrieval.py` (normal retrieve budget and caller cancellation paths) to ensure provider task unwinding is always bounded. Shared query embeddings remain shielded and uncancelled.
+- 2026-07-15T11:20:00+02:00 [TOOL] Verification: added 3 deterministic async tests to `tests/test_shared_embedding_cancellation.py` covering resistant children, budget timeouts, and caller cancellation. Fixed mock adapter setup and query validation in existing tests. All 8 targeted tests and 26 server/service integration tests pass successfully.
+- 2026-07-15T11:20:00+02:00 [TOOL] Smoke test: ran `web-search-cli` end-to-end search; all providers timed out gracefully under the budget constraint and returned a valid results/warnings payload with no hang.
+
 ## Live Web-Search Quality Campaign — 2026-07-15
 - 2026-07-15T00:09:53+02:00 [CODE] Added modular `scripts/live_web_search_quality*.py` tooling and a fixed 50-query corpus. The actual FastMCP stdio runner enforces ten batches of five concurrent calls, exact-attempt/no-retry semantics, resumability, a first-batch DuckDB/debug gate, atomic manifests, JSONL exports, manual review, and pandas/pyarrow Parquet exports with verified row-count round trips.
 - 2026-07-15T00:09:53+02:00 [TOOL] Completed one campaign at `test-results/live-web-search/20260714T213222Z`: 50 unique attempts, 10 completed batches, 40 successes, five MCP-wrapped timeouts classified as `timeout`, and five initial MCP-wrapped timeouts recorded as `transport_error` before the classifier fix. Successful calls all returned 15 structured results; latency p50 45.98s, p95 180.20s, max 180.21s.

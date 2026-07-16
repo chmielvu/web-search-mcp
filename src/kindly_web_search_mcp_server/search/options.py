@@ -43,7 +43,6 @@ def _normalize_site_filter(value: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class SearchOptions:
-    result_offset: int = 0
     searxng_categories: tuple[str, ...] = ()
     searxng_engines: tuple[str, ...] = ()
     searxng_language: str | None = None
@@ -54,8 +53,6 @@ class SearchOptions:
     domain_filters: tuple[str, ...] = ()
 
     def validate(self) -> "SearchOptions":
-        if self.result_offset < 0:
-            raise ValueError("result_offset must be >= 0.")
         if self.searxng_pageno < 1:
             raise ValueError("searxng_pageno must be >= 1.")
         if self.searxng_time_range and self.searxng_time_range not in SEARCH_TIME_RANGES:
@@ -70,7 +67,6 @@ class SearchOptions:
 
     def cache_fingerprint(self) -> str:
         payload = {
-            "result_offset": self.result_offset,
             "searxng_categories": self.searxng_categories,
             "searxng_engines": self.searxng_engines,
             "searxng_language": self.searxng_language,
@@ -94,7 +90,6 @@ class SearchOptions:
 
 def build_search_options(
     *,
-    result_offset: int = 0,
     searxng_categories: list[str] | None = None,
     searxng_engines: list[str] | None = None,
     searxng_language: str | None = None,
@@ -105,7 +100,6 @@ def build_search_options(
     domain_filters: list[str] | None = None,
 ) -> SearchOptions:
     options = SearchOptions(
-        result_offset=result_offset,
         searxng_categories=_normalize_items(searxng_categories),
         searxng_engines=_normalize_items(searxng_engines),
         searxng_language=normalize_query(searxng_language) or None if searxng_language else None,

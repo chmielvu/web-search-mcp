@@ -22,7 +22,7 @@ from .voyage import voyage_rerank
 logger = logging.getLogger(__name__)
 
 
-_ProviderCallable = Callable[[str, list[str], str | None], Awaitable[list[tuple[int, float]]]]
+_ProviderCallable = Callable[[str, list[str]], Awaitable[list[tuple[int, float]]]]
 
 
 # The single hardcoded provider chain. There is no per-provider
@@ -44,26 +44,36 @@ class RerankProviderOutcome:
 def build_rerank_candidates(
     candidates: list[WebSearchResult],
 ) -> list[RerankCandidate]:
-    return [
-        RerankCandidate(
-            index=index,
-            document=(
-                f"Title: {candidate.title}\n"
-                f"Snippet: {candidate.snippet}\n"
-                f"URL: {candidate.link}\n"
-                f"Domain: {candidate.domain or 'unknown'}\n"
-                f"Providers: {', '.join(candidate.providers or [])}\n"
-                f"ProviderCount: {candidate.provider_count or 1}"
-            ),
+    import yaml
+
+    rerank_candidates = []
+    for index, candidate in enumerate(candidates):
+        doc_dict = {
+            "Title": candidate.title,
+            "Snippet": candidate.snippet,
+            "URL": candidate.link,
+            "Domain": candidate.domain or "unknown",
+            "Providers": list(candidate.providers or []),
+            "ProviderCount": candidate.provider_count or 1,
+        }
+        yaml_str = yaml.safe_dump(
+            doc_dict,
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
+        ).strip()
+        rerank_candidates.append(
+            RerankCandidate(
+                index=index,
+                document=yaml_str,
+            )
         )
-        for index, candidate in enumerate(candidates)
-    ]
+    return rerank_candidates
 
 
 async def _call_cohere_fast(
     query: str,
     documents: list[str],
-    instruction: str | None,
 ) -> list[tuple[int, float]]:
     return await cohere_rerank(
         query,
@@ -71,7 +81,6 @@ async def _call_cohere_fast(
         timeout=settings.cohere_rerank_timeout,
         api_key=settings.cohere_api_key or None,
         model=settings.cohere_rerank_model,
-        instruction=instruction,
         base_url=settings.cohere_rerank_base_url,
     )
 
@@ -79,7 +88,6 @@ async def _call_cohere_fast(
 async def _call_cohere_fast_openrouter(
     query: str,
     documents: list[str],
-    instruction: str | None,
 ) -> list[tuple[int, float]]:
     return await openrouter_cohere_rerank(
         query,
@@ -87,7 +95,6 @@ async def _call_cohere_fast_openrouter(
         timeout=settings.openrouter_rerank_timeout,
         api_key=settings.openrouter_api_key or None,
         model=settings.openrouter_rerank_model,
-        instruction=instruction,
         base_url=settings.openrouter_rerank_base_url,
     )
 
@@ -95,7 +102,6 @@ async def _call_cohere_fast_openrouter(
 async def _call_voyage(
     query: str,
     documents: list[str],
-    instruction: str | None,
 ) -> list[tuple[int, float]]:
     return await voyage_rerank(
         query,
@@ -103,7 +109,6 @@ async def _call_voyage(
         timeout=30.0,
         api_key=settings.voyage_api_key or None,
         model=settings.voyage_rerank_model,
-        instruction=instruction,
     )
 
 
@@ -117,8 +122,6 @@ _PROVIDER_DISPATCH: dict[str, _ProviderCallable] = {
 async def rerank_with_provider_fallback(
     query: str,
     candidates: list[WebSearchResult],
-    *,
-    instruction: str | None = None,
 ) -> RerankProviderOutcome:
     """Run the cross-encoder rerank against the single hardcoded chain."""
     prepared = build_rerank_candidates(candidates)
@@ -129,7 +132,7 @@ async def rerank_with_provider_fallback(
         call = _PROVIDER_DISPATCH[provider_id]
         _t0 = time.time()
         try:
-            ranked_pairs = await call(query, documents, instruction)
+            ranked_pairs = await call(query, documents)
         except Exception as exc:
             backend_error = exc
             logger.warning(

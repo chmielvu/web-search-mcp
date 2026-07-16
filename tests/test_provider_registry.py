@@ -43,14 +43,8 @@ def test_request_enforces_goal_and_result_window() -> None:
     with pytest.raises(ValidationError):
         WebSearchRequest(query="query", research_goal="")
     with pytest.raises(ValidationError):
-        WebSearchRequest(query="query", research_goal="goal", num_results=14)
-    with pytest.raises(ValidationError):
-        WebSearchRequest(query="query", research_goal="goal", num_results=51)
-    for count in (15, 20, 50):
-        assert (
-            WebSearchRequest(query="query", research_goal="goal", num_results=count).num_results
-            == count
-        )
+        WebSearchRequest(query="query", research_goal="goal", num_results=16)
+    assert WebSearchRequest(query="query", research_goal="goal").num_results == 15
 
 
 def test_query_branch_uses_role_and_provider_names() -> None:

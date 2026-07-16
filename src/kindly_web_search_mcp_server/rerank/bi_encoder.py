@@ -59,80 +59,79 @@ async def _embed_candidate_texts(candidate_texts: list[str]) -> list[list[float]
     return vectors
 
 
-async def bi_encoder_filter(
+async def bi_encoder_rank(
     query_embedding: list[float],
     candidates: list[WebSearchResult],
-    top_k: int = 100,
 ) -> tuple[list[WebSearchResult], RerankEmbeddingContext | None]:
-    """
-    Filter a large candidate list using embedding-based similarity scoring.
-
-    The query embedding must be pre-computed by the caller and passed in.
-    Returns the filtered candidates plus an embedding context so downstream
-    stages (MMR diversity, Qdrant index) can reuse the vectors.
-
-    Args:
-        query_embedding: Pre-computed query embedding vector.
-        candidates: List of web search results to filter.
-        top_k: Number of top candidates to return.
-
-    Returns:
-        Tuple of (ranked_candidates, RerankEmbeddingContext or None).
-        The context is None when embedding failed (fallback path).
-    """
-    # Generate candidate embeddings (title + snippet)
+    """Rank the complete pool and retain embeddings for downstream diversity."""
     max_chars = max(1, int(settings.rerank_bi_encoder_text_max_chars))
     candidate_texts = [_candidate_embedding_text(candidate, max_chars) for candidate in candidates]
-
     try:
-        _embed_t0 = time.time()
+        embed_started = time.monotonic()
         candidate_vectors = await _embed_candidate_texts(candidate_texts)
         LOGGER.info(
             "bi_encoder embed_texts took %.2fs for %d texts across %d batches",
-            time.time() - _embed_t0,
+            time.monotonic() - embed_started,
             len(candidate_texts),
             math.ceil(len(candidate_texts) / settings.rerank_bi_encoder_batch_size),
         )
-    except (EmbeddingTimeoutError, EmbeddingAPIError, Exception) as e:
-        LOGGER.warning(
-            f"Bi-encoder candidate embedding failed: {type(e).__name__}: {e}, falling back to top_k slice"
+        if not candidate_vectors or len(candidate_vectors) != len(candidates):
+            raise ValueError(
+                f"candidate embedding count mismatch: {len(candidate_vectors)} != {len(candidates)}"
+            )
+        matrix = np.asarray(candidate_vectors, dtype=float)
+        query_vector = np.asarray(query_embedding, dtype=float)
+        if matrix.ndim != 2 or query_vector.ndim != 1 or matrix.shape[1] != query_vector.shape[0]:
+            raise ValueError("query and candidate embedding dimensions do not match")
+        query_norm = np.linalg.norm(query_vector)
+        if query_norm == 0:
+            raise ValueError("query embedding has zero norm")
+        norms = np.linalg.norm(matrix, axis=1)
+        similarities = np.divide(
+            matrix @ (query_vector / query_norm),
+            norms,
+            out=np.zeros(len(candidates), dtype=float),
+            where=norms != 0,
         )
-        return candidates[:top_k], None
-
-    if not candidate_vectors or len(candidate_vectors) != len(candidates):
+    except (EmbeddingTimeoutError, EmbeddingAPIError) as exc:
         LOGGER.warning(
-            f"Bi-encoder candidate embedding mismatch: got {len(candidate_vectors) if candidate_vectors else 0}, "
-            f"expected {len(candidates)}, falling back to top_k slice"
+            "Bi-encoder candidate embedding failed: %s: %s",
+            type(exc).__name__,
+            exc,
         )
-        return candidates[:top_k], None
+        return list(candidates), None
+    except Exception as exc:
+        LOGGER.warning("Bi-encoder ranking failed: %s: %s", type(exc).__name__, exc)
+        return list(candidates), None
 
-    # Build embedding context before filtering (retains embeddings for ALL candidates)
     embedding_ctx = RerankEmbeddingContext(
         query_embedding=query_embedding,
         candidates=[
             CandidateEmbedding(
                 url=candidate.link.strip(),
                 text=text,
-                dense=vec,
+                dense=vector,
             )
-            for candidate, text, vec in zip(candidates, candidate_texts, candidate_vectors)
+            for candidate, text, vector in zip(
+                candidates,
+                candidate_texts,
+                candidate_vectors,
+                strict=True,
+            )
         ],
     )
+    ranked_indices = sorted(
+        range(len(candidates)),
+        key=lambda index: (-float(similarities[index]), index),
+    )
+    return [candidates[index] for index in ranked_indices], embedding_ctx
 
-    # If candidates fit within top_k, skip filtering but return embedding_ctx
-    # so downstream stages (MMR diversity) can reuse the vectors.
-    if len(candidates) <= top_k:
-        return candidates, embedding_ctx
 
-    # Compute cosine similarity
-    query_normalized = np.array(query_embedding) / max(np.linalg.norm(query_embedding), 1e-12)
-    matrix = np.array(candidate_vectors)
-    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-    norms[norms == 0] = 1
-    similarities = (matrix / norms) @ query_normalized
-
-    # Get top_k indices
-    top_indices = np.argsort(similarities)[-top_k:][::-1].tolist()
-
-    # Return candidates in ranked order
-    return [candidates[index] for index in top_indices], embedding_ctx
+async def bi_encoder_filter(
+    query_embedding: list[float],
+    candidates: list[WebSearchResult],
+    top_k: int = 100,
+) -> tuple[list[WebSearchResult], RerankEmbeddingContext | None]:
+    """Compatibility filter over the complete bi-encoder ranking."""
+    ranked, embedding_ctx = await bi_encoder_rank(query_embedding, candidates)
+    return ranked[:top_k], embedding_ctx

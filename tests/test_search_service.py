@@ -55,4 +55,4 @@ async def test_service_reraises_cancellation_and_submits_once(
             )
     assert len(submitted) == 1
     assert getattr(submitted[0], "status") == "cancelled"
-    assert not hasattr(submitted[0], "http_client")
+    assert not hasattr(submitted[0].snapshot(), "http_client")

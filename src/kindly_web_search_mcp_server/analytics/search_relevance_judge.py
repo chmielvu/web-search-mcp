@@ -165,6 +165,7 @@ class SearchRelevanceJudge:
         results_text = _format_results_text(results)
         user_prompt = build_judge_user_prompt(
             query=query,
+            research_goal=(research_goal or "").strip(),
             intent=intent,
             results_text=results_text,
             tool_name="web_search",

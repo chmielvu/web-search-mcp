@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from .attributes import (
-    RERANK_DIVERSITY_THRESHOLD,
     RERANK_INPUT_COUNT,
     RERANK_MODEL,
     RERANK_OUTPUT_COUNT,
     RERANK_REMOVED_COUNT,
-    RERANK_SIMILARITY_SCORE,
     RERANK_STAGE,
 )
 from .metrics import get_rerank_metrics
@@ -31,7 +29,7 @@ def record_rerank_stage(
         duration_seconds: Stage latency
         relevance_scores: Relevance scores from Jina (for jina stage)
     """
-    rerank_counter, duration_histogram, score_histogram, _ = get_rerank_metrics()
+    rerank_counter, duration_histogram, score_histogram = get_rerank_metrics()
 
     removed_count = input_count - output_count
     rerank_counter.add(
@@ -73,22 +71,6 @@ def record_rerank_stage(
             )
 
 
-def record_diversity_removal(
-    similarity_score: float,
-    threshold: float = 0.85,
-) -> None:
-    """Record a result removed by diversity pruning."""
-    _, _, _, diversity_counter = get_rerank_metrics()
-    diversity_counter.add(
-        1,
-        {
-            RERANK_DIVERSITY_THRESHOLD: threshold,
-            RERANK_SIMILARITY_SCORE: round(similarity_score, 3),
-        },
-    )
-
-
 __all__ = [
-    "record_diversity_removal",
     "record_rerank_stage",
 ]

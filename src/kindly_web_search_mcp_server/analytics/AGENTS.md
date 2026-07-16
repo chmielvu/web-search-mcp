@@ -56,6 +56,9 @@ All analytics rows join on `run_key`.
 5. `rerank_stages` and `rerank_candidates` capture reranking; candidate
    survival rows are batched per stage so analytics does not add per-row
    DuckDB connection overhead to the rerank hot path
+   The batched writer column list must match `writers/schema.py` and
+   `writers/inserts.py`, including `candidate_id`, BM25/dense ranks and scores,
+   raw cross/LLM scores, fused/hybrid scores, and diversity fields.
 6. `final_results` captures the public output with provider provenance
 7. `query_embeddings` and `candidate_embeddings` store vectors for
    vss similarity search

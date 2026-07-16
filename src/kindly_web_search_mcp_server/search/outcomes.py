@@ -38,7 +38,6 @@ async def persist_search_outcome(run):
     except Exception:
         diag = {}
     r = outcome.response
-    w = r.result_window if r is not None else None
     rk = outcome.run_key
     dc = run.diagnostics
     en = diag.get("enrichment", {})
@@ -64,7 +63,6 @@ async def persist_search_outcome(run):
             "understanding_confidence": dc.understanding_confidence,
             "num_results_requested": outcome.request.num_results,
             "rewrite_enabled": outcome.request.rewrite,
-            "result_offset": outcome.request.options.result_offset,
             "selected_providers": selected,
             "skipped_providers": [],
             "branch_count": len(outcome.outcomes),
@@ -72,8 +70,7 @@ async def persist_search_outcome(run):
             "merged_count": mc.get("merged_count", 0),
             "reranked_count": mc.get("reranked_count", 0),
             "final_result_count": len(r.results) if r is not None else 0,
-            "candidate_count": w.candidate_count if w is not None else 0,
-            "has_more": w.has_more if w is not None else False,
+            "candidate_count": mc.get("candidate_count", 0),
             "status": outcome.status,
             "error_type": outcome.error_summary,
             "duration_ms": dc.total_latency_ms or sum(outcome.timings.values()),
@@ -92,6 +89,7 @@ async def persist_search_outcome(run):
                 "tool_call_id": outcome.tool_call_id,
                 "session_id": outcome.session_id,
                 "phase_timings": dc.phase_timings,
+                "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
                 "rewritten_branch_queries": [o.branch.query for o in outcome.outcomes],
             },
         }
@@ -220,7 +218,7 @@ async def persist_search_outcome(run):
                 "instruction_length": s.get("instruction_length"),
                 "query_type_hint": s.get("query_type_hint"),
                 "entity_overlap_enabled": s.get("entity_overlap_enabled"),
-                "payload_json": {},
+                "payload_json": s.get("payload_json") or {},
             }
         )
 

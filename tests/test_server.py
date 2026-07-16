@@ -327,7 +327,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx.info = AsyncMock()
 
         with patch(
-            "kindly_web_search_mcp_server.tools.search.run_web_search", new_callable=AsyncMock
+            "kindly_web_search_mcp_server.search.service.execute_web_search", new_callable=AsyncMock
         ) as mock_search:
             mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
 
@@ -344,7 +344,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["results"][0]["snippet"], "S")
         self.assertNotIn("page_content", out["results"][0])
 
-    async def test_web_search_forwards_search_options_and_window(self) -> None:
+    async def test_web_search_forwards_search_options(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
         from kindly_web_search_mcp_server.search.options import SearchOptions
 
@@ -353,60 +353,29 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.search.run_web_search",
-                new_callable=AsyncMock,
-            ) as mock_search,
-            patch(
-                "kindly_web_search_mcp_server.tools.search.get_query_cache"
-            ) as mock_get_query_cache,
-        ):
-            mock_query_cache = MagicMock()
-            mock_query_cache.lookup.return_value = None
-            mock_query_cache.store = MagicMock()
-            mock_get_query_cache.return_value = mock_query_cache
+        with patch(
+            "kindly_web_search_mcp_server.search.service.execute_web_search",
+            new_callable=AsyncMock,
+        ) as mock_search:
             mock_search.return_value = WebSearchResponse(
                 query="hello",
                 results=mocked_results,
-                result_window={
-                    "offset": 2,
-                    "returned": 1,
-                    "candidate_count": 5,
-                    "has_more": True,
-                    "next_offset": 3,
-                },
             )
 
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn(
                 "hello",
                 "Find information about hello",
-                result_offset=2,
-                searxng_categories=["general"],
-                searxng_engines=["google"],
-                searxng_language="en-US",
-                searxng_pageno=2,
-                searxng_time_range="week",
-                searxng_safesearch=1,
                 site_filters=["docs.example.com"],
                 domain_filters=["example.com"],
                 ctx=mock_ctx,
             )
 
-        forwarded_options = mock_search.await_args.kwargs["search_options"]
+        forwarded_request = mock_search.call_args[0][0]
+        forwarded_options = forwarded_request.options
         self.assertIsInstance(forwarded_options, SearchOptions)
-        self.assertEqual(forwarded_options.result_offset, 2)
-        self.assertEqual(forwarded_options.searxng_categories, ("general",))
-        self.assertEqual(forwarded_options.searxng_engines, ("google",))
-        self.assertEqual(forwarded_options.searxng_language, "en-US")
-        self.assertEqual(forwarded_options.searxng_pageno, 2)
-        self.assertEqual(forwarded_options.searxng_time_range, "week")
-        self.assertEqual(forwarded_options.searxng_safesearch, 1)
-        self.assertEqual(forwarded_options.site_filters, ("docs.example.com",))
-        self.assertEqual(forwarded_options.domain_filters, ("example.com",))
-        self.assertIn("result_window", out)
-        self.assertEqual(out["result_window"]["next_offset"], 3)
+        self.assertEqual(forwarded_options.site_filters, ("docs.example.com", "example.com"))
+        self.assertNotIn("result_window", out)
 
     async def test_get_content_returns_markdown(self) -> None:
         from kindly_web_search_mcp_server.content.artifact import ContentArtifact
@@ -605,19 +574,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
 
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.search.run_web_search",
-                new_callable=AsyncMock,
-            ) as mock_search,
-            patch(
-                "kindly_web_search_mcp_server.tools.search.get_query_cache"
-            ) as mock_get_query_cache,
-        ):
-            mock_query_cache = MagicMock()
-            mock_query_cache.lookup.return_value = None
-            mock_query_cache.store = MagicMock()
-            mock_get_query_cache.return_value = mock_query_cache
+        with patch(
+            "kindly_web_search_mcp_server.search.service.execute_web_search",
+            new_callable=AsyncMock,
+        ) as mock_search:
             mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
@@ -691,12 +651,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         out = get_cache_stats_resource()
 
-        self.assertEqual(out["exact_query_cache"]["backend"], "in_memory_lru")
+        self.assertEqual(out["exact_query_cache"]["backend"], "removed")
         self.assertEqual(out["page_cache"]["backend"], "duckdb")
-        self.assertEqual(out["result_memory"]["backend"], "qdrant")
-        self.assertIn("ttl_seconds", out["exact_query_cache"])
         self.assertIn("path", out["page_cache"])
-        self.assertIn("enabled", out["result_memory"])
+        self.assertIn("ttl_seconds", out["page_cache"])
 
     def test_analytics_schema_resource_exposes_object_catalog(self) -> None:
         from kindly_web_search_mcp_server.server import get_analytics_schema_resource

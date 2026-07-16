@@ -51,6 +51,18 @@ class WebSearchResult(BaseModel):
         default=None,
         description="Merged/reranked score used for final ordering.",
     )
+    provider_consensus_rrf_score: float | None = Field(
+        default=None,
+        description="First-stage RRF score from provider rankings.",
+    )
+    cross_relevance_score: float | None = Field(
+        default=None,
+        description="Raw cross-encoder relevance score.",
+    )
+    hybrid_rrf_score: float | None = Field(
+        default=None,
+        description="RRF consensus score before cross/LLM rerank.",
+    )
     entities: list[EntitySpan] | None = None
     diagnostics: list[dict[str, Any]] | None = None
 
@@ -61,19 +73,6 @@ class ProviderWarning(BaseModel):
     provider: str
     error: str
     error_type: str | None = None
-
-
-class SearchResultWindow(BaseModel):
-    """Pagination metadata for a search result window."""
-
-    offset: int
-    returned: int
-    candidate_count: int
-    has_more: bool = Field(description="Whether another page is available.")
-    next_offset: int | None = Field(
-        default=None,
-        description="Offset to request the next page, if has_more is true.",
-    )
 
 
 class ContentLink(BaseModel):
@@ -98,7 +97,6 @@ class WebSearchResponse(BaseModel):
     query: str
     results: list[WebSearchResult] = Field(default_factory=list)
     total_results: int = 0
-    result_window: SearchResultWindow | None = None
     providers_used: list[str] = Field(
         default_factory=list,
         description="Providers that successfully returned results.",
@@ -184,8 +182,6 @@ class GeminiSearchResponse(BaseModel):
     grounding_chunks: list[dict[str, Any]] | None = None
     structured_result: dict[str, Any] | None = None
     error: str | None = None
-
-
 
 
 class GrokCitation(BaseModel):

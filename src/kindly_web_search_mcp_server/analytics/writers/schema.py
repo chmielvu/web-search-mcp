@@ -44,9 +44,7 @@ def _create_table(
     ddl_body: str,
 ) -> None:
     """Execute a raw CREATE TABLE IF NOT EXISTS statement."""
-    connection.execute(
-        f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)"
-    )
+    connection.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)")
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +66,6 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         understanding_confidence DOUBLE,
         num_results_requested INTEGER,
         rewrite_enabled       BOOLEAN,
-        result_offset         INTEGER,
         selected_providers    VARCHAR[],
         skipped_providers     VARCHAR[],
         branch_count          INTEGER,
@@ -77,7 +74,6 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         reranked_count        INTEGER,
         final_result_count    INTEGER,
         candidate_count       INTEGER,
-        has_more              BOOLEAN,
         status                VARCHAR,
         error_type            VARCHAR,
         duration_ms           DOUBLE,
@@ -95,9 +91,7 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         payload_json          JSON
         """,
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_runs_run_key ON search_runs(run_key)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_run_key ON search_runs(run_key)")
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON search_runs(recorded_at)"
     )
@@ -211,9 +205,6 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # 6. rerank_candidates — one row per candidate per stage (Grain 3)
 # ---------------------------------------------------------------------------
@@ -242,7 +233,7 @@ def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         hybrid_rrf_score     DOUBLE,
         recency_boost        DOUBLE,
         entity_overlap_score DOUBLE,
-        diversity_removed    BOOLEAN,
+        survived             BOOLEAN NOT NULL,
         payload_json         JSON
         """,
     )
@@ -289,9 +280,7 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         payload_json  JSON
         """,
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_qemb_run_key ON query_embeddings(run_key)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_qemb_run_key ON query_embeddings(run_key)")
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +404,7 @@ def _ensure_judge_evaluations(
 # ---------------------------------------------------------------------------
 _vss_initialized = False
 
+
 def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
     """Install/load vss, create HNSW indexes on embedding tables.
 
@@ -431,8 +421,7 @@ def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
         connection.execute("SET hnsw_enable_experimental_persistence = true;")
         _vss_initialized = True
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_qemb_hnsw "
-            "ON query_embeddings USING HNSW (embedding);"
+            "CREATE INDEX IF NOT EXISTS idx_qemb_hnsw ON query_embeddings USING HNSW (embedding);"
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_cemb_hnsw "
@@ -480,6 +469,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     """Ensure all tables needed by quality scoring and judge writes exist."""
     ensure_store_schema(db_path=db_path)
+
 
 from .ab_schema import (  # noqa: E402
     _ensure_ab_assignments,  # noqa: F401

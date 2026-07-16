@@ -4,8 +4,7 @@ import logging
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
-from urllib.parse import urlparse
+from typing import Any, Sequence
 
 from opentelemetry import trace
 
@@ -30,63 +29,48 @@ def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearch
     return candidate if len(candidate.snippet or "") > len(base.snippet or "") else base
 
 
-def _normalize_host(link: str, fallback_domain: str | None = None) -> str:
-    host = (urlparse(link).hostname or "").lower()
-    if host.startswith("www."):
-        host = host[4:]
-    return host or (fallback_domain or "").strip().lower() or "__unknown_host__"
-
-
-def _apply_host_cap(
-    ranked: list[tuple[str, _MergedCandidate]],
-    encounter_order: dict[str, int],
+def reciprocal_rank_fusion(
+    result_lists: Sequence[Sequence[WebSearchResult]],
     *,
-    max_per_host: int,
-    top_k: int,
-) -> list[tuple[str, _MergedCandidate]]:
-    if max_per_host <= 0 or top_k <= 0:
-        return ranked
-    capped: Counter[str] = Counter()
-    selected: list[tuple[str, _MergedCandidate]] = []
-    overflow: list[tuple[str, _MergedCandidate]] = []
-    for key, candidate in ranked:
-        host = _normalize_host(candidate.result.link, candidate.result.domain)
-        if len(selected) < top_k and capped[host] < max_per_host:
-            selected.append((key, candidate))
-            capped[host] += 1
-        else:
-            overflow.append((key, candidate))
-    if len(selected) >= top_k:
-        return selected + overflow
-    by_host: dict[str, list[tuple[str, _MergedCandidate]]] = {}
-    host_order: dict[str, int] = {}
-    for key, candidate in overflow:
-        host = _normalize_host(candidate.result.link, candidate.result.domain)
-        by_host.setdefault(host, []).append((key, candidate))
-        host_order.setdefault(host, encounter_order[key])
-    for queue in by_host.values():
-        queue.sort(key=lambda item: -item[1].score)
-    host_cycle = sorted(host_order, key=host_order.get)
-    while len(selected) < top_k and host_cycle:
-        next_cycle: list[str] = []
-        for host in host_cycle:
-            queue = by_host[host]
-            if queue:
-                selected.append(queue.pop(0))
-                if queue and len(selected) < top_k:
-                    next_cycle.append(host)
-            if len(selected) >= top_k:
-                break
-        host_cycle = next_cycle
-    return selected + [item for queue in by_host.values() for item in queue]
+    k: int = 60,
+) -> list[tuple[WebSearchResult, float]]:
+    """Merge ranked lists using Reciprocal Rank Fusion."""
+    merged: dict[str, _MergedCandidate] = {}
+    encounter_order: dict[str, int] = {}
+    for results in result_lists:
+        seen_in_list = set()
+        for rank, result in enumerate(results, start=1):
+            key = canonicalize_url(result.link)
+            if key in seen_in_list:
+                continue
+            seen_in_list.add(key)
+            if key not in merged:
+                merged[key] = _MergedCandidate(result=result, providers=set(result.providers or []))
+                encounter_order[key] = len(encounter_order)
+            bucket = merged[key]
+            bucket.score += 1.0 / (k + rank)
+            bucket.providers.update(provider for provider in result.providers or [] if provider)
+            bucket.result = _pick_better(bucket.result, result)
+
+    ranked = sorted(merged.items(), key=lambda item: (-item[1].score, encounter_order[item[0]]))
+    return [
+        (
+            bucket.result.model_copy(
+                update={
+                    "providers": sorted(bucket.providers) or bucket.result.providers,
+                    "provider_count": len(bucket.providers),
+                }
+            ),
+            bucket.score,
+        )
+        for _, bucket in ranked
+    ]
 
 
 def merge_search_results(
     result_lists: list[list[WebSearchResult]],
     *,
     k: int | None = None,
-    max_per_host: int = 2,
-    host_cap_top_k: int | None = None,
     enable_telemetry: bool = False,
     run_key: str | None = None,
 ) -> list[WebSearchResult]:
@@ -98,37 +82,14 @@ def merge_search_results(
             url_occurrences[canonicalize_url(result.link)] += 1
     overlapping_urls = [url for url, count in url_occurrences.items() if count > 1]
     overlap_rate = len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
-    k = settings.rrf_k if k is None else k
+    effective_k = settings.rrf_k if k is None else k
     start_time = time.time()
-    merged: dict[str, _MergedCandidate] = {}
-    encounter_order: dict[str, int] = {}
-    for results in result_lists:
-        for rank, result in enumerate(results, start=1):
-            key = canonicalize_url(result.link)
-            if key not in merged:
-                merged[key] = _MergedCandidate(result=result)
-                encounter_order[key] = len(encounter_order)
-            bucket = merged[key]
-            bucket.score += 1.0 / (k + rank)
-            bucket.providers.update(provider for provider in result.providers or [] if provider)
-            bucket.result = _pick_better(bucket.result, result)
-    ranked = sorted(merged.items(), key=lambda item: (-item[1].score, encounter_order[item[0]]))
-    ranked = _apply_host_cap(
-        ranked,
-        encounter_order,
-        max_per_host=max_per_host,
-        top_k=host_cap_top_k or len(ranked),
-    )
-    output = [
-        bucket.result.model_copy(
-            update={
-                "providers": sorted(bucket.providers) or bucket.result.providers,
-                "provider_count": len(bucket.providers),
-                "score": bucket.score,
-            }
-        )
-        for _, bucket in ranked
-    ]
+
+    fused = reciprocal_rank_fusion(result_lists, k=effective_k)
+    output = []
+    for result, score in fused:
+        output.append(result.model_copy(update={"score": score}))
+
     discarded_count = total_input - len(output)
     provider_contributions: Counter[str] = Counter()
     for result in output:
@@ -139,12 +100,10 @@ def merge_search_results(
         result_lists=result_lists,
         output=output,
         provider_contributions=provider_contributions,
-        k=k,
+        k=effective_k,
         discarded_count=discarded_count,
         overlap_rate=overlap_rate,
         duration_seconds=duration_seconds,
-        max_per_host=max_per_host,
-        host_cap_top_k=host_cap_top_k,
     )
     if enable_telemetry:
         record_merge(duration_seconds, len(result_lists), len(output))

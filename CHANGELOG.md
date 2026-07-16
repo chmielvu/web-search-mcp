@@ -1,6 +1,14 @@
 # Changelog
 
 ## [Unreleased]
+### Changed - Conditional RankLLM reranking
+- Reworked the normal search rerank path around full-pool Cohere `rerank-v4.0-fast`, strict RankLLM listwise permutations, OpenRouter-to-Gemini failover, and conditional MMR diversity. RankLLM now receives the normalized query only while the cross-encoder receives the research goal as a separate structured input.
+- Added frozen calibration/evaluation tooling for cross-score thresholds, fusion, diversity, and pipeline replay, plus a 40-pair borderline fixture.
+
+### Fixed - Live rerank execution
+- Fixed harmful-query detection matching `rce` inside `primary-source`, bounded RankLLM with native async LiteLLM transport, accepted complete RankLLM sliding-window permutations, and suppressed RankLLM constructor prints that polluted JSON CLI stdout.
+- Decoded RankLLM's YAML regex source literals with `ast.literal_eval` before strict validation; without this, complete live sliding-window responses were rejected and the pipeline fell back to Cohere.
+
 
 ### Changed - Direct OpenAI-compatible LLM clients
 - Replaced LiteLLM with `openai.OpenAI` / `openai.AsyncOpenAI` across runtime and offline judge calls. Provider endpoints retain their configured `base_url`, timeout, and model, while client retries are disabled with `max_retries=0` so 429 `Retry-After: 60` responses cannot reintroduce the orchestration latency spike.
@@ -25,6 +33,14 @@
   (`tests/test_query_embedding_propagation.py`) covering the collector state,
   the `build_diagnostics` projection, and the `persist_search_outcome` write
   dispatcher.
+
+### Fixed — Retrieval-budget and caller-cancellation cleanup latency
+
+- **Retrieval-budget and caller-cancellation cleanup latency fixed.**
+  Retrieval-budget and caller-cancellation cleanup no longer wait indefinitely for
+  provider task unwinding. Bounded cancellation drain is extracted into a reusable
+  utility `cancel_and_drain_tasks` and applied at both cleanup sites in `retrieval.py`
+  to respect search retrieve budget and client request deadlines.
 
 ### Removed
 - Perplexity search surface removed entirely: `PerplexitySearchResponse` model and `PerplexitySearchResultType` alias from `models.py`, `perplexity_search` from `EXPENSIVE_TOOLS` in `rate_limits.py`, "Perplexity Sonar" steering message replaced with generic expensive-tool guidance in `expensive_tool_protection.py`.

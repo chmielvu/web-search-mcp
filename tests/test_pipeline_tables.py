@@ -290,7 +290,7 @@ class TestRerankCandidatesSchema:
                 score_after_entity=0.02,
                 recency_boost=0.02,
                 entity_overlap_score=0.02,
-                diversity_removed=False,
+                survived=True,
                 payload_json=None,
                 db_path=str(db_path),
             )

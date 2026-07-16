@@ -24,19 +24,28 @@ class TestBuildJudgeUserPrompt:
         results = "1. Paper A (2024) - Transformers\n2. Paper B (2024) - LLMs"
         tool_name = "web_search"
 
-        prompt = build_judge_user_prompt(query, intent, results, tool_name)
+        research_goal = "Identify authoritative primary research."
+        prompt = build_judge_user_prompt(query, research_goal, intent, results, tool_name)
 
         assert isinstance(prompt, str)
         assert query in prompt
         assert results in prompt
         assert intent in prompt
         assert tool_name in prompt
+        assert research_goal in prompt
 
     def test_contains_expected_sections(self) -> None:
-        prompt = build_judge_user_prompt("test", "navigational", "result1", "news_search")
+        prompt = build_judge_user_prompt(
+            "test",
+            "Find the canonical destination.",
+            "navigational",
+            "result1",
+            "news_search",
+        )
         assert "Tool used:" in prompt
         assert "User query:" in prompt
         assert "Search intent:" in prompt
+        assert "Research goal:" in prompt
         assert "--- Search results ---" in prompt
         assert "--- End results ---" in prompt
         assert "Please evaluate the quality" in prompt

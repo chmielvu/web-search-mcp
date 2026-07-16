@@ -256,17 +256,12 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
 def _merge_counts(run: SearchRun, dc: DiagnosticsCollector) -> DiagnosticsMergeCounts:
     raw = dc.merge_counts if isinstance(dc.merge_counts, dict) else {}
     response = run.response
-    window = response.result_window if response is not None else None
     providers_used: set[str] = set()
     for outcome in run.outcomes:
         providers_used.update(outcome.attempted_provider_names)
     return DiagnosticsMergeCounts(
         merged_count=int(raw.get("merged_count", raw.get("merged", 0)) or 0),
-        candidate_count=int(
-            raw.get("candidate_count")
-            or (window.get("candidate_count") if isinstance(window, dict) else None)
-            or 0
-        ),
+        candidate_count=int(raw.get("candidate_count") or 0),
         reranked_count=int(raw.get("reranked_count", raw.get("reranked", 0)) or 0),
         final_result_count=len(response.results) if response is not None else 0,
         branch_count=int(raw.get("branch_count", len(run.outcomes)) or 0),

@@ -54,13 +54,12 @@ __all__ = [
     "record_query_rewrite",
     # Reranking metrics (NEW)
     "record_rerank_stage",
-    "record_diversity_removal",
     # Circuit breaker metrics (NEW)
     "record_circuit_breaker_state",
     "record_circuit_breaker_event",
     # Tool-specific metrics (NEW)
     "record_gemini_search",
-        "record_youtube_transcript",
+    "record_youtube_transcript",
     "record_youtube_search",
     "record_tool_details",
     # Query quality metrics (Phase 2)
@@ -166,7 +165,7 @@ __all__ = [
     "GEMINI_GROUNDING_QUERIES",
     "GEMINI_GROUNDING_CHUNKS",
     "GEMINI_STRUCTURED_OUTPUT",
-        "YOUTUBE_FORMAT",
+    "YOUTUBE_FORMAT",
     "YOUTUBE_LANGUAGE",
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_DURATION_SECONDS",

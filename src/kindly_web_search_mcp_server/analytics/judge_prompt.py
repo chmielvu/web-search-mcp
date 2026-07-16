@@ -19,20 +19,19 @@ LOGGER = logging.getLogger(__name__)
 
 JUDGE_SYSTEM_PROMPT = (
     "You are a search quality evaluator. "
-    "Your task is to assess how well a set of search results satisfies a user's query, "
-    "considering the user's intent. Evaluate on exactly four dimensions, each scored "
-    "as a float between 0.0 and 1.0:\n"
-    "- relevance: how well each result matches the query topic\n"
-    "- accuracy: factual correctness and trustworthiness of the information\n"
-    "- completeness: whether the results collectively cover the user's information need\n"
-    "- source_quality: authority, recency, and reliability of the sources\n\n"
-    "Also produce:\n"
-    "- overall_score: a single holistic quality score (0.0-1.0) for the result set\n"
-    "- rationale: a brief 1-3 sentence explanation of the scores\n\n"
-    "Respond with ONLY a single JSON object in exactly this format "
-    "(no markdown fences, no extra text):\n"
-    '{"relevance_score": 0.85, "accuracy_score": 0.7, "completeness_score": 0.6, '
-    '"source_quality_score": 0.8, "overall_score": 0.75, "rationale": "Brief explanation"}'
+    "Assess how well a set of search results satisfies both the user's query and "
+    "their explicit research goal. Evaluate exactly four dimensions as scores from "
+    "0.0 to 1.0 with grades excellent|good|fair|poor:\n"
+    "- relevance: topical match to the query and research goal\n"
+    "- accuracy: factual correctness and trustworthiness\n"
+    "- completeness: collective coverage of the research goal\n"
+    "- source_quality: authority, recency, and reliability\n\n"
+    "Respond with ONLY a single JSON object matching this shape (no markdown):\n"
+    '{"relevance":{"grade":"good","score":0.8,"rationale":"..."},'
+    '"accuracy":{"grade":"good","score":0.8,"rationale":"..."},'
+    '"completeness":{"grade":"fair","score":0.6,"rationale":"..."},'
+    '"source_quality":{"grade":"good","score":0.8,"rationale":"..."},'
+    '"overall_score":0.75,"overall_rationale":"..."}'
 )
 
 _DEFAULT_SCORES: dict[str, Any] = {
@@ -47,6 +46,7 @@ _DEFAULT_SCORES: dict[str, Any] = {
 
 def build_judge_user_prompt(
     query: str,
+    research_goal: str,
     intent: str,
     results_text: str,
     tool_name: str,
@@ -57,6 +57,8 @@ def build_judge_user_prompt(
     ----------
     query : str
         The original user search query.
+    research_goal : str
+        The user's explicit research objective.
     intent : str
         Inferred search intent (e.g. 'informational', 'navigational',
         'transactional').
@@ -73,6 +75,7 @@ def build_judge_user_prompt(
     return (
         f"Tool used: {tool_name}\n"
         f"User query: {query}\n"
+        f"Research goal: {research_goal}\n"
         f"Search intent: {intent}\n\n"
         f"--- Search results ---\n{results_text}\n"
         f"--- End results ---\n\n"

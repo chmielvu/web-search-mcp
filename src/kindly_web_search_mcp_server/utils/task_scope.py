@@ -16,6 +16,7 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Iterable
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,35 @@ def _ignore_task_exception(task: asyncio.Task[Any]) -> None:
         task.exception()
     except (asyncio.CancelledError, Exception):
         pass
+
+
+_DRAINING_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _release_draining_task(task: asyncio.Task[Any]) -> None:
+    _DRAINING_TASKS.discard(task)
+    _ignore_task_exception(task)
+
+
+async def cancel_and_drain_tasks(
+    tasks: Iterable[asyncio.Task[Any]],
+    *,
+    drain_seconds: float = DEFAULT_DRAIN_SECONDS,
+) -> set[asyncio.Task[Any]]:
+    pending = {t for t in tasks if not t.done()}
+    if not pending:
+        return set()
+
+    for t in pending:
+        t.cancel()
+
+    _, drain_pending = await asyncio.wait(pending, timeout=max(0.1, drain_seconds))
+
+    for t in drain_pending:
+        _DRAINING_TASKS.add(t)
+        t.add_done_callback(_release_draining_task)
+
+    return drain_pending
 
 
 class CancellationToken:
@@ -128,13 +158,9 @@ class TaskScope:
             self._deadline,
         )
         self._cancel_token.cancel()
-        for t in pending:
-            t.cancel()
 
-        drain_done: set[asyncio.Task[Any]] = set()
-        drain_pending: set[asyncio.Task[Any]] = set()
-        if pending:
-            drain_done, drain_pending = await asyncio.wait(pending, timeout=self._drain_seconds)
+        drain_pending = await cancel_and_drain_tasks(pending, drain_seconds=self._drain_seconds)
+        drain_done = pending - drain_pending
 
         if drain_pending:
             logger.warning(
@@ -142,9 +168,6 @@ class TaskScope:
                 len(drain_pending),
                 self._drain_seconds,
             )
-            for t in drain_pending:
-                if not t.done():
-                    t.add_done_callback(_ignore_task_exception)
 
         return done | drain_done, drain_pending
 

@@ -57,9 +57,16 @@ class TestJudgerunnerMockedLLM:
         )
 
         fake_result = SearchRelevanceResult(
-            relevance_raw=4,
+            relevance_grade="excellent",
+            accuracy_grade="excellent",
+            completeness_grade="excellent",
+            source_quality_grade="excellent",
             relevance_score=1.0,
-            reasoning="Excellent results overall.",
+            accuracy_score=1.0,
+            completeness_score=1.0,
+            source_quality_score=1.0,
+            overall_score=1.0,
+            rationale="Excellent results overall.",
             judge_model="openai/gpt-oss-120b",
             duration_ms=123.45,
         )
@@ -112,20 +119,19 @@ class TestJudgerunnerMockedLLM:
             con = duckdb.connect(str(db_path))
             try:
                 row = con.execute(
-                    "SELECT run_key, relevance_score, relevance_raw, relevance_scale, "
-                    "overall_score, rationale, duration_ms, tool_name, judge_model "
+                    "SELECT run_key, relevance_grade, relevance_score, overall_score, "
+                    "rationale, duration_ms, tool_name, judge_model "
                     "FROM judge_evaluations WHERE run_key = 'test-run-001'"
                 ).fetchone()
 
                 assert row is not None, "Expected a row in judge_evaluations"
                 assert row[0] == "test-run-001"
-                assert row[1] == 1.0  # relevance_score (normalized)
-                assert row[2] == 4  # relevance_raw (1-4)
-                assert row[3] == "1-4"  # relevance_scale
-                assert row[4] == 1.0  # overall_score
-                assert row[5] == "Excellent results overall."  # rationale
-                assert row[7] == "web_search"
-                assert row[8] is not None  # judge_model should be set
+                assert row[1] == "excellent"
+                assert row[2] == 1.0
+                assert row[3] == 1.0
+                assert row[4] == "Excellent results overall."
+                assert row[6] == "web_search"
+                assert row[7] is not None
             finally:
                 con.close()
         finally:
@@ -225,9 +231,16 @@ class TestJudgerunnerMockedLLM:
 
         async def failing_evaluate(*args, **kwargs):
             return SearchRelevanceResult(
-                relevance_raw=1,
+                relevance_grade="poor",
+                accuracy_grade="poor",
+                completeness_grade="poor",
+                source_quality_grade="poor",
                 relevance_score=0.0,
-                reasoning="",
+                accuracy_score=0.0,
+                completeness_score=0.0,
+                source_quality_score=0.0,
+                overall_score=0.0,
+                rationale="",
                 judge_model="openai/gpt-oss-120b",
                 duration_ms=0.0,
                 error="RuntimeError: LLM is down",

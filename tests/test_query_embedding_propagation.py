@@ -17,6 +17,7 @@ from kindly_web_search_mcp_server.search.contracts import (
     BranchOutcome,
     BranchRole,
     QueryBranch,
+    ProviderRankedResults,
     SearchRun,
     WebSearchRequest,
 )
@@ -35,7 +36,7 @@ def _make_run(stub_result: WebSearchResult) -> SearchRun:
     outcome = BranchOutcome(
         branch=branch,
         attempted_provider_names=("test",),
-        results=(stub_result,),
+        provider_ranked_results=(ProviderRankedResults(0, branch.role, "test", (stub_result,)),),
     )
     run = SearchRun(
         request=WebSearchRequest(query="q", research_goal="goal"),

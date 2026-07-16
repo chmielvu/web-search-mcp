@@ -224,30 +224,22 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             c.providers,
             c.overlap_flag,
             (SELECT rc.rank_after FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'final'
-             LIMIT 1) AS final_rank,
-            (SELECT rc.bm25_score FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'bm25'
-             LIMIT 1) AS bm25_score,
-            (SELECT rc.dense_score FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'dense'
-             LIMIT 1) AS dense_score,
+             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'bi_encoder'
+             LIMIT 1) AS bi_rank,
+            (SELECT rc.rank_after FROM rerank_candidates rc
+             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'cross_encoder'
+             LIMIT 1) AS cross_rank,
+            (SELECT rc.rank_after FROM rerank_candidates rc
+             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'rankllm'
+             LIMIT 1) AS rankllm_rank,
+            f.rank AS final_rank,
             (SELECT rc.cross_encoder_raw FROM rerank_candidates rc
              WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'cross_encoder'
              LIMIT 1) AS cross_encoder_raw,
-            (SELECT rc.llm_raw_score FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'llm'
-             LIMIT 1) AS llm_raw_score,
-            (SELECT rc.fused_score FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'final'
-             LIMIT 1) AS fused_score,
             (f.rank IS NOT NULL) AS in_final_results
         FROM search_candidates c
         LEFT JOIN final_results f ON c.run_key = f.run_key AND c.link = f.link
-        ORDER BY c.run_key, COALESCE(
-            (SELECT rc.rank_after FROM rerank_candidates rc
-             WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'final'
-             LIMIT 1), 9999)
+        ORDER BY c.run_key, COALESCE(f.rank, 9999)
         """,
         # 5. Rerank stage timeline
         f"""
@@ -258,11 +250,8 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             rs.stage,
             CASE
                 WHEN rs.stage = 'bi_encoder' THEN '1. Bi-Encoder'
-                WHEN rs.stage IN ('cohere_fast', 'cohere_fast_openrouter', 'voyage')
-                    THEN '2. Cross-Encoder'
-                WHEN rs.stage = 'llm_rerank' THEN '3. LLM Rerank'
-                WHEN rs.stage = 'diversity' THEN '4. Diversity'
-                WHEN rs.stage = 'rerank.final' THEN '5. Final Rerank'
+                WHEN rs.stage = 'cross_encoder' THEN '2. Cross-Encoder'
+                WHEN rs.stage = 'rankllm' THEN '3. RankLLM'
                 ELSE rs.stage
             END AS stage_label,
             rs.provider, rs.model,
@@ -274,14 +263,14 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             rs.status, rs.error_type,
             rs.input_tokens, rs.output_tokens
         FROM rerank_stages rs
-        UNION ALL
-        SELECT
-            run_key, recorded_at, 'search_run' AS stage, '0. Search Run' AS stage_label,
-            reranker_provider, reranker_model, merged_count, reranked_count,
-            ROUND(100.0 * reranked_count / NULLIF(merged_count, 0), 1),
-            ROUND(duration_ms, 1), NULL, NULL, status, error_type, NULL, NULL
-        FROM search_runs
-        ORDER BY run_key, recorded_at
+        WHERE rs.stage IN ('bi_encoder', 'cross_encoder', 'rankllm')
+        ORDER BY rs.run_key,
+            CASE
+                WHEN rs.stage = 'bi_encoder' THEN 1
+                WHEN rs.stage = 'cross_encoder' THEN 2
+                WHEN rs.stage = 'rankllm' THEN 3
+                ELSE 4
+            END
         """,
         # 6. Rewrite diagnostics
         f"""

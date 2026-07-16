@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from typing import Any
 
 import httpx
@@ -21,32 +22,33 @@ def _get_voyage_client(timeout: float = 30.0) -> httpx.AsyncClient:
     return _VOYAGE_CLIENT
 
 
-def _apply_instruction(query: str, instruction: str | None) -> str:
-    cleaned_instruction = (instruction or "").strip()
-    if not cleaned_instruction:
-        return query
-    return f"{cleaned_instruction}\n\n{query}"
-
-
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
     results = data.get("data")
     if not isinstance(results, list):
         raise ValueError("Voyage rerank response missing data list")
 
+    if len(results) != document_count:
+        raise ValueError(
+            f"Voyage rerank returned {len(results)} results, expected {document_count}"
+        )
     ranked: list[tuple[int, float]] = []
+    seen_indices: set[int] = set()
     for item in results:
         if not isinstance(item, dict):
             raise ValueError("Voyage rerank result item is not an object")
         index = item.get("index")
         score = item.get("relevance_score")
-        if not isinstance(index, int) or not 0 <= index < document_count:
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < document_count:
             raise ValueError(f"Voyage rerank returned invalid index: {index!r}")
-        if not isinstance(score, int | float):
+        if index in seen_indices:
+            raise ValueError(f"Voyage rerank returned duplicate index: {index!r}")
+        if isinstance(score, bool) or not isinstance(score, int | float):
             raise ValueError(f"Voyage rerank returned invalid score: {score!r}")
-        ranked.append((index, float(score)))
-
-    if not ranked and document_count:
-        raise ValueError("Voyage rerank returned no ranked documents")
+        numeric_score = float(score)
+        if not math.isfinite(numeric_score) or not 0.0 <= numeric_score <= 1.0:
+            raise ValueError(f"Voyage rerank returned invalid score: {score!r}")
+        seen_indices.add(index)
+        ranked.append((index, numeric_score))
     return ranked
 
 
@@ -57,7 +59,6 @@ async def voyage_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
-    instruction: str | None = None,
     timeout: float = 30.0,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[tuple[int, float]]:
@@ -72,7 +73,7 @@ async def voyage_rerank(
 
     payload = {
         "model": model or settings.voyage_rerank_model,
-        "query": _apply_instruction(query, instruction),
+        "query": query,
         "documents": documents,
         "top_k": top_n or len(documents),
         "return_documents": False,

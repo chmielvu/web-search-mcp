@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import aiofiles
+
 
 from ..search.understanding.models import QueryUnderstanding
 
@@ -61,6 +63,7 @@ async def append_query_outcome_record(
         "intent": understanding.intent,
         "confidence": understanding.confidence,
         "results": results,
+        "result_count": len(results),
         "session_id": session_id,
     }
     line = json.dumps(record, ensure_ascii=False, sort_keys=True)
@@ -68,7 +71,6 @@ async def append_query_outcome_record(
 
 
 async def _append_line(path: Path, line: str) -> None:
-    import aiofiles
 
     async with aiofiles.open(path, "a", encoding="utf-8") as handle:
         await handle.write(line + "\n")

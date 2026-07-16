@@ -178,12 +178,6 @@ class Settings:
     # Reranking (Cohere primary, OpenRouter Cohere 4-fast fallback, Voyage last;
     # listwise LLM reranker stays in the default stack but is tightly bounded)
 
-    reranking_enabled: bool = os.environ.get("RERANKING_ENABLED", "true").lower() == "true"
-    rerank_provider: str = os.environ.get("RERANK_PROVIDER", "voyage").lower()
-    rerank_stack_mode: str = os.environ.get("RERANK_STACK_MODE", "bi_cross_llm").lower()
-    rerank_bi_encoder_min_candidates: int = int(
-        os.environ.get("RERANK_BI_ENCODER_MIN_CANDIDATES", "0")
-    )
     rerank_bi_encoder_timeout_seconds: float = float(
         os.environ.get("RERANK_BI_ENCODER_TIMEOUT_SECONDS", "15.0")
     )
@@ -194,14 +188,7 @@ class Settings:
     rerank_bi_encoder_max_concurrent_batches: int = int(
         os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
     )
-    rerank_llm_timeout_seconds: float = float(os.environ.get("RERANK_LLM_TIMEOUT_SECONDS", "5.0"))
-    rerank_top_k: int = int(os.environ.get("RERANK_TOP_K", "10"))
-    rerank_bi_encoder_stage_multiplier: float = float(
-        os.environ.get("RERANK_BI_ENCODER_STAGE_MULTIPLIER", "3.0")
-    )
-    rerank_cross_encoder_stage_multiplier: float = float(
-        os.environ.get("RERANK_CROSS_ENCODER_STAGE_MULTIPLIER", "2.0")
-    )
+
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
     jina_rerank_model: str = os.environ.get("JINA_RERANK_MODEL", "jina-reranker-v3")
@@ -216,13 +203,25 @@ class Settings:
         "OPENROUTER_RERANK_BASE_URL", "https://openrouter.ai/api/v1/rerank"
     )
     openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "30.0"))
-    rerank_score_threshold: float = float(os.environ.get("RERANK_SCORE_THRESHOLD", "0.15"))
-    rerank_fusion_alpha: float = float(os.environ.get("RERANK_FUSION_ALPHA", "0.7"))
-    diversity_threshold: float = float(os.environ.get("DIVERSITY_THRESHOLD", "0.85"))
-    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.7"))
+
+    rerank_score_thresholds_json: str = os.environ.get("RERANK_SCORE_THRESHOLDS_JSON", "{}")
+    diversity_similarity_threshold: float = float(
+        os.environ.get("DIVERSITY_SIMILARITY_THRESHOLD", "0.85")
+    )
+    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.80"))
+    diversity_max_per_host: int = int(os.environ.get("DIVERSITY_MAX_PER_HOST", "2"))
+
+    # RankLLM Settings
+    rankllm_openrouter_model: str = os.environ.get(
+        "RANKLLM_OPENROUTER_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free"
+    )
+    rankllm_gemini_model: str = os.environ.get("RANKLLM_GEMINI_MODEL", "gemini-3.1-flash-lite")
+    rankllm_timeout_seconds: float = float(os.environ.get("RANKLLM_TIMEOUT_SECONDS", "20.0"))
+    rankllm_max_passage_words: int = int(os.environ.get("RANKLLM_MAX_PASSAGE_WORDS", "300"))
+    rankllm_temperature: float = float(os.environ.get("RANKLLM_TEMPERATURE", "0.0"))
+
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
     rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
-
     # Entity extraction (GLiNER2, optional extra, opt-in only)
     # Per joint plan: explicit disabled by default; error events on failure when enabled.
     entity_extraction_enabled: bool = (
@@ -286,6 +285,9 @@ class Settings:
 
     # OpenRouter API (shared by all OpenRouter integrations)
     openrouter_api_key: str = os.environ.get("OPENROUTER_API_KEY", "")
+    openrouter_chat_base_url: str = os.environ.get(
+        "OPENROUTER_CHAT_BASE_URL", "https://openrouter.ai/api/v1"
+    )
 
     # Grok Search via OpenRouter (native web_search + x_search for xAI models)
     grok_model: str = os.environ.get("GROK_MODEL", "x-ai/grok-4.3")
@@ -566,18 +568,7 @@ class Settings:
             raise ValueError(
                 f"rerank_entity_overlap_weight must be in [0, 1], got {self.rerank_entity_overlap_weight!r}."
             )
-        from .rerank.stack import normalize_rerank_stack_mode
 
-        self.rerank_stack_mode = normalize_rerank_stack_mode(self.rerank_stack_mode)
-        if self.rerank_llm_timeout_seconds <= 0:
-            raise ValueError(
-                f"rerank_llm_timeout_seconds must be > 0, got {self.rerank_llm_timeout_seconds!r}."
-            )
-        if self.rerank_bi_encoder_min_candidates < 0:
-            raise ValueError(
-                "rerank_bi_encoder_min_candidates must be >= 0, "
-                f"got {self.rerank_bi_encoder_min_candidates!r}."
-            )
         if self.rerank_bi_encoder_timeout_seconds <= 0:
             raise ValueError(
                 "rerank_bi_encoder_timeout_seconds must be > 0, "
@@ -602,16 +593,31 @@ class Settings:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. Set RRF_K env var to a positive integer."
             )
-        if self.rerank_bi_encoder_stage_multiplier <= 0:
+
+        if self.diversity_max_per_host <= 0:
             raise ValueError(
-                "rerank_bi_encoder_stage_multiplier must be > 0, "
-                f"got {self.rerank_bi_encoder_stage_multiplier!r}."
+                f"diversity_max_per_host must be >= 1, got {self.diversity_max_per_host}"
             )
-        if self.rerank_cross_encoder_stage_multiplier <= 0:
+        if not 0.0 <= self.diversity_similarity_threshold <= 1.0:
             raise ValueError(
-                "rerank_cross_encoder_stage_multiplier must be > 0, "
-                f"got {self.rerank_cross_encoder_stage_multiplier!r}."
+                f"diversity_similarity_threshold must be in [0, 1], got {self.diversity_similarity_threshold!r}."
             )
+
+        import json
+
+        try:
+            thresholds = json.loads(self.rerank_score_thresholds_json)
+        except Exception as exc:
+            raise ValueError(f"rerank_score_thresholds_json is not valid JSON: {exc}")
+        if not isinstance(thresholds, dict):
+            raise ValueError("rerank_score_thresholds_json must be a JSON object (dict)")
+        for k, v in thresholds.items():
+            if not isinstance(k, str):
+                raise ValueError("rerank_score_thresholds_json keys must be strings")
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError("rerank_score_thresholds_json values must be float/int")
+            if not 0.0 <= float(v) <= 1.0:
+                raise ValueError("rerank_score_thresholds_json values must be in [0, 1]")
 
         # OTel / Observability validation
         if not (0.0 < self.otel_sampling_ratio <= 1.0):

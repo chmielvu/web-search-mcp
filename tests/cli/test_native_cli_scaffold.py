@@ -133,13 +133,6 @@ def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
                 "results": [],
                 "total_results": 0,
                 "providers_used": [],
-                "result_window": {
-                    "offset": 0,
-                    "returned": 0,
-                    "candidate_count": 0,
-                    "has_more": False,
-                    "next_offset": None,
-                },
             }
         ),
     )
@@ -152,8 +145,6 @@ def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
                 "web",
                 "--query",
                 "web search query",
-                "--num-results",
-                "3",
             ],
         )
     )

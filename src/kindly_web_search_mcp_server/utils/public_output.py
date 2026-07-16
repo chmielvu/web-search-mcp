@@ -55,8 +55,6 @@ def serialize_public_web_search_response(response: Any) -> dict[str, Any]:
         "providers_used": list(raw.get("providers_used") or []),
     }
 
-    if "result_window" in raw and raw["result_window"] is not None:
-        public["result_window"] = _dump(raw["result_window"])
     if "warnings" in raw and raw["warnings"] is not None:
         public["warnings"] = _dump(raw["warnings"])
 
