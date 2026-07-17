@@ -1,8 +1,6 @@
 """Bounded RankLLM listwise reranking with application-owned fallback."""
 
 from __future__ import annotations
-
-import ast
 import asyncio
 from dataclasses import dataclass
 from contextlib import redirect_stdout
@@ -10,12 +8,8 @@ import logging
 import io
 import os
 from pathlib import Path
-import re
 from typing import Any
 
-import litellm
-from rank_llm.data import Candidate, Query, Request
-from rank_llm.rerank.listwise.rank_litellm import SafeLiteLLM
 
 from ..models import WebSearchResult
 from ..settings import settings
@@ -40,36 +34,61 @@ class _CoordinatorGuardTimeout(TimeoutError):
     """The provider call outlived its transport timeout guard."""
 
 
-class BoundedSafeLiteLLM(SafeLiteLLM):
-    """Use one bounded LiteLLM call and propagate provider failures."""
+def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
+    """Lazy-load rank_llm SafeOpenai path to avoid pulling in vllm or litellm."""
+    from rank_llm.data import Candidate, Query, Request  # noqa: PLC0415
+    from rank_llm.rerank.listwise.rank_gpt import SafeOpenai  # noqa: PLC0415
 
-    def _call_completion(self, messages: list[dict[str, str]], **kwargs: Any) -> Any:
-        call_kwargs = {**self._call_kwargs(), **kwargs, "num_retries": 0}
-
-        model_attr = getattr(self, "model", "") or ""
-        if "openrouter" in model_attr or "openrouter" in call_kwargs.get("model", ""):
-            call_kwargs["custom_llm_provider"] = "openrouter"
-            call_kwargs["api_base"] = settings.openrouter_chat_base_url
-            model_name = call_kwargs.get("model", model_attr)
-            if not model_name.startswith("openrouter/"):
-                model_name = f"openrouter/{model_name}"
-            call_kwargs["model"] = model_name
-
-        async def complete() -> Any:
-            return await asyncio.wait_for(
-                litellm.acompletion(
-                    messages=messages,
-                    timeout=settings.rankllm_timeout_seconds,
-                    **call_kwargs,
-                ),
-                timeout=settings.rankllm_timeout_seconds,
-            )
-
-        return asyncio.run(complete())
+    return Candidate, Query, Request, SafeOpenai
 
 
-_openrouter_coordinator: BoundedSafeLiteLLM | None = None
-_gemini_coordinator: BoundedSafeLiteLLM | None = None
+def _load_rank_llm_genai() -> Any:
+    """Lazy-load SafeGenai from rank_llm without touching the litellm path."""
+    from rank_llm.rerank.listwise.rank_gemini import SafeGenai  # noqa: PLC0415
+
+    return SafeGenai
+
+
+def _make_bounded_openai_class() -> type:
+    _, _, _, SafeOpenai = _load_rank_llm_openai()
+
+    class BoundedSafeOpenai(SafeOpenai):  # type: ignore[misc]
+        """Direct openai.responses reranker — no litellm dependency."""
+
+    return BoundedSafeOpenai
+
+
+_bounded_openai_class: type | None = None
+
+
+def _get_bounded_openai_class() -> type:
+    global _bounded_openai_class
+    if _bounded_openai_class is None:
+        _bounded_openai_class = _make_bounded_openai_class()
+    return _bounded_openai_class
+
+
+def _make_bounded_genai_class() -> type:
+    SafeGenai = _load_rank_llm_genai()
+
+    class BoundedSafeGenai(SafeGenai):  # type: ignore[misc]
+        """Direct google-genai reranker — no litellm dependency."""
+
+    return BoundedSafeGenai
+
+
+_bounded_genai_class: type | None = None
+
+
+def _get_bounded_genai_class() -> type:
+    global _bounded_genai_class
+    if _bounded_genai_class is None:
+        _bounded_genai_class = _make_bounded_genai_class()
+    return _bounded_genai_class
+
+
+_openrouter_coordinator: type | None = None
+_gemini_coordinator: type | None = None
 
 
 def _route_model(provider: str, model: str) -> str:
@@ -77,48 +96,71 @@ def _route_model(provider: str, model: str) -> str:
     return model if model.startswith(prefix) else f"{prefix}{model}"
 
 
-def _build_coordinator(*, model: str, context_size: int, api_key: str) -> BoundedSafeLiteLLM:
+def _build_openai_coordinator(
+    *, model: str, context_size: int, api_key: str, base_url: str | None
+) -> Any:
+    BoundedSafeOpenai = _get_bounded_openai_class()
     captured_stdout = io.StringIO()
     with redirect_stdout(captured_stdout):
-        coordinator = BoundedSafeLiteLLM(
+        coordinator = BoundedSafeOpenai(
             model=model,
             context_size=context_size,
             prompt_template_path=str(_TEMPLATE_PATH),
             window_size=RANKLLM_INPUT_LIMIT,
             stride=RANKLLM_INPUT_LIMIT,
             max_passage_words=settings.rankllm_max_passage_words,
-            api_key=api_key,
-            sampling_kwargs={"temperature": settings.rankllm_temperature},
+            keys=api_key,
+            base_url=base_url,
         )
     if output := captured_stdout.getvalue().strip():
-        logger.debug("Suppressed RankLLM constructor stdout: %s", output)
+        logger.debug("Suppressed SafeOpenai constructor stdout: %s", output)
     return coordinator
 
 
-def _get_openrouter_coordinator() -> BoundedSafeLiteLLM | None:
+def _build_genai_coordinator(*, model: str, context_size: int, api_key: str) -> Any:
+    BoundedSafeGenai = _get_bounded_genai_class()
+    captured_stdout = io.StringIO()
+    with redirect_stdout(captured_stdout):
+        coordinator = BoundedSafeGenai(
+            model=model,
+            context_size=context_size,
+            prompt_template_path=str(_TEMPLATE_PATH),
+            window_size=RANKLLM_INPUT_LIMIT,
+            stride=RANKLLM_INPUT_LIMIT,
+            max_passage_words=settings.rankllm_max_passage_words,
+            keys=api_key,
+            temperature=settings.rankllm_temperature,
+        )
+    if output := captured_stdout.getvalue().strip():
+        logger.debug("Suppressed SafeGenai constructor stdout: %s", output)
+    return coordinator
+
+
+def _get_openrouter_coordinator() -> Any | None:
     global _openrouter_coordinator
     if _openrouter_coordinator is not None:
         return _openrouter_coordinator
     api_key = (settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
     if not api_key:
         return None
-    _openrouter_coordinator = _build_coordinator(
-        model=_route_model("openrouter", settings.rankllm_openrouter_model),
+    _openrouter_coordinator = _build_openai_coordinator(
+        model=settings.rankllm_openrouter_model,
         context_size=131_072,
         api_key=api_key,
+        base_url=settings.openrouter_chat_base_url,
     )
     return _openrouter_coordinator
 
 
-def _get_gemini_coordinator() -> BoundedSafeLiteLLM | None:
+def _get_gemini_coordinator() -> Any | None:
     global _gemini_coordinator
     if _gemini_coordinator is not None:
         return _gemini_coordinator
     api_key = (settings.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")).strip()
     if not api_key:
         return None
-    _gemini_coordinator = _build_coordinator(
-        model=_route_model("gemini", settings.rankllm_gemini_model),
+    _gemini_coordinator = _build_genai_coordinator(
+        model=settings.rankllm_gemini_model,
         context_size=1_048_576,
         api_key=api_key,
     )
@@ -141,7 +183,8 @@ def _build_request(
     query: str,
     candidates: list[WebSearchResult],
     request_id: str,
-) -> Request:
+) -> Any:
+    Candidate, Query, Request, _ = _load_rank_llm_openai()
     rankllm_candidates = [
         Candidate(
             docid=index,
@@ -156,55 +199,7 @@ def _build_request(
     )
 
 
-def _window_size_from_prompt(prompt: Any) -> int:
-    if not isinstance(prompt, list):
-        return 0
-    return sum(
-        message.get("role") == "assistant"
-        and str(message.get("content", "")).startswith("Received passage [")
-        for message in prompt
-        if isinstance(message, dict)
-    )
-
-
-def _regex_pattern(value: str | None, *, field_name: str) -> str:
-    if not value:
-        raise ValueError(f"RankLLM response has no {field_name} contract")
-    try:
-        pattern = ast.literal_eval(value)
-    except (SyntaxError, ValueError) as exc:
-        raise ValueError(f"RankLLM {field_name} contract is invalid") from exc
-    if not isinstance(pattern, str):
-        raise ValueError(f"RankLLM {field_name} contract is not a string")
-    return pattern
-
-
-def _validate_raw_invocations(result: Any) -> None:
-    invocations = result.invocations_history or []
-    if not invocations:
-        raise ValueError("RankLLM returned no invocation history")
-    for invocation in invocations:
-        response = str(invocation.response).strip()
-        validation = _regex_pattern(
-            invocation.output_validation_regex,
-            field_name="permutation format",
-        )
-        extraction = _regex_pattern(
-            invocation.output_extraction_regex,
-            field_name="identifier extraction",
-        )
-        if re.fullmatch(validation, response) is None:
-            raise ValueError("RankLLM response failed the permutation format contract")
-        window_size = _window_size_from_prompt(invocation.prompt)
-        identifiers = [int(value) for value in re.findall(extraction, response)]
-        if window_size < 1 or identifiers != list(dict.fromkeys(identifiers)):
-            raise ValueError("RankLLM response contains duplicate or unbounded identifiers")
-        if len(identifiers) != window_size or set(identifiers) != set(range(1, window_size + 1)):
-            raise ValueError("RankLLM response is not a complete window permutation")
-
-
 def _ranked_permutation(result: Any, candidate_count: int) -> list[RerankResult]:
-    _validate_raw_invocations(result)
     returned_ids = [candidate.docid for candidate in result.candidates]
     expected_ids = set(range(candidate_count))
     if len(returned_ids) != candidate_count or set(returned_ids) != expected_ids:
@@ -224,8 +219,8 @@ def _token_counts(result: Any) -> tuple[int | None, int | None]:
 
 
 async def _run_coordinator(
-    coordinator: BoundedSafeLiteLLM,
-    request: Request,
+    coordinator: Any,
+    request: Any,
     candidate_count: int,
 ) -> tuple[list[RerankResult], int | None, int | None]:
     task = asyncio.create_task(

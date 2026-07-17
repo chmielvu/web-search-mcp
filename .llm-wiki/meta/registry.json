@@ -1,7 +1,13 @@
 {
   "version": "1.0",
-  "last_updated": "2026-07-16T15:50:48.575Z",
+  "last_updated": "2026-07-16T22:34:59.483Z",
   "pages": {
+    "concepts/fastmcp-v3-modern-capabilities-reference": {
+      "type": "page",
+      "title": "fastmcp-v3-modern-capabilities-reference",
+      "created": "2026-07-16",
+      "updated": "2026-07-16"
+    },
     "sources/obs-2026-07-16-conditional-rankllm-live-pipeline-verified": {
       "type": "source",
       "title": "\"Observation: Conditional RankLLM live pipeline verified\"",
@@ -18,6 +24,22 @@
         "search"
       ],
       "source_context": "\"End-to-end normal pipeline verification of conditional reranking\""
+    },
+    "sources/obs-2026-07-16-direct-rankllm-rerankers-live-verified": {
+      "type": "source",
+      "title": "\"Observation: Direct RankLLM Rerankers Live Verified\"",
+      "created": "2026-07-16",
+      "updated": "2026-07-16",
+      "slug": "obs-2026-07-16-direct-rankllm-rerankers-live-verified",
+      "status": "observation",
+      "relevance": "critical",
+      "observed_at": "2026-07-16T21:47:30.363Z",
+      "tags": [
+        "rerank",
+        "litellm-free",
+        "google-genai"
+      ],
+      "source_context": "\"SafeGenai/SafeOpenai integration and custom validation removal in llm_rerank.py\""
     },
     "sources/obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage": {
       "type": "source",

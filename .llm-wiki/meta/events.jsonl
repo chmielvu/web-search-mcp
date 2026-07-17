@@ -3,3 +3,5 @@
 {"timestamp":"2026-07-16T13:27:53.218Z","kind":"observe","slug":"obs-2026-07-16-post-edit-rankllm-production-rerun-passed","title":"Post-edit RankLLM production rerun passed","relevance":"high"}
 {"timestamp":"2026-07-16T15:44:49.361Z","kind":"observe","slug":"obs-2026-07-16-openrouter-completions-routing-and-context-latency-documente","title":"OpenRouter completions routing and context latency documented","relevance":"high"}
 {"timestamp":"2026-07-16T15:50:48.522Z","kind":"observe","slug":"obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage","title":"Gemini promoted to primary RankLLM stage","relevance":"critical"}
+{"timestamp":"2026-07-16T21:47:30.368Z","kind":"observe","slug":"obs-2026-07-16-direct-rankllm-rerankers-live-verified","title":"Direct RankLLM Rerankers Live Verified","relevance":"critical"}
+{"timestamp":"2026-07-16T22:34:59.432Z","kind":"ensure_page","page_type":"concept","title":"FastMCP v3 Modern Capabilities Reference","path":"concepts/fastmcp-v3-modern-capabilities-reference"}

@@ -17,3 +17,9 @@
 ## [2026-07-16T15:50:48.522Z] observe
 - slug: "obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage", title: "Gemini promoted to primary RankLLM stage", relevance: "critical"
 
+## [2026-07-16T21:47:30.368Z] observe
+- slug: "obs-2026-07-16-direct-rankllm-rerankers-live-verified", title: "Direct RankLLM Rerankers Live Verified", relevance: "critical"
+
+## [2026-07-16T22:34:59.432Z] ensure_page
+- page_type: "concept", title: "FastMCP v3 Modern Capabilities Reference", path: "concepts/fastmcp-v3-modern-capabilities-reference"
+

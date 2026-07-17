@@ -28,11 +28,7 @@ _NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search")
 
 
 class _RewriteQueries(ContractModel):
-    paid_brave: str
-    paid_google: str
-    paid_other: str
-    neural: str
-    specialized: str
+    queries: list[str]
 
 
 def _branch_names(candidates: Sequence[str], available: Sequence[str]) -> tuple[str, ...]:
@@ -77,6 +73,103 @@ def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
     return normalize_query(" ".join((base, *additions)))
 
 
+_REWRITE_SYSTEM = (
+    "Rewrite the user query into effective search queries: three keyword "
+    "queries for Brave/Google/Bing/Yandex using search operators, and one "
+    "natural-language neural query for Exa-style semantic search."
+)
+
+_REWRITE_USER = """You are a search query optimizer that generates strategic search queries for web search engines.
+
+TASK: Given a user query, a research goal, and enrichment evidence, generate 3 keyword search variants (for Brave/Google/Bing/Yandex) plus 1 natural-language neural query (for Exa-style semantic search) that explore complementary aspects.
+
+<CURRENT_CONTEXT>
+Current Year: {current_year}
+Query: "{query}"
+Research Goal: "{research_goal}"
+</CURRENT_CONTEXT>
+
+<ENRICHMENT_EVIDENCE>
+Support Terms: {support_terms}
+Autosuggest Suggestions: {suggestions}
+Spell Correction: {spell_correction}
+</ENRICHMENT_EVIDENCE>
+
+<QUERY_NORMALIZATION>
+Transform the input into effective search queries by:
+- Converting questions to search terms (e.g., "What is X?" → "X explanation guide")
+- Organizing keyword dumps into coherent searches
+- Removing unnecessary words (how, what, when, etc.) unless essential
+- Preserving technical terms, specific models, brands or products, and quoted phrases exactly
+- If spell_correction is non-empty, prefer it over the raw query
+</QUERY_NORMALIZATION>
+
+<KEYWORD_QUERY_RULES>
+The three keyword queries target Brave/Google/Bing/Yandex. Use search operators to make each query target a DIFFERENT facet:
+- "exact phrase"  → force an exact multi-word match
+- site:domain     → restrict to a specific site/domain
+- intitle: / inbody: / inpage:  → require term in title/body/either
+- filetype: / ext:  → restrict to a file type
+- lang: / loc:     → restrict to language / country (ISO codes)
+- +term           → force inclusion of a term
+- -term           → exclude a term
+- AND / OR / NOT  → combine conditions (uppercase)
+Make the three queries genuinely different in structure and operator use
+(e.g., one exact-phrase + site-scoped, one with -exclusions, one broad with +required terms).
+Preserve any operators or mandatory terms already present in the query.
+</KEYWORD_QUERY_RULES>
+
+<NEURAL_QUERY_RULES>
+The neural query targets Exa-style semantic/vector search. Write it as a single
+full descriptive SENTENCE with NO operators — the engine retrieves by meaning,
+not keyword matching. Include the core intent and key entities from the query
+and research goal. Do NOT use quotes, site:, -, +, or any operator syntax.
+</NEURAL_QUERY_RULES>
+
+<INSTRUCTIONS>
+1. First, normalize the query for search (apply spell_correction if present):
+   - If it's a natural language question, extract key search terms
+   - If it's a keyword dump, organize into a coherent phrase
+   - Keep quoted phrases, technical terms and specific brands intact
+2. Generate three DIFFERENT keyword queries using the operator rules above
+3. Generate one natural-language neural query using the neural rules above
+4. Add temporal markers ({current_year}) to keyword queries where appropriate
+
+IMPORTANT: Always generate EXACTLY 3 keyword queries + 1 neural query - no more, no less.
+</INSTRUCTIONS>
+
+<TEMPORAL_RULES>
+- Technical queries: Add {current_year} for the current year
+- Historical queries: Preserve specific years
+- Quoted phrases: Keep exactly as-is
+</TEMPORAL_RULES>
+
+<EXAMPLES>
+Example 1 - Docker container orchestration:
+Query: "Docker container orchestration"
+Research Goal: "Find production-grade orchestration tooling"
+Output queries: [
+  "Docker container orchestration {current_year}",
+  "container orchestration best practices site:docs.docker.com",
+  "Docker orchestration Kubernetes -swarm +production",
+  "What are the best production-grade tools for orchestrating Docker containers in {current_year}?"
+]
+
+Example 2 - Spelling corrected:
+Query: "pytorch attension mechanism"
+Spell Correction: "pytorch attention mechanism"
+Output queries: [
+  "pytorch attention mechanism tutorial",
+  "attention mechanism implementation site:pytorch.org",
+  "pytorch transformer attention -nlp +code",
+  "How do I implement the attention mechanism in PyTorch with a working code example?"
+]
+</EXAMPLES>
+
+Return JSON of the form:
+{{"queries": ["<keyword1>", "<keyword2>", "<keyword3>", "<neural>"]}}"""
+
+
 async def _rewrite_queries(
     *,
     query: str,
@@ -84,32 +177,21 @@ async def _rewrite_queries(
     terms: tuple[str, ...],
     suggestions: tuple[str, ...],
     correction: str | None,
+    current_year: str,
 ) -> tuple[_RewriteQueries, dict[str, Any]]:
-    evidence = {
-        "support_terms": list(terms),
-        "suggestions": list(suggestions),
-        "spell_correction": correction,
-    }
+    user_content = _REWRITE_USER.format(
+        current_year=current_year,
+        query=query,
+        research_goal=research_goal,
+        support_terms=list(terms),
+        suggestions=list(suggestions),
+        spell_correction=correction or "",
+    )
     started = time.monotonic()
     generation = await build_worker_router().complete_json(
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Return five role-specific search queries as JSON. "
-                    "Fields: paid_brave, paid_google, paid_other, neural, specialized. "
-                    "Each field is a natural-language search query string. "
-                    "paid_brave is for Brave Search. paid_google is for Google/BrightData. "
-                    "paid_other is for Bing/Yandex/Baidu. neural is for semantic/vector search. "
-                    "specialized is for intent-specific providers. "
-                    "Use the support_terms, suggestions, and spell_correction as evidence. "
-                    "Preserve the user's operators and mandatory terms."
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"query={query!r}\nresearch_goal={research_goal!r}\nevidence={evidence!r}",
-            },
+            {"role": "system", "content": _REWRITE_SYSTEM},
+            {"role": "user", "content": user_content},
         ],
         response_model=_RewriteQueries,
         timeout_seconds=20.0,
@@ -194,15 +276,21 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                     terms=terms,
                     suggestions=suggestions,
                     correction=correction,
+                    current_year=time.strftime("%Y"),
                 )
                 rewrite_meta["branch_count"] = 6
                 dc.rewrite_metadata = rewrite_meta
+                if len(rewrite.queries) < 4:
+                    raise ValueError(
+                        f"Expected 4 queries, got {len(rewrite.queries)}: {rewrite.queries}"
+                    )
+                q0, q1, q2, q3 = (normalize_query(q) for q in rewrite.queries[:4])
                 queries = (
-                    normalize_query(rewrite.paid_brave),
-                    normalize_query(rewrite.paid_google),
-                    normalize_query(rewrite.paid_other),
-                    normalize_query(rewrite.neural),
-                    normalize_query(rewrite.specialized),
+                    q0,
+                    q1,
+                    q2,
+                    q3,
+                    q3,  # SPECIALIZED reuses neural query
                 )
             except Exception as exc:
                 LOGGER.warning(
