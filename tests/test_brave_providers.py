@@ -8,13 +8,13 @@ from typing import Any
 import httpx
 import pytest
 
-from kindly_web_search_mcp_server.search.brave import search_brave
-from kindly_web_search_mcp_server.search.brave_common import (
+from kindly_web_search_mcp_server.search.providers.brave import search_brave
+from kindly_web_search_mcp_server.search.providers.brave_common import (
     BRAVE_LLM_CONTEXT_URL,
     BRAVE_NEWS_URL,
     BraveConfigError,
 )
-from kindly_web_search_mcp_server.search.brave_news import search_brave_news
+from kindly_web_search_mcp_server.search.providers.brave_news import search_brave_news
 
 
 def _run(coro):
@@ -83,7 +83,7 @@ def test_search_brave_requires_standard_api_key(monkeypatch) -> None:
     monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     monkeypatch.setenv("BRAVE_SUGGEST_API_KEY", "suggest-only")
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.search.brave_common.settings.brave_api_key",
+        "kindly_web_search_mcp_server.search.providers.brave_common.settings.brave_api_key",
         "",
     )
 

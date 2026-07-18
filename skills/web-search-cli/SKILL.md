@@ -823,11 +823,7 @@ server's resource interface.
 | `status://features` | Server feature flags (rewrite, reranking, caches, timeouts). | `web-search-cli doctor` (partial) |
 | `docs://workflow` | Full discovery → extraction → synthesis workflow text. | This skill file's "Agent guidance" section. |
 | `settings://public` | Public runtime settings with secrets removed. | `web-search-cli reference tools` |
-| `cache://stats` | Cache topology and limits for exact/page/result-memory layers. | n/a (server-side only) |
-| `analytics://schema` | Analytics tables/views catalog. | `web-search-cli reference tools --profile diagnostic` |
-| `analytics://candidate-survival` | Default candidate-survival report (7 days). | `web-search-cli analytics report --report-name candidate-survival --days 7` |
-| `analytics://cache-hit-rates` | Default cache-hit-rate report (7 days). | `web-search-cli analytics report --report-name cache-hit-rates --days 7` |
-| `analytics://reports/{report_name}{?days}` | Parameterised report from the deterministic catalog. | `web-search-cli analytics report --report-name <name> --days <n>` |
+| `analytics://reports/{report_name}` | Parameterised report from the deterministic catalog. | `web-search-cli analytics report --report-name <name> --days <n>` |
 
 ### When to use / when not to use (per tool)
 

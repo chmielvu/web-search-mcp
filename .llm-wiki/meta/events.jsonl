@@ -5,3 +5,7 @@
 {"timestamp":"2026-07-16T15:50:48.522Z","kind":"observe","slug":"obs-2026-07-16-gemini-promoted-to-primary-rankllm-stage","title":"Gemini promoted to primary RankLLM stage","relevance":"critical"}
 {"timestamp":"2026-07-16T21:47:30.368Z","kind":"observe","slug":"obs-2026-07-16-direct-rankllm-rerankers-live-verified","title":"Direct RankLLM Rerankers Live Verified","relevance":"critical"}
 {"timestamp":"2026-07-16T22:34:59.432Z","kind":"ensure_page","page_type":"concept","title":"FastMCP v3 Modern Capabilities Reference","path":"concepts/fastmcp-v3-modern-capabilities-reference"}
+{"timestamp":"2026-07-17T11:15:36.832Z","kind":"observe","slug":"obs-2026-07-17-providergroup-staleness-in-search-package","title":"ProviderGroup staleness in search package","relevance":"high"}
+{"timestamp":"2026-07-17T11:15:36.880Z","kind":"observe","slug":"obs-2026-07-17-providerdefinition-dual-declaration-fix","title":"ProviderDefinition dual declaration fix","relevance":"high"}
+{"timestamp":"2026-07-17T11:15:36.885Z","kind":"observe","slug":"obs-2026-07-17-brd-json-1-stale-code-in-bright-data-builders","title":"brd_json=1 stale code in Bright Data builders","relevance":"high"}
+{"timestamp":"2026-07-17T17:48:26.508Z","kind":"observe","slug":"obs-2026-07-17-fastmcp-v3-server-analytics-dashboard-overhaul-completed","title":"FastMCP v3 server + analytics dashboard overhaul completed","relevance":"high"}

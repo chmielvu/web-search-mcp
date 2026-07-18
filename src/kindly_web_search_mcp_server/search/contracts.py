@@ -24,12 +24,6 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
 
-class ProviderGroup(str, Enum):
-    FREE = "free"
-    PAID_SERP = "paid_serp"
-    SPECIALIZED = "specialized"
-
-
 class BranchRole(str, Enum):
     ORIGINAL_FREE = "original_free"
     PAID_BRAVE = "paid_brave"

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kindly_web_search_mcp_server.search.telegram_registry import (
+from kindly_web_search_mcp_server.search.providers.telegram_registry import (
     TelegramRegistryDuckDB,
     TelegramChannelEntry,
 )

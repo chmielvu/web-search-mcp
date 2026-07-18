@@ -88,7 +88,7 @@ async def fetch_telegram_markdown(url: str) -> str:
     Uses Telethon to resolve the entity and fetch messages.
     Returns markdown with sender info, timestamps, view counts, and reply threading.
     """
-    from ...search.telegram_client import get_telethon_client
+    from ...search.providers.telegram_client import get_telethon_client
     from telethon import functions
 
     target = parse_telegram_url(url)

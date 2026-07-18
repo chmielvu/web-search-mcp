@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 class TestComposioLLMSearch(unittest.TestCase):
     def test_search_composio_llm_search_maps_results(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.composio_llm_search import (
+            from kindly_web_search_mcp_server.search.providers.composio_llm_search import (
                 COMPOSIO_LLM_SEARCH_SLUG,
                 search_composio_llm_search,
             )
@@ -32,7 +32,7 @@ class TestComposioLLMSearch(unittest.TestCase):
             }
 
             with patch(
-                "kindly_web_search_mcp_server.search.composio_llm_search.execute_composio_tool",
+                "kindly_web_search_mcp_server.search.providers.composio_llm_search.execute_composio_tool",
                 new_callable=AsyncMock,
             ) as mock_execute:
                 mock_execute.return_value = payload
@@ -63,7 +63,7 @@ class TestComposioLLMSearch(unittest.TestCase):
 
     def test_search_composio_llm_search_maps_web_search_citations(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.composio_llm_search import (
+            from kindly_web_search_mcp_server.search.providers.composio_llm_search import (
                 COMPOSIO_LLM_SEARCH_SLUG,
                 search_composio_llm_search,
             )
@@ -82,7 +82,7 @@ class TestComposioLLMSearch(unittest.TestCase):
             }
 
             with patch(
-                "kindly_web_search_mcp_server.search.composio_llm_search.execute_composio_tool",
+                "kindly_web_search_mcp_server.search.providers.composio_llm_search.execute_composio_tool",
                 new_callable=AsyncMock,
             ) as mock_execute:
                 mock_execute.return_value = payload
@@ -100,13 +100,13 @@ class TestComposioLLMSearch(unittest.TestCase):
 
     def test_search_composio_llm_search_rejects_malformed_results(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.composio_llm_search import (
+            from kindly_web_search_mcp_server.search.providers.composio_llm_search import (
                 ComposioLLMSearchError,
                 search_composio_llm_search,
             )
 
             with patch(
-                "kindly_web_search_mcp_server.search.composio_llm_search.execute_composio_tool",
+                "kindly_web_search_mcp_server.search.providers.composio_llm_search.execute_composio_tool",
                 new_callable=AsyncMock,
             ) as mock_execute:
                 mock_execute.return_value = {"results": {"not": "a list"}}

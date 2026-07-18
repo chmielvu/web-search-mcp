@@ -111,14 +111,14 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_client.calls[0][0], "gemini-3.1-flash-lite")
 
     async def test_grok_paths_trace_request(self) -> None:
-        from kindly_web_search_mcp_server.search.grok import (
+        from kindly_web_search_mcp_server.search.providers.grok import (
             grok_search,
             search_grok_openrouter,
         )
-        from kindly_web_search_mcp_server.search import grok as grok_module
+        from kindly_web_search_mcp_server.search.providers import grok as grok_module
 
         provider_patcher, provider_span = self._span_patch(
-            "kindly_web_search_mcp_server.search.grok.create_llm_operation_span"
+            "kindly_web_search_mcp_server.search.providers.grok.create_llm_operation_span"
         )
 
         class FakeProviderResponse:
@@ -164,7 +164,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         )
 
         tool_patcher, tool_span = self._span_patch(
-            "kindly_web_search_mcp_server.search.grok.create_llm_operation_span"
+            "kindly_web_search_mcp_server.search.providers.grok.create_llm_operation_span"
         )
 
         class FakeChatResponse:
@@ -210,7 +210,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         with (
             tool_patcher as tool_create,
             patch(
-                "kindly_web_search_mcp_server.search.grok.httpx.AsyncClient",
+                "kindly_web_search_mcp_server.search.providers.grok.httpx.AsyncClient",
                 return_value=FakeChatClient(),
             ),
             patch.object(grok_module.settings, "openrouter_api_key", "test-key"),

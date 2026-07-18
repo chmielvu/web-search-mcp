@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kindly_web_search_mcp_server.search.ddg import search_ddg, _search_ddg_sync
+from kindly_web_search_mcp_server.search.providers.ddg import search_ddg, _search_ddg_sync
 from kindly_web_search_mcp_server.models import WebSearchResult
 
 
@@ -63,7 +63,7 @@ class TestDDGSearch(unittest.TestCase):
             ]
 
             with patch(
-                "kindly_web_search_mcp_server.search.ddg._search_ddg_sync",
+                "kindly_web_search_mcp_server.search.providers.ddg._search_ddg_sync",
                 return_value=mock_results,
             ):
                 results = await search_ddg("test query", num_results=5)
@@ -78,7 +78,7 @@ class TestDDGSearch(unittest.TestCase):
     def test_search_ddg_handles_exception(self) -> None:
         async def run() -> None:
             with patch(
-                "kindly_web_search_mcp_server.search.ddg._search_ddg_sync",
+                "kindly_web_search_mcp_server.search.providers.ddg._search_ddg_sync",
                 side_effect=Exception("DDG error"),
             ):
                 with self.assertRaises(Exception):
@@ -209,7 +209,7 @@ if __name__ == "__main__":
 def test_search_ddg_signature_has_no_freshness_kwarg() -> None:
     import inspect
 
-    from kindly_web_search_mcp_server.search.ddg import search_ddg
+    from kindly_web_search_mcp_server.search.providers.ddg import search_ddg
 
     params = inspect.signature(search_ddg).parameters
     assert "freshness" not in params

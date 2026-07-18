@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
-        from kindly_web_search_mcp_server.search import qdrant as qdrant_module
+        from kindly_web_search_mcp_server.search.providers import qdrant as qdrant_module
 
         tasks = list(qdrant_module._EMBEDDING_INFLIGHT.values())
         for task in tasks:
@@ -23,7 +23,7 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
         qdrant_module._EMBEDDING_CACHE.clear()
 
     async def test_qdrant_embedding_timeout_cancels_inflight_task(self) -> None:
-        from kindly_web_search_mcp_server.search import qdrant as qdrant_module
+        from kindly_web_search_mcp_server.search.providers import qdrant as qdrant_module
 
         started = asyncio.Event()
         cancelled = asyncio.Event()
@@ -48,8 +48,8 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(qdrant_module._EMBEDDING_INFLIGHT, {})
 
     async def test_search_qdrant_uses_hf_auth_token(self) -> None:
-        from kindly_web_search_mcp_server.search.qdrant import search_qdrant
-        from kindly_web_search_mcp_server.search import qdrant as qdrant_module
+        from kindly_web_search_mcp_server.search.providers.qdrant import search_qdrant
+        from kindly_web_search_mcp_server.search.providers import qdrant as qdrant_module
 
         captured: dict[str, object] = {}
 
@@ -90,11 +90,11 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(embed_query=AsyncMock(return_value=[0.1, 0.2])),
             ),
             patch(
-                "kindly_web_search_mcp_server.search.qdrant.encode_bm25",
+                "kindly_web_search_mcp_server.search.providers.qdrant.encode_bm25",
                 return_value={"indices": [1], "values": [1.0]},
             ),
             patch(
-                "kindly_web_search_mcp_server.search.qdrant.AsyncQdrantClient",
+                "kindly_web_search_mcp_server.search.providers.qdrant.AsyncQdrantClient",
                 side_effect=_client_factory,
             ),
         ):

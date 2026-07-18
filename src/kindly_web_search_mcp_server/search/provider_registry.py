@@ -13,7 +13,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from .contracts import ContractModel, ProviderGroup
+from .contracts import ContractModel
 from .options import SearchOptions
 from .provider_catalog import PROVIDER_DEFINITIONS_LIST, ProviderDefinition
 
@@ -98,7 +98,7 @@ def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
             search_options=options,
             provider_arguments=arguments,
         )
-        if query_embedding is not None and module_name == "qdrant":
+        if query_embedding is not None and module_name == "providers.qdrant":
             kwargs["query_embedding"] = await asyncio.shield(query_embedding)
         return await resolved_function(
             query,
@@ -110,33 +110,13 @@ def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
     return adapter
 
 
-_ADAPTER_PATHS = {
-    "searxng": ("searxng", "search_searxng"),
-    "ddg": ("ddg", "search_ddg"),
-    "gemma": ("gemma_serp", "search_gemma"),
-    "degoog": ("degoog", "search_degoog"),
-    "qdrant": ("qdrant", "search_qdrant"),
-    "composio_llm_search": ("composio_llm_search", "search_composio_llm_search"),
-    "search_router": ("search_router", "search_search_router"),
-    "brave": ("brave", "search_brave"),
-    "serper": ("serper", "search_serper"),
-    "serpapi": ("serpapi", "search_serpapi"),
-    "brightdata": ("brightdata", "search_brightdata"),
-    "brightdata_bing": ("brightdata", "search_brightdata"),
-    "brightdata_yandex": ("brightdata", "search_brightdata"),
-    "tavily": ("tavily", "search_tavily"),
-    "jina": ("jina", "search_jina"),
-    "grok_openrouter": ("grok", "search_grok_openrouter"),
-    "hackernews": ("hackernews", "search_hackernews"),
-    "reddit": ("reddit", "search_reddit"),
-    "github_graphql": ("github_graphql", "search_github_graphql"),
-    "telegram": ("telegram", "search_telegram"),
-    "brave_news": ("brave_news", "search_brave_news"),
-}
 PROVIDER_ADAPTERS: Mapping[str, ProviderAdapter] = MappingProxyType(
-    {name: _make_adapter(*path) for name, path in _ADAPTER_PATHS.items()}
+    {
+        definition.name: _make_adapter(definition.adapter_module, definition.adapter_function)
+        for definition in PROVIDER_DEFINITIONS_LIST
+    }
 )
-if PROVIDER_DEFINITIONS.keys() != PROVIDER_ADAPTERS.keys():
+if set(PROVIDER_ADAPTERS) != set(PROVIDER_DEFINITIONS):
     raise RuntimeError("Provider definition and adapter keys differ")
 
 
@@ -162,14 +142,14 @@ def select_provider_names(specialized_names: Sequence[str]) -> tuple[str, ...]:
     reachable = [item for item in PROVIDER_DEFINITIONS_LIST if provider_is_reachable(item)]
     selected: list[str] = []
     seen: set[str] = set()
+    specialized = set(specialized_names)
     for item in reachable:
-        if item.group in (ProviderGroup.FREE, ProviderGroup.PAID_SERP):
+        if not item.specialized:
             if item.name not in seen:
                 selected.append(item.name)
                 seen.add(item.name)
-    specialized = set(specialized_names)
     for item in reachable:
-        if item.group is ProviderGroup.SPECIALIZED and item.name in specialized:
+        if item.specialized and item.name in specialized:
             if item.name not in seen:
                 selected.append(item.name)
                 seen.add(item.name)

@@ -1,12 +1,12 @@
 {
   "version": "1.0",
-  "last_updated": "2026-07-16T22:34:59.483Z",
+  "last_updated": "2026-07-17T17:48:26.540Z",
   "pages": {
     "concepts/fastmcp-v3-modern-capabilities-reference": {
       "type": "page",
       "title": "fastmcp-v3-modern-capabilities-reference",
-      "created": "2026-07-16",
-      "updated": "2026-07-16"
+      "created": "2026-07-17",
+      "updated": "2026-07-17"
     },
     "sources/obs-2026-07-16-conditional-rankllm-live-pipeline-verified": {
       "type": "source",
@@ -93,6 +93,78 @@
         "verification"
       ],
       "source_context": "\"Fresh real-life verification after code edits\""
+    },
+    "sources/obs-2026-07-17-brd-json-1-stale-code-in-bright-data-builders": {
+      "type": "source",
+      "title": "\"Observation: brd_json=1 stale code in Bright Data builders\"",
+      "created": "2026-07-17",
+      "updated": "2026-07-17",
+      "slug": "obs-2026-07-17-brd-json-1-stale-code-in-bright-data-builders",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-17T11:15:36.884Z",
+      "tags": [
+        "search",
+        "brightdata",
+        "brd_json",
+        "staleness",
+        "tests"
+      ],
+      "source_context": "\"Planning search package refactor\""
+    },
+    "sources/obs-2026-07-17-fastmcp-v3-server-analytics-dashboard-overhaul-completed": {
+      "type": "source",
+      "title": "\"Observation: FastMCP v3 server + analytics dashboard overhaul completed\"",
+      "created": "2026-07-17",
+      "updated": "2026-07-17",
+      "slug": "obs-2026-07-17-fastmcp-v3-server-analytics-dashboard-overhaul-completed",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-17T17:48:26.497Z",
+      "tags": [
+        "refactoring",
+        "fastmcp",
+        "analytics",
+        "dashboard"
+      ],
+      "source_context": "\"FastMCP v3 server + analytics dashboard overhaul\""
+    },
+    "sources/obs-2026-07-17-providerdefinition-dual-declaration-fix": {
+      "type": "source",
+      "title": "\"Observation: ProviderDefinition dual declaration fix\"",
+      "created": "2026-07-17",
+      "updated": "2026-07-17",
+      "slug": "obs-2026-07-17-providerdefinition-dual-declaration-fix",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-17T11:15:36.879Z",
+      "tags": [
+        "search",
+        "provider_catalog",
+        "provider_registry",
+        "refactor",
+        "dual-declaration"
+      ],
+      "source_context": "\"Planning search package refactor\""
+    },
+    "sources/obs-2026-07-17-providergroup-staleness-in-search-package": {
+      "type": "source",
+      "title": "\"Observation: ProviderGroup staleness in search package\"",
+      "created": "2026-07-17",
+      "updated": "2026-07-17",
+      "slug": "obs-2026-07-17-providergroup-staleness-in-search-package",
+      "status": "observation",
+      "relevance": "high",
+      "observed_at": "2026-07-17T11:15:36.830Z",
+      "tags": [
+        "search",
+        "provider_registry",
+        "provider-group",
+        "staleness",
+        "dead-code",
+        "paid_serp"
+      ],
+      "source_context": "\"Planning search package refactor\""
     }
   }
 }

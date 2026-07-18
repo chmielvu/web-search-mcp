@@ -15,7 +15,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..search.base_provider import run_provider
+from ..search.providers.base import run_provider
 from .models import YouTubeSearchError
 
 LOGGER = logging.getLogger(__name__)

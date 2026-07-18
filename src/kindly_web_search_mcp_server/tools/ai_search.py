@@ -12,7 +12,7 @@ from fastmcp.server.context import Context
 from ..analytics.judge_runner import run_judge_evaluation
 from ..errors import format_tool_error
 from ..search.gemini_search_tool import gemini_search_with_grounding_dual
-from ..search.grok import grok_search as _grok_search_core
+from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
 from ..telemetry import record_gemini_search
 from ..utils.background_tasks import fire_and_forget

@@ -133,7 +133,7 @@ class Settings:
         os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
     )
     search_retrieve_budget_seconds: float = float(
-        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "10")
+        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "20")
     )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
@@ -388,13 +388,13 @@ class Settings:
     brightdata_bing_timeout_seconds: float = float(
         os.environ.get("BRIGHTDATA_BING_TIMEOUT_SECONDS", "10.0")
     )
-    brightdata_bing_join_grace_seconds: float = float(
-        os.environ.get("BRIGHTDATA_BING_JOIN_GRACE_SECONDS", "0.25")
-    )
     brightdata_google_timeout_seconds: float = float(
         os.environ.get("BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS", "20.0")
     )
     brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
+    langsearch_api_key: str = os.environ.get("LANGSEARCH_API_KEY", "")
+    langsearch_timeout_seconds: float = float(os.environ.get("LANGSEARCH_TIMEOUT_SECONDS", "10.0"))
+    langsearch_base_url: str = os.environ.get("LANGSEARCH_BASE_URL", "https://api.langsearch.com")
 
     # SERP semaphore limit (controls concurrency for paid_serp providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))

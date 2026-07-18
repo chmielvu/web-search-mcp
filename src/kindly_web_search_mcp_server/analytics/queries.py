@@ -58,8 +58,9 @@ def _analytics_connection_and_prefix(
     return duckdb.connect(str(path), read_only=True), "main."
 
 
-def _is_cache_question(question: str) -> bool:
-    return "cache" in question
+# ---------------------------------------------------------------------------
+# Question classifiers
+# ---------------------------------------------------------------------------
 
 
 def _is_provider_question(question: str) -> bool:
@@ -71,29 +72,12 @@ def _is_provider_question(question: str) -> bool:
     )
 
 
-def _is_session_question(question: str) -> bool:
-    return "session" in question or "middleware" in question or "rate limit" in question
-
-
 def _is_error_question(question: str) -> bool:
     return (
         "error" in question
         or "failure" in question
         or "timeout" in question
         or "exception" in question
-        or "blocked" in question
-    )
-
-
-def _is_fetch_question(question: str) -> bool:
-    return "fetch" in question or "window" in question or "page content" in question
-
-
-def _is_content_question(question: str) -> bool:
-    return (
-        "content" in question
-        or "classification" in question
-        or "markdown" in question
         or "blocked" in question
     )
 
@@ -112,6 +96,37 @@ def _is_recent_events_question(question: str) -> bool:
     )
 
 
+def _is_rerank_question(question: str) -> bool:
+    return (
+        "rerank" in question
+        or "cross encode" in question
+        or "bi-encode" in question
+        or "rankllm" in question
+    )
+
+
+def _is_latency_question(question: str) -> bool:
+    return (
+        "latency" in question
+        or "speed" in question
+        or "duration" in question
+        or "fast" in question
+        or "slow" in question
+    )
+
+
+def _is_run_quality_question(question: str) -> bool:
+    return (
+        ("quality" in question or "score" in question or "verdict" in question)
+        and ("run" in question or "result" in question or "outcome" in question)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Query plan builder
+# ---------------------------------------------------------------------------
+
+
 def build_analytics_query_plan(
     question: str,
     *,
@@ -122,67 +137,117 @@ def build_analytics_query_plan(
     prefix = _normalize_view_prefix(view_prefix)
     q = question.lower().strip()
 
-    if _is_cache_question(q):
+    if _is_rerank_question(q):
         sql = f"""
             SELECT
-                cache_type,
-                lookup_status,
-                COUNT(*) AS calls,
-                SUM(CASE WHEN cache_hit_text = 'true' THEN 1 ELSE 0 END) AS hits,
-                SUM(CASE WHEN cache_hit_text = 'false' THEN 1 ELSE 0 END) AS misses,
-                AVG(duration_ms) AS avg_duration_ms,
-                AVG(similarity_score) AS avg_similarity_score
-            FROM {prefix}vw_cache_lookups
-            GROUP BY 1, 2
-            ORDER BY calls DESC, cache_type, lookup_status
+                stage,
+                provider,
+                model,
+                COUNT(*) AS stage_runs,
+                SUM(input_count) AS total_input_count,
+                SUM(output_count) AS total_output_count,
+                ROUND(100.0 * SUM(output_count) / NULLIF(SUM(input_count), 0), 1) AS survival_rate_pct,
+                ROUND(AVG(duration_ms), 1) AS avg_duration_ms,
+                ROUND(AVG(max_score), 4) AS avg_max_score,
+                ROUND(AVG(avg_score), 4) AS avg_score,
+                COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+                COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
+                MODE(error_type) AS most_common_error,
+                SUM(input_tokens) AS total_input_tokens,
+                SUM(output_tokens) AS total_output_tokens
+            FROM {prefix}rerank_stages
+            WHERE stage IN ('bi_encoder', 'cross_encoder', 'rankllm')
+            GROUP BY 1, 2, 3
+            ORDER BY stage_runs DESC, stage, provider, model
             LIMIT {limit}
         """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="cache")
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="rerank")
+
+    if _is_latency_question(q):
+        sql = f"""
+            SELECT
+                CASE
+                    WHEN duration_ms < 2000  THEN '0-2s'
+                    WHEN duration_ms < 5000  THEN '2-5s'
+                    WHEN duration_ms < 10000 THEN '5-10s'
+                    WHEN duration_ms < 20000 THEN '10-20s'
+                    WHEN duration_ms < 30000 THEN '20-30s'
+                    ELSE '30s+'
+                END AS latency_bucket,
+                COUNT(*) AS run_count,
+                COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+                ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'success') / NULLIF(COUNT(*), 0), 1) AS success_rate_pct,
+                ROUND(AVG(duration_ms), 0) AS avg_duration_ms,
+                ROUND(quantile_cont(duration_ms, 0.95), 0) AS p95_duration_ms,
+                ROUND(AVG(final_result_count), 1) AS avg_result_count,
+                COUNT(DISTINCT run_key) AS distinct_runs
+            FROM {prefix}search_runs
+            GROUP BY 1
+            ORDER BY MIN(duration_ms)
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="latency")
+
+    if _is_run_quality_question(q):
+        sql = f"""
+            SELECT
+                suite_name,
+                COUNT(DISTINCT target_tool) AS tools_tested,
+                SUM(cases) AS total_cases,
+                SUM(passes) AS total_passes,
+                SUM(fails) AS total_fails,
+                ROUND(100.0 * SUM(passes) / NULLIF(SUM(cases), 0), 1) AS pass_rate_pct,
+                ROUND(AVG(avg_score), 3) AS avg_score,
+                MIN(avg_score) AS min_score,
+                MAX(avg_score) AS max_score
+            FROM {prefix}vw_eval_provider_quality
+            GROUP BY 1
+            ORDER BY total_cases DESC, suite_name
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="run_quality")
 
     if _is_provider_question(q):
         sql = f"""
             SELECT
                 provider,
-                COUNT(*) AS rows,
-                COUNT(DISTINCT run_key) AS runs,
-                AVG(score) AS avg_score,
-                AVG(provider_count) AS avg_provider_count
-            FROM {prefix}vw_provider_results
+                COUNT(*) AS total_calls,
+                COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+                ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'success') / NULLIF(COUNT(*), 0), 1) AS success_rate_pct,
+                ROUND(AVG(latency_ms), 0) AS avg_latency_ms,
+                ROUND(quantile_cont(latency_ms, 0.95), 0) AS p95_latency_ms,
+                SUM(num_results_returned) AS total_results_returned,
+                COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
+                MODE(error_type) AS most_common_error
+            FROM {prefix}provider_calls
             GROUP BY 1
-            ORDER BY rows DESC, provider
+            ORDER BY total_calls DESC, provider
             LIMIT {limit}
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="provider")
 
-    if _is_session_question(q):
-        sql = f"""
-            SELECT
-                middleware_kind,
-                tool_name,
-                bucket,
-                COUNT(*) AS rows,
-                COUNT(DISTINCT session_id) AS sessions,
-                AVG(waited_seconds) AS avg_waited_seconds,
-                AVG(attempt_count) AS avg_attempt_count
-            FROM {prefix}vw_middleware_events
-            GROUP BY 1, 2, 3
-            ORDER BY rows DESC, middleware_kind, tool_name, bucket
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="middleware")
-
     if _is_error_question(q):
         sql = f"""
             SELECT
-                event_name,
-                tool_name,
                 provider,
                 error_type,
-                COUNT(*) AS rows,
-                AVG(duration_ms) AS avg_duration_ms
-            FROM {prefix}vw_error_events
-            GROUP BY 1, 2, 3, 4
-            ORDER BY rows DESC, event_name, tool_name, provider, error_type
+                COUNT(*) AS occurrences,
+                AVG(latency_ms) AS avg_latency_ms,
+                MODE(status) AS common_status
+            FROM {prefix}provider_calls
+            WHERE error_type IS NOT NULL
+            GROUP BY 1, 2
+            UNION ALL
+            SELECT
+                COALESCE(provider, model) AS provider,
+                error_type,
+                COUNT(*) AS occurrences,
+                AVG(duration_ms) AS avg_latency_ms,
+                MODE(status) AS common_status
+            FROM {prefix}rerank_stages
+            WHERE error_type IS NOT NULL
+            GROUP BY 1, 2
+            ORDER BY occurrences DESC, provider, error_type
             LIMIT {limit}
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="error")
@@ -202,50 +267,23 @@ def build_analytics_query_plan(
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="eval")
 
-    if _is_fetch_question(q):
-        sql = f"""
-            SELECT
-                fetch_backend,
-                status,
-                COUNT(*) AS rows,
-                AVG(page_char_count) AS avg_page_chars,
-                AVG(word_count) AS avg_word_count,
-                SUM(CASE WHEN window_has_more THEN 1 ELSE 0 END) AS partial_windows
-            FROM {prefix}vw_fetch_events
-            GROUP BY 1, 2
-            ORDER BY rows DESC, fetch_backend, status
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="fetch")
-
-    if _is_content_question(q):
-        sql = f"""
-            SELECT
-                content_event_kind,
-                stage,
-                status,
-                reason,
-                COUNT(*) AS rows,
-                AVG(word_count) AS avg_word_count,
-                AVG(size_bytes) AS avg_size_bytes
-            FROM {prefix}vw_content_events
-            GROUP BY 1, 2, 3, 4
-            ORDER BY rows DESC, content_event_kind, stage
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="content")
-
     if _is_recent_events_question(q):
         sql = f"""
             SELECT
                 recorded_at,
-                event_name,
-                tool_name,
-                provider,
-                cache_hit,
                 query,
-                normalized_query
-            FROM {prefix}vw_events
+                intent,
+                status_label,
+                final_result_count,
+                latency_tier,
+                duration_s,
+                rewrite_enabled,
+                rewrite_model,
+                rewrite_latency_s,
+                rewrite_error,
+                selected_providers,
+                skipped_providers
+            FROM {prefix}vw_run_summary
             ORDER BY recorded_at DESC
             LIMIT {limit}
         """
@@ -253,7 +291,7 @@ def build_analytics_query_plan(
 
     raise ValueError(
         "Could not classify the analytics question. "
-        "Supported topics: cache, provider, middleware/session, error, eval, fetch, content, recent events."
+        "Supported topics: rerank, latency, run quality, provider, error, eval, recent events."
     )
 
 

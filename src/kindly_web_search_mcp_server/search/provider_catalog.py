@@ -5,35 +5,41 @@ from __future__ import annotations
 from pydantic import Field
 
 from ..settings import settings
-from .contracts import ContractModel, ProviderGroup
+from .contracts import ContractModel
 
 
 class ProviderDefinition(ContractModel):
     name: str
-    group: ProviderGroup
+    adapter_module: str
+    adapter_function: str
     all_of: tuple[str, ...] = ()
     any_of: tuple[str, ...] = ()
     description: str
     default_timeout_seconds: float = Field(gt=0)
     requires_embedding: bool = False
+    specialized: bool = False
 
 
 def _definition(
     name: str,
-    group: ProviderGroup,
+    adapter_module: str,
+    adapter_function: str,
     description: str,
     *,
     all_of: tuple[str, ...] = (),
     timeout: float = 10.0,
     requires_embedding: bool = False,
+    specialized: bool = False,
 ) -> ProviderDefinition:
     return ProviderDefinition(
         name=name,
-        group=group,
+        adapter_module=adapter_module,
+        adapter_function=adapter_function,
         all_of=all_of,
         description=description,
         default_timeout_seconds=timeout,
         requires_embedding=requires_embedding,
+        specialized=specialized,
     )
 
 
@@ -44,112 +50,142 @@ def brightdata_provider_call_timeout_seconds() -> float:
 PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
     _definition(
         "searxng",
-        ProviderGroup.FREE,
+        "providers.searxng",
+        "search_searxng",
         "SearXNG metasearch",
         all_of=("SEARXNG_BASE_URL",),
     ),
-    _definition("ddg", ProviderGroup.FREE, "DuckDuckGo search"),
-    _definition("gemma", ProviderGroup.FREE, "Gemini grounded search"),
+    _definition("ddg", "providers.ddg", "search_ddg", "DuckDuckGo search"),
+    _definition("gemma", "providers.gemma_serp", "search_gemma", "Gemini grounded search"),
     _definition(
         "degoog",
-        ProviderGroup.FREE,
+        "providers.degoog",
+        "search_degoog",
         "DeGoog search",
         all_of=("DEGOOG_BASE_URL",),
     ),
     _definition(
         "qdrant",
-        ProviderGroup.FREE,
+        "providers.qdrant",
+        "search_qdrant",
         "Qdrant web index",
         all_of=("QDRANT_SPACE_URL",),
         requires_embedding=True,
     ),
     _definition(
         "composio_llm_search",
-        ProviderGroup.FREE,
+        "providers.composio_llm_search",
+        "search_composio_llm_search",
         "Composio LLM search",
         all_of=("COMPOSIO_API_KEY", "COMPOSIO_USER_ID"),
     ),
     _definition(
         "search_router",
-        ProviderGroup.PAID_SERP,
+        "providers.search_router",
+        "search_search_router",
         "Search Router",
         all_of=("SEARCH_ROUTER_API_KEY",),
     ),
     _definition(
         "brave",
-        ProviderGroup.PAID_SERP,
+        "providers.brave",
+        "search_brave",
         "Brave LLM Context",
         all_of=("BRAVE_API_KEY",),
     ),
     _definition(
         "serper",
-        ProviderGroup.PAID_SERP,
+        "providers.serper",
+        "search_serper",
         "Serper",
         all_of=("SERPER_API_KEY",),
     ),
     _definition(
         "serpapi",
-        ProviderGroup.PAID_SERP,
+        "providers.serpapi",
+        "search_serpapi",
         "SerpAPI",
         all_of=("SERPAPI_API_KEY",),
     ),
     _definition(
         "brightdata",
-        ProviderGroup.PAID_SERP,
+        "providers.brightdata",
+        "search_brightdata",
         "Bright Data Google",
         all_of=("BRIGHTDATA_API_KEY",),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "brightdata_bing",
-        ProviderGroup.PAID_SERP,
+        "providers.brightdata",
+        "search_brightdata",
         "Bright Data Bing",
         all_of=("BRIGHTDATA_API_KEY",),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "brightdata_yandex",
-        ProviderGroup.PAID_SERP,
+        "providers.brightdata",
+        "search_brightdata",
         "Bright Data Yandex",
         all_of=("BRIGHTDATA_API_KEY",),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
         "tavily",
-        ProviderGroup.SPECIALIZED,
+        "providers.tavily",
+        "search_tavily",
         "Tavily",
         all_of=("TAVILY_API_KEY",),
+        specialized=True,
     ),
     _definition(
         "jina",
-        ProviderGroup.SPECIALIZED,
+        "providers.jina",
+        "search_jina",
         "Jina search",
         all_of=("JINA_API_KEY",),
+        specialized=True,
+    ),
+    _definition(
+        "langsearch",
+        "providers.langsearch",
+        "search_langsearch",
+        "LangSearch AI web search",
+        all_of=("LANGSEARCH_API_KEY",),
     ),
     _definition(
         "grok_openrouter",
-        ProviderGroup.SPECIALIZED,
+        "providers.grok",
+        "search_grok_openrouter",
         "Grok via OpenRouter",
         all_of=("OPENROUTER_API_KEY",),
+        specialized=True,
     ),
-    _definition("hackernews", ProviderGroup.SPECIALIZED, "Hacker News"),
-    _definition("reddit", ProviderGroup.SPECIALIZED, "Reddit"),
+    _definition("hackernews", "providers.hackernews", "search_hackernews", "Hacker News", specialized=True),
+    _definition("reddit", "providers.reddit", "search_reddit", "Reddit", specialized=True),
     _definition(
         "github_graphql",
-        ProviderGroup.SPECIALIZED,
+        "providers.github_graphql",
+        "search_github_graphql",
         "GitHub GraphQL",
         all_of=("GITHUB_TOKEN",),
+        specialized=True,
     ),
     _definition(
         "telegram",
-        ProviderGroup.SPECIALIZED,
+        "providers.telegram",
+        "search_telegram",
         "Telegram",
         all_of=("TELEGRAM_API_ID", "TELEGRAM_API_HASH"),
+        specialized=True,
     ),
     _definition(
         "brave_news",
-        ProviderGroup.SPECIALIZED,
+        "providers.brave_news",
+        "search_brave_news",
         "Brave News",
         all_of=("BRAVE_API_KEY",),
+        specialized=True,
     ),
 )

@@ -28,110 +28,103 @@ def _run(sql: str, *, db_path: str | None = None) -> pa.Table:
 
 
 def provider_performance(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Per-provider call stats: volume, success rate, latency percentiles."""
     window = max(1, int(days))
     sql = f"""
-        WITH base AS (
-            SELECT
-                coalesce(provider, json_extract_string(payload_json, '$.provider_name')) AS provider_name,
-                event_name,
-                duration_ms,
-                output_count
-            FROM search_events
-            WHERE event_name IN ('provider.search.result', 'provider.search.error')
-              AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        )
         SELECT
-            provider_name AS provider,
-            COUNT(*) AS calls,
-            COUNT(*) FILTER (WHERE event_name = 'provider.search.result') AS result_events,
-            COUNT(*) FILTER (WHERE event_name = 'provider.search.error') AS error_events,
-            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms) AS p50_ms,
-            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms,
-            AVG(output_count) FILTER (WHERE event_name = 'provider.search.result') AS avg_results
-        FROM base
-        GROUP BY 1
-        ORDER BY p95_ms NULLS LAST, provider
+            provider,
+            COUNT(*) AS total_calls,
+            COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+            COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
+            ROUND(100.0
+                * COUNT(*) FILTER (WHERE status = 'success')
+                / NULLIF(COUNT(*), 0), 1) AS success_rate_pct,
+            ROUND(AVG(latency_ms), 0) AS avg_latency_ms,
+            ROUND(quantile_cont(latency_ms, 0.50), 0) AS p50_latency_ms,
+            ROUND(quantile_cont(latency_ms, 0.95), 0) AS p95_latency_ms,
+            SUM(num_results_returned) AS total_results_returned,
+            MODE(error_type) AS most_common_error
+        FROM provider_calls
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY provider
+        ORDER BY total_calls DESC, provider
     """
     return _run(sql, db_path=db_path)
 
 
-def cache_hit_rates(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+def rewrite_effectiveness(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Rewrite usage rates and efficiency: adoption, latency, token usage."""
     window = max(1, int(days))
     sql = f"""
         SELECT
-            tool_name,
-            cache_hit,
-            COUNT(*) AS calls
-        FROM search_events
-        WHERE event_name IN ('tool.web_search.response', 'tool.academic_search.response')
-          AND cache_hit IS NOT NULL
-          AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY 1, 2
-        ORDER BY tool_name, cache_hit
-    """
-    return _run(sql, db_path=db_path)
-
-
-def rewrite_variant_quality(*, days: int = 7, db_path: str | None = None) -> pa.Table:
-    window = max(1, int(days))
-    sql = f"""
-        SELECT
-            coalesce(json_extract_string(payload_json, '$.policy'), 'unknown') AS policy,
-            coalesce(json_extract_string(payload_json, '$.intent'), 'unknown') AS intent,
-            COUNT(*) AS rewrites,
-            AVG(input_count) AS avg_variant_count,
-            AVG(output_count) AS avg_final_query_count
-        FROM search_events
-        WHERE event_name = 'query.rewrite.completed'
-          AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY 1, 2
-        ORDER BY rewrites DESC, policy, intent
-    """
-    return _run(sql, db_path=db_path)
-
-
-def fetch_quality(*, days: int = 30, db_path: str | None = None) -> pa.Table:
-    window = max(1, int(days))
-    sql = f"""
-        SELECT
-            coalesce(json_extract_string(payload_json, '$.fetch_backend'), 'unknown') AS fetch_backend,
-            coalesce(json_extract_string(payload_json, '$.status'), 'unknown') AS status,
-            COUNT(*) AS fetches,
-            AVG(LENGTH(coalesce(json_extract_string(payload_json, '$.page_content'), ''))) AS avg_chars
-        FROM search_events
-        WHERE event_name = 'tool.get_content.response'
-          AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY 1, 2
-        ORDER BY fetches DESC, fetch_backend, status
+            rewrite_enabled,
+            COALESCE(rewrite_model, 'none') AS rewrite_model,
+            COALESCE(intent, 'unknown') AS intent,
+            COUNT(*) AS runs,
+            ROUND(AVG(rewrite_latency_ms), 1) AS avg_rewrite_latency_ms,
+            ROUND(quantile_cont(rewrite_latency_ms, 0.95), 1) AS p95_rewrite_latency_ms,
+            AVG(rewrite_input_tokens) AS avg_input_tokens,
+            AVG(rewrite_output_tokens) AS avg_output_tokens,
+            COUNT(*) FILTER (WHERE rewrite_error IS NOT NULL) AS rewrite_errors,
+            ROUND(100.0
+                * COUNT(*) FILTER (WHERE rewrite_error IS NOT NULL)
+                / NULLIF(COUNT(*), 0), 2) AS rewrite_error_rate_pct
+        FROM search_runs
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY rewrite_enabled, rewrite_model, intent
+        ORDER BY runs DESC, rewrite_enabled DESC, rewrite_model, intent
     """
     return _run(sql, db_path=db_path)
 
 
 def error_taxonomy(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Errors from provider_calls + rerank_stages, tagged by provider/stage."""
     window = max(1, int(days))
     sql = f"""
         SELECT
-            event_name,
-            coalesce(tool_name, json_extract_string(payload_json, '$.tool_name'), 'unknown') AS tool_name,
-            coalesce(provider, json_extract_string(payload_json, '$.provider'), json_extract_string(payload_json, '$.provider_name'), 'unknown') AS provider,
-            coalesce(json_extract_string(payload_json, '$.error_type'), 'unknown') AS error_type,
+            source,
+            provider,
+            stage,
+            error_type,
             COUNT(*) AS errors,
-            AVG(duration_ms) AS avg_duration_ms
-        FROM search_events
-        WHERE event_name LIKE '%.error'
-          AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY 1, 2, 3, 4
-        ORDER BY errors DESC, event_name, tool_name, provider, error_type
+            ROUND(AVG(duration_ms), 1) AS avg_duration_ms,
+            COUNT(DISTINCT run_key) AS affected_runs
+        FROM (
+            SELECT
+                'provider_call' AS source,
+                provider,
+                'provider_call' AS stage,
+                COALESCE(error_type, 'unknown') AS error_type,
+                latency_ms AS duration_ms,
+                run_key
+            FROM provider_calls
+            WHERE error_type IS NOT NULL
+              AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+            UNION ALL
+            SELECT
+                'rerank_stage' AS source,
+                COALESCE(provider, 'unknown') AS provider,
+                COALESCE(stage, 'unknown') AS stage,
+                COALESCE(error_type, 'unknown') AS error_type,
+                duration_ms,
+                run_key
+            FROM rerank_stages
+            WHERE error_type IS NOT NULL
+              AND recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        ) t
+        GROUP BY source, provider, stage, error_type
+        ORDER BY errors DESC, source, provider, stage, error_type
     """
     return _run(sql, db_path=db_path)
 
 
 def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Funnel: provider_call candidates → merged candidates → final results."""
     window = max(1, int(days))
     sql = f"""
         WITH stage_rows AS (
             SELECT
-                'provider' AS stage,
+                'provider_call' AS stage,
                 p.recorded_at,
                 p.run_key,
                 urls.url
@@ -163,7 +156,7 @@ def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table
         FROM stage_rows
         GROUP BY 1
         ORDER BY CASE stage
-            WHEN 'provider' THEN 1
+            WHEN 'provider_call' THEN 1
             WHEN 'merged' THEN 2
             WHEN 'final' THEN 3
             ELSE 99
@@ -173,57 +166,163 @@ def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table
 
 
 def eval_quality_summary(*, days: int = 30, db_path: str | None = None) -> pa.Table:
+    """Eval quality aggregated per suite/tool from vw_eval_provider_quality."""
     window = max(1, int(days))
     sql = f"""
-        WITH case_observations AS (
+        SELECT
+            suite_name,
+            target_tool,
+            COUNT(*) AS cases,
+            SUM(passes) AS passes,
+            SUM(fails) AS fails,
+            ROUND(100.0 * SUM(passes) / NULLIF(SUM(passes) + SUM(fails), 0), 1) AS pass_rate_pct,
+            ROUND(AVG(avg_score), 3) AS avg_score
+        FROM vw_eval_provider_quality
+        WHERE eval_run_id IN (
+            SELECT eval_run_id
+            FROM eval_runs
+            WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        )
+        GROUP BY suite_name, target_tool
+        ORDER BY cases DESC, suite_name, target_tool
+    """
+    return _run(sql, db_path=db_path)
+
+
+def latency_breakdown(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Per-stage latency waterfall: rewrite → provider → merge → rerank."""
+    window = max(1, int(days))
+    sql = f"""
+        WITH run_timings AS (
             SELECT
-                eval_case_id,
-                AVG(score) AS avg_observation_score,
-                COUNT(*) FILTER (WHERE verdict = 'pass') AS passes,
-                COUNT(*) FILTER (WHERE verdict = 'fail') AS fails
-            FROM eval_observations
-            GROUP BY 1
+                sr.run_key,
+                sr.recorded_at,
+                sr.duration_ms AS total_duration_ms,
+                sr.branch_count,
+                sr.status,
+                -- rewrite stage (0 if skipped)
+                COALESCE(sr.rewrite_latency_ms, 0) AS rewrite_latency_ms,
+                -- merge stage (approximate: sr.merged_count rows processed)
+                0.0 AS merge_latency_ms,
+                -- rerank stages aggregated
+                (SELECT SUM(COALESCE(rs.duration_ms, 0))
+                 FROM rerank_stages rs
+                 WHERE rs.run_key = sr.run_key) AS rerank_latency_ms,
+                -- provider stage residual (total - everything else)
+                GREATEST(sr.duration_ms
+                    - COALESCE(sr.rewrite_latency_ms, 0)
+                    - (SELECT SUM(COALESCE(rs.duration_ms, 0))
+                       FROM rerank_stages rs
+                       WHERE rs.run_key = sr.run_key),
+                    0) AS provider_latency_ms
+            FROM search_runs sr
+            WHERE sr.recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+              AND sr.status = 'success'
         ),
-        llm_scores AS (
-            SELECT
-                eval_case_id,
-                COUNT(*) AS score_rows,
-                AVG(score_value) AS avg_llm_score
-            FROM llm_quality_scores
-            GROUP BY 1
+        stage_samples AS (
+            SELECT run_key, recorded_at, status, branch_count,
+                   rewrite_latency_ms, provider_latency_ms,
+                   merge_latency_ms, rerank_latency_ms,
+                   total_duration_ms
+            FROM run_timings
         )
         SELECT
-            r.suite_name,
-            c.target_tool,
-            COUNT(DISTINCT c.eval_case_id) AS cases,
-            COUNT(DISTINCT r.eval_run_id) AS runs,
-            SUM(COALESCE(o.passes, 0)) AS passes,
-            SUM(COALESCE(o.fails, 0)) AS fails,
-            AVG(o.avg_observation_score) AS avg_score,
-            SUM(COALESCE(q.score_rows, 0)) AS llm_score_rows,
-            AVG(q.avg_llm_score) AS avg_llm_score
-        FROM eval_runs AS r
-        LEFT JOIN eval_cases AS c
-          ON c.eval_run_id = r.eval_run_id
-        LEFT JOIN case_observations AS o
-          ON o.eval_case_id = c.eval_case_id
-        LEFT JOIN llm_scores AS q
-          ON q.eval_case_id = c.eval_case_id
-        WHERE r.created_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY 1, 2
-        ORDER BY cases DESC, suite_name, target_tool
+            'total' AS stage,
+            COUNT(*) AS runs,
+            ROUND(AVG(total_duration_ms), 1) AS avg_duration_ms,
+            ROUND(quantile_cont(total_duration_ms, 0.50), 1) AS p50_ms,
+            ROUND(quantile_cont(total_duration_ms, 0.95), 1) AS p95_ms
+        FROM stage_samples
+        UNION ALL
+        SELECT
+            'rewrite' AS stage,
+            COUNT(*) FILTER (WHERE rewrite_latency_ms > 0) AS runs,
+            ROUND(AVG(rewrite_latency_ms) FILTER (WHERE rewrite_latency_ms > 0), 1) AS avg_duration_ms,
+            ROUND(quantile_cont(rewrite_latency_ms, 0.50), 1) AS p50_ms,
+            ROUND(quantile_cont(rewrite_latency_ms, 0.95), 1) AS p95_ms
+        FROM stage_samples
+        UNION ALL
+        SELECT
+            'provider_fetch' AS stage,
+            COUNT(*) AS runs,
+            ROUND(AVG(provider_latency_ms), 1) AS avg_duration_ms,
+            ROUND(quantile_cont(provider_latency_ms, 0.50), 1) AS p50_ms,
+            ROUND(quantile_cont(provider_latency_ms, 0.95), 1) AS p95_ms
+        FROM stage_samples
+        UNION ALL
+        SELECT
+            'merge_dedup' AS stage,
+            COUNT(*) FILTER (WHERE merge_latency_ms > 0) AS runs,
+            ROUND(AVG(merge_latency_ms) FILTER (WHERE merge_latency_ms > 0), 1) AS avg_duration_ms,
+            ROUND(quantile_cont(merge_latency_ms, 0.50), 1) AS p50_ms,
+            ROUND(quantile_cont(merge_latency_ms, 0.95), 1) AS p95_ms
+        FROM stage_samples
+        UNION ALL
+        SELECT
+            'rerank' AS stage,
+            COUNT(*) FILTER (WHERE rerank_latency_ms > 0) AS runs,
+            ROUND(AVG(rerank_latency_ms) FILTER (WHERE rerank_latency_ms > 0), 1) AS avg_duration_ms,
+            ROUND(quantile_cont(rerank_latency_ms, 0.50), 1) AS p50_ms,
+            ROUND(quantile_cont(rerank_latency_ms, 0.95), 1) AS p95_ms
+        FROM stage_samples
+        ORDER BY CASE stage
+            WHEN 'total' THEN 1
+            WHEN 'rewrite' THEN 2
+            WHEN 'provider_fetch' THEN 3
+            WHEN 'merge_dedup' THEN 4
+            WHEN 'rerank' THEN 5
+            ELSE 99
+        END
+    """
+    return _run(sql, db_path=db_path)
+
+
+def provider_final_contribution(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Which providers survive into final_results and how often."""
+    window = max(1, int(days))
+    sql = f"""
+        WITH provider_results AS (
+            SELECT
+                run_key,
+                provider,
+                COUNT(*) AS result_count,
+                SUM(provider_count) AS total_provider_count
+            FROM final_results,
+                 UNNEST(providers) AS t(provider)
+            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+            GROUP BY run_key, provider
+        ),
+        run_totals AS (
+            SELECT
+                run_key,
+                SUM(result_count) AS results_in_run
+            FROM provider_results
+            GROUP BY run_key
+        )
+        SELECT
+            pr.provider,
+            COUNT(*) AS runs_appeared,
+            SUM(pr.result_count) AS total_results,
+            ROUND(100.0 * SUM(pr.result_count) / NULLIF(SUM(rt.results_in_run), 0), 1) AS avg_share_pct,
+            COUNT(*) FILTER (WHERE pr.result_count = 1) AS sole_result_count,
+            COUNT(*) FILTER (WHERE pr.result_count > 1) AS multi_result_count,
+            ROUND(AVG(pr.result_count), 2) AS avg_results_per_run
+        FROM provider_results pr
+        JOIN run_totals rt ON rt.run_key = pr.run_key
+        GROUP BY pr.provider
+        ORDER BY total_results DESC, pr.provider
     """
     return _run(sql, db_path=db_path)
 
 
 _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "provider-performance": provider_performance,
-    "cache-hit-rates": cache_hit_rates,
-    "rewrite-variant-quality": rewrite_variant_quality,
-    "fetch-quality": fetch_quality,
+    "rewrite-effectiveness": rewrite_effectiveness,
     "error-taxonomy": error_taxonomy,
     "candidate-survival": candidate_survival,
     "eval-quality-summary": eval_quality_summary,
+    "latency-breakdown": latency_breakdown,
+    "provider-final-contribution": provider_final_contribution,
 }
 
 

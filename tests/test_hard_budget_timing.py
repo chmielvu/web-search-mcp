@@ -42,13 +42,13 @@ class TestHardBudgetTiming(unittest.IsolatedAsyncioTestCase):
 
             from kindly_web_search_mcp_server.search.provider_catalog import (
                 ProviderDefinition,
-                ProviderGroup,
             )
 
             def mock_get_def(name):
                 return ProviderDefinition(
                     name=name,
-                    group=ProviderGroup.FREE,
+                    adapter_module="ddg",
+                    adapter_function="search_ddg",
                     description="mock",
                     default_timeout_seconds=5.0,
                 )

@@ -16,7 +16,7 @@ class TestTavilyParsing(unittest.TestCase):
         async def run() -> None:
             os.environ["TAVILY_API_KEY"] = "tvly_test"
 
-            from kindly_web_search_mcp_server.search.tavily import search_tavily
+            from kindly_web_search_mcp_server.search.providers.tavily import search_tavily
 
             tavily_payload = {
                 "query": "leo messi",

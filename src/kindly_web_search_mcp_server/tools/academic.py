@@ -106,7 +106,7 @@ async def academic_search(
     await ctx.report_progress(progress=20, total=100, message="Searching academic sources...")
 
     async def _execute_academic_search() -> dict:
-        from ..search.academic_search_orchestrator import run_academic_search
+        from ..search.academic.academic_search_orchestrator import run_academic_search
 
         result = await run_academic_search(
             query,

@@ -28,13 +28,13 @@ def _mock_searxng_settings(**overrides: object) -> MagicMock:
     return mock_settings
 
 
-_SETTINGS_PATCH = "kindly_web_search_mcp_server.search.searxng.settings"
+_SETTINGS_PATCH = "kindly_web_search_mcp_server.search.providers.searxng.settings"
 
 
 class TestSearxngParsing(unittest.TestCase):
     def test_search_searxng_parses_results(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import search_searxng
+            from kindly_web_search_mcp_server.search.providers.searxng import search_searxng
 
             payload = {
                 "query": "searxng",
@@ -75,7 +75,7 @@ class TestSearxngParsing(unittest.TestCase):
     def test_search_searxng_passes_optional_params_and_headers(self) -> None:
         async def run() -> None:
             from kindly_web_search_mcp_server.search.options import build_search_options
-            from kindly_web_search_mcp_server.search.searxng import search_searxng
+            from kindly_web_search_mcp_server.search.providers.searxng import search_searxng
 
             search_options = build_search_options(
                 searxng_categories=["general"],
@@ -138,7 +138,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_skips_malformed_items(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import search_searxng
+            from kindly_web_search_mcp_server.search.providers.searxng import search_searxng
 
             payload = {
                 "results": [
@@ -165,7 +165,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_raises_on_403(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import (
+            from kindly_web_search_mcp_server.search.providers.searxng import (
                 SearxngError,
                 search_searxng,
             )
@@ -185,7 +185,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_raises_on_429(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import (
+            from kindly_web_search_mcp_server.search.providers.searxng import (
                 SearxngError,
                 search_searxng,
             )
@@ -205,7 +205,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_raises_on_invalid_json(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import (
+            from kindly_web_search_mcp_server.search.providers.searxng import (
                 SearxngError,
                 search_searxng,
             )
@@ -225,7 +225,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_raises_on_invalid_headers_json(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import (
+            from kindly_web_search_mcp_server.search.providers.searxng import (
                 SearxngConfigError,
                 search_searxng,
             )
@@ -244,7 +244,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_rejects_invalid_base_url(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import (
+            from kindly_web_search_mcp_server.search.providers.searxng import (
                 SearxngConfigError,
                 search_searxng,
             )
@@ -258,7 +258,7 @@ class TestSearxngParsing(unittest.TestCase):
 
     def test_search_searxng_user_agent_from_headers_json_wins(self) -> None:
         async def run() -> None:
-            from kindly_web_search_mcp_server.search.searxng import search_searxng
+            from kindly_web_search_mcp_server.search.providers.searxng import search_searxng
 
             captured_user_agent = None
 
@@ -284,7 +284,7 @@ class TestSearxngParsing(unittest.TestCase):
 class TestEngineLevelRRF(unittest.TestCase):
     def test_multi_engine_results_score_higher(self) -> None:
         from kindly_web_search_mcp_server.models import WebSearchResult
-        from kindly_web_search_mcp_server.search.searxng import (
+        from kindly_web_search_mcp_server.search.providers.searxng import (
             _reciprocal_rank_fusion_by_engine,
         )
 
@@ -315,7 +315,7 @@ class TestEngineLevelRRF(unittest.TestCase):
 
     def test_consensus_bonus_applied(self) -> None:
         from kindly_web_search_mcp_server.models import WebSearchResult
-        from kindly_web_search_mcp_server.search.searxng import (
+        from kindly_web_search_mcp_server.search.providers.searxng import (
             _apply_engine_consensus_bonus,
         )
 

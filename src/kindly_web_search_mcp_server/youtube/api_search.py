@@ -16,7 +16,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..search.base_provider import run_provider
+from ..search.providers.base import run_provider
 from .models import YouTubeApiError
 from .api_quota import get_youtube_api_quota_tracker
 

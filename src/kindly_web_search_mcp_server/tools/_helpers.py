@@ -67,7 +67,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tool_search_enabled": settings.tool_search_enabled,
         },
         "features": {
-            "reranking_enabled": settings.reranking_enabled,
+            "reranking_enabled": settings.rerank_entity_overlap_enabled,
             "judge_evaluation_enabled": settings.judge_evaluation_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
             "analytics_enabled": settings.analytics_enabled,
@@ -78,6 +78,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tavily": bool(os.environ.get("TAVILY_API_KEY")),
             "brave": bool(os.environ.get("BRAVE_API_KEY")),
             "jina": bool(os.environ.get("JINA_API_KEY")),
+            "langsearch": bool(os.environ.get("LANGSEARCH_API_KEY")),
             "cohere": bool(settings.cohere_api_key),
             "openrouter": bool(settings.openrouter_api_key),
             "gemini": bool(settings.gemini_api_key),
@@ -94,7 +95,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "voyage_rerank_model": settings.voyage_rerank_model,
             "jina_rerank_model": settings.jina_rerank_model,
             "judge_model": settings.judge_model,
-            "rerank_llm_timeout_seconds": settings.rerank_llm_timeout_seconds,
+            "rankllm_timeout_seconds": settings.rankllm_timeout_seconds,
             "grok_model": settings.grok_model,
             "gliner_model": settings.gliner_model,
         },
@@ -107,22 +108,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "cohere_rerank": settings.cohere_rerank_timeout,
             "openrouter_rerank": settings.openrouter_rerank_timeout,
             "judge": settings.judge_timeout_seconds,
-        },
-    }
-
-
-def _cache_stats_snapshot() -> dict[str, object]:
-    """Return public cache topology and configured limits."""
-    from ..cache.page_cache import PAGE_CACHE_DEFAULT_TTL_SECONDS
-
-    return {
-        "exact_query_cache": {
-            "backend": "removed",
-        },
-        "page_cache": {
-            "backend": "duckdb",
-            "path": settings.page_cache_duckdb_path,
-            "ttl_seconds": PAGE_CACHE_DEFAULT_TTL_SECONDS,
         },
     }
 

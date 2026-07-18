@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...search.gemini_search_tool import gemini_search_with_grounding
-from ...search.grok import grok_search
+from ...search.providers.grok import grok_search
 
 
 async def fetch_gemini_search_payload(

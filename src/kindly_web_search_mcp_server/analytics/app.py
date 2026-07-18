@@ -7,10 +7,10 @@ what each row means.
 
 Six tabs are available:
 
-  Events    — the raw event log, newest first (searches, rewrites, caches, …)
-  Cache     — cache hit/miss breakdown with similarity scores
+  Overview  — daily volume, provider share, and error breakdown charts
+  Events    — the raw run log, newest first, from vw_run_summary
   Providers — which search backends fired and how they scored
-  Errors    — failure/timeout counts by type and tool
+  Errors    — failure/timeout counts by type and source
   Evals     — automated eval suite pass/fail results
   Schema    — every table and view with all column definitions
 

@@ -58,3 +58,11 @@ python -m pytest --basetemp=.pytest-tmp tests/test_provider_registry.py tests/te
 Keep provider errors attributed and nonfatal when another provider returns
 usable rows. Caller cancellation must cancel and await every child task before
 being re-raised.
+
+## Cold-Start Import Warm-Up
+
+- `keyword_extract.py` keeps `rake_nltk` at module level (not lazy inside `_rake_extract`).
+- `llm/router.py` keeps `openai.resources.chat` pre-imported.
+- `server.py:_warm_heavy_imports()` is called from `main()` before `mcp.run()`.
+- These prevent the Python global import lock from blocking the event loop
+  during the first tool call under stdio transport.

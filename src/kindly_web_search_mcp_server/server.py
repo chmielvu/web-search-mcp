@@ -32,25 +32,26 @@ from .tools._helpers import (
 )
 from .tools.academic import academic_search
 from .tools.ai_search import gemini_search, grok_search
-from .tools.catalog import tool_kwargs
 from .tools.content import batch_get_content, discover_links, get_content
 from .tools.profiles import apply_tool_profile
-from .tools.prompts import web_search_workflow_prompt
+from .tools.catalog import tool_kwargs
+from .tools.prompts import query_refinement_prompt, web_search_workflow_prompt
 from .tools.resources import (
     get_analytics_report_resource,
     get_analytics_schema_resource,
-    get_cache_hit_rates_resource,
-    get_cache_stats_resource,
     get_candidate_survival_resource,
+    get_features_status_resource,
+    get_providers_status_resource,
     get_public_settings_resource,
+    get_workflow_doc_resource,
 )
 from .tools.search import web_search
 from .tools.sitemap import generate_sitemap
-from .tools.status import get_features_status, get_providers_status
-from .tools.workflow import get_workflow_doc
 from .tools.youtube import youtube_search, youtube_transcript
 from .utils.logging import configure_logging
 from .utils.observability import emit_observability_event
+
+from .analytics.app import analytics_app
 
 configure_logging()
 init_telemetry_background(service_name="web-search-mcp")
@@ -58,15 +59,14 @@ LOGGER = logging.getLogger(__name__)
 
 import argparse
 import sys
-from types import MethodType
-from typing import Any, Literal
+from typing import Literal
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import NotFoundError
 
 mcp = FastMCP(
     "web-search",
     lifespan=_app_lifespan,
+    providers=[analytics_app],
     instructions=(
         "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
         "with rewrite=true by default. Use get_content for one known URL; "
@@ -101,131 +101,11 @@ from .middleware import create_dynamic_guidance_middleware
 mcp.add_middleware(create_dynamic_guidance_middleware())
 register_composio_tools(mcp)
 
+# Expose prompts and resources as tools for clients that only support the tools protocol.
+from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 
-_base_list_resources = mcp.list_resources
-_base_list_resource_templates = mcp.list_resource_templates
-_base_read_resource = mcp.read_resource
-_base_list_prompts = mcp.list_prompts
-_base_render_prompt = mcp.render_prompt
-
-
-async def _compat_list_resources(self: FastMCP, *, run_middleware: bool = True) -> list[Any]:  # type: ignore[override]
-    """Merge local function resources with the public FastMCP resource list.
-
-    FastMCP 3.4.0 exposes local `@mcp.resource` entries via `_list_resources()`
-    in this server, but the public `list_resources()` path currently returns only
-    mounted app prefab resources. Keep the stock behavior, then append any missing
-    no-auth local resources by URI.
-    """
-    listed = list(await _base_list_resources(run_middleware=run_middleware))
-    existing_uris = {str(getattr(item, "uri", "")) for item in listed}
-    for resource in await self._list_resources():
-        uri = str(getattr(resource, "uri", ""))
-        if not uri or uri in existing_uris:
-            continue
-        if getattr(resource, "auth", None) is not None:
-            continue
-        listed.append(resource)
-        existing_uris.add(uri)
-    return listed
-
-
-async def _compat_read_resource(
-    self: FastMCP,
-    uri: str,
-    *,
-    version: object = None,
-    run_middleware: bool = True,
-    task_meta: object = None,
-):
-    """Fallback to local function-resource resolution when public lookup misses."""
-    try:
-        return await _base_read_resource(  # type: ignore[call-overload]
-            uri,
-            version=version,  # type: ignore[arg-type]
-            run_middleware=run_middleware,
-            task_meta=task_meta,  # type: ignore[arg-type]
-        )
-    except NotFoundError:
-        resource = await self._get_resource(uri, version=version)  # type: ignore[arg-type]
-        if resource is not None and getattr(resource, "auth", None) is None:
-            return await resource._read(task_meta=task_meta)  # type: ignore[arg-type]
-
-        template = await self._get_resource_template(uri, version=version)  # type: ignore[arg-type]
-        if template is None or getattr(template, "auth", None) is not None:
-            raise
-        params = template.matches(uri)
-        if params is None:
-            raise
-        return await template._read(uri, params, task_meta=task_meta)  # type: ignore[arg-type]
-
-
-mcp.list_resources = MethodType(_compat_list_resources, mcp)
-mcp.read_resource = MethodType(_compat_read_resource, mcp)
-
-
-async def _compat_list_resource_templates(
-    self: FastMCP, *, run_middleware: bool = True
-) -> list[Any]:  # type: ignore[override]
-    """Merge local function resource templates with the public template list."""
-    listed = list(await _base_list_resource_templates(run_middleware=run_middleware))
-    existing_uris = {str(getattr(item, "uri_template", "")) for item in listed}
-    for template in await self._list_resource_templates():
-        uri_template = str(getattr(template, "uri_template", ""))
-        if not uri_template or uri_template in existing_uris:
-            continue
-        if getattr(template, "auth", None) is not None:
-            continue
-        listed.append(template)
-        existing_uris.add(uri_template)
-    return listed
-
-
-mcp.list_resource_templates = MethodType(_compat_list_resource_templates, mcp)
-
-
-async def _compat_list_prompts(self: FastMCP, *, run_middleware: bool = True) -> list[Any]:  # type: ignore[override]
-    """Merge local function prompts with the public FastMCP prompt list."""
-    listed = list(await _base_list_prompts(run_middleware=run_middleware))
-    existing_names = {str(getattr(item, "name", "")) for item in listed}
-    for prompt in await self._list_prompts():
-        name = str(getattr(prompt, "name", ""))
-        if not name or name in existing_names:
-            continue
-        if getattr(prompt, "auth", None) is not None:
-            continue
-        listed.append(prompt)
-        existing_names.add(name)
-    return listed
-
-
-async def _compat_render_prompt(
-    self: FastMCP,
-    name: str,
-    arguments: dict[str, object] | None = None,
-    *,
-    version: object = None,
-    run_middleware: bool = True,
-    task_meta: object = None,
-):
-    """Fallback to local function-prompt resolution when public lookup misses."""
-    try:
-        return await _base_render_prompt(  # type: ignore[call-overload]
-            name,
-            arguments,
-            version=version,  # type: ignore[arg-type]
-            run_middleware=run_middleware,
-            task_meta=task_meta,  # type: ignore[arg-type]
-        )
-    except NotFoundError:
-        prompt = await self._get_prompt(name, version=version)  # type: ignore[arg-type]
-        if prompt is None or getattr(prompt, "auth", None) is not None:
-            raise
-        return await prompt._render(arguments, task_meta=task_meta)  # type: ignore[arg-type]
-
-
-mcp.list_prompts = MethodType(_compat_list_prompts, mcp)
-mcp.render_prompt = MethodType(_compat_render_prompt, mcp)
+mcp.add_transform(PromptsAsTools(mcp))
+mcp.add_transform(ResourcesAsTools(mcp))
 
 
 # Register tools
@@ -242,23 +122,26 @@ mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 
 
 # Register resources
-mcp.resource("status://providers")(get_providers_status)
-mcp.resource("status://features")(get_features_status)
-mcp.resource("docs://workflow")(get_workflow_doc)
+mcp.resource("status://providers")(get_providers_status_resource)
+mcp.resource("status://features")(get_features_status_resource)
+mcp.resource("docs://workflow")(get_workflow_doc_resource)
 mcp.resource("settings://public")(get_public_settings_resource)
-mcp.resource("cache://stats")(get_cache_stats_resource)
 mcp.resource("analytics://schema")(get_analytics_schema_resource)
 mcp.resource("analytics://candidate-survival")(get_candidate_survival_resource)
-mcp.resource("analytics://cache-hit-rates")(get_cache_hit_rates_resource)
-mcp.resource("analytics://reports/{report_name}{?days}")(get_analytics_report_resource)
+mcp.resource("analytics://reports/{report_name}")(get_analytics_report_resource)
 
 
 # Register prompts
 mcp.prompt(
     name="web_search_workflow",
-    description="Placeholder prompt — content to be written.",
+    description="Guided research workflow with depth/focus routing.",
     tags={"research", "workflow"},
 )(web_search_workflow_prompt)
+mcp.prompt(
+    name="query_refinement",
+    description="Plan query variants and rewrites after a failed or sparse search.",
+    tags={"research", "workflow"},
+)(query_refinement_prompt)
 
 
 Transport = Literal["stdio", "sse", "streamable-http"]
@@ -344,6 +227,21 @@ def _resolve_host_port(host: str | None, port: int | None) -> tuple[str, int]:
     return resolved_host, resolved_port
 
 
+def _warm_heavy_imports() -> None:
+    """Pre-import modules with expensive lazy dependencies.
+
+    ``search.keyword_extract`` imports ``nltk`` → ``scipy`` (~11s).
+    ``llm.router`` imports ``openai.resources.chat``, which contends with
+    other lazy imports for the global import lock under stdio transport.
+    Calling this from ``main()`` before ``mcp.run()`` ensures the work
+    happens during server startup, not during the first tool call.
+    """
+    import importlib
+
+    importlib.import_module(".search.keyword_extract", package=__package__)
+    importlib.import_module(".llm.router", package=__package__)
+
+
 def main(argv: list[str] | None = None) -> None:
     # Set high recursion limit for deep query trees if needed
     sys.setrecursionlimit(2000)
@@ -376,6 +274,7 @@ def main(argv: list[str] | None = None) -> None:
             if hasattr(mcp, "settings") and hasattr(mcp.settings, key):  # type: ignore[attr-defined]
                 setattr(mcp.settings, key, value)  # type: ignore[attr-defined]
 
+    _warm_heavy_imports()
     try:
         mcp.run(transport=transport, mount_path=args.mount_path, show_banner=False)
     except TypeError:

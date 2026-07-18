@@ -23,3 +23,15 @@
 ## [2026-07-16T22:34:59.432Z] ensure_page
 - page_type: "concept", title: "FastMCP v3 Modern Capabilities Reference", path: "concepts/fastmcp-v3-modern-capabilities-reference"
 
+## [2026-07-17T11:15:36.832Z] observe
+- slug: "obs-2026-07-17-providergroup-staleness-in-search-package", title: "ProviderGroup staleness in search package", relevance: "high"
+
+## [2026-07-17T11:15:36.880Z] observe
+- slug: "obs-2026-07-17-providerdefinition-dual-declaration-fix", title: "ProviderDefinition dual declaration fix", relevance: "high"
+
+## [2026-07-17T11:15:36.885Z] observe
+- slug: "obs-2026-07-17-brd-json-1-stale-code-in-bright-data-builders", title: "brd_json=1 stale code in Bright Data builders", relevance: "high"
+
+## [2026-07-17T17:48:26.508Z] observe
+- slug: "obs-2026-07-17-fastmcp-v3-server-analytics-dashboard-overhaul-completed", title: "FastMCP v3 server + analytics dashboard overhaul completed", relevance: "high"
+

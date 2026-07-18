@@ -11,13 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 class TestHackerNewsProvider(unittest.IsolatedAsyncioTestCase):
     async def test_irrelevant_query_skips_hackernews(self) -> None:
-        from kindly_web_search_mcp_server.search.hackernews import search_hackernews
+        from kindly_web_search_mcp_server.search.providers.hackernews import search_hackernews
 
         results = await search_hackernews("pizza near me", num_results=5)
         self.assertEqual(results, [])
 
     async def test_discussion_query_searches_story_and_comments(self) -> None:
-        import kindly_web_search_mcp_server.search.hackernews as hackernews
+        import kindly_web_search_mcp_server.search.providers.hackernews as hackernews
 
         story_response = MagicMock()
         story_response.raise_for_status.return_value = None

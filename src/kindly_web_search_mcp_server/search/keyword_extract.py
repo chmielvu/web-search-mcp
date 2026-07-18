@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 
+from rake_nltk import Rake
 
 _MAX_PHRASE_WORDS = 4
 _NOISE_VERBS = frozenset(
@@ -27,7 +28,6 @@ _NOISE_VERBS = frozenset(
 
 def _rake_extract(text: str, max_phrases: int = 8) -> list[str]:
     """Synchronously extract ranked, meaningful phrases with RAKE."""
-    from rake_nltk import Rake
 
     if not text.strip():
         return []
@@ -73,4 +73,3 @@ async def extract_support_terms(
     loop = asyncio.get_running_loop()
     raw_phrases = await loop.run_in_executor(None, _rake_extract, research_goal, max_terms)
     return [_restore_casing(phrase, research_goal) for phrase in raw_phrases]
-

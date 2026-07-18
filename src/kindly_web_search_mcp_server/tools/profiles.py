@@ -39,6 +39,10 @@ def tags_for_profile(profile: str) -> set[str]:
 def apply_tool_profile(mcp: VisibilityServer, profile: str) -> VisibilityServer:
     normalized = normalize_tool_profile(profile)
     mcp.enable(tags=tags_for_profile(normalized), only=True, components={"tool"})
+    # enable(only=True) disables everything via Visibility(False, match_all=True),
+    # then re-enables only matching tools. Resources and prompts must be explicitly
+    # re-enabled since they carry no profile tags.
+    mcp.enable(components={"resource", "template", "prompt"})
     if normalized == "regular":
         mcp.disable(tags={"tool:experimental"}, components={"tool"})
     return mcp

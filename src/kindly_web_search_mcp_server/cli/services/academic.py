@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...search.academic_search_orchestrator import run_academic_search
+from ...search.academic.academic_search_orchestrator import run_academic_search
 
 
 async def fetch_academic_search_payload(

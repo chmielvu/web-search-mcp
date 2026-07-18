@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from kindly_web_search_mcp_server.search.reddit import search_reddit
+from kindly_web_search_mcp_server.search.providers.reddit import search_reddit
 
 
 class _DummyResponse:
@@ -18,7 +18,7 @@ class _DummyResponse:
 
 
 class TestRedditUnit(unittest.IsolatedAsyncioTestCase):
-    @patch("kindly_web_search_mcp_server.search.reddit.settings")
+    @patch("kindly_web_search_mcp_server.search.providers.reddit.settings")
     @patch("asyncio.sleep", new_callable=AsyncMock)
     async def test_reddit_delay_is_configurable(
         self, mock_sleep: AsyncMock, mock_settings: object

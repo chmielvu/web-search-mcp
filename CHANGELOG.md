@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+
+### Fixed - Cold-start stdio timeout
+- Root cause: lazy imports of `openai.resources.chat`, `nltk`, and `scipy` contended for the Python global import lock during the first tool call under stdio transport, blocking the anyio event loop and exceeding the 120s MCP tool timeout.
+- Fixed by pre-importing `openai.resources.chat` in `llm/router.py`, moving `rake_nltk` import to module level in `search/keyword_extract.py`, and adding `_warm_heavy_imports()` in `server.py` called before `mcp.run()`.
+
+### Fixed - Resource and prompt visibility after v3 migration
+- `enable(only=True, components={"tool"})` in `apply_tool_profile` added a blanket `Visibility(False, match_all=True)` that disabled all component types, not just tools. Resources and prompts were hidden because they carry no profile tags.
+- Fixed by adding `mcp.enable(components={"resource", "template", "prompt"})` after the tool-only allowlist.
+
 ### Changed - Conditional RankLLM reranking
 - Reworked the normal search rerank path around full-pool Cohere `rerank-v4.0-fast`, strict RankLLM listwise permutations, OpenRouter-to-Gemini failover, and conditional MMR diversity. RankLLM now receives the normalized query only while the cross-encoder receives the research goal as a separate structured input.
 - Added frozen calibration/evaluation tooling for cross-score thresholds, fusion, diversity, and pipeline replay, plus a 40-pair borderline fixture.

@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Sequence
 
 from ..llm.router import build_worker_router
 from ..telemetry.spans import get_tracer
-from .brave import spellcheck_brave, suggest_brave_queries
+from .providers.brave import spellcheck_brave, suggest_brave_queries
 from .contracts import BranchRole, ContractModel, QueryBranch, SearchPlan, SearchRun
 from .intent_policy import resolve_intent_policy
 from .keyword_extract import extract_support_terms
@@ -22,9 +22,9 @@ _ENRICHMENT_TIMEOUT_SECONDS = 3.0
 
 _ORIGINAL_FREE_CANDIDATES = ("searxng", "ddg", "gemma", "degoog")
 _PAID_BRAVE_CANDIDATES = ("brave",)
+_NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search", "langsearch")
 _PAID_GOOGLE_CANDIDATES = ("brightdata", "serper", "search_router")
 _PAID_OTHER_CANDIDATES = ("brightdata_yandex", "brightdata_bing", "serpapi")
-_NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search")
 
 
 class _RewriteQueries(ContractModel):

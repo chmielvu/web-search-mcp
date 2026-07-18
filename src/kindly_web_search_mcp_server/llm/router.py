@@ -8,6 +8,14 @@ from typing import Any
 
 from huggingface_hub import InferenceClient
 from openai import AsyncOpenAI
+
+# Pre-import openai.resources.chat to avoid first-request lazy-import lock
+# contention. openai.AsyncOpenAI.chat is a lazy @property; its first access
+# imports openai.resources.chat, which contends with other lazy imports
+# (e.g., keyword extraction's nltk/scipy) for the Python global import lock.
+# Pre-loading at module level ensures the import happens at server startup,
+# not during the first stdio tool call, where it blocks the event loop.
+import openai.resources.chat as _openai_chat  # noqa: F401
 from pydantic import BaseModel
 
 from .phoenix_tracing import LLMTraceContext, openinference_context_scope
@@ -42,6 +50,7 @@ def _huggingface_completion(
 
     client = InferenceClient(api_key=endpoint.api_key, timeout=timeout_seconds)
     return client.chat.completions.create(**huggingface_kwargs)
+
 
 @dataclass(frozen=True, slots=True)
 class LLMRouter:

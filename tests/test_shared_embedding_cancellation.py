@@ -58,7 +58,6 @@ async def test_qdrant_cancellation_does_not_cancel_shared_task(
 
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
-        ProviderGroup,
     )
     from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
@@ -70,7 +69,8 @@ async def test_qdrant_cancellation_does_not_cancel_shared_task(
     def mock_get_def(name):
         return ProviderDefinition(
             name=name,
-            group=ProviderGroup.FREE,
+            adapter_module="qdrant",
+            adapter_function="search_qdrant",
             description="mock qdrant",
             default_timeout_seconds=0.1,
             requires_embedding=True,
@@ -196,7 +196,6 @@ async def test_retrieve_budget_uses_bounded_drain_without_cancelling_shared_embe
 ) -> None:
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
-        ProviderGroup,
     )
     from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
@@ -220,7 +219,8 @@ async def test_retrieve_budget_uses_bounded_drain_without_cancelling_shared_embe
     def mock_get_def(name):
         return ProviderDefinition(
             name=name,
-            group=ProviderGroup.FREE,
+            adapter_module="qdrant",
+            adapter_function="search_qdrant",
             description="mock qdrant",
             default_timeout_seconds=0.1,
             requires_embedding=True,
@@ -276,7 +276,6 @@ async def test_retrieve_caller_cancellation_is_reraised_after_bounded_drain(
 ) -> None:
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
-        ProviderGroup,
     )
     from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
@@ -293,7 +292,8 @@ async def test_retrieve_caller_cancellation_is_reraised_after_bounded_drain(
     def mock_get_def(name):
         return ProviderDefinition(
             name=name,
-            group=ProviderGroup.FREE,
+            adapter_module="qdrant",
+            adapter_function="search_qdrant",
             description="mock qdrant",
             default_timeout_seconds=5.0,
             requires_embedding=False,
