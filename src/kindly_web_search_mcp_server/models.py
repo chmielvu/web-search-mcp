@@ -125,6 +125,13 @@ class GetContentResponse(BaseModel):
     error: dict[str, Any] | None = None
     entities: list[EntitySpan] | None = None
     summary: dict[str, Any] | None = None
+    content_quality: str | None = Field(
+        default=None,
+        description="Content quality classification: success, partial, blocked, error, or unsupported.",
+    )
+    content_word_count: int | None = Field(
+        default=None, description="Word count of the full fetched page."
+    )
 
 
 class BatchContentResult(BaseModel):
@@ -144,6 +151,13 @@ class BatchContentResult(BaseModel):
     continuation_notice: str | None = None
     error: dict[str, Any] | None = None
     summary: dict[str, Any] | None = None
+    content_quality: str | None = Field(
+        default=None,
+        description="Content quality classification: success, partial, blocked, error, or unsupported.",
+    )
+    content_word_count: int | None = Field(
+        default=None, description="Word count of the full fetched page."
+    )
 
 
 class DiscoverLinksResponse(BaseModel):

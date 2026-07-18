@@ -530,6 +530,20 @@ class Settings:
     )
 
     # =====================================================================
+    # Firecrawl Cloud (batch scrape primary backend for batch_get_content)
+    # =====================================================================
+    firecrawl_api_key: str = os.environ.get("FIRECRAWL_API_KEY", "")
+    # When set, batch_get_content tries Firecrawl Cloud first.
+    # When empty, Firecrawl is skipped and the existing per-URL pipeline runs.
+
+    firecrawl_api_url: str = os.environ.get("FIRECRAWL_API_URL", "https://api.firecrawl.dev")
+    firecrawl_timeout_seconds: float = float(os.environ.get("FIRECRAWL_TIMEOUT_SECONDS", "60.0"))
+    firecrawl_poll_interval_seconds: float = float(
+        os.environ.get("FIRECRAWL_POLL_INTERVAL_SECONDS", "2.0")
+    )
+    firecrawl_max_poll_seconds: float = float(os.environ.get("FIRECRAWL_MAX_POLL_SECONDS", "120.0"))
+
+    # =====================================================================
     # Camoufox sidecar (stealth-Firefox on VPS)
     # =====================================================================
     camoufox_base_url: str = os.environ.get("CAMOUFOX_BASE_URL", "")

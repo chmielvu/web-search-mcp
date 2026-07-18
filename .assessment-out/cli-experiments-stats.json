@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"experiment_id": "smoke-test-001", "layer": "smoke", "status": "draft", "traffic_pct": 5, "hypothesis": "smoke", "primary_metric": "latency_ms", "guardrail_metrics": [], "started_at": null, "ended_at": null, "winning_variant": null, "variants": [{"variant_key": "control", "weight": 1, "description": "baseline"}, {"variant_key": "treatment", "weight": 1, "description": "smoke"}]}, "meta": {"command": "experiments stats", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:26:31Z"}, "suggested_next": []}

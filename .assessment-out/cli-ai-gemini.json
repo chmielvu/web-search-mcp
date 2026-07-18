@@ -1,0 +1,14 @@
+ERROR:kindly_web_search_mcp_server.search.gemini_search_tool:All Gemini grounding tiers exhausted for query: what changed in fastmcp 2.x transport
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"query": "what changed in fastmcp 2.x transport", "answer": "", "model_used": "gemini-2.5-flash-lite", "structured_output": false, "web_search_queries": [], "grounding_chunks": [], "grounding_supports": [], "url_citations": [], "fallback_chain": ["gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite"], "fallback_reason": "rate_limit: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project spend cap. Learn more at https://ai.google.dev/gemini-api/docs/billing#project-spend-caps. ', 'status': 'RESOURCE_EXHAUSTED'}}", "error": "All fallback models failed. Tried: gemini-3.1-flash-lite, gemini-2.5-flash, gemini-2.5-flash-lite"}, "meta": {"command": "ai gemini", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:21:00Z"}, "suggested_next": []}

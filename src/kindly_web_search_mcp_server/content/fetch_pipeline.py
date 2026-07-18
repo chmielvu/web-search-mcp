@@ -7,6 +7,7 @@ Tier 2: Generic extraction stages (Jina -> Crawl4AI /md -> local BS4 -> Camoufox
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 
 from opentelemetry import trace
@@ -28,6 +29,33 @@ from .stages import _fetch_via_camoufox, _fetch_via_crawl4ai, _fetch_via_jina, _
 LOGGER = logging.getLogger(__name__)
 
 _content_tracer = trace.get_tracer("kindly_web_search_mcp_server.content.fetch_pipeline")
+
+# Stage timeout budgets. Kept tight so later stages (Crawl4AI, local, Camoufox)
+# get a fair shot before the outer tool-level timeout fires.
+_STAGE_TIMEOUTS: dict[str, float] = {
+    "jina": 25.0,
+    "crawl4ai": 30.0,
+    "local": 20.0,
+    "camoufox": 35.0,
+}
+
+# Default total pipeline budget. Mirrors the tool-level default in tools._helpers.
+_DEFAULT_TOTAL_TIMEOUT_SECONDS = 120.0
+
+
+def _resolve_stage_timeout(
+    stage: str,
+    *,
+    start_time: float,
+    total_timeout: float = _DEFAULT_TOTAL_TIMEOUT_SECONDS,
+) -> float:
+    """Return the effective timeout for a pipeline stage.
+
+    Uses the stage's default budget, capped by the remaining total pipeline
+    budget. Always returns at least 1.0 second so a stage can fail fast.
+    """
+    remaining = total_timeout - (time.monotonic() - start_time)
+    return max(1.0, min(_STAGE_TIMEOUTS[stage], remaining))
 
 
 async def fetch_content_artifact(
@@ -60,9 +88,14 @@ async def fetch_content_artifact(
         # ----------------------------------------------------------
         # Tier 2: Generic extraction
         # ----------------------------------------------------------
+        start_time = time.monotonic()
 
         # Stage 1: Jina Reader
-        jina_artifact = await _fetch_via_jina(url, options=options)
+        jina_options = replace(
+            options,
+            stage_timeout_seconds=_resolve_stage_timeout("jina", start_time=start_time),
+        )
+        jina_artifact = await _fetch_via_jina(url, options=jina_options)
         if jina_artifact is not None and jina_artifact.status == "success":
             return jina_artifact
         jina_unavailable = jina_artifact is None
@@ -72,7 +105,13 @@ async def fetch_content_artifact(
         c4a_unavailable = False
         if get_crawl4ai_client() is not None:
             try:
-                c4a_artifact = await _fetch_via_crawl4ai(url, options)
+                # Crawl4AIClient.fetch_markdown does not accept a per-call timeout;
+                # pass the budget via options for future compatibility.
+                c4a_options = replace(
+                    options,
+                    stage_timeout_seconds=_resolve_stage_timeout("crawl4ai", start_time=start_time),
+                )
+                c4a_artifact = await _fetch_via_crawl4ai(url, c4a_options)
                 if c4a_artifact.status == "success":
                     return c4a_artifact
             except Crawl4AIClientError as exc:
@@ -85,7 +124,11 @@ async def fetch_content_artifact(
         # Stage 3: local fallback — ONLY if BOTH upstreams unavailable
         local_artifact: ContentArtifact | None = None
         if jina_unavailable and c4a_unavailable:
-            local_artifact = await _fetch_via_local(url, options=options)
+            local_options = replace(
+                options,
+                stage_timeout_seconds=_resolve_stage_timeout("local", start_time=start_time),
+            )
+            local_artifact = await _fetch_via_local(url, options=local_options)
             if local_artifact.status == "success":
                 return local_artifact
 

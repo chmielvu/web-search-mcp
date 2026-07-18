@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...cache import get_page_cache
 from ...content.batch_orchestrator import BatchParams, run_batch_fetch
 from ...content.options import build_fetch_options
 from ...content.summary import create_batch_summaries
+from ...search.normalize import canonicalize_url
 
 
 async def fetch_batch_content_payload(
@@ -47,9 +49,38 @@ async def fetch_batch_content_payload(
         focus_query=focus_query,
         max_concurrency=max_concurrency,
     )
+    results: list[dict[str, Any]] = []
+    for idx, item in enumerate(output["results"]):
+        result = {
+            **item,
+            "summary": summaries[idx],
+            "content_quality": item["status"],
+            "content_word_count": item.get("word_count") or len(item["page_content"].split()),
+        }
+        results.append(result)
+
+        # Cache the full page only when the window captured it completely.
+        window = item.get("window") or {}
+        if (
+            item.get("status") == "success"
+            and item.get("page_content")
+            and window.get("offset", 0) == 0
+            and not window.get("has_more", False)
+        ):
+            try:
+                await get_page_cache().astore(
+                    canonical_url=canonicalize_url(item["input_url"]),
+                    page_content=item["page_content"],
+                    extraction_method=item.get("fetch_backend") or "batch",
+                    metadata={
+                        "metadata": item.get("metadata"),
+                        "links": item.get("links"),
+                    },
+                )
+            except Exception:
+                pass
+
     return {
         **output,
-        "results": [
-            {**item, "summary": summaries[idx]} for idx, item in enumerate(output["results"])
-        ],
+        "results": results,
     }

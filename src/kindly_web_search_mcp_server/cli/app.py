@@ -128,6 +128,11 @@ def main(args: list[str] | None = None) -> None:
     args = list(sys.argv[1:] if args is None else args)
     if _print_special_flags(args):
         return
+
+    from ..telemetry.init import init_telemetry
+
+    init_telemetry(service_name="web-search-mcp")
+
     try:
         app(args=args, prog_name="web-search-cli", standalone_mode=False)
     except CliError as exc:

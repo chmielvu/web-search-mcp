@@ -30,6 +30,21 @@ class TestContentStatusClassifier(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertTrue(result.cacheable)
 
+    def test_classifies_spa_shell(self) -> None:
+        from kindly_web_search_mcp_server.content.status_classifier import classify_markdown
+
+        result = classify_markdown("This application requires JavaScript.")
+        self.assertEqual(result.status, "partial")
+        self.assertIn("spa_shell", result.reason or "")
+
+    def test_classifies_short_content(self) -> None:
+        from kindly_web_search_mcp_server.content.status_classifier import classify_markdown
+
+        text = " ".join(["word"] * 40)
+        result = classify_markdown(text)
+        self.assertEqual(result.status, "partial")
+        self.assertEqual(result.reason, "too_short")
+
 
 if __name__ == "__main__":
     unittest.main()

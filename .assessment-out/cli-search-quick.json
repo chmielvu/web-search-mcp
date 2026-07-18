@@ -1,0 +1,13 @@
+{"error": {"kind": "tool_error", "code": "tool_error", "message": "COMPOSIO_SEARCH_TAVILY: Search request failed (HTTP 402)", "hint": "Check the Composio Search credentials and retry.", "suggestion": "Check the Composio Search credentials and retry.", "exit_code": 10, "context": {"command": "search quick", "exception_type": "ComposioToolError"}}}
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+

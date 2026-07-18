@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"error": {"kind": "usage_error", "code": "usage_error", "message": "Unknown analytics report 'provider_health'. Available reports: candidate-survival, error-taxonomy, eval-quality-summary, latency-breakdown, provider-final-contribution, provider-performance, rewrite-effectiveness.", "hint": "Available reports: candidate-survival, error-taxonomy, eval-quality-summary, latency-breakdown, provider-final-contribution, provider-performance, rewrite-effectiveness.", "suggestion": "Available reports: candidate-survival, error-taxonomy, eval-quality-summary, latency-breakdown, provider-final-contribution, provider-performance, rewrite-effectiveness.", "exit_code": 2, "context": {"command": "analytics report"}}}

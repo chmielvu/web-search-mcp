@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+{"error": {"kind": "usage_error", "message": "No such option '--num-results'.", "hint": "Run `web-search-cli schema` to inspect valid commands.", "context": {"exception_type": "NoSuchOption"}}}
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+

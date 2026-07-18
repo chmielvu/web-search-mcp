@@ -12,6 +12,8 @@ from ..telemetry import record_mcp_tool_call, record_tool_details
 from ..telemetry.init import shutdown_telemetry
 from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
 from ..analytics.async_writes import shutdown_duckdb_write_executor
+from ..content.firecrawl_stage import close_firecrawl_client
+from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
 from ..utils.http_client import close_http_client
 from ..utils.public_output import serialize_public_web_search_response
 from ..utils.singleflight import SingleFlight
@@ -158,6 +160,14 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
         await close_http_client()
     except Exception as exc:
         LOGGER.warning("Error closing shared HTTP client during shutdown: %s", type(exc).__name__)
+    try:
+        await close_crawl4ai_client()
+        await close_camoufox_client()
+        await close_firecrawl_client()
+    except Exception as exc:
+        LOGGER.warning(
+            "Error closing remote content clients during shutdown: %s", type(exc).__name__
+        )
     try:
         await cancel_all_background_tasks()
     except Exception as exc:

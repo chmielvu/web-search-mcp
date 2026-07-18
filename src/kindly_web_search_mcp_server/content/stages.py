@@ -11,10 +11,11 @@ Stages:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import httpx
-from typing import Any
+from typing import Any, Awaitable, Callable, TypeVar
 
 from .artifact import ContentArtifact, ContentError
 from .extract import extract_content_as_markdown
@@ -57,6 +58,49 @@ def _render_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str | None:
         return None
 
 
+T = TypeVar("T")
+
+
+async def _stage_retry(
+    label: str,
+    coro_factory: Callable[[], Awaitable[T]],
+    *,
+    retries: int = 1,
+    base_delay: float = 1.0,
+    retryable_exceptions: tuple[type[Exception], ...] | None = None,
+) -> T:
+    """Retry a stage coroutine on transient failures with exponential backoff.
+
+    Defaults to retrying on httpx transport/server errors. Callers can override
+    ``retryable_exceptions`` for stage-specific semantics (e.g. Crawl4AIClientError).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await coro_factory()
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
+            last_exc = exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500:
+                raise
+            last_exc = exc
+        except Exception as exc:
+            if retryable_exceptions is not None and isinstance(exc, retryable_exceptions):
+                if getattr(exc, "retryable", True) is False:
+                    raise
+                last_exc = exc
+            else:
+                raise
+        if attempt < retries:
+            delay = base_delay * (2**attempt)
+            LOGGER.warning(
+                "%s retry %d/%d after %.1fs: %s", label, attempt + 1, retries, delay, last_exc
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
 # ------------------------------------------------------------------
 # Stage 1: Jina Reader
 # ------------------------------------------------------------------
@@ -69,8 +113,23 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
     ``ContentArtifact`` on success or low-quality response.
     """
     try:
-        jina_markdown = await fetch_with_jina_reader(url)
-    except (JinaReaderError, httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
+        timeout_seconds = options.stage_timeout_seconds
+        if timeout_seconds is not None and timeout_seconds < 1.0:
+            LOGGER.debug("Jina stage skipped: remaining budget too small (%s)", timeout_seconds)
+            return None
+        jina_markdown = await _stage_retry(
+            "jina_reader",
+            lambda: fetch_with_jina_reader(
+                url,
+                timeout_seconds=timeout_seconds if timeout_seconds is not None else 25.0,
+            ),
+        )
+    except (
+        JinaReaderError,
+        httpx.TimeoutException,
+        httpx.RequestError,
+        httpx.HTTPStatusError,
+    ) as exc:
         LOGGER.debug("Jina Reader failed: %s", exc)
         return None
 
@@ -96,7 +155,9 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
         quality_score=0.9 if cls.status == "success" else 0.5,
         error=None
         if cls.status == "success"
-        else ContentError(code=cls.reason or "jina_low_quality", message=cls.reason or "jina_low_quality"),
+        else ContentError(
+            code=cls.reason or "jina_low_quality", message=cls.reason or "jina_low_quality"
+        ),
     )
 
 
@@ -113,21 +174,60 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
     opts = options
     canonical = canonicalize_url(url)
 
+    timeout_seconds = options.stage_timeout_seconds
+    if timeout_seconds is not None and timeout_seconds < 1.0:
+        return ContentArtifact(
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=None,
+            status="error",
+            source_type="web",
+            fetch_backend="safe_http",
+            content_type=None,
+            markdown="",
+            word_count=0,
+            quality_score=0.0,
+            error=ContentError(
+                code="stage_timeout_exceeded",
+                message="Remaining pipeline budget too small for local fetch",
+                retryable=True,
+            ),
+        )
+
     try:
-        fetched = await safe_fetch_url(url)
+        fetched = await _stage_retry(
+            "safe_fetch",
+            lambda: safe_fetch_url(
+                url,
+                timeout_seconds=timeout_seconds if timeout_seconds is not None else 20.0,
+            ),
+        )
     except SafeFetchError as exc:
         return ContentArtifact(
-            input_url=url, normalized_url=canonical, fetched_url=None,
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=None,
             status="blocked" if exc.code.startswith("private") else "error",
-            source_type="web", fetch_backend="safe_http",
-            content_type=None, markdown="", word_count=0, quality_score=0.0,
+            source_type="web",
+            fetch_backend="safe_http",
+            content_type=None,
+            markdown="",
+            word_count=0,
+            quality_score=0.0,
             error=ContentError(code=exc.code, message=str(exc), retryable=False),
         )
     except Exception as exc:
         return ContentArtifact(
-            input_url=url, normalized_url=canonical, fetched_url=None,
-            status="error", source_type="web", fetch_backend="fallback_failed",
-            content_type=None, markdown="", word_count=0, quality_score=0.0,
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=None,
+            status="error",
+            source_type="web",
+            fetch_backend="fallback_failed",
+            content_type=None,
+            markdown="",
+            word_count=0,
+            quality_score=0.0,
             error=ContentError(code="fallback_fetch_failed", message=str(exc), retryable=True),
         )
 
@@ -136,10 +236,16 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
         pdf_markdown = _render_pdf_markdown(fetched.body, fetched.fetched_url)
         if pdf_markdown:
             return ContentArtifact(
-                input_url=url, normalized_url=canonical, fetched_url=fetched.fetched_url,
-                status="success", source_type="pdf", fetch_backend="pdf_extract",
-                content_type=fetched.content_type, markdown=pdf_markdown,
-                word_count=len(pdf_markdown.split()), quality_score=1.0,
+                input_url=url,
+                normalized_url=canonical,
+                fetched_url=fetched.fetched_url,
+                status="success",
+                source_type="pdf",
+                fetch_backend="pdf_extract",
+                content_type=fetched.content_type,
+                markdown=pdf_markdown,
+                word_count=len(pdf_markdown.split()),
+                quality_score=1.0,
             )
 
     html = fetched.text
@@ -153,18 +259,27 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
     links: list[dict[str, Any]] | None = None
     if opts.include_links:
         links = extract_html_links(
-            html, base_url=fetched.fetched_url or url,
-            max_links=opts.max_links, include_external=True, same_domain_only=False,
+            html,
+            base_url=fetched.fetched_url or url,
+            max_links=opts.max_links,
+            include_external=True,
+            same_domain_only=False,
         )
 
     markdown = extract_content_as_markdown(html, url=fetched.fetched_url)
     cls = classify_markdown(markdown)
 
     return ContentArtifact(
-        input_url=url, normalized_url=canonical, fetched_url=fetched.fetched_url,
-        status=cls.status, source_type="html", fetch_backend="local",
-        content_type=fetched.content_type, markdown=markdown,
-        metadata=metadata, links=links,
+        input_url=url,
+        normalized_url=canonical,
+        fetched_url=fetched.fetched_url,
+        status=cls.status,
+        source_type="html",
+        fetch_backend="local",
+        content_type=fetched.content_type,
+        markdown=markdown,
+        metadata=metadata,
+        links=links,
         word_count=len(markdown.split()),
         quality_score=1.0 if cls.status == "success" else 0.4,
         error=None
@@ -188,21 +303,38 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
     if client is None:
         raise Crawl4AIClientError("Crawl4AI client not configured", retryable=False)
 
-    markdown = await client.fetch_markdown(url, mode="fit")
+    markdown = await _stage_retry(
+        "crawl4ai_remote",
+        lambda: client.fetch_markdown(url, mode="fit"),
+        retryable_exceptions=(Crawl4AIClientError,),
+    )
     cls = classify_markdown(markdown)
     record_content_resolution(
-        stage="crawl4ai_remote", url=url, success=cls.status == "success",
-        size_bytes=len(markdown.encode("utf-8")), word_count=len(markdown.split()),
+        stage="crawl4ai_remote",
+        url=url,
+        success=cls.status == "success",
+        size_bytes=len(markdown.encode("utf-8")),
+        word_count=len(markdown.split()),
         extraction_method="crawl4ai_md",
     )
     return ContentArtifact(
-        input_url=url, normalized_url=canonicalize_url(url), fetched_url=url,
-        status=cls.status, source_type="html", fetch_backend="crawl4ai_remote",
-        content_type="text/markdown", markdown=markdown, metadata=None, links=None,
+        input_url=url,
+        normalized_url=canonicalize_url(url),
+        fetched_url=url,
+        status=cls.status,
+        source_type="html",
+        fetch_backend="crawl4ai_remote",
+        content_type="text/markdown",
+        markdown=markdown,
+        metadata=None,
+        links=None,
         word_count=len(markdown.split()),
         quality_score=1.0 if cls.status == "success" else 0.6,
-        error=None if cls.status == "success" else ContentError(
-            code=cls.reason or "crawl4ai_low_quality", message=cls.reason or "crawl4ai_low_quality"),
+        error=None
+        if cls.status == "success"
+        else ContentError(
+            code=cls.reason or "crawl4ai_low_quality", message=cls.reason or "crawl4ai_low_quality"
+        ),
     )
 
 
@@ -232,19 +364,36 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
     cls = classify_markdown(markdown)
 
     metadata = extract_html_metadata(html, page_url=url) if options.include_metadata else None
-    links = extract_html_links(html, base_url=url, max_links=options.max_links) if options.include_links else None
+    links = (
+        extract_html_links(html, base_url=url, max_links=options.max_links)
+        if options.include_links
+        else None
+    )
 
     record_content_resolution(
-        stage="camoufox_remote", url=url, success=cls.status == "success",
-        size_bytes=len(markdown.encode("utf-8")), word_count=len(markdown.split()),
+        stage="camoufox_remote",
+        url=url,
+        success=cls.status == "success",
+        size_bytes=len(markdown.encode("utf-8")),
+        word_count=len(markdown.split()),
         extraction_method="camoufox_remote",
     )
     return ContentArtifact(
-        input_url=url, normalized_url=canonicalize_url(url), fetched_url=url,
-        status=cls.status, source_type="html", fetch_backend="camoufox_remote",
-        content_type="text/markdown", markdown=markdown, metadata=metadata, links=links,
+        input_url=url,
+        normalized_url=canonicalize_url(url),
+        fetched_url=url,
+        status=cls.status,
+        source_type="html",
+        fetch_backend="camoufox_remote",
+        content_type="text/markdown",
+        markdown=markdown,
+        metadata=metadata,
+        links=links,
         word_count=len(markdown.split()),
         quality_score=1.0 if cls.status == "success" else 0.4,
-        error=None if cls.status == "success" else ContentError(
-            code=cls.reason or "camoufox_low_quality", message=cls.reason or "camoufox_low_quality"),
+        error=None
+        if cls.status == "success"
+        else ContentError(
+            code=cls.reason or "camoufox_low_quality", message=cls.reason or "camoufox_low_quality"
+        ),
     )

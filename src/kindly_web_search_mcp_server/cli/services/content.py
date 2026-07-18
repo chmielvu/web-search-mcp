@@ -35,9 +35,9 @@ def _resolve_tool_total_timeout_seconds() -> float:
     return max(1.0, min(value, max(1.0, max_value)))
 
 
-def _cached_artifact(url: str) -> dict[str, Any] | None:
+async def _cached_artifact(url: str) -> dict[str, Any] | None:
     try:
-        cached = get_page_cache().lookup(url)
+        cached = await get_page_cache().alookup(url)
     except Exception:
         return None
     if not cached:
@@ -56,11 +56,12 @@ def _cached_artifact(url: str) -> dict[str, Any] | None:
         "fetched_url": None,
         "status": "success",
         "source_type": "cache",
-        "fetch_backend": cached.get("extraction_method") or "cache",
+        "fetch_backend": "cache",
         "content_type": "text/markdown",
         "markdown": cached["page_content"],
         "metadata": cached_page_metadata,
         "links": cached_links,
+        "word_count": cached.get("word_count", 0) or len(cached["page_content"].split()),
         "error": None,
     }
 
@@ -117,6 +118,7 @@ def _artifact_from_result(fetched: Any, *, include_links: bool) -> dict[str, Any
         "markdown": fetched.markdown,
         "metadata": fetched.metadata,
         "links": fetched.links if include_links else None,
+        "word_count": fetched.word_count or len(fetched.markdown.split()),
         "error": None
         if fetched.error is None
         else {
@@ -152,7 +154,7 @@ async def fetch_content_payload(
     )
 
     normalized_url = canonicalize_url(url)
-    artifact = _cached_artifact(normalized_url)
+    artifact = await _cached_artifact(normalized_url)
     if artifact is None:
         try:
             fetched = await asyncio.wait_for(
@@ -167,7 +169,7 @@ async def fetch_content_payload(
             artifact = _artifact_from_result(fetched, include_links=include_links)
             if fetched.status == "success" and fetched.markdown:
                 try:
-                    get_page_cache().store(
+                    await get_page_cache().astore(
                         canonical_url=fetched.normalized_url,
                         page_content=fetched.markdown,
                         extraction_method=fetched.fetch_backend,
@@ -210,6 +212,8 @@ async def fetch_content_payload(
         content_type=artifact["content_type"],
         error=artifact["error"],
         summary=summary,
+        content_quality=artifact["status"],
+        content_word_count=artifact.get("word_count", 0) or len(artifact["markdown"].split()),
     ).model_dump(exclude_none=True)
     response.setdefault("fetched_url", None)
     return response

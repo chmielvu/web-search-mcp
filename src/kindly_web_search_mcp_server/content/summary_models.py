@@ -37,6 +37,30 @@ class SummaryOutput(BaseModel):
     )
 
 
+class BatchSummaryItem(BaseModel):
+    url: str = Field(description="The URL this summary corresponds to.")
+    summary: str = Field(description="Concise source-grounded summary text.")
+    key_points: list[str] = Field(default_factory=list, description="Bullet-friendly takeaways.")
+    important_entities: list[SummaryEntity] = Field(
+        default_factory=list, description="Named entities that matter in the source."
+    )
+    verbatim_terms: list[str] = Field(
+        default_factory=list, description="Important exact terms, identifiers, or URLs."
+    )
+    limitations: list[str] = Field(
+        default_factory=list, description="Any gaps, caveats, or missing context."
+    )
+    source_date: str | None = Field(
+        default=None, description="Publication date found in the source, ISO format."
+    )
+
+
+class BatchSummaryOutput(BaseModel):
+    summaries: list[BatchSummaryItem] = Field(
+        default_factory=list, description="One summary per input URL."
+    )
+
+
 def summary_stub(mode: SummaryMode) -> dict[str, Any]:
     return {
         "mode": mode,

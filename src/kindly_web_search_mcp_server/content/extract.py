@@ -20,6 +20,8 @@ try:
 except Exception:  # pragma: no cover
     md = None  # type: ignore
 
+from .sanitize import sanitize_markdown, strip_boilerplate
+
 LOGGER = logging.getLogger(__name__)
 
 _MIN_OUTPUT_CHARS = 200
@@ -59,6 +61,28 @@ def _simple_html_to_markdown(raw_html: str) -> str:
         lambda m: f"{_strip_tags_keep_text(m.group(1))}\n\n",
         h,
     )
+    h = re.sub(
+        r'(?is)<a[^>]*href=["\']([^"\']*)["\'][^>]*>(.*?)</a>',
+        r"[\2](\1)",
+        h,
+    )
+    h = re.sub(r"(?is)<code[^>]*>(.*?)</code>", r"`\1`", h)
+    h = re.sub(
+        r"(?is)<pre[^>]*>(.*?)</pre>",
+        lambda m: f"```\n{_strip_tags_keep_text(m.group(1))}\n```\n",
+        h,
+    )
+    h = re.sub(
+        r"(?is)<blockquote[^>]*>(.*?)</blockquote>",
+        lambda m: f"> {_strip_tags_keep_text(m.group(1)).replace(chr(10), chr(10) + '> ')}\n\n",
+        h,
+    )
+    h = re.sub(
+        r'(?is)<img[^>]*src=["\']([^"\']*)["\'][^>]*alt=["\']([^"\']*)["\'][^>]*>',
+        r"![\2](\1)",
+        h,
+    )
+    h = re.sub(r'(?is)<img[^>]*src=["\']([^"\']*)["\'][^>]*>', r"![](\1)", h)
     return _strip_tags_keep_text(h)
 
 
@@ -76,11 +100,12 @@ def extract_content_as_markdown(html: str, *, url: str | None = None) -> str:
     """Extract content from HTML using BS4 + markdownify.
 
     Falls back to regex-based extraction if BS4/markdownify unavailable.
+    The returned markdown is stripped of common boilerplate and sanitized.
     """
     result = _bs4_markdownify_fallback(html)
     if result and len(result) >= _MIN_OUTPUT_CHARS:
         LOGGER.info("Extracted via BS4+markdownify: %d chars", len(result))
-        return result
+        return sanitize_markdown(strip_boilerplate(result))
 
     LOGGER.info(
         "BS4+markdownify output short (%s chars), using regex fallback",
@@ -88,4 +113,4 @@ def extract_content_as_markdown(html: str, *, url: str | None = None) -> str:
     )
     fallback = _simple_html_to_markdown(html)
     LOGGER.info("Regex fallback extraction: %d chars", len(fallback))
-    return fallback
+    return sanitize_markdown(strip_boilerplate(fallback))

@@ -11,7 +11,7 @@ from google.genai import types
 
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 from ..llm.usage import extract_llm_usage, llm_usage_fields
-from .summary_models import SummaryError, SummaryMode, SummaryOutput
+from .summary_models import SummaryError, SummaryMode, SummaryOutput, summary_stub
 
 
 logger = logging.getLogger(__name__)
@@ -195,6 +195,20 @@ def _get_client() -> Any:
     return _client
 
 
+_batch_client: Any | None = None
+
+
+def _get_batch_client() -> Any:
+    """Dedicated client for batch summaries, using the paid GEMINI_SECOND_API_KEY."""
+    global _batch_client
+    if _batch_client is None:
+        api_key = (os.environ.get("GEMINI_SECOND_API_KEY") or "").strip()
+        if not api_key:
+            raise SummaryError("GEMINI_SECOND_API_KEY is required for batch summary generation")
+        _batch_client = genai.Client(api_key=api_key)
+    return _batch_client
+
+
 def _response_text(response: Any) -> str:
     parsed = getattr(response, "parsed", None)
     if parsed is not None:
@@ -258,8 +272,9 @@ async def _generate_summary(
     mode: SummaryMode,
     focus_query: str | None,
     use_url_context: bool,
+    client: Any | None = None,
 ) -> tuple[SummaryOutput, Any | None]:
-    client = _get_client()
+    client = client or _get_client()
     config = _make_config(
         use_url_context=use_url_context,
         max_output_tokens=_max_output_tokens(),
@@ -278,6 +293,241 @@ async def _generate_summary(
         config=config,
     )
     return _parse_summary(_response_text(response)), extract_llm_usage(response)
+
+
+def _build_batch_user_prompt(
+    *,
+    mode: SummaryMode,
+    focus_query: str | None,
+    source_urls: Sequence[str],
+) -> str:
+    from ..prompts.builders import anchor_today
+    from .summary_models import BatchSummaryOutput
+
+    focus = focus_query.strip() if focus_query else "None"
+    schema = json.dumps(BatchSummaryOutput.model_json_schema(), ensure_ascii=True)
+    parts = [
+        "<batch_summary_request>",
+        f"<summary_mode>{mode}</summary_mode>",
+        f"<focus_query>{focus}</focus_query>",
+        f"<today>{anchor_today()}</today>",
+        f"<summary_length>{_summary_length_guidance(mode)}</summary_length>",
+        "<source_urls>",
+    ]
+    for url in source_urls:
+        parts.append(f"<url>{url}</url>")
+    parts.extend(
+        [
+            "</source_urls>",
+            "<instructions>",
+            "Use the URL context tool on ALL of the URLs above.",
+            "Return a JSON object matching the schema below with one summary entry for every URL in the list above.",
+            "Each entry must include the exact URL it corresponds to in the 'url' field.",
+            "Do not invent missing details; note any inaccessible or truncated URLs in limitations.",
+            "</instructions>",
+            "<schema>",
+            schema,
+            "</schema>",
+            "<constraints>",
+            "Return valid JSON only. No markdown fences, no prose wrapper.",
+            "Preserve every named entity, number, date, version string, error message, code identifier, URL, and stated uncertainty from each source.",
+            "</constraints>",
+            "</batch_summary_request>",
+        ]
+    )
+    return "\n".join(parts)
+
+
+def _make_batch_config(*, max_output_tokens: int) -> types.GenerateContentConfig:
+    from .summary_models import BatchSummaryOutput
+
+    return types.GenerateContentConfig(
+        system_instruction=_system_instruction(use_url_context=True),
+        response_mime_type="application/json",
+        response_json_schema=BatchSummaryOutput.model_json_schema(),
+        temperature=1.0,
+        max_output_tokens=max_output_tokens,
+        thinking_config=types.ThinkingConfig(thinking_level="high"),  # type: ignore[arg-type]
+        tools=[URL_CONTEXT_TOOL],
+    )
+
+
+async def _generate_batch_summary(
+    *,
+    model_id: str,
+    source_urls: Sequence[str],
+    mode: SummaryMode,
+    focus_query: str | None,
+) -> tuple[Any, Any | None]:
+    client = _get_batch_client()
+    max_output_tokens = _max_output_tokens()
+    # Scale output budget with batch size, but cap at a reasonable limit.
+    scaled_max = min(max_output_tokens * max(len(source_urls), 1), 12_000)
+    config = _make_batch_config(max_output_tokens=scaled_max)
+    contents = _build_batch_user_prompt(
+        mode=mode,
+        focus_query=focus_query,
+        source_urls=source_urls,
+    )
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model=model_id,
+        contents=contents,
+        config=config,
+    )
+    return response, extract_llm_usage(response)
+
+
+async def summarize_batch_with_fallback(
+    *,
+    items: Sequence[dict[str, Any]],
+    mode: SummaryMode,
+    focus_query: str | None = None,
+) -> list[dict[str, Any]]:
+    """Summarize many URLs in a single Gemini call using GEMINI_SECOND_API_KEY.
+
+    Falls back to per-item summaries on the primary GEMINI_API_KEY if the batch call fails.
+    """
+    urls = [
+        item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+        for item in items
+    ]
+    urls = [url for url in urls if url]
+    if not urls:
+        return [summary_stub(mode) for _ in items]
+
+    primary_model = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
+
+    with create_llm_operation_span(
+        "summarize_batch",
+        system="gemini",
+        attributes={
+            "llm.model_name": primary_model,
+            "summary.mode": mode,
+            "summary.focus_query": (focus_query or "")[:500],
+            "summary.source_url_count": len(urls),
+            "summary.batch": True,
+        },
+    ) as span:
+        try:
+            response, usage = await _generate_batch_summary(
+                model_id=primary_model,
+                source_urls=urls,
+                mode=mode,
+                focus_query=focus_query,
+            )
+            backend = "gemini-batch-api"
+            model_used = primary_model
+            raw_text = _response_text(response)
+            batch = _parse_batch_summary(raw_text)
+            mapped = _map_batch_summaries(items, batch.summaries, mode=mode)
+            span.set_attribute("llm.model_name", model_used)
+            if usage:
+                if usage.input_tokens is not None:
+                    span.set_attribute("llm.token_count.prompt", usage.input_tokens)
+                if usage.output_tokens is not None:
+                    span.set_attribute("llm.token_count.completion", usage.output_tokens)
+                if usage.total_tokens is not None:
+                    span.set_attribute("llm.token_count.total", usage.total_tokens)
+            span.set_attribute("summary.backend", backend)
+            span.set_attribute("summary.batch_size", len(items))
+            span.set_attribute("summary.returned_summaries", len(mapped))
+            set_span_success(span)
+            return mapped
+        except Exception as exc:
+            logger.warning(
+                "Batch summary failed on %s, falling back to per-item summaries: %s",
+                primary_model,
+                exc,
+            )
+            set_span_error(span, exc)
+            return await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query)
+
+
+def _parse_batch_summary(raw: str) -> Any:
+    from .summary_models import BatchSummaryOutput
+
+    cleaned = _strip_json_fences(raw)
+    try:
+        return BatchSummaryOutput.model_validate_json(cleaned)
+    except Exception as exc:
+        raise SummaryError(f"Batch summary response was not valid JSON: {exc}") from exc
+
+
+def _map_batch_summaries(
+    items: Sequence[dict[str, Any]],
+    summaries: Sequence[Any],
+    *,
+    mode: SummaryMode,
+) -> list[dict[str, Any]]:
+    """Map returned summaries back to original items by URL, preserving order for missing entries."""
+    by_url: dict[str, dict[str, Any]] = {}
+    for entry in summaries:
+        url = getattr(entry, "url", None)
+        if not url:
+            continue
+        by_url[url] = {
+            **entry.model_dump(),
+            "mode": mode,
+            "model": PRIMARY_MODEL,
+            "model_used": PRIMARY_MODEL,
+            "backend": "gemini-batch-api",
+        }
+
+    results: list[dict[str, Any]] = []
+    for item in items:
+        url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+        if url and url in by_url:
+            results.append(by_url[url])
+        else:
+            stub = summary_stub(mode)
+            stub["limitations"] = ["No summary returned for this URL in the batch response."]
+            results.append(stub)
+    return results
+
+
+async def _fallback_per_item_summaries(
+    items: Sequence[dict[str, Any]],
+    *,
+    mode: SummaryMode,
+    focus_query: str | None,
+) -> list[dict[str, Any]]:
+    """Run per-item summaries using the paid GEMINI_SECOND_API_KEY client."""
+    return await asyncio.gather(
+        *(_per_item_summary(item, mode=mode, focus_query=focus_query) for item in items)
+    )
+
+
+async def _per_item_summary(
+    item: dict[str, Any],
+    *,
+    mode: SummaryMode,
+    focus_query: str | None,
+) -> dict[str, Any]:
+    source_url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+    if not source_url:
+        return summary_stub(mode)
+
+    model_id = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
+    try:
+        summary, _ = await _generate_summary(
+            model_id=model_id,
+            source_text="",
+            source_urls=[source_url],
+            mode=mode,
+            focus_query=focus_query,
+            use_url_context=True,
+            client=_get_batch_client(),
+        )
+        payload = summary.model_dump()
+        payload["mode"] = mode
+        payload["model"] = model_id
+        payload["model_used"] = model_id
+        payload["backend"] = "gemini-batch-api"
+        return payload
+    except Exception as exc:
+        logger.warning("Per-item batch summary failed for %s: %s", source_url, exc)
+        return summary_stub(mode)
 
 
 async def summarize_with_fallback(

@@ -144,14 +144,101 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_client.models.calls[1][0], "gemma-4-26b-a4b-it")
         self.assertFalse(getattr(fake_client.models.calls[1][2], "tools", None))
 
-    async def test_create_batch_summaries_attaches_per_item_summaries(self) -> None:
+    async def test_create_batch_summaries_uses_single_batched_call(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_batch_summaries
 
         fake_client = _FakeClient(
             [
                 _FakeResponse(
                     {
-                        "summary": "First summary",
+                        "summaries": [
+                            {
+                                "url": "https://example.com/one",
+                                "summary": "First summary",
+                                "key_points": ["A"],
+                                "important_entities": [],
+                                "verbatim_terms": [],
+                                "limitations": [],
+                            },
+                            {
+                                "url": "https://example.com/two",
+                                "summary": "Second summary",
+                                "key_points": ["B"],
+                                "important_entities": [],
+                                "verbatim_terms": [],
+                                "limitations": [],
+                            },
+                        ]
+                    }
+                ),
+            ]
+        )
+
+        items = [
+            {
+                "input_url": "https://example.com/one",
+                "normalized_url": "https://example.com/one",
+                "fetched_url": "https://example.com/one",
+                "page_content": "one",
+            },
+            {
+                "input_url": "https://example.com/two",
+                "normalized_url": "https://example.com/two",
+                "fetched_url": "https://example.com/two",
+                "page_content": "two",
+            },
+        ]
+
+        with (
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "primary-token", "GEMINI_SECOND_API_KEY": "paid-token"},
+                clear=False,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend.genai.Client",
+                return_value=fake_client,
+            ) as mock_client,
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend._client",
+                None,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend._batch_client",
+                None,
+            ),
+        ):
+            summaries = await create_batch_summaries(
+                items,
+                mode="brief",
+                focus_query="batch",
+                max_concurrency=2,
+            )
+
+        self.assertEqual(
+            [summary["summary"] for summary in summaries if summary],
+            ["First summary", "Second summary"],
+        )
+        # Exactly one Gemini call should have been made.
+        self.assertEqual(len(fake_client.models.calls), 1)
+        # It should use the paid key.
+        mock_client.assert_called_once_with(api_key="paid-token")
+        # Both URLs should be in the prompt.
+        contents = fake_client.models.calls[0][1]
+        self.assertIn("https://example.com/one", contents)
+        self.assertIn("https://example.com/two", contents)
+        self.assertIn("summaries", contents)
+
+    async def test_create_batch_summaries_fallback_uses_second_key(self) -> None:
+        from kindly_web_search_mcp_server.content.summary import create_batch_summaries
+
+        # Batch call fails; two per-item calls succeed.
+        fake_client = _FakeClient(
+            [
+                RuntimeError("batch failed"),
+                _FakeResponse(
+                    {
+                        "summary": "First fallback summary",
                         "key_points": ["A"],
                         "important_entities": [],
                         "verbatim_terms": [],
@@ -160,7 +247,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
                 ),
                 _FakeResponse(
                     {
-                        "summary": "Second summary",
+                        "summary": "Second fallback summary",
                         "key_points": ["B"],
                         "important_entities": [],
                         "verbatim_terms": [],
@@ -186,13 +273,21 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         ]
 
         with (
-            patch.dict(os.environ, {"GEMINI_API_KEY": "token"}, clear=False),
+            patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "primary-token", "GEMINI_SECOND_API_KEY": "paid-token"},
+                clear=False,
+            ),
             patch(
                 "kindly_web_search_mcp_server.content.summary_backend.genai.Client",
                 return_value=fake_client,
-            ),
+            ) as mock_client,
             patch(
                 "kindly_web_search_mcp_server.content.summary_backend._client",
+                None,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend._batch_client",
                 None,
             ),
         ):
@@ -205,8 +300,11 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [summary["summary"] for summary in summaries if summary],
-            ["First summary", "Second summary"],
+            ["First fallback summary", "Second fallback summary"],
         )
+        # All calls should have used the paid key.
+        for call in mock_client.call_args_list:
+            self.assertEqual(call.kwargs.get("api_key"), "paid-token")
 
 
 if __name__ == "__main__":

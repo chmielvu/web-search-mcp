@@ -1139,6 +1139,24 @@ wheels = [
 ]
 
 [[package]]
+name = "firecrawl-py"
+version = "4.32.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "httpx" },
+    { name = "nest-asyncio" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/28/53/d90f58eb6f6e950d9780b6c38eae2bccf3bdc73b0cfeb5f30a41f1a6db1b/firecrawl_py-4.32.1.tar.gz", hash = "sha256:a0a15f4a82b903d9054f0cf82693c9286d40b53477545debc7bd6157b9399eff", size = 202276, upload-time = "2026-07-16T14:10:12.056Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/4e/3c6016fa8ef0cf79af55947849f30a470fe2070cc3df4cc3cae6218e4ae9/firecrawl_py-4.32.1-py3-none-any.whl", hash = "sha256:0af21278537422c5ecce6159f45aed88aa75046a029cbd0ba8e4a38d8067b2b2", size = 252262, upload-time = "2026-07-16T14:10:10.344Z" },
+]
+
+[[package]]
 name = "flatbuffers"
 version = "25.12.19"
 source = { registry = "https://pypi.org/simple" }
@@ -2405,6 +2423,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9c/1c/c80cb7719721a44846c6301ef118434bae30a423924bfad3a47f16bdc064/narwhals-2.22.0.tar.gz", hash = "sha256:6486282bb7e4b4ab55963efbd8be1451b764cc4874b74d1fd625eba9dc60b86f", size = 417565, upload-time = "2026-06-01T13:34:36.249Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/b6/e7cdde7b8e90d5dff25b622f95833ef26567ad184c977278b93a1cbd5717/narwhals-2.22.0-py3-none-any.whl", hash = "sha256:1421797ede01789cc1537619dbc3f36f840737240f748fdb24a60a0225fc80be", size = 453815, upload-time = "2026-06-01T13:34:34.127Z" },
+]
+
+[[package]]
+name = "nest-asyncio"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
 ]
 
 [[package]]
@@ -5063,6 +5090,7 @@ dependencies = [
     { name = "ddgs" },
     { name = "duckdb" },
     { name = "fastmcp" },
+    { name = "firecrawl-py" },
     { name = "google-genai" },
     { name = "habanero" },
     { name = "html2text" },
@@ -5132,6 +5160,7 @@ requires-dist = [
     { name = "ddgs", specifier = ">=7.0.0" },
     { name = "duckdb", specifier = ">=1.1.0,<1.5.3" },
     { name = "fastmcp", specifier = ">=3.4.0" },
+    { name = "firecrawl-py", specifier = ">=4.32.1,<5" },
     { name = "gliner2", marker = "extra == 'entity-extraction'", specifier = ">=0.1.0" },
     { name = "google-genai", specifier = ">=0.3.0" },
     { name = "habanero", specifier = ">=1.0.0" },

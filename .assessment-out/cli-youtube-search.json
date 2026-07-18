@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"query": "fastmcp tutorial", "results": [{"title": "Build an MCP Server in 7 Minutes (Fast MCP Tutorial) 🚀", "link": "https://www.youtube.com/watch?v=qVrvtqfgPwc", "snippet": "[&DEV] In this step-by-step tutorial, I'll show you how to build your first MCP (Model Context Protocol) server using Fast MCP in Python.\nDuration: 7m 12s | 5,693 views | 107 likes | Published: 2025-08-26", "published_date": "2025-08-26", "providers": ["youtube_api"]}, {"title": "FastMCP — the best way to build an MCP server with Python", "link": "https://www.youtube.com/watch?v=rnljvmHorQw", "snippet": "[ZazenCodes] AGENTIC CODING CLUB [ ⚡ my official community ] ▻ https://www.skool.com/zazencodes-agentic-coding-club-7823 ⚡ Weekly ...\nDuration: 27m 56s | 34,588 views | 902 likes | Published: 2025-06-11", "published_date": "2025-06-11", "providers": ["youtube_api"]}, {"title": "Complete FastMCP tutorial", "link": "https://www.youtube.com/watch?v=_Qy-dMpLXzg", "snippet": "[Bot Tribe] In this video we learn how FastMCP works. We go from installation on a mac and PC, to writing out first Hello World and ...\nDuration: 2h 4m 13s | 711 views | 17 likes | Published: 2026-05-01", "published_date": "2026-05-01", "providers": ["youtube_api"]}], "total_results": 3, "search_backend": "api"}, "meta": {"command": "youtube search", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:23:14Z"}, "suggested_next": []}

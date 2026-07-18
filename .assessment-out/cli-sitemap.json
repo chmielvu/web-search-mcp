@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"base_url": "https://github.com/jlowin/fastmcp", "results": ["https://github.com/jlowin/fastmcp", "https://github.com/trending", "https://github.com/why-github", "https://github.com/topics", "https://github.com/customer-stories"], "response_time": 0.08, "request_id": "61e189b1-591c-42e9-b595-9be4347f4739"}, "meta": {"command": "sitemap generate", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:22:03Z"}, "suggested_next": []}

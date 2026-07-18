@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed - Content fetch reliability and efficiency
+- Changed `batch_get_content` summaries to a single Gemini call fed all URLs via the URL-context tool, using `GEMINI_SECOND_API_KEY` for paid-tier rate limits; per-item fallback also uses the paid key.
+- Added page-cache pre-check inside `run_batch_fetch` so `batch_get_content` reuses cached pages instead of re-fetching.
+- Made `PageDuckDBCache`/`PageCache` lookups and stores async via `asyncio.to_thread`, with resilient fallbacks so cache errors never fail the tool.
+- Added per-stage retry with exponential backoff for Jina Reader, local HTTP, and Crawl4AI; Crawl4AI respects `retryable=False`.
+- Added per-stage timeout budgets in `fetch_content_artifact` so later stages get a fair share of the tool budget.
+- Added a module-level circuit breaker for Jina Reader that opens after 3 failures in 60 seconds and falls through to downstream stages.
+- Strengthened Camoufox cold-start retry from 1 attempt to 3 with exponential backoff (2s, 4s, 8s).
+- Raised the `classify_markdown` success threshold from 30 to 80 words and added SPA shell detection.
+- Added content-type validation in `safe_fetch_url` to reject non-HTML/XML/plain responses.
+- Added `content_quality` and `content_word_count` to `GetContentResponse` and `BatchContentResult`.
+- Added boilerplate stripping in `extract_content_as_markdown` and improved the regex fallback for `<a>`, `<code>`, `<pre>`, `<blockquote>`, and `<img>`.
+- Optimized Jina Reader headers (`content/jina_reader.py`) to request `frontmatter` output, use the `research` preset, and drop embedded links/images noise via `X-Retain-Links: none` / `X-Retain-Images: none`.
+
 ### Fixed - Cold-start stdio timeout
 - Root cause: lazy imports of `openai.resources.chat`, `nltk`, and `scipy` contended for the Python global import lock during the first tool call under stdio transport, blocking the anyio event loop and exceeding the 120s MCP tool timeout.
 - Fixed by pre-importing `openai.resources.chat` in `llm/router.py`, moving `rake_nltk` import to module level in `search/keyword_extract.py`, and adding `_warm_heavy_imports()` in `server.py` called before `mcp.run()`.

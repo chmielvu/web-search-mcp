@@ -192,25 +192,35 @@ class _LoggingExporterProxy:
         return getattr(self._exporter, name)
 
 
-class _OpenInferenceFilteringSpanProcessor(SpanProcessor):
-    """Forward only OpenInference-classified spans to the wrapped processor."""
+class _OpenInferenceFilteringSpanExporter:
+    """Export only LLM and RERANKER OpenInference spans to the wrapped exporter.
 
-    def __init__(self, processor: BatchSpanProcessor) -> None:
-        self._processor = processor
+    Drops all generic pipeline spans (CHAIN, RETRIEVER, TOOL) and raw HTTP
+    instrumentation so Phoenix only receives LLM-call traces (query rewrite,
+    AI summaries, AI search, LLM reranker).
+    """
 
-    def on_start(self, span: Any, parent_context: Any | None = None) -> None:
-        return None
+    _ALLOWED = frozenset({"LLM", "RERANKER"})
 
-    def on_end(self, span: Any) -> None:
-        attributes = getattr(span, "attributes", None) or {}
-        if attributes.get(OPENINFERENCE_SPAN_KIND):
-            self._processor.on_end(span)
+    def __init__(self, exporter: Any) -> None:
+        self._exporter = exporter
+
+    def export(self, spans: Any) -> Any:
+        filtered = [
+            s
+            for s in spans
+            if isinstance(getattr(s, "attributes", None) or {}, dict)
+            and (getattr(s, "attributes", {}) or {}).get(OPENINFERENCE_SPAN_KIND)
+            in self._ALLOWED
+        ]
+        if filtered:
+            return self._exporter.export(filtered)
+        from opentelemetry.sdk.trace.export import SpanExportResult
+
+        return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
-        self._processor.shutdown()
-
-    def force_flush(self, timeout_millis: int = 30000) -> bool:
-        return self._processor.force_flush(timeout_millis=timeout_millis)
+        return self._exporter.shutdown()
 
 
 def _probe_otlp_endpoint(

@@ -45,10 +45,57 @@ class PageCache:
         Delegates to DuckDB backend (URL hash + TTL + metadata JSON).
         Emits via cache observability helpers and records telemetry.
         """
+        try:
+            return self._lookup_inner(canonical_url)
+        except Exception as exc:
+            logger.warning("Page cache lookup failed for %s: %s", canonical_url, exc)
+            emit_cache_lookup_event(
+                logger,
+                "page",
+                "miss",
+                duration_ms=0,
+                canonical_url=canonical_url,
+                error_type=type(exc).__name__,
+            )
+            return None
+
+    async def alookup(
+        self,
+        canonical_url: str,
+    ) -> dict[str, Any] | None:
+        """Async variant of :meth:`lookup` that runs DuckDB I/O in a thread."""
+        try:
+            result = await self._backend.alookup(canonical_url)
+            return self._format_lookup_result(result, canonical_url)
+        except Exception as exc:
+            logger.warning("Page cache lookup failed for %s: %s", canonical_url, exc)
+            emit_cache_lookup_event(
+                logger,
+                "page",
+                "miss",
+                duration_ms=0,
+                canonical_url=canonical_url,
+                error_type=type(exc).__name__,
+            )
+            return None
+
+    def _lookup_inner(
+        self,
+        canonical_url: str,
+    ) -> dict[str, Any] | None:
+        """Synchronous lookup + observability."""
         start_time = time.time()
         result = self._backend.lookup(canonical_url)
         duration = time.time() - start_time
+        return self._format_lookup_result(result, canonical_url, duration)
 
+    def _format_lookup_result(
+        self,
+        result: dict[str, Any] | None,
+        canonical_url: str,
+        duration: float = 0.0,
+    ) -> dict[str, Any] | None:
+        """Format backend lookup result and emit observability events."""
         if result is None:
             record_cache_lookup(cache_type="page", hit=False, duration_seconds=duration)
             emit_cache_lookup_event(
@@ -91,6 +138,59 @@ class PageCache:
         ttl_seconds: int | None = None,
     ) -> None:
         """Store resolved page content via DuckDB backend."""
+        self._store_inner(canonical_url, page_content, extraction_method, metadata, ttl_seconds)
+
+    async def astore(
+        self,
+        canonical_url: str,
+        page_content: str,
+        extraction_method: str,
+        metadata: dict[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Async variant of :meth:`store` that runs DuckDB I/O in a thread."""
+        try:
+            await self._backend.astore(
+                canonical_url=canonical_url,
+                page_content=page_content,
+                extraction_method=extraction_method,
+                metadata=metadata,
+                ttl_seconds=ttl_seconds,
+            )
+            logger.debug(
+                "Stored page cache entry (url=%s, method=%s, ttl=%s)",
+                str(canonical_url)[:50],
+                extraction_method,
+                ttl_seconds,
+            )
+            emit_cache_store_event(
+                logger,
+                "page",
+                "ok",
+                ttl_seconds=ttl_seconds or PAGE_CACHE_DEFAULT_TTL_SECONDS,
+                metadata_present=bool(metadata),
+                extraction_method=extraction_method,
+                canonical_url=canonical_url,
+            )
+        except Exception as exc:
+            logger.warning("Failed to store page cache entry: %s", exc)
+            emit_cache_store_event(
+                logger,
+                "page",
+                "error",
+                error_type=type(exc).__name__,
+                canonical_url=canonical_url,
+            )
+
+    def _store_inner(
+        self,
+        canonical_url: str,
+        page_content: str,
+        extraction_method: str,
+        metadata: dict[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Synchronous store + observability."""
         try:
             self._backend.store(
                 canonical_url=canonical_url,

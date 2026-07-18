@@ -13,6 +13,7 @@ drop-in compatibility with server.py and get_content.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -79,6 +80,13 @@ class PageDuckDBCache:
 
     def lookup(self, canonical_url: str) -> dict[str, Any] | None:
         """URL-hash lookup with TTL check. Returns None on miss or expiry."""
+        return self._lookup_sync(canonical_url)
+
+    async def alookup(self, canonical_url: str) -> dict[str, Any] | None:
+        """Async wrapper for :meth:`lookup` that runs DuckDB I/O in a thread."""
+        return await asyncio.to_thread(self._lookup_sync, canonical_url)
+
+    def _lookup_sync(self, canonical_url: str) -> dict[str, Any] | None:
         url_hash = self._compute_url_hash(canonical_url)
         path = self._resolve_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +169,31 @@ class PageDuckDBCache:
         ttl_seconds: int | None = None,
     ) -> None:
         """Store with JSON metadata roundtrip. Locked write."""
+        return self._store_sync(
+            canonical_url, page_content, extraction_method, metadata, ttl_seconds
+        )
+
+    async def astore(
+        self,
+        canonical_url: str,
+        page_content: str,
+        extraction_method: str,
+        metadata: dict[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Async wrapper for :meth:`store` that runs DuckDB I/O in a thread."""
+        return await asyncio.to_thread(
+            self._store_sync, canonical_url, page_content, extraction_method, metadata, ttl_seconds
+        )
+
+    def _store_sync(
+        self,
+        canonical_url: str,
+        page_content: str,
+        extraction_method: str,
+        metadata: dict[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
         url_hash = self._compute_url_hash(canonical_url)
 
         if ttl_seconds is None:

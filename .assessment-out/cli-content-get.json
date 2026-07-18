@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"input_url": "https://github.com/jlowin/fastmcp", "normalized_url": "https://github.com/jlowin/fastmcp", "fetched_url": "https://github.com/jlowin/fastmcp", "status": "success", "source_type": "html", "fetch_backend": "crawl4ai_remote", "page_content": "{'url': 'https://github.com/jlowin/fastmcp', 'filter': 'fit', 'query': None, 'cache': '0', 'markdown': '[Skip to content](https://github.com/PrefectHQ/fastmcp#start-of-content)\\nYou signed in with another tab or window. [Reload](https://github.com/PrefectHQ/fastmcp) to refresh your session. You signed out in another tab or window. [Reload](https://github.com/PrefectHQ/fastmcp) to refresh your session. You switched accounts on another tab or window. [Reload](https://github.com/PrefectHQ/fastmcp) to refresh your session. Dismiss alert\\n###  Uh oh! \\nThere was an error while loading.", "window": {"offset": 0, "length": 6000, "returned_chars": 587, "total_chars": 19816, "has_more": true, "next_offset": 587, "continuation_notice": "Truncated at 587 of 19816 characters on a sentence boundary. Continue at offset 587."}, "continuation_notice": "Truncated at 587 of 19816 characters on a sentence boundary. Continue at offset 587.", "content_type": "text/markdown", "content_quality": "success", "content_word_count": 1667}, "meta": {"command": "content get", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:14:40Z"}, "suggested_next": []}

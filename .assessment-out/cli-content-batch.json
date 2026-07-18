@@ -1,0 +1,13 @@
+{"error": {"kind": "tool_error", "code": "tool_error", "message": "No module named 'firecrawl'", "hint": "Run `web-search-cli doctor` and verify fetch dependencies.", "suggestion": "Run `web-search-cli doctor` and verify fetch dependencies.", "exit_code": 1, "context": {"command": "content batch", "exception_type": "ModuleNotFoundError"}}}
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+

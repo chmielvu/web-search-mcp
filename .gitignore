@@ -362,3 +362,6 @@ process_logs.duckdb
 
 # Watchdog config (machine-specific)
 WATCHDOG.yml
+test_rerank_candidates.duckdb.wal  
+*.duckdb.wal  
+test_rerank_candidates.duckdb  

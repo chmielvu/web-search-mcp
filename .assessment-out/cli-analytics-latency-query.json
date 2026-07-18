@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"schema_version": "1.0", "data": {"question": "top providers by latency", "scope": "local", "view_prefix": "main.", "rationale": "latency", "sql": "SELECT\n            CASE\n                WHEN duration_ms < 2000  THEN '0-2s'\n                WHEN duration_ms < 5000  THEN '2-5s'\n                WHEN duration_ms < 10000 THEN '5-10s'\n                WHEN duration_ms < 20000 THEN '10-20s'\n                WHEN duration_ms < 30000 THEN '20-30s'\n                ELSE '30s+'\n            END AS latency_bucket,\n            COUNT(*) AS run_count,\n            COUNT(*) FILTER (WHERE status = 'success') AS success_count,\n            ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'success') / NULLIF(COUNT(*), 0), 1) AS success_rate_pct,\n            ROUND(AVG(duration_ms), 0) AS avg_duration_ms,\n            ROUND(quantile_cont(duration_ms, 0.95), 0) AS p95_duration_ms,\n            ROUND(AVG(final_result_count), 1) AS avg_result_count,\n            COUNT(DISTINCT run_key) AS distinct_runs\n        FROM search_runs\n        GROUP BY 1\n        ORDER BY MIN(duration_ms)\n        LIMIT 5", "row_count": 4, "rows": [{"latency_bucket": "0-2s", "run_count": 2, "success_count": 0, "success_rate_pct": 0.0, "avg_duration_ms": 0.0, "p95_duration_ms": 0.0, "avg_result_count": 0.0, "distinct_runs": 2}, {"latency_bucket": "10-20s", "run_count": 27, "success_count": 27, "success_rate_pct": 100.0, "avg_duration_ms": 16355.0, "p95_duration_ms": 19220.0, "avg_result_count": 15.0, "distinct_runs": 27}, {"latency_bucket": "20-30s", "run_count": 16, "success_count": 16, "success_rate_pct": 100.0, "avg_duration_ms": 23410.0, "p95_duration_ms": 27222.0, "avg_result_count": 15.0, "distinct_runs": 16}, {"latency_bucket": "30s+", "run_count": 11, "success_count": 11, "success_rate_pct": 100.0, "avg_duration_ms": 135587.0, "p95_duration_ms": 364406.0, "avg_result_count": 13.6, "distinct_runs": 11}]}, "meta": {"command": "analytics query", "profile": "full", "output_mode": "agent", "quiet": false, "log_level": "error", "debug": false, "non_interactive": true, "duration_ms": 0, "generated_at": "2026-07-18T20:28:29Z"}, "suggested_next": []}

@@ -19,6 +19,7 @@ dependencies = [
     "html2text>=2024.2.26",
     "PyMuPDF",
     "duckdb>=1.1.0,<1.5.3",
+    "firecrawl-py>=4.32.1,<5",
     "qdrant-client>=1.7.0",
     "pyarrow>=18.0.0",
     "numpy>=1.26.0",

@@ -1,6 +1,28 @@
 import re
 
 
+_BOILERPLATE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)^\s*share\s+(this|on\s+.*)\s*$"),
+    re.compile(r"(?i)^\s*sign\s+up\s+for\s+(our\s+)?newsletter\s*$"),
+    re.compile(r"(?i)^\s*related\s+(articles|posts|stories|videos)\s*$"),
+    re.compile(r"(?i)^\s*leave\s+a\s+(comment|reply)\s*$"),
+    re.compile(r"(?i)^\s*cookie\s+(settings|preferences|policy)\s*$"),
+    re.compile(r"(?i)^\s*follow\s+us\s+on\s+.*\s*$"),
+    re.compile(r"(?i)^\s*subscribe\s+(now|today)?\s*$"),
+)
+
+
+def strip_boilerplate(markdown: str) -> str:
+    """Remove common noisy/boilerplate lines from extracted markdown."""
+    if not markdown:
+        return markdown
+    lines = markdown.splitlines()
+    filtered = [
+        line for line in lines if not any(pattern.search(line) for pattern in _BOILERPLATE_PATTERNS)
+    ]
+    return "\n".join(filtered)
+
+
 def sanitize_markdown(markdown: str) -> str:
     """
     Cleans up the markdown content by removing excessive newlines and whitespace.

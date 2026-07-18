@@ -1,4 +1,9 @@
-"""Phoenix-first OpenTelemetry lifecycle."""
+"""Phoenix-first OpenTelemetry lifecycle — LLM-only spans.
+
+Only spans with ``openinference.span.kind`` of ``LLM`` are forwarded to
+Phoenix. Generic pipeline spans (CHAIN, RETRIEVER, TOOL, RERANKER) and
+raw HTTP instrumentation are dropped.
+"""
 
 from __future__ import annotations
 
@@ -13,21 +18,12 @@ _initialized = False
 _shutdown = False
 
 
-def sanitize_httpx_request_span(span: Any, request: Any) -> None:
-    """Keep HTTP client attributes useful without exporting query data."""
-    if span is None or not getattr(span, "is_recording", lambda: False)():
-        return
-    url = request.url
-    safe_url = f"{url.scheme}://{url.host}{url.path}"
-    span.set_attribute("url.full", safe_url)
-    span.set_attribute("server.address", url.host or "")
-
-
 def init_telemetry(
     service_name: str = "web-search-mcp",
     service_version: str | None = None,
     prometheus_port: int | None = None,
 ) -> None:
+    """Initialize Phoenix tracing with LLM-only span filtering."""
     del service_name, service_version, prometheus_port
     global _initialized, _provider, _shutdown
     if _initialized:
@@ -35,8 +31,10 @@ def init_telemetry(
     if not settings.otel_enabled:
         LOGGER.info("OTEL_ENABLED=false — telemetry initialization skipped")
         return
+
+    from ._internal import _OpenInferenceFilteringSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from openinference.instrumentation.openai import OpenAIInstrumentor
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from phoenix.otel import register
 
     _provider = register(
@@ -47,11 +45,17 @@ def init_telemetry(
         auto_instrument=False,
         set_global_tracer_provider=True,
     )
+
+    # Wrap the OTLP exporter so only LLM/RERANKER spans reach Phoenix.
+    active = _provider._active_span_processor
+    # register() creates a single BatchSpanProcessor; unwrap its exporter.
+    exporter = getattr(active, "span_exporter", None)
+    if exporter is not None:
+        active.span_exporter = _OpenInferenceFilteringSpanExporter(exporter)
+        LOGGER.info("Phoenix LLM-only filter applied (LLM + RERANKER only)")
+
     OpenAIInstrumentor().instrument(tracer_provider=_provider)
-    HTTPXClientInstrumentor().instrument(
-        tracer_provider=_provider,
-        async_request_hook=sanitize_httpx_request_span,
-    )
+
     _initialized = True
     _shutdown = False
 
@@ -77,6 +81,5 @@ def shutdown_telemetry(timeout_millis: int = 10_000) -> None:
 __all__ = [
     "init_telemetry",
     "init_telemetry_background",
-    "sanitize_httpx_request_span",
     "shutdown_telemetry",
 ]

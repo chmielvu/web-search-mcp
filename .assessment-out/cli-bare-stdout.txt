@@ -1,0 +1,53 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+                                                                               
+ Usage: web-search-cli [OPTIONS] COMMAND [ARGS]...                             
+                                                                               
+ Native JSON-first CLI for web-search-mcp.                                     
+                                                                               
+┌─ Options ───────────────────────────────────────────────────────────────────┐
+│ --agent                             [env var: WEB_SEARCH_CLI_AGENT]         │
+│                                     [default: True]                         │
+│ --human                             [env var: WEB_SEARCH_CLI_HUMAN]         │
+│ --quiet               -q            [env var: WEB_SEARCH_CLI_QUIET]         │
+│ --profile                     TEXT  [env var: WEB_SEARCH_CLI_PROFILE]       │
+│                                     [default: full]                         │
+│ --log-level                   TEXT  [env var: WEB_SEARCH_CLI_LOG_LEVEL]     │
+│                                     [default: error]                        │
+│ --debug                             [env var: WEB_SEARCH_CLI_DEBUG]         │
+│ --non-interactive                   [env var:                               │
+│                                     WEB_SEARCH_CLI_NON_INTERACTIVE]         │
+│                                     [default: True]                         │
+│ --install-completion                Install completion for the current      │
+│                                     shell.                                  │
+│ --show-completion                   Show completion for the current shell,  │
+│                                     to copy it or customize the             │
+│                                     installation.                           │
+│ --help                              Show this message and exit.             │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─ Commands ──────────────────────────────────────────────────────────────────┐
+│ schema       Emit the planned CLI command tree as JSON.                     │
+│ doctor       Validate scaffold readiness without provider calls.            │
+│ getskill     Print the bundled CLI skill markdown verbatim.                 │
+│ reference                                                                   │
+│ search                                                                      │
+│ content                                                                     │
+│ links                                                                       │
+│ ai                                                                          │
+│ youtube                                                                     │
+│ analytics                                                                   │
+│ experiments                                                                 │
+│ server                                                                      │
+│ sitemap                                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+{"error": {"kind": "usage_error", "message": "", "hint": "Run `web-search-cli schema` to inspect valid commands.", "context": {"exception_type": "NoArgsIsHelpError"}}}

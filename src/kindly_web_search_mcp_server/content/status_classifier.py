@@ -100,6 +100,17 @@ _COOKIE_CONSENT_INDICATORS: tuple[str, ...] = (
     "accept all cookies",
 )
 
+_SPA_SHELL_PATTERNS: tuple[str, ...] = (
+    "enable javascript",
+    "please turn javascript on",
+    "loading...",
+    "this application requires javascript",
+    "# root",  # React empty mount
+    "# app",  # Vue/Next empty mount
+    "root element",
+    "app element",
+)
+
 _REDIRECT_URL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*(?:https?://)?[^\s]+\s*$"),  # Single URL line
     re.compile(r"^redirect(?:ing)?\s+to\s+https?://", re.IGNORECASE),
@@ -258,9 +269,18 @@ def classify_markdown(markdown: str) -> ClassificationResult:
         )
         return result
 
-    # 8. Too short to be useful
+    # 8. SPA shell (client-rendered page with no real content)
+    match = _pattern_match(normalized, _SPA_SHELL_PATTERNS)
+    if match:
+        result = ClassificationResult(
+            status="partial", reason=f"spa_shell:{match}", cacheable=False
+        )
+        _emit_classification_event(result, markdown, normalized)
+        return result
+
+    # 9. Too short to be useful
     words = len(normalized.split())
-    if words < 30:
+    if words < 80:
         result = ClassificationResult(status="partial", reason="too_short", cacheable=False)
         _emit_classification_event(result, markdown, normalized)
         return result

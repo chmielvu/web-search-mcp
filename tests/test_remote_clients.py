@@ -148,14 +148,14 @@ class TestCamoufoxClient(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
-    async def test_retries_503_once(self) -> None:
+    async def test_retries_503(self) -> None:
         call_count = 0
         sleep_calls = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
+            if call_count < 3:
                 return httpx.Response(503, text="cold start")
             return httpx.Response(
                 200, headers={"content-type": "text/html"}, content=b"<html>OK</html>"
@@ -171,25 +171,35 @@ class TestCamoufoxClient(unittest.IsolatedAsyncioTestCase):
             await client.close()
 
         self.assertEqual(result, "<html>OK</html>")
-        self.assertEqual(call_count, 2)
-        self.assertEqual(len(sleep_calls), 1)
-        self.assertEqual(sleep_calls[0], 2.0)
+        self.assertEqual(call_count, 3)
+        self.assertEqual(len(sleep_calls), 2)
+        self.assertEqual(sleep_calls, [2.0, 4.0])
 
     async def test_raises_after_503_retry_exhausted(self) -> None:
+        call_count = 0
+        sleep_calls = []
+
         def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
             return httpx.Response(503, text="still cold")
 
         from kindly_web_search_mcp_server.content.remote_clients import CamoufoxClientError
 
         client = await _camoufox_client(handler)
         try:
-            with patch.object(asyncio, "sleep", AsyncMock()):
+            with patch.object(
+                asyncio, "sleep", AsyncMock(side_effect=lambda s: sleep_calls.append(s))
+            ):
                 with self.assertRaises(CamoufoxClientError) as ctx:
                     await client.fetch_html("http://example.com")
             self.assertIn("503", str(ctx.exception))
             self.assertTrue(ctx.exception.retryable)
         finally:
             await client.close()
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(sleep_calls, [2.0, 4.0])
 
     async def test_raises_on_transport_timeout(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

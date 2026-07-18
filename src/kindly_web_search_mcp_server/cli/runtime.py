@@ -77,6 +77,8 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             from ..search.outcomes import drain_search_outcomes
             from ..settings import settings
             from ..telemetry.init import shutdown_telemetry
+            from ..content.firecrawl_stage import close_firecrawl_client
+            from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
             from ..utils.http_client import close_http_client
 
             shutdown_started = time.perf_counter()
@@ -115,6 +117,15 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
 
             step_started = time.perf_counter()
             try:
+                await close_crawl4ai_client()
+                await close_camoufox_client()
+                await close_firecrawl_client()
+            except Exception as exc:
+                LOGGER.warning("Failed to close remote content clients: %s", exc)
+            timings["remote_clients"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
+            try:
                 shutdown_telemetry()
             except Exception as exc:
                 LOGGER.warning("Failed to shut down telemetry: %s", exc)
@@ -123,12 +134,13 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             LOGGER.info(
                 "CLI shutdown finished in %.3fs "
                 "(search_outcomes=%.3fs background_tasks=%.3fs "
-                "duckdb_executor=%.3fs http_client=%.3fs telemetry=%.3fs)",
+                "duckdb_executor=%.3fs http_client=%.3fs remote_clients=%.3fs telemetry=%.3fs)",
                 time.perf_counter() - shutdown_started,
                 timings["search_outcomes"],
                 timings["background_tasks"],
                 timings["duckdb_executor"],
                 timings["http_client"],
+                timings["remote_clients"],
                 timings["telemetry"],
             )
 

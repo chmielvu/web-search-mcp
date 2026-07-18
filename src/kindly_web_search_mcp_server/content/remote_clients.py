@@ -160,7 +160,7 @@ class CamoufoxClient:
         Retries once on HTTP 503 (cold-start browser init) after a 2s backoff.
         """
         payload = {"url": url, "gotoOptions": {"waitUntil": "networkidle", "timeout": 15000}}
-        for attempt in (1, 2):
+        for attempt in range(1, 4):
             try:
                 resp = await self._http.post("/content", json=payload)
             except httpx.TimeoutException as exc:
@@ -170,10 +170,10 @@ class CamoufoxClient:
                     f"Camoufox connection failed: {exc}", retryable=True
                 ) from exc
             if resp.status_code == 503:
-                if attempt == 1:
-                    await asyncio.sleep(2.0)
+                if attempt < 3:
+                    await asyncio.sleep(2.0**attempt)
                     continue
-                raise CamoufoxClientError("Camoufox 503 after retry", retryable=True)
+                raise CamoufoxClientError("Camoufox 503 after 3 retries", retryable=True)
             if resp.status_code != 200:
                 raise CamoufoxClientError(
                     f"Camoufox returned HTTP {resp.status_code}",

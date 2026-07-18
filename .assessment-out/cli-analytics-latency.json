@@ -1,0 +1,13 @@
+OpenTelemetry Tracing Details
+|  Phoenix Project: web-search-mcp
+|  Span Processor: BatchSpanProcessor
+|  Collector Endpoint: http://127.0.0.1:6006/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+{"error": {"kind": "tool_error", "code": "tool_error", "message": "Binder Error: Could not ORDER BY column \"CASE  WHEN ((stage = 'total')) THEN (1) WHEN ((stage = 'rewrite')) THEN (2) WHEN ((stage = 'provider_fetch')) THEN (3) WHEN ((stage = 'merge_dedup')) THEN (4) WHEN ((stage = 'rerank')) THEN (5) ELSE 99 END\": add the expression/function to every SELECT, or move the UNION into a FROM clause.", "hint": "Check the local analytics database and retry.", "suggestion": "Check the local analytics database and retry.", "exit_code": 1, "context": {"command": "analytics report"}}}

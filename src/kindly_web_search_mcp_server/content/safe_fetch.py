@@ -142,6 +142,23 @@ async def safe_fetch_url(
             body = b"".join(chunks)
             content_type = response.headers.get("content-type")
             is_pdf = _is_pdf(content_type, fetched_url, body)
+
+            if not is_pdf:
+                lowered = (content_type or "").lower()
+                if lowered and not any(
+                    t in lowered
+                    for t in (
+                        "text/html",
+                        "application/xhtml+xml",
+                        "application/xml",
+                        "text/plain",
+                    )
+                ):
+                    raise SafeFetchError(
+                        "unsupported_content_type",
+                        f"Expected HTML/XML/plain but got content-type={content_type}",
+                    )
+
             text = ""
             if not is_pdf:
                 encoding = response.encoding or "utf-8"

@@ -76,7 +76,7 @@ async def get_content(
     artifact: dict[str, Any] | None = None
     normalized_url = canonicalize_url(url)
     try:
-        cached = get_page_cache().lookup(normalized_url)
+        cached = await get_page_cache().alookup(normalized_url)
         if cached:
             cached_metadata = cached.get("metadata")
             cached_page_metadata = (
@@ -93,11 +93,12 @@ async def get_content(
                 "fetched_url": None,
                 "status": "success",
                 "source_type": "cache",
-                "fetch_backend": cached.get("extraction_method") or "cache",
+                "fetch_backend": "cache",
                 "content_type": "text/markdown",
                 "markdown": cached["page_content"],
                 "metadata": cached_page_metadata,
                 "links": cached_links,
+                "word_count": cached.get("word_count", 0) or len(cached["page_content"].split()),
                 "error": None,
             }
     except Exception as exc:
@@ -132,6 +133,7 @@ async def get_content(
                 "markdown": "",
                 "metadata": None,
                 "links": None,
+                "word_count": 0,
                 "error": {
                     "code": "timeout",
                     "message": "Content fetch exceeded the configured tool time budget.",
@@ -150,6 +152,7 @@ async def get_content(
                 "markdown": "",
                 "metadata": None,
                 "links": None,
+                "word_count": 0,
                 "error": {
                     "code": type(exc).__name__,
                     "message": str(exc),
@@ -168,6 +171,7 @@ async def get_content(
                 "markdown": fetched.markdown,
                 "metadata": fetched.metadata,
                 "links": fetched.links if include_links else None,
+                "word_count": fetched.word_count or len(fetched.markdown.split()),
                 "error": None
                 if fetched.error is None
                 else {
@@ -178,7 +182,7 @@ async def get_content(
             }
         if fetched is not None and fetched.status == "success" and fetched.markdown:
             try:
-                get_page_cache().store(
+                await get_page_cache().astore(
                     canonical_url=fetched.normalized_url,
                     page_content=fetched.markdown,
                     extraction_method=fetched.fetch_backend,
@@ -222,6 +226,8 @@ async def get_content(
         content_type=artifact["content_type"],
         error=artifact["error"],
         summary=summary,
+        content_quality=artifact["status"],
+        content_word_count=artifact.get("word_count", 0) or len(artifact["markdown"].split()),
     ).model_dump(exclude_none=True)
     response.setdefault("fetched_url", None)
 
@@ -364,6 +370,8 @@ async def batch_get_content(
                 "continuation_notice": item.get("continuation_notice"),
                 "error": item.get("error"),
                 "summary": summaries[idx],
+                "content_quality": item["status"],
+                "content_word_count": item.get("word_count") or len(item["page_content"].split()),
             }
             for idx, item in enumerate(output["results"])
         ],

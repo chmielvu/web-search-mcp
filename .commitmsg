@@ -1,0 +1,14 @@
+Fix Phoenix telemetry: LLM-only filtering, rank_llm cloud support, restore original llm_rerank
+
+- Replace broken SpanProcessor filter with exporter-level filtering that
+  actually works (wrap OTLP exporter so only LLM + RERANKER spans reach Phoenix)
+- Remove HTTPXClientInstrumentor to stop flooding Phoenix with raw HTTP spans
+- Fix init_telemetry wiring so CLI entrypoint actually initializes tracing
+- Add vllm stubs (.venv/Lib/site-packages/vllm/) so rank_llm[cloud] loads
+  without the full GPU stack
+- Restore original llm_rerank.py (rank_llm lazy-load strategy bypasses
+  listwise/__init__.py vllm import via external stub package)
+- Verified rank_llm Gemini 3.1 Flash Lite reranker working (5.7s, 30→15)
+- Verified Phoenix only receives LLM + RERANKER spans from CLI runs
+
+Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

@@ -1,3 +1,22 @@
+## Content Fetch Reliability + Efficiency — 2026-07-18
+
+- 2026-07-18T10:23Z [USER] Approved `local://content-tools-reliability-plan.md` (13 steps, 4 phases).
+- 2026-07-18T10:30Z [CODE] Implemented page-cache pre-check inside `run_batch_fetch` (`content/batch_orchestrator.py`) so batch fetches reuse cached pages; per-URL exceptions are now isolated and return `status="error"`, `fetch_backend="exception"` instead of failing the whole batch.
+- 2026-07-18T10:35Z [CODE] Made `PageDuckDBCache`/`PageCache` async via `alookup`/`astore` (thread-pool) while keeping sync `lookup`/`store` for tests/CLI; added resilient fallback so cache errors never fail the tool. Updated `tools/content.py` and `cli/services/content.py` callers to `await` the async cache surface.
+- 2026-07-18T10:40Z [CODE] Added per-stage retry with exponential backoff inside `content/stages.py` for Jina Reader, local HTTP, and Crawl4AI; Crawl4AI retry respects `retryable=False`. No stage-level retry for Camoufox (its internal retry is expanded separately).
+- 2026-07-18T10:45Z [CODE] Added per-stage timeout budgets in `content/fetch_pipeline.py` (Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s) capped by remaining total budget; wired into Jina Reader and local HTTP.
+- 2026-07-18T10:50Z [CODE] Added module-level Jina Reader circuit breaker (`content/jina_reader.py`) that opens after 3 failures in 60s and falls through to Crawl4AI/local.
+- 2026-07-18T10:55Z [CODE] Strengthened Camoufox internal retry from 1 attempt to 3 with exponential backoff (2s, 4s, 8s) and updated `tests/test_remote_clients.py`.
+- 2026-07-18T11:00Z [CODE] Raised `classify_markdown` success word threshold from 30 to 80 and added SPA shell detection (`content/status_classifier.py`); added tests for SPA shell and short content.
+- 2026-07-18T11:05Z [CODE] Added content-type validation in `content/safe_fetch.py` to reject non-HTML/XML/plain responses; allowed missing content-type to avoid breaking misconfigured servers.
+- 2026-07-18T11:10Z [CODE] Added `content_quality` and `content_word_count` to `GetContentResponse` and `BatchContentResult` (`models.py`) and populated them in `tools/content.py`, `cli/services/content.py`, and `content/batch_orchestrator.py`.
+- 2026-07-18T11:15Z [CODE] Added boilerplate stripping in `content/sanitize.py` and applied it in `content/extract.py`; improved regex fallback for `<a>`, `<code>`, `<pre>`, `<blockquote>`, and `<img>`.
+- 2026-07-18T11:20Z [TOOL] Targeted tests: `test_page_cache_duckdb.py`, `test_batch_orchestrator.py`, `test_content_status_classifier.py`, `test_stages.py`, `test_remote_clients.py` all pass (28 total). Ruff/lint clean.
+- 2026-07-18T11:25Z [CODE] Jina Reader optimization: switched base headers to `X-Respond-With: frontmatter`, `X-Preset: research`, `X-Retain-Links: none`, `X-Retain-Images: none`, `X-No-Cache: true` (`content/jina_reader.py`). Removed the tentative `jina_preset` FetchOptions field.
+- 2026-07-18T11:30Z [CODE] Fixed cache-hit backend indicator to `cache` in `tools/content.py`, `cli/services/content.py`, and `content/batch_orchestrator.py`; added cache store to `cli/services/content_batch.py` for fully-windowed batch results.
+- 2026-07-18T11:35Z [TOOL] Live production verification (real websites): `get_content https://docs.python.org/3/tutorial/` returned `status=success`, `fetch_backend=jina_reader`, `content_word_count=397`, clean frontmatter output. Second call returned `fetch_backend=cache`. Batch with two Python docs URLs succeeded; second batch returned both results with `fetch_backend=cache`. Batch fetch uses windowed parallelism (`asyncio.gather` per window with semaphore up to `max_concurrency`).
+- 2026-07-18T11:20Z [DECISIONS] Kept `classify_quality` sigmoid inflection at 30 words; only the hard `classify_markdown` floor moved to 80 words. Kept Camoufox stage-level retry disabled to avoid double retries with the expanded internal client retry.
+
 ## Search Package Restructure + LangSearch Integration — 2026-07-17
 
 - 2026-07-17 [USER] Approved `local://search-restructure-plan.md` (11 steps, 6 phases): dead code cleanup, schema consolidation, provider restructure into `search/providers/`, Bing sidecar cleanup, LangSearch Web Search API integration, final verification.
@@ -211,6 +230,8 @@ The working tree has extensive changes from the codebase-rehab pass:
 - Ruff format sweep on ~200 files
 
 ## Decisions
+
+- 2026-07-18T17:20Z [DECISIONS] Batch content summaries (`batch_get_content`) now use a single Gemini API call with all URLs passed to the URL-context tool, instead of one call per URL. The batch path and its per-item fallback both use `GEMINI_SECOND_API_KEY` (paid key) to avoid rate limits. `get_content` (single-URL) is unchanged and continues to use `GEMINI_API_KEY`. GitNexus impact analysis was attempted but the subagent failed; manual review showed callers are limited to `batch_get_content` and `fetch_batch_content_payload`.
 
 - DuckDB tests writing to repo root is **intentional** (analytics data persisted by design).
 - `web_search` num_results clamped to 15-50 (not 1-25), default 15.

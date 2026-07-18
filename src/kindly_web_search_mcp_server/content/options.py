@@ -17,10 +17,13 @@ class FetchOptions:
     include_links: bool = False
     max_links: int = 25
     strip_selectors: str | None = None
+    stage_timeout_seconds: float | None = None
 
     def validate(self) -> None:
         if self.max_links < 1:
             raise ValueError("max_links must be at least 1")
+        if self.stage_timeout_seconds is not None and self.stage_timeout_seconds <= 0:
+            raise ValueError("stage_timeout_seconds must be positive")
 
     def selector_list(self) -> list[str]:
         return _normalize_selectors(self.strip_selectors)
@@ -42,6 +45,7 @@ class FetchOptions:
             "include_links": self.include_links,
             "max_links": self.max_links,
             "strip_selectors": self.strip_selectors,
+            "stage_timeout_seconds": self.stage_timeout_seconds,
         }
 
 

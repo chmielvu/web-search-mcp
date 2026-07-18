@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Sequence
 
-from .summary_backend import summarize_with_fallback
+from .summary_backend import summarize_batch_with_fallback, summarize_with_fallback
 from .summary_models import SummaryMode, summary_stub
 
 
@@ -42,25 +41,11 @@ async def create_batch_summaries(
     if mode == "none":
         return [None for _ in items]
 
-    sem = asyncio.Semaphore(max(1, min(max_concurrency, 8)))
+    if not items:
+        return []
 
-    async def _summarize(item: dict[str, Any]) -> dict[str, Any] | None:
-        source_text = (item.get("page_content") or "").strip()
-        source_url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
-        try:
-            async with sem:
-                return await create_summary(
-                    source_text,
-                    mode=mode,
-                    focus_query=focus_query,
-                    source_urls=[source_url] if source_url else None,
-                )
-        except Exception as exc:
-            logger.warning(
-                "Batch summary failed for %s: %s",
-                source_url or item.get("input_url") or "<unknown>",
-                exc,
-            )
-            return None
-
-    return await asyncio.gather(*(_summarize(item) for item in items))
+    return await summarize_batch_with_fallback(
+        items=items,
+        mode=mode,
+        focus_query=focus_query,
+    )
