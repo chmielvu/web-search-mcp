@@ -19,7 +19,7 @@ def _payload(result) -> dict:
 
 def test_links_discover_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.links.fetch_discover_links_payload",
+        "kindly_web_search_mcp_server.cli.services.link_tools.fetch_discover_links_payload",
         AsyncMock(
             return_value={
                 "input_url": "https://example.com",
@@ -46,7 +46,7 @@ def test_links_discover_emits_json_payload(monkeypatch) -> None:
 
 def test_content_batch_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.content.fetch_batch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content_batch.fetch_batch_content_payload",
         AsyncMock(
             return_value={
                 "results": [],
@@ -125,7 +125,7 @@ def test_ai_grok_emits_json_payload(monkeypatch) -> None:
 
 def test_youtube_search_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.youtube.fetch_youtube_search_payload",
+        "kindly_web_search_mcp_server.cli.services.youtube.fetch_youtube_search_payload",
         AsyncMock(
             return_value={
                 "query": "fastmcp tutorial",
@@ -148,7 +148,7 @@ def test_youtube_search_emits_json_payload(monkeypatch) -> None:
 
 def test_youtube_transcript_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.youtube.fetch_youtube_transcript_payload",
+        "kindly_web_search_mcp_server.cli.services.youtube.fetch_youtube_transcript_payload",
         AsyncMock(
             return_value={
                 "video_id": "abc123def45",
@@ -182,7 +182,7 @@ def test_youtube_transcript_emits_json_payload(monkeypatch) -> None:
 
 def test_analytics_query_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.analytics.run_analytics_query",
+        "kindly_web_search_mcp_server.analytics.queries.run_analytics_query",
         lambda question, scope, max_rows, db_path: {
             "question": question,
             "scope": scope,
@@ -214,7 +214,7 @@ def test_analytics_report_emits_json_payload(monkeypatch) -> None:
             return [{"report": "fetch-quality"}]
 
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.analytics.run_report",
+        "kindly_web_search_mcp_server.analytics.reports.run_report",
         lambda report_name, days, db_path: _Table(),
     )
 
@@ -239,16 +239,25 @@ def test_experiments_create_requires_config_when_non_interactive(capsys) -> None
         cli_main(["--non-interactive", "experiments", "create"])
 
     assert exc.value.code == 2
-    payload = json.loads(capsys.readouterr().err)
+    # OTel init may write a banner to stderr; extract the last JSON payload.
+    stderr = capsys.readouterr().err
+    payload = None
+    for line in reversed(stderr.strip().split("\n")):
+        try:
+            candidate = json.loads(line)
+            if isinstance(candidate, dict) and "error" in candidate:
+                payload = candidate
+                break
+        except json.JSONDecodeError:
+            continue
+    assert payload is not None, f"No JSON error payload found in stderr: {stderr!r}"
     assert payload["error"]["kind"] == "usage_error"
     assert "non-interactive mode" in payload["error"]["message"]
 
 
-
-
 def test_links_similar_and_quick_search_emit_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.links.fetch_similar_links_payload",
+        "kindly_web_search_mcp_server.cli.services.link_tools.fetch_similar_links_payload",
         AsyncMock(
             return_value={
                 "url": "https://example.com",
@@ -257,15 +266,16 @@ def test_links_similar_and_quick_search_emit_json_payload(monkeypatch) -> None:
             }
         ),
     )
+    mock_quick = AsyncMock(
+        return_value={
+            "search_queries": ["example quick search"],
+            "citations": [],
+            "total_citations": 0,
+        }
+    )
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
-        AsyncMock(
-            return_value={
-                "query": "example quick search",
-                "results": [],
-                "total_results": 0,
-            }
-        ),
+        mock_quick,
     )
 
     similar = _payload(
@@ -277,10 +287,18 @@ def test_links_similar_and_quick_search_emit_json_payload(monkeypatch) -> None:
     quick = _payload(
         runner.invoke(
             app,
-            ["search", "quick", "--query", "example quick search"],
+            [
+                "search",
+                "quick",
+                "--search-query",
+                "example quick search",
+                "--objective",
+                "research goal",
+            ],
         )
     )
 
+    mock_quick.assert_awaited_once_with(["example quick search"], "research goal")
     assert similar["meta"]["command"] == "links similar"
     assert quick["meta"]["command"] == "search quick"
 

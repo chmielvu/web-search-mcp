@@ -22,7 +22,7 @@ from .remote_clients import (
     get_crawl4ai_client,
 )
 from .specialized_pipeline import _resolve_tier1
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_error
 from .stages import _fetch_via_camoufox, _fetch_via_crawl4ai, _fetch_via_jina, _fetch_via_local
 

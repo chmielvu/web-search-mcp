@@ -53,25 +53,13 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "tool": "quick_web_search",
         "command": "search quick",
         "profiles": ["research", "experimental", "full"],
-        "required": ["query"],
+        "required": ["search_query", "objective"],
     },
     {
         "tool": "composio_similarlinks",
         "command": "links similar",
         "profiles": ["research", "experimental", "full"],
         "required": ["url"],
-    },
-    {
-        "tool": "analytics_query",
-        "command": "analytics query",
-        "profiles": ["diagnostic", "experimental", "full"],
-        "required": ["question"],
-    },
-    {
-        "tool": "analytics_report",
-        "command": "analytics report",
-        "profiles": ["diagnostic", "experimental", "full"],
-        "required": ["report_name"],
     },
     {
         "tool": "youtube_search",

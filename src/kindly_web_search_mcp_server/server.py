@@ -23,6 +23,7 @@ os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 import logging
 
 from .composio_tools import register_composio_tools
+from .quick_web_search import register_quick_web_search
 from .settings import settings
 from .telemetry import init_telemetry_background
 from .tools._helpers import (
@@ -99,6 +100,7 @@ mcp.add_middleware(
 from .middleware import create_dynamic_guidance_middleware
 
 mcp.add_middleware(create_dynamic_guidance_middleware())
+register_quick_web_search(mcp)
 register_composio_tools(mcp)
 
 # Expose prompts and resources as tools for clients that only support the tools protocol.

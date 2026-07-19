@@ -32,6 +32,11 @@ def register(app: typer.Typer) -> None:
                 "ok": _safe_find_spec("openinference.instrumentation.openai") is not None,
                 "required": False,
             },
+            {
+                "name": "firecrawl_importable",
+                "ok": _safe_find_spec("firecrawl") is not None,
+                "required": False,
+            },
             {"name": "repo_root", "ok": REPO_ROOT.exists(), "path": str(REPO_ROOT)},
         ]
         emit_json({"checks": checks}, command="doctor")

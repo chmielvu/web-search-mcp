@@ -209,11 +209,17 @@ def _guide_gemini_search(data: dict) -> tuple[str, list[str], list[str]]:
     return (GEMINI_QUERY_ADVISORY, [], ["evaluate_web_results"])
 
 
+def _guide_quick_web_search(data: dict) -> tuple[str, list[str], list[str]]:
+    del data
+    return ("", ["web_search", "get_content"], [])
+
+
 GUIDANCE_GENERATORS = {
     "web_search": _guide_web_search,
     "get_content": _guide_get_content,
     "batch_get_content": _guide_batch_get_content,
     "gemini_search": _guide_gemini_search,
+    "quick_web_search": _guide_quick_web_search,
 }
 
 

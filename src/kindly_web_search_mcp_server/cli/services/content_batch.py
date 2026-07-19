@@ -6,7 +6,7 @@ from ...cache import get_page_cache
 from ...content.batch_orchestrator import BatchParams, run_batch_fetch
 from ...content.options import build_fetch_options
 from ...content.summary import create_batch_summaries
-from ...search.normalize import canonicalize_url
+from ...utils.url_canonicalize import canonicalize_url
 
 
 async def fetch_batch_content_payload(

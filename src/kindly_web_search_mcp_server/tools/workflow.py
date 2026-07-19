@@ -11,7 +11,7 @@ Start with `quick_web_search` for initial topic scoping before deeper research.
 ## Tool routing
 | Task | Tool | Why |
 |---|---|---|
-| Initial recon | quick_web_search | Fast synthesized answer with citations |
+| Initial recon | quick_web_search | Fast search with ranked citations |
 | Find URLs | web_search | Multi-provider merge, provider_count signal |
 | Web + X/Twitter | grok_search | Real-time web and social data |
 | Scholarly papers | academic_search | 6 sources, field/venue/year filters |

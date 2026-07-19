@@ -20,7 +20,7 @@ from ..models import (
     GetContentResponse,
     GetContentResultType,
 )
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _get_int_env, _record_tool_success, _resolve_tool_total_timeout_seconds
 

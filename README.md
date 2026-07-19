@@ -38,7 +38,11 @@ export BRAVE_API_KEY="BSA..."
 
 # Or Jina
 export JINA_API_KEY="jina_..."
+
+# Or Parallel AI (for quick_web_search)
+export PARALLEL_API_KEY="pk_..."
 ```
+
 
 ### 2. Run the MCP server
 
@@ -77,7 +81,7 @@ mcp-server --http --port 8000
 | `academic_search` | Search across academic databases (arXiv, PubMed, Semantic Scholar, OpenAlex, CrossRef) |
 | `youtube_search` | Search YouTube videos |
 | `youtube_transcript` | Get full transcript from YouTube video |
-| `quick_web_search` | Fast search via Composio/Exa (experimental) |
+| `quick_web_search` | Fast search via Parallel AI (advanced mode) |
 | `composio_similarlinks` | Find similar links via Composio |
 | `agentic_web_research` | Multi-step research agent (experimental) |
 | `analytics_query` | Query search analytics (DuckDB) |
@@ -166,6 +170,7 @@ JINA_API_KEY="jina_..."                     # Jina API key
 
 # Optional providers
 GROK_API_KEY="..."                         # xAI/Grok
+PARALLEL_API_KEY="pk_..."                    # Parallel AI Search (quick_web_search)
 
 
 # Provider controls

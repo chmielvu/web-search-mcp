@@ -16,18 +16,30 @@ search_app = typer.Typer(no_args_is_help=True)
 
 @search_app.command("quick")
 def quick_cmd(
-    query: Annotated[str, typer.Option("--query", help="Search query text.")],
+    search_query: Annotated[
+        list[str],
+        typer.Option(
+            "--search-query",
+            help="Keyword search query (3-6 words). Repeat for 2-3 queries.",
+        ),
+    ],
+    objective: Annotated[
+        str,
+        typer.Option(
+            "--objective", help="Research goal — what you're trying to accomplish with this search."
+        ),
+    ],
 ) -> None:
-    """Run the Composio-backed quick web search path."""
+    """Run the Parallel AI-backed quick web search path."""
     from ..services.quick_search import fetch_quick_web_search_payload
 
     try:
-        payload = run_cli_async(fetch_quick_web_search_payload(query))
+        payload = run_cli_async(fetch_quick_web_search_payload(search_query, objective))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
             message=str(exc),
-            hint="Check the Composio Search credentials and retry.",
+            hint="Check the PARALLEL_API_KEY setting and retry.",
             exit_code=ExitCode.PROVIDER_ERROR,
             context={
                 "command": "search quick",

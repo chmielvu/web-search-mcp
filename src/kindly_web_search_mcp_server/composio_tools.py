@@ -9,8 +9,6 @@ from fastmcp.server.context import Context
 
 from .composio_client import execute_composio_tool
 from .models import (
-    QuickWebSearchCitation,
-    QuickWebSearchResponse,
     SimilarLinkResult,
     SimilarLinksResponse,
 )
@@ -18,7 +16,6 @@ from .tools.catalog import tool_kwargs
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
 WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
-WEB_SEARCH_MAX_RESULTS = 5
 
 
 def _string_list(values: list[str] | None) -> list[str] | None:
@@ -41,81 +38,6 @@ def _parse_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
-
-
-def _extract_web_search_results(
-    data: dict[str, Any],
-) -> tuple[str | None, list[dict[str, Any]]]:
-    """Extract answer and sources from the Composio Tavily search response.
-
-    The current Composio Tavily tool returns a top-level `answer` plus a
-    `results` list. Keep the older nested citation shape accepted so historical
-    mocks and cached payloads remain parseable.
-    """
-    answer = data.get("answer")
-    if not isinstance(answer, str):
-        nested = data.get("results")
-        if isinstance(nested, dict) and isinstance(nested.get("answer"), str):
-            answer = nested["answer"]
-        else:
-            answer = None
-
-    sources = data.get("results")
-    if isinstance(sources, list):
-        return answer, sources
-
-    if isinstance(sources, dict):
-        citations = sources.get("citations")
-        if isinstance(citations, list):
-            return answer, citations
-        nested_results = sources.get("results")
-        if isinstance(nested_results, list):
-            return answer, nested_results
-
-    return answer, []
-
-
-async def _quick_web_search_impl(query: str) -> QuickWebSearchResponse:
-    """Execute Composio Tavily search and parse the response.
-
-    Composio SEARCH_TAVILY returns a concise answer and a `results` list with
-    source title, URL, and content/snippet fields.
-    """
-    data = await execute_composio_tool(
-        WEB_SEARCH_SLUG,
-        {
-            "query": query,
-            "max_results": WEB_SEARCH_MAX_RESULTS,
-            "search_depth": "basic",
-            "include_answer": True,
-            "include_images": False,
-            "include_raw_content": False,
-        },
-    )
-
-    answer, citations_raw = _extract_web_search_results(data)
-    citations: list[QuickWebSearchCitation] = []
-
-    for item in citations_raw:
-        if not isinstance(item, dict):
-            continue
-        title = item.get("title")
-        url = item.get("url")
-        snippet = item.get("snippet") or item.get("content")
-        citations.append(
-            QuickWebSearchCitation(
-                title=title.strip() if isinstance(title, str) else None,
-                url=url.strip() if isinstance(url, str) else None,
-                snippet=snippet.strip() if isinstance(snippet, str) else None,
-            )
-        )
-
-    return QuickWebSearchResponse(
-        query=query,
-        answer=answer,
-        citations=citations,
-        total_citations=len(citations),
-    )
 
 
 async def _composio_similarlinks_impl(
@@ -159,19 +81,6 @@ async def _composio_similarlinks_impl(
 
 def register_composio_tools(mcp: Any) -> None:
     """Register standalone Composio Search toolkit tools."""
-
-    @mcp.tool(**tool_kwargs("quick_web_search"))
-    async def quick_web_search(
-        query: str,
-        ctx: Context = CurrentContext(),
-    ) -> dict:
-        """Fast reconnaissance search. Returns a synthesized answer with citations.
-        Use as the initial tool call to scope a topic before deeper research.
-        """
-        await ctx.info(f"Quick web search: {query[:80]}...")
-        response = await _quick_web_search_impl(query)
-        await ctx.info(f"Found {response.total_citations} citations")
-        return response.model_dump(exclude_none=True)
 
     @mcp.tool(**tool_kwargs("composio_similarlinks"))
     async def composio_similarlinks(

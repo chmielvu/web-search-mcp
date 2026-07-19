@@ -33,6 +33,7 @@ dependencies = [
     "youtube-transcript-api>=0.6.0",
     "yt-dlp>=2024.0.0",
     "ddgs>=7.0.0",
+    "parallel-web>=1.0",
     "rich>=13.0.0",
     "semanticscholar>=0.8.0",
     "arxiv>=3.0.0",

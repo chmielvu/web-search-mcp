@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from .safe_fetch import SafeFetchError, safe_fetch_url
 from .html_tools import (
     extract_html_links,

@@ -337,7 +337,7 @@ or the `analytics.queries.AVAILABLE_REPORTS` helper to list report names.
 | `--db-path` | string | — | Override the DuckDB file path. |
 
 ```powershell
-web-search-cli analytics report --report-name "provider_health" --days 14
+web-search-cli analytics report --report-name "provider-performance" --days 14
 ```
 
 ### `sitemap generate`
@@ -567,8 +567,8 @@ MCP surfaces stay in sync.
 | Extract video speech | `youtube transcript` | `youtube_transcript` | Timestamped or plain text, optional translation. |
 | Quick synthesized answer (Exa) | `search quick` | `quick_web_search` | Exa-backed, lighter than Gemini/Grok. |
 | Expand from a known good URL | `links similar` | `composio_similarlinks` | Neural similarity, include/exclude domain filters. |
-| Local analytics question | `analytics query` | `analytics_query` | Guarded, allowlisted DuckDB query. |
-| Deterministic analytics report | `analytics report` | `analytics_report` | Fixed report catalog with `--days` window. |
+| Local analytics question | `analytics query` | — | Native CLI analytics command (Guarded DuckDB query). |
+| Deterministic analytics report | `analytics report` | — | Native CLI analytics report command (Fixed report catalog). |
 
 ### Query formulation
 
@@ -789,7 +789,7 @@ The default for the CLI global option is `full`.
 | `default` | `web_search`, `get_content`, `batch_get_content`, `discover_links` |
 | `research` | `default` + `gemini_search`, `grok_search`, `academic_search`, `quick_web_search`, `composio_similarlinks` |
 | `media` | `default` + `youtube_search`, `youtube_transcript` |
-| `diagnostic` | `default` + `analytics_query`, `analytics_report` |
+| `diagnostic` | `default` |
 | `experimental` | All non-`default` tools |
 | `full` | All tools (CLI default) |
 
@@ -876,7 +876,7 @@ sources:
 
 ```powershell
 web-search-cli doctor
-web-search-cli analytics report --report-name "provider_health" --days 7
+web-search-cli analytics report --report-name "provider-performance" --days 7
 ```
 
 Enable debug logging to diagnose a slow search:

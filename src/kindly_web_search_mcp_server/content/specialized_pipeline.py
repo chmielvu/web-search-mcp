@@ -10,7 +10,7 @@ import logging
 from typing import Awaitable, Callable
 
 from ..errors import classify_error
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_error, record_content_resolution
 from .artifact import ContentArtifact, ContentError
 from .options import FetchOptions

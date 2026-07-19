@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+
+
+### Changed - quick_web_search backend (Composio/Tavily → Parallel AI)
+- **Refactor**: Replaced Composio/Tavily backend with Parallel AI Search API (advanced mode, `parallel-web` SDK).
+- **New file**: `src/kindly_web_search_mcp_server/quick_web_search.py` — self-contained module with models, impl, and MCP registration.
+- **Inputs**: Required `search_queries` (1-5, 2-3 recommended keyword queries) and `objective`; optional `max_results`, `max_chars_total`, `max_chars_per_result`, `client_model`, `session_id`, `include_domains`, `exclude_domains`, `after_date`, `location`, `max_age_seconds` (min 600), `timeout_seconds`, `disable_cache_fallback`.
+- **Outputs**: Response field `query` renamed to `search_queries`; removed always-None `answer` field. Added `search_id`, `session_id`, `warnings`, `usage` metadata; citations now include `publish_date` and `excerpts` list.
+- **Config**: Added `PARALLEL_API_KEY` to settings; added `parallel-web>=1.0` dependency.
+- **CLI**: `search quick` now requires repeatable `--search-query` (1-5) and `--objective`.
+- **Removed**: `QuickWebSearchCitation`, `QuickWebSearchResponse`, `QuickWebSearchResultType` from `models.py` (now in `quick_web_search.py`).
+- **Tests**: New `tests/test_quick_web_search.py` with focused Parallel search coverage; old Composio-backed tests removed from `test_composio_tools.py`.
+
+### Fixed - Assessment cross-evaluation remediation (10 findings)
+- **OTel stdout**: Phoenix initialization output redirected to stderr via `_redirect_stdout_to_stderr()` in `telemetry/init.py`, preserving clean JSON stdout for CLI commands.
+- **Crawl4AI dict serialization**: `Crawl4AIClient.fetch_markdown` now extracts `markdown` field from dict responses instead of calling `str(dict)`.
+- **latency-breakdown SQL**: Wrapped multi-leg `UNION ALL` in a subquery so DuckDB can resolve `ORDER BY CASE stage` binder.
+- **Firecrawl dependency**: Confirmed `firecrawl-py` installed; added `try...except ImportError` guard in `get_firecrawl_client()` and `firecrawl_importable` doctor check.
+- **SKILL.md drift**: Replaced invalid `provider_health` report name with `provider-performance`; removed stale `--num-results` from `search web`; updated `diagnostic` capability profile.
+
+### Removed - MCP analytics tools (user directive)
+- Deleted `analytics/tools.py` (orphan `analytics_query`/`analytics_report` MCP tool wrappers); removed from `TOOL_COVERAGE` and MCP tool column in SKILL.md. Native CLI `analytics query`/`analytics report` commands remain fully operational.
+
+### Changed - Architecture
+- **content/search decouple**: Moved `canonicalize_url` implementation to `utils/url_canonicalize.py`; content/ and tools/ now import from utils, not search/normalize.
+- **telemetry init**: Added `shutdown_telemetry` to public re-exports; internal/init imports made explicit while public sub-modules keep star-export pattern (full explicit re-export deferred).
+
+### Fixed - Tests
+- Deleted `test_diversity_ranking.py` and `test_rerank_pipeline_eval.py` (imports removed `rerank.diversity`).
+- Fixed `test_rerank_core.py` unused `DiversityStageOutcome` import.
+- Fixed `test_public_output_serialization.py` syntax error (missing `from models import`).
+- Updated 6 CLI test patches from stale `cli.commands.*` to `cli.services.*` targets.
+- Fixed `test_experiments_create_requires_config` to tolerate OTel banner on stderr.
+- Updated `test_reference_tools_covers_current_catalog` expected count (14→11).
+- Aligned `test_brief_prints_one_paragraph` and `test_root_help_emits_structured_json` with current SKILL.md wording.
+
+### Known Issues
+- `scripts/rerank_eval_diversity.py` imports deleted `rerank.diversity` module; requires migration to current rerank API.
+- `telemetry/__init__.py` retains wildcard imports for public modules; explicit re-export was deferred after restoring stable compatibility (no regressions, ruff clean).
+
 ### Changed - Content fetch reliability and efficiency
 - Changed `batch_get_content` summaries to a single Gemini call fed all URLs via the URL-context tool, using `GEMINI_SECOND_API_KEY` for paid-tier rate limits; per-item fallback also uses the paid key.
 - Added page-cache pre-check inside `run_batch_fetch` so `batch_get_content` reuses cached pages instead of re-fetching.

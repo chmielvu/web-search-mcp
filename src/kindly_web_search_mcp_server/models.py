@@ -275,23 +275,6 @@ class ImageSearchResponse(BaseModel):
     page: int = 0
 
 
-class QuickWebSearchCitation(BaseModel):
-    """Single citation/source from Composio Quick Web Search."""
-
-    title: str | None = None
-    url: str | None = None
-    snippet: str | None = None
-
-
-class QuickWebSearchResponse(BaseModel):
-    """Response from Composio Quick Web Search (COMPOSIO_SEARCH_TAVILY)."""
-
-    query: str
-    answer: str | None = None
-    citations: list[QuickWebSearchCitation] = Field(default_factory=list)
-    total_citations: int = 0
-
-
 # ============================================================================
 # Error Response Model
 # ============================================================================
@@ -348,7 +331,6 @@ YouTubeTranscriptResultType = YouTubeTranscriptResponse | ToolErrorResponse
 YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse
 SimilarLinksResultType = SimilarLinksResponse | ToolErrorResponse
 ImageSearchResultType = ImageSearchResponse | ToolErrorResponse
-QuickWebSearchResultType = QuickWebSearchResponse | ToolErrorResponse
 
 
 # ============================================================================

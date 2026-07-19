@@ -3,8 +3,6 @@
 # ruff: noqa: F401, F403, F405
 from __future__ import annotations
 
-import httpx
-
 from .attributes import *
 from .constants import (
     LOGS_AVAILABLE,
@@ -21,7 +19,7 @@ from ._internal import (
     build_grafana_cloud_headers,
     build_hf_space_headers,
 )
-from .init import init_telemetry, init_telemetry_background
+from .init import init_telemetry, init_telemetry_background, shutdown_telemetry
 from .metrics import *
 from .records_ai import *
 from .records_circuit import *
@@ -35,6 +33,7 @@ __all__ = [
     # Initialization
     "init_telemetry",
     "init_telemetry_background",
+    "shutdown_telemetry",
     "get_tracer",
     "get_meter",
     "get_search_total_metric",

@@ -226,45 +226,47 @@ def latency_breakdown(*, days: int = 7, db_path: str | None = None) -> pa.Table:
                    total_duration_ms
             FROM run_timings
         )
-        SELECT
-            'total' AS stage,
-            COUNT(*) AS runs,
-            ROUND(AVG(total_duration_ms), 1) AS avg_duration_ms,
-            ROUND(quantile_cont(total_duration_ms, 0.50), 1) AS p50_ms,
-            ROUND(quantile_cont(total_duration_ms, 0.95), 1) AS p95_ms
-        FROM stage_samples
-        UNION ALL
-        SELECT
-            'rewrite' AS stage,
-            COUNT(*) FILTER (WHERE rewrite_latency_ms > 0) AS runs,
-            ROUND(AVG(rewrite_latency_ms) FILTER (WHERE rewrite_latency_ms > 0), 1) AS avg_duration_ms,
-            ROUND(quantile_cont(rewrite_latency_ms, 0.50), 1) AS p50_ms,
-            ROUND(quantile_cont(rewrite_latency_ms, 0.95), 1) AS p95_ms
-        FROM stage_samples
-        UNION ALL
-        SELECT
-            'provider_fetch' AS stage,
-            COUNT(*) AS runs,
-            ROUND(AVG(provider_latency_ms), 1) AS avg_duration_ms,
-            ROUND(quantile_cont(provider_latency_ms, 0.50), 1) AS p50_ms,
-            ROUND(quantile_cont(provider_latency_ms, 0.95), 1) AS p95_ms
-        FROM stage_samples
-        UNION ALL
-        SELECT
-            'merge_dedup' AS stage,
-            COUNT(*) FILTER (WHERE merge_latency_ms > 0) AS runs,
-            ROUND(AVG(merge_latency_ms) FILTER (WHERE merge_latency_ms > 0), 1) AS avg_duration_ms,
-            ROUND(quantile_cont(merge_latency_ms, 0.50), 1) AS p50_ms,
-            ROUND(quantile_cont(merge_latency_ms, 0.95), 1) AS p95_ms
-        FROM stage_samples
-        UNION ALL
-        SELECT
-            'rerank' AS stage,
-            COUNT(*) FILTER (WHERE rerank_latency_ms > 0) AS runs,
-            ROUND(AVG(rerank_latency_ms) FILTER (WHERE rerank_latency_ms > 0), 1) AS avg_duration_ms,
-            ROUND(quantile_cont(rerank_latency_ms, 0.50), 1) AS p50_ms,
-            ROUND(quantile_cont(rerank_latency_ms, 0.95), 1) AS p95_ms
-        FROM stage_samples
+        SELECT * FROM (
+            SELECT
+                'total' AS stage,
+                COUNT(*) AS runs,
+                ROUND(AVG(total_duration_ms), 1) AS avg_duration_ms,
+                ROUND(quantile_cont(total_duration_ms, 0.50), 1) AS p50_ms,
+                ROUND(quantile_cont(total_duration_ms, 0.95), 1) AS p95_ms
+            FROM stage_samples
+            UNION ALL
+            SELECT
+                'rewrite' AS stage,
+                COUNT(*) FILTER (WHERE rewrite_latency_ms > 0) AS runs,
+                ROUND(AVG(rewrite_latency_ms) FILTER (WHERE rewrite_latency_ms > 0), 1) AS avg_duration_ms,
+                ROUND(quantile_cont(rewrite_latency_ms, 0.50), 1) AS p50_ms,
+                ROUND(quantile_cont(rewrite_latency_ms, 0.95), 1) AS p95_ms
+            FROM stage_samples
+            UNION ALL
+            SELECT
+                'provider_fetch' AS stage,
+                COUNT(*) AS runs,
+                ROUND(AVG(provider_latency_ms), 1) AS avg_duration_ms,
+                ROUND(quantile_cont(provider_latency_ms, 0.50), 1) AS p50_ms,
+                ROUND(quantile_cont(provider_latency_ms, 0.95), 1) AS p95_ms
+            FROM stage_samples
+            UNION ALL
+            SELECT
+                'merge_dedup' AS stage,
+                COUNT(*) FILTER (WHERE merge_latency_ms > 0) AS runs,
+                ROUND(AVG(merge_latency_ms) FILTER (WHERE merge_latency_ms > 0), 1) AS avg_duration_ms,
+                ROUND(quantile_cont(merge_latency_ms, 0.50), 1) AS p50_ms,
+                ROUND(quantile_cont(merge_latency_ms, 0.95), 1) AS p95_ms
+            FROM stage_samples
+            UNION ALL
+            SELECT
+                'rerank' AS stage,
+                COUNT(*) FILTER (WHERE rerank_latency_ms > 0) AS runs,
+                ROUND(AVG(rerank_latency_ms) FILTER (WHERE rerank_latency_ms > 0), 1) AS avg_duration_ms,
+                ROUND(quantile_cont(rerank_latency_ms, 0.50), 1) AS p50_ms,
+                ROUND(quantile_cont(rerank_latency_ms, 0.95), 1) AS p95_ms
+            FROM stage_samples
+        ) AS sub
         ORDER BY CASE stage
             WHEN 'total' THEN 1
             WHEN 'rewrite' THEN 2

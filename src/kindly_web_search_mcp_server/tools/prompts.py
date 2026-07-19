@@ -27,7 +27,7 @@ def web_search_workflow_prompt(
     ]
     if depth == "quick":
         lines.append(
-            "- QUICK: use quick_web_search or gemini_search for a synthesized answer with citations."
+            "- QUICK: use quick_web_search for ranked excerpts/citations or gemini_search for a synthesized answer."
         )
     elif depth == "medium":
         lines.append(

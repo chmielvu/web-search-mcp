@@ -36,8 +36,8 @@ def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    # TOOL_COVERAGE has a duplicate grok_search entry, so the set is 14 unique tools.
-    assert len(tools) == 14
+    # 11 unique MCP tools (removed analytics_query/report per Step 5; grok_search duplicate remains)
+    assert len(tools) == 11
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
     assert "grok_search" in tools
@@ -87,7 +87,7 @@ def test_brief_prints_one_paragraph(capsys) -> None:
     cli_main(["--brief"])
     brief = capsys.readouterr().out.strip()
 
-    assert brief.startswith("web-search-cli is the native, JSON-first command-line surface")
+    assert brief.startswith("The `web-search-cli` is the native, JSON-first command-line surface")
     assert "\n\n" not in brief
 
 
@@ -97,7 +97,7 @@ def test_root_help_emits_structured_json(capsys) -> None:
 
     assert payload["meta"]["command"] == "web-search-cli --help"
     assert payload["data"]["command"] == "web-search-cli"
-    assert payload["data"]["brief"].startswith("web-search-cli is the native")
+    assert payload["data"]["brief"].startswith("The `web-search-cli` is the native")
     assert payload["data"]["skills"]
 
 
@@ -145,10 +145,11 @@ def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
                 "web",
                 "--query",
                 "web search query",
+                "--research-goal",
+                "test goal",
             ],
         )
     )
-
     assert payload["meta"]["command"] == "search web"
     assert payload["data"]["query"] == "web search query"
     assert payload["data"]["total_results"] == 0

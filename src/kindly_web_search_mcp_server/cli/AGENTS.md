@@ -40,6 +40,8 @@ cli/
   stderr; structured command output remains on stdout.
 - The CLI is the first-class surface; there is no `mcp2cli` compatibility
   wrapper.
+- `search quick` is backed by Parallel AI Search API, locks advanced mode,
+  and requires repeatable `--search-query` (1-5, 2-3 recommended) plus `--objective`.
 
 ## Main Commands
 
@@ -47,7 +49,7 @@ cli/
 - `web-search-cli doctor`
 - `web-search-cli getskill`
 - `web-search-cli reference tools`
-- `web-search-cli search ...`
+- `web-search-cli search quick --search-query ... --objective ...`  (Parallel AI, advanced mode)
 - `web-search-cli content ...`
 - `web-search-cli links ...`
 - `web-search-cli ai ...`

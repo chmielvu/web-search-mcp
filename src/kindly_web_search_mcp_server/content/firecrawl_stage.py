@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
 from .artifact import ContentArtifact, ContentError
 from .options import FetchOptions
@@ -30,14 +30,18 @@ def get_firecrawl_client() -> AsyncFirecrawlClient | None:
     if not settings.firecrawl_api_key:
         return None
     if _client is None:
-        from firecrawl.v2.client_async import AsyncFirecrawlClient
+        try:
+            from firecrawl.v2.client_async import AsyncFirecrawlClient
 
-        _client = AsyncFirecrawlClient(
-            api_key=settings.firecrawl_api_key,
-            api_url=settings.firecrawl_api_url,
-            timeout=settings.firecrawl_timeout_seconds,
-        )
-        LOGGER.info("Firecrawl client initialized: %s", settings.firecrawl_api_url)
+            _client = AsyncFirecrawlClient(
+                api_key=settings.firecrawl_api_key,
+                api_url=settings.firecrawl_api_url,
+                timeout=settings.firecrawl_timeout_seconds,
+            )
+            LOGGER.info("Firecrawl client initialized: %s", settings.firecrawl_api_url)
+        except (ImportError, ModuleNotFoundError) as exc:
+            LOGGER.debug("Firecrawl library not available: %s", exc)
+            return None
     return _client
 
 

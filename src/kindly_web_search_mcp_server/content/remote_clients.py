@@ -17,6 +17,7 @@ Camoufox usage::
 
 from __future__ import annotations
 
+import json
 import asyncio
 import logging
 import time
@@ -72,7 +73,17 @@ class Crawl4AIClient:
         if query and mode == "bm25":
             payload["q"] = query
         data = await self._post_json("/md", payload)
-        markdown = data if isinstance(data, str) else str(data)
+        if isinstance(data, dict):
+            markdown = (
+                data.get("markdown")
+                or data.get("content")
+                or data.get("result")
+                or json.dumps(data)
+            )
+        elif isinstance(data, str):
+            markdown = data
+        else:
+            markdown = str(data)
         if not markdown.strip():
             raise Crawl4AIClientError("Crawl4AI /md returned empty content")
         return markdown
@@ -189,6 +200,7 @@ class CamoufoxClient:
             if len(body.encode("utf-8")) > self._MAX_HTML_BYTES:
                 raise CamoufoxClientError("Camoufox response exceeds 8 MiB cap", retryable=False)
             return body
+        raise CamoufoxClientError("Camoufox request failed after 3 attempts", retryable=True)
 
     async def health_check(self) -> bool:
         """GET /health — process-alive only (does NOT warm the browser)."""

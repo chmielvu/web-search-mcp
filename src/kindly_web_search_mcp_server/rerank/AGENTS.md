@@ -6,19 +6,19 @@ This directory implements the multi-stage reranking pipeline.
 
 rerank/
 |-- core.py                  # Main rerank orchestration and acceptance gates
-|-- stack.py                 # Stack-mode normalization / selection
 |-- stage_runner.py          # Cross-encoder and LLM stage execution
 |-- stages.py                # Stage definitions, score propagation, diversity
 |-- bi_encoder.py            # Bi-encoder shortlist / retrieval rerank
+|-- conditional_bi.py        # Conditional bi-encoder gating
 |-- providers.py             # Cohere -> OpenRouter -> Voyage fallback chain
-|-- policy.py                # Rerank policy and thresholds
-|-- diversity.py             # MMR helpers
 |-- llm_rerank.py            # XML listwise LLM rerank and ID remapping
 |-- models.py                # Rerank models
 |-- reporting.py             # Rerank reporting helpers
 |-- observability.py         # Rerank observability helpers
+|-- bm25.py                  # BM25 scoring utilities
+|-- limits.py                # Candidate and window limits
 |-- cohere.py, openrouter.py, voyage.py
-└-- jina.py                  # Provider adapter retained for direct integration
+|-- jina.py                  # Provider adapter retained for direct integration
 
 ## Current Behavior
 
@@ -39,10 +39,13 @@ rerank/
 - Stage telemetry records bi-encoder skip/run details, raw Cohere score
   statistics, the accepted RankLLM endpoint/model, diversity trigger evidence,
   and the final reranker provider/model.
-- Calibration and replay tooling lives under `scripts/rerank_eval_*.py` and
-  `scripts/rerank_pipeline_eval.py`; the frozen borderline fixture is
-  `tests/fixtures/rerank_borderline_pairs.jsonl`.
+- Calibration and replay tooling: `scripts/rerank_eval_calibration.py`,
+  `scripts/rerank_eval_capture.py`, `scripts/rerank_eval_common.py`, and
+  `scripts/rerank_eval_fusion.py` are available. The diversity replay script
+  (`scripts/rerank_eval_diversity.py`) is stale — it imports removed
+  `rerank.diversity` and requires migration. Corresponding test
+  `tests/test_rerank_pipeline_eval.py` was removed.
+
 ## Testing
 
-- `python -m pytest tests/test_rerank_*.py`
-- `python -m pytest tests/test_rerank_core.py tests/test_rerank_stack.py`
+- `python -m pytest tests/test_rerank_core.py tests/test_rerank_settings.py tests/test_rerank_bi_encoder.py tests/test_rerank_llm.py tests/test_rerank_prompt.py tests/test_rerank_engines.py tests/test_rerank_eval_metrics.py tests/test_rerank_candidate_writes.py tests/test_rerank_pipeline_integration.py`

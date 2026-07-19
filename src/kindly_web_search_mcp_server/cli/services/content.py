@@ -10,7 +10,7 @@ from ...content.options import build_fetch_options
 from ...content.summary import create_summary
 from ...content.windowing import slice_content
 from ...models import GetContentResponse
-from ...search.normalize import canonicalize_url
+from ...utils.url_canonicalize import canonicalize_url
 
 
 def _get_int_env(key: str, default: int) -> int:

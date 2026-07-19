@@ -34,7 +34,7 @@ from .remote_clients import (
 )
 from .safe_fetch import SafeFetchError, safe_fetch_url
 from .status_classifier import classify_markdown
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_resolution
 
 LOGGER = logging.getLogger(__name__)

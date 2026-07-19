@@ -4,7 +4,7 @@
 
 ## Pages
 
-- [[concepts/fastmcp-v3-modern-capabilities-reference]] — fastmcp-v3-modern-capabilities-reference *(created: 2026-07-17)*
+- [[concepts/fastmcp-v3-modern-capabilities-reference]] — fastmcp-v3-modern-capabilities-reference *(created: 2026-07-19)*
 
 ## Sources
 
@@ -17,6 +17,7 @@
 - [[sources/obs-2026-07-17-fastmcp-v3-server-analytics-dashboard-overhaul-completed]] — "Observation: FastMCP v3 server + analytics dashboard overhaul completed" *(created: 2026-07-17)*
 - [[sources/obs-2026-07-17-providerdefinition-dual-declaration-fix]] — "Observation: ProviderDefinition dual declaration fix" *(created: 2026-07-17)*
 - [[sources/obs-2026-07-17-providergroup-staleness-in-search-package]] — "Observation: ProviderGroup staleness in search package" *(created: 2026-07-17)*
+- [[sources/obs-2026-07-19-assessment-cross-evaluation-and-10-step-remediation-complete]] — "Observation: Assessment cross-evaluation and 10-step remediation completed" *(created: 2026-07-19)*
 
 ---
-*Last updated: 2026-07-17T17:48:26.540Z* | *Total pages: 10*
+*Last updated: 2026-07-19T04:07:10.524Z* | *Total pages: 11*

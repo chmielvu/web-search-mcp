@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.rerank import core
 from kindly_web_search_mcp_server.rerank.conditional_bi import ConditionalBiOutcome
-from kindly_web_search_mcp_server.rerank.diversity_stage import DiversityStageOutcome
 from kindly_web_search_mcp_server.rerank.stage_runner import RankedStageOutcome
 
 

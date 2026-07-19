@@ -1,3 +1,41 @@
+
+## quick_web_search → Parallel AI refactor — 2026-07-19T04:50Z
+
+- [CODE] `search_queries: list[str]` (1-5, 2-3 recommended) + `objective: str` (both required). Removed always-None `answer` field; response field renamed `query` → `search_queries`.
+- [CODE] CLI: repeatable `--search-query` (1-5) + required `--objective`; reference_data lists both.
+- [CODE] New `quick_web_search.py` module — self-contained with models, impl validation (nonempty, ≤5, nonblank), MCP registration, `async with` lifecycle, `max_age_seconds >= 600`.
+- [CODE] Removed Composio/Tavily implementation from `composio_tools.py`; deleted `QuickWebSearchCitation`, `QuickWebSearchResponse`, `QuickWebSearchResultType` from `models.py`.
+- [CODE] Added `parallel-web>=1.0` dep + `PARALLEL_API_KEY` to settings; `uv.lock` contains `parallel-web==1.1.0` (sync interrupted by locked .exe, but package installed).
+- [CODE] Full Parallel inputs exposed: `search_queries`, `objective`, `max_results`, `max_chars_total`, `max_chars_per_result`, `client_model`, `session_id`, `include_domains`, `exclude_domains`, `after_date`, `location`, `max_age_seconds` (min 600), `timeout_seconds`, `disable_cache_fallback`.
+- [CODE] Full Parallel outputs: `search_id`, `session_id`, `warnings`, `usage` + per-citation `publish_date` and `excerpts`.
+- [TOOL] Unit tests: happy path, multi-query kwargs, empty results, API error, missing key, warnings/usage, plus 4 validation tests (empty list, >5, blank member, max_age<600).
+- [TOOL] CLI tests: 2-query success with list await assertion, missing objective, missing search-query.
+- [TOOL] Ruff clean on our changed files; full repo has 29 pre-existing unrelated findings.
+- [CODE] Updated README, CHANGELOG, workflow.py, prompts.py, CLI AGENTS.md, reference_data.py.
+- [TOOL] GitNexus impact: `_quick_web_search_impl` (LOW, 2 callers), `fetch_quick_web_search_payload` (LOW, 1 caller) — both accounted for.
+
+## [DISCOVERIES] Parallel Search wire contract (observed 2026-07-19)
+- Request: `POST /v1/search` with `search_queries: list[str]` + `objective: str`. When `mode`/`advanced_settings` omitted, SDK sends only `search_queries`+`objective` (no `mode` key); when set, `mode="advanced"` is present. `answer` is never sent (Parallel doesn't synthesize).
+- Response `SearchResult` fields: `search_id`, `session_id`, `results[]` of `{url, title, publish_date (nullable), excerpts: list[str] markdown}`, `warnings[]` of `{message, type, detail}`, `usage[]` of `{name, count}`.
+- Live behavior (key from `.env`, not `os.environ`): latency ~2.3-4.5s in advanced mode; default `max_results`=10; `location="us"` accepted silently; usage returned as `[{name: "sku_search", count: 1}]`. No contract drift vs our `QuickWebSearchResponse`.
+- `settings.parallel_api_key` reads `.env` via `load_dotenv` in `settings.py` (lines 8-20); raw `os.environ.get` misses it. Check via the settings object, not `os.environ`.
+- `AsyncParallel` supports `async with` (confirmed `__aenter__`/`__aexit__`). Pass a mock `httpx.AsyncClient(transport=MockTransport(...))` via `httpx_client=` to verify wire contract without quota (`tests/test_quick_web_search.py::TestLiveShapeContract`).
+
+## Assessment Cross-Evaluation Remediation — 2026-07-19
+
+- 2026-07-19T02:15Z [CODE] Completed 10-step remediation plan from `local://mcp-assessment-actionable-recommendations-plan.md`. 36 assessment artifacts cross-evaluated against source; 10/11 findings CONFIRMED, 1 PARTIALLY CONFIRMED/REFUTED (firecrawl already in pyproject.toml).
+- 2026-07-19T02:15Z [TOOL] **Step 1**: OTel Phoenix stdout→stderr redirect via `_redirect_stdout_to_stderr()` combining Python-level + fd-level (`os.dup2`) redirect. Verified: `uv run web-search-cli doctor` emits clean JSON stdout.
+- 2026-07-19T02:15Z [CODE] **Step 2**: Crawl4AI dict serialization fix — `fetch_markdown` extracts `data.get("markdown")` instead of `str(dict)`.
+- 2026-07-19T02:15Z [CODE] **Step 3**: `latency-breakdown` SQL subquery wrap for DuckDB ORDER BY binder. Verified with live DuckDB.
+- 2026-07-19T02:15Z [TOOL] **Step 4**: `uv sync` confirmed `firecrawl-py` installed; added `ImportError` guard + doctor check.
+- 2026-07-19T02:15Z [DECISIONS] **Step 5**: User directive: MCP-only removal. Deleted `analytics/tools.py`; removed from `TOOL_COVERAGE` and SKILL.md MCP column. CLI `analytics query`/`analytics report` commands, `analytics://` MCP resources, and `analytics/__init__.py` re-exports preserved.
+- 2026-07-19T02:15Z [CODE] **Step 6**: SKILL.md: `provider_health`→`provider-performance`; `diagnostic` profile zeroed; `--num-results` removed from `search web`.
+- 2026-07-19T02:15Z [DECISIONS] **Step 7 (DEFERRED)**: Telemetry star-import cleanup deferred. Full explicit re-export of 150+ `__all__` names proved fragile — each submodule change would break `__init__.py`. Public sub-modules retain `from .module import *` with `ruff: noqa: F401, F403, F405`. Internal imports (`_internal`, `constants`, `init`) use explicit named imports. No regressions; ruff clean.
+- 2026-07-19T02:15Z [CODE] **Step 8**: `canonicalize_url` implementation moved to `utils/url_canonicalize.py`; 6 content/ + 3 external files updated; `search/normalize.py` re-exports. Verified: zero `from.*search.normalize` in content/.
+- 2026-07-19T02:15Z [CODE] **Step 9**: Deleted `test_diversity_ranking.py` and `test_rerank_pipeline_eval.py`. Fixed `test_rerank_core.py` import, `test_public_output_serialization.py` syntax. Updated 6 CLI test patches to `cli.services.*`. Fixed `test_experiments_create_requires_config` for stderr OTel banner. Updated catalog count (11) and help-text assertions. 772 tests collect, 31 focused pass.
+- 2026-07-19T02:15Z [CODE] **Step 10**: Updated `rerank/AGENTS.md` (removed stale files, added current), created `telemetry/AGENTS.md`. CHANGELOG entry added.
+- 2026-07-19T02:15Z [DISCOVERIES] `scripts/rerank_eval_diversity.py` still imports deleted `rerank.diversity` — documented as stale in guide, requires migration.
+
 ## Content Fetch Reliability + Efficiency — 2026-07-18
 
 - 2026-07-18T10:23Z [USER] Approved `local://content-tools-reliability-plan.md` (13 steps, 4 phases).

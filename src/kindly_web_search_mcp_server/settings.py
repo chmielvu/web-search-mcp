@@ -433,6 +433,9 @@ class Settings:
     composio_timeout_seconds: float = float(os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25"))
     composio_max_retries: int = int(os.environ.get("COMPOSIO_MAX_RETRIES", "2"))
 
+    # Parallel AI Search API
+    parallel_api_key: str = os.environ.get("PARALLEL_API_KEY", "")
+
     # RRF tuning
     rrf_k: int = int(os.environ.get("RRF_K", "60"))
     blocklist_duckdb_path: str = ""

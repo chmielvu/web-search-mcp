@@ -17,40 +17,66 @@ def _payload(result) -> dict:
 
 
 def test_search_quick_emits_json_payload(monkeypatch) -> None:
+    mock_payload = AsyncMock(
+        return_value={
+            "search_queries": ["fastmcp transport", "mcp protocol"],
+            "citations": [{"title": "FastMCP Transports", "url": "https://example.com"}],
+            "total_citations": 1,
+        }
+    )
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
-        AsyncMock(
-            return_value={
-                "query": "latest fastmcp transport docs",
-                "answer": "Mocked quick search answer",
-                "citations": [
-                    {
-                        "title": "FastMCP Transports",
-                        "url": "https://example.com",
-                        "snippet": "Mocked citation snippet",
-                    }
-                ],
-                "total_citations": 1,
-            }
-        ),
+        mock_payload,
     )
 
     payload = _payload(
         runner.invoke(
             app,
-            ["search", "quick", "--query", "latest fastmcp transport docs"],
+            [
+                "search",
+                "quick",
+                "--search-query",
+                "fastmcp transport",
+                "--search-query",
+                "mcp protocol",
+                "--objective",
+                "test research goal",
+            ],
         )
     )
 
+    mock_payload.assert_awaited_once_with(
+        ["fastmcp transport", "mcp protocol"], "test research goal"
+    )
     assert payload["meta"]["command"] == "search quick"
-    assert payload["data"]["query"] == "latest fastmcp transport docs"
     assert payload["data"]["total_citations"] == 1
-    assert payload["data"]["citations"][0]["title"] == "FastMCP Transports"
+
+
+def test_search_quick_missing_objective_fails(monkeypatch) -> None:
+    mock_payload = AsyncMock()
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
+        mock_payload,
+    )
+    result = runner.invoke(app, ["search", "quick", "--search-query", "test"])
+    assert result.exit_code != 0
+    mock_payload.assert_not_awaited()
+
+
+def test_search_quick_missing_search_query_fails(monkeypatch) -> None:
+    mock_payload = AsyncMock()
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.cli.services.quick_search.fetch_quick_web_search_payload",
+        mock_payload,
+    )
+    result = runner.invoke(app, ["search", "quick", "--objective", "has objective"])
+    assert result.exit_code != 0
+    mock_payload.assert_not_awaited()
 
 
 def test_content_get_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.commands.content.fetch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content.fetch_content_payload",
         AsyncMock(
             return_value={
                 "input_url": "https://example.com/docs",

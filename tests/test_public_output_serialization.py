@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from kindly_web_search_mcp_server.models import (
     ProviderWarning,
     WebSearchResponse,
     WebSearchResult,

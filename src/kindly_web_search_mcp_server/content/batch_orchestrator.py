@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 
 from ..cache import get_page_cache
-from ..search.normalize import canonicalize_url
+from ..utils.url_canonicalize import canonicalize_url
 from .artifact import ContentArtifact, ContentError
 from .firecrawl_stage import run_firecrawl_batch
 from .options import FetchOptions

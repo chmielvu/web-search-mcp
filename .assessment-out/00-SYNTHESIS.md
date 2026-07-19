@@ -4,7 +4,7 @@
 **Scope:** full source (305 Python files under `src/kindly_web_search_mcp_server/` + `src/classifier_service/`) + 24-command native Typer CLI
 **Method:** 3 parallel source audits (architecture, code quality, ~~security~~) + end-to-end CLI exercise of the web-search-cli skill
 **Working dir:** `C:\Users\Jan\Documents\GitHub\1Agents1\.CLI\web-search-mcp`
-**Reports:** `01-architecture.md`, `02-code-quality.md`, `04-tests.md` (in progress)
+**Reports:** `01-architecture.md`, `02-code-quality.md`, `04-tests.md`
 **CLI exercise log:** `cli-*.json` files in this directory
 
 > Per user direction, the security/observability source audit is omitted. Findings from CLI exercise that touch on stdout hygiene or secret-shaped behavior are still included (they're bugs in the running app, not a security review of source).
@@ -25,8 +25,13 @@
 | 8 | 🟠 High | Architecture | **`telemetry/__init__.py` is a god-package with 7 star-imports** (`from .records_ai import *`, …) and a 100+ name `__all__`. Every consumer of `..telemetry` (18 import sites) pays the full import cost on cold start. No `telemetry/AGENTS.md`. |
 | 9 | 🟡 Medium | Architecture | **AGENTS.md drift in `rerank/` and `search/`.** `rerank/AGENTS.md` lines 9-15 list `stack.py, policy.py, diversity.py` — none exist. `search/AGENTS.md` documents 10 modules; the package has 30+ files (missing: `provider_catalog.py`, `provider_call.py`, `diagnostics.py`, `normalize.py`, `entity_extractor.py`, `gemini_search_tool.py`, `intents.py`, `merge_observability.py`, plus `academic/` and `understanding/` sub-packages). Root `AGENTS.md` is missing links for `telemetry/`, `llm/`, `evals/`, `youtube/`, `config/`, `contracts/`, `dashboards/`. |
 | 10 | 🟡 Medium | Coupling | **`content/` reaches into `search/normalize.canonicalize_url` from 6 files** (`content/fetch_pipeline.py:25,170`, `content/batch_orchestrator.py:10`, `content/firecrawl_stage.py:14`, `content/link_discovery.py:6`, `content/specialized_pipeline.py:13`, `content/stages.py:37`). The two packages are presented as parallel siblings; in practice content has a single hidden dep on a search-internal helper that isn't documented in `search/AGENTS.md`. |
+| 11 | 🟠 High | Tests | **4 test files are collection-broken** (`test_diversity_ranking.py`, `test_rerank_core.py`, `test_rerank_pipeline_eval.py`, `test_public_output_serialization.py`) — they import removed symbols (`diversity.select_diverse_slate`, `diversity_stage.DiversityStageOutcome`, `rerank_eval_diversity.tune_diversity`). Without `--ignore` flags, **the full suite cannot run.** |
+| 12 | 🟠 High | Tests | **8 of 24 CLI commands are untested**: `search academic`, `sitemap generate`, all 6 `experiments *` commands. The 18 tests that do exist for CLI are 61% failing in the current run — mostly stale attribute paths. |
+| 13 | 🟠 High | Tests | **`src/classifier_service/` has zero tests.** The standalone FastAPI service is completely untested; only the lazy in-process client (`test_gliner_client.py`) has coverage. The "primary path" comment in `onnx_classifier.py:7` is misleading because the service must be started manually. |
+| 14 | 🟡 Medium | Tests | **5 critical scenarios have no direct tests:** (1) error-envelope shape on provider 502/429, (2) RRF merge edge cases (empty lists, duplicate lists), (3) prompt-injection in `--research-goal` (interpolated raw at `prompts/provider_gemini.py:144`), (4) DuckDB writer-lock contention (observed in suite run but not asserted), (5) content-fetch timeout classification under `TOOL_TOTAL_TIMEOUT_SECONDS`. |
+| 15 | 🟡 Medium | Tests | **97 of 720 tests fail in the current run** (≈13.5%). Most are stale attribute paths in `tests/cli/test_native_cli_{phase2,phase3,scaffold}.py` (patches target `cli.commands.*` but the real functions live in `cli.services.*`). Real regressions are likely hidden behind them. |
 
-Plus 5 medium and 8 low-priority deltas — see full reports.
+Plus other deltas — see full reports.
 
 ---
 
@@ -180,13 +185,27 @@ These are the high-confidence "this is healthy" signals from running the CLI. ~2
 19. Investigate the `chain_failed: ModuleNotFoundError` rerank error (25 occurrences) — `rankllm` dep appears to be missing.
 20. Investigate why `gemma`, `degoog`, `brightdata_bing`, `brightdata_yandex` are 0-29% success — likely budget/quota issues, but worth a config review.
 
+### P2 — test-suite health
+
+21. **Fix the 4 collection-broken test files**: `tests/test_diversity_ranking.py` (imports removed `diversity.select_diverse_slate`), `tests/test_rerank_core.py` (imports removed `diversity_stage.DiversityStageOutcome`), `tests/test_rerank_pipeline_eval.py` (wrong namespace `rerank_eval_diversity`), `tests/test_public_output_serialization.py` (collection error). Without these, `pytest --collect-only` returns 4 errors.
+22. **Add CLI tests for the 8 untested commands**: `search academic`, `sitemap generate`, all 6 `experiments *` (`list`, `enable`, `disable`, `conclude`, `stats`, `create`). Pattern: `CliRunner` + service patch + JSON envelope assertion. See `tests/cli/test_native_cli_phase2.py` for the working example.
+23. **Repair the 11 failing CLI tests in `tests/cli/test_native_cli_{phase2,phase3,scaffold}.py`** — they patch `cli.commands.*` but the real functions are in `cli.services.*`. Stale attribute paths.
+24. **Add tests for the 5 critical scenarios** in §7 of `04-tests.md`:
+    - error-envelope shape on provider 502/429 (`errors.py:23,277`)
+    - RRF merge edge cases (`reciprocal_rank_fusion([])`, single-list, duplicate lists)
+    - prompt-injection in `--research-goal` (`prompts/provider_gemini.py:144` interpolates raw)
+    - DuckDB writer-lock contention (`utils/duckdb_log_handler.py:61` `_connect`)
+    - content-fetch timeout classification under `TOOL_TOTAL_TIMEOUT_SECONDS`
+25. **Add at least one smoke test for `src/classifier_service/`** — the standalone FastAPI service has zero coverage. At minimum: a `TestClient` that POSTs a sample query and asserts the intent label.
+26. **Tighten `tests/conftest.py`** — the autouse `patch_settings` fixture injects a dummy `SEARXNG_BASE_URL=https://searx.example.org` that silently masks any new code that forgets to opt out. Move the dummy to an explicit opt-in.
+27. **Bound the 60s `asyncio.sleep` in `tests/test_qdrant_search.py:34`** and the 10s sleeps in `test_retrieval_budget.py` / `test_shared_embedding_cancellation.py` with `pytest.mark.timeout` or `asyncio.wait_for` so CI doesn't hang on slow runners.
+
 ---
 
 ## What's NOT covered in this report
 
 - **Security review** — explicitly omitted per user direction. The CLI exercise did surface some hygiene concerns (OTel banner exposing the OTel transport header shape, HuggingFace `AsyncInferenceClient.__del__` traceback leak), but a full source-level security audit was not performed.
 - **Performance / load testing** — not in scope.
-- **Tests audit** — still in progress (`04-tests.md` pending). The CLI exercise was effectively a black-box integration test, but per-command unit/integration coverage was not assessed.
 
 ---
 
@@ -197,7 +216,7 @@ These are the high-confidence "this is healthy" signals from running the CLI. ~2
 ├── 00-SYNTHESIS.md          ← you are here
 ├── 01-architecture.md        ← 24.5KB, full module map + layering + drift
 ├── 02-code-quality.md        ← 10.7KB, complexity + async + logging + types
-├── 04-tests.md              ← in progress
+├── 04-tests.md                ← 11KB, 767 tests / 4 collection-broken / 97 failing
 ├── cli-search-web-2.json    ← 15 results across 4 providers
 ├── cli-content-get.json     ← page_content repr() bug demo
 ├── cli-content-get-paginated.json  ← cache hit + pagination
