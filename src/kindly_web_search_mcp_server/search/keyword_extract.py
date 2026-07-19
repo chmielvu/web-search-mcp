@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-import re
-
-from rake_nltk import Rake
+import yake
 
 _MAX_PHRASE_WORDS = 4
 _NOISE_VERBS = frozenset(
@@ -26,22 +23,26 @@ _NOISE_VERBS = frozenset(
 )
 
 
-def _rake_extract(text: str, max_phrases: int = 8) -> list[str]:
-    """Synchronously extract ranked, meaningful phrases with RAKE."""
+def _yake_extract(text: str, max_phrases: int = 8) -> list[str]:
+    """Synchronously extract ranked, meaningful phrases with YAKE.
 
+    YAKE is pure Python — no native extensions, no thread-safety issues,
+    no NLTK/scipy dependency. Lower score = more important keyword.
+    """
     if not text.strip():
         return []
-    rake = Rake()
-    rake.extract_keywords_from_text(text)
-    ranked_phrases = list(rake.get_ranked_phrases())
-    title_phrases = re.findall(
-        r"\b(?:[A-Z][A-Za-z0-9.+-]*\s+){1,3}[A-Z][A-Za-z0-9.+-]*\b",
-        text,
+
+    extractor = yake.KeywordExtractor(
+        lan="en",
+        n=_MAX_PHRASE_WORDS,
+        dedupLim=0.9,
+        top=max_phrases * 2,  # oversample so filtering still yields max_phrases
     )
-    candidates = ranked_phrases + title_phrases
+    keywords = extractor.extract_keywords(text)
+
     filtered: list[str] = []
     seen: set[str] = set()
-    for phrase in candidates:
+    for phrase, _score in keywords:
         words = phrase.split()
         if not words:
             continue
@@ -70,6 +71,10 @@ async def extract_support_terms(
     max_terms: int = 8,
 ) -> list[str]:
     """Extract key phrases without blocking the event loop."""
+    # YAKE is CPU-bound, so still run in executor — but now it's pure Python,
+    # no native C extensions to corrupt across threads.
+    import asyncio
+
     loop = asyncio.get_running_loop()
-    raw_phrases = await loop.run_in_executor(None, _rake_extract, research_goal, max_terms)
+    raw_phrases = await loop.run_in_executor(None, _yake_extract, research_goal, max_terms)
     return [_restore_casing(phrase, research_goal) for phrase in raw_phrases]

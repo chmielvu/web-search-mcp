@@ -28,7 +28,18 @@ async def gemini_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """AI-powered search with Google Search grounding. Returns a synthesized answer with inline [N] citations. Fast, good for factual lookups and current events."""
+    """AI-powered search with Google Search grounding.
+
+    Returns a synthesized answer with inline [N] citations. Fast, good for
+    factual lookups and current events.
+
+    Args:
+        query: The search query string.
+        structured_output: When True, generates schema-guided structured results
+            alongside the narrative answer. Useful for data extraction tasks.
+        research_goal: Optional description of what you intend to learn.
+            Helps the grounding model focus on relevant sources.
+    """
     emit_tool_observability_event(
         LOGGER,
         "gemini_search",
@@ -154,8 +165,18 @@ async def grok_search(
     excluded_domains: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search web and X (Twitter) via Grok 4.3. Returns AI-synthesized answer with citations from both platforms.
-    Use when you need social media data alongside web results.
+    """Search web and X (Twitter) via Grok 4.3 via OpenRouter.
+
+    Returns AI-synthesized answer with citations from both platforms.
+    Use when you need social media data alongside web results. **Expensive tool.**
+
+    Args:
+        query: The search query string.
+        research_goal: What you intend to learn. Used to focus the AI synthesis.
+        num_results: Target number of web/X results to incorporate (1-10).
+        model: OpenRouter model name override (default: auto-selected Grok 4.3).
+        allowed_domains: Only cite results from these domains.
+        excluded_domains: Exclude results from these domains.
     """
     emit_tool_observability_event(
         LOGGER,

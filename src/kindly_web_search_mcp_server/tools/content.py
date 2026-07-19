@@ -40,9 +40,21 @@ async def get_content(
     ctx: Context = CurrentContext(),
 ) -> GetContentResultType:
     """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
+
     Use when you already have a URL. Check window.has_more for pagination continuation.
-    Optional summary_mode=brief|detailed adds a Gemini URL-context summary of the fetched page.
-    Use focus_query to bias the summary toward a specific topic, term, or comparison.
+
+    Args:
+        url: The URL to fetch content from.
+        char_offset: Starting character position for windowed content (0-based).
+        char_length: Maximum characters to return (default 20k, max 50k).
+        summary_mode: "none" (default), "brief" (1-2 sentence), or "detailed"
+            (paragraph-level) Gemini URL-context summary.
+        focus_query: Topic, term, or comparison to bias the summary toward.
+        include_metadata: Include page metadata (title, author, date) in response.
+        include_links: Include outbound links discovered on the page.
+        max_links: Maximum links to return when include_links is True.
+        strip_selectors: CSS selectors to remove from content before extraction
+            (e.g., "nav, footer, .sidebar").
     """
 
     await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
@@ -282,9 +294,23 @@ async def batch_get_content(
     ctx: Context = CurrentContext(),
 ) -> BatchGetContentResponse:
     """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
-    Prefer over repeated get_content calls when you have 3+ URLs. Check has_more and cursor for continuation.
-    Optional summary_mode=brief|detailed adds a Gemini URL-context summary to each returned item.
-    Use focus_query to bias per-item summaries toward a specific topic, term, or comparison.
+
+    Prefer over repeated get_content calls when you have 3+ URLs. Check has_more
+    and cursor for continuation.
+
+    Args:
+        urls: List of URLs to fetch (max 30).
+        max_concurrency: Parallel fetch limit (1-8, default 4).
+        per_item_char_length: Maximum characters per URL (default 8k, max 50k).
+        total_char_budget: Maximum total characters across all URLs (default 120k,
+            max 300k). Further URLs are skipped when budget is exhausted.
+        cursor: Continuation cursor from a prior response for pagination.
+        summary_mode: "none" (default), "brief", or "detailed" per-item summary.
+        focus_query: Topic, term, or comparison to bias per-item summaries toward.
+        include_metadata: Include page metadata for each result.
+        include_links: Include outbound links for each result.
+        max_links: Maximum links per result when include_links is True.
+        strip_selectors: CSS selectors to remove from content before extraction.
     """
     max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
     _urls = urls or []
@@ -433,7 +459,19 @@ async def discover_links(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Extract outbound links from a page or sitemap. Returns URLs only, not page content."""
+    """Extract outbound links from a page or sitemap.
+
+    Returns URLs only — no page content. Use before get_content to discover
+    candidate pages, or after to explore related links.
+
+    Args:
+        url: The page or sitemap URL to extract links from.
+        max_links: Maximum links to return (default 100).
+        include_external: Include links to external domains (default True).
+        same_domain_only: Only return links from the same domain as the input URL.
+        strip_selectors: CSS selectors to exclude from link discovery
+            (e.g., "nav, footer, .sidebar").
+    """
 
     await ctx.report_progress(progress=10, total=100, message="Discovering links...")
     await ctx.info(f"Discovering links from: {url[:80]}...")

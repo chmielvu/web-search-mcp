@@ -36,7 +36,7 @@ from .tools.ai_search import gemini_search, grok_search
 from .tools.content import batch_get_content, discover_links, get_content
 from .tools.profiles import apply_tool_profile
 from .tools.catalog import tool_kwargs
-from .tools.prompts import query_refinement_prompt, web_search_workflow_prompt
+from .tools.prompts import query_refinement_prompt, research_methodology_prompt, web_search_workflow_prompt
 from .tools.resources import (
     get_analytics_report_resource,
     get_analytics_schema_resource,
@@ -66,13 +66,45 @@ from fastmcp import FastMCP
 
 mcp = FastMCP(
     "web-search",
+    version="0.1.8",
     lifespan=_app_lifespan,
     providers=[analytics_app],
     instructions=(
-        "Use quick_web_search for initial reconnaissance. Use web_search for discovery "
-        "with rewrite=true by default. Use get_content for one known URL; "
-        "use batch_get_content for 3+ URLs. When you need a summary, set "
-        "summary_mode=brief or summary_mode=detailed and add focus_query if helpful."
+        "WEB SEARCH METHODOLOGY\n"
+        "\n"
+        "Decompose. Do not search the user's question verbatim. Break it into\n"
+        "2-4 sub-queries exploring different angles (definitions, comparisons,\n"
+        "current state, opposing views). Each sub-query should target a different\n"
+        "information gap.\n"
+        "\n"
+        "Reconnaissance first. Start every research task with quick_web_search\n"
+        "to map the topic landscape and discover terminology you didn't know.\n"
+        "Follow with gemini_search for a quick grounded synthesis. Only then\n"
+        "move to web_search for deep discovery.\n"
+        "\n"
+        "Iterate — never stop at round one. Evaluate round-1 results for gaps:\n"
+        "missing perspectives, single-source claims, outdated dates, domain\n"
+        "concentration. Formulate better queries from what you learned and\n"
+        "search again. At least two rounds before concluding.\n"
+        "\n"
+        "Deep-read the best sources. After discovery, use get_content (single)\n"
+        "or batch_get_content (3+ URLs) on the most promising results. Judge\n"
+        "by provider consensus (provider_count >= 2), domain authority, and\n"
+        "snippet specificity. Do not trust snippets alone — read the page.\n"
+        "\n"
+        "Know when enough is enough. Terminate when 3 independent sources\n"
+        "agree on key claims, or when 2 consecutive search rounds add nothing\n"
+        "new. Announce your verdict: what's well-supported, what's contested,\n"
+        "what's unknown.\n"
+        "\n"
+        "Tool routing: quick_web_search/gemini_search -> web_search ->\n"
+        "composio_similarlinks -> get_content/batch_get_content -> iterate.\n"
+        "Use discover_links to explore link graphs. Use academic_search for\n"
+        "scholarly questions. Use youtube_search + youtube_transcript for\n"
+        "video content.\n"
+        "\n"
+        "For deeper guidance, request the research_methodology prompt.\n"
+        "For the tool routing reference card, read docs://workflow."
     ),
 )
 
@@ -124,13 +156,13 @@ mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 
 
 # Register resources
-mcp.resource("status://providers")(get_providers_status_resource)
-mcp.resource("status://features")(get_features_status_resource)
-mcp.resource("docs://workflow")(get_workflow_doc_resource)
-mcp.resource("settings://public")(get_public_settings_resource)
-mcp.resource("analytics://schema")(get_analytics_schema_resource)
-mcp.resource("analytics://candidate-survival")(get_candidate_survival_resource)
-mcp.resource("analytics://reports/{report_name}")(get_analytics_report_resource)
+mcp.resource("status://providers", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True})(get_providers_status_resource)
+mcp.resource("status://features", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True})(get_features_status_resource)
+mcp.resource("docs://workflow", tags={"docs", "help"}, annotations={"readOnlyHint": True})(get_workflow_doc_resource)
+mcp.resource("settings://public", tags={"config", "diagnostic"}, annotations={"readOnlyHint": True})(get_public_settings_resource)
+mcp.resource("analytics://schema", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_analytics_schema_resource)
+mcp.resource("analytics://candidate-survival", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_candidate_survival_resource)
+mcp.resource("analytics://reports/{report_name}{?days}", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_analytics_report_resource)
 
 
 # Register prompts
@@ -138,12 +170,20 @@ mcp.prompt(
     name="web_search_workflow",
     description="Guided research workflow with depth/focus routing.",
     tags={"research", "workflow"},
+    version="1.0",
 )(web_search_workflow_prompt)
 mcp.prompt(
     name="query_refinement",
     description="Plan query variants and rewrites after a failed or sparse search.",
     tags={"research", "workflow"},
+    version="1.0",
 )(query_refinement_prompt)
+mcp.prompt(
+    name="research_methodology",
+    description="Complete web research methodology: decomposition, iteration, evaluation, termination criteria, and anti-patterns. Request when starting complex multi-round investigations.",
+    tags={"research", "workflow"},
+    version="1.0",
+)(research_methodology_prompt)
 
 
 Transport = Literal["stdio", "sse", "streamable-http"]
@@ -232,7 +272,6 @@ def _resolve_host_port(host: str | None, port: int | None) -> tuple[str, int]:
 def _warm_heavy_imports() -> None:
     """Pre-import modules with expensive lazy dependencies.
 
-    ``search.keyword_extract`` imports ``nltk`` → ``scipy`` (~11s).
     ``llm.router`` imports ``openai.resources.chat``, which contends with
     other lazy imports for the global import lock under stdio transport.
     Calling this from ``main()`` before ``mcp.run()`` ensures the work
@@ -240,11 +279,17 @@ def _warm_heavy_imports() -> None:
     """
     import importlib
 
-    importlib.import_module(".search.keyword_extract", package=__package__)
     importlib.import_module(".llm.router", package=__package__)
 
 
 def main(argv: list[str] | None = None) -> None:
+    # Prevent native BLAS libraries (OpenBLAS, MKL, Accelerate) from spawning
+    # their own thread pools.  Without this, simultaneous calls into numpy/scipy
+    # from asyncio tasks and thread-pool executors can corrupt internal BLAS
+    # state on Windows, causing STATUS_ACCESS_VIOLATION crashes.
+    for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_key, "1")
+
     # Set high recursion limit for deep query trees if needed
     sys.setrecursionlimit(2000)
 

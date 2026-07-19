@@ -34,11 +34,22 @@ async def web_search(
     domain_block: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResultType:
-    """Run one validated multi-provider web search.
+    """Run one validated multi-provider web search across configured backends.
 
-    ``research_goal`` is mandatory.
-    Set ``rewrite=False`` to skip only LLM rewriting; deterministic enrichment
-    and provider target coverage still run.
+    Args:
+        query: Search query string. Be specific — include keywords, dates,
+            or technical terms for better recall.
+        research_goal: What you intend to learn or accomplish with this search.
+            Used to validate that results serve your actual objective.
+        rewrite: When True (default), LLM rewrites the query for improved
+            recall and provider coverage. Set False for exact-match searches.
+        site_filters: Restrict results to these domains (e.g., ["arxiv.org",
+            "github.com"]). Applied after provider-level filtering.
+        domain_filters: Blocklist patterns to exclude results (e.g.,
+            ["*pinterest.*"]). Supports wildcards.
+        domain_boost: Domains to prioritize in ranking. Boosts relevance
+            scores without excluding other results.
+        domain_block: Domains to exclude entirely from results.
     """
     from ..search.contracts import WebSearchRequest
     from ..search.service import execute_web_search

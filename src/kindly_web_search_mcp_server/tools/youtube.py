@@ -4,6 +4,9 @@ import asyncio
 import logging
 import time
 
+from fastmcp.dependencies import CurrentContext
+from fastmcp.server.context import Context
+
 from ..errors import format_tool_error
 from ..models import (
     YouTubeSearchResponse,
@@ -33,10 +36,22 @@ async def youtube_transcript(
     translate_to: str | None = None,
     format: str = "text",
     backend: str | None = None,
+    ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResultType:
-    """Extract captions from a YouTube video. Supports multiple URL formats, language selection, translation, and timestamped/text/JSON output.
-    Use after youtube_search to get video content.
-    backend: "auto" (cascade), "ytdlp" (yt-dlp only), "api" (legacy youtube-transcript-api). Default: server setting.
+    """Extract captions from a YouTube video.
+
+    Supports multiple URL formats, language selection, translation, and
+    timestamped/text/JSON output. Use after youtube_search to get video content.
+
+    Args:
+        video_id_or_url: YouTube video ID, full URL, or short URL.
+        language: Language code for captions (e.g., "en", "ja", "de").
+            Auto-detected when not specified.
+        translate_to: Translate captions to this language code.
+        format: Output format — "text" (plain paragraph), "timestamped"
+            ([MM:SS] prefixes), or "json" (segments array).
+        backend: "auto" (try yt-dlp then legacy API), "ytdlp" (yt-dlp only),
+            or "api" (legacy youtube-transcript-api only). Default: server setting.
     """
     from ..settings import settings
 
@@ -49,6 +64,8 @@ async def youtube_transcript(
         target = parse_youtube_url(video_id_or_url)
         video_id = target.video_id
         canonical_url = target.canonical_url
+
+        await ctx.report_progress(progress=20, total=100, message="Fetching transcript...")
 
         # Fetch transcript (cache-first, then cascade backends)
         segments, backend_used = await asyncio.wait_for(
@@ -90,7 +107,7 @@ async def youtube_transcript(
             backend_used=backend_used,
         )
 
-        return YouTubeTranscriptResponse(
+        response = YouTubeTranscriptResponse(
             video_id=video_id,
             video_url=canonical_url,
             title=None,  # Title requires separate YouTube Data API call (Phase 2)
@@ -100,7 +117,10 @@ async def youtube_transcript(
             duration_seconds=duration_seconds,
             transcript_segments=segments if format == "json" else None,
             error=None,
-        ).model_dump(exclude_none=True)  # type: ignore[return-value]
+        ).model_dump(exclude_none=True)
+
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        return response  # type: ignore[return-value]
 
     except asyncio.TimeoutError:
         record_youtube_transcript(
@@ -166,8 +186,17 @@ async def youtube_transcript(
 async def youtube_search(
     query: str,
     num_results: int = 5,
+    ctx: Context = CurrentContext(),
 ) -> YouTubeSearchResultType:
-    """Find YouTube videos by search query. Returns titles, links, and snippets. Use before youtube_transcript."""
+    """Find YouTube videos by search query via SearXNG.
+
+    Returns titles, links, and snippets. Use before youtube_transcript to
+    get captions from a specific video.
+
+    Args:
+        query: Search term for YouTube.
+        num_results: Number of results to return (1-20, default 5).
+    """
 
     if num_results < 1:
         num_results = 5
@@ -176,6 +205,7 @@ async def youtube_search(
     start_time = time.time()
 
     try:
+        await ctx.report_progress(progress=20, total=100, message="Searching YouTube...")
         results, search_backend = await search_youtube(query, num_results=num_results)
         duration_seconds = time.time() - start_time
 
@@ -186,12 +216,15 @@ async def youtube_search(
             search_backend=search_backend,
         )
 
-        return YouTubeSearchResponse(
+        response = YouTubeSearchResponse(
             query=query,
             results=results,
             total_results=len(results),
             search_backend=search_backend,
-        ).model_dump(exclude_none=True)  # type: ignore[return-value]
+        ).model_dump(exclude_none=True)
+
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        return response  # type: ignore[return-value]
 
     except (YouTubeSearchError, YouTubeApiError) as e:
         duration_seconds = time.time() - start_time

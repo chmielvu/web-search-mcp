@@ -1,8 +1,28 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed — Critical bugs from live-testing evaluation
+- **gemini_search `NameError: name '_gemini_counter' is not defined`**: Literal `\n` escape sequences corrupted the module-level declaration in `telemetry/metrics.py`, making `_gemini_counter` invisible to the Python parser. Fixed by replacing with proper newlines. The tool was 100% non-functional before this fix.
+- **Summary JSON truncation (`EOF while parsing a string`)**: Upstream Gemini API bug (googleapis/python-genai#2062) — `max_output_tokens` is a combined think+output budget on Gemini 3 models, not output-only as documented. With `thinking_level="high"`, the model filled ~96% of the budget with thinking tokens, leaving JSON output truncated mid-string. Fixed by removing `thinking_config` from both `_make_config()` and `_make_batch_config()` in `content/summary_backend.py`.
+- **Windows `STATUS_ACCESS_VIOLATION` on parallel `web_search` calls**: Two thread-safety issues in native code paths. (1) `rake_nltk` → `nltk` → `scipy` ran via `run_in_executor()` in a separate OS thread while `bm25s` → `scipy.sparse` ran on the event loop — two threads entering OpenBLAS simultaneously corrupted internal state. Fixed by replacing `rake_nltk` with YAKE (pure Python, zero native extensions, better keyword extraction benchmarks) and adding `asyncio.Lock` serialization around `score_candidates_async()` in `rerank/bm25.py`. (2) Added `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1` env safeguards in `server.py` `main()` to prevent BLAS thread-pool spawning.
+- **Middleware `suggested_prompts` referenced non-existent names** (`evaluate_web_results`, `research_gap_analysis`). Changed all references to `research_methodology` in `middleware/query_guidance.py`.
 
+### Changed — FastMCP 3.x best-practices audit remediation
+- **Tool docstrings**: Added Google-style `Args:` sections to all 10 core tools (`web_search`, `get_content`, `batch_get_content`, `discover_links`, `gemini_search`, `grok_search`, `youtube_search`, `youtube_transcript`, `generate_sitemap`, `academic_search`). FastMCP auto-parses these for per-parameter descriptions in the JSON schema sent to clients.
+- **Tool catalog**: Added `version="1.0"` and per-tool `timeout` fields to `ToolCatalogEntry`; extended `tool_kwargs()` to pass them through. Timeouts: sitemap 90s, grok/web_search/batch 60s, academic 45s, get_content 30s.
+- **Server identity**: Added `version="0.1.8"` to `FastMCP()` constructor.
+- **Resources**: Added `tags` and `annotations={"readOnlyHint": True}` to all 7 resource registrations; changed `analytics://reports/{report_name}` to `analytics://reports/{report_name}{?days}` so clients can discover and override the `days` parameter via RFC 6570 query-string syntax.
+- **Prompts**: Added `version="1.0"` to all prompt registrations.
+- **YouTube tools**: Added `ctx: Context = CurrentContext()` parameter and progress reporting to `youtube_search` and `youtube_transcript`.
 
+### Added — Agent guidance surface
+- **Server `instructions`**: Rewrote as the flagship web search methodology — covers decomposition, reconnaissance-first, iterative rounds, deep-reading, termination criteria, and tool routing chain. Follows the MCP blog's server-instructions design rules: captures cross-feature relationships, documents operational patterns, never repeats tool descriptions.
+- **New `research_methodology` prompt**: Full methodology reference with decomposition strategy (worked example: "Should we adopt Rust?"), phase-by-phase guidance, gap analysis checklist, anti-patterns, and termination criteria. Registered with `version="1.0"`, tagged `{"research", "workflow"}`.
+- **`docs://workflow` resource**: Refactored to a clean tool-routing reference card — lookup table of tool → key parameters, pagination patterns, summary modes, filter parameters, diagnostic resources. All philosophy/methodology moved to `instructions` and `research_methodology` prompt.
+- **Dependency**: Replaced `rake-nltk>=1.0.6` with `yake>=0.4.8` in `pyproject.toml`. YAKE is pure Python (no NLTK/scipy dependency), has better benchmark scores across 20 datasets, supports deduplication natively, and eliminates the scipy thread-safety crash vector from keyword extraction.
+
+### Added - Architecture documentation
+- **`architecture.md`** (repo root) — comprehensive, source-verified system architecture derived from a GitNexus graph traversal of `web-search-mcp` (515 files, 7,322 nodes, 300 execution flows). Covers entry points (FastMCP server, `web-search-cli`, separate classifier service), the shared `execute_web_search` pipeline (six-branch plan → retrieve fanout → blocklist → provider-consensus RRF → BM25 → bi/cross/RankLLM rerank funnel), and every subsystem (content Tier1/Tier2, cache, embeddings, entity, Qdrant index, analytics/DuckDB, middleware, llm router, prompts, tools, telemetry, A/B, training, utils). Replaces the removed historical `docs/ARCHITECTURE.md` and records doc/impl discrepancies found during the mapping (Tavily-only sitemap with a stale Crawl4AI-fallback docstring; rerank `AGENTS.md` over-stating OpenRouter primacy for the RankLLM stage).
 
 ### Changed - quick_web_search backend (Composio/Tavily → Parallel AI)
 - **Refactor**: Replaced Composio/Tavily backend with Parallel AI Search API (advanced mode, `parallel-web` SDK).

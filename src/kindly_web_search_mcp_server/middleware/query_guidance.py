@@ -95,7 +95,7 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     providers = data.get("providers_used", [])
     urls = [r.get("link", "") for r in results]
     next_tools: list[str] = []
-    next_prompts: list[str] = ["evaluate_web_results"]
+    next_prompts: list[str] = ["research_methodology"]
     parts: list[str] = []
     gemini_ok = _gemini_is_available()
 
@@ -143,7 +143,7 @@ def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
-    next_prompts: list[str] = ["evaluate_web_results"]
+    next_prompts: list[str] = ["research_methodology"]
     source_type = data.get("source_type", "")
     fetch_backend = data.get("fetch_backend", "")
     window = data.get("window", {})
@@ -158,7 +158,7 @@ def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
     if source_type == "github_issue":
         parts.append("GitHub issue detected. Use composio_similarlinks to find related issues/PRs.")
         next_tools.append("composio_similarlinks")
-        next_prompts.append("research_gap_analysis")
+        next_prompts.append("research_methodology")
     elif source_type == "wikipedia":
         parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
         next_tools.append("academic_search")
@@ -176,7 +176,7 @@ def _guide_batch_get_content(data: dict) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
-    next_prompts: list[str] = ["research_gap_analysis"]
+    next_prompts: list[str] = ["research_methodology"]
     results = data.get("results", [])
     has_more = data.get("has_more", False)
     cursor = data.get("cursor")
@@ -206,7 +206,7 @@ def _guide_batch_get_content(data: dict) -> tuple[str, list[str], list[str]]:
 
 def _guide_gemini_search(data: dict) -> tuple[str, list[str], list[str]]:
     del data
-    return (GEMINI_QUERY_ADVISORY, [], ["evaluate_web_results"])
+    return (GEMINI_QUERY_ADVISORY, [], ["research_methodology"])
 
 
 def _guide_quick_web_search(data: dict) -> tuple[str, list[str], list[str]]:

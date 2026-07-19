@@ -28,8 +28,23 @@ async def academic_search(
     sort: str = "relevance",
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResultType:
-    """Search 6 scholarly sources (Semantic Scholar, arXiv, OpenAlex, CrossRef, PubMed, CORE) with cross-source deduplication.
+    """Search 6 scholarly sources with cross-source deduplication.
+
+    Sources: Semantic Scholar, arXiv, OpenAlex, CrossRef, PubMed, CORE.
     Supports year, venue, field-of-study, and open-access filters.
+
+    Args:
+        query: Academic search query. Use technical terminology for best results.
+        limit: Maximum papers to return (1-20, default 5).
+        sources: Specific sources to query (e.g., ["arxiv", "semanticscholar"]).
+            All 6 are queried when not specified.
+        year_from: Filter papers published in or after this year.
+        year_to: Filter papers published in or before this year.
+        fields_of_study: Filter by academic discipline (e.g., ["Computer Science",
+            "Biology"]). Uses Semantic Scholar field taxonomy.
+        venue: Filter by publication venue name (e.g., "Nature", "ICML").
+        open_access_only: Only return papers with freely available full text.
+        sort: Result ordering — "relevance" (default), "citations", or "date".
     """
     limit = max(1, min(limit, 20))
     if sort not in ("relevance", "citations", "date"):

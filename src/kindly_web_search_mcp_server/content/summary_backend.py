@@ -257,7 +257,6 @@ def _make_config(*, use_url_context: bool, max_output_tokens: int) -> types.Gene
         "response_json_schema": SummaryOutput.model_json_schema(),
         "temperature": 1.0,
         "max_output_tokens": max_output_tokens,
-        "thinking_config": types.ThinkingConfig(thinking_level="high"),  # type: ignore[arg-type]
     }
     if use_url_context:
         config["tools"] = [URL_CONTEXT_TOOL]
@@ -347,7 +346,6 @@ def _make_batch_config(*, max_output_tokens: int) -> types.GenerateContentConfig
         response_json_schema=BatchSummaryOutput.model_json_schema(),
         temperature=1.0,
         max_output_tokens=max_output_tokens,
-        thinking_config=types.ThinkingConfig(thinking_level="high"),  # type: ignore[arg-type]
         tools=[URL_CONTEXT_TOOL],
     )
 

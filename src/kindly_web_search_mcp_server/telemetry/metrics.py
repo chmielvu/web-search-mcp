@@ -52,7 +52,9 @@ _rerank_score_histogram: metrics.Histogram | None = None
 _circuit_state_gauge: metrics.UpDownCounter | None = None
 _circuit_event_counter: metrics.Counter | None = None
 
-# Gemini metrics\n_gemini_counter: metrics.Counter | None = None\n
+# Gemini metrics
+_gemini_counter: metrics.Counter | None = None
+
 # YouTube metrics
 _youtube_transcript_counter: metrics.Counter | None = None
 _youtube_search_counter: metrics.Counter | None = None

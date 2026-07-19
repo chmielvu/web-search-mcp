@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import unicodedata
 from collections.abc import Sequence
@@ -14,6 +15,11 @@ _TOKEN_RE = re.compile(
 )
 _CJK_RE = re.compile(r"^[\u3400-\u4dbf\u4e00-\u9fff]+$")
 _COMPONENT_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
+
+# Serialise BM25 native code to prevent concurrent scipy/numpy calls
+# from corrupting BLAS state when multiple asyncio tasks call
+# score_candidates simultaneously.
+_BM25_LOCK = asyncio.Lock()
 
 
 def stable_unique(tokens: Sequence[str]) -> list[str]:
@@ -36,6 +42,7 @@ def tokenize_candidate(text: str) -> list[str]:
 
 
 def score_candidates(query: str, candidate_texts: Sequence[str]) -> list[float]:
+    """Synchronous BM25 scoring — safe for single-threaded or locked contexts."""
     if not candidate_texts:
         return []
     if len(candidate_texts) == 1:
@@ -48,3 +55,9 @@ def score_candidates(query: str, candidate_texts: Sequence[str]) -> list[float]:
     retriever.index(corpus, show_progress=False)
     scores = retriever.get_scores(query_tokens)
     return [float(value) for value in scores]
+
+
+async def score_candidates_async(query: str, candidate_texts: Sequence[str]) -> list[float]:
+    """Async-guarded BM25 scoring — serialises native code across asyncio tasks."""
+    async with _BM25_LOCK:
+        return score_candidates(query, candidate_texts)

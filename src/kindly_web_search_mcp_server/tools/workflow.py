@@ -2,60 +2,52 @@ from __future__ import annotations
 
 
 def get_workflow_doc() -> str:
-    """Complete research workflow: tool routing, result evaluation, gap analysis, depth strategy."""
-    return """# Web Search Workflow
+    """Tool routing quick reference: which tool for what, and how to chain them."""
+    return """# Tool Routing Reference
 
-## Reconnaissance
-Start with `quick_web_search` for initial topic scoping before deeper research.
-
-## Tool routing
-| Task | Tool | Why |
+## Tool Selection
+| Task | Tool | Key Parameters |
 |---|---|---|
-| Initial recon | quick_web_search | Fast search with ranked citations |
-| Find URLs | web_search | Multi-provider merge, provider_count signal |
-| Web + X/Twitter | grok_search | Real-time web and social data |
-| Scholarly papers | academic_search | 6 sources, field/venue/year filters |
-| Read one URL | get_content | 7-stage resolution, pagination-aware, optional Gemini summary |
-| Read 3+ URLs | batch_get_content | Parallel fetch, char budget, cursor, per-item Gemini summaries |
-| Discover links | discover_links | Page/sitemap link extraction |
-| Find videos | youtube_search | SearXNG YouTube engine |
-| Extract captions | youtube_transcript | Timestamped/text/JSON, translation |
-| Similar pages | composio_similarlinks | Neural similarity from known URL |
+| Fast recon | quick_web_search | objective, search_queries |
+| Grounded synthesis | gemini_search | query, structured_output |
+| Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost, domain_block, num_results |
+| Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
+| Scholarly papers | academic_search | query, sources, year_from, year_to, fields_of_study, venue, sort |
+| Read one URL | get_content | url, char_offset, char_length, summary_mode, focus_query, include_links |
+| Read 3+ URLs | batch_get_content | urls, max_concurrency, per_item_char_length, total_char_budget, cursor, summary_mode |
+| Discover links | discover_links | url, max_links, include_external, same_domain_only |
+| Similar pages | composio_similarlinks | url |
+| Find videos | youtube_search | query, num_results |
+| Extract captions | youtube_transcript | video_id_or_url, language, translate_to, format, backend |
+| Site map | generate_sitemap | url, instructions, max_depth, max_breadth, limit, select_paths, exclude_paths, allow_external |
 
-## Query
-rewrite=true for normal discovery; rewrite=false for exact literals (errors, URLs, hashes).
-num_results: 3=fast, 5=standard, 7=broad. Max 10.
-
-## Depth
-- quick: quick_web_search or gemini_search
-- medium: web_search(5) -> batch_get_content(2-3) -> gemini_search
-- deep: web_search(7) -> batch_get_content(5) -> academic_search
-
-## Result evaluation
-1. provider_count: 2+ stronger signal; 1 or missing = verify
-2. Snippet quality: specific facts > generic text. Domain hints: github.com->issue/PR, stackoverflow.com->Q&A
-3. Decision: 3+ promising -> batch_get_content. 1-2 -> get_content each. Off-topic -> refine. Sparse -> broaden
+## Query Parameters
+- rewrite=true: LLM rewrites for recall (default for discovery)
+- rewrite=false: exact literal search (errors, hashes, URLs, quoted phrases)
+- num_results: 3=fast, 5=standard, 7=broad (max 10)
 
 ## Pagination
-- get_content: check window.has_more. If true, call again with char_offset=window.next_offset
-- get_content: summary_mode=brief|detailed adds a Gemini URL-context summary; use focus_query to bias it
-- batch_get_content: check has_more and cursor. If true, call again with cursor
-- batch_get_content: summary_mode=brief|detailed adds per-item Gemini summaries; use focus_query to bias them
+- get_content: if window.has_more, call again with char_offset=window.next_offset
+- batch_get_content: if has_more, call again with cursor from response
+- discover_links: if has_more, call again with offset/limit
 
-## Gap analysis
-- Factual gaps: unverified claims/dates/numbers
-- Source gaps: only one type (blogs, no official docs)
-- Depth gaps: check window.has_more and batch_get_content has_more
-- Terminate when: 3 independent sources agree, 2 rounds with no new info, or depth budget exhausted
+## Summary Modes
+- summary_mode=none: raw page content only
+- summary_mode=brief: 1-2 sentence Gemini summary
+- summary_mode=detailed: paragraph-level Gemini summary
+- focus_query: bias summary toward a specific topic, term, or comparison
 
-## Iteration
-- Round 1: broad (num_results=5-7). Round 2: targeted (2-3 queries). Round 3: pinpoint (rewrite=false)
-- Use composio_similarlinks on best URL from round 1
-- For video: youtube_search -> pick best -> youtube_transcript
+## Filter Parameters
+- site_filters/domain_filters: restrict web_search results to specific domains
+- domain_boost: prioritize certain domains in ranking
+- domain_block: exclude domains entirely
+- strip_selectors: CSS selectors to exclude from content extraction (e.g., "nav, footer")
 
-## Academic
-academic_search first -> get_content on selected papers. Cross-check with 2+ independent papers. Separate surveys from implementation papers.
-
-## Source triage
-Official docs > GitHub issues/PRs > papers > community sources. Flag single-source claims. Prefer dated sources with concrete examples.
+## Diagostic Resources
+- status://providers: which search providers are configured
+- status://features: server feature flags and timeouts
+- settings://public: current runtime settings (secrets redacted)
+- analytics://schema: DuckDB observability schema
+- analytics://reports/{report_name}?days=N: analytics reports (candidate-survival, etc.)
 """
+

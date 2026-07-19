@@ -20,6 +20,20 @@ DEFAULT_PROFILE_TOOLS = frozenset(
     }
 )
 
+# Tool-level timeouts in seconds (None = no timeout enforced by FastMCP)
+_TOOL_TIMEOUTS: dict[str, float | None] = {
+    "generate_sitemap": 90.0,
+    "grok_search": 60.0,
+    "web_search": 60.0,
+    "batch_get_content": 60.0,
+    "get_content": 30.0,
+    "academic_search": 45.0,
+}
+
+
+def _tool_timeout(name: str) -> float | None:
+    return _TOOL_TIMEOUTS.get(name)
+
 
 @dataclass(frozen=True)
 class ToolCatalogEntry:
@@ -33,6 +47,8 @@ class ToolCatalogEntry:
     expensive: bool = False
     experimental: bool = False
     annotations: ToolAnnotations | None = None
+    version: str = "1.0"
+    timeout: float | None = None
 
 
 def _entry(
@@ -45,6 +61,7 @@ def _entry(
     expensive: bool = False,
     experimental: bool = False,
     idempotent: bool = True,
+    version: str = "1.0",
 ) -> ToolCatalogEntry:
     tags = {"tool:public", f"tool:{name}", *(f"profile:{p}" for p in profiles)}
     if expensive:
@@ -67,6 +84,8 @@ def _entry(
             idempotentHint=idempotent,
             openWorldHint=open_world,
         ),
+        version=version,
+        timeout=_tool_timeout(name),
     )
 
 
@@ -105,4 +124,11 @@ def tool_kwargs(tool_name: str) -> dict[str, Any]:
     entry = catalog_entry(tool_name)
     if entry.annotations is None:
         raise ValueError(f"tool catalog entry {tool_name!r} is missing annotations")
-    return {"tags": entry.tags, "annotations": entry.annotations}
+    kwargs: dict[str, Any] = {
+        "tags": entry.tags,
+        "annotations": entry.annotations,
+        "version": entry.version,
+    }
+    if entry.timeout is not None:
+        kwargs["timeout"] = entry.timeout
+    return kwargs

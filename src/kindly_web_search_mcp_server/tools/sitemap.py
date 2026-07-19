@@ -32,14 +32,22 @@ async def generate_sitemap(
     response. The legacy Crawl4AI semantic sitemap path is only used as a
     fallback when Tavily fails or returns no discovered URLs.
 
-    Parameters mirror Tavily Map:
-    - instructions: natural-language mapping guidance
-    - max_depth: traversal depth, Tavily-supported range 1..5
-    - max_breadth: per-level breadth limit
-    - limit: maximum total URLs to return
-    - select_paths / select_domains: inclusive regex filters
-    - exclude_paths / exclude_domains: exclusion regex filters
-    - allow_external: follow external links when true
+    Args:
+        url: The target website URL to generate a sitemap from.
+        instructions: Natural-language mapping guidance (e.g., "Find all blog
+            posts and documentation pages").
+        max_depth: Traversal depth (1-5, default 1). Higher values explore
+            deeper site hierarchies.
+        max_breadth: Per-level breadth limit (default 20). Controls how many
+            sibling pages are explored at each depth.
+        limit: Maximum total URLs to return (default 50).
+        select_paths: Inclusive regex patterns for URL paths to keep
+            (e.g., ["/docs/.*", "/blog/.*"]).
+        select_domains: Inclusive regex patterns for domains to keep.
+        exclude_paths: Exclusion regex patterns for URL paths to skip
+            (e.g., ["/tag/.*", "/category/.*"]).
+        exclude_domains: Exclusion regex patterns for domains to skip.
+        allow_external: Follow links to external domains when True.
     """
     emit_tool_observability_event(
         LOGGER,

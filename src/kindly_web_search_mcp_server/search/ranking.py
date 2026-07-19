@@ -9,7 +9,7 @@ import logging
 import time
 
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
-from ..rerank.bm25 import score_candidates
+from ..rerank.bm25 import score_candidates_async
 from ..rerank.core import rerank_results
 from ..settings import settings
 from ..telemetry.spans import get_tracer
@@ -84,7 +84,7 @@ async def rank_and_finalize(
             )
 
             # 2. Compute BM25 ranking over those same canonical candidates
-            bm25_scores = score_candidates(
+            bm25_scores = await score_candidates_async(
                 run.plan.relevance_query if run.plan else run.request.query,
                 [_candidate_text(result) for result in provider_consensus_list],
             )
