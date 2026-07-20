@@ -357,11 +357,52 @@ MagicMock/
 # Local live-search quality campaign artifacts
 test-results/live-web-search/
 
-# Binary databases (not for version control)
-process_logs.duckdb
+# ---- Local-only databases, eval outputs, and per-machine artifacts ----
+#
+# *.duckdb            : DuckDB files at ANY directory depth (test scaffold,
+#                        analytics DBs under duckdb_data/, the live
+#                        process_logs.duckdb at the repo root, etc.).
+# *.duckdb.wal        : DuckDB write-ahead log sidecar (filename is
+#                        "<dbname>.duckdb.wal", e.g. "process_logs.duckdb.wal").
+#                        Distinct from *.duckdb-wal — DuckDB on the test
+#                        machines uses the dotted-hyphenated form, so both
+#                        spellings are listed.
+# *.duckdb-shm        : shared-memory sidecar (Windows + Linux).
+# *.duckdb-journal    : rollback journal used during failed transactions.
+# /process_logs.duckdb + /test_*_backfills_*.duckdb : explicit repo-root
+#                        pinned form to defeat any subdirectory false-positive
+#                        concerns. Harmless once the recursive glob is also in place.
+# .duckdb_extensions/ : DuckDB loadable-extension binaries (platform-specific).
+.duckdb_extensions/
+*.duckdb
+*.duckdb.wal
+*.duckdb-wal
+*.duckdb-shm
+*.duckdb-journal
+/process_logs.duckdb
+/test_*_backfills_*.duckdb
 
-# Watchdog config (machine-specific)
-WATCHDOG.yml
-test_rerank_candidates.duckdb.wal  
-*.duckdb.wal  
-test_rerank_candidates.duckdb  
+
+
+# LLM-wiki per-repo knowledge vault (sources, concepts, analyses,
+# meta cache). Local-only build output — regeneratable from upstream
+# sources. Already excluded from HEAD via `git rm -r --cached
+# .llm-wiki` in 2026-07-21 (this commit). Recursive pattern catches
+# both top-level and nested entries; the bare `.llm-wiki` line
+# stays for any non-recursive edge cases.
+.llm-wiki/
+.llm-wiki
+
+# CLI-assessment eval outputs (42 .json + .md artefacts written by
+# the web-search-cli per-invocation). Tracked on origin as historical
+# artefacts but new ones should never be re-committed. Bare + starred
+# patterns so the next `*.json` evaluator output at root is also caught.
+.assessment-out/
+.assessment-out/*.json
+.assessment-out/*.md
+
+# Streamlit dashboard module + per-machine data. HEAD-only deletion of
+# the tracked files via `git rm -r --cached dashboards/` in 2026-07-21.
+# Keep the directory listed so future re-creation doesn't reintroduce it.
+dashboards/
+

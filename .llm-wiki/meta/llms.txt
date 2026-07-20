@@ -1,5 +1,0 @@
-# Kindly Web Search MCP server engineering and operations
-
-> Auto-generated wiki index for LLM consumption. See llms-full.txt for complete content.
-
-## Pages
