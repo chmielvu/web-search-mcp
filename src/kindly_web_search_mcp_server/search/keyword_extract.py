@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import yake
 
 _MAX_PHRASE_WORDS = 4
@@ -71,10 +73,6 @@ async def extract_support_terms(
     max_terms: int = 8,
 ) -> list[str]:
     """Extract key phrases without blocking the event loop."""
-    # YAKE is CPU-bound, so still run in executor — but now it's pure Python,
-    # no native C extensions to corrupt across threads.
-    import asyncio
-
     loop = asyncio.get_running_loop()
     raw_phrases = await loop.run_in_executor(None, _yake_extract, research_goal, max_terms)
     return [_restore_casing(phrase, research_goal) for phrase in raw_phrases]

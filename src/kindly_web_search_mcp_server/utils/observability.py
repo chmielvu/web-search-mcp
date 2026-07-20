@@ -3,11 +3,11 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
-import os
 from hashlib import sha256
 from typing import Any
 
 from ..observability.events import PERSISTED_EVENT_PREFIXES
+from .environment import get_int_env
 
 # Context variable to store run_key for the current search pipeline
 _run_key_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -36,27 +36,18 @@ _DEFAULT_MAX_ITEMS = 10
 _DEFAULT_PREVIEW_CHARS = 2000
 
 
-def _get_int_env(name: str, default: int) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return max(1, value)
-
-
 def _max_text_chars() -> int:
-    return _get_int_env("OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
+    return get_int_env("OBSERVABILITY_MAX_TEXT_CHARS", _DEFAULT_MAX_TEXT_CHARS)
 
 
 def _max_items() -> int:
-    return _get_int_env("OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
+    return get_int_env("OBSERVABILITY_MAX_ITEMS", _DEFAULT_MAX_ITEMS)
 
 
 def preview_text(value: str | None, *, limit: int | None = None) -> str:
     if not value:
         return ""
-    hard_limit = limit or _get_int_env("OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS)
+    hard_limit = limit or get_int_env("OBSERVABILITY_PREVIEW_CHARS", _DEFAULT_PREVIEW_CHARS)
     if len(value) <= hard_limit:
         return value
     return value[:hard_limit].rstrip() + "…"

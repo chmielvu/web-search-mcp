@@ -42,7 +42,8 @@ async def fetch_batch_content_payload(
         fetch_options=fetch_options,
     )
 
-    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    from ...content.summary_models import VALID_SUMMARY_MODES
+    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],
         mode=safe_summary_mode,  # type: ignore[arg-type]

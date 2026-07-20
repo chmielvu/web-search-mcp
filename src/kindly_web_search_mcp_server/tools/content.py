@@ -77,7 +77,8 @@ async def get_content(
     max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    from ...content.summary_models import VALID_SUMMARY_MODES
+    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
         include_links=include_links,
@@ -371,7 +372,8 @@ async def batch_get_content(
         ),
     )
 
-    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    from ...content.summary_models import VALID_SUMMARY_MODES
+    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],
         mode=safe_summary_mode,  # type: ignore[arg-type]

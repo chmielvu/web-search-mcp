@@ -121,13 +121,9 @@ def _default_user_agent() -> str:
 
 
 def _get_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
+    """Read an integer env var with safe fallback."""
+    from ...utils.environment import get_int_env as _env_int
+    return _env_int(name, default)
 
 
 def _iter_page_indices(max_pages: int) -> Iterable[int]:

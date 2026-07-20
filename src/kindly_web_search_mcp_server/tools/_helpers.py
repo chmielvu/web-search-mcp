@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastmcp.server.context import Context
+
+from ..utils.environment import get_float_env, get_int_env
 from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
 from ..telemetry import record_mcp_tool_call, record_tool_details
@@ -175,20 +177,11 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
     shutdown_telemetry()
 
 
-def _get_int_env(key: str, default: int) -> int:
-    raw = (os.environ.get(key) or "").strip()
-    try:
-        return int(raw) if raw else default
-    except ValueError:
-        return default
-
-
-def _get_float_env(key: str, default: float) -> float:
-    raw = (os.environ.get(key) or "").strip()
-    try:
-        return float(raw) if raw else default
-    except ValueError:
-        return default
+# ---------------------------------------------------------------------------
+# Imported from utils.environment: get_int_env, get_float_env
+# Backward-compat re-exports for existing callers.
+from ..utils.environment import get_int_env as _get_int_env, get_float_env as _get_float_env
+# ---------------------------------------------------------------------------
 
 
 def _resolve_tool_total_timeout_seconds() -> float:
@@ -199,8 +192,8 @@ def _resolve_tool_total_timeout_seconds() -> float:
     In practice, Windows headless-browser cold starts can exceed that, so we allow a
     higher cap that can be tuned via environment variables.
     """
-    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     safe_max = max(1.0, max_value)
     return max(1.0, min(value, safe_max))
 

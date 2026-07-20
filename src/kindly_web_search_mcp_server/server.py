@@ -287,7 +287,7 @@ def main(argv: list[str] | None = None) -> None:
     # their own thread pools.  Without this, simultaneous calls into numpy/scipy
     # from asyncio tasks and thread-pool executors can corrupt internal BLAS
     # state on Windows, causing STATUS_ACCESS_VIOLATION crashes.
-    for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    for _key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(_key, "1")
 
     # Set high recursion limit for deep query trees if needed

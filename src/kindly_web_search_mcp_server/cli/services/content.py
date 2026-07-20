@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from ...cache import get_page_cache
@@ -10,28 +9,13 @@ from ...content.options import build_fetch_options
 from ...content.summary import create_summary
 from ...content.windowing import slice_content
 from ...models import GetContentResponse
+from ...utils.environment import get_float_env, get_int_env
 from ...utils.url_canonicalize import canonicalize_url
 
 
-def _get_int_env(key: str, default: int) -> int:
-    raw = (os.environ.get(key) or "").strip()
-    try:
-        return int(raw) if raw else default
-    except ValueError:
-        return default
-
-
-def _get_float_env(key: str, default: float) -> float:
-    raw = (os.environ.get(key) or "").strip()
-    try:
-        return float(raw) if raw else default
-    except ValueError:
-        return default
-
-
 def _resolve_tool_total_timeout_seconds() -> float:
-    value = _get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = _get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
+    value = get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
+    max_value = get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
     return max(1.0, min(value, max(1.0, max_value)))
 
 
@@ -141,10 +125,11 @@ async def fetch_content_payload(
     max_links: int = 25,
     strip_selectors: str | None = None,
 ) -> dict[str, Any]:
-    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
+    max_length = get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    safe_summary_mode = summary_mode if summary_mode in {"none", "brief", "detailed"} else "none"
+    from ...content.summary_models import VALID_SUMMARY_MODES
+    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
 
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
