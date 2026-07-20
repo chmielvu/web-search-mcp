@@ -142,7 +142,7 @@ def _build_ab_view_sql(target: str) -> list[str]:
 
 
 def _build_dashboard_view_sql(target: str) -> list[str]:
-    """Return SQL for the 10 human-readable dashboard views."""
+    """Return SQL for the 11 human-readable dashboard views."""
     t = target
     return [
         # 1. Run-level summary
@@ -376,6 +376,72 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             je.evaluated_at
         FROM judge_evaluations je
         ORDER BY je.evaluated_at DESC
+        """,
+        # 11. LLM judgments — read-only view over persisted FlockMTL verdicts.
+        # Each row is one already-billed LLM call from
+        # `analytics/judges.py::judge_search_run`. Querying this view does
+        # NOT burn Mistral credits — the verdicts are persisted.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_llm_judgments AS
+        SELECT
+            recorded_at,
+            run_key,
+            judgment_kind,
+            judgment_target,
+            prompt_name,
+            model_name,
+            verdict,
+            facet,
+            reasoning,
+            rubric_version,
+            confidence,
+            context_shown,
+            status,
+            input_tokens,
+            output_tokens,
+            duration_ms,
+            error_message
+        FROM llm_judgments
+        ORDER BY recorded_at DESC
+        """,
+        # 12. FlockMTL resource catalog — what MODELs and PROMPTs are
+        # registered. Backed by the `flockmtl_resources` metadata table
+        # populated by ensure_flockmtl_resources.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_flockmtl_resources AS
+        SELECT
+            kind,
+            name,
+            definition,
+            registered_at
+        FROM flockmtl_resources
+        ORDER BY kind, name
+        """,
+        # 13. Judge facet aggregation — per-day, per-facet aggregates
+        # over the persisted judge verdicts. Deliberately facet-grained
+        # (not collapsed into a single run-quality score) so the canon
+        # "a single score hides actionable failures" stays honored.
+        # Trend drift queries filter by `rubric_version`.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_judge_facet_agg AS
+        SELECT
+            date_trunc('day', recorded_at) AS day,
+            facet,
+            judgment_kind,
+            model_name,
+            rubric_version,
+            COUNT(*) AS total_rows,
+            COUNT(*) FILTER (WHERE status='success') AS success_rows,
+            ROUND(
+                COUNT(*) FILTER (WHERE status='success')::DOUBLE
+                / NULLIF(COUNT(*), 0),
+                3
+            ) AS success_rate,
+            ROUND(AVG(confidence), 3) AS avg_confidence,
+            ROUND(quantile_cont(confidence, 0.50), 3) AS median_confidence
+        FROM llm_judgments
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY 1 DESC, 2, 3
         """,
     ]
 

@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any
+import sys
+from typing import Any, Sequence
 
 import duckdb
 
@@ -202,4 +203,306 @@ def calibrate_judge(
     }
 
 
-__all__ = ["calibrate_judge"]
+# ============================================================================
+# A/B κ Harness -- 6-facet calibration against judge_calibration_set
+# ============================================================================
+#
+# The six facet-decomposed judgments in `analytics/judges.py` use the 120B
+# model by default. This harness ADDS A/B rows by re-running the same six
+# facets with the 3B model (judge_fast), then computes Cohen's kappa per
+# facet, comparing each model's verdict against the hand-adjudicated
+# `judge_calibration_set.human_verdict` for the supplied golden run_keys.
+#
+# Use this for the periodic "DoorDash calibrate" loop (see plan). It is
+# NEVER imported by the search path.
+#
+# Invocation:
+#   python -m kindly_web_search_mcp_server.analytics.judge_calibration \\
+#       --golden rk1 rk2 rk3 ...
+
+
+# The six facet kinds (must match judges.JUDGE_FACET_KINDS).
+_FACETS: tuple[str, ...] = (
+    "run_overview",
+    "intent_coherence",
+    "rewrite_coverage",
+    "rerank_improvement",
+    "result_quality",
+    "failure_cause",
+)
+
+# The two models in the A/B. The 120B (`judge_quality`) is the
+# production default; `judge_fast` (3B) is the calibration side.
+_PRODUCTION_MODEL = "judge_quality"
+_CALIBRATION_MODEL = "judge_fast"
+
+
+def compute_kappa(
+    human: Sequence[str],
+    judge: Sequence[str],
+    *,
+    ordinal: bool = False,
+) -> float:
+    """Cohen's kappa (binary default) or linear-weighted kappa (ordinal).
+
+    Pure Python implementation -- no scipy dependency (the repo is not
+    scipy-dependent, and adding scipy just for a one-shot A/B metric would
+    be unjustified weight on this single-user MCP server).
+
+    Binary: w[i,j] = 1 if i==j else 0.
+    Ordinal (linear weights): w[i,j] = 1 - |i-j|/(k-1).
+    Categories are inferred from the union of inputs and assigned stable
+    integer indices via sorted order.
+
+    Returns 0.0 on empty input, 1.0 on perfect agreement (including when
+    the chance-expected agreement is already 1.0, which can't happen for
+    binary/ordinal with valid input but is the defensive guard).
+    """
+    n = len(human)
+    if n == 0 or len(judge) != n:
+        return 0.0
+    cats = sorted(set(human) | set(judge))
+    cat_to_i = {c: i for i, c in enumerate(cats)}
+    k = len(cats)
+    if k < 2:
+        return 1.0
+    counts = [[0] * k for _ in range(k)]
+    for h, j in zip(human, judge, strict=True):
+        counts[cat_to_i[h]][cat_to_i[j]] += 1
+    if ordinal:
+        weights = [[1 - abs(i - j) / (k - 1) for j in range(k)] for i in range(k)]
+    else:
+        weights = [[1.0 if i == j else 0.0 for j in range(k)] for i in range(k)]
+    obs = sum(weights[i][j] * counts[i][j] for i in range(k) for j in range(k)) / n
+    row_tot = [sum(counts[i][j] for j in range(k)) for i in range(k)]
+    col_tot = [sum(counts[i][j] for i in range(k)) for j in range(k)]
+    exp = sum(weights[i][j] * row_tot[i] * col_tot[j] for i in range(k) for j in range(k)) / (n * n)
+    if exp >= 1.0:
+        return 1.0
+    return (obs - exp) / (1 - exp)
+
+
+def _read_verdicts(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    run_key: str,
+    model_name: str,
+    rubric_version: str,
+) -> dict[str, list[str]]:
+    """Read (facet -> [judge_verdict, ...]) from llm_judgments for one model run.
+
+    The `verdict` column carries the compact human-readable form (e.g.
+    "intent_match=true; informativeness=3" for result_quality). For a
+    fair κ comparison, we project this back to the canonical facet
+    verdict category -- the same stringification the calibration set
+    uses for human verdicts.
+    """
+    rows = connection.execute(
+        """
+        SELECT facet, verdict
+        FROM llm_judgments
+        WHERE run_key = ?
+          AND model_name = ?
+          AND rubric_version = ?
+          AND status = 'success'
+        """,
+        [run_key, model_name, rubric_version],
+    ).fetchall()
+    out: dict[str, list[str]] = {f: [] for f in _FACETS}
+    for facet, verdict in rows:
+        if facet in out and verdict:
+            out[facet].append(verdict)
+    return out
+
+
+def _join_to_human(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    run_key: str,
+    facet: str,
+    model_name: str,
+    rubric_version: str,
+    model_verdicts: list[str],
+) -> tuple[list[str], list[str]]:
+    """Build paired (human, model) verdict lists for one facet over all golden run_keys.
+
+    For run_keys with no human verdict in `judge_calibration_set`, the
+    pair is excluded -- we only score against adjudicated truth.
+    """
+    human_rows = connection.execute(
+        """
+        SELECT human_verdict
+        FROM judge_calibration_set
+        WHERE run_key = ?
+          AND facet = ?
+          AND model_name = ?
+          AND rubric_version = ?
+        """,
+        [run_key, facet, model_name, rubric_version],
+    ).fetchall()
+    h = [r[0] for r in human_rows if r[0]]
+    # Match index-by-index: a run_key with N model verdicts and M human
+    # verdicts contributes min(N, M) pairs. (Test data uses 1 verdict
+    # per facet per model per run_key.)
+    n_pairs = min(len(h), len(model_verdicts))
+    if not n_pairs:
+        return [], []
+    return h[:n_pairs], model_verdicts[:n_pairs]
+
+
+def run_calibration(
+    golden_run_keys: list[str],
+    *,
+    rubric_version: str = "v1",
+    db_path: str | None = None,
+) -> dict[str, dict[str, float]]:
+    """A/B κ per facet per model against judge_calibration_set.
+
+    Steps:
+      1. Open a connection and run the six facets with the production
+         120B model via `judges.judge_search_run` (writes rows tagged
+         with `rubric_version='v1'` and `model_name='judge_quality'`).
+      2. Rebind `judges._JUDGE_MODEL = 'judge_fast'` and re-run the same
+         six facets with the 3B model (writes a second pass of rows
+         with `model_name='judge_fast'`, same `rubric_version`).
+      3. Restore the original model setting.
+      4. Read back verdicts for both models, join to
+         `judge_calibration_set.human_verdict`, compute kappa per facet
+         per model, and upsert into `judge_rubrics` (the canonical κ
+         catalog).
+
+    Returns: `{facet: {model_name: kappa}}`. Facets with no adjudicated
+    pairs are omitted from the outer dict.
+
+    Cost: 2 × |golden_run_keys| × |facets_fired_for_each| calls to
+    Mistral (the 120B pass dominates). Use sparingly -- this is the
+    periodic DoorDash "calibrate" loop, not a per-search evaluation.
+    """
+    # Lazy imports to avoid module-load-time circulars between
+    # judges.py and judge_calibration.py.
+    from . import judges
+    from .writers.schema import ensure_store_schema
+    from .writers.connection import _db_path as _ws_db_path
+
+    ensure_store_schema(db_path=db_path)
+    actual_db = str(_ws_db_path(db_path))
+
+    original_model = judges._JUDGE_MODEL
+    try:
+        judges._JUDGE_MODEL = _PRODUCTION_MODEL
+        for rk in golden_run_keys:
+            judges.judge_search_run(rk, db_path=actual_db)
+
+        judges._JUDGE_MODEL = _CALIBRATION_MODEL
+        for rk in golden_run_keys:
+            judges.judge_search_run(rk, db_path=actual_db)
+    finally:
+        judges._JUDGE_MODEL = original_model
+
+    # Read back verdicts + join to human ground truth + upsert kappas.
+    out: dict[str, dict[str, float]] = {}
+    connection = duckdb.connect(actual_db, read_only=False)
+    try:
+        # Group facets that were actually adjudicated so we don't waste
+        # empty facet rows in judge_rubrics.
+        for facet in _FACETS:
+            for model_name in (_PRODUCTION_MODEL, _CALIBRATION_MODEL):
+                human_pairs: list[str] = []
+                judge_pairs: list[str] = []
+                for rk in golden_run_keys:
+                    model_verdicts_per_facet = _read_verdicts(
+                        connection,
+                        run_key=rk,
+                        model_name=model_name,
+                        rubric_version=rubric_version,
+                    ).get(facet, [])
+                    h, j = _join_to_human(
+                        connection,
+                        run_key=rk,
+                        facet=facet,
+                        model_name=model_name,
+                        rubric_version=rubric_version,
+                        model_verdicts=model_verdicts_per_facet,
+                    )
+                    human_pairs.extend(h)
+                    judge_pairs.extend(j)
+                if not human_pairs:
+                    continue
+                is_ordinal = facet in (
+                    "run_overview",
+                    "intent_coherence",
+                    "rewrite_coverage",
+                    "rerank_improvement",
+                    "failure_cause",
+                )
+                kappa = compute_kappa(human_pairs, judge_pairs, ordinal=is_ordinal)
+                out.setdefault(facet, {})[model_name] = kappa
+                # Upsert into judge_rubrics.
+                connection.execute(
+                    """
+                    INSERT INTO judge_rubrics (
+                        rubric_version, facet, model_name, prompt_name,
+                        kappa_score, is_active, created_at
+                    ) VALUES (?, ?, ?, ?, ?, true, now())
+                    ON CONFLICT (rubric_version, facet, model_name) DO UPDATE
+                      SET kappa_score = EXCLUDED.kappa_score,
+                          created_at = now()
+                    """,
+                    [
+                        rubric_version,
+                        facet,
+                        model_name,
+                        f"judge_{facet}",
+                        kappa,
+                    ],
+                )
+    finally:
+        connection.close()
+    return out
+
+
+def _format_table(results: dict[str, dict[str, float]]) -> str:
+    """Render the κ result dict as a fixed-width table for CLI output."""
+    if not results:
+        return "(no adjudicated facets found -- seed judge_calibration_set first)"
+    facets = sorted(results.keys())
+    models = sorted({m for v in results.values() for m in v})
+    header = f"{'facet':24s}  " + "  ".join(f"{m:18s}" for m in models)
+    sep = "-" * len(header)
+    rows = [header, sep]
+    for f in facets:
+        line = f"{f:24s}  " + "  ".join(
+            f"{results[f].get(m, float('nan')):>+.4f}            "[:18] for m in models
+        )
+        rows.append(line)
+    return "\n".join(rows)
+
+
+def _main(argv: list[str]) -> int:
+    """CLI entrypoint: `python -m ...judge_calibration --golden rk1 rk2 ... [--rubric-version v1]`."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="judge_calibration",
+        description="A/B kappa per facet per model against judge_calibration_set.",
+    )
+    parser.add_argument(
+        "--golden",
+        nargs="+",
+        required=True,
+        help="One or more run_keys that have been hand-adjudicated in judge_calibration_set.",
+    )
+    parser.add_argument(
+        "--rubric-version",
+        default="v1",
+        help="rubric_version to compute/upsert (default: v1).",
+    )
+    args = parser.parse_args(argv)
+    results = run_calibration(args.golden, rubric_version=args.rubric_version)
+    print(_format_table(results))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))
+__all__ = ["calibrate_judge", "compute_kappa", "run_calibration"]

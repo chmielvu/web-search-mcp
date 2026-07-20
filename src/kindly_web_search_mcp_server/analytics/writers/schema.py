@@ -12,7 +12,14 @@ import logging
 
 import duckdb
 
-from .connection import _db_path, _LOCK
+from .connection import (
+    _db_path,
+    _ensure_columns,
+    _LOCK,
+    _install_flockmtl_once,
+    ensure_flockmtl_loaded,
+    ensure_flockmtl_resources,
+)
 from .table_names import (
     _CE_TABLE_NAME,
     _FR_TABLE_NAME,
@@ -85,6 +92,7 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         rewrite_output_tokens INTEGER,
         rewrite_latency_ms    DOUBLE,
         rewrite_error         VARCHAR,
+        rewritten_branch_queries VARCHAR[],   -- 4 rewrites from the planner (k1, k2, k3, neural)
         payload_json          JSON
         """,
     )
@@ -363,6 +371,84 @@ def _ensure_llm_call_log(connection: duckdb.DuckDBPyConnection) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 11. llm_judgments — persisted FlockMTL verdicts on search runs
+# Populated by `analytics/judges.py::judge_search_run` after each search
+# completes. Read by `vw_llm_judgments`. No per-row llm_complete — every
+# row here is one already-billed LLM call.
+# ---------------------------------------------------------------------------
+def _ensure_llm_judgments(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        "llm_judgments",
+        """
+        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key            VARCHAR NOT NULL,
+        judgment_kind      VARCHAR NOT NULL,  -- 'run_overview' | 'intent_coherence' | 'rewrite_coverage' | 'rerank_improvement' | 'result_quality' | 'failure_cause'
+        judgment_target    VARCHAR,           -- link, run_key, or 'run_key:rank' — what was judged
+        prompt_name        VARCHAR NOT NULL,
+        model_name         VARCHAR NOT NULL,
+        verdict            VARCHAR NOT NULL,  -- raw LLM output (category, grade, YES/NO)
+        input_tokens       INTEGER,
+        output_tokens      INTEGER,
+        duration_ms        DOUBLE,
+        status             VARCHAR NOT NULL,  -- 'success' | 'error'
+        error_message      VARCHAR,
+        payload_json       JSON,
+        facet              VARCHAR,
+        reasoning          VARCHAR,
+        rubric_version     VARCHAR NOT NULL DEFAULT 'v1',
+        confidence         SMALLINT,
+        context_shown      JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_judgments_run_key ON llm_judgments(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_judgments_kind ON llm_judgments(judgment_kind)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Judge rubric catalog + calibration set (populated by judge_calibration.py)
+# ---------------------------------------------------------------------------
+def _ensure_judge_rubrics(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        "judge_rubrics",
+        """
+        rubric_version VARCHAR NOT NULL,
+        facet          VARCHAR NOT NULL,
+        model_name     VARCHAR NOT NULL,
+        prompt_name    VARCHAR NOT NULL,
+        fewshot_json   JSON,
+        is_active      BOOLEAN NOT NULL DEFAULT true,
+        kappa_score    DOUBLE,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (rubric_version, facet, model_name)
+        """,
+    )
+
+
+def _ensure_judge_calibration_set(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        "judge_calibration_set",
+        """
+        run_key        VARCHAR NOT NULL,
+        facet          VARCHAR NOT NULL,
+        model_name     VARCHAR NOT NULL,
+        human_verdict  VARCHAR,
+        judge_verdict  VARCHAR,
+        adjudicator    VARCHAR,
+        adjudicated_at TIMESTAMPTZ,
+        rubric_version VARCHAR NOT NULL,
+        PRIMARY KEY (run_key, facet, model_name)
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Quality / judge tables (kept, with upgraded judge_evaluations DDL)
 # ---------------------------------------------------------------------------
 def _ensure_search_quality_scores(
@@ -473,6 +559,31 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # FlockMTL INSTALL + LOAD is a network operation that writes only to
+    # DuckDB's local extension cache (~/.duckdb/), not the user database.
+    # Do it on a short-lived connection OUTSIDE the writer lock so it
+    # doesn't block concurrent analytics writers during a cold community
+    # catalog fetch (can take 30s+).
+    flockmtl_install_ok = False
+    flockmtl_loaded = False
+    prelock_connection: duckdb.DuckDBPyConnection | None = None
+    if settings.flockmtl_enabled:
+        # INSTALL the extension exactly once per process (cached), then
+        # LOAD on a short-lived connection OUTSIDE the writer lock so a
+        # cold community catalog fetch (30s+) doesn't block concurrent
+        # analytics writers. INSTALL and LOAD target DuckDB's local
+        # extension cache, not the user database. If either step fails
+        # (e.g. network unreachable), skip Flock entirely — judges will
+        # silently no-op until a later bootstrap succeeds.
+        flockmtl_install_ok = _install_flockmtl_once()
+    if flockmtl_install_ok:
+        prelock_connection = duckdb.connect(str(path))
+        try:
+            flockmtl_loaded = bool(ensure_flockmtl_loaded(prelock_connection))
+        finally:
+            prelock_connection.close()
+
     with _LOCK:
         connection = duckdb.connect(str(path))
         try:
@@ -487,10 +598,26 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_candidate_embeddings(connection)
             _ensure_provider_health_transitions(connection)
             _ensure_llm_call_log(connection)
+            _ensure_llm_judgments(connection)
+            _ensure_columns(
+                connection,
+                "llm_judgments",
+                {
+                    "facet": "VARCHAR",
+                    "reasoning": "VARCHAR",
+                    "rubric_version": "VARCHAR NOT NULL DEFAULT 'v1'",
+                    "confidence": "SMALLINT",
+                    "context_shown": "JSON",
+                },
+            )
+            _ensure_judge_rubrics(connection)
+            _ensure_judge_calibration_set(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
             if settings.vss_enabled:
                 ensure_vss_extension(connection)
+            if flockmtl_loaded:
+                ensure_flockmtl_resources(connection)
         finally:
             connection.close()
 
