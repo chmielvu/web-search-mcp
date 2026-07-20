@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import duckdb
 
 from ...settings import settings
 
-if TYPE_CHECKING:
-    pass
-
 _LOCK = threading.Lock()
+_flockmtl_loaded = False
+logger = logging.getLogger(__name__)
 
 
 def _db_path(db_path: str | None = None) -> Path:
@@ -33,4 +32,26 @@ def _ensure_columns(
             connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {column_type}")
 
 
-__all__ = ["_LOCK", "_db_path", "_ensure_columns", "duckdb"]
+def ensure_flockmtl(connection: duckdb.DuckDBPyConnection) -> bool:
+    """Load FlockMTL extension if enabled in settings.
+
+    Returns True if FlockMTL was loaded successfully or was already loaded.
+    Idempotent — safe to call on every connection open.
+    """
+    global _flockmtl_loaded
+    if not settings.flockmtl_enabled:
+        return False
+    if _flockmtl_loaded:
+        return True
+    try:
+        connection.execute("INSTALL flockmtl FROM community")
+        connection.execute("LOAD flockmtl")
+        _flockmtl_loaded = True
+        logger.info("FlockMTL extension loaded")
+        return True
+    except Exception:
+        logger.warning("FlockMTL not available — semantic SQL analytics disabled", exc_info=True)
+        return False
+
+
+__all__ = ["_LOCK", "_db_path", "_ensure_columns", "ensure_flockmtl", "duckdb"]

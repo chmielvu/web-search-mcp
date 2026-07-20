@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -29,18 +30,48 @@ def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearch
     return candidate if len(candidate.snippet or "") > len(base.snippet or "") else base
 
 
+def _memoize_canonicalize(
+    canonicalize: Callable[[str], str],
+) -> Callable[[str], str]:
+    """Return a request-local memoizing wrapper around `canonicalize`.
+
+    Caps each distinct raw URL to one canonicalization regardless of how
+    many call sites touch it. Callers that already share a memoized
+    callable (e.g. `merge_search_results`) pass it through directly to
+    avoid double-wrapping.
+    """
+    cache: dict[str, str] = {}
+
+    def _call(raw_url: str) -> str:
+        if raw_url in cache:
+            return cache[raw_url]
+        value = canonicalize(raw_url)
+        cache[raw_url] = value
+        return value
+
+    return _call
+
+
 def reciprocal_rank_fusion(
     result_lists: Sequence[Sequence[WebSearchResult]],
     *,
     k: int = 60,
+    canonicalize: Callable[[str], str] | None = None,
 ) -> list[tuple[WebSearchResult, float]]:
-    """Merge ranked lists using Reciprocal Rank Fusion."""
+    """Merge ranked lists using Reciprocal Rank Fusion.
+
+    When `canonicalize` is None, an internal memoizing wrapper around
+    `canonicalize_url` is used so repeated raw URLs are canonicalized
+    only once per call. Callers that already share a memoized callable
+    across multiple stages should pass it in to avoid double-wrapping.
+    """
+    key_for = canonicalize if canonicalize is not None else _memoize_canonicalize(canonicalize_url)
     merged: dict[str, _MergedCandidate] = {}
     encounter_order: dict[str, int] = {}
     for results in result_lists:
-        seen_in_list = set()
+        seen_in_list: set[str] = set()
         for rank, result in enumerate(results, start=1):
-            key = canonicalize_url(result.link)
+            key = key_for(result.link)
             if key in seen_in_list:
                 continue
             seen_in_list.add(key)
@@ -76,16 +107,17 @@ def merge_search_results(
 ) -> list[WebSearchResult]:
     """Merge ranked lists using pure rank-based Reciprocal Rank Fusion."""
     total_input = sum(len(results) for results in result_lists)
+    key_for = _memoize_canonicalize(canonicalize_url)
     url_occurrences: Counter[str] = Counter()
     for results in result_lists:
         for result in results:
-            url_occurrences[canonicalize_url(result.link)] += 1
+            url_occurrences[key_for(result.link)] += 1
     overlapping_urls = [url for url, count in url_occurrences.items() if count > 1]
     overlap_rate = len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
     effective_k = settings.rrf_k if k is None else k
     start_time = time.time()
 
-    fused = reciprocal_rank_fusion(result_lists, k=effective_k)
+    fused = reciprocal_rank_fusion(result_lists, k=effective_k, canonicalize=key_for)
     output = []
     for result, score in fused:
         output.append(result.model_copy(update={"score": score}))

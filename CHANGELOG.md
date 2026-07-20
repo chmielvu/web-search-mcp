@@ -222,6 +222,34 @@
 ### Added
 - Unit tests for branch planner: provider sharding without duplication and correct branch counts for rewrite enabled/disabled (`tests/test_branch_planner.py`).
 
+### Changed — Code review safe-refactors (#2 #4 #5 #6 #9 #10)
+
+- **`#2` Dead code (`analytics/writers/connection.py`, `analytics/writers/schema.py`):** Removed empty `if TYPE_CHECKING: pass` no-op blocks and the now-unused `from typing import TYPE_CHECKING` imports. No semantic change.
+- **`#4` Redundant `dc.merged_candidates` per-item copy (`search/ranking.py`):** Replaced `[result.model_copy() for result in merged]` with `list(merged)`. The downstream rerank call already buffers its input through a per-item `model_copy`, so the analytics snapshot is already isolated. Kept the rerank-side copy because `apply_entity_overlap_boost` writes `candidate.score` directly on the model instance, which would otherwise leak into the analytics snapshot.
+- **`#5` Redundant `canonicalize_url` calls (`search/merge.py`, `search/ranking.py`):** Added `_memoize_canonicalize` helper in `merge.py`; `reciprocal_rank_fusion` accepts an optional `canonicalize: Callable[[str], str]` kwarg and uses the supplied callable directly when given, or wraps `canonicalize_url` internally when `None`. `merge_search_results` and `rank_and_finalize` share one memoizing wrapper per call so each distinct raw URL is canonicalized at most once across the overlap counter, two RRF invocations, and the per-result `url_key` lookup. Net reduction: up to 5× per distinct URL per `rank_and_finalize` call.
+- **`#6` Redundant `len(markdown.split())` calls (`content/stages.py`):** Hoisted the value into a `word_count` local in `_fetch_via_jina`, `_fetch_via_crawl4ai`, and `_fetch_via_camoufox`. Three functions, two `word_count=` sites each (one in `record_content_resolution`, one in `ContentArtifact`). `_fetch_via_local` was not touched because its two `markdown.split()` calls live in different branches (PDF vs HTML) and never both run for the same `markdown` value.
+- **`#9` Bare `except Exception: pass` (`cache/page_duckdb.py`):** Narrowed the index-creation catch to `duckdb.Error` and added `logger.warning(...)` so disk/permission problems surface in the logs while genuine concurrent-create races remain tolerated. Added a module-level `logger`.
+- **`#10` Six-times-duplicated `QueryBranch(why=...)` conditional (`search/planning.py`):** Extracted the `use_llm_why` boolean and a `_why_for(role, llm_label)` helper backed by a small `_DETERMINISTIC_WHY` dict. All five paid/neural/specialized branches now share one selector. The first branch (ORIGINAL_FREE) still uses the unconditional `"original normalized query"` string.
+
+### Added — Regression tests for the above
+
+- `tests/test_search_ranking.py` — `rank_and_finalize` rerank isolation (#4) and `canonicalize_url` call-count proof (#5).
+- `tests/test_search_merge_cache.py` — `_memoize_canonicalize` behavior across the default-None path, the supplied-callable path, and `merge_search_results` shared-cache path (#5).
+- `tests/test_page_duckdb_schema_errors.py` — `duckdb.Error` → warning logged, non-duckdb exception → propagates (#9).
+- `tests/test_search_planning_why.py` — `use_llm_why` boolean contract under 4 rewrite scenarios (#10).
+
+### Skipped (origin `e07ca83` already covered)
+
+- `#3` `utils/environment.py` consolidates 4 copies of `_get_int_env`/`_get_float_env` on origin; arxiv now delegates to it. The review's premise that there is a `utils/environment.py` to import from was correct post-pull.
+- `#7`, `#8` origin's `e07ca83` commit message explicitly says "clean up hot-path imports" and the `anchor_today` lazy import is no longer in `content/summary_backend.py`. Verified by reading the post-pull source.
+
+### Verification
+
+- `ruff check` clean on all 7 production files touched + 4 new test files.
+- `python -m py_compile` clean on all touched files.
+- 23/23 focused tests pass (pytest via `uv run`).
+- 3 pre-existing test failures in `test_rerank_pipeline_integration.py` confirmed unchanged from clean `HEAD` (signature drift unrelated to this refactor).
+
 ## [0.4.0] — 2026-06-28
 
 ### Added

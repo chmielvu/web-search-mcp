@@ -134,12 +134,12 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
         return None
 
     cls = classify_markdown(jina_markdown)
+    word_count = len(jina_markdown.split())
     record_content_resolution(
         stage="jina_reader",
         url=url,
         success=cls.status == "success",
-        size_bytes=len(jina_markdown.encode("utf-8")),
-        word_count=len(jina_markdown.split()),
+        word_count=word_count,
         extraction_method="jina_reader",
     )
     return ContentArtifact(
@@ -151,7 +151,7 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
         fetch_backend="jina_reader",
         content_type="text/markdown",
         markdown=jina_markdown,
-        word_count=len(jina_markdown.split()),
+        word_count=word_count,
         quality_score=0.9 if cls.status == "success" else 0.5,
         error=None
         if cls.status == "success"
@@ -309,12 +309,13 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
         retryable_exceptions=(Crawl4AIClientError,),
     )
     cls = classify_markdown(markdown)
+    word_count = len(markdown.split())
     record_content_resolution(
         stage="crawl4ai_remote",
         url=url,
         success=cls.status == "success",
         size_bytes=len(markdown.encode("utf-8")),
-        word_count=len(markdown.split()),
+        word_count=word_count,
         extraction_method="crawl4ai_md",
     )
     return ContentArtifact(
@@ -328,7 +329,7 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
         markdown=markdown,
         metadata=None,
         links=None,
-        word_count=len(markdown.split()),
+        word_count=word_count,
         quality_score=1.0 if cls.status == "success" else 0.6,
         error=None
         if cls.status == "success"
@@ -362,6 +363,7 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
 
     markdown = extract_content_as_markdown(html, url=url)
     cls = classify_markdown(markdown)
+    word_count = len(markdown.split())
 
     metadata = extract_html_metadata(html, page_url=url) if options.include_metadata else None
     links = (
@@ -375,7 +377,7 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
         url=url,
         success=cls.status == "success",
         size_bytes=len(markdown.encode("utf-8")),
-        word_count=len(markdown.split()),
+        word_count=word_count,
         extraction_method="camoufox_remote",
     )
     return ContentArtifact(
@@ -389,7 +391,7 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
         markdown=markdown,
         metadata=metadata,
         links=links,
-        word_count=len(markdown.split()),
+        word_count=word_count,
         quality_score=1.0 if cls.status == "success" else 0.4,
         error=None
         if cls.status == "success"

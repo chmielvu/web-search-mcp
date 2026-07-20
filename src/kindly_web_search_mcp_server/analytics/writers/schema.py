@@ -9,7 +9,6 @@ log and 5 of 6 observability tables are dropped entirely.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import duckdb
 
@@ -18,6 +17,7 @@ from .table_names import (
     _CE_TABLE_NAME,
     _FR_TABLE_NAME,
     _JE_TABLE_NAME,
+    _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
     _PH_TABLE_NAME,
     _QE_TABLE_NAME,
@@ -28,9 +28,6 @@ from .table_names import (
     _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
 )
-
-if TYPE_CHECKING:
-    pass
 
 _logger = logging.getLogger(__name__)
 
@@ -335,6 +332,37 @@ def _ensure_provider_health_transitions(
 
 
 # ---------------------------------------------------------------------------
+# 10. llm_call_log — unified cost tracking across all LLM calls
+# ---------------------------------------------------------------------------
+def _ensure_llm_call_log(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _LLM_CALL_LOG_TABLE_NAME,
+        """
+        recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key               VARCHAR NOT NULL,
+        call_purpose          VARCHAR NOT NULL,
+        provider              VARCHAR,
+        model                 VARCHAR,
+        input_tokens          INTEGER,
+        output_tokens         INTEGER,
+        tokens_used           INTEGER,
+        cost_usd              DOUBLE,
+        duration_ms           DOUBLE,
+        status                VARCHAR,
+        error_type            VARCHAR,
+        payload_json          JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_log_run_key ON llm_call_log(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_llm_call_log_purpose ON llm_call_log(call_purpose)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Quality / judge tables (kept, with upgraded judge_evaluations DDL)
 # ---------------------------------------------------------------------------
 def _ensure_search_quality_scores(
@@ -458,6 +486,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_query_embeddings(connection)
             _ensure_candidate_embeddings(connection)
             _ensure_provider_health_transitions(connection)
+            _ensure_llm_call_log(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
             if settings.vss_enabled:

@@ -303,6 +303,25 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             queries = fallback
 
         # --- build six branches in fixed role order ---
+        # `use_llm_why` is true when the LLM-rewrite path succeeded; in
+        # every other case (rewrite disabled, rewrite errored, no
+        # metadata) the branches use their deterministic fallback.
+        use_llm_why = bool(
+            request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+        )
+        # Display name for the deterministic branch `why` string. Keys
+        # must match the BranchRole values used below.
+        _DETERMINISTIC_WHY = {
+            BranchRole.PAID_BRAVE: "deterministic Brave query",
+            BranchRole.PAID_GOOGLE: "deterministic Google query",
+            BranchRole.PAID_OTHER: "deterministic paid-other query",
+            BranchRole.NEURAL: "deterministic neural query",
+            BranchRole.SPECIALIZED: "deterministic specialized query",
+        }
+
+        def _why_for(role: BranchRole, llm_label: str) -> str:
+            return llm_label if use_llm_why else _DETERMINISTIC_WHY[role]
+
         branches: tuple[QueryBranch, ...] = (
             QueryBranch(
                 role=BranchRole.ORIGINAL_FREE,
@@ -316,9 +335,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_BRAVE,
                 query=queries[0],
                 provider_names=paid_brave,
-                why="LLM paid_brave"
-                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-                else "deterministic Brave query",
+                why=_why_for(BranchRole.PAID_BRAVE, "LLM paid_brave"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -326,9 +343,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_GOOGLE,
                 query=queries[1],
                 provider_names=paid_google,
-                why="LLM paid_google"
-                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-                else "deterministic Google query",
+                why=_why_for(BranchRole.PAID_GOOGLE, "LLM paid_google"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -336,9 +351,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.PAID_OTHER,
                 query=queries[2],
                 provider_names=paid_other,
-                why="LLM paid_other"
-                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-                else "deterministic paid-other query",
+                why=_why_for(BranchRole.PAID_OTHER, "LLM paid_other"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -346,9 +359,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.NEURAL,
                 query=queries[3],
                 provider_names=neural,
-                why="LLM neural"
-                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-                else "deterministic neural query",
+                why=_why_for(BranchRole.NEURAL, "LLM neural"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -356,9 +367,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 role=BranchRole.SPECIALIZED,
                 query=queries[4],
                 provider_names=specialized,
-                why="LLM specialized"
-                if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-                else "deterministic specialized query",
+                why=_why_for(BranchRole.SPECIALIZED, "LLM specialized"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),

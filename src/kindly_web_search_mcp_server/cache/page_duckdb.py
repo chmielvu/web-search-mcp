@@ -12,10 +12,10 @@ drop-in compatibility with server.py and get_content.
 """
 
 from __future__ import annotations
-
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import threading
 import uuid
@@ -25,6 +25,7 @@ from typing import Any
 
 import duckdb
 
+logger = logging.getLogger(__name__)
 
 PAGE_CACHE_DEFAULT_TTL_SECONDS = int(os.environ.get("PAGE_CACHE_TTL_SECONDS", "604800"))
 
@@ -67,12 +68,17 @@ class PageDuckDBCache:
             )
             """
         )
-        # Best-effort index for hash lookups
+        # Best-effort index for hash lookups. The index is a performance
+        # optimization; the cache is still correct without it. We
+        # catch only duckdb.Error so real I/O problems (disk full,
+        # permission denied, corrupt WAL) surface to the caller via
+        # the surrounding connection lifecycle, while genuine
+        # concurrent-create races or older DuckDB variants are
+        # tolerated.
         try:
             con.execute("CREATE INDEX IF NOT EXISTS idx_page_url_hash ON page_cache(url_hash)")
-        except Exception:
-            # ignore if concurrent create or older duckdb variant
-            pass
+        except duckdb.Error as exc:
+            logger.warning("page_cache: skipped url_hash index (non-fatal): %s", exc)
 
     def _compute_url_hash(self, canonical_url: str) -> str:
         """Compute a deterministic hash for a canonical URL (matches prior Lance impl)."""

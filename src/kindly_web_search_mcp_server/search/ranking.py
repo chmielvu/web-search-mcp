@@ -15,7 +15,7 @@ from ..settings import settings
 from ..telemetry.spans import get_tracer
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
-from .merge import reciprocal_rank_fusion
+from .merge import _memoize_canonicalize, reciprocal_rank_fusion
 from .normalize import canonicalize_url
 
 logger = logging.getLogger(__name__)
@@ -60,22 +60,24 @@ async def rank_and_finalize(
         first_stage_url_scores: dict[str, float] = {}
         second_stage_scores: tuple[float, ...] = ()
         overlap_rate = 0.0
-
         if provider_result_lists:
+            # Share one canonicalize cache across the two RRF calls and
+            # this function's own overlap/score lookups, so each distinct
+            # raw URL is canonicalized at most once per rank_and_finalize.
+            key_for = _memoize_canonicalize(canonicalize_url)
             # 1. RRF once into provider_consensus
             provider_consensus_with_scores = reciprocal_rank_fusion(
                 provider_result_lists,
                 k=rrf_k,
+                canonicalize=key_for,
             )
             provider_consensus_list = [res for res, _ in provider_consensus_with_scores]
 
             first_stage_url_scores = {
-                canonicalize_url(res.link): score for res, score in provider_consensus_with_scores
+                key_for(res.link): score for res, score in provider_consensus_with_scores
             }
             url_occurrences: Counter[str] = Counter(
-                canonicalize_url(result.link)
-                for results in provider_result_lists
-                for result in results
+                key_for(result.link) for results in provider_result_lists for result in results
             )
             overlap_rate = (
                 sum(count > 1 for count in url_occurrences.values()) / len(url_occurrences)
@@ -98,12 +100,13 @@ async def rank_and_finalize(
             hybrid_order_with_scores = reciprocal_rank_fusion(
                 [provider_consensus_list, bm25_order],
                 k=rrf_k,
+                canonicalize=key_for,
             )
             second_stage_scores = tuple(score for _, score in hybrid_order_with_scores)
 
             # Keep provider consensus, hybrid RRF, and later neural scores distinct.
             for res, second_stage_score in hybrid_order_with_scores:
-                url_key = canonicalize_url(res.link)
+                url_key = key_for(res.link)
                 first_stage_score = first_stage_url_scores.get(url_key, 0.0)
                 res_updated = res.model_copy(
                     update={
@@ -114,7 +117,7 @@ async def rank_and_finalize(
                 )
                 merged.append(res_updated)
 
-        dc.merged_candidates = [result.model_copy() for result in merged]
+        dc.merged_candidates = list(merged)
         span.set_attribute("search.merge_algorithm", "provider_consensus_rrf_then_bm25_rrf")
 
         providers_used_set: set[str] = set()
