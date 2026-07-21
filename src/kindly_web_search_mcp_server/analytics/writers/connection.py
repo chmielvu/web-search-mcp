@@ -100,10 +100,13 @@ def _install_flockmtl_once() -> bool:
                 pass
 
 
-# Mistral models — differentiate fast vs quality judges
-# Both use Mistral's OpenAI-compatible API endpoint
-_MISTRAL_QUALITY_MODEL = "mistral-small-2506"
-_MISTRAL_FAST_MODEL = "ministral-3b-2512"
+# Hugging Face router — both judges run via the chat completions
+# endpoint at https://router.huggingface.co/v1 (OpenAI-compatible).
+# HF_TOKEN in env provides auth; the model name in `CREATE MODEL`
+# is the provider-routed ID (e.g. "Qwen/Qwen3-4B-Instruct-2507:nscale"
+# routes through nscale's hosted Qwen4B-Instruct endpoint).
+_HF_QUALITY_MODEL = "deepseek-ai/DeepSeek-V4-Flash:deepinfra"
+_HF_FAST_MODEL = "Qwen/Qwen3-4B-Instruct-2507:nscale"
 
 # FlockMTL DDL syntax (verified against the installed extension via smoke
 # test):
@@ -114,8 +117,8 @@ _MISTRAL_FAST_MODEL = "ministral-3b-2512"
 # `CatalogException` raised when the resource already exists.
 _FLOCKMTL_MODEL_DDL: tuple[tuple[str, str, str], ...] = (
     # (model_name, underlying_model_id, provider)
-    ("judge_fast", _MISTRAL_FAST_MODEL, "openai"),
-    ("judge_quality", _MISTRAL_QUALITY_MODEL, "openai"),
+    ("judge_fast", _HF_FAST_MODEL, "openai"),
+    ("judge_quality", _HF_QUALITY_MODEL, "openai"),
 )
 
 _FLOCKMTL_PROMPTS: tuple[tuple[str, str], ...] = (
@@ -371,10 +374,19 @@ def _ensure_flockmtl_secret(connection: duckdb.DuckDBPyConnection) -> None:
     """Create the `__default_openai` FlockMTL secret on this connection.
 
     FlockMTL's `llm_complete` requires a named secret with provider credentials.
-    Uses Mistral's OpenAI-compatible API:
+    Uses the Hugging Face chat-completions router:
       - name: hardcoded `__default_openai` (matches FlockMTL's lookup)
-      - API_KEY: `MISTRAL_API_KEY` env var
-      - BASE_URL: `https://api.mistral.ai/v1` (Mistral's OpenAI-compatible endpoint)
+      - API_KEY: `HF_TOKEN` env var (HF personal access / read token)
+      - BASE_URL: `https://router.huggingface.co/v1` (HF's OpenAI-compatible
+        router that fronts many providers under the prefix `<org>/<model>:<provider>`,
+        e.g. `Qwen/Qwen3-4B-Instruct-2507:nscale`)
+
+    HF_TOKEN is REQUIRED; the legacy `MISTRAL_API_KEY` is intentionally NOT
+    accepted as a fallback because it is invalid for `router.huggingface.co`
+    (Mistral credentials receive 401 from that endpoint). A missing HF_TOKEN
+    is logged once via the standard debug handler and the function returns
+    without creating the secret; subsequent `llm_complete` calls will fail
+    loudly, which is the correct behaviour for an HF-routed judge.
 
     Idempotent: drops any existing `__default_openai` first, then creates.
     Errors are caught and logged — secrets are optional, and the worst case
@@ -387,10 +399,17 @@ def _ensure_flockmtl_secret(connection: duckdb.DuckDBPyConnection) -> None:
     """
     import os
 
-    api_key = os.environ.get("MISTRAL_API_KEY", "")
-    base_url = "https://api.mistral.ai/v1"
+    api_key = os.environ.get("HF_TOKEN", "")
+    base_url = "https://router.huggingface.co/v1"
     if not api_key:
-        logger.debug("MISTRAL_API_KEY not set — FlockMTL llm_complete calls will fail")
+        logger.debug(
+            "HF_TOKEN not set in environment — FlockMTL llm_complete calls "
+            "will fail. Set HF_TOKEN (a Hugging Face personal access token "
+            "with inference permissions) before running a search; the secret "
+            "URL is https://router.huggingface.co/v1 routing both judges "
+            "(deepseek-ai/DeepSeek-V4-Flash:deepinfra and "
+            "Qwen/Qwen3-4B-Instruct-2507:nscale)."
+        )
         return
     try:
         connection.execute("DROP SECRET IF EXISTS __default_openai")
@@ -439,6 +458,94 @@ def ensure_flockmtl_loaded(connection: duckdb.DuckDBPyConnection) -> bool:
         return False
 
 
+def _upsert_flockmtl_model(
+    connection: duckdb.DuckDBPyConnection,
+    name: str,
+    safe_id: str,
+    safe_provider: str,
+) -> str:
+    """UPDATE-first / CREATE-fallback registration of one FlockMTL model.
+
+    On a fresh catalog the row does not exist and we fall through to
+    CREATE MODEL. On a catalog that was bootstrapped earlier (possibly
+    with stale Mistral credentials), the row already exists with an
+    old underlying model ID, and UPDATE rewrites it in place — the alias
+    (`judge_quality` / `judge_fast`) stays available the whole time, so
+    an in-flight `llm_complete` against `judge_quality` cannot race a
+    DELETE-then-CREATE window where the alias is briefly absent.
+
+    Returns one of: "created", "updated". Any other DuckDB error
+    (catalog lock contention, malformed ID) propagates to the caller;
+    the surrounding `ensure_flockmtl_resources` has its own
+    `except Exception` handler that converts it to a logged failure.
+    """
+    update_sql = f"UPDATE MODEL('{name}', '{safe_id}', '{safe_provider}')"
+    try:
+        connection.execute(update_sql)
+        return "updated"
+    except duckdb.Error as exc:
+        # `Model 'X' doesn't exist.` (verified empirically) is the only
+        # UPDATE-failure mode we want to translate into CREATE; any
+        # other DuckDB error (catalog lock, parse error) is real and
+        # should surface. Inspect the message instead of catching
+        # `CatalogException` because FlockMTL raises a generic
+        # `duckdb.Error` with that text, not a typed subclass.
+        if "doesn't exist" not in str(exc).lower():
+            raise
+    create_sql = f"CREATE MODEL('{name}', '{safe_id}', '{safe_provider}')"
+    connection.execute(create_sql)
+    return "created"
+
+
+def _upsert_flockmtl_prompt(
+    connection: duckdb.DuckDBPyConnection,
+    name: str,
+    safe_template: str,
+) -> str:
+    """UPDATE-first / CREATE-fallback registration of one FlockMTL prompt.
+
+    Mirrors `_upsert_flockmtl_model`. On a catalog that was bootstrapped
+    earlier (possibly with the legacy 3-prompt template set), the prompt
+    name already exists with stale template content; `CREATE PROMPT`
+    against an existing name is a silent no-op in FlockMTL (verified
+    empirically — the old template keeps serving), so an in-place
+    UPDATE is required to refresh the body. Without this, every judge
+    call against `judge_run_overview` etc. routes the model's old
+    instructions and `llm_complete` returns `"no llm output"` for
+    prompts whose templates no longer match the current production
+    code path.
+
+    FlockMTL's `CREATE PROMPT` / `UPDATE PROMPT` parser treats ASCII
+    apostrophes (U+0027) as SQL string terminators even when escaped
+    via the SQL-standard `''` doubling convention. Verified empirically:
+    a prompt body containing `"the reranker's own scores"` (escaped to
+    `"the reranker''s own scores"`) raises `Expected closing parenthesis
+    ')' after prompt text.` The workaround is to substitute a visually
+    identical Unicode homoglyph (U+2019 RIGHT SINGLE QUOTATION MARK)
+    for every ASCII apostrophe before emission; models treat them as
+    equivalent and human readers cannot tell them apart. The substitution
+    is applied ONLY at the wire boundary — the canonical template text
+    in `_FLOCKMTL_PROMPTS` retains ASCII apostrophes for readability
+    and editor tooling.
+
+    Returns one of: "created", "updated". Other DuckDB errors propagate.
+    """
+    # Substitute ASCII apostrophe with the visually-identical U+2019
+    # RIGHT SINGLE QUOTATION MARK to dodge FlockMTL's parser bug.
+    # (SQL-escaping with `''` does not work; verified empirically.)
+    safe_template = safe_template.replace("\u0027", "\u2019")
+    update_sql = f"UPDATE PROMPT('{name}', '{safe_template}')"
+    try:
+        connection.execute(update_sql)
+        return "updated"
+    except duckdb.Error as exc:
+        if "doesn't exist" not in str(exc).lower():
+            raise
+    create_sql = f"CREATE PROMPT('{name}', '{safe_template}')"
+    connection.execute(create_sql)
+    return "created"
+
+
 def ensure_flockmtl_resources(connection: duckdb.DuckDBPyConnection) -> bool:
     """Register FlockMTL MODELs and PROMPTs in the given connection.
 
@@ -476,29 +583,32 @@ def ensure_flockmtl_resources(connection: duckdb.DuckDBPyConnection) -> bool:
         for name, model_id, provider in _FLOCKMTL_MODEL_DDL:
             safe_id = model_id.replace("'", "''")
             safe_provider = provider.replace("'", "''")
-            try:
-                connection.execute(f"CREATE MODEL('{name}', '{safe_id}', '{safe_provider}')")
-            except duckdb.Error:
-                # Model already registered — DuckDB raises a generic
-                # `duckdb.Error: Model 'X' already exist.` (not a
-                # CatalogException). Catch the broader class.
-                pass
+            registered = _upsert_flockmtl_model(connection, name, safe_id, safe_provider)
             connection.execute(
                 "INSERT OR REPLACE INTO flockmtl_resources(kind, name, definition) "
                 "VALUES (?, ?, ?)",
                 ["model", name, f"{model_id} via {provider}"],
             )
+            logger.info(
+                "FlockMTL model '%s' %s -> %s (%s)",
+                name,
+                registered,
+                model_id,
+                provider,
+            )
         for name, template in _FLOCKMTL_PROMPTS:
             safe_template = template.replace("'", "''")
-            try:
-                connection.execute(f"CREATE PROMPT('{name}', '{safe_template}')")
-            except duckdb.Error:
-                # Prompt already registered — see MODEL note above.
-                pass
+            registered = _upsert_flockmtl_prompt(connection, name, safe_template)
             connection.execute(
                 "INSERT OR REPLACE INTO flockmtl_resources(kind, name, definition) "
                 "VALUES (?, ?, ?)",
                 ["prompt", name, template],
+            )
+            logger.info(
+                "FlockMTL prompt '%s' %s (len=%d chars)",
+                name,
+                registered,
+                len(template),
             )
         logger.info(
             "FlockMTL resources registered: %d models, %d prompts",

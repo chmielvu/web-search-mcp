@@ -16,6 +16,9 @@ _CE_TABLE_NAME = "candidate_embeddings"
 # Provider health (moved from observability_schema.py — different grain)
 _PH_TABLE_NAME = "provider_health_transitions"
 
+# LLM call log
+_LLM_CALL_LOG_TABLE_NAME = "llm_call_log"
+
 # Quality / judge tables
 _SQS_TABLE_NAME = "search_quality_scores"
 _JE_TABLE_NAME = "judge_evaluations"
@@ -44,6 +47,7 @@ __all__ = [
     "_QE_TABLE_NAME",
     "_CE_TABLE_NAME",
     "_PH_TABLE_NAME",
+    "_LLM_CALL_LOG_TABLE_NAME",
     "_SQS_TABLE_NAME",
     "_JE_TABLE_NAME",
     "_SUM_PVD_TABLE_NAME",

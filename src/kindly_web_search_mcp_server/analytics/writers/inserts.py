@@ -9,6 +9,7 @@ from .table_names import (
     _CE_TABLE_NAME,
     _FR_TABLE_NAME,
     _JE_TABLE_NAME,
+    _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
     _QE_TABLE_NAME,
     _RC_TABLE_NAME,
@@ -55,6 +56,7 @@ _SEARCH_RUN_COLUMNS = [
     "rewrite_output_tokens",
     "rewrite_latency_ms",
     "rewrite_error",
+    "rewritten_branch_queries",
     "payload_json",
 ]
 
@@ -251,6 +253,21 @@ _AB_SHADOW_RUN_COLUMNS = [
     "payload_json",
 ]
 
+_LLM_CALL_LOG_COLUMNS = [
+    "run_key",
+    "call_purpose",
+    "provider",
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "tokens_used",
+    "cost_usd",
+    "duration_ms",
+    "status",
+    "error_type",
+    "payload_json",
+]
+
 
 # ---------------------------------------------------------------------------
 # TableWriter instances
@@ -334,4 +351,10 @@ _AB_SHADOW_RUN_WRITER = TableWriter(
     ensure_name="_ensure_ab_shadow_runs",
     columns=_AB_SHADOW_RUN_COLUMNS,
     task_name="analytics.ab_shadow_run",
+)
+_LLM_CALL_LOG_WRITER = TableWriter(
+    table_name=_LLM_CALL_LOG_TABLE_NAME,
+    ensure_name="_ensure_llm_call_log",
+    columns=_LLM_CALL_LOG_COLUMNS,
+    task_name="analytics.llm_call_log",
 )

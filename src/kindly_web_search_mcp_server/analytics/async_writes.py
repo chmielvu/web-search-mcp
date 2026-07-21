@@ -69,14 +69,32 @@ def _track_write_future(future: Future[None]) -> None:
     future.add_done_callback(_done)
 
 
-def dispatch_duckdb_write(task_name: str, writer: Callable[[], None]) -> None:
-    """Run a blocking DuckDB write off the event loop when possible."""
+def dispatch_duckdb_write(task_name: str, writer: Callable[[], None]) -> Future[None]:
+    """Run a blocking DuckDB write off the event loop when possible.
+
+    Always returns a `Future` so callers can attach a done-callback
+    that runs after the writer completes. For the synchronous path
+    (no event loop), the writer runs inline and the returned Future
+    is already finished.
+
+    Note: the writer may swallow per-row errors internally, so a
+    successful `future.result()` only proves the worker finished,
+    not that every persistence succeeded.
+    """
+    from concurrent.futures import Future
 
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        writer()
-        return
+        # No event loop — run inline, then return a finished future
+        # so callers' done-callbacks still fire deterministically.
+        future: Future[None] = Future()
+        try:
+            writer()
+            future.set_result(None)
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
 
     future = _get_duckdb_write_executor().submit(writer)
     _track_write_future(future)
@@ -85,3 +103,4 @@ def dispatch_duckdb_write(task_name: str, writer: Callable[[], None]) -> None:
         await asyncio.wrap_future(future)
 
     fire_and_forget(_run_writer(), name=task_name)
+    return future

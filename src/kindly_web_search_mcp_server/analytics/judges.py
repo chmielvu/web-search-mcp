@@ -47,7 +47,123 @@ from ..settings import settings
 from .writers.connection import _db_path, ensure_flockmtl_loaded
 
 logger = logging.getLogger(__name__)
-
+# Per-facet JSON Schemas — single source of truth.
+#
+# Each schema is used in THREE places and they MUST stay in sync:
+#   1. As `response_format.json_schema.schema` in the direct HF call
+#      (`_run_prompt` schema-mode below). The model is forced to
+#      produce JSON that matches this exact shape (strict=true).
+#   2. Inlined into the prompt template's `### Output Format` footer as
+#      a JSON example, so models that ignore the response_format still
+#      emit structurally identical text on the prose fallback path.
+#   3. Referenced by `_parse_result` to populate `verdict`,
+#      `confidence`, `reasoning`/`analysis`, etc. consistently across
+#      both paths. Without this, the prose fallback drops the analysis
+#      into the empty `reasoning` column on the `llm_judgments` row.
+#
+# Adding a facet here = adding a `judge_*` prompt in
+# `writers/connection.py::_FLOCKMTL_PROMPTS` + an entry in
+# `judge_search_run`'s facet dispatch. All three MUST stay consistent.
+_FACET_SCHEMAS: dict[str, dict[str, object]] = {
+    "judge_run_overview": {
+        "type": "object",
+        "properties": {
+            "verdict": {"type": "string", "enum": ["good", "mixed", "bad"]},
+            "analysis": {"type": "string", "minLength": 1},
+            "recommendations": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 0,
+            },
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+        },
+        "required": ["verdict", "analysis", "recommendations", "confidence"],
+        "additionalProperties": False,
+    },
+    "judge_intent_coherence": {
+        "type": "object",
+        "properties": {
+            "verdict": {
+                "type": "string",
+                "enum": ["coherent", "partially_coherent", "incoherent"],
+            },
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+            "reasoning": {"type": "string", "minLength": 1},
+        },
+        "required": ["verdict", "confidence", "reasoning"],
+        "additionalProperties": False,
+    },
+    "judge_rewrite_coverage": {
+        "type": "object",
+        "properties": {
+            "covered_count": {"type": "integer", "minimum": 0, "maximum": 4},
+            "redundant": {"type": "boolean"},
+            "missing_facets": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 0,
+            },
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+            "reasoning": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "covered_count",
+            "redundant",
+            "missing_facets",
+            "confidence",
+            "reasoning",
+        ],
+        "additionalProperties": False,
+    },
+    "judge_rerank_improvement": {
+        "type": "object",
+        "properties": {
+            "verdict": {"type": "string", "enum": ["improved", "neutral", "degraded"]},
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+            "reasoning": {"type": "string", "minLength": 1},
+        },
+        "required": ["verdict", "confidence", "reasoning"],
+        "additionalProperties": False,
+    },
+    "judge_result_quality": {
+        "type": "object",
+        "properties": {
+            "intent_match": {"type": "boolean"},
+            "informativeness": {"type": "integer", "minimum": 1, "maximum": 4},
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+            "reasoning": {"type": "string", "minLength": 1},
+        },
+        "required": ["intent_match", "informativeness", "confidence", "reasoning"],
+        "additionalProperties": False,
+    },
+    "judge_failure_cause": {
+        "type": "object",
+        "properties": {
+            "root_cause": {
+                "type": "string",
+                "enum": [
+                    "no_results",
+                    "irrelevant_sources",
+                    "rerank_error",
+                    "provider_timeout",
+                    "other",
+                ],
+            },
+            "stage": {"type": "string", "minLength": 1},
+            "suggested_fix": {"type": "string", "minLength": 1},
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 4},
+            "reasoning": {"type": "string", "minLength": 1},
+        },
+        "required": [
+            "root_cause",
+            "stage",
+            "suggested_fix",
+            "confidence",
+            "reasoning",
+        ],
+        "additionalProperties": False,
+    },
+}
 # Thread pool for fire-and-forget judge runs from the search pipeline.
 # Sized to absorb bursts without blocking the search event loop.
 _JUDGE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="judge")
@@ -125,9 +241,86 @@ def _run_prompt(
     model_name: str,
     prompt_name: str,
     context_columns: list[dict[str, object]],
+    response_format: dict[str, object] | None = None,
 ) -> tuple[str | None, float]:
-    """Call llm_complete and return (verdict_or_none, duration_seconds)."""
+    """Run one FlockMTL judge prompt and return (raw_text_or_none, duration_seconds).
+
+    Two execution paths:
+
+      (a) Schema-mode (default for the 6 production facets): when a
+          `response_format` is supplied, call the OpenAI-compatible HF
+          router DIRECTLY with `response_format={"type":"json_schema",
+          "json_schema":{"schema": <per-facet schema>, "strict":True}}`.
+          The model is forced to return schema-conformant JSON. This
+          gives us `verdict` / `confidence` / `reasoning` /
+          `recommendations` populated on every row.
+
+          This is the path the user explicitly requested ("set
+          response_format on the OpenAI client that the model manager
+          uses per request"). The HF router accepts the same wire
+          shape as OpenAI's structured output (verified by direct
+          probe against deepseek-ai/DeepSeek-V4-Flash:deepinfra and
+          Qwen/Qwen3-4B-Instruct-2507:nscale on the `dev` schema).
+
+      (b) FlockMTL `llm_complete` fallback: used only when no schema
+          is supplied. Kept for forward compatibility with future
+          facets that may opt out of structured output.
+
+    The HF direct call uses `HF_TOKEN` (env) and the canonical router
+    URL `https://router.huggingface.co/v1`. Model routing uses the
+    same `<org>/<model>:<provider>` suffix convention that the
+    FlockMTL OpenAI provider uses internally, so callers pass the
+    same `model_name` they pass to `llm_complete`.
+
+    The `context_columns` payload is rendered into the prompt using
+    FlockMTL's `<name>: <data>` convention. Since the direct HF path
+    has no such template engine, we substitute each `{{name}}`
+    placeholder in the prompt template with the corresponding
+    `context_columns` `data` value before sending.
+    """
     started = time.perf_counter()
+    schema = (
+        _FACET_SCHEMAS.get(prompt_name)
+        if response_format is None
+        else (response_format if "json_schema" in response_format else None)
+    )
+    # Use per-call response_format if supplied; else fall back to the
+    # canonical schema for this prompt.
+    effective_rf: dict[str, object] | None = response_format or (
+        {
+            "type": "json_schema",
+            "json_schema": {
+                "name": prompt_name,
+                "strict": True,
+                "schema": schema,
+            },
+        }
+        if schema is not None
+        else None
+    )
+
+    # Path (a) — direct HF router with response_format=json_schema.
+    if effective_rf is not None:
+        try:
+            return _hf_direct_call(
+                model_name=model_name,
+                prompt_name=prompt_name,
+                context_columns=context_columns,
+                response_format=effective_rf,
+            )
+        except Exception as exc:
+            duration = time.perf_counter() - started
+            logger.warning(
+                "hf direct call failed for model=%s prompt=%s: %s; "
+                "falling back to FlockMTL llm_complete",
+                model_name,
+                prompt_name,
+                exc,
+            )
+            # Path (b) fallback — kept short so a transient HF outage
+            # doesn't poison the row.
+
+    # Path (b) — FlockMTL llm_complete.
     try:
         row = connection.execute(
             "SELECT llm_complete(?, ?)",
@@ -152,35 +345,140 @@ def _run_prompt(
         return (None, duration)
 
 
+def _hf_direct_call(
+    *,
+    model_name: str,
+    prompt_name: str,
+    context_columns: list[dict[str, object]],
+    response_format: dict[str, object],
+) -> tuple[str | None, float]:
+    """Issue one chat-completions call to the HF router with strict response_format.
+
+    Uses `openai.OpenAI(base_url="https://router.huggingface.co/v1",
+    api_key=HF_TOKEN).chat.completions.create(...)`. Imported lazily
+    so the import error doesn't poison the module when the openai
+    SDK isn't installed.
+    """
+    started = time.perf_counter()
+    import os
+
+    from openai import OpenAI
+
+    hf_token = os.environ.get("HF_TOKEN", "")
+    if not hf_token:
+        raise RuntimeError("HF_TOKEN not set in environment")
+    client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=hf_token,
+    )
+    prompt_text = _render_prompt(prompt_name, context_columns)
+    completion = client.chat.completions.create(
+        model=_resolve_hf_model_id(model_name),
+        messages=[{"role": "user", "content": prompt_text}],
+        response_format=response_format,
+        temperature=0.0,
+        max_tokens=1500,
+    )
+    duration = time.perf_counter() - started
+    content = (completion.choices[0].message.content or "") if completion.choices else ""
+    return (content, duration)
+
+
+# Map FlockMTL aliases (`judge_quality`, `judge_fast`) to the actual
+# HF router model IDs. The FlockMTL model alias is a database-side
+# lookup; the HF router needs the literal `<org>/<model>:<provider>`
+# string. The translation lives here (not in `connection.py`) so the
+# two layers' concerns stay decoupled: `connection.py` owns the
+# FlockMTL catalog, `judges.py` owns the HF direct-call dispatch.
+_HF_MODEL_ID_BY_ALIAS: dict[str, str] = {
+    "judge_quality": "deepseek-ai/DeepSeek-V4-Flash:deepinfra",
+    "judge_fast": "Qwen/Qwen3-4B-Instruct-2507:nscale",
+}
+
+
+def _resolve_hf_model_id(alias_or_id: str) -> str:
+    """Resolve a FlockMTL alias to its HF router model ID.
+
+    If `alias_or_id` is already an HF model ID (contains `/` and `:`
+    per the HF router convention), it's returned unchanged. If it's a
+    FlockMTL alias (`judge_quality` or `judge_fast`), it's looked up
+    in `_HF_MODEL_ID_BY_ALIAS`. Unknown strings are passed through —
+    the HF router will 404 and the dispatch falls back to the
+    FlockMTL `llm_complete` path.
+    """
+    if alias_or_id in _HF_MODEL_ID_BY_ALIAS:
+        return _HF_MODEL_ID_BY_ALIAS[alias_or_id]
+    return alias_or_id
+
+
+def _render_prompt(prompt_name: str, context_columns: list[dict[str, object]]) -> str:
+    """Render the FlockMTL prompt template with context_columns values.
+
+    FlockMTL's template engine substitutes `{{name}}` placeholders with
+    the matching `data` field of a context_column. The HF direct call
+    has no such engine, so we do the substitution here. This is
+    byte-equivalent to what FlockMTL would render.
+    """
+    from .writers.connection import _FLOCKMTL_PROMPTS
+
+    template = dict(_FLOCKMTL_PROMPTS).get(prompt_name, "")
+    for col in context_columns:
+        name = col.get("name", "")
+        data = col.get("data", "")
+        template = template.replace("{{" + str(name) + "}}", str(data))
+    return template
+
+
 def _parse_result(raw: str | None) -> dict | None:
-    """Extract the JSON after the `[RESULT]` token. Return None on any failure.
+    """Parse the model's response into a structured dict. Three tiers:
 
-    The Prometheus scaffold in each prompt asks the model to emit
-    "Feedback: <reasoning> [RESULT] <json>". FlockMTL's `llm_complete`
-    returns that as one raw text string; we parse the JSON tail here.
+      1. `json.loads(raw)` — for the strict-schema path. The model
+         returns pure JSON like `{"verdict": "good", ...}` with no
+         `[RESULT]` token, no prose wrapper. This is the dominant
+         path now that `response_format=json_schema strict=true`
+         forces schema-conformant output.
 
-    Returns None on: missing raw, missing `[RESULT]` token, malformed
-    JSON. Callers must treat None as a parse failure (store a
-    `status='error'` row, do NOT crash).
+      2. `[RESULT] {...}` token split — for the prose fallback (a
+         model that ignored the response_format and emitted the
+         Prometheus scaffold's verbal "Feedback: ... [RESULT] {...}"
+         form).
+
+      3. First `{...}` block in `raw` — last-resort for both paths
+         when the model added trailing commentary after the JSON.
+
+    Returns None if no tier succeeds. Callers must treat None as a
+    parse failure (store `status='error'`, do NOT crash).
     """
     if not raw:
         return None
+    raw = raw.strip()
+    # Tier 1: pure JSON (schema-strict path).
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            return json.loads(raw)
+        except Exception:
+            pass
+    # Tier 2: [RESULT] JSON split.
     marker = raw.find("[RESULT]")
-    if marker < 0:
-        return None
-    tail = raw[marker + len("[RESULT]") :].strip()
-    # Try full JSON first, then first {...} block (covers cases where
-    # the model emits trailing commentary after the JSON).
-    try:
-        return json.loads(tail)
-    except Exception:
-        m = re.search(r"\{.*\}", tail, re.DOTALL)
-        if not m:
-            return None
+    if marker >= 0:
+        tail = raw[marker + len("[RESULT]") :].strip()
+        try:
+            return json.loads(tail)
+        except Exception:
+            m = re.search(r"\{.*\}", tail, re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    pass
+    # Tier 3: first {...} block anywhere in raw.
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if m:
         try:
             return json.loads(m.group(0))
         except Exception:
-            return None
+            pass
+    return None
 
 
 def _insert_judgment(

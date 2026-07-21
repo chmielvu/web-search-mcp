@@ -85,12 +85,16 @@ async def persist_search_outcome(run):
             "rewrite_output_tokens": rw.get("output_tokens"),
             "rewrite_latency_ms": rw.get("latency_ms"),
             "rewrite_error": rw.get("error"),
+            "rewritten_branch_queries": (
+                list(outcome.plan.rewrite_queries)
+                if outcome.plan and outcome.plan.rewrite_queries
+                else None
+            ),
             "payload_json": {
                 "tool_call_id": outcome.tool_call_id,
                 "session_id": outcome.session_id,
                 "phase_timings": dc.phase_timings,
                 "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
-                "rewritten_branch_queries": [o.branch.query for o in outcome.outcomes],
             },
         }
     )
@@ -222,8 +226,19 @@ async def persist_search_outcome(run):
             }
         )
 
+    # The primary `insert_search_run` MUST succeed for the judge to have
+    # any rows to query — if it fails, abort the writer so the
+    # done-callback sees the exception and skips scheduling. Secondary
+    # analytics rows (branches, candidates, etc.) remain best-effort:
+    # their failure doesn't change the outcome of judging this run.
+    primary = writes[0] if writes else None
+    rest = writes[1:]
+
     def _write():
-        for w in writes:
+        if primary is not None:
+            primary_fn = primary.pop("_w")
+            primary_fn(**primary)  # let exceptions propagate
+        for w in rest:
             fn = w.pop("_w")
             try:
                 fn(**w)
@@ -236,10 +251,39 @@ async def persist_search_outcome(run):
         except Exception as e:
             LOGGER.debug("persist search quality failed: %s", e)
 
-    dispatch_duckdb_write("search.outcome." + rk, _write)
+    # The DuckDB write runs asynchronously on a dedicated thread pool,
+    # so we attach the judge scheduler as a done-callback on the
+    # write future. This guarantees `search_runs` exists by the time
+    # the judge opens its own connection to query it. Without this,
+    # the judge would race the insert and find 0 rows every time.
+    from concurrent.futures import Future
+
+    run_key_for_judge = rk
+
+    def _on_write_done(future: Future[None]) -> None:
+        if future.cancelled():
+            return
+        try:
+            future.result()
+        except Exception:
+            LOGGER.debug("search outcome write failed; skipping judge for %s", run_key_for_judge)
+            return
+        try:
+            from ..analytics.judges import schedule_judge_search_run
+
+            schedule_judge_search_run(run_key_for_judge)
+        except Exception:
+            LOGGER.exception("Failed to schedule judge for %s", run_key_for_judge)
+
+    future = dispatch_duckdb_write("search.outcome." + rk, _write)
+    future.add_done_callback(_on_write_done)
+    return future
 
 
 def submit_search_outcome(run):
+    # Judge scheduling happens via the write-done callback inside
+    # persist_search_outcome, not here. This keeps the search
+    # response latency independent of the judge's eventual write.
     task = asyncio.create_task(persist_search_outcome(run), name="search.outcome." + run.run_key)
     _OUTCOME_TASKS.add(task)
     task.add_done_callback(_OUTCOME_TASKS.discard)

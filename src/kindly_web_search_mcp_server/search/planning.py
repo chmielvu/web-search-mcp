@@ -302,7 +302,15 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             dc.rewrite_metadata = {"branch_count": 6}
             queries = fallback
 
-        # --- build six branches in fixed role order ---
+        # Persist the 4 planner rewrites (k1, k2, k3, neural) separately from
+        # the 6-branch dispatched topology. Empty tuple when rewrite was
+        # disabled or errored — the judge then writes no rewrite rows.
+        rewrite_queries: tuple[str, ...] = (
+            tuple(rewrite.queries[:4])
+            if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
+            else ()
+        )
+
         # `use_llm_why` is true when the LLM-rewrite path succeeded; in
         # every other case (rewrite disabled, rewrite errored, no
         # metadata) the branches use their deterministic fallback.
@@ -397,7 +405,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             **provider_arguments.get("serpapi", {}),
             "engine": "baidu",
         }
-
         plan = SearchPlan.create(
             normalized_query=normalized_query,
             relevance_query=f"{normalized_query}\n{request.research_goal}",
@@ -406,6 +413,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             provider_arguments=provider_arguments,
             branches=branches,
             policy_version=policy.policy_version,
+            rewrite_queries=rewrite_queries,
         )
         run.plan = plan
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0

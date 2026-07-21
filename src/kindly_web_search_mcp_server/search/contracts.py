@@ -59,6 +59,9 @@ class SearchPlan:
     provider_arguments: Mapping[str, Mapping[str, Any]]
     branches: tuple[QueryBranch, ...]
     policy_version: str
+    rewrite_queries: tuple[
+        str, ...
+    ] = ()  # 4 planner rewrites (k1, k2, k3, neural); distinct from `branches` which is the 6-branch topology
 
     @classmethod
     def create(
@@ -71,6 +74,7 @@ class SearchPlan:
         provider_arguments: Mapping[str, Mapping[str, Any]],
         branches: Sequence[QueryBranch],
         policy_version: str,
+        rewrite_queries: Sequence[str] = (),  # 4 planner rewrites (k1, k2, k3, neural)
     ) -> "SearchPlan":
         copied = {
             name: MappingProxyType(dict(values)) for name, values in provider_arguments.items()
@@ -83,6 +87,7 @@ class SearchPlan:
             provider_arguments=MappingProxyType(copied),
             branches=tuple(branches),
             policy_version=policy_version,
+            rewrite_queries=tuple(rewrite_queries),
         )
 
 

@@ -247,6 +247,7 @@ class Settings:
         DEFAULT_ANALYTICS_DB,
     )
     vss_enabled: bool = os.environ.get("VSS_ENABLED", "true").lower() == "true"
+    flockmtl_enabled: bool = os.environ.get("FLOCKMTL_ENABLED", "true").lower() == "true"
 
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
     process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"

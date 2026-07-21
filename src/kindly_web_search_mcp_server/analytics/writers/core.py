@@ -196,6 +196,12 @@ def insert_judge_evaluation(*, db_path: str | None = None, **kwargs: Any) -> Non
     _JUDGE_EVALUATION_WRITER.insert(db_path=db_path, **kwargs)
 
 
+def insert_llm_call_log(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _LLM_CALL_LOG_WRITER
+
+    _LLM_CALL_LOG_WRITER.insert(db_path=db_path, **kwargs)
+
+
 def insert_ab_experiment(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _AB_EXPERIMENT_WRITER
 

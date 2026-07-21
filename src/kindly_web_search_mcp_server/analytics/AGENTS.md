@@ -1,5 +1,20 @@
 # AGENTS.md - Analytics & Search Quality
 
+## FlockMTL automatic judgment pipeline (since 2026-07-20)
+
+- **Orchestrator**: `analytics/judges.py::judge_search_run(run_key)` + `schedule_judge_search_run(run_key)`.
+- **Persisted verdicts**: `llm_judgments` table (one row per LLM call). Columns: `recorded_at, run_key, judgment_kind, judgment_target, prompt_name, model_name, verdict, input_tokens, output_tokens, duration_ms, status, error_message, payload_json`.
+- **Three judgment kinds** (row-per-unit, scalar verdicts):
+  - `classify_failure` — once per failed/empty search run; `judgment_target` = run_key
+  - `grade_relevance` — once per final result; `judgment_target` = result link
+  - `judge_rewrite` — once per planner rewrite variant; `judgment_target` = `rewrite:0..3`
+- **Trigger**: `schedule_judge_search_run` is fire-and-forget on a `ThreadPoolExecutor(max_workers=4)`, wired into `search/outcomes.py::submit_search_outcome`. Never blocks the user-facing search response.
+- **Cost guard**: `settings.flockmtl_enabled` (default `true`); setting it false short-circuits the orchestrator before opening a connection.
+- **Catalog**: `flockmtl_resources` table tracks registered FlockMTL resources (no built-in `duckdb_models()`/`duckdb_prompts()` introspection). Backs `vw_flockmtl_resources`.
+- **Safe views**: `vw_llm_judgments` (read-only mirror, no per-row `llm_complete`) and `vw_flockmtl_resources` (catalog introspection).
+- **Per-connection secret**: `_ensure_flockmtl_secret(connection)` re-registers `__default_openai` on every fresh connection (Option C — `CREATE SECRET` is connection-local; Option A PERSISTENT was rejected because it writes unencrypted key material to `~/.duckdb/secrets/`).
+- **Mock judge**: `scripts/mock_judge_server.py` — OpenAI-compatible, returns `{"items": [{"verdict": "..."}]}` per flock's `ExtractCompletionOutput` JSON parse requirement.
+
 This directory implements the DuckDB-backed analytics and evaluation layer.
 
 ## Current Structure
@@ -19,7 +34,7 @@ analytics/
 |-- rerank_candidate_writes.py # Batched rerank candidate survival inserts
 |-- observability_schema.py  # provider_health_transitions shim
 |-- observability_store.py   # _candidate_id / _canonical_result_id helpers
-|-- views.py                 # 10 dashboard views + A/B views + eval views
+|-- views.py                 # 13 dashboard views + A/B views + eval views
 |-- queries.py               # Query helpers
 |-- local_queries.py         # Local DuckDB query shortcuts
 |-- reports.py               # Named analytics reports
@@ -60,10 +75,12 @@ All analytics rows join on `run_key`.
    `writers/inserts.py`, including `candidate_id`, BM25/dense ranks and scores,
    raw cross/LLM scores, fused/hybrid scores, and diversity fields.
 6. `final_results` captures the public output with provider provenance
-7. `query_embeddings` and `candidate_embeddings` store vectors for
+8. `query_embeddings` and `candidate_embeddings` store vectors for
    vss similarity search
-8. `search_quality_scores` stores computed quality metrics
-9. `judge_evaluations` stores asynchronous 4D judge results
+9. `llm_call_log` stores unified cost tracking across all LLM calls
+   (rewrite, rerank, judge, embedding) keyed by `run_key`
+10. `search_quality_scores` stores computed quality metrics
+11. `judge_evaluations` stores asynchronous 4D judge results
 
 ## Branch-Role Model
 
@@ -95,6 +112,18 @@ and serves as an observability invariant.
 - Report and query helpers should stay aligned with the underlying schema.
 - No migration or compatibility layer is needed; the analytics database is
   disposable and recreated from fresh DDL.
+- `llm_call_log` is the unified source for per-call LLM cost attribution.
+  Token/cost data also exists in `search_runs`, `rerank_stages`, and
+  `judge_evaluations`; prefer `llm_call_log` for cross-purpose rollups.
+
+## New WS4 Views
+
+- `vw_end_to_end_quality` — denormalized join across all 7 pipeline grains
+  plus quality and judge scores
+- `vw_cost_attribution` — per-run, per-purpose cost rollups from
+  `llm_call_log`
+- `vw_embedding_similarity` — `array_cosine_distance()` between query and
+  candidate embeddings
 
 ## Testing
 
