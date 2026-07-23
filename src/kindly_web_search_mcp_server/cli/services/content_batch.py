@@ -43,6 +43,7 @@ async def fetch_batch_content_payload(
     )
 
     from ...content.summary_models import VALID_SUMMARY_MODES
+
     safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],

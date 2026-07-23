@@ -11,27 +11,21 @@ class TestComputeSearchQuality:
 
     def test_compute_inserts_correct_values(self) -> None:
         import duckdb
-        from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_search_runs,
-            _ensure_provider_calls,
-            _ensure_provider_candidates,
-            _ensure_merged_candidates,
-            _ensure_rerank_stages,
-            _ensure_rerank_candidates,
-            _ensure_final_results,
-            _ensure_query_rewrites,
-            _ensure_search_quality_scores,
-            insert_search_run,
-            insert_provider_calls,
-            insert_provider_candidates,
-            insert_merged_candidates,
-            insert_rerank_stages,
-            insert_rerank_candidates,
-            insert_final_results,
-            insert_query_rewrites,
-        )
+
         from kindly_web_search_mcp_server.analytics.quality_metrics import (
             compute_search_quality,
+        )
+        from kindly_web_search_mcp_server.analytics.writers.core import (
+            insert_final_results,
+            insert_provider_calls,
+            insert_rerank_candidates,
+            insert_rerank_stages,
+            insert_search_branches,
+            insert_search_candidates,
+            insert_search_run,
+        )
+        from kindly_web_search_mcp_server.analytics.writers.schema import (
+            ensure_store_schema,
         )
 
         db_path = Path("test_quality_metrics.duckdb")
@@ -39,17 +33,7 @@ class TestComputeSearchQuality:
             db_path.unlink()
         try:
             # ── 1. Create all prerequisite tables ──────────────────────
-            con = duckdb.connect(str(db_path))
-            _ensure_search_runs(con)
-            _ensure_provider_calls(con)
-            _ensure_provider_candidates(con)
-            _ensure_merged_candidates(con)
-            _ensure_rerank_stages(con)
-            _ensure_rerank_candidates(con)
-            _ensure_final_results(con)
-            _ensure_query_rewrites(con)
-            _ensure_search_quality_scores(con)
-            con.close()
+            ensure_store_schema(db_path=str(db_path))
 
             run_key = "run-qm-001"
 
@@ -83,31 +67,49 @@ class TestComputeSearchQuality:
                 db_path=str(db_path),
             )
 
-            # provider_candidates (needed for foreign-key consistency, but
-            # not directly queried by quality_metrics)
-            insert_provider_candidates(
+            # search_branches — 2 rows to drive `branch_count == 2`
+            # (compute_search_quality reads from search_branches).
+            # Replaces the deleted provider_candidates insert path.
+            insert_search_branches(
                 run_key=run_key,
-                provider="searxng",
                 branch_index=0,
-                rank=1,
-                title="Result A",
-                link="https://example.com/a",
-                snippet="snippet a",
-                domain="example.com",
-                score=0.95,
+                branch_role="original_free",
+                branch_query="test query",
+                branch_why="primary branch",
+                support_terms=[],
+                max_results=10,
+                assigned_providers=["searxng", "brave"],
+                attempted_providers=["searxng", "brave"],
+                skipped_providers=[],
+                results_count=4,
+                latency_ms=100.0,
+                db_path=str(db_path),
+            )
+            insert_search_branches(
+                run_key=run_key,
+                branch_index=1,
+                branch_role="neural",
+                branch_query="test query rephrased",
+                branch_why="secondary branch",
+                support_terms=[],
+                max_results=5,
+                assigned_providers=["tavily"],
+                attempted_providers=["tavily"],
+                skipped_providers=[],
+                results_count=0,
+                latency_ms=50.0,
                 db_path=str(db_path),
             )
 
-            # merged_candidates – 4 rows, 2 with overlap_flag=true
+            # search_candidates – 4 rows, 2 with overlap_flag=true
             # overlap_rate = 2/4 = 0.5
             # avg_rrf_score = (32.5 + 28.0 + 30.0 + 25.0) / 4 = 28.875
             for i, (rrf, ov) in enumerate(
                 [(32.5, True), (28.0, False), (30.0, True), (25.0, False)],
                 start=1,
             ):
-                insert_merged_candidates(
+                insert_search_candidates(
                     run_key=run_key,
-                    rank=i,
                     title=f"Result {i}",
                     link=f"https://example.com/{i}",
                     snippet="snip",
@@ -118,7 +120,6 @@ class TestComputeSearchQuality:
                     overlap_flag=ov,
                     db_path=str(db_path),
                 )
-
             # rerank_stages – input_count=10, output_count=6
             # compression_ratio = 10/6 ≈ 1.6667
             insert_rerank_stages(
@@ -191,27 +192,9 @@ class TestComputeSearchQuality:
                 db_path=str(db_path),
             )
 
-            # query_rewrites – 2 rows -> rewrite_variant_count = 2
-            insert_query_rewrites(
-                run_key=run_key,
-                variant_index=0,
-                branch_type="original",
-                kind="direct",
-                target="web",
-                query="test query",
-                weight=1.0,
-                db_path=str(db_path),
-            )
-            insert_query_rewrites(
-                run_key=run_key,
-                variant_index=1,
-                branch_type="variant",
-                kind="rephrase",
-                target="web",
-                query="test query rephrased",
-                weight=0.8,
-                db_path=str(db_path),
-            )
+            # query_rewrites table was removed in the 2026-07-20 schema
+            # consolidation; rewrite_variant_count is computed from
+            # surviving tables.
 
             # ── 3. Call compute_search_quality ─────────────────────────
             metrics = compute_search_quality(run_key, db_path=str(db_path))
@@ -224,8 +207,6 @@ class TestComputeSearchQuality:
             assert metrics["avg_rrf_score"] == 28.875
             assert metrics["top_score"] == 0.92
             assert metrics["p95_score"] is not None  # approx quantile ok
-            assert isinstance(metrics["rewrite_variant_count"], int)
-            assert metrics["rewrite_variant_count"] == 2
             assert metrics["provider_count"] == 2
             assert metrics["branch_count"] == 2
             assert metrics["total_candidates_input"] == 15  # 8 + 7
@@ -239,7 +220,7 @@ class TestComputeSearchQuality:
                 "SELECT run_key, provider_overlap_rate, domain_diversity_count, "
                 "       domain_diversity_ratio, rerank_compression_ratio, "
                 "       avg_rrf_score, top_score, p95_score, "
-                "       rewrite_variant_count, provider_count, branch_count, "
+                "       provider_count, branch_count, "
                 "       total_candidates_input, total_candidates_merged, "
                 "       total_candidates_reranked, total_final_results "
                 "FROM search_quality_scores WHERE run_key = ?",
@@ -256,13 +237,12 @@ class TestComputeSearchQuality:
             assert row[5] == 28.875  # avg_rrf_score
             assert row[6] == 0.92  # top_score
             assert row[7] is not None  # p95_score (approx, just check exists)
-            assert row[8] == 2  # rewrite_variant_count
-            assert row[9] == 2  # provider_count
-            assert row[10] == 2  # branch_count
-            assert row[11] == 15  # total_candidates_input
-            assert row[12] == 4  # total_candidates_merged
-            assert row[13] == 6  # total_candidates_reranked
-            assert row[14] == 3  # total_final_results
+            assert row[8] == 2  # provider_count
+            assert row[9] == 2  # branch_count
+            assert row[10] == 15  # total_candidates_input
+            assert row[11] == 4  # total_candidates_merged
+            assert row[12] == 6  # total_candidates_reranked
+            assert row[13] == 3  # total_final_results
 
         finally:
             if db_path.exists():
@@ -272,35 +252,21 @@ class TestComputeSearchQuality:
         """A run_key with no data across all tables returns None for each
         metric and does NOT crash."""
         import duckdb
-        from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_search_runs,
-            _ensure_provider_calls,
-            _ensure_merged_candidates,
-            _ensure_rerank_stages,
-            _ensure_rerank_candidates,
-            _ensure_final_results,
-            _ensure_query_rewrites,
-            _ensure_search_quality_scores,
-            insert_search_run,
-        )
         from kindly_web_search_mcp_server.analytics.quality_metrics import (
             compute_search_quality,
+        )
+        from kindly_web_search_mcp_server.analytics.writers.core import (
+            insert_search_run,
+        )
+        from kindly_web_search_mcp_server.analytics.writers.schema import (
+            ensure_store_schema,
         )
 
         db_path = Path("test_quality_empty.duckdb")
         if db_path.exists():
             db_path.unlink()
         try:
-            con = duckdb.connect(str(db_path))
-            _ensure_search_runs(con)
-            _ensure_provider_calls(con)
-            _ensure_merged_candidates(con)
-            _ensure_rerank_stages(con)
-            _ensure_rerank_candidates(con)
-            _ensure_final_results(con)
-            _ensure_query_rewrites(con)
-            _ensure_search_quality_scores(con)
-            con.close()
+            ensure_store_schema(db_path=str(db_path))
 
             run_key = "run-qm-empty"
             insert_search_run(run_key=run_key, query="empty run", db_path=str(db_path))
@@ -315,7 +281,6 @@ class TestComputeSearchQuality:
             assert metrics["avg_rrf_score"] is None
             assert metrics["top_score"] is None
             assert metrics["p95_score"] is None
-            assert metrics["rewrite_variant_count"] == 0
             assert metrics["provider_count"] == 0
             assert metrics["total_candidates_input"] is None
             assert metrics["total_candidates_merged"] == 0

@@ -37,14 +37,19 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+import weakref
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures.thread import _worker  # type: ignore[attr-defined]
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 import duckdb
 
 from ..settings import settings
-from .writers.connection import _db_path, ensure_flockmtl_loaded
+from .writers.connection import _LOCK, _db_path, ensure_flockmtl_loaded
 
 logger = logging.getLogger(__name__)
 # Per-facet JSON Schemas — single source of truth.
@@ -164,9 +169,94 @@ _FACET_SCHEMAS: dict[str, dict[str, object]] = {
         "additionalProperties": False,
     },
 }
-# Thread pool for fire-and-forget judge runs from the search pipeline.
+# Lazy singleton ThreadPoolExecutor for fire-and-forget judge runs.
 # Sized to absorb bursts without blocking the search event loop.
-_JUDGE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="judge")
+#
+# Exit contract (CLI): workers are daemon and are intentionally NOT
+# registered in concurrent.futures' ``_threads_queues``. CPython's
+# ``_python_exit`` joins every registered worker even when daemon=True;
+# omitting registration lets CLI exit abandon in-flight HF calls after
+# ``shutdown_judge_executor(wait=False)``. Incomplete judgment rows are
+# acceptable on CLI exit (same tradeoff as DuckDB write cancel).
+
+
+class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
+    """ThreadPoolExecutor with daemon workers that atexit will not join.
+
+    Mirrors CPython's ``_adjust_thread_count`` but:
+    - sets ``daemon=True`` before ``start()``
+    - does **not** insert into ``_threads_queues`` (so ``_python_exit``
+      cannot block process exit on abandoned judge work)
+    """
+
+    def _adjust_thread_count(self) -> None:  # noqa: SLF001
+        if self._idle_semaphore.acquire(timeout=0):  # noqa: SLF001
+            return
+
+        def weakref_cb(_, q=self._work_queue):  # noqa: SLF001
+            q.put(None)
+
+        num_threads = len(self._threads)  # noqa: SLF001
+        if num_threads < self._max_workers:
+            thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
+            t = threading.Thread(
+                name=thread_name,
+                target=_worker,
+                args=(
+                    weakref.ref(self, weakref_cb),
+                    self._work_queue,  # noqa: SLF001
+                    self._initializer,  # noqa: SLF001
+                    self._initargs,  # noqa: SLF001
+                ),
+                daemon=True,
+            )
+            t.start()
+            self._threads.add(t)  # noqa: SLF001
+            # Deliberately skip: _threads_queues[t] = self._work_queue
+
+
+_JUDGE_EXECUTOR: ThreadPoolExecutor | None = None
+_JUDGE_EXECUTOR_LOCK = Lock()
+_IS_SHUTTING_DOWN: bool = False
+_JUDGE_SCHEDULE_LOCK = Lock()
+"""Serializes _IS_SHUTTING_DOWN checks with executor acquisition so
+``schedule_judge_search_run`` and ``shutdown_judge_executor`` can't
+race between the flag check and the ``submit()`` call."""
+
+
+def _get_judge_executor() -> ThreadPoolExecutor:
+    global _JUDGE_EXECUTOR
+    if _JUDGE_EXECUTOR is None:
+        with _JUDGE_EXECUTOR_LOCK:
+            if _JUDGE_EXECUTOR is None:
+                _JUDGE_EXECUTOR = _DaemonThreadPoolExecutor(
+                    max_workers=4,
+                    thread_name_prefix="judge",
+                )
+    return _JUDGE_EXECUTOR
+
+
+def shutdown_judge_executor(*, wait: bool = False) -> None:
+    """Stop the shared judge ThreadPoolExecutor.
+
+    wait=False cancels pending facet/run jobs (cancel_futures=True).
+    Workers are daemon and not in concurrent.futures' atexit join map,
+    so CLI process exit is not pinned by in-flight HF calls.
+    wait=True waits for in-flight judge_search_run calls (avoid on CLI).
+
+    Uses _JUDGE_SCHEDULE_LOCK to atomically set _IS_SHUTTING_DOWN and
+    swap out the executor so schedule_judge_search_run cannot submit
+    to a shutting-down executor.
+    """
+    global _JUDGE_EXECUTOR, _IS_SHUTTING_DOWN
+    with _JUDGE_SCHEDULE_LOCK:
+        _IS_SHUTTING_DOWN = True
+        with _JUDGE_EXECUTOR_LOCK:
+            executor = _JUDGE_EXECUTOR
+            _JUDGE_EXECUTOR = None
+    if executor is not None:
+        executor.shutdown(wait=wait, cancel_futures=not wait)
+
 
 # Default rubric version stamped on every judgment row. A future prompt
 # bump would set this to 'v2' (and rename the FlockMTL prompt) so v1 and
@@ -500,32 +590,35 @@ def _insert_judgment(
     error_message: str | None = None,
 ) -> None:
     """Persist one judgment row to `llm_judgments` (extended schema)."""
-    connection.execute(
-        """
-        INSERT INTO llm_judgments (
-            run_key, judgment_kind, judgment_target, prompt_name, model_name,
-            verdict, duration_ms, status, error_message, payload_json,
-            facet, reasoning, rubric_version, confidence, context_shown
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            run_key,
-            judgment_kind,
-            judgment_target,
-            prompt_name,
-            model_name,
-            verdict if verdict is not None else "",
-            round(duration_ms * 1000.0, 2),
-            status,
-            error_message,
-            None,
-            facet,
-            reasoning if reasoning is not None else "",
-            rubric_version,
-            confidence,
-            context_shown,
-        ],
-    )
+    # Serialize inserts: parallel facet workers each hold their own
+    # connection; DuckDB file DB still needs a process-wide write lock.
+    with _LOCK:
+        connection.execute(
+            """
+            INSERT INTO llm_judgments (
+                run_key, judgment_kind, judgment_target, prompt_name, model_name,
+                verdict, duration_ms, status, error_message, payload_json,
+                facet, reasoning, rubric_version, confidence, context_shown
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                run_key,
+                judgment_kind,
+                judgment_target,
+                prompt_name,
+                model_name,
+                verdict if verdict is not None else "",
+                round(duration_ms * 1000.0, 2),
+                status,
+                error_message,
+                None,
+                facet,
+                reasoning if reasoning is not None else "",
+                rubric_version,
+                confidence,
+                context_shown,
+            ],
+        )
 
 
 def _store_judgment_row(
@@ -939,15 +1032,14 @@ def judge_search_run(
             )
             judgments_written += 1
 
-        # (d) judge_rerank_improvement -- 1 call per rerank_stages row
-        # (judge_quality each). BLINDNESS: SELECT whitelist is
-        # rank_before, rank_after, survived, link only -- no reranker
-        # scores. The ORDER BY rank_after lets the model see the
-        # post-rerank top.
+        # (d)/(e) Parallel independent per-result facets. Each worker opens
+        # its own short-lived DuckDB connection (connections are not shared
+        # across threads). Cap workers at 4 to avoid unbounded HF QPS.
         stage_rows = connection.execute(
             "SELECT stage FROM rerank_stages WHERE run_key = ? ORDER BY recorded_at",
             [run_key],
         ).fetchall()
+        stage_payloads: list[tuple[str, list[tuple]]] = []
         for (stage_name,) in stage_rows:
             cand_rows = connection.execute(
                 "SELECT rank_before, rank_after, survived, link "
@@ -955,91 +1047,106 @@ def judge_search_run(
                 "ORDER BY rank_after LIMIT 10",
                 [run_key, stage_name],
             ).fetchall()
-            before_lines = [f"  {rb}. {link}" for rb, _ra, _s, link in cand_rows]
-            after_lines = [
-                f"  {ra}. {link}  (survived={bool(surv)})" for _rb, ra, surv, link in cand_rows
-            ]
-            rerank_ctx = _ctx(
-                ("query", query or ""),
-                ("stage", stage_name or ""),
-                ("before", "\n".join(before_lines) if before_lines else "(no rows)"),
-                ("after", "\n".join(after_lines) if after_lines else "(no rows)"),
-            )
-            raw, duration = _run_prompt(
-                connection,
-                model_name=_JUDGE_MODEL,
-                prompt_name="judge_rerank_improvement",
-                context_columns=rerank_ctx,
-            )
-            _store_judgment_row(
-                connection,
-                run_key=run_key,
-                judgment_kind="rerank_improvement",
-                judgment_target=stage_name or "",
-                prompt_name="judge_rerank_improvement",
-                model_name=_JUDGE_MODEL,
-                raw=raw,
-                duration=duration,
-                parsed=_parse_result(raw),
-                context_columns=rerank_ctx,
-                build_verdict=lambda p: str(p.get("verdict") or ""),
-                build_reasoning=lambda p: str(p.get("reasoning") or ""),
-            )
-            judgments_written += 1
+            stage_payloads.append((stage_name or "", list(cand_rows)))
 
-        # (e) judge_result_quality -- 1 call per final_results row (≤ 15,
-        # judge_quality). BLINDNESS: SELECT whitelist is rank, title, link,
-        # snippet only -- NO final_score, NO reranker scores. This is
-        # the load-bearing data-plane enforcement of the blindness
-        # rule stated in the prompt template; an explicit `SELECT *`
-        # here would silently leak banned fields if the schema grows.
         result_rows = connection.execute(
             "SELECT rank, title, link, snippet FROM final_results WHERE run_key = ? ORDER BY rank",
             [run_key],
         ).fetchall()
-        for rank, title, link, snippet in result_rows:
-            rq_ctx = _ctx(
-                ("query", query or ""),
-                ("research_goal", research_goal or ""),
-                ("intent", intent or "unknown"),
-                ("rank", "" if rank is None else str(rank)),
-                ("title", title or ""),
-                ("snippet", snippet or ""),
-            )
-            raw, duration = _run_prompt(
-                connection,
-                model_name=_JUDGE_MODEL,
-                prompt_name="judge_result_quality",
-                context_columns=rq_ctx,
-            )
 
-            def _rq_verdict(p: dict) -> str:
-                return (
-                    f"intent_match={bool(p.get('intent_match'))}; "
-                    f"informativeness={int(p.get('informativeness') or 0)}"
+        # Close the orchestrator connection before parallel workers open their
+        # own connections — avoids holding a write lock across the pool wait.
+        connection.close()
+        connection = None
+
+        facet_jobs: list[_RerankImprovementJob | _ResultQualityJob] = []
+        for stage_name, cand_rows in stage_payloads:
+            facet_jobs.append(
+                _RerankImprovementJob(
+                    run_key=run_key,
+                    stage_name=stage_name,
+                    query=query or "",
+                    cand_rows=cand_rows,
+                    db_path=db_path,
                 )
-
-            _store_judgment_row(
-                connection,
-                run_key=run_key,
-                judgment_kind="result_quality",
-                judgment_target=link or "",
-                prompt_name="judge_result_quality",
-                model_name=_JUDGE_MODEL,
-                raw=raw,
-                duration=duration,
-                parsed=_parse_result(raw),
-                context_columns=rq_ctx,
-                build_verdict=_rq_verdict,
-                build_reasoning=lambda p: str(p.get("reasoning") or ""),
             )
-            judgments_written += 1
+        for rank, title, link, snippet in result_rows:
+            facet_jobs.append(
+                _ResultQualityJob(
+                    run_key=run_key,
+                    query=query or "",
+                    research_goal=research_goal or "",
+                    intent=intent or "unknown",
+                    rank=rank,
+                    title=title or "",
+                    link=link or "",
+                    snippet=snippet or "",
+                    db_path=db_path,
+                )
+            )
+
+        if facet_jobs:
+            with _JUDGE_SCHEDULE_LOCK:
+                if _IS_SHUTTING_DOWN:
+                    logger.debug(
+                        "Judge executor is shutting down; skipping parallel facets for %s",
+                        run_key,
+                    )
+                    return 0
+            pool = _DaemonThreadPoolExecutor(
+                max_workers=min(4, len(facet_jobs)),
+                thread_name_prefix="judge-facet",
+            )
+            try:
+                try:
+                    futures = [pool.submit(_run_parallel_facet, job) for job in facet_jobs]
+                except RuntimeError:
+                    # CPython atexit set the global _shutdown flag; fall back to inline
+                    # execution so partial judgments are still persisted.
+                    logger.debug(
+                        "Judge facet pool submit blocked (interpreter shutting down); "
+                        "running %d facets inline for %s",
+                        len(facet_jobs),
+                        run_key,
+                    )
+                    for job in facet_jobs:
+                        try:
+                            judgments_written += int(_run_parallel_facet(job) or 0)
+                        except Exception:
+                            logger.exception("inline judge facet failed for run_key=%s", run_key)
+                    return judgments_written
+                for fut in as_completed(futures):
+                    try:
+                        judgments_written += int(fut.result() or 0)
+                    except RuntimeError:
+                        logger.debug(
+                            "Judge facet pool shut down mid-run for %s; "
+                            "preserving %d partial judgments",
+                            run_key,
+                            judgments_written,
+                        )
+                        return judgments_written
+                    except Exception:
+                        logger.exception("parallel judge facet failed for run_key=%s", run_key)
+            finally:
+                try:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                except RuntimeError:
+                    pass
+        # Re-open connection for failure_cause (serial, needs branch errors).
+        connection = _connect(db_path)
+        loaded_ok = _ensure_loaded(connection)
+        if not loaded_ok:
+            logger.warning(
+                "FlockMTL reload failed after parallel facets, skipping failure_cause for %s",
+                run_key,
+            )
 
         # (f) judge_failure_cause -- 1 call iff status != 'success' OR
         # final_count == 0 (judge_quality). Branch error signals come
         # from `_fetch_branch_errors` (JOIN onto provider_calls,
         # not search_branches -- the latter has no error_type column).
-        if status != "success" or (final_count or 0) == 0:
+        if loaded_ok and (status != "success" or (final_count or 0) == 0):
             branch_err_rows = _fetch_branch_errors(connection, run_key)
             branch_lines = []
             for role, rc, perr in branch_err_rows:
@@ -1094,7 +1201,132 @@ def judge_search_run(
         logger.exception("judge_search_run(%s) failed", run_key)
         return 0
     finally:
+        if connection is not None:
+            connection.close()
+
+
+@dataclass(frozen=True, slots=True)
+class _RerankImprovementJob:
+    run_key: str
+    stage_name: str
+    query: str
+    cand_rows: list[tuple]
+    db_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResultQualityJob:
+    run_key: str
+    query: str
+    research_goal: str
+    intent: str
+    rank: object
+    title: str
+    link: str
+    snippet: str
+    db_path: str | None
+
+
+def _run_parallel_facet(job: _RerankImprovementJob | _ResultQualityJob) -> int:
+    """Run one independent per-result facet on its own DuckDB connection.
+
+    Returns 1 when a judgment row is written, else 0.
+    """
+    connection = _connect(job.db_path)
+    try:
+        if not _ensure_loaded(connection):
+            return 0
+        if isinstance(job, _RerankImprovementJob):
+            before_lines = [f"  {rb}. {link}" for rb, _ra, _s, link in job.cand_rows]
+            after_lines = [
+                f"  {ra}. {link}  (survived={bool(surv)})" for _rb, ra, surv, link in job.cand_rows
+            ]
+            rerank_ctx = _ctx(
+                ("query", job.query),
+                ("stage", job.stage_name),
+                ("before", "\n".join(before_lines) if before_lines else "(no rows)"),
+                ("after", "\n".join(after_lines) if after_lines else "(no rows)"),
+            )
+            raw, duration = _run_prompt(
+                connection,
+                model_name=_JUDGE_MODEL,
+                prompt_name="judge_rerank_improvement",
+                context_columns=rerank_ctx,
+            )
+            _store_judgment_row(
+                connection,
+                run_key=job.run_key,
+                judgment_kind="rerank_improvement",
+                judgment_target=job.stage_name,
+                prompt_name="judge_rerank_improvement",
+                model_name=_JUDGE_MODEL,
+                raw=raw,
+                duration=duration,
+                parsed=_parse_result(raw),
+                context_columns=rerank_ctx,
+                build_verdict=lambda p: str(p.get("verdict") or ""),
+                build_reasoning=lambda p: str(p.get("reasoning") or ""),
+            )
+            return 1
+
+        rq_ctx = _ctx(
+            ("query", job.query),
+            ("research_goal", job.research_goal),
+            ("intent", job.intent),
+            ("rank", "" if job.rank is None else str(job.rank)),
+            ("title", job.title),
+            ("snippet", job.snippet),
+        )
+        raw, duration = _run_prompt(
+            connection,
+            model_name=_JUDGE_MODEL,
+            prompt_name="judge_result_quality",
+            context_columns=rq_ctx,
+        )
+
+        def _rq_verdict(p: dict) -> str:
+            return (
+                f"intent_match={bool(p.get('intent_match'))}; "
+                f"informativeness={int(p.get('informativeness') or 0)}"
+            )
+
+        _store_judgment_row(
+            connection,
+            run_key=job.run_key,
+            judgment_kind="result_quality",
+            judgment_target=job.link,
+            prompt_name="judge_result_quality",
+            model_name=_JUDGE_MODEL,
+            raw=raw,
+            duration=duration,
+            parsed=_parse_result(raw),
+            context_columns=rq_ctx,
+            build_verdict=_rq_verdict,
+            build_reasoning=lambda p: str(p.get("reasoning") or ""),
+        )
+        return 1
+    except Exception:
+        logger.exception("parallel facet %s failed", type(job).__name__)
+        return 0
+    finally:
         connection.close()
+
+
+_PENDING_JUDGE_FUTURES: set[Future[int]] = set()
+_PENDING_JUDGE_FUTURES_LOCK = Lock()
+
+
+def drain_judges(timeout_seconds: float = 30.0) -> None:
+    """Wait for all pending judge futures to complete before shutdown."""
+    from concurrent.futures import wait
+
+    with _PENDING_JUDGE_FUTURES_LOCK:
+        futures = list(_PENDING_JUDGE_FUTURES)
+    if not futures:
+        return
+    done, not_done = wait(futures, timeout=timeout_seconds)
+    if not_done:
+        logger.warning("%d judge tasks timed out during drain", len(not_done))
 
 
 def schedule_judge_search_run(run_key: str) -> Future[int]:
@@ -1107,21 +1339,74 @@ def schedule_judge_search_run(run_key: str) -> Future[int]:
     The returned Future resolves to the integer count of judgments
     persisted by `judge_search_run` (0 on failure, which itself logs
     the underlying exception).
+
+    Shutdown resilience
+    -------------------
+    Two guards protect against the CPython 3.12 shutdown race where
+    ``_python_exit`` (atexit) sets the module-level ``_shutdown`` flag
+    in ``concurrent.futures.thread``, which blocks ALL
+    ``ThreadPoolExecutor.submit()`` calls — including on our
+    ``_DaemonThreadPoolExecutor`` that deliberately skips
+    ``_threads_queues`` registration:
+
+    1. ``_JUDGE_SCHEDULE_LOCK`` serialises the ``_IS_SHUTTING_DOWN``
+       check with ``shutdown_judge_executor`` so our own shutdown path
+       never races with submission.
+
+    2. If ``submit()`` raises ``RuntimeError`` (from CPython's
+       module-level ``_shutdown`` flag), the judge runs **inline** on
+       the calling thread.  This guarantees the FlockMTL verdicts are
+       persisted durably to the DuckDB database even when CPython's
+       atexit handler has already started shutting down thread pools.
+       The inline call opens its own short-lived DuckDB connection and
+       writes independently, so there is no conflict with any
+       already-closed caller connection.
     """
+    with _JUDGE_SCHEDULE_LOCK:
+        if _IS_SHUTTING_DOWN:
+            logger.debug("Judge executor is shutting down; skipping judge for %s", run_key)
+            f: Future[int] = Future()
+            f.set_result(0)
+            return f
+        executor = _get_judge_executor()
+
     try:
-        return _JUDGE_EXECUTOR.submit(judge_search_run, run_key)
-    except Exception as exc:
-        logger.exception("Failed to schedule judge for run_key=%s", run_key)
-        # Return a finished, failed Future so callers/tests can still
-        # observe the original exception without raising here.
-        f: Future[int] = Future()
-        f.set_exception(exc)
+        future = executor.submit(judge_search_run, run_key)
+    except RuntimeError:
+        # CPython's _python_exit (atexit) set the module-level _shutdown
+        # flag in concurrent.futures.thread, which blocks ALL
+        # ThreadPoolExecutor.submit() calls.  Fall back to inline
+        # execution so the judge still runs and scores are persisted.
+        logger.debug(
+            "Judge executor submit blocked (interpreter shutting down); "
+            "running judge inline for %s",
+            run_key,
+        )
+        try:
+            count = judge_search_run(run_key)
+        except Exception:
+            logger.exception("Inline judge failed for %s", run_key)
+            count = 0
+        f = Future()
+        f.set_result(count)
         return f
+
+    with _PENDING_JUDGE_FUTURES_LOCK:
+        _PENDING_JUDGE_FUTURES.add(future)
+
+    def _discard(f: Future[int]) -> None:
+        with _PENDING_JUDGE_FUTURES_LOCK:
+            _PENDING_JUDGE_FUTURES.discard(f)
+
+    future.add_done_callback(_discard)
+    return future
 
 
 __all__ = [
     "judge_search_run",
     "schedule_judge_search_run",
+    "shutdown_judge_executor",
+    "drain_judges",
     "_parse_result",
     "_build_run_digest",
     "_store_judgment_row",

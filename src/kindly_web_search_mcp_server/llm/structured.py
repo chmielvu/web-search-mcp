@@ -18,6 +18,8 @@ class StructuredLLMRequest:
     response_model: type[Any] | None = None
     reasoning_effort: str | None = None
     langfuse: LLMTraceContext | None = None
+    run_key: str | None = None
+    operation: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)

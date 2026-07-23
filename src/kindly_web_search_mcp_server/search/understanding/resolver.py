@@ -109,7 +109,6 @@ async def resolve_query_understanding(
             except Exception as exc:
                 logger.warning("query understanding JSONL write failed: %s", exc)
 
-
         return understanding
 
     # ------------------------------------------------------------------

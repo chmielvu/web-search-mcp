@@ -1,4 +1,4 @@
-"""Regression tests for `PageDuckDBCache._ensure_schema` exception handling.
+"""Regression tests for `PageDuckDBCache.ensure_store_schema` exception handling.
 
 The schema bootstrap creates a `page_cache` table plus a best-effort
 `url_hash` index. The implementation must:
@@ -39,7 +39,7 @@ class TestEnsureSchemaExceptionHandling(unittest.TestCase):
             "kindly_web_search_mcp_server.cache.page_duckdb",
             level=logging.WARNING,
         ) as logs:
-            cache._ensure_schema(con)
+            cache.ensure_store_schema(con)
 
         # The CREATE TABLE call must have run (index failure must not
         # block schema creation).
@@ -64,7 +64,7 @@ class TestEnsureSchemaExceptionHandling(unittest.TestCase):
         ]
 
         with self.assertRaises(RuntimeError):
-            cache._ensure_schema(con)
+            cache.ensure_store_schema(con)
 
         # Both calls attempted (no silent swallow).
         self.assertEqual(con.execute.call_count, 2)

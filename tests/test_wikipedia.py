@@ -31,7 +31,9 @@ class TestWikipedia(unittest.TestCase):
         self.assertEqual(target.host, "en.wikipedia.org")
 
     def test_render_truncation_marker(self) -> None:
-        from kindly_web_search_mcp_server.content.resolvers.wikipedia import render_wikipedia_markdown
+        from kindly_web_search_mcp_server.content.resolvers.wikipedia import (
+            render_wikipedia_markdown,
+        )
 
         md = render_wikipedia_markdown(
             title="T",

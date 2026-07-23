@@ -566,7 +566,7 @@ class TestShadowMode:
                 control_duration_ms=100.0,
             )
 
-        shadow_fn.assert_awaited_once_with(query="hello world", top_k=10)
+        shadow_fn.assert_awaited_once_with(query="hello world", top_n=10)
 
     @pytest.mark.asyncio
     async def test_shadow_result_recorded(self):

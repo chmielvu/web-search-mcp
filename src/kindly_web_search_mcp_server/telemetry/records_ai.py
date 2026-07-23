@@ -19,6 +19,7 @@ from .metrics import (
     get_youtube_metrics,
 )
 
+
 def record_gemini_search(
     grounding_queries: int,
     grounding_chunks: int,
@@ -35,7 +36,6 @@ def record_gemini_search(
             GEMINI_STRUCTURED_OUTPUT: str(structured_output).lower(),
         },
     )
-
 
 
 def record_youtube_transcript(
@@ -77,6 +77,6 @@ def record_youtube_search(
 
 __all__ = [
     "record_gemini_search",
-        "record_youtube_search",
+    "record_youtube_search",
     "record_youtube_transcript",
 ]

@@ -57,25 +57,14 @@ async def rank_and_finalize(
         merged: list[WebSearchResult] = []
         rrf_k = settings.rrf_k
         bm25_scores: list[float] = []
-        first_stage_url_scores: dict[str, float] = {}
-        second_stage_scores: tuple[float, ...] = ()
         overlap_rate = 0.0
         if provider_result_lists:
-            # Share one canonicalize cache across the two RRF calls and
+            # Share one canonicalize cache across BM25, RRF fusion, and
             # this function's own overlap/score lookups, so each distinct
             # raw URL is canonicalized at most once per rank_and_finalize.
             key_for = _memoize_canonicalize(canonicalize_url)
-            # 1. RRF once into provider_consensus
-            provider_consensus_with_scores = reciprocal_rank_fusion(
-                provider_result_lists,
-                k=rrf_k,
-                canonicalize=key_for,
-            )
-            provider_consensus_list = [res for res, _ in provider_consensus_with_scores]
 
-            first_stage_url_scores = {
-                key_for(res.link): score for res, score in provider_consensus_with_scores
-            }
+            # Track overlap rate across providers
             url_occurrences: Counter[str] = Counter(
                 key_for(result.link) for results in provider_result_lists for result in results
             )
@@ -85,40 +74,54 @@ async def rank_and_finalize(
                 else 0.0
             )
 
-            # 2. Compute BM25 ranking over those same canonical candidates
+            # 1. Compute BM25 independently on all raw provider results
+            #    (deduplicated by canonical URL, keeping best snippet).
+            #    BM25 acts as a complementary lexical signal alongside
+            #    the semantic/dense retrieval from providers.
+            raw_by_url: dict[str, WebSearchResult] = {}
+            for results in provider_result_lists:
+                for result in results:
+                    url_key = key_for(result.link)
+                    existing = raw_by_url.get(url_key)
+                    if existing is None or len(result.snippet or "") > len(existing.snippet or ""):
+                        raw_by_url[url_key] = result
+            all_raw_results = list(raw_by_url.values())
+
             bm25_scores = await score_candidates_async(
                 run.plan.relevance_query if run.plan else run.request.query,
-                [_candidate_text(result) for result in provider_consensus_list],
+                [_candidate_text(result) for result in all_raw_results],
             )
             bm25_order_indices = sorted(
-                range(len(provider_consensus_list)),
-                key=lambda index: (-(bm25_scores[index] if bm25_scores[index] > 0 else 0.0), index),
+                range(len(all_raw_results)),
+                key=lambda idx: (-(bm25_scores[idx] if bm25_scores[idx] > 0 else 0.0), idx),
             )
-            bm25_order = [provider_consensus_list[index] for index in bm25_order_indices]
+            bm25_order = [all_raw_results[idx] for idx in bm25_order_indices]
 
-            # 3. Run RRF a second time over provider_consensus and bm25_order
-            hybrid_order_with_scores = reciprocal_rank_fusion(
-                [provider_consensus_list, bm25_order],
+            # 2. Single RRF: fuse provider result lists + BM25 as an
+            #    additional independent ranking signal. BM25 contributes
+            #    lexical relevance; providers contribute semantic/dense
+            #    relevance. RRF naturally surfaces documents that perform
+            #    well across both modalities.
+            fused_lists = list(provider_result_lists) + [bm25_order]
+            fused_with_scores = reciprocal_rank_fusion(
+                fused_lists,
                 k=rrf_k,
                 canonicalize=key_for,
             )
-            second_stage_scores = tuple(score for _, score in hybrid_order_with_scores)
 
-            # Keep provider consensus, hybrid RRF, and later neural scores distinct.
-            for res, second_stage_score in hybrid_order_with_scores:
-                url_key = key_for(res.link)
-                first_stage_score = first_stage_url_scores.get(url_key, 0.0)
+            # 3. Apply RRF scores to merged results
+            for res, score in fused_with_scores:
                 res_updated = res.model_copy(
                     update={
-                        "score": second_stage_score,
-                        "hybrid_rrf_score": second_stage_score,
-                        "provider_consensus_rrf_score": first_stage_score,
+                        "score": score,
+                        "hybrid_rrf_score": score,
+                        "provider_consensus_rrf_score": None,
                     }
                 )
                 merged.append(res_updated)
 
         dc.merged_candidates = list(merged)
-        span.set_attribute("search.merge_algorithm", "provider_consensus_rrf_then_bm25_rrf")
+        span.set_attribute("search.merge_algorithm", "provider_rrf_with_bm25")
 
         providers_used_set: set[str] = set()
         for outcome in outcomes:
@@ -164,15 +167,13 @@ async def rank_and_finalize(
                     logger.warning("Failed to retrieve query embedding: %s", exc)
         run.rerank_metadata.update(
             {
-                "merge_algorithm": "provider_consensus_rrf_then_bm25_rrf",
+                "merge_algorithm": "provider_rrf_with_bm25",
                 "effective_rrf_k": rrf_k,
                 "provider_list_count": len(provider_result_lists),
                 "overlap_rate": overlap_rate,
                 "zero_list_degradation": len(provider_result_lists) == 0,
                 "single_list_degradation": len(provider_result_lists) == 1,
                 "bm25_scores": tuple(bm25_scores),
-                "first_stage_scores": tuple(first_stage_url_scores.values()),
-                "second_stage_scores": second_stage_scores,
                 "reranker_provider": rerank_provider,
                 "reranker_model": rerank_model,
             }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from typing import Any
 
@@ -25,24 +26,35 @@ def _get_openrouter_client(timeout: float = 30.0) -> httpx.AsyncClient:
 
 
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
+    """Parse OpenRouter POST /api/v1/rerank response.
+
+    OpenRouter contract (submit-a-rerank-request):
+    - required top-level: model, results
+    - each result required: index, relevance_score, document
+    - top_n = "Number of most relevant documents to return" (a CAP, not a
+      guarantee of len(results) == len(documents))
+
+    Accept any non-empty results list with 0 < len <= document_count.
+    Do not require a full permutation of input indices.
+    """
     results = data.get("results")
     if not isinstance(results, list):
         raise ValueError("OpenRouter rerank response missing results list")
-
-    if len(results) != document_count:
+    if not results:
+        raise ValueError("OpenRouter rerank response returned no results")
+    if len(results) > document_count:
         raise ValueError(
-            f"OpenRouter rerank returned {len(results)} results, expected {document_count}"
+            f"OpenRouter rerank returned {len(results)} results, expected at most {document_count}"
         )
 
     ranked: list[tuple[int, float]] = []
-    seen_indices = set()
+    seen_indices: set[int] = set()
     for item in results:
         if not isinstance(item, dict):
             raise ValueError("OpenRouter rerank result item is not an object")
         index = item.get("index")
         score = item.get("relevance_score")
 
-        # Validate index
         if not isinstance(index, int) or isinstance(index, bool):
             raise ValueError(f"OpenRouter rerank returned non-integer index: {index!r}")
         if not 0 <= index < document_count:
@@ -51,23 +63,18 @@ def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tup
             raise ValueError(f"OpenRouter rerank returned duplicate index: {index!r}")
         seen_indices.add(index)
 
-        # Validate score
         if isinstance(score, bool) or not isinstance(score, (int, float)):
             raise ValueError(f"OpenRouter rerank returned non-numeric score: {score!r}")
         f_score = float(score)
-        import math
-
-        if not math.isfinite(f_score) or not 0.0 <= f_score <= 1.0:
-            raise ValueError(
-                f"OpenRouter rerank returned out of range / non-finite score: {score!r}"
-            )
+        if not math.isfinite(f_score):
+            raise ValueError(f"OpenRouter rerank returned non-finite score: {score!r}")
+        # Spec is double relevance; clamp out-of-range rather than fail the chain.
+        if f_score < 0.0:
+            f_score = 0.0
+        elif f_score > 1.0:
+            f_score = 1.0
 
         ranked.append((index, f_score))
-
-    if len(seen_indices) != document_count:
-        raise ValueError(
-            "OpenRouter rerank response is not a complete permutation of document indices"
-        )
 
     return ranked
 
@@ -79,7 +86,7 @@ async def openrouter_cohere_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
-    timeout: float = 30.0,
+    timeout: float = 5.0,
     http_client: httpx.AsyncClient | None = None,
     base_url: str | None = None,
 ) -> list[tuple[int, float]]:
@@ -109,6 +116,6 @@ async def openrouter_cohere_rerank(
         endpoint = OPENROUTER_RERANK_ENDPOINT
 
     client = http_client or _get_openrouter_client(timeout)
-    response = await client.post(endpoint, json=payload, headers=headers)
+    response = await client.post(endpoint, json=payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     return _parse_rerank_results(response.json(), len(documents))

@@ -122,7 +122,7 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
         db_path = Path(self._testMethodName).with_suffix(".duckdb")
         with (
             patch.object(duckdb_store.settings, "analytics_enabled", True),
-            patch.object(duckdb_store, "_ensure_schema", return_value=None),
+            patch.object(duckdb_store, "ensure_store_schema", return_value=None),
             patch.object(
                 duckdb_store.duckdb,
                 "connect",
@@ -269,7 +269,6 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
 
         if db_path.exists():
             db_path.unlink()
-
 
     def test_tool_events_persist_full_text_payload(self) -> None:
         from kindly_web_search_mcp_server.utils.observability import (
@@ -437,9 +436,9 @@ class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):
             db_path.unlink()
 
     def test_motherduck_sql_uses_views_and_summary_tables(self) -> None:
+        from kindly_web_search_mcp_server.analytics.evals import build_eval_table_sql
         from kindly_web_search_mcp_server.analytics.motherduck_sync import (
             build_analytics_view_sql,
-            build_eval_table_sql,
             build_summary_sql,
         )
 

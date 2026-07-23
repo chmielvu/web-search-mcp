@@ -6,6 +6,7 @@ with metadata about extraction method and timestamps.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -64,16 +65,39 @@ class PageCache:
         canonical_url: str,
     ) -> dict[str, Any] | None:
         """Async variant of :meth:`lookup` that runs DuckDB I/O in a thread."""
-        try:
-            result = await self._backend.alookup(canonical_url)
-            return self._format_lookup_result(result, canonical_url)
-        except Exception as exc:
-            logger.warning("Page cache lookup failed for %s: %s", canonical_url, exc)
+        # Defensive: if a MagicMock test fixture leaked into production,
+        # `_backend.alookup` is auto-created as a sync attribute on `MagicMock()`,
+        # so `hasattr` returns True but the value is not awaitable. A real backend
+        # exposes `alookup` as a coroutine function (`async def`).
+        backend_alookup = getattr(self._backend, "alookup", None)
+        if not asyncio.iscoroutinefunction(backend_alookup):
+            logger.error(
+                "PageCache backend alookup is not a coroutine function -- mock leaked: %s",
+                type(self._backend).__name__,
+            )
             emit_cache_lookup_event(
                 logger,
                 "page",
                 "miss",
                 duration_ms=0,
+                canonical_url=canonical_url,
+                error_type="invalid_backend",
+            )
+            return None
+        start_time = time.time()
+        try:
+            result = await self._backend.alookup(canonical_url)
+            duration_ms = (time.time() - start_time) * 1000
+            formatted = self._format_lookup_result(result, canonical_url, duration_ms / 1000)
+            return formatted
+        except Exception as exc:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.warning("Page cache lookup failed for %s: %s", canonical_url, exc)
+            emit_cache_lookup_event(
+                logger,
+                "page",
+                "miss",
+                duration_ms=duration_ms,
                 canonical_url=canonical_url,
                 error_type=type(exc).__name__,
             )

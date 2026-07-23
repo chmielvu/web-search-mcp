@@ -25,10 +25,14 @@ web-search-cli [GLOBAL-OPTIONS] COMMAND [ARGS] [COMMAND-OPTIONS]
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--agent` | bool | `True` | Optimise output for agent consumers (no extra noise, JSON-first). |
-| `--human` | bool | `False` | Optimise output for a human at a terminal. |
-| `--quiet` / `-q` | bool | `False` | Suppress non-essential diagnostics. |
+| `--brief` | bool | `False` | Emit one-paragraph tool identity and exit. |
+| `--quiet` / `-q` | bool | `False` | Suppress rules, skills, and feedback from JSON response payload. |
+| `--raw` | bool | `False` | Emit bare value lines (one per line) for clean pipe processing. |
+| `--fields` | string | — | Comma-separated field projection to reduce response payload size. |
+| `--yes` / `-y` | bool | `False` | Skip confirmation prompt (required in non-interactive mode). |
+| `--dry-run` | bool | `False` | Preview feedback create, close, and transition without modifying files. |
 | `--profile` | string | `full` | Active capability profile: `default`, `research`, `media`, `diagnostic`, `experimental`, `full`. |
+| `--log-format` | string | `text` | Stderr log format (`text` or `json` for JSONL stream). |
 | `--log-level` | string | `error` | Log level for stderr diagnostics. |
 | `--debug` | bool | `False` | Set log level to `DEBUG` and emit application logs on stderr. Structured command output remains on stdout. |
 | `--non-interactive` | bool | `True` | Disallow interactive prompts. |

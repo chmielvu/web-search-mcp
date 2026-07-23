@@ -55,6 +55,7 @@ class TestJinaReader(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_client.get.await_count, 2)
         _, second_kwargs = fake_client.get.await_args_list[1]
         self.assertEqual(second_kwargs["headers"]["Authorization"], "Bearer test-key")
+        self.assertEqual(second_kwargs["headers"]["X-Respond-With"], "readerlm-v2")
 
     async def test_raises_when_429_and_no_key(self) -> None:
         from kindly_web_search_mcp_server.content.jina_reader import (

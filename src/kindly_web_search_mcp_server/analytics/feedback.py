@@ -183,15 +183,18 @@ def compute_ndcg_at_10() -> list[dict[str, Any]]:
                 FROM graded WHERE rank <= 10 GROUP BY run_key, recorded_at
             ),
             idcg AS (
-                SELECT dcg.run_key,
-                       SUM(g.gain / LOG2(g.rank + 1)) AS idcg
-                FROM dcg
-                CROSS JOIN (
-                    SELECT rank, {gain_expr} ELSE 0 END AS gain
-                    FROM (SELECT UNNEST(GENERATE_SERIES(1, 10)) AS rank)
-                ) g
-                WHERE g.rank <= dcg.n
-                GROUP BY dcg.run_key
+                SELECT run_key,
+                       SUM(gain / LOG2(ideal_rank + 1)) AS idcg
+                FROM (
+                    SELECT run_key, gain,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY run_key ORDER BY gain DESC
+                           ) AS ideal_rank
+                    FROM graded
+                ) ideal
+                JOIN dcg USING (run_key)
+                WHERE ideal_rank <= dcg.n
+                GROUP BY run_key
             )
             SELECT dcg.run_key, dcg.recorded_at,
                    ROUND(dcg.dcg::DOUBLE, 4) AS dcg,

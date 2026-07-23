@@ -83,7 +83,9 @@ class TestPdfToMarkdown(unittest.TestCase):
             except Exception:
                 self.skipTest("PyMuPDF not installed in this environment")
 
-        from kindly_web_search_mcp_server.content.resolvers.arxiv import _pdf_bytes_to_markdown_best_effort
+        from kindly_web_search_mcp_server.content.resolvers.arxiv import (
+            _pdf_bytes_to_markdown_best_effort,
+        )
 
         doc = pymupdf.open()
         try:

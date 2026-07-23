@@ -129,6 +129,7 @@ async def fetch_content_payload(
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
     from ...content.summary_models import VALID_SUMMARY_MODES
+
     safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
 
     fetch_options = build_fetch_options(

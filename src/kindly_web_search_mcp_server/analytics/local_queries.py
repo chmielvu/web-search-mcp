@@ -192,9 +192,7 @@ def _run_quality_query(limit: int) -> tuple[str, str]:
     return sql, "run_quality"
 
 
-def build_local_analytics_query_sql(
-    question: str, *, max_rows: int = 100
-) -> tuple[str, str]:
+def build_local_analytics_query_sql(question: str, *, max_rows: int = 100) -> tuple[str, str]:
     """Dispatch local analytics query based on question keywords."""
     limit = _limit(max_rows)
     q = question.lower().strip()

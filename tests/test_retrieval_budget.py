@@ -57,6 +57,8 @@ async def test_retrieve_budget_keeps_done_and_marks_pending_in_schedule_order(
         _branch: QueryBranch,
         provider_name: str,
         _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
     ) -> tuple[str, list[WebSearchResult] | BaseException]:
         if provider_name == "fast":
             return provider_name, [_result(provider_name)]
@@ -105,6 +107,8 @@ async def test_retrieve_budget_returns_early_when_all_tasks_finish(
         _branch: QueryBranch,
         provider_name: str,
         _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
     ) -> tuple[str, list[WebSearchResult]]:
         await asyncio.sleep(0.01)
         return provider_name, [_result(provider_name)]
@@ -133,6 +137,8 @@ async def test_retrieve_caller_cancellation_drains_every_child(
         _branch: QueryBranch,
         provider_name: str,
         _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
     ) -> tuple[str, list[WebSearchResult]]:
         started[provider_name].set()
         try:
@@ -168,3 +174,65 @@ async def test_empty_provider_plan_returns_without_waiting(
     assert outcomes[0].provider_calls == ()
     assert outcomes[0].attempted_provider_names == ()
     assert run.diagnostics.enrichment["retrieve_budget_exceeded"] is False
+
+
+@pytest.mark.asyncio
+async def test_call_provider_uses_live_budget_not_catalog_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Advisor: catalog default_timeout_seconds is import-time; clamp must
+    re-read settings.search_retrieve_budget_seconds on every call.
+    """
+    import kindly_web_search_mcp_server.search.provider_catalog as catalog
+
+    # Snapshot at import may still hold the original budget.
+    snapshot = catalog.PROVIDER_DEFINITIONS_LIST[0].default_timeout_seconds
+    assert snapshot > 0
+
+    # Override AFTER catalog materialization — live path must see 0.05.
+    monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 0.05)
+
+    seen_timeouts: list[float] = []
+
+    async def slow_adapter(*_a: Any, **_k: Any) -> list[WebSearchResult]:
+        await asyncio.sleep(10)
+        return [_result("live")]
+
+    def fake_def(name: str) -> Any:
+        return SimpleNamespace(
+            name=name,
+            requires_embedding=False,
+            # Stale catalog snapshot deliberately larger than live budget.
+            default_timeout_seconds=snapshot,
+        )
+
+    monkeypatch.setattr(retrieval, "get_provider_definition", fake_def)
+    monkeypatch.setattr(retrieval, "get_provider_adapter", lambda _n: slow_adapter)
+
+    # Patch wait_for to record the timeout arg without changing behavior.
+    real_wait_for = asyncio.wait_for
+
+    async def tracking_wait_for(aw: Any, *, timeout: float | None = None) -> Any:
+        if timeout is not None:
+            seen_timeouts.append(float(timeout))
+        return await real_wait_for(aw, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", tracking_wait_for)
+
+    run = _run(_branch("live"))
+    started = time.monotonic()
+    name, value = await retrieval._call_provider(
+        run,
+        run.plan.branches[0],
+        "live",
+        None,
+        retrieve_deadline=time.monotonic() + 30.0,
+    )
+    elapsed = time.monotonic() - started
+
+    assert name == "live"
+    assert isinstance(value, TimeoutError)
+    assert elapsed < 1.0
+    assert seen_timeouts, "wait_for should have been called"
+    assert seen_timeouts[0] <= 0.05 + 1e-6
+    assert seen_timeouts[0] < snapshot / 2

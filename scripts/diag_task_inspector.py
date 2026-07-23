@@ -49,11 +49,13 @@ def _task_dump(t: asyncio.Task) -> dict:
             frames = []
             f = frame
             while f is not None:
-                frames.append({
-                    "func": f.f_code.co_name,
-                    "file": Path(f.f_code.co_filename).name,
-                    "line": f.f_lineno,
-                })
+                frames.append(
+                    {
+                        "func": f.f_code.co_name,
+                        "file": Path(f.f_code.co_filename).name,
+                        "line": f.f_lineno,
+                    }
+                )
                 f = f.f_back
             info["stack"] = frames
     return info
@@ -68,11 +70,19 @@ def _print_tasks() -> None:
     print(f"[{elapsed:8.1f}ms] {len(tasks)} pending tasks:", file=sys.stderr, flush=True)
     for t in tasks:
         info = _task_dump(t)
-        print(f"  ── {info['name']} ({'done' if info['done'] else 'running'})", file=sys.stderr, flush=True)
+        print(
+            f"  ── {info['name']} ({'done' if info['done'] else 'running'})",
+            file=sys.stderr,
+            flush=True,
+        )
         if "coro_qualname" in info:
             print(f"      coro: {info['coro_qualname']}", file=sys.stderr, flush=True)
         if "func" in info:
-            print(f"      at:  {info.get('file','?')}:{info['line']} in {info['func']}", file=sys.stderr, flush=True)
+            print(
+                f"      at:  {info.get('file', '?')}:{info['line']} in {info['func']}",
+                file=sys.stderr,
+                flush=True,
+            )
         if "source" in info:
             print(f"      src: {info['source']}", file=sys.stderr, flush=True)
         if "stack" in info:
@@ -92,41 +102,57 @@ async def _inspector() -> None:
 
 
 async def main(query: str, num_results: int) -> None:
-    from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
-    from kindly_web_search_mcp_server.search.options import SearchOptions
-    from kindly_web_search_mcp_server.utils.diagnostics import Diagnostics
+    import httpx
+
+    from kindly_web_search_mcp_server.search.contracts import WebSearchRequest
+    from kindly_web_search_mcp_server.search.service import execute_web_search
 
     inspector = asyncio.create_task(_inspector())
 
-    print(f"[{'{:.1f}'.format(0)}ms] STARTING PIPELINE query={query!r} n={num_results}", file=sys.stderr, flush=True)
-
-    response = await run_search_pipeline(
-        query=query,
-        num_results=num_results,
-        rewrite=True,
-        diagnostics=Diagnostics(request_id="diag", enabled=False),
-        research_goal=None,
-        search_options=SearchOptions(),
-        session_id=None,
-        tool_call_id=None,
+    print(
+        f"[{'{:.1f}'.format(0)}ms] STARTING PIPELINE query={query!r} n={num_results}",
+        file=sys.stderr,
+        flush=True,
     )
 
+    request = WebSearchRequest(
+        query=query,
+        research_goal="diagnostic pipeline probe",
+        num_results=15,
+        rewrite=True,
+    )
+
+    async with httpx.AsyncClient() as client:
+        response, run = await execute_web_search(
+            request,
+            http_client=client,
+            run_key=f"diag-{int(time.time())}",
+            return_diagnostics=True,
+        )
     elapsed = (time.monotonic() - _t0) * 1000.0
-    print(f"[{elapsed:8.1f}ms] PIPELINE RETURNED results={len(response.results)}", file=sys.stderr, flush=True)
-
-    # Print final JSON to stdout
+    print(
+        f"[{elapsed:8.1f}ms] PIPELINE RETURNED results={len(response.results)}",
+        file=sys.stderr,
+        flush=True,
+    )
     print(json.dumps({"data": response.model_dump()}, default=str, ensure_ascii=False))
-
-    # Let inspector finish (waits until no tasks remain)
     await inspector
-    print(f"[{(time.monotonic() - _t0) * 1000:.1f}ms] ALL TASKS DRAINED", file=sys.stderr, flush=True)
+    print(
+        f"[{(time.monotonic() - _t0) * 1000:.1f}ms] ALL TASKS DRAINED",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else "FastMCP transports"
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 5
 
-    logging.basicConfig(level=logging.WARNING, format="[%(asctime)s] %(levelname)s %(name)s: %(message)s", stream=sys.stderr)
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
 
     try:
         asyncio.run(main(query, n))

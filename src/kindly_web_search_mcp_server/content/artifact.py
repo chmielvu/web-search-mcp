@@ -24,8 +24,10 @@ class ContentArtifact:
     status: ContentStatus
     source_type: str
     fetch_backend: str
-    content_type: str | None
-    markdown: str
+    origin_backend: str | None = None
+    cached: bool = False
+    content_type: str | None = None
+    markdown: str = ""
     title: str | None = None
     metadata: dict[str, Any] | None = None
     links: list[dict[str, Any]] | None = None

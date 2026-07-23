@@ -19,6 +19,7 @@ import re
 import httpx
 
 from ...models import WebSearchResult
+from ...settings import settings
 from .base import run_provider
 
 logger = logging.getLogger(__name__)
@@ -350,5 +351,5 @@ async def search_github_graphql(
         request=_run,
         parse_response=lambda results: results,
         http_client=http_client,
-        timeout_seconds=30.0,
+        timeout_seconds=settings.search_retrieve_budget_seconds,
     )

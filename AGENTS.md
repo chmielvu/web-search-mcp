@@ -1,99 +1,107 @@
-# AGENTS.md - Repository Guide
+# AGENTS.md — Kindly Web Search MCP Server
 
-Kindly Web Search MCP Server is a FastMCP app plus a native Typer CLI.
-This repo also contains a separate intent-classifier service, analytics
-helpers, and supporting utility packages for caching, reranking,
-observability, and content extraction.
+FastMCP server + Typer CLI for multi-provider web search, content extraction,
+reranking, analytics, and AI-grounded answers.
 
-## Entry Points
+## Tech Stack
 
-- `server.py` - root wrapper for FastMCP launchers
-- `src/kindly_web_search_mcp_server/server.py` - main MCP server
-- `src/kindly_web_search_mcp_server/__main__.py` - package entrypoint
-- `src/kindly_web_search_mcp_server/cli/app.py` - `web-search-cli`
-- `src/classifier_service/server.py` - separate intent-classifier service
+- **Python ≥3.12**, Hatchling build
+- **FastMCP ≥3.4** — MCP server framework
+- **Typer ≥0.16 + Rich** — CLI (`uv run web-search-cli`)
+- **DuckDB** — analytics, page cache, transcript cache, blocklist
+- **OpenTelemetry + Arize Phoenix** — LLM tracing and metrics
+- **Pydantic** — all input/output contracts
+- **19 search providers** — Brave, Tavily, SearXNG, Jina, SerpAPI, Serper,
+  BrightData, LangSearch, DuckDuckGo, DeGoog, Reddit, HackerNews, GitHub,
+  Gemma, Grok, Qdrant, Telegram, Composio
 
-## Current Architecture
+## Exact Commands
 
-- Search lives in `src/kindly_web_search_mcp_server/search/` and now uses
-  `IntentSearchPolicy` plus provider plans. Backend `SearchProfile` routing
-  is gone.
-- Content lives in `src/kindly_web_search_mcp_server/content/` and resolves
-  specialized sources first, then Tavily Map for sitemap discovery, then the
-  legacy Crawl4AI sitemap fallback, then Jina / trafilatura fallback.
-- Reranking lives in `src/kindly_web_search_mcp_server/rerank/` and defaults
-  to the `bi_cross_llm` stack mode.
-- Analytics live in `src/kindly_web_search_mcp_server/analytics/` and use
-  DuckDB for runs, views, quality metrics, reports, and judge evaluation.
-- Caching lives in `src/kindly_web_search_mcp_server/cache/`; exact query
-  lookup is in-memory LRU, while page and transcript caches use DuckDB files.
-- Tool visibility is controlled by `TOOL_PROFILE`; `TOOL_SEARCH_ENABLED` is
-  an opt-in FastMCP search transform.
-- `index/` is a write-only remote Qdrant web-results index, not the primary
-  retrieval path.
+```bash
+# Install
+uv sync
 
-## Package Guides
+# Run all tests
+uv run pytest
 
-- [docs](docs/AGENTS.md)
-- [tests](tests/AGENTS.md)
-- [search](src/kindly_web_search_mcp_server/search/AGENTS.md)
-- [content](src/kindly_web_search_mcp_server/content/AGENTS.md)
-- [analytics](src/kindly_web_search_mcp_server/analytics/AGENTS.md)
-- [cli](src/kindly_web_search_mcp_server/cli/AGENTS.md)
-- [rerank](src/kindly_web_search_mcp_server/rerank/AGENTS.md)
-- [cache](src/kindly_web_search_mcp_server/cache/AGENTS.md)
-- [embeddings](src/kindly_web_search_mcp_server/embeddings/AGENTS.md)
-- [entity](src/kindly_web_search_mcp_server/entity/AGENTS.md)
-- [index](src/kindly_web_search_mcp_server/index/AGENTS.md)
-- [middleware](src/kindly_web_search_mcp_server/middleware/AGENTS.md)
-- [prompts](src/kindly_web_search_mcp_server/prompts/AGENTS.md)
-- [tools](src/kindly_web_search_mcp_server/tools/AGENTS.md)
-- [utils](src/kindly_web_search_mcp_server/utils/AGENTS.md)
-- [ab_testing](src/kindly_web_search_mcp_server/ab_testing/AGENTS.md)
-- [observability](src/kindly_web_search_mcp_server/observability/AGENTS.md)
-- [training](src/kindly_web_search_mcp_server/training/AGENTS.md)
-- [classifier_service](src/classifier_service/AGENTS.md)
-- [duckdb_data](duckdb_data/AGENTS.md)
+# Lint & format
+uv run ruff check src/ tests/
+uv run ruff format src/ tests/
 
-## Current State Notes
+# Run the CLI (ALL CLI invocations MUST use this form)
+uv run web-search-cli doctor
+uv run web-search-cli schema
+uv run web-search-cli reference tools
+uv run web-search-cli search web --query "..." --objective "..."
+uv run web-search-cli search quick --search-query "..." --objective "..."
+uv run web-search-cli content <url>
+uv run web-search-cli links <url>
+uv run web-search-cli ai <query>
+uv run web-search-cli youtube search <query>
+uv run web-search-cli youtube transcript <video-id>
+uv run web-search-cli sitemap generate <url>
+uv run web-search-cli analytics query
+uv run web-search-cli analytics report <name>
+uv run web-search-cli experiments list|create|enable|disable|conclude|stats
+uv run web-search-cli server
+```
 
-- Search-phase work is past the old profile-routing cleanup and now centers on
-  branch/merge/rerank refinement.
-- `generate_sitemap` is the public sitemap tool across MCP and CLI, with
-  Tavily Map as the primary backend.
-- The root CLI surface is `web-search-cli`; there is no `mcp2cli` wrapper.
-- `CHANGELOG.md` is part of the source of truth for every code or docs change.
-- Update `.agent/CONTINUITY.md` when the repo state or active decisions change.
+## Package Guides (Progressive Disclosure)
 
-## Working Commands
+| Navigate to | When modifying |
+|---|---|
+| `src/kindly_web_search_mcp_server/search/AGENTS.md` | Search pipeline (planning, retrieval, ranking, 19 providers) |
+| `src/kindly_web_search_mcp_server/content/AGENTS.md` | Content fetching pipeline (resolvers, extraction stages) |
+| `src/kindly_web_search_mcp_server/rerank/AGENTS.md` | Multi-stage reranking (BM25, bi-encoder, cross-encoder, RankLLM) |
+| `src/kindly_web_search_mcp_server/analytics/AGENTS.md` | DuckDB analytics, quality metrics, LLM judge pipeline |
+| `src/kindly_web_search_mcp_server/cli/AGENTS.md` | CLI commands and services |
+| `src/kindly_web_search_mcp_server/tools/AGENTS.md` | MCP tool metadata, profiles, catalog |
+| `src/kindly_web_search_mcp_server/cache/AGENTS.md` | In-memory LRU + DuckDB page/transcript caches |
+| `src/kindly_web_search_mcp_server/llm/AGENTS.md` | LLM routing (Cerebras → Groq → HF → Vercel fallback) |
+| `src/kindly_web_search_mcp_server/middleware/AGENTS.md` | FastMCP middleware (rate limits, guidance, protection) |
+| `src/kindly_web_search_mcp_server/prompts/AGENTS.md` | Prompt templates and registry |
+| `src/kindly_web_search_mcp_server/embeddings/AGENTS.md` | HF Inference embedding client |
+| `src/kindly_web_search_mcp_server/index/AGENTS.md` | Write-only Qdrant web-results index |
+| `src/kindly_web_search_mcp_server/entity/AGENTS.md` | Entity extraction (GLiNER2, chunking, overlap) |
+| `src/kindly_web_search_mcp_server/ab_testing/AGENTS.md` | A/B testing framework |
+| `src/kindly_web_search_mcp_server/observability/AGENTS.md` | Observability event helpers |
+| `src/kindly_web_search_mcp_server/telemetry/AGENTS.md` | OpenTelemetry instrumentation |
+| `src/kindly_web_search_mcp_server/training/AGENTS.md` | Write-only JSONL training data sink |
+| `src/kindly_web_search_mcp_server/utils/AGENTS.md` | Cross-cutting helpers (HTTP, logging, async) |
+| `src/classifier_service/AGENTS.md` | Standalone intent-classifier service |
+| `tests/AGENTS.md` | Test organization and conventions |
+| `docs/AGENTS.md` | Human-readable documentation |
+| `duckdb_data/AGENTS.md` | DuckDB database inventory and read-only access |
 
-- `pytest`
-- `python -m pytest tests/test_server.py tests/test_search_orchestrator.py`
-- `ruff check src/ tests/`
-- `ruff format src/ tests/`
-- `web-search-cli schema`
-- `web-search-cli doctor`
-- `ccc index` after significant code changes
+## Boundaries
 
-## Edit Rules
+- **ALWAYS do:** Update the nearest package AGENTS.md when changing a subsystem.
+  Document all changes in `CHANGELOG.md` under `[Unreleased]`.
+  Update `.agent/CONTINUITY.md` with decisions, code changes, and discoveries.
+- **ASK FIRST** before modifying `settings.py` (env var config affects all
+  subsystems) or `pyproject.toml` (dependency changes).
+- **NEVER** modify files in `.agent/`, `.gitnexus/`, or `.venv*`.
+  NEVER commit API keys or secrets.
+  NEVER blame external APIs for timeouts — root cause is always local code.
 
-- Update the nearest package AGENTS file when changing a subsystem.
-- Keep repo-local guidance aligned with the live tree, not historical plans.
-- Prefer the current source of truth in code over older notes or plans.
+## Git Workflow
+
+- Update `CHANGELOG.md` in the same commit as code changes.
+- Reference `.agent/CONTINUITY.md` for active development history and decisions.
+- Before editing any symbol, run `impact({target: "symbolName", direction: "upstream"})` to assess blast radius.
+- Before committing, run `detect_changes()` to verify changes affect only expected symbols.
 
 ## DuckDB Data Files
 
-The persistent `.duckdb` databases live under `duckdb_data/` (and a few at the
-repo root: `process_logs.duckdb`, `data/blocklist.duckdb`). They use DuckDB's
-native **single-writer** format. To read them from any process other than the
-running server, open them `READ_ONLY` — never read-write — or you will block on
-the writer's lock. See `duckdb_data/AGENTS.md` for the exact CLI/Python
-commands and rules.
+Persistent `.duckdb` databases use DuckDB's **single-writer** format.
+Read from any process other than the running server **MUST** be `READ_ONLY`.
+See `duckdb_data/AGENTS.md` for inventory, CLI exploration commands, and
+read-only access patterns.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (7635 symbols, 12844 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (8279 symbols, 13632 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

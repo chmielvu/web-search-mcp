@@ -508,9 +508,10 @@ async def _per_item_summary(
 
     model_id = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
     try:
+        content_text = item.get("page_content") or ""
         summary, _ = await _generate_summary(
             model_id=model_id,
-            source_text="",
+            source_text=content_text[:30_000],
             source_urls=[source_url],
             mode=mode,
             focus_query=focus_query,

@@ -7,6 +7,7 @@ Tier 2: Generic extraction stages (Jina -> Crawl4AI /md -> local BS4 -> Camoufox
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import replace
 
@@ -27,6 +28,20 @@ from ..telemetry import record_content_error
 from .stages import _fetch_via_camoufox, _fetch_via_crawl4ai, _fetch_via_jina, _fetch_via_local
 
 LOGGER = logging.getLogger(__name__)
+
+# Rewrite github.com/<owner>/<repo>/blob/<ref>/<path> to raw.githubusercontent.com
+# before Tier 1/Tier 2 dispatch so Jina/Crawl4AI fetch raw file content, not
+# the GitHub HTML chrome page.
+_GITHUB_BLOB_RE = re.compile(r"^https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
+
+
+def _rewrite_github_blob_to_raw(url: str) -> str:
+    m = _GITHUB_BLOB_RE.match(url)
+    if m:
+        owner, repo, ref, path = m.groups()
+        return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
+    return url
+
 
 _content_tracer = trace.get_tracer("kindly_web_search_mcp_server.content.fetch_pipeline")
 
@@ -71,6 +86,10 @@ async def fetch_content_artifact(
     Tier 2 — Generic extraction (any URL):
       Jina Reader -> Crawl4AI remote POST /md -> local BS4 (conditional) -> Camoufox last-resort
     """
+    # GitHub blob URLs -> raw.githubusercontent.com so Jina/Crawl4AI fetch
+    # raw content, not the GitHub HTML chrome page.
+    url = _rewrite_github_blob_to_raw(url)
+
     with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
         span.set_attribute("content.url", url)
 
@@ -143,25 +162,20 @@ async def fetch_content_artifact(
                 LOGGER.warning("Camoufox failed for %s: %s", url, exc)
                 record_content_error(stage="camoufox_remote", url=url, error_type="camoufox_failed")
 
-        # Select best available artifact
-        artifact: ContentArtifact = (
-            jina_artifact
-            or c4a_artifact
-            or local_artifact
-            or camoufox_artifact
-            or ContentArtifact(
-                input_url=url,
-                normalized_url=canonicalize_url(url),
-                fetched_url=None,
-                status="blocked",
-                source_type="web",
-                fetch_backend="all_failed",
-                content_type=None,
-                markdown="",
-                error=ContentError(
-                    code="all_stages_failed", message="All extraction stages failed"
-                ),
-            )
+        artifacts = (jina_artifact, c4a_artifact, local_artifact, camoufox_artifact)
+        artifact = next((item for item in artifacts if item and item.status == "success"), None)
+        if artifact is None:
+            artifact = next((item for item in artifacts if item is not None), None)
+        artifact = artifact or ContentArtifact(
+            input_url=url,
+            normalized_url=canonicalize_url(url),
+            fetched_url=None,
+            status="blocked",
+            source_type="web",
+            fetch_backend="all_failed",
+            content_type=None,
+            markdown="",
+            error=ContentError(code="all_stages_failed", message="All extraction stages failed"),
         )
 
         # Entity extraction hook: after clean markdown, before return to caller.

@@ -30,7 +30,7 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
             )
 
         with patch(
-            "kindly_web_search_mcp_server.content.batch_orchestrator.fetch_content_artifact",
+            "kindly_web_search_mcp_server.content.fetch_pipeline.fetch_content_artifact",
             new=AsyncMock(side_effect=_fake_fetch),
         ):
             output = await run_batch_fetch(
@@ -49,7 +49,7 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Continue at offset", output["results"][0]["window"]["continuation_notice"])
 
         with patch(
-            "kindly_web_search_mcp_server.content.batch_orchestrator.fetch_content_artifact",
+            "kindly_web_search_mcp_server.content.fetch_pipeline.fetch_content_artifact",
             new=AsyncMock(side_effect=_fake_fetch),
         ):
             next_output = await run_batch_fetch(
@@ -73,7 +73,7 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.05)
 
         with patch(
-            "kindly_web_search_mcp_server.content.batch_orchestrator.fetch_content_artifact",
+            "kindly_web_search_mcp_server.content.fetch_pipeline.fetch_content_artifact",
             new=AsyncMock(side_effect=_slow_fetch),
         ):
             output = await run_batch_fetch(

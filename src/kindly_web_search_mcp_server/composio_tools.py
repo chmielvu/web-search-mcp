@@ -13,6 +13,7 @@ from .models import (
     SimilarLinksResponse,
 )
 from .tools.catalog import tool_kwargs
+from .errors import format_tool_error
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
 WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
@@ -95,14 +96,16 @@ def register_composio_tools(mcp: Any) -> None:
         """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
         Use get_content on selected links when page text is needed.
         """
-        await ctx.info(f"Finding similar links for: {url[:80]}...")
-        response = await _composio_similarlinks_impl(
-            url,
-            num_results,
-            search_type,
-            category,
-            include_domains,
-            exclude_domains,
-        )
+        try:
+            response = await _composio_similarlinks_impl(
+                url,
+                num_results,
+                search_type,
+                category,
+                include_domains,
+                exclude_domains,
+            )
+        except Exception as exc:
+            return format_tool_error(exc, provider="composio")
         await ctx.info(f"Found {response.total_results} similar links")
         return response.model_dump(exclude_none=True)

@@ -9,6 +9,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
+from ...utils.url_canonicalize import extract_domain_from_url
 
 TResponse = TypeVar("TResponse")
 
@@ -25,6 +26,7 @@ def _attach_provider_name(
         result.model_copy(
             update={
                 "providers": sorted({*(result.providers or []), provider_name}),
+                "domain": result.domain or extract_domain_from_url(result.link),
             }
         )
         for result in results

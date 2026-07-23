@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -63,50 +64,56 @@ class HFCircuitBreaker:
         self._last_failure_time: float = 0.0
         self._state: str = "closed"  # closed, open, half_open
         self._half_open_success: bool = False
+        self._half_open_probe_claimed = False
+        self._lock = threading.Lock()
 
     def is_open(self) -> bool:
         """Check if circuit is open (calls should be blocked)."""
-        if self._state == "closed":
-            return False
-
-        if self._state == "open":
-            # Check if recovery timeout elapsed
-            elapsed = time.time() - self._last_failure_time
-            if elapsed >= self.RECOVERY_TIMEOUT_SECONDS:
+        with self._lock:
+            if self._state == "closed":
+                return False
+            if self._state == "open":
+                elapsed = time.time() - self._last_failure_time
+                if elapsed < self.RECOVERY_TIMEOUT_SECONDS:
+                    return True
                 LOGGER.info("Circuit breaker entering HALF_OPEN state after recovery timeout")
                 self._state = "half_open"
                 self._half_open_success = False
-                return False  # Allow one test call
+                self._half_open_probe_claimed = False
+            if self._state == "half_open":
+                if self._half_open_probe_claimed:
+                    return True
+                self._half_open_probe_claimed = True
+                return False
             return True
-
-        # half_open: allow one test call
-        return self._half_open_success
 
     def record_success(self) -> None:
         """Record successful call, reset circuit."""
-        if self._state == "half_open":
-            LOGGER.info("Circuit breaker test call succeeded, returning to CLOSED")
+        with self._lock:
+            if self._state == "half_open":
+                LOGGER.info("Circuit breaker test call succeeded, returning to CLOSED")
             self._half_open_success = True
-
-        self._failure_count = 0
-        self._state = "closed"
+            self._half_open_probe_claimed = False
+            self._failure_count = 0
+            self._state = "closed"
 
     def record_failure(self) -> None:
         """Record failed call, potentially open circuit."""
-        self._failure_count += 1
-        self._last_failure_time = time.time()
-
-        if self._state == "half_open":
-            LOGGER.warning("Circuit breaker test call failed, returning to OPEN")
-            self._state = "open"
-            return
-
-        if self._failure_count >= self.FAILURE_THRESHOLD:
-            LOGGER.warning(
-                f"Circuit breaker OPENED after {self._failure_count} consecutive failures. "
-                f"Will auto-recover in {self.RECOVERY_TIMEOUT_SECONDS}s"
-            )
-            self._state = "open"
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.time()
+            self._half_open_probe_claimed = False
+            if self._state == "half_open":
+                LOGGER.warning("Circuit breaker test call failed, returning to OPEN")
+                self._state = "open"
+                return
+            if self._failure_count >= self.FAILURE_THRESHOLD:
+                LOGGER.warning(
+                    "Circuit breaker OPENED after %s consecutive failures. Will auto-recover in %ss",
+                    self._failure_count,
+                    self.RECOVERY_TIMEOUT_SECONDS,
+                )
+                self._state = "open"
 
     def get_state(self) -> str:
         """Get current circuit state for telemetry."""

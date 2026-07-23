@@ -195,6 +195,7 @@ async def _rewrite_queries(
         ],
         response_model=_RewriteQueries,
         timeout_seconds=20.0,
+        operation="rewrite",
     )
     parsed = _RewriteQueries.model_validate_json(generation.content)
     metadata = {

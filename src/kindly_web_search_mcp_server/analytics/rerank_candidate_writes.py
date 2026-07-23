@@ -30,6 +30,7 @@ _RERANK_CANDIDATE_COLUMNS = [
     "hybrid_rrf_score",
     "recency_boost",
     "entity_overlap_score",
+    "survived",
     "diversity_removed",
     "payload_json",
 ]
@@ -48,13 +49,24 @@ def insert_rerank_candidate_rows_batch(
     path.parent.mkdir(parents=True, exist_ok=True)
     placeholders = ", ".join("?" for _ in _RERANK_CANDIDATE_COLUMNS)
     col_list = ", ".join(_RERANK_CANDIDATE_COLUMNS)
-    values = [
-        [
-            row.get(column) if column != "payload_json" else json.dumps(row.get(column) or {})
-            for column in _RERANK_CANDIDATE_COLUMNS
-        ]
-        for row in rows
-    ]
+    values = []
+    for row in rows:
+        normalized = dict(row)
+        normalized.setdefault(
+            "survived",
+            row.get("rank_after") is not None,
+        )
+        normalized["diversity_removed"] = bool(row.get("diversity_removed", False))
+        values.append(
+            [
+                (
+                    normalized.get(column)
+                    if column != "payload_json"
+                    else json.dumps(normalized.get(column) or {})
+                )
+                for column in _RERANK_CANDIDATE_COLUMNS
+            ]
+        )
 
     with _LOCK:
         connection = duckdb.connect(str(path))

@@ -80,6 +80,7 @@ async def fetch_with_jina_reader(url: str, *, timeout_seconds: float = 25.0) -> 
                     )
                 auth_headers = dict(base_headers)
                 auth_headers["Authorization"] = f"Bearer {api_key}"
+                auth_headers["X-Respond-With"] = "readerlm-v2"
                 response = await client.get(endpoint, headers=auth_headers)
 
             response.raise_for_status()

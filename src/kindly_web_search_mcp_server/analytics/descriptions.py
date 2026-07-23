@@ -44,10 +44,6 @@ _TAB_DESCRIPTIONS: dict[str, str] = {
 
 _OBJECT_DESCRIPTIONS: dict[str, str] = {
     # Raw tables
-    "search_events": (
-        "The raw event log. Every telemetry event the MCP server records is "
-        "appended here as a row with a JSON payload."
-    ),
     "eval_runs": (
         "Metadata for each eval suite run — which suite was used, who ran it, "
         "which dataset, and any notes."

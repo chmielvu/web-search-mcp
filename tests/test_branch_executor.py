@@ -1,299 +1,190 @@
+"""Concurrency semantics for `search.retrieval.retrieve_branches`.
+
+Migration note (2026-07-22): the prior tests referenced the deleted
+`search.branch_executor.ProviderExecutionPlan` /
+`branch_executor.execute_search_branches` API and asserted on the
+`BranchExecutionBatch.result_lists` /
+`BranchExecutionBatch.provider_options_by_name` shape. Both the module and
+those shapes were replaced by `search.retrieval.retrieve_branches()`,
+`search.contracts.QueryBranch`, and `search.contracts.BranchOutcome` in the
+2026-07-20 safe-refactor. These tests now patch
+`retrieval._call_provider` (the per-provider seam) and assert on the
+`BranchOutcome` / `DiagnosticsCollector` surface exposed by the current
+code.
+
+Pattern follows `tests/test_retrieval_budget.py` (canonical migration
+reference): builds a `SearchRun` via `SimpleNamespace` since
+`retrieve_branches` only reads `run.plan.branches`,
+`run.plan.provider_arguments`, `run.diagnostics`, `run.outcomes`, and
+`run.run_key` — none of which require a real `SearchPlan` instance.
+"""
+
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+import time
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from kindly_web_search_mcp_server.models import WebSearchResult
+from kindly_web_search_mcp_server.search import retrieval
+from kindly_web_search_mcp_server.search.contracts import (
+    BranchOutcome,
+    BranchRole,
+    DiagnosticsCollector,
+    QueryBranch,
+)
 
 
-def _build_provider_plan():
-    from kindly_web_search_mcp_server.search.options import SearchOptions
-    from kindly_web_search_mcp_server.search.provider_options import (
-        ProviderOptionBundle,
-        ProviderOptionSet,
-    )
-    from kindly_web_search_mcp_server.search.provider_plan import ProviderExecutionPlan
-
-    bundles = {
-        "searxng": ProviderOptionBundle(provider_name="searxng"),
-        "brave": ProviderOptionBundle(provider_name="brave"),
-    }
-    return ProviderExecutionPlan(
-        intent="general",
-        policy_version="1.0",
-        provider_names=("searxng", "brave"),
-        search_options=SearchOptions(),
-        options=ProviderOptionSet(bundles=bundles),
-    )
-
-
-def test_execute_search_branches_caps_concurrency_and_carries_metadata() -> None:
-    from kindly_web_search_mcp_server.models import WebSearchResult
-    from kindly_web_search_mcp_server.search.branch_executor import (
-        SearchBranchSpec,
-        execute_search_branches,
+def _result(provider: str, title: str, snippet: str = "snippet") -> WebSearchResult:
+    return WebSearchResult(
+        title=title,
+        link=f"https://{provider}.example/{title.replace(' ', '-')}",
+        snippet=snippet,
+        providers=[provider],
+        provider_count=1,
     )
 
-    async def _run() -> None:
-        provider_plan = _build_provider_plan()
-        started = asyncio.Event()
-        release = asyncio.Event()
-        active = 0
-        peak = 0
-        captured_calls: list[dict] = []
 
-        async def _mock_dispatch(
-            query: str,
-            providers: list,
-            http_client,
-            *,
-            num_results: int,
-            deadline_seconds: float,
-            search_options=None,
-            provider_options_by_name=None,
-            run_key=None,
-        ) -> list:
-            nonlocal active, peak
-            captured_calls.append(
-                {
-                    "query": query,
-                    "num_results": num_results,
-                    "provider_options_by_name": provider_options_by_name,
-                }
-            )
-            active += 1
-            peak = max(peak, active)
-            if peak >= 2:
-                started.set()
-            await release.wait()
-            active -= 1
-            return [
-                WebSearchResult(
-                    title=query,
-                    link=f"https://example.com/{query.replace(' ', '-')}",
-                    snippet=query,
-                    providers=["searxng"],
-                )
-            ]
-
-        with patch(
-            "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
-            side_effect=_mock_dispatch,
-        ):
-            task = asyncio.create_task(
-                execute_search_branches(
-                    [
-                        SearchBranchSpec(
-                            index=0,
-                            intent="general",
-                            query="branch one",
-                            branch_type="related",
-                            weight=1.2,
-                            providers=["searxng"],
-                            provider_options_by_name=provider_plan.options.bundles,
-                            max_results=2,
-                            reason="first",
-                        ),
-                        SearchBranchSpec(
-                            index=1,
-                            intent="general",
-                            query="branch two",
-                            branch_type="comparative",
-                            weight=0.9,
-                            providers=["brave"],
-                            provider_options_by_name=provider_plan.options.bundles,
-                            max_results=2,
-                            reason="second",
-                        ),
-                        SearchBranchSpec(
-                            index=2,
-                            intent="general",
-                            query="branch three",
-                            branch_type="entity_expanded",
-                            weight=0.8,
-                            providers=None,
-                            provider_options_by_name=provider_plan.options.bundles,
-                            max_results=2,
-                            reason="third",
-                        ),
-                    ],
-                    http_client=None,  # type: ignore[arg-type]
-                    search_options=None,
-                    provider_plan=provider_plan,
-                    max_concurrency=2,
-                )
-            )
-
-            await asyncio.wait_for(started.wait(), timeout=1.0)
-            assert peak == 2
-            release.set()
-            batch = await asyncio.wait_for(task, timeout=1.0)
-
-        assert [c["query"] for c in captured_calls] == [
-            "branch one",
-            "branch two",
-            "branch three",
-        ]
-        assert batch.branch_queries == ["branch one", "branch two", "branch three"]
-        assert batch.branch_metadata[0]["branch_index"] == 0
-        assert batch.branch_metadata[1]["branch_type"] == "comparative"
-        assert batch.branch_metadata[2]["branch_result_count"] == 1
-        assert captured_calls[0]["provider_options_by_name"]["searxng"].provider_name == "searxng"
-
-    asyncio.run(_run())
-
-
-def test_execute_search_branches_all_branches_return_results_regardless_of_slowness() -> None:
-    from kindly_web_search_mcp_server.models import WebSearchResult
-    from kindly_web_search_mcp_server.search.branch_executor import (
-        SearchBranchSpec,
-        execute_search_branches,
+def _branch(*providers: str, role: BranchRole = BranchRole.ORIGINAL_FREE) -> QueryBranch:
+    return QueryBranch(
+        role=role,
+        query="legacy branch executor contract",
+        provider_names=providers,
+        why="test",
+        support_terms=(),
+        max_results=5,
     )
 
-    async def _run() -> None:
-        provider_plan = _build_provider_plan()
 
-        async def _mock_dispatch(
-            query: str,
-            providers: list,
-            http_client,
-            *,
-            num_results: int,
-            deadline_seconds: float,
-            search_options=None,
-            provider_options_by_name=None,
-            run_key=None,
-            branch_index=None,
-            branch_attempt_id=None,
-            tool_call_id=None,
-        ) -> list:
-            if query == "slow branch":
-                await asyncio.sleep(0.2)
-                return [
-                    WebSearchResult(
-                        title="slow branch",
-                        link="https://example.com/slow-branch",
-                        snippet="slow branch",
-                        providers=["searxng"],
-                    )
-                ]
-            return [
-                WebSearchResult(
-                    title="fast branch",
-                    link="https://example.com/fast-branch",
-                    snippet="fast branch",
-                    providers=["searxng"],
-                )
-            ]
-
-        with patch(
-            "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
-            side_effect=_mock_dispatch,
-        ):
-            batch = await execute_search_branches(
-                [
-                    SearchBranchSpec(
-                        index=0,
-                        intent="general",
-                        query="slow branch",
-                        branch_type="related",
-                        weight=1.0,
-                        providers=["searxng"],
-                        provider_options_by_name=provider_plan.options.bundles,
-                        max_results=2,
-                        reason="slow",
-                    ),
-                    SearchBranchSpec(
-                        index=1,
-                        intent="general",
-                        query="fast branch",
-                        branch_type="related",
-                        weight=1.0,
-                        providers=["searxng"],
-                        provider_options_by_name=provider_plan.options.bundles,
-                        max_results=2,
-                        reason="fast",
-                    ),
-                ],
-                http_client=None,  # type: ignore[arg-type]
-                search_options=None,
-                provider_plan=provider_plan,
-                max_concurrency=2,
-                deadline_seconds=0.01,
-            )
-
-        assert batch.branch_queries == ["slow branch", "fast branch"]
-        # With the double-deadline fix, the "slow branch" (0.2s) still finishes
-        # — dispatch_providers is the sole deadline enforcer now.
-        assert [result.title for result in batch.result_lists[0]] == ["slow branch"]
-        assert [result.title for result in batch.result_lists[1]] == ["fast branch"]
-
-    asyncio.run(_run())
-
-
-def test_execute_search_branches_keeps_provider_partials_after_inner_deadline() -> None:
-    from kindly_web_search_mcp_server.models import WebSearchResult
-    from kindly_web_search_mcp_server.search import branch_executor
-    from kindly_web_search_mcp_server.search.branch_executor import (
-        SearchBranchSpec,
-        execute_search_branches,
+def _make_run(branches: QueryBranch | tuple[QueryBranch, ...]) -> Any:
+    if isinstance(branches, QueryBranch):
+        branches = (branches,)
+    return SimpleNamespace(
+        plan=SimpleNamespace(branches=tuple(branches), provider_arguments={}),
+        request=SimpleNamespace(options=None),
+        http_client=None,
+        run_key="test-branch-executor",
+        diagnostics=DiagnosticsCollector(),
+        outcomes=(),
     )
 
-    async def _run() -> None:
-        provider_plan = _build_provider_plan()
-        captured_deadlines: list[float] = []
 
-        async def _mock_dispatch(
-            query: str,
-            providers: list,
-            http_client,
-            *,
-            num_results: int,
-            deadline_seconds: float,
-            search_options=None,
-            provider_options_by_name=None,
-            run_key=None,
-            branch_index=None,
-            branch_attempt_id=None,
-            tool_call_id=None,
-        ) -> list:
-            captured_deadlines.append(deadline_seconds)
-            await asyncio.sleep(0.005)
-            return [
-                WebSearchResult(
-                    title="partial branch",
-                    link="https://example.com/partial-branch",
-                    snippet="partial branch",
-                    providers=["searxng"],
-                )
-            ]
+@pytest.mark.asyncio
+async def test_retrieve_branches_two_providers_both_attempted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two-provider branch sees both provider names in
+    `attempted_provider_names` and both call_provider records in
+    `provider_calls`, in registration order.
+    """
+    monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 5.0)
 
-        with (
-            patch.object(branch_executor.settings, "provider_group_deadline_seconds", 0.01),
-            patch(
-                "kindly_web_search_mcp_server.search.branch_executor.dispatch_providers",
-                side_effect=_mock_dispatch,
-            ),
-        ):
-            batch = await execute_search_branches(
-                [
-                    SearchBranchSpec(
-                        index=0,
-                        intent="general",
-                        query="partial branch",
-                        branch_type="related",
-                        weight=1.0,
-                        providers=["searxng"],
-                        provider_options_by_name=provider_plan.options.bundles,
-                        max_results=2,
-                        reason="partial",
-                    )
-                ],
-                http_client=None,  # type: ignore[arg-type]
-                search_options=None,
-                provider_plan=provider_plan,
-                max_concurrency=1,
-            )
+    async def fast_call_provider(
+        _run: Any,
+        _branch: QueryBranch,
+        provider_name: str,
+        _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
+    ) -> tuple[str, list[WebSearchResult]]:
+        await asyncio.sleep(0)
+        return provider_name, [_result(provider_name, "ok")]
 
-        assert captured_deadlines == [0.01]
-        assert [result.title for result in batch.result_lists[0]] == ["partial branch"]
+    monkeypatch.setattr(retrieval, "_call_provider", fast_call_provider)
 
-    asyncio.run(_run())
+    run = _make_run(_branch("brave", "tavily"))
+    outcomes: tuple[BranchOutcome, ...] = await retrieval.retrieve_branches(
+        run, embedding_task=None
+    )
+
+    assert outcomes[0].branch.provider_names == ("brave", "tavily")
+    assert outcomes[0].attempted_provider_names == ("brave", "tavily")
+    assert [c["provider"] for c in outcomes[0].provider_calls] == ["brave", "tavily"]
+    assert [c["status"] for c in outcomes[0].provider_calls] == ["success", "success"]
+    assert [r.title for r in outcomes[0].results] == ["ok", "ok"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_branches_all_branches_return_results_regardless_of_slowness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two branches with different per-provider latencies both complete
+    within the budget and report their respective provider results.
+    """
+    monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 2.0)
+
+    async def varied(
+        _run: Any,
+        _branch: QueryBranch,
+        provider_name: str,
+        _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
+    ) -> tuple[str, list[WebSearchResult]]:
+        if provider_name == "slow":
+            await asyncio.sleep(0.05)
+        return provider_name, [_result(provider_name, f"{provider_name} branch")]
+
+    monkeypatch.setattr(retrieval, "_call_provider", varied)
+
+    fast = _branch("fast")
+    slow = _branch("slow")
+    run = _make_run((fast, slow))
+
+    started = time.monotonic()
+    outcomes = await retrieval.retrieve_branches(run, embedding_task=None)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0
+    assert outcomes[0].branch.provider_names == ("fast",)
+    assert outcomes[1].branch.provider_names == ("slow",)
+    assert [r.title for r in outcomes[0].results] == ["fast branch"]
+    assert [r.title for r in outcomes[1].results] == ["slow branch"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_branches_partial_results_preserved_across_budget_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A branch with one fast + one slow provider loses the slow provider
+    to the retrieve budget, but the fast provider's result is preserved on
+    the BranchOutcome and the slow one is recorded as incomplete in
+    `provider_calls`.
+    """
+    monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 0.1)
+
+    async def mixed(
+        _run: Any,
+        _branch: QueryBranch,
+        provider_name: str,
+        _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
+    ) -> tuple[str, list[WebSearchResult]]:
+        if provider_name == "fast":
+            await asyncio.sleep(0)
+            return provider_name, [_result("fast", "partial branch")]
+        try:
+            await asyncio.sleep(10.0)
+        except asyncio.CancelledError:
+            raise
+        raise AssertionError("slow provider was not cancelled")
+
+    monkeypatch.setattr(retrieval, "_call_provider", mixed)
+
+    run = _make_run(_branch("fast", "slow"))
+    outcomes = await retrieval.retrieve_branches(run, embedding_task=None)
+
+    # Fast provider's partial result survives.
+    assert [r.title for r in outcomes[0].results] == ["partial branch"]
+    # Both providers recorded: fast=success, slow=incomplete.
+    statuses = [c["status"] for c in outcomes[0].provider_calls]
+    assert statuses == ["success", "incomplete"]
+    # Diagnostics flag set.
+    assert run.diagnostics.enrichment["retrieve_budget_exceeded"] is True
+    # Slow provider carries a retrieve_budget error_type.
+    slow_call = next(c for c in outcomes[0].provider_calls if c["provider"] == "slow")
+    assert slow_call.get("error_type") == "retrieve_budget"

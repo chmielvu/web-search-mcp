@@ -187,3 +187,32 @@ def test_configure_logging_accepts_an_explicit_level(monkeypatch) -> None:
         root.handlers = original_handlers
         root.setLevel(original_level)
         os.environ.pop("LOG_LEVEL", None)
+
+
+def test_configure_logging_silences_tls_and_http2_chatter(monkeypatch) -> None:
+    """rustls / h2 / hyper_util / cookie_store must be WARNING-or-higher by default
+    so DEBUG runs don't drown in TLS handshake and HTTP/2 frame logs.
+    """
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.utils.logging._install_process_logging",
+        lambda: None,
+    )
+
+    previous_levels = {
+        name: logging.getLogger(name).level
+        for name in ("rustls", "h2", "hyper_util", "cookie_store")
+    }
+
+    try:
+        configure_logging(level=logging.DEBUG)
+
+        for name in ("rustls", "h2", "hyper_util", "cookie_store"):
+            assert logging.getLogger(name).level >= logging.WARNING, (
+                f"{name} logger must be silenced to WARNING-or-higher; "
+                f"got level={logging.getLogger(name).level}"
+            )
+    finally:
+        for name, level in previous_levels.items():
+            logging.getLogger(name).setLevel(level)
+        os.environ.pop("LOG_LEVEL", None)

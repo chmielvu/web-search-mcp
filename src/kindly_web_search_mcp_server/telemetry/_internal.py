@@ -210,8 +210,7 @@ class _OpenInferenceFilteringSpanExporter:
             s
             for s in spans
             if isinstance(getattr(s, "attributes", None) or {}, dict)
-            and (getattr(s, "attributes", {}) or {}).get(OPENINFERENCE_SPAN_KIND)
-            in self._ALLOWED
+            and (getattr(s, "attributes", {}) or {}).get(OPENINFERENCE_SPAN_KIND) in self._ALLOWED
         ]
         if filtered:
             return self._exporter.export(filtered)
@@ -264,7 +263,7 @@ def _probe_otlp_endpoint(
 
 __all__ = [
     "_LoggingExporterProxy",
-    "_OpenInferenceFilteringSpanProcessor",
+    "_OpenInferenceFilteringSpanExporter",
     "_get_prometheus_metric_reader",
     "_otel_sdk_version",
     "_probe_otlp_endpoint",

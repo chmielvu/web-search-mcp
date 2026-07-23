@@ -34,9 +34,17 @@ async def _call_provider(
     branch: QueryBranch,
     provider_name: str,
     embedding_task: Awaitable[Sequence[float]] | None,
+    *,
+    retrieve_deadline: float,
 ) -> tuple[str, Sequence[WebSearchResult] | BaseException]:
     definition = get_provider_definition(provider_name)
     adapter = get_provider_adapter(provider_name)
+    # Live budget only — do not trust catalog snapshot from import time.
+    provider_cap = settings.search_retrieve_budget_seconds
+    remaining = max(0.0, retrieve_deadline - time.monotonic())
+    timeout = min(provider_cap, remaining)
+    if timeout <= 0:
+        return provider_name, TimeoutError()
     try:
         result = await asyncio.wait_for(
             adapter(
@@ -47,7 +55,7 @@ async def _call_provider(
                 http_client=run.http_client,
                 query_embedding=embedding_task if definition.requires_embedding else None,
             ),
-            timeout=definition.default_timeout_seconds,
+            timeout=timeout,
         )
         normalized = [
             item.model_copy(update={"providers": sorted({*(item.providers or []), provider_name})})
@@ -189,6 +197,7 @@ async def retrieve_branches(
     tracer = get_tracer()
     retrieve_started = time.monotonic()
     retrieve_budget_seconds = settings.search_retrieve_budget_seconds
+    retrieve_deadline = time.monotonic() + retrieve_budget_seconds
 
     with tracer.start_as_current_span("search.retrieve") as span:
         span.set_attribute("search.run_key", run.run_key)
@@ -224,7 +233,9 @@ async def retrieve_branches(
                 ) -> tuple[str, Sequence[WebSearchResult] | BaseException, float]:
                     call_started = time.monotonic()
                     started_at[n] = call_started
-                    provider_name, value = await _call_provider(run, b, n, embedding_task)
+                    provider_name, value = await _call_provider(
+                        run, b, n, embedding_task, retrieve_deadline=retrieve_deadline
+                    )
                     return provider_name, value, (time.monotonic() - call_started) * 1000.0
 
                 task = asyncio.create_task(_invoke(), name=f"search.provider.{name}")

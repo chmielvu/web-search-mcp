@@ -76,7 +76,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         schema_result = asyncio.run(mcp.read_resource("analytics://schema"))
 
         self.assertIn("query_understanding", str(settings_result))
-        self.assertIn("search_events", str(schema_result))
+        self.assertIn("search_runs", str(schema_result))
 
     def test_features_status_reports_personal_enhanced_flags(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
@@ -380,8 +380,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.get_page_cache"
             ) as mock_get_page_cache,
         ):
-            mock_page_cache = MagicMock()
+            mock_page_cache = AsyncMock()
             mock_page_cache.lookup.return_value = None
+            mock_page_cache.alookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
@@ -398,9 +399,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
-        self.assertEqual(out["input_url"], "https://example.com")
-        self.assertEqual(out["normalized_url"], "https://example.com")
-        self.assertEqual(out["fetched_url"], "https://example.com/")
+        self.assertEqual(out["url"], "https://example.com/")
+        self.assertNotIn("input_url", out)
+        self.assertNotIn("normalized_url", out)
+        self.assertNotIn("fetched_url", out)
         self.assertEqual(out["source_type"], "html")
         self.assertEqual(out["fetch_backend"], "test")
         self.assertIn("page_content", out)
@@ -423,8 +425,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.get_page_cache"
             ) as mock_get_page_cache,
         ):
-            mock_page_cache = MagicMock()
+            mock_page_cache = AsyncMock()
             mock_page_cache.lookup.return_value = None
+            mock_page_cache.alookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
@@ -480,8 +483,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 "kindly_web_search_mcp_server.tools.content.get_page_cache"
             ) as mock_get_page_cache,
         ):
-            mock_page_cache = MagicMock()
+            mock_page_cache = AsyncMock()
             mock_page_cache.lookup.return_value = None
+            mock_page_cache.alookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
@@ -499,7 +503,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
             out = await tool_fn("https://example.com/file.pdf", ctx=mock_ctx)
 
-        self.assertEqual(out["input_url"], "https://example.com/file.pdf")
+        self.assertEqual(out["url"], "https://example.com/file.pdf")
         self.assertEqual(out["status"], "unsupported")
         self.assertEqual(out["error"]["code"], "pdf_extract_failed")
         self.assertEqual(out["window"]["total_chars"], 0)
@@ -523,8 +527,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 return_value=0.01,
             ),
         ):
-            mock_page_cache = MagicMock()
+            mock_page_cache = AsyncMock()
             mock_page_cache.lookup.return_value = None
+            mock_page_cache.alookup.return_value = None
             mock_page_cache.store = MagicMock()
             mock_get_page_cache.return_value = mock_page_cache
 
@@ -533,8 +538,68 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             out = await tool_fn("https://example.com", ctx=mock_ctx)
 
         self.assertEqual(out["status"], "error")
-        self.assertEqual(out["fetched_url"], None)
+        self.assertEqual(out["url"], "https://example.com")
         self.assertEqual(out["error"]["code"], "timeout")
+
+    async def test_batch_get_content_executes_local_summary_import(self) -> None:
+        """Regression: line-375 local import must resolve and create_batch_summaries must run.
+
+        Pre-fix, the local ``from ...content.summary_models import VALID_SUMMARY_MODES``
+        climbed above the package root and raised ``ImportError: attempted relative
+        import beyond top-level package`` before ``create_batch_summaries`` was
+        awaited. Patching the orchestrator and summary creator lets the wrapper
+        reach and complete the corrected import without real network calls.
+        """
+        from kindly_web_search_mcp_server.server import batch_get_content
+
+        mock_ctx = AsyncMock()
+        mock_ctx.info = AsyncMock()
+        mock_ctx.report_progress = AsyncMock()
+
+        fake_output = {
+            "results": [
+                {
+                    "input_url": "https://example.com",
+                    "normalized_url": "https://example.com",
+                    "fetched_url": "https://example.com/",
+                    "status": "success",
+                    "source_type": "html",
+                    "fetch_backend": "test",
+                    "content_type": "text/markdown",
+                    "page_content": "# Title\n\nHello",
+                    "window": {"total_chars": 14, "has_more": False},
+                }
+            ],
+            "total_requested": 1,
+            "total_returned": 1,
+            "total_chars_returned": 14,
+            "has_more": False,
+            "cursor": None,
+        }
+
+        with (
+            patch(
+                "kindly_web_search_mcp_server.tools.content.run_batch_fetch",
+                new_callable=AsyncMock,
+            ) as mock_run_batch,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.create_batch_summaries",
+                new_callable=AsyncMock,
+            ) as mock_summaries,
+        ):
+            mock_run_batch.return_value = fake_output
+            mock_summaries.return_value = [None]
+            tool_fn = (
+                batch_get_content.fn if hasattr(batch_get_content, "fn") else batch_get_content
+            )
+            out = await tool_fn(["https://example.com"], ctx=mock_ctx)
+
+        mock_run_batch.assert_awaited_once()
+        mock_summaries.assert_awaited_once()
+        self.assertEqual(out["total_requested"], 1)
+        self.assertEqual(out["total_returned"], 1)
+        self.assertEqual(out["results"][0]["status"], "success")
+        self.assertIn("Hello", out["results"][0]["page_content"])
 
     async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -643,7 +708,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(out["object_count"], 0)
         self.assertIn("objects", out)
 
-        self.assertIn("search_events", out["objects"])
+        self.assertIn("search_runs", out["objects"])
         self.assertIn("eval_cases", out["objects"])
 
     def test_warm_heavy_imports_loads_keyword_extract_and_router(self) -> None:

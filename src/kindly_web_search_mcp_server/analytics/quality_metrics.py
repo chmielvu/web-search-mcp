@@ -14,7 +14,6 @@ from .duckdb_store import (
     ensure_search_quality_tables,
     insert_search_quality_scores,
 )
-from .writers.connection import _LOCK
 
 
 def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str, object]:
@@ -41,119 +40,70 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
     path = _db_path(db_path)
     ensure_search_quality_tables(db_path=str(path))
 
-    with _LOCK:
-        con = duckdb.connect(str(path))
-        try:
-            # ── provider_overlap_rate ──────────────────────────────────────────
-            # Fraction of search_candidates with provider overlap.
-            row = con.execute(
-                """
-                SELECT
-                    CAST(SUM(CASE WHEN overlap_flag THEN 1 ELSE 0 END) AS DOUBLE)
-                    / NULLIF(COUNT(*), 0)
-                FROM search_candidates
-                WHERE run_key = ?
-                """,
-                [run_key],
-            ).fetchone()
-            provider_overlap_rate = row[0] if row else None
-
-            # ── domain_diversity_count & ratio from final_results ──────────────
-            row = con.execute(
-                "SELECT COUNT(DISTINCT domain) FROM final_results WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            domain_diversity_count = row[0] if row else None
-
-            row = con.execute(
-                "SELECT COUNT(*) FROM final_results WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            total_final_results = row[0] if row else None
-
-            domain_diversity_ratio = None
-            if (
-                domain_diversity_count is not None
-                and total_final_results is not None
-                and total_final_results > 0
-            ):
-                domain_diversity_ratio = domain_diversity_count / total_final_results
-
-            # ── rerank_compression_ratio ───────────────────────────────────────
-            row = con.execute(
-                """
-                SELECT
-                    CAST(SUM(input_count) AS DOUBLE)
-                    / NULLIF(SUM(output_count), 0)
-                FROM rerank_stages
-                WHERE run_key = ?
-                """,
-                [run_key],
-            ).fetchone()
-            rerank_compression_ratio = row[0] if row and row[0] is not None else None
-
-            # ── avg_rrf_score ──────────────────────────────────────────────────
-            row = con.execute(
-                "SELECT AVG(rrf_score) FROM search_candidates WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            avg_rrf_score = row[0] if row else None
-
-            # ── top_score from rerank_candidates ───────────────────────────────
-            row = con.execute(
-                "SELECT MAX(score_after) FROM rerank_candidates WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            top_score = row[0] if row else None
-
-            # ── p95_score (approximate quantile from rerank_candidates) ────────
-            row = con.execute(
-                """
-                SELECT approx_quantile(score_after, 0.95)
-                FROM rerank_candidates
-                WHERE run_key = ?
-                """,
-                [run_key],
-            ).fetchone()
-            p95_score = row[0] if row else None
-
-            # ── branch_count from search_branches ──────────────────
-            row = con.execute(
-                "SELECT COUNT(*) FROM search_branches WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            branch_count = row[0] if row else None
-
-            # ── provider_count ─────────────────────────────────────────────────
-            row = con.execute(
-                "SELECT COUNT(DISTINCT provider) FROM provider_calls WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            provider_count = row[0] if row else None
-
-            # ── total_candidates_input ─────────────────────────────────────────
-            row = con.execute(
-                "SELECT SUM(num_results_returned) FROM provider_calls WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            total_candidates_input = row[0] if row else None
-
-            # ── total_candidates_merged ────────────────────────────────────────
-            row = con.execute(
-                "SELECT COUNT(*) FROM search_candidates WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            total_candidates_merged = row[0] if row else None
-
-            # ── total_candidates_reranked ──────────────────────────────────────
-            row = con.execute(
-                "SELECT SUM(output_count) FROM rerank_stages WHERE run_key = ?",
-                [run_key],
-            ).fetchone()
-            total_candidates_reranked = row[0] if row else None
-
-        finally:
-            con.close()
+    con = duckdb.connect(str(path))
+    try:
+        row = con.execute(
+            """
+            SELECT CAST(SUM(CASE WHEN overlap_flag THEN 1 ELSE 0 END) AS DOUBLE)
+            / NULLIF(COUNT(*), 0)
+            FROM search_candidates WHERE run_key = ?
+            """,
+            [run_key],
+        ).fetchone()
+        provider_overlap_rate = row[0] if row else None
+        row = con.execute(
+            "SELECT COUNT(DISTINCT domain) FROM final_results WHERE run_key = ?", [run_key]
+        ).fetchone()
+        domain_diversity_count = row[0] if row else None
+        row = con.execute(
+            "SELECT COUNT(*) FROM final_results WHERE run_key = ?", [run_key]
+        ).fetchone()
+        total_final_results = row[0] if row else None
+        domain_diversity_ratio = (
+            domain_diversity_count / total_final_results
+            if domain_diversity_count is not None and total_final_results
+            else None
+        )
+        row = con.execute(
+            "SELECT CAST(SUM(input_count) AS DOUBLE) / NULLIF(SUM(output_count), 0) FROM rerank_stages WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        rerank_compression_ratio = row[0] if row and row[0] is not None else None
+        row = con.execute(
+            "SELECT AVG(rrf_score) FROM search_candidates WHERE run_key = ?", [run_key]
+        ).fetchone()
+        avg_rrf_score = row[0] if row else None
+        row = con.execute(
+            "SELECT MAX(score_after) FROM rerank_candidates WHERE run_key = ?", [run_key]
+        ).fetchone()
+        top_score = row[0] if row else None
+        row = con.execute(
+            "SELECT approx_quantile(score_after, 0.95) FROM rerank_candidates WHERE run_key = ?",
+            [run_key],
+        ).fetchone()
+        p95_score = row[0] if row else None
+        row = con.execute(
+            "SELECT COUNT(*) FROM search_branches WHERE run_key = ?", [run_key]
+        ).fetchone()
+        branch_count = row[0] if row else None
+        row = con.execute(
+            "SELECT COUNT(DISTINCT provider) FROM provider_calls WHERE run_key = ?", [run_key]
+        ).fetchone()
+        provider_count = row[0] if row else None
+        row = con.execute(
+            "SELECT SUM(num_results_returned) FROM provider_calls WHERE run_key = ?", [run_key]
+        ).fetchone()
+        total_candidates_input = row[0] if row else None
+        row = con.execute(
+            "SELECT COUNT(*) FROM search_candidates WHERE run_key = ?", [run_key]
+        ).fetchone()
+        total_candidates_merged = row[0] if row else None
+        row = con.execute(
+            "SELECT SUM(output_count) FROM rerank_stages WHERE run_key = ?", [run_key]
+        ).fetchone()
+        total_candidates_reranked = row[0] if row else None
+    finally:
+        con.close()
 
     # ── Build return dict with native Python types ──────────────────────
     metrics: dict[str, object] = {

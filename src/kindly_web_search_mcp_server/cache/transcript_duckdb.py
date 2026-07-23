@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import uuid
@@ -23,6 +24,7 @@ import duckdb
 TRANSCRIPT_CACHE_DEFAULT_TTL_SECONDS = int(
     os.environ.get("TRANSCRIPT_CACHE_TTL_SECONDS", "2592000")  # 30 days
 )
+logger = logging.getLogger(__name__)
 
 
 class TranscriptDuckDBCache:
@@ -67,8 +69,8 @@ class TranscriptDuckDBCache:
             con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_transcript_cache_key ON transcript_cache(cache_key)"
             )
-        except Exception:
-            pass
+        except duckdb.Error as exc:
+            logger.warning("Transcript cache index creation failed: %s", exc)
 
     def _compute_cache_key(
         self,

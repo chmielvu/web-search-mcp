@@ -152,7 +152,6 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     def grok_search() -> str:
         return "ok"
 
-
     apply_tool_profile(mcp, "regular")
 
     tool_names = {tool.name for tool in asyncio.run(mcp.list_tools())}

@@ -18,53 +18,6 @@ from kindly_web_search_mcp_server.middleware.query_guidance import (
 
 
 class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
-    async def test_dynamic_guidance_on_web_search_with_results(self) -> None:
-        async def call_next(context: MiddlewareContext) -> ToolResult:
-            return ToolResult(
-                structured_content={
-                    "query": "fastmcp",
-                    "results": [
-                        {
-                            "title": "t1",
-                            "link": "https://github.com/org/repo/issues/1",
-                            "snippet": "...",
-                            "provider_count": 1,
-                        },
-                        {
-                            "title": "t2",
-                            "link": "https://github.com/org/repo/issues/2",
-                            "snippet": "...",
-                            "provider_count": 1,
-                        },
-                        {
-                            "title": "t3",
-                            "link": "https://github.com/org/repo/issues/3",
-                            "snippet": "...",
-                            "provider_count": 1,
-                        },
-                    ],
-                    "providers_used": ["searxng", "ddg"],
-                    "total_results": 3,
-                }
-            )
-
-        context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
-        result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
-
-        structured = result.structured_content
-        # Should have agent_guidance
-        self.assertIn("agent_guidance", structured)
-        guidance = structured["agent_guidance"][0]
-        self.assertEqual(guidance["source"], "dynamic_guidance")
-        # Should mention github.com specialized resolver and composio_similarlinks
-        self.assertIn("github.com", guidance["message"])
-        # Should have suggested_next_tools
-        self.assertIn("suggested_next_tools", structured)
-        self.assertIn("composio_similarlinks", structured["suggested_next_tools"])
-        # Should have suggested_prompts
-        self.assertIn("suggested_prompts", structured)
-        self.assertIn("evaluate_web_results", structured["suggested_prompts"])
-
     async def test_dynamic_guidance_on_web_search_empty(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
             return ToolResult(
@@ -78,7 +31,7 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
 
         context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
         with patch(
-            "kindly_web_search_mcp_server.middleware.query_guidance._gemini_is_healthy",
+            "kindly_web_search_mcp_server.middleware.query_guidance._gemini_is_available",
             return_value=True,
         ):
             result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)

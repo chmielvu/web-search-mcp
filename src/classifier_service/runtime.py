@@ -225,7 +225,6 @@ class GLiNER2Runtime:
                     if description:
                         kwargs["description"] = description
                     struct_schema = struct_schema.field(field_name, **kwargs)
-                schema = struct_schema
 
         if not any([entities, classification, structures]):
             raise ValueError("combined extraction requires entities, classification, or structures")

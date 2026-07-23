@@ -41,6 +41,6 @@ async def fetch_grok_search_payload(
         excluded_domains=excluded_domains,
         timeout=timeout,
     )
-    payload = result.__dict__.copy()
+    payload = result.model_dump()
     payload.setdefault("error", None)
     return payload

@@ -86,98 +86,18 @@ def _install_logging() -> None:
 
 
 def _patch_pipeline_module() -> None:
-    """Patch pipeline module namespace so timing wraps the real calls."""
-    import kindly_web_search_mcp_server.search.pipeline as _pipe
-
-    # --- build_search_response ---
-    _orig_build = _pipe.build_search_response
-
-    def _wrapped_build(*args, **kwargs):
-        _mark("build_search_response", "ENTER")
-        result = _orig_build(*args, **kwargs)
-        _mark("build_search_response", "EXIT")
-        return result
-
-    _pipe.build_search_response = _wrapped_build
-
-    # --- record_search_request ---
-    _orig_record = _pipe.record_search_request
-
-    def _wrapped_record(*args, **kwargs):
-        _mark("record_search_request", "ENTER")
-        _orig_record(*args, **kwargs)
-        _mark("record_search_request", "EXIT")
-
-    _pipe.record_search_request = _wrapped_record
-
-    # --- append_query_outcome_record ---
-    _orig_append = _pipe.append_query_outcome_record
-
-    async def _wrapped_append(*args, **kwargs):
-        _mark("append_query_outcome_record", "ENTER")
-        await _orig_append(*args, **kwargs)
-        _mark("append_query_outcome_record", "EXIT")
-
-    _pipe.append_query_outcome_record = _wrapped_append
-
-    # --- analytics_insert_search_run ---
-    _orig_insert_run = _pipe.analytics_insert_search_run
-
-    def _wrapped_insert_run(*args, **kwargs):
-        _mark("analytics_insert_search_run", "ENTER")
-        _orig_insert_run(*args, **kwargs)
-        _mark("analytics_insert_search_run", "EXIT")
-
-    _pipe.analytics_insert_search_run = _wrapped_insert_run
-
-    # --- analytics_insert_final_results ---
-    _orig_insert_final = _pipe.analytics_insert_final_results
-
-    def _wrapped_insert_final(*args, **kwargs):
-        _mark("analytics_insert_final_results", "ENTER")
-        _orig_insert_final(*args, **kwargs)
-        _mark("analytics_insert_final_results", "EXIT")
-
-    _pipe.analytics_insert_final_results = _wrapped_insert_final
-
-    # --- analytics_insert_pipeline_heartbeat ---
-    _orig_hb = _pipe.analytics_insert_pipeline_heartbeat
-
-    def _wrapped_hb(*args, **kwargs):
-        _mark("analytics_insert_pipeline_heartbeat", "ENTER")
-        _orig_hb(*args, **kwargs)
-        _mark("analytics_insert_pipeline_heartbeat", "EXIT")
-
-    _pipe.analytics_insert_pipeline_heartbeat = _wrapped_hb
-
-    # --- fire_and_forget ---
-    _orig_faf = _pipe.fire_and_forget
-
-    def _wrapped_faf(coro, *, name=None):
-        _mark("fire_and_forget", f"spawn name={name}")
-        return _orig_faf(coro, name=name)
-
-    _pipe.fire_and_forget = _wrapped_faf
-
-    # --- compute_search_quality (called by _compute_quality closure) ---
-    _orig_quality = _pipe.compute_search_quality
-
-    def _wrapped_quality(*args, **kwargs):
-        _mark("compute_search_quality", "ENTER")
-        _orig_quality(*args, **kwargs)
-        _mark("compute_search_quality", "EXIT")
-
-    _pipe.compute_search_quality = _wrapped_quality
-
-    # --- run_judge_evaluation (called by fire_and_forget) ---
-    _orig_judge = _pipe.run_judge_evaluation
-
-    async def _wrapped_judge(*args, **kwargs):
-        _mark("run_judge_evaluation", "ENTER")
-        await _orig_judge(*args, **kwargs)
-        _mark("run_judge_evaluation", "EXIT")
-
-    _pipe.run_judge_evaluation = _wrapped_judge
+    """No-op: the prior patcher wrapped 9 functions inside
+    `kindly_web_search_mcp_server.search.pipeline` (e.g. `build_search_response`,
+    `analytics_insert_search_run`, `fire_and_forget`, `run_judge_evaluation`)
+    for per-stage [MARK] timing. The pipeline module was deleted in the
+    2026-07-20 safe-refactor and those functions moved to new modules.
+    Remapping each patch path is outside the scope of this diagnostic
+    script; the script still operates as a pass-through pipeline-timing
+    probe via `_install_logging`, `_mark`, and the heartbeat around the
+    call itself.
+    """
+    _mark("patch_pipeline_module", "skipped (pipeline module deleted in 2026-07-20 refactor)")
+    return
 
 
 def _patch_embeddings_and_index() -> None:
@@ -236,9 +156,10 @@ async def _heartbeat() -> None:
 
 
 async def main(query: str, num_results: int) -> None:
-    from kindly_web_search_mcp_server.search.pipeline import run_search_pipeline
-    from kindly_web_search_mcp_server.search.options import SearchOptions
-    from kindly_web_search_mcp_server.utils.diagnostics import Diagnostics
+    import httpx
+
+    from kindly_web_search_mcp_server.search.contracts import WebSearchRequest
+    from kindly_web_search_mcp_server.search.service import execute_web_search
 
     _patch_pipeline_module()
     _patch_embeddings_and_index()
@@ -246,19 +167,22 @@ async def main(query: str, num_results: int) -> None:
 
     _mark("pipeline_call", f"query={query!r} num_results={num_results}")
 
+    request = WebSearchRequest(
+        query=query,
+        research_goal="probe pipeline timing",
+        num_results=15,
+        rewrite=True,
+    )
+
     # Start heartbeat alongside the pipeline
     hb = asyncio.create_task(_heartbeat())
 
-    response = await run_search_pipeline(
-        query=query,
-        num_results=num_results,
-        rewrite=True,
-        diagnostics=Diagnostics(request_id="probe", enabled=False),
-        research_goal=None,
-        search_options=SearchOptions(),
-        session_id=None,
-        tool_call_id=None,
-    )
+    async with httpx.AsyncClient() as client:
+        response = await execute_web_search(
+            request,
+            http_client=client,
+            run_key=f"probe-{int(time.time())}",
+        )
 
     _mark("pipeline_returned", f"results={len(response.results)}")
 

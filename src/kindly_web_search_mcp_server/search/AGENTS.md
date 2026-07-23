@@ -1,68 +1,55 @@
-# AGENTS.md - Search Application Service
+# AGENTS.md - Search
 
-This directory owns the shared MCP/CLI web-search pipeline.
+Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 19 providers.
 
-## Live Path
+## Key Files
 
-- `service.py` — `execute_web_search` and `run_search_core`; sole terminal owner.
-- `contracts.py` — strict boundary models plus immutable plan/outcome records.
-- `planning.py` — normalize, understand, enrich, rewrite, provider selection, target coverage.
-- `provider_registry.py` — immutable 19-provider definitions and adapters.
-- `retrieval.py` — structured branch/provider fanout with one phase-level retrieve budget.
-- `ranking.py` — blocklist, merge, BM25/rerank, global pagination, response.
-- `outcomes.py` — detached terminal snapshots and bounded shutdown drain.
-- `merge.py` — canonical deduplication and provider RRF.
-- `blocklist.py` — DuckDB-backed URL blocking; apply before every scoring stage.
-- `intent_policy.py` — intent-specialized providers, arguments, freshness, and RRF-k.
-
-MCP `tools/search.py` and CLI `cli/services/search_web.py` must both construct
-`WebSearchRequest` and call `execute_web_search`. Do not add orchestration to
-either adapter.
+| File | Role |
+|---|---|
+| `service.py` | `execute_web_search()` / `run_search_core()` — sole entry point |
+| `contracts.py` | Strict boundary models: `WebSearchRequest`, `SearchRun`, `QueryBranch`, `BranchOutcome` |
+| `planning.py` | Normalize, understand intent, rewrite, select providers, emit branches |
+| `retrieval.py` | Structured branch/provider fanout with budget management |
+| `ranking.py` | Blocklist, merge, BM25/rerank, diversity, final response |
+| `merge.py` | Canonical deduplication + RRF merge |
+| `outcomes.py` | Detached terminal snapshots for async persistence |
+| `blocklist.py` | DuckDB-backed URL blocking |
+| `provider_catalog.py` | Provider metadata definitions |
+| `provider_registry.py` | Adapter lookup for 19 providers |
+| `intent_policy.py` | Intent-specific providers, freshness, options, RRF-k |
+| `keyword_extract.py` | Rake/Keybert keyword extraction |
+| `providers/` | 27 files — one per provider adapter + base |
+| `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) |
 
 ## Contracts
 
 - `research_goal` is required and nonblank.
 - `num_results` is strictly 15–50; do not clamp invalid values.
-- `rewrite=False` skips only the rewrite LLM. Keyword extraction, Brave
-  Autosuggest, and Brave Spellcheck still run with independent 10-second bounds.
-- Planning emits at most 10 ordered branches and covers every target represented
-  by selected providers.
-- Provider assignment is only `branch.target in definition.targets`.
+- Planning emits at most 10 ordered branches, covering every target from selected providers.
+- Provider assignment: only `branch.target in definition.targets`.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
-- `rank_and_finalize` projects every non-None `RerankEmbeddingContext` into the diagnostics collector as both `candidate_embeddings` AND `query_embedding`; analytics `query_embeddings` persistence must remain non-zero on any rerank path that returned a context.
-- BM25 uses `SearchPlan.relevance_query` (normalized query plus research goal).
-  Neural reranking passes the normalized query and research goal separately so
-  the cross-encoder can use both while RankLLM receives the plain query only.
 - Pagination is global; providers receive retrieval depth, never result offset.
-- `execute_web_search` submits exactly one immutable success/error/cancelled
-  `SearchOutcome`; background tasks never receive the live `SearchRun`.
-- Provider-task cancellation drains are bounded with `cancel_and_drain_tasks`; shared query embeddings remain shielded and available to downstream ranking.
-
-## Providers
-
-Registry selection is ordered: all reachable free providers, reachable Bright
-Data plus one other paid SERP provider by locked round-robin, then only
-intent-selected reachable specialized providers. Credentials and disabled
-providers are checked during planning; every planned provider is attempted.
-
-Provider-specific option translation belongs in the provider adapter. Never
-reintroduce signature inspection, hard-coded branch provider sets, or silent
-option emulation.
-
-## Testing
-
-```powershell
-python -m pytest --basetemp=.pytest-tmp tests/test_provider_registry.py tests/test_bm25_rerank.py tests/test_search_service.py
-```
-
-Keep provider errors attributed and nonfatal when another provider returns
-usable rows. Caller cancellation must cancel and await every child task before
-being re-raised.
+- `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
 
 ## Cold-Start Import Warm-Up
 
-- `keyword_extract.py` keeps `rake_nltk` at module level (not lazy inside `_rake_extract`).
-- `llm/router.py` keeps `openai.resources.chat` pre-imported.
+- `keyword_extract.py` keeps `rake_nltk` at module level.
+- `llm/router.py` pre-imports `openai.resources.chat`.
 - `server.py:_warm_heavy_imports()` is called from `main()` before `mcp.run()`.
-- These prevent the Python global import lock from blocking the event loop
-  during the first tool call under stdio transport.
+- Reason: Prevents Python global import lock from blocking event loop during first stdio tool call.
+
+## LLM Run Attribution
+
+`tools/search.py::web_search` binds `_run_key_ctx` + `_operation_ctx` via
+`bind_run_context(tool_call_id, operation="web_search")` before calling
+`execute_web_search`. The `finally` block calls `reset_run_context`.
+Downstream planner, rewrite, query understanding, and judge calls inherit
+attribution through ContextVar lookups in `LLMRouter._complete`.
+
+## Testing
+
+```bash
+uv run pytest tests/test_provider_registry.py tests/test_bm25_rerank.py tests/test_search_service.py
+uv run pytest tests/test_search_orchestrator.py tests/test_search_contracts.py
+uv run pytest tests/test_search_ranking.py tests/test_search_planning_why.py
+```

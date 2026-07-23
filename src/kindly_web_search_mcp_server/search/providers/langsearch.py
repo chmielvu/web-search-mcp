@@ -66,7 +66,7 @@ async def search_langsearch(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    timeout = settings.langsearch_timeout_seconds
+    timeout = settings.search_retrieve_budget_seconds
 
     async def _request(client: httpx.AsyncClient) -> dict[str, Any]:
         response = await client.post(

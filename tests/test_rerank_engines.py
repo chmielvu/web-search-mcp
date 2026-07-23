@@ -160,7 +160,41 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["Snippet"], candidate.snippet)
         self.assertEqual(parsed["Providers"], ["cohere", "brave"])
 
-    def test_cohere_parsers_reject_incomplete_or_invalid_permutations(self) -> None:
+    def test_rerank_parsers_accept_partial_top_n_results(self) -> None:
+        """top_n is a cap: both APIs may return fewer than document_count."""
+        from kindly_web_search_mcp_server.rerank.cohere import (
+            _parse_rerank_results as parse_cohere,
+        )
+        from kindly_web_search_mcp_server.rerank.openrouter import (
+            _parse_rerank_results as parse_openrouter,
+        )
+
+        partial = {"results": [{"index": 1, "relevance_score": 0.91}]}
+        for parser in (parse_cohere, parse_openrouter):
+            with self.subTest(parser=parser.__module__):
+                ranked = parser(partial, 3)
+                self.assertEqual(ranked, [(1, 0.91)])
+
+    def test_rerank_parsers_clamp_out_of_range_scores(self) -> None:
+        from kindly_web_search_mcp_server.rerank.cohere import (
+            _parse_rerank_results as parse_cohere,
+        )
+        from kindly_web_search_mcp_server.rerank.openrouter import (
+            _parse_rerank_results as parse_openrouter,
+        )
+
+        payload = {
+            "results": [
+                {"index": 0, "relevance_score": -0.1},
+                {"index": 1, "relevance_score": 1.1},
+            ]
+        }
+        for parser in (parse_cohere, parse_openrouter):
+            with self.subTest(parser=parser.__module__):
+                ranked = parser(payload, 2)
+                self.assertEqual(ranked, [(0, 0.0), (1, 1.0)])
+
+    def test_rerank_parsers_reject_invalid_payloads(self) -> None:
         from kindly_web_search_mcp_server.rerank.cohere import (
             _parse_rerank_results as parse_cohere,
         )
@@ -169,17 +203,18 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
         )
 
         invalid_payloads = [
-            {"results": [{"index": 0, "relevance_score": 0.5}]},
+            {"results": []},  # empty when docs exist
+            {"results": "not-a-list"},
             {
                 "results": [
                     {"index": 0, "relevance_score": 0.5},
-                    {"index": 0, "relevance_score": 0.4},
+                    {"index": 0, "relevance_score": 0.4},  # duplicate
                 ]
             },
             {
                 "results": [
                     {"index": 0, "relevance_score": 0.5},
-                    {"index": 2, "relevance_score": 0.4},
+                    {"index": 2, "relevance_score": 0.4},  # OOB for count=2
                 ]
             },
             {
@@ -189,15 +224,11 @@ class TestRerankEngines(unittest.IsolatedAsyncioTestCase):
                 ]
             },
             {
+                # more results than documents
                 "results": [
-                    {"index": 0, "relevance_score": -0.1},
+                    {"index": 0, "relevance_score": 0.5},
                     {"index": 1, "relevance_score": 0.4},
-                ]
-            },
-            {
-                "results": [
-                    {"index": 0, "relevance_score": 1.1},
-                    {"index": 1, "relevance_score": 0.4},
+                    {"index": 2, "relevance_score": 0.3},
                 ]
             },
         ]

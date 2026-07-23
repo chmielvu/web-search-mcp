@@ -52,6 +52,12 @@ def drain_duckdb_writes(*, timeout: float = 10.0) -> None:
     wait(pending, timeout=timeout)
 
 
+def pending_duckdb_write_count() -> int:
+    """Return the number of tracked DuckDB write futures still outstanding."""
+    with _DUCKDB_WRITE_FUTURES_LOCK:
+        return len(_DUCKDB_WRITE_FUTURES)
+
+
 def _track_write_future(future: Future[None]) -> None:
     with _DUCKDB_WRITE_FUTURES_LOCK:
         _DUCKDB_WRITE_FUTURES.add(future)
@@ -102,5 +108,6 @@ def dispatch_duckdb_write(task_name: str, writer: Callable[[], None]) -> Future[
     async def _run_writer() -> None:
         await asyncio.wrap_future(future)
 
-    fire_and_forget(_run_writer(), name=task_name)
+    bg_name = task_name if task_name.startswith("analytics.") else f"analytics.{task_name}"
+    fire_and_forget(_run_writer(), name=bg_name)
     return future

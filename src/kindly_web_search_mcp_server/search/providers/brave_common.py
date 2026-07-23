@@ -55,9 +55,7 @@ def _bound_brave_query(query: str) -> str:
     return query
 
 
-_VALID_FRESHNESS_TOKENS: frozenset[str] = frozenset(
-    {"pd", "pw", "pm", "py"}
-)
+_VALID_FRESHNESS_TOKENS: frozenset[str] = frozenset({"pd", "pw", "pm", "py"})
 _BRAVE_FRESHNESS_MAP: dict[str, str] = {
     "day": "pd",
     "week": "pw",

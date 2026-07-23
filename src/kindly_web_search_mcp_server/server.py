@@ -36,7 +36,11 @@ from .tools.ai_search import gemini_search, grok_search
 from .tools.content import batch_get_content, discover_links, get_content
 from .tools.profiles import apply_tool_profile
 from .tools.catalog import tool_kwargs
-from .tools.prompts import query_refinement_prompt, research_methodology_prompt, web_search_workflow_prompt
+from .tools.prompts import (
+    query_refinement_prompt,
+    research_methodology_prompt,
+    web_search_workflow_prompt,
+)
 from .tools.resources import (
     get_analytics_report_resource,
     get_analytics_schema_resource,
@@ -156,13 +160,31 @@ mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 
 
 # Register resources
-mcp.resource("status://providers", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True})(get_providers_status_resource)
-mcp.resource("status://features", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True})(get_features_status_resource)
-mcp.resource("docs://workflow", tags={"docs", "help"}, annotations={"readOnlyHint": True})(get_workflow_doc_resource)
-mcp.resource("settings://public", tags={"config", "diagnostic"}, annotations={"readOnlyHint": True})(get_public_settings_resource)
-mcp.resource("analytics://schema", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_analytics_schema_resource)
-mcp.resource("analytics://candidate-survival", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_candidate_survival_resource)
-mcp.resource("analytics://reports/{report_name}{?days}", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True})(get_analytics_report_resource)
+mcp.resource(
+    "status://providers", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True}
+)(get_providers_status_resource)
+mcp.resource(
+    "status://features", tags={"status", "diagnostic"}, annotations={"readOnlyHint": True}
+)(get_features_status_resource)
+mcp.resource("docs://workflow", tags={"docs", "help"}, annotations={"readOnlyHint": True})(
+    get_workflow_doc_resource
+)
+mcp.resource(
+    "settings://public", tags={"config", "diagnostic"}, annotations={"readOnlyHint": True}
+)(get_public_settings_resource)
+mcp.resource(
+    "analytics://schema", tags={"analytics", "diagnostic"}, annotations={"readOnlyHint": True}
+)(get_analytics_schema_resource)
+mcp.resource(
+    "analytics://candidate-survival",
+    tags={"analytics", "diagnostic"},
+    annotations={"readOnlyHint": True},
+)(get_candidate_survival_resource)
+mcp.resource(
+    "analytics://reports/{report_name}{?days}",
+    tags={"analytics", "diagnostic"},
+    annotations={"readOnlyHint": True},
+)(get_analytics_report_resource)
 
 
 # Register prompts

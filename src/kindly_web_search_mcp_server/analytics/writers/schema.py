@@ -239,8 +239,14 @@ def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         recency_boost        DOUBLE,
         entity_overlap_score DOUBLE,
         survived             BOOLEAN NOT NULL,
+        diversity_removed    BOOLEAN NOT NULL DEFAULT FALSE,
         payload_json         JSON
         """,
+    )
+    _ensure_columns(
+        connection,
+        _RC_TABLE_NAME,
+        {"diversity_removed": "BOOLEAN"},
     )
 
 
@@ -274,6 +280,7 @@ def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
 # 8. query_embeddings — one row per run, stores the query embedding
 # ---------------------------------------------------------------------------
 def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
+    ensure_vss_loaded(connection)
     _create_table(
         connection,
         _QE_TABLE_NAME,
@@ -292,6 +299,7 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
 # 9. candidate_embeddings — one row per candidate per run
 # ---------------------------------------------------------------------------
 def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
+    ensure_vss_loaded(connection)
     _create_table(
         connection,
         _CE_TABLE_NAME,
@@ -516,24 +524,30 @@ def _ensure_judge_evaluations(
 # ---------------------------------------------------------------------------
 # vss extension — HNSW vector indexes on embedding tables
 # ---------------------------------------------------------------------------
-_vss_initialized = False
+_vss_installed = False
+
+
+def ensure_vss_loaded(connection: duckdb.DuckDBPyConnection) -> bool:
+    """Load vss extension and enable HNSW persistence on this connection."""
+    try:
+        connection.execute("LOAD vss;")
+        connection.execute("SET hnsw_enable_experimental_persistence = true;")
+        return True
+    except Exception:
+        return False
 
 
 def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
-    """Install/load vss, create HNSW indexes on embedding tables.
-
-    Falls back gracefully: if vss is unavailable (old DuckDB, no network),
-    embedding tables still work — similarity queries use brute-force
-    array_distance() scans (slower but correct).
-    """
-    global _vss_initialized
-    if _vss_initialized:
-        return
+    """Install/load vss, create HNSW indexes on embedding tables."""
+    global _vss_installed
     try:
-        connection.execute("INSTALL vss;")
-        connection.execute("LOAD vss;")
-        connection.execute("SET hnsw_enable_experimental_persistence = true;")
-        _vss_initialized = True
+        if not _vss_installed:
+            try:
+                connection.execute("INSTALL vss;")
+            except Exception:
+                pass
+            _vss_installed = True
+        ensure_vss_loaded(connection)
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_qemb_hnsw ON query_embeddings USING HNSW (embedding);"
         )

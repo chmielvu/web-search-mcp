@@ -4,32 +4,38 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Coroutine, Literal
+from typing import Any, Coroutine
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-OutputMode = Literal["agent", "human"]
-
-
 @dataclass(slots=True)
 class CliRuntime:
-    output_mode: OutputMode = "agent"
     profile: str = "full"
     quiet: bool = False
     log_level: str = "error"
+    log_format: str = "text"
     debug: bool = False
     non_interactive: bool = True
+    raw: bool = False
+    fields: str | None = None
+    yes: bool = False
+    dry_run: bool = False
+    last_duration_ms: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "output_mode": self.output_mode,
             "profile": self.profile,
             "quiet": self.quiet,
             "log_level": self.log_level,
+            "log_format": self.log_format,
             "debug": self.debug,
             "non_interactive": self.non_interactive,
+            "raw": self.raw,
+            "fields": self.fields,
+            "yes": self.yes,
+            "dry_run": self.dry_run,
         }
 
 
@@ -38,21 +44,28 @@ _RUNTIME = CliRuntime()
 
 def set_runtime(
     *,
-    agent: bool = True,
-    human: bool = False,
     quiet: bool = False,
     profile: str = "full",
     log_level: str = "error",
+    log_format: str = "text",
     debug: bool = False,
     non_interactive: bool = True,
+    raw: bool = False,
+    fields: str | None = None,
+    yes: bool = False,
+    dry_run: bool = False,
 ) -> CliRuntime:
     runtime = CliRuntime(
-        output_mode="human" if human else "agent",
         profile=profile,
         quiet=quiet,
         log_level=log_level,
+        log_format=log_format,
         debug=debug,
         non_interactive=non_interactive,
+        raw=raw,
+        fields=fields,
+        yes=yes,
+        dry_run=dry_run,
     )
     global _RUNTIME
     _RUNTIME = runtime
@@ -73,7 +86,10 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             return await coro
         finally:
             from ..utils.background_tasks import drain_background_tasks
-            from ..analytics.async_writes import shutdown_duckdb_write_executor
+            from ..analytics.async_writes import (
+                drain_duckdb_writes,
+                shutdown_duckdb_write_executor,
+            )
             from ..search.outcomes import drain_search_outcomes
             from ..settings import settings
             from ..telemetry.init import shutdown_telemetry
@@ -103,10 +119,35 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
 
             step_started = time.perf_counter()
             try:
-                shutdown_duckdb_write_executor(wait=True)
+                await asyncio.to_thread(
+                    drain_duckdb_writes,
+                    timeout=settings.analytics_shutdown_drain_timeout_seconds,
+                )
+            except Exception as exc:
+                LOGGER.warning("Failed to drain DuckDB writes: %s", exc)
+            timings["duckdb_drain"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
+            try:
+                # wait=False → cancel_futures=True: drop queued writes after drain window.
+                # Do not wait=True: single-worker queue can serialize for tens of seconds.
+                shutdown_duckdb_write_executor(wait=False)
             except Exception as exc:
                 LOGGER.warning("Failed to shut down DuckDB write executor: %s", exc)
             timings["duckdb_executor"] = time.perf_counter() - step_started
+
+            step_started = time.perf_counter()
+            try:
+                from ..analytics.judges import drain_judges, shutdown_judge_executor
+
+                await asyncio.to_thread(
+                    drain_judges,
+                    timeout=settings.analytics_shutdown_drain_timeout_seconds,
+                )
+                shutdown_judge_executor(wait=False)
+            except Exception as exc:
+                LOGGER.warning("Failed to shut down judge executor: %s", exc)
+            timings["judge_executor"] = time.perf_counter() - step_started
 
             step_started = time.perf_counter()
             try:
@@ -134,11 +175,14 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             LOGGER.info(
                 "CLI shutdown finished in %.3fs "
                 "(search_outcomes=%.3fs background_tasks=%.3fs "
-                "duckdb_executor=%.3fs http_client=%.3fs remote_clients=%.3fs telemetry=%.3fs)",
+                "duckdb_drain=%.3fs duckdb_executor=%.3fs judge_executor=%.3fs "
+                "http_client=%.3fs remote_clients=%.3fs telemetry=%.3fs)",
                 time.perf_counter() - shutdown_started,
                 timings["search_outcomes"],
                 timings["background_tasks"],
+                timings["duckdb_drain"],
                 timings["duckdb_executor"],
+                timings["judge_executor"],
                 timings["http_client"],
                 timings["remote_clients"],
                 timings["telemetry"],
@@ -155,6 +199,7 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
     try:
         return asyncio.run(_marked_runner())
     finally:
+        get_runtime().last_duration_ms = (time.perf_counter() - lifecycle_started) * 1000.0
         lifecycle_finished = time.perf_counter()
         post_runner = lifecycle_finished - runner_finished if runner_finished is not None else None
         if post_runner is None:

@@ -197,12 +197,12 @@ class Settings:
     cohere_rerank_base_url: str = os.environ.get(
         "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
     )
-    cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "30.0"))
+    cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "5.0"))
     openrouter_rerank_model: str = os.environ.get("OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast")
     openrouter_rerank_base_url: str = os.environ.get(
         "OPENROUTER_RERANK_BASE_URL", "https://openrouter.ai/api/v1/rerank"
     )
-    openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "30.0"))
+    openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "5.0"))
 
     rerank_score_thresholds_json: str = os.environ.get("RERANK_SCORE_THRESHOLDS_JSON", "{}")
     diversity_similarity_threshold: float = float(
@@ -369,8 +369,6 @@ class Settings:
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     google_cse_engine_id: str = "771d303cf528e4b7c"
-    google_cse_timeout_seconds: float = float(os.environ.get("GOOGLE_CSE_TIMEOUT_SECONDS", "20"))
-    ddg_timeout_seconds: float = float(os.environ.get("DDG_TIMEOUT_SECONDS", "10"))
 
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
     # to turn off noisy providers like reddit without changing code.
@@ -386,25 +384,12 @@ class Settings:
     )  # comma-separated, e.g. "yahoo,baidu,naver"
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
-    brightdata_bing_timeout_seconds: float = float(
-        os.environ.get("BRIGHTDATA_BING_TIMEOUT_SECONDS", "10.0")
-    )
-    brightdata_google_timeout_seconds: float = float(
-        os.environ.get("BRIGHTDATA_GOOGLE_TIMEOUT_SECONDS", "20.0")
-    )
     brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
     langsearch_api_key: str = os.environ.get("LANGSEARCH_API_KEY", "")
-    langsearch_timeout_seconds: float = float(os.environ.get("LANGSEARCH_TIMEOUT_SECONDS", "10.0"))
     langsearch_base_url: str = os.environ.get("LANGSEARCH_BASE_URL", "https://api.langsearch.com")
 
     # SERP semaphore limit (controls concurrency for paid_serp providers)
     serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
-
-    # Per-provider-group deadline — providers exceeding this are cancelled;
-    # the pipeline proceeds with whatever completed.  Set to 0 to disable.
-    provider_group_deadline_seconds: float = float(
-        os.environ.get("PROVIDER_GROUP_DEADLINE_SECONDS", "15")
-    )
 
     # SearXNG config (consolidated from raw os.environ reads in searxng.py)
     searxng_base_url: str = os.environ.get("SEARXNG_BASE_URL", "")
@@ -412,11 +397,9 @@ class Settings:
     searxng_user_agent: str = os.environ.get("SEARXNG_USER_AGENT", "")
     searxng_language: str = os.environ.get("SEARXNG_LANGUAGE", "")
     searxng_safesearch: str = os.environ.get("SEARXNG_SAFESEARCH", "")
-    searxng_timeout_seconds: float = float(os.environ.get("SEARXNG_TIMEOUT_SECONDS", "10"))
 
     # DeGoog search aggregator (self-hosted)
     degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")
-    degoog_timeout_seconds: float = float(os.environ.get("DEGOOG_TIMEOUT_SECONDS", "10"))
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))

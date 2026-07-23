@@ -13,8 +13,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler
-from pydantic_core import CoreSchema, core_schema
+from pydantic import BaseModel, ConfigDict, Field
 
 
 T = TypeVar("T")

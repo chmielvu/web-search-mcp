@@ -19,14 +19,12 @@ from urllib.parse import urlparse
 import httpx
 
 from ...models import WebSearchResult
-from ...settings import get_env_value, settings
+from ...settings import settings
 from .base import run_clientless_provider
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemma-4-31b-it"
-FALLBACK_MODEL = "gemma-4-26b-a4b-it"
-TIMEOUT = 30.0
+MODEL = "gemma-4-26b-a4b-it"
 
 _PROMPT = (
     "Search the web for: {query}\n\n"
@@ -128,98 +126,45 @@ def _extract_from_grounding(data: dict) -> list[dict[str, str]]:
     return results
 
 
-def _configured_api_keys() -> list[str]:
-    """Return configured Google AI API keys without relying on baked-in secrets."""
-    candidates = [
-        get_env_value("GEMMA_API_KEY", ""),
-        get_env_value("GEMINI_API_KEY", settings.gemini_api_key),
-        get_env_value("GEMINI_SECOND_API_KEY", settings.gemini_second_api_key),
-    ]
-    keys: list[str] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = candidate.strip()
-        if key and key not in seen:
-            keys.append(key)
-            seen.add(key)
-    return keys
+def _configured_api_key() -> str:
+    """Return the configured Google AI API key (first/only). Use the first one."""
+    return settings.gemini_api_key.strip()
 
 
 async def _grounded_search(prompt: str) -> dict:
-    """Call Gemma with googleSearch grounding, fallback to 26B on failure."""
-    models = [MODEL, FALLBACK_MODEL]
-    api_keys = _configured_api_keys()
-    if not api_keys:
-        raise RuntimeError(
-            "Gemma grounding requires GEMMA_API_KEY, GEMINI_API_KEY, "
-            "GEMINI_SECOND_API_KEY, or GOOGLE_API_KEY"
-        )
-    payload_base = {
+    """Call Gemma with googleSearch grounding. One model, one key, global timeout."""
+    api_key = _configured_api_key()
+    if not api_key:
+        return {}
+
+    payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "tools": [{"googleSearch": {}}],
-        "generationConfig": {
-            "maxOutputTokens": 2048,
-            "temperature": 0.1,
-        },
+        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.1},
     }
-
-    for model in models:
-        for key_index, api_key in enumerate(api_keys, start=1):
-            try:
-                async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                    url = (
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-                        f":generateContent?key={api_key}"
-                    )
-                    resp = await client.post(url, json=payload_base)
-                    data = resp.json()
-
-                    if "error" in data:
-                        code = data["error"].get("code", 0)
-                        msg = data["error"].get("message", "unknown")
-                        logger.debug(
-                            "Gemma %s grounding error with configured key #%d (code=%s): %s",
-                            model,
-                            key_index,
-                            code,
-                            msg,
-                        )
-                        continue
-
-                    grounding = data.get("candidates", [{}])[0].get("groundingMetadata")
-                    if grounding:
-                        logger.debug(
-                            "Gemma %s grounding: %d chunks",
-                            model,
-                            len(grounding.get("groundingChunks", [])),
-                        )
-                    return data
-
-            except httpx.TimeoutException as exc:
-                logger.debug(
-                    "Gemma %s grounding timeout with configured key #%d: %s",
-                    model,
-                    key_index,
-                    exc,
-                )
-                continue
-            except Exception as exc:
-                logger.debug(
-                    "Gemma %s grounding exception with configured key #%d: %s",
-                    model,
-                    key_index,
-                    exc,
-                )
-                continue
-
-    return {}
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}"
+        f":generateContent?key={api_key}"
+    )
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.search_retrieve_budget_seconds),
+        ) as client:
+            resp = await client.post(url, json=payload)
+        return resp.json()
+    except Exception as exc:
+        logger.debug("Gemma grounding failed: %s", exc)
+        return {}
 
 
 async def search_gemma(
     query: str,
     *,
     num_results: int,
+    options: Any = None,
+    arguments: dict[str, Any] | None = None,
     http_client: Any = None,
+    query_embedding: Any = None,
 ) -> list[WebSearchResult]:
     """Free-tier SERP provider using Gemini 2.5 Flash with Google Search grounding.
 

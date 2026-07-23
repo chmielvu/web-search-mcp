@@ -77,7 +77,8 @@ async def get_content(
     max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    from ...content.summary_models import VALID_SUMMARY_MODES
+    from ..content.summary_models import VALID_SUMMARY_MODES
+
     safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
@@ -107,6 +108,8 @@ async def get_content(
                 "status": "success",
                 "source_type": "cache",
                 "fetch_backend": "cache",
+                "origin_backend": cached.get("extraction_method") or "cache",
+                "cached": True,
                 "content_type": "text/markdown",
                 "markdown": cached["page_content"],
                 "metadata": cached_page_metadata,
@@ -242,7 +245,14 @@ async def get_content(
         content_quality=artifact["status"],
         content_word_count=artifact.get("word_count", 0) or len(artifact["markdown"].split()),
     ).model_dump(exclude_none=True)
-    response.setdefault("fetched_url", None)
+    fetched_url_val = (
+        response.pop("fetched_url", None) or artifact["fetched_url"] or artifact["normalized_url"]
+    )
+    response.pop("input_url", None)
+    response.pop("normalized_url", None)
+    response["url"] = fetched_url_val
+    response["cached"] = artifact.get("cached", False)
+    response["origin_backend"] = artifact.get("origin_backend") or artifact["fetch_backend"]
 
     await ctx.report_progress(progress=100, total=100, message="Done")
     await ctx.info(
@@ -252,9 +262,9 @@ async def get_content(
         LOGGER,
         "get_content",
         "response",
-        input_url=response["input_url"],
-        normalized_url=response["normalized_url"],
-        fetched_url=response.get("fetched_url"),
+        input_url=url,
+        normalized_url=artifact["normalized_url"],
+        fetched_url=fetched_url_val,
         status=response["status"],
         source_type=response["source_type"],
         fetch_backend=response["fetch_backend"],
@@ -372,7 +382,8 @@ async def batch_get_content(
         ),
     )
 
-    from ...content.summary_models import VALID_SUMMARY_MODES
+    from ..content.summary_models import VALID_SUMMARY_MODES
+
     safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],

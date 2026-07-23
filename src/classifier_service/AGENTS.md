@@ -1,29 +1,25 @@
 # AGENTS.md - Classifier Service
 
-This directory is the separate intent-classifier service used by the search
-pipeline when `INTENT_CLASSIFIER_URL` is configured.
+Standalone intent-classifier service for the search pipeline.
 
-## Current Files
+## Key Files
 
-- `server.py` - service entrypoint
-- `runtime.py` - runtime/bootstrap wiring
-- `Dockerfile` - container image for the service
-- `requirements.txt` - standalone dependencies for the classifier service
+| File | Role |
+|---|---|
+| `server.py` | Service entrypoint |
+| `runtime.py` | Runtime/bootstrap wiring |
+| `Dockerfile` | Container image |
+| `requirements.txt` | Standalone dependencies |
 
-## Purpose
+## Rules
 
-- Serve query-intent classification independently from the MCP server
-- Keep the classifier deployment isolated from the main web-search runtime
-- Provide a stable HTTP target for `search/settings.py`
-
-## Integration Notes
-
-- The main app reads `INTENT_CLASSIFIER_*` settings from
-  `src/kindly_web_search_mcp_server/settings.py`
-- If the service contract changes, update the search-side caller and the
-  classifier service together
+- Serves query-intent classification independently from the MCP server.
+- Keeps classifier deployment isolated from main web-search runtime.
+- Provides stable HTTP target for `search/settings.py` via `INTENT_CLASSIFIER_*` settings.
+- If service contract changes, update the search-side caller and classifier together.
 
 ## Testing
 
-- `python -m pytest` for repo-wide validation
-- Add service-specific tests alongside runtime changes if this service grows
+```bash
+uv run pytest  # repo-wide validation
+```

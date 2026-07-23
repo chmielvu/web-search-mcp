@@ -34,10 +34,11 @@ async def classify_intent(query: str) -> tuple[str, float] | None:
             )
             resp.raise_for_status()
             data = resp.json()
-            label = data["intent"]
-            scores = data.get("scores", [])
-            confidence = scores[0]["score"] if scores else 0.0
-            return label, confidence
+            label = data.get("intent")
+            scores = data.get("scores") or []
+            if not label or not scores:
+                return None
+            return str(label), float(scores[0]["score"])
     except Exception as exc:
         logger.debug("ONNX classifier call failed: %s", exc)
         return None

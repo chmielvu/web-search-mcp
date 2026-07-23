@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 import tomllib
 from pathlib import Path
 from typing import Any
-
 from .introspection import build_schema_payload, find_command_node
-from .skill_paths import DEV_SKILL_PATH, USER_SKILL_PATH
+from .skill_paths import (
+    AGENT_BRIEF_PATH,
+    AGENT_RULES_DIR,
+    AGENT_SKILLS_DIR,
+    DEV_SKILL_PATH,
+    USER_SKILL_PATH,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
@@ -29,6 +35,8 @@ def cli_version() -> str:
 
 
 def cli_brief() -> str:
+    if AGENT_BRIEF_PATH.exists():
+        return _read_text(AGENT_BRIEF_PATH)
     return _first_paragraph(USER_SKILL_PATH)
 
 
@@ -61,19 +69,72 @@ def _first_paragraph(path: Path) -> str:
     return _read_text(path)
 
 
+@functools.lru_cache(maxsize=None)
+def rules_catalog() -> list[dict[str, Any]]:
+    rules: list[dict[str, Any]] = []
+    if AGENT_RULES_DIR.exists():
+        for path in sorted(AGENT_RULES_DIR.glob("*.md")):
+            name = path.stem
+            desc = _frontmatter_description(path)
+            rules.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "file": str(path.relative_to(_REPO_ROOT)),
+                }
+            )
+    return rules
+
+
+@functools.lru_cache(maxsize=None)
+def rules_full() -> list[dict[str, Any]]:
+    """Return full .md content for every agent rule, per v0.2.0 R1."""
+    rules: list[dict[str, Any]] = []
+    if AGENT_RULES_DIR.exists():
+        for path in sorted(AGENT_RULES_DIR.glob("*.md")):
+            name = path.stem
+            raw = path.read_text(encoding="utf-8")
+            desc = _frontmatter_description(path)
+            rules.append({"name": name, "description": desc, "content": raw})
+    return rules
+
+
+@functools.lru_cache(maxsize=None)
 def skill_catalog() -> list[dict[str, Any]]:
-    return [
+    skills: list[dict[str, Any]] = [
         {
             "name": "web-search-cli",
             "path": str(USER_SKILL_PATH.relative_to(_REPO_ROOT)),
             "description": _frontmatter_description(USER_SKILL_PATH),
+            "command": "web-search-cli getskill",
         },
         {
             "name": "web-search-cli-dev",
             "path": str(DEV_SKILL_PATH.relative_to(_REPO_ROOT)),
             "description": _frontmatter_description(DEV_SKILL_PATH),
+            "command": "web-search-cli getskill --dev",
         },
     ]
+    if AGENT_SKILLS_DIR.exists():
+        for path in sorted(AGENT_SKILLS_DIR.glob("*.md")):
+            name = path.stem
+            desc = _frontmatter_description(path)
+            skills.append(
+                {
+                    "name": name,
+                    "path": str(path.relative_to(_REPO_ROOT)),
+                    "description": desc,
+                    "command": f"web-search-cli skills {name}",
+                }
+            )
+    return skills
+
+
+def feedback_guidance() -> str:
+    return (
+        "Any problem, bad output, or confusion — run: "
+        "web-search-cli feedback create --type <bug|requirement|suggestion|bad-output> --message '...'"
+    )
 
 
 def _frontmatter_description(path: Path) -> str:
@@ -93,17 +154,20 @@ def _frontmatter_description(path: Path) -> str:
 
 def _global_option_tokens() -> set[str]:
     return {
-        "--agent",
-        "--human",
         "--quiet",
         "-q",
         "--profile",
         "--log-level",
+        "--raw",
+        "--fields",
+        "--yes",
+        "-y",
+        "--dry-run",
         "--non-interactive",
     }
 
 
-def _command_path_tokens(args: list[str]) -> list[str]:
+def command_path_tokens(args: list[str]) -> list[str]:
     if not args:
         return []
     help_tokens = {"--help", "-h"}
@@ -119,7 +183,12 @@ def _command_path_tokens(args: list[str]) -> list[str]:
     while index < len(prefix):
         token = prefix[index]
         if token in root_options:
-            if token in {"--profile", "--log-level"} and index + 1 < len(prefix):
+            if token in {
+                "--profile",
+                "--log-level",
+                "--log-format",
+                "--fields",
+            } and index + 1 < len(prefix):
                 index += 2
                 continue
             index += 1
@@ -137,7 +206,7 @@ def _command_path_tokens(args: list[str]) -> list[str]:
 
 def build_help_payload(app: Any, args: list[str] | None = None) -> dict[str, Any]:
     schema = build_schema_payload(app)
-    path_tokens = _command_path_tokens(args or [])
+    path_tokens = command_path_tokens(args or [])
     node = find_command_node(schema["command_tree"], path_tokens)
     return {
         "command": node["path"],
@@ -149,3 +218,11 @@ def build_help_payload(app: Any, args: list[str] | None = None) -> dict[str, Any
         "command_tree": node,
         "skills": skill_catalog(),
     }
+
+
+def build_full_help_payload(app: Any, args: list[str] | None = None) -> dict[str, Any]:
+    payload = build_help_payload(app, args)
+    payload["rules"] = rules_catalog()
+    payload["skills"] = skill_catalog()
+    payload["feedback"] = feedback_guidance()
+    return payload

@@ -42,7 +42,9 @@ class TestGitHubIssues(unittest.TestCase):
             parse_github_issue_url("https://example.com/owner/repo/issues/1")
 
     def test_render_markdown_structure(self) -> None:
-        from kindly_web_search_mcp_server.content.resolvers.github_issues import render_issue_thread_markdown
+        from kindly_web_search_mcp_server.content.resolvers.github_issues import (
+            render_issue_thread_markdown,
+        )
 
         issue = {
             "title": "Bug: Something breaks",

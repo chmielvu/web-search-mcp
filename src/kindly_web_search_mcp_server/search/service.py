@@ -16,12 +16,11 @@ from .planning import plan_search
 from .ranking import rank_and_finalize
 from .retrieval import retrieve_branches
 
+
 async def run_search_core(run: SearchRun) -> WebSearchResponse:
     core_started = time.monotonic()
     plan = await plan_search(run)
-    needs_embedding = any(
-        "qdrant" in branch.provider_names for branch in plan.branches
-    )
+    needs_embedding = any("qdrant" in branch.provider_names for branch in plan.branches)
     embedding_task: asyncio.Task[Sequence[float]] | None = None
     if needs_embedding:
         embedding_task = asyncio.create_task(

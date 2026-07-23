@@ -13,7 +13,7 @@ import duckdb
 from ..settings import settings
 from ..utils.paths import DEFAULT_EXTENSION_DIR
 from .duckdb_store import ensure_store_schema
-from .evals import build_eval_table_sql, ensure_eval_tables
+from .evals import ensure_eval_tables
 from .views import build_analytics_view_sql
 
 
@@ -177,41 +177,26 @@ def sync_once(
     attach = _attach_name(database)
     target = f"{_quote_ident(attach)}.{_quote_ident(schema)}"
     remote_target = _quote_ident(schema)
-    limit_sql = f"LIMIT {int(limit)}" if limit and limit > 0 else ""
 
     connection = duckdb.connect(str(source), config=_duckdb_config())  # type: ignore[arg-type]
     try:
         _load_motherduck(connection)
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")
         connection.execute(f"CREATE SCHEMA IF NOT EXISTS {target}")
-        connection.execute(
-            f"CREATE TABLE IF NOT EXISTS {target}.analytics_event_raw AS SELECT * FROM search_events WHERE false"
-        )
-        for statement in build_eval_table_sql(target):
-            connection.execute(statement)
-
-        source_rows = connection.execute("SELECT count(*) FROM search_events").fetchone()[0]  # type: ignore[index]
-        last_event_id = connection.execute("SELECT max(event_id) FROM search_events").fetchone()[0]  # type: ignore[index]
-        before = connection.execute(
-            f"SELECT count(*) FROM {target}.analytics_event_raw"
-        ).fetchone()[0]  # type: ignore[index]
-        connection.execute(
-            f"""
-            INSERT INTO {target}.analytics_event_raw BY NAME
-            SELECT local.*
-            FROM search_events AS local
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM {target}.analytics_event_raw AS remote
-                WHERE remote.event_id = local.event_id
-            )
-            ORDER BY local.recorded_at
-            {limit_sql}
-            """
-        )
-        after = connection.execute(f"SELECT count(*) FROM {target}.analytics_event_raw").fetchone()[  # type: ignore[index]
-            0
-        ]
+        # search_events table removed; keep analytics_event_raw only if already present.
+        # Do not recreate or SELECT from the obsolete local table.
+        source_rows = 0
+        last_event_id = None
+        before = 0
+        after = 0
+        try:
+            before = connection.execute(
+                f"SELECT count(*) FROM {target}.analytics_event_raw"
+            ).fetchone()[0]  # type: ignore[index]
+            after = before
+        except Exception:
+            # Target table may not exist yet on a fresh MotherDuck schema.
+            pass
 
         for source_table, key_columns in (
             ("eval_runs", ["eval_run_id"]),

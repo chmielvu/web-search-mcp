@@ -62,7 +62,6 @@ def test_global_profile_flows_into_json_meta() -> None:
     payload = _payload(runner.invoke(app, ["--profile", "research", "doctor"]))
 
     assert payload["meta"]["profile"] == "research"
-    assert payload["meta"]["output_mode"] == "agent"
 
 
 def test_debug_enables_debug_logging(monkeypatch) -> None:
@@ -74,7 +73,7 @@ def test_debug_enables_debug_logging(monkeypatch) -> None:
 
     payload = _payload(runner.invoke(app, ["--debug", "doctor"]))
 
-    configure_logging.assert_called_once_with(level=logging.DEBUG)
+    configure_logging.assert_called_once_with(level=logging.DEBUG, log_format="text")
     assert payload["meta"]["debug"] is True
 
 

@@ -72,7 +72,7 @@ async def search_degoog(
     body: dict[str, Any] = {"query": query, "type": "web"}
     headers = {"Accept": "application/json"}
 
-    timeout_seconds = settings.degoog_timeout_seconds
+    timeout_seconds = settings.search_retrieve_budget_seconds
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         resp = await client.post(url, json=body, headers=headers, timeout=timeout_seconds)

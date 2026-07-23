@@ -64,9 +64,7 @@ async def search_brave_news(
         params["goggles"] = list(goggles)
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
-        response = await client.get(
-            BRAVE_NEWS_URL, params=params, headers=_brave_headers(api_key)
-        )
+        response = await client.get(BRAVE_NEWS_URL, params=params, headers=_brave_headers(api_key))
         response.raise_for_status()
         try:
             data = response.json()

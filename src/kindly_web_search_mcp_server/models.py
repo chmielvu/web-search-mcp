@@ -53,15 +53,16 @@ class WebSearchResult(BaseModel):
     )
     provider_consensus_rrf_score: float | None = Field(
         default=None,
-        description="First-stage RRF score from provider rankings.",
+        description="Deprecated: previously held a separate first-stage RRF score. "
+        "Now None; the pipeline uses a single fused RRF pass with BM25.",
+    )
+    hybrid_rrf_score: float | None = Field(
+        default=None,
+        description="Single-stage RRF score incorporating provider rankings and BM25 lexical signal.",
     )
     cross_relevance_score: float | None = Field(
         default=None,
         description="Raw cross-encoder relevance score.",
-    )
-    hybrid_rrf_score: float | None = Field(
-        default=None,
-        description="RRF consensus score before cross/LLM rerank.",
     )
     entities: list[EntitySpan] | None = None
     diagnostics: list[dict[str, Any]] | None = None

@@ -8,6 +8,8 @@ from typing import AsyncIterator
 from fastmcp.server.context import Context
 
 from ..utils.environment import get_float_env, get_int_env
+
+
 from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
 from ..telemetry import record_mcp_tool_call, record_tool_details
@@ -178,10 +180,13 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Imported from utils.environment: get_int_env, get_float_env
-# Backward-compat re-exports for existing callers.
-from ..utils.environment import get_int_env as _get_int_env, get_float_env as _get_float_env
+# Backward-compat re-export: tools/content.py and transitive server-touching
+# tests still import get_int_env from this module. The canonical helper lives
+# in utils.environment; aliasing keeps the public name stable without
+# churning call sites.
 # ---------------------------------------------------------------------------
+_get_int_env = get_int_env
+_get_float_env = get_float_env
 
 
 def _resolve_tool_total_timeout_seconds() -> float:

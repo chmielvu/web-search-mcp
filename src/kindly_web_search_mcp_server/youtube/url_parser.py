@@ -86,9 +86,7 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
     # Validate video ID format
     video_id = video_id.strip()
     if not re.match(r"^[\w-]{11}$", video_id):
-        if len(video_id) < 1:
-            raise YouTubeError(f"Empty video ID extracted from URL: {url}")
-
+        raise YouTubeError(f"Invalid video ID extracted from URL: {url}")
     canonical_url = f"https://www.youtube.com/watch?v={video_id}"
     return YouTubeTarget(video_id=video_id, canonical_url=canonical_url)
 

@@ -48,9 +48,16 @@ _rerank_counter: metrics.Counter | None = None
 _rerank_duration_histogram: metrics.Histogram | None = None
 _rerank_score_histogram: metrics.Histogram | None = None
 
-# Circuit breaker metrics
-_circuit_state_gauge: metrics.UpDownCounter | None = None
+_circuit_states: dict[str, tuple[str, float, int]] = {}
+# Circuit breaker state is recorded as an absolute value per observation.
+_circuit_state_gauge: metrics.ObservableGauge | None = None
 _circuit_event_counter: metrics.Counter | None = None
+
+
+def update_circuit_state(provider: str, state: str, value: float, failure_count: int) -> None:
+    """Store the current absolute circuit state for one provider."""
+    _circuit_states[provider] = (state, value, failure_count)
+
 
 # Gemini metrics
 _gemini_counter: metrics.Counter | None = None
@@ -353,14 +360,25 @@ def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
     )
 
 
-def get_circuit_metrics() -> tuple[metrics.UpDownCounter, metrics.Counter]:
+def get_circuit_metrics() -> tuple[metrics.ObservableGauge, metrics.Counter]:
     """Get circuit breaker metrics."""
     meter = get_meter()
     global _circuit_state_gauge, _circuit_event_counter
 
+    def observe_circuit_states(options: object) -> list[metrics.Observation]:
+        del options
+        return [
+            metrics.Observation(
+                value,
+                {"provider": provider, "state": state, "failure_count": failure_count},
+            )
+            for provider, (state, value, failure_count) in _circuit_states.items()
+        ]
+
     if _circuit_state_gauge is None:
-        _circuit_state_gauge = meter.create_up_down_counter(
+        _circuit_state_gauge = meter.create_observable_gauge(
             name="web_search_provider_circuit_state",
+            callbacks=[observe_circuit_states],
             description="Circuit breaker state per provider (0=closed, 1=open, 0.5=half_open)",
             unit="1",
         )
@@ -446,6 +464,7 @@ __all__ = [
     "get_cache_metrics",
     "get_circuit_metrics",
     "get_content_metrics",
+    "update_circuit_state",
     "get_gemini_metrics",
     "get_mcp_metrics",
     "get_provider_metrics",

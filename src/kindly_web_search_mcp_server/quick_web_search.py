@@ -16,6 +16,7 @@ from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 from parallel import AsyncParallel
 
+from .errors import format_tool_error
 from .settings import settings
 from .tools.catalog import tool_kwargs
 
@@ -272,21 +273,24 @@ def register_quick_web_search(mcp: Any) -> None:
             disable_cache_fallback: If True, error instead of using stale cache.
         """
         await ctx.info(f"Quick web search ({len(search_queries)} queries)...")
-        response = await _quick_web_search_impl(
-            search_queries,
-            objective,
-            max_results=max_results,
-            max_chars_total=max_chars_total,
-            max_chars_per_result=max_chars_per_result,
-            client_model=client_model,
-            session_id=session_id,
-            include_domains=include_domains,
-            exclude_domains=exclude_domains,
-            after_date=after_date,
-            location=location,
-            max_age_seconds=max_age_seconds,
-            timeout_seconds=timeout_seconds,
-            disable_cache_fallback=disable_cache_fallback,
-        )
+        try:
+            response = await _quick_web_search_impl(
+                search_queries,
+                objective,
+                max_results=max_results,
+                max_chars_total=max_chars_total,
+                max_chars_per_result=max_chars_per_result,
+                client_model=client_model,
+                session_id=session_id,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+                after_date=after_date,
+                location=location,
+                max_age_seconds=max_age_seconds,
+                timeout_seconds=timeout_seconds,
+                disable_cache_fallback=disable_cache_fallback,
+            )
+        except Exception as exc:
+            return format_tool_error(exc, provider="parallel")
         await ctx.info(f"Found {response.total_citations} citations")
         return response.model_dump(exclude_none=True)

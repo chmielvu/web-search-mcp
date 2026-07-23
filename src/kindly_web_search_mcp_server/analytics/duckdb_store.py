@@ -22,6 +22,7 @@ from .writers import (  # explicit re-export for IDE / static analysis
     _CE_TABLE_NAME,
     _FR_TABLE_NAME,
     _JE_TABLE_NAME,
+    _LLM_CALL_LOG_TABLE_NAME,
     _LOCK,
     _PC_TABLE_NAME,
     _PH_TABLE_NAME,
@@ -45,7 +46,11 @@ from .writers import (  # explicit re-export for IDE / static analysis
     _ensure_candidate_embeddings,
     _ensure_columns,
     _ensure_final_results,
+    _ensure_judge_calibration_set,
     _ensure_judge_evaluations,
+    _ensure_judge_rubrics,
+    _ensure_llm_call_log,
+    _ensure_llm_judgments,
     _ensure_provider_calls,
     _ensure_provider_health_transitions,
     _ensure_query_embeddings,
@@ -64,6 +69,7 @@ from .writers import (  # explicit re-export for IDE / static analysis
     insert_candidate_embeddings,
     insert_final_results,
     insert_judge_evaluation,
+    insert_llm_call_log,
     insert_provider_calls,
     ensure_search_quality_tables,
     ensure_store_schema,
@@ -88,6 +94,7 @@ __all__ = [
     "_CE_TABLE_NAME",
     "_FR_TABLE_NAME",
     "_JE_TABLE_NAME",
+    "_LLM_CALL_LOG_TABLE_NAME",
     "_LOCK",
     "_PC_TABLE_NAME",
     "_PH_TABLE_NAME",
@@ -111,7 +118,11 @@ __all__ = [
     "_ensure_candidate_embeddings",
     "_ensure_columns",
     "_ensure_final_results",
+    "_ensure_judge_calibration_set",
     "_ensure_judge_evaluations",
+    "_ensure_judge_rubrics",
+    "_ensure_llm_call_log",
+    "_ensure_llm_judgments",
     "_ensure_provider_calls",
     "_ensure_provider_health_transitions",
     "_ensure_query_embeddings",
@@ -136,6 +147,7 @@ __all__ = [
     "insert_final_results",
     "insert_provider_calls",
     "insert_judge_evaluation",
+    "insert_llm_call_log",
     "insert_query_embeddings",
     "insert_rerank_candidates",
     "insert_rerank_stages",
@@ -146,3 +158,9 @@ __all__ = [
     "insert_search_run",
     "settings",
 ]
+
+# Legacy aliases for backward compatibility in tests
+_ensure_provider_candidates = _ensure_search_candidates
+insert_provider_candidates = insert_search_candidates
+_ensure_merged_candidates = _ensure_search_candidates
+insert_merged_candidates = insert_search_candidates

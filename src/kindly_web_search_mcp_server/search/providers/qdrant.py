@@ -126,7 +126,7 @@ async def search_qdrant(
         if dense_embedding is None:
             dense_embedding = await _embed_qdrant_query(
                 query,
-                deadline=max(5.0, settings.provider_group_deadline_seconds * 0.8),
+                deadline=max(5.0, settings.search_retrieve_budget_seconds * 0.8),
             )
         if not dense_embedding:
             return []
@@ -138,7 +138,7 @@ async def search_qdrant(
         client = AsyncQdrantClient(
             url=url,
             auth_token_provider=_qdrant_auth_token_provider(),
-            timeout=30,
+            timeout=int(settings.search_retrieve_budget_seconds),
             prefer_grpc=False,
             port=443,
             https=True,

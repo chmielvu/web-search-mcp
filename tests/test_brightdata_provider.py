@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -37,8 +36,13 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
             return_value=[WebSearchResult(title="Bing Hit", link="https://b.com", snippet="b")]
         )
         with (
-            patch("kindly_web_search_mcp_server.search.providers.brightdata.run_provider", run_provider_mock),
-            patch("kindly_web_search_mcp_server.search.providers.brightdata._search_bing", bing_mock),
+            patch(
+                "kindly_web_search_mcp_server.search.providers.brightdata.run_provider",
+                run_provider_mock,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.providers.brightdata._search_bing", bing_mock
+            ),
         ):
             results = _run_async(search_brightdata("test", num_results=5))
         bing_mock.assert_not_called()
@@ -61,7 +65,8 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
             return_value=[WebSearchResult(title="News Hit", link="https://n.com", snippet="news")]
         )
         with patch(
-            "kindly_web_search_mcp_server.search.providers.brightdata.run_provider", run_provider_mock
+            "kindly_web_search_mcp_server.search.providers.brightdata.run_provider",
+            run_provider_mock,
         ):
             results = _run_async(search_brightdata("test", num_results=5, search_type="news"))
         self.assertEqual(len(results), 1)
@@ -108,6 +113,4 @@ class TestBrightDataSearchIntegration(unittest.TestCase):
                 raise asyncio.CancelledError()
 
         with self.assertRaises(asyncio.CancelledError):
-            _run_async(
-                _search_bing("test", 5, _CancelledClient(), "key", {}, {}, "us", "en")
-            )
+            _run_async(_search_bing("test", 5, _CancelledClient(), "key", {}, {}, "us", "en"))

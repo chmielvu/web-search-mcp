@@ -73,7 +73,11 @@ async def persist_search_outcome(run):
             "candidate_count": mc.get("candidate_count", 0),
             "status": outcome.status,
             "error_type": outcome.error_summary,
-            "duration_ms": dc.total_latency_ms or sum(outcome.timings.values()),
+            "duration_ms": (
+                dc.total_latency_ms
+                if dc.total_latency_ms is not None
+                else sum(outcome.timings.values())
+            ),
             "reranker_provider": outcome.rerank_metadata.get("reranker_provider"),
             "reranker_model": outcome.rerank_metadata.get("reranker_model"),
             "rake_terms": en.get("rake_terms", []),
@@ -251,32 +255,35 @@ async def persist_search_outcome(run):
         except Exception as e:
             LOGGER.debug("persist search quality failed: %s", e)
 
-    # The DuckDB write runs asynchronously on a dedicated thread pool,
-    # so we attach the judge scheduler as a done-callback on the
-    # write future. This guarantees `search_runs` exists by the time
-    # the judge opens its own connection to query it. Without this,
-    # the judge would race the insert and find 0 rows every time.
-    from concurrent.futures import Future
-
-    run_key_for_judge = rk
-
-    def _on_write_done(future: Future[None]) -> None:
-        if future.cancelled():
-            return
-        try:
-            future.result()
-        except Exception:
-            LOGGER.debug("search outcome write failed; skipping judge for %s", run_key_for_judge)
-            return
-        try:
-            from ..analytics.judges import schedule_judge_search_run
-
-            schedule_judge_search_run(run_key_for_judge)
-        except Exception:
-            LOGGER.exception("Failed to schedule judge for %s", run_key_for_judge)
-
     future = dispatch_duckdb_write("search.outcome." + rk, _write)
-    future.add_done_callback(_on_write_done)
+    if future is not None:
+        # Judge scheduling runs in a done-callback on the write future,
+        # NOT inside _write() on the DuckDB write executor thread.  This
+        # avoids a shutdown race: CPython 3.12's _python_exit (atexit)
+        # sets a module-level _shutdown flag in concurrent.futures.thread
+        # that blocks ALL ThreadPoolExecutor.submit() calls regardless of
+        # whether our executor skipped _threads_queues registration.  The
+        # done-callback fires on the DuckDB write executor thread when
+        # set_result() is called, but schedule_judge_search_run catches
+        # the resulting RuntimeError and falls back to inline execution
+        # so judge scores are always persisted durably.
+
+        def _on_write_done(f):
+            """Schedule FlockMTL judge after DuckDB write confirms the
+            search_runs row is persisted.  Silently skip on write failure
+            (primary insert didn't succeed — nothing to evaluate)."""
+            try:
+                f.result()  # Re-raise if primary insert failed
+            except Exception:
+                return  # Nothing to judge
+            try:
+                from ..analytics.judges import schedule_judge_search_run
+
+                schedule_judge_search_run(rk)
+            except Exception:
+                LOGGER.exception("Failed to schedule judge for %s", rk)
+
+        future.add_done_callback(_on_write_done)
     return future
 
 

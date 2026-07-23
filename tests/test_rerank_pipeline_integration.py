@@ -187,7 +187,7 @@ async def test_provider_consensus_bm25_fusion_keeps_all_score_identities() -> No
 
     with (
         patch(
-            "kindly_web_search_mcp_server.search.ranking.score_candidates",
+            "kindly_web_search_mcp_server.search.ranking.score_candidates_async",
             return_value=[0.1, 0.0, 0.9],
         ),
         patch(
@@ -203,9 +203,6 @@ async def test_provider_consensus_bm25_fusion_keeps_all_score_identities() -> No
     assert rerank_results_mock.await_args.kwargs["research_goal"] == "Find primary evidence."
     assert len({result.link for result in response.results}) == 3
     assert all(result.score == result.hybrid_rrf_score for result in response.results)
-    assert all(result.provider_consensus_rrf_score is not None for result in response.results)
-    assert any(
-        result.provider_consensus_rrf_score != result.hybrid_rrf_score
-        for result in response.results
-    )
-    assert run.rerank_metadata["merge_algorithm"] == "provider_consensus_rrf_then_bm25_rrf"
+    # provider_consensus_rrf_score is deprecated; single-stage RRF uses only hybrid_rrf_score
+    assert all(result.provider_consensus_rrf_score is None for result in response.results)
+    assert run.rerank_metadata["merge_algorithm"] == "provider_rrf_with_bm25"

@@ -1,9 +1,16 @@
-"""Voyage AI reranker client."""
+"""Voyage AI reranker client.
+
+Voyage's ``rerank-2.5`` and ``rerank-2.5-lite`` models support
+instruction-following by prepending/appending natural-language
+instructions to the query string. This module restructures the
+pipe-delimited query format produced by ``build_cross_encoder_query``
+into the ``instructions\\n\\nQuery: <query>`` layout Voyage recommends.
+"""
 
 from __future__ import annotations
 
-import os
 import math
+import os
 from typing import Any
 
 import httpx
@@ -20,6 +27,31 @@ def _get_voyage_client(timeout: float = 30.0) -> httpx.AsyncClient:
     if _VOYAGE_CLIENT is None or _VOYAGE_CLIENT.is_closed:
         _VOYAGE_CLIENT = httpx.AsyncClient(timeout=timeout)
     return _VOYAGE_CLIENT
+
+
+def _format_voyage_query(query: str) -> str:
+    """Restructure a pipe-delimited reranker query for Voyage's preferred instruction format.
+
+    ``build_cross_encoder_query`` produces a pipe-delimited string like::
+
+        "user query | Prefer X. Demote Y. | Research goal: ..."
+
+    Voyage's ``rerank-2.5`` instruction-following model performs best when
+    instructions are prepended in natural language followed by an explicit
+    ``Query:`` prefix. This function extracts the user query from the first
+    pipe segment and moves the remaining instruction/goal text into the
+    instruction position.
+    """
+    if " | " not in query and "Research goal:" not in query:
+        return query  # Not built by build_cross_encoder_query; pass through unchanged.
+
+    parts = query.split(" | ", 1)
+    if len(parts) != 2:
+        return query
+
+    user_query = parts[0].strip()
+    instruction = parts[1].strip()
+    return f"{instruction}\n\nQuery: {user_query}"
 
 
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
@@ -73,7 +105,7 @@ async def voyage_rerank(
 
     payload = {
         "model": model or settings.voyage_rerank_model,
-        "query": query,
+        "query": _format_voyage_query(query),
         "documents": documents,
         "top_k": top_n or len(documents),
         "return_documents": False,

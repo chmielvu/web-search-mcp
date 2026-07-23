@@ -1,33 +1,28 @@
 # AGENTS.md - Entity
 
-This directory contains the entity extraction core used by query handling and
-content analysis.
+Entity extraction for query handling and content analysis.
 
-## Current Structure
+## Key Files
 
-entity/
-|-- chunk.py                 # Offset-preserving chunking helpers
-|-- default_schema.py        # Default label schemas
-|-- gliner_client.py         # Optional lazy GLiNER2 client
-|-- models.py                # Entity span models
-|-- overlap.py               # Overlap / span merging helpers
-|-- postprocess.py           # Validation, deduplication, normalization
-└── __init__.py              # Public entity surface
+| File | Role |
+|---|---|
+| `gliner_client.py` | Optional lazy GLiNER2 HTTP client |
+| `models.py` | `EntitySpan`, `EntitySet` models |
+| `chunk.py` | Offset-preserving chunking for long text |
+| `overlap.py` | Entity overlap scoring for rerank |
+| `default_schema.py` | Default entity label schemas |
+| `postprocess.py` | Validation, deduplication, normalization |
 
-## Purpose
+## Rules
 
-- Extract grounded entity spans from query or content text
-- Keep the core pure Python while making GLiNER2 optional and lazy
-- Normalize, deduplicate, and merge entity spans before downstream use
-
-## Current Behavior
-
-- `chunk.py` preserves global offsets for long text
-- `postprocess.py` is the last stage before returning entity spans
-- The public surface is `EntitySpan`, the default schemas, chunking, and
-  post-processing helpers
+- GLiNER2 is optional and lazily loaded — never force it as a dependency.
+- `chunk.py` preserves global offsets for long text.
+- `postprocess.py` is the last stage before returning entity spans.
+- Public surface: `EntitySpan`, default schemas, chunking, post-processing.
 
 ## Testing
 
-- `python -m pytest tests/test_entity_*.py`
-- `python -m pytest tests/test_entity_response_fields.py`
+```bash
+uv run pytest tests/test_entity_*.py
+uv run pytest tests/test_entity_response_fields.py
+```

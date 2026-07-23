@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from .attributes import (
     CIRCUIT_EVENT,
-    CIRCUIT_FAILURE_COUNT,
     CIRCUIT_FAILURE_THRESHOLD,
-    CIRCUIT_STATE,
     PROVIDER_NAME,
 )
-from .metrics import get_circuit_metrics
+from .metrics import get_circuit_metrics, update_circuit_state
 
 
 def record_circuit_breaker_state(
@@ -24,18 +22,8 @@ def record_circuit_breaker_state(
         state: "closed", "open", or "half_open"
         failure_count: Consecutive failures
     """
-    state_gauge, _ = get_circuit_metrics()
-
-    # Map state to numeric value for gauge
     state_value = 0.0 if state == "closed" else (1.0 if state == "open" else 0.5)
-    state_gauge.add(
-        state_value,
-        {
-            PROVIDER_NAME: provider,
-            CIRCUIT_STATE: state,
-            CIRCUIT_FAILURE_COUNT: failure_count,
-        },
-    )
+    update_circuit_state(provider, state, state_value, failure_count)
 
 
 def record_circuit_breaker_event(

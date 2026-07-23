@@ -29,6 +29,8 @@ class LLMWorker:
             response_model=request.response_model,
             reasoning_effort=request.reasoning_effort,
             langfuse=request.langfuse,
+            run_key=request.run_key,
+            operation=request.operation,
         )
         return StructuredLLMResponse(
             endpoint_name=generation.endpoint.name,
@@ -46,6 +48,8 @@ class LLMWorker:
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
+        run_key: str | None = None,
+        operation: str = "unknown",
     ) -> StructuredLLMResponse:
         return await self.complete_structured(
             StructuredLLMRequest(
@@ -55,14 +59,29 @@ class LLMWorker:
                 timeout_seconds=timeout_seconds,
                 reasoning_effort=reasoning_effort,
                 langfuse=langfuse,
+                run_key=run_key,
+                operation=operation,
             )
         )
 
-    async def complete_text(self, *, task: str, prompt: str) -> str:
+    async def complete_text(
+        self,
+        *,
+        task: str,
+        prompt: str,
+        timeout_seconds: float | None = None,
+        langfuse: LLMTraceContext | None = None,
+        run_key: str | None = None,
+        operation: str = "unknown",
+    ) -> str:
         result = await self.complete_text_messages(
             task=task,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
+            timeout_seconds=timeout_seconds,
+            langfuse=langfuse,
+            run_key=run_key,
+            operation=operation,
         )
         return result.content
 
@@ -75,6 +94,8 @@ class LLMWorker:
         timeout_seconds: float | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
+        run_key: str | None = None,
+        operation: str = "unknown",
     ) -> StructuredLLMResponse:
         router = build_classifier_router() if task == "query_understand" else build_worker_router()
         generation = await router.complete_text(
@@ -83,6 +104,8 @@ class LLMWorker:
             timeout_seconds=timeout_seconds,
             reasoning_effort=reasoning_effort,
             langfuse=langfuse,
+            run_key=run_key,
+            operation=operation,
         )
         return StructuredLLMResponse(
             endpoint_name=generation.endpoint.name,

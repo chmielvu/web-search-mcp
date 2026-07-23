@@ -33,12 +33,20 @@ def load_experiments(
             variants = [
                 ABVariant(
                     variant_key=v["variant_key"],
-                    weight=v["weight"],
+                    weight=v.get("weight", 1),
                     config=v.get("config", {}),
                     description=v.get("description", ""),
                 )
                 for v in raw.get("variants", [])
             ]
+            # Surface missing weights at debug (no log spam on every reload)
+            missing = [v["variant_key"] for v in raw.get("variants", []) if "weight" not in v]
+            if missing:
+                logger.debug(
+                    "Experiment %s variants missing 'weight' (defaulting to 1): %s",
+                    raw.get("experiment_id"),
+                    missing,
+                )
             exp = ABExperiment(
                 experiment_id=raw["experiment_id"],
                 layer=raw["layer"],

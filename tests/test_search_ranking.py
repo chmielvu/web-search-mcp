@@ -112,15 +112,15 @@ async def test_dc_merged_candidates_unchanged_when_rerank_mutates_inputs() -> No
 
 @pytest.mark.asyncio
 async def test_rank_and_finalize_canonicalizes_each_distinct_url_once() -> None:
-    """`rank_and_finalize` shares one canonicalize cache across both RRF
-    calls and its own overlap/score lookups.
+    """`rank_and_finalize` shares one canonicalize cache across BM25 scoring,
+    RRF fusion, and its own overlap/score lookups.
 
     Without sharing, the same `canonicalize_url` is invoked up to 5
     times per distinct raw URL per request. With the shared
     `_memoize_canonicalize`, each distinct raw URL is canonicalized
     exactly once even though the function touches the same links via
-    two RRF invocations, the `first_stage_url_scores` dict, the
-    `url_occurrences` counter, and the per-result loop.
+    BM25, the single RRF fusion, the `url_occurrences` counter,
+    and the per-result loop.
     """
     inputs = [_stub(0, 0.7), _stub(1, 0.3)]
     run, outcome = _make_run(inputs)

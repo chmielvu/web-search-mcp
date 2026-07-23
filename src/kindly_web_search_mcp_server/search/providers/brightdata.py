@@ -73,7 +73,7 @@ async def search_brightdata(
             yandex_url=build_yandex_url(query, yandex_region, language),
         )
 
-    google_timeout = settings.brightdata_google_timeout_seconds
+    google_timeout = settings.search_retrieve_budget_seconds
 
     async def _google_request(client: httpx.AsyncClient) -> dict:
         google_url = build_google_url(query, country, language, search_type, exact_match, freshness)
@@ -128,7 +128,7 @@ async def _search_primary(
     search_type: str,
     url: str,
 ) -> list[WebSearchResult]:
-    timeout = settings.brightdata_google_timeout_seconds
+    timeout = settings.search_retrieve_budget_seconds
 
     async def _request(client: httpx.AsyncClient) -> dict:
         body = {**payload_base, "url": url}
@@ -180,7 +180,7 @@ async def _search_bing(
 ) -> list[WebSearchResult]:
     url = build_bing_url(query, country, language)
     body = {**payload_base, "url": url}
-    bing_timeout = settings.brightdata_bing_timeout_seconds
+    bing_timeout = settings.search_retrieve_budget_seconds
 
     try:
 
@@ -286,5 +286,5 @@ async def _search_yandex(
         request=_request,
         parse_response=_parse,
         http_client=http_client,
-        timeout_seconds=settings.brightdata_google_timeout_seconds,
+        timeout_seconds=settings.search_retrieve_budget_seconds,
     )

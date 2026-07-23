@@ -15,9 +15,7 @@ def parse_csv_env(raw: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(items))
 
 
-def parse_json_dict_env(
-    raw: str, default: dict[str, list[str]]
-) -> dict[str, list[str]]:
+def parse_json_dict_env(raw: str, default: dict[str, list[str]]) -> dict[str, list[str]]:
     """Parse a JSON object env string into a dict of non-empty string lists.
 
     Raises ValueError (caught at Settings construction) on invalid JSON or on

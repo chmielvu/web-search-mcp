@@ -35,7 +35,7 @@ class TestShadowRunner:
                 )
             )
 
-        shadow_fn.assert_awaited_once_with(query="hello", top_k=5)
+        shadow_fn.assert_awaited_once_with(query="hello", top_n=5)
 
     def test_shadow_result_recorded_in_duckdb(self):
         """insert_ab_shadow_run must be called with correct parameters."""

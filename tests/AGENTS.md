@@ -1,44 +1,43 @@
 # AGENTS.md - Tests
 
-This directory holds the runtime regression suite for the current tree.
+Runtime regression suite (130+ test files).
 
-## Main Test Slices
+## Test Organization
 
-- Server and tool contracts: `test_server.py`, `test_tool_descriptions.py`,
-  `test_public_output_serialization.py`, `test_observability_flow.py`
-- Search pipeline: `test_search_orchestrator.py`, `test_branch_executor.py`,
-  `test_branch_planner.py`, `test_search_router.py`, `test_provider_plan.py`,
-  `test_provider_config.py`, `test_provider_health_and_content_quality.py`,
-  `test_search_merge_cache.py`, `test_search_planning_why.py`
-- Content extraction: `test_content_*.py`, `test_page_content_resolver.py`,
-  `test_sitemap.py`, `test_youtube*.py`, `test_whisper_client.py`
-- Rerank and ranking: `test_rerank_*.py`, `test_diversity_ranking.py`,
-  `test_voyage_rerank.py`, `test_jina_rerank.py`, `test_search_ranking.py`
-- Analytics and observability: `test_analytics_*.py`,
-  `test_observability_*.py`, `test_pipeline_tables.py`,
-  `test_ai_search_provider_tracing.py`, `test_grafana_dashboard_json.py`
-- Cache and index: `test_cache_*.py`, `test_page_cache_duckdb.py`,
-  `test_exact_lru_cache.py`, `test_qdrant_search.py`,
-  `test_page_duckdb_schema_errors.py`
-- CLI, AB testing, training, and client-steering middleware:
-  `tests/cli/test_*.py`, `test_ab_*.py`, `test_training_jsonl.py`,
-  `test_agent_steering_middleware.py`, `test_query_understanding*.py`,
-  `test_prompt_registry.py`
-- Provider-specific smoke/unit coverage: `test_ddg_unit.py`,
-  `test_searxng_unit.py`, `test_tavily_unit.py`, `test_brightdata_provider.py`,
-  `test_composio_*.py`, `test_github_*.py`, `test_hackernews_provider.py`
+| Slice | Test Files |
+|---|---|
+| Server & tools | `test_server.py`, `test_tool_descriptions.py`, `test_tool_profiles.py` |
+| Search pipeline | `test_search_service.py`, `test_search_contracts.py`, `test_search_ranking.py`, `test_search_planning_why.py`, `test_search_merge_cache.py` |
+| Content | `test_content_*.py`, `test_page_content_resolver.py`, `test_sitemap.py` |
+| Rerank | `test_rerank_core.py`, `test_rerank_bi_encoder.py`, `test_rerank_llm.py`, `test_bm25_rerank.py` |
+| Analytics | `test_analytics_*.py`, `test_pipeline_tables.py`, `test_search_quality_scores.py`, `test_judges_facets.py` |
+| Cache | `test_exact_lru_cache.py`, `test_page_cache_duckdb.py` |
+| CLI | `tests/cli/` subdirectory |
+| YouTube | `test_youtube*.py`, `test_youtube_api.py` |
+| Providers | `test_provider_registry.py`, `test_brave_providers.py`, `test_tavily_unit.py`, `test_ddg_unit.py`, `test_langsearch_provider.py` |
+| A/B Testing | `test_ab_*.py` |
+| LLM | `test_llm_router.py`, `test_prompt_registry.py` |
+| Middleware | `test_middleware*.py`, `test_agent_steering_middleware.py` |
+| Misc | `test_training_jsonl.py`, `test_entity_*.py`, `test_hf_inference_embeddings.py`, `test_qdrant_search.py` |
 
 ## Running Tests
 
-- `pytest`
-- `python -m pytest tests/test_server.py tests/test_search_orchestrator.py`
-- `python -m pytest tests/test_cli*.py`
-- `python -m pytest tests/test_rerank_core.py tests/test_rerank_stack.py`
+```bash
+# Full suite
+uv run pytest
+
+# Subsystem slices
+uv run pytest tests/test_server.py tests/test_search_orchestrator.py
+uv run pytest tests/test_cli*.py
+uv run pytest tests/test_rerank_core.py
+uv run pytest tests/test_analytics_*.py
+uv run pytest tests/test_content_*.py
+```
 
 ## Conventions
 
-- Patch under `kindly_web_search_mcp_server.*` unless the test is for the
-  standalone classifier service
-- Use `AsyncMock` and `unittest.IsolatedAsyncioTestCase` for async paths
-- Keep reusable data in `tests/fixtures/`
-- Prefer focused slices when validating a subsystem change
+- Patch under `kindly_web_search_mcp_server.*` namespace unless testing the standalone classifier service.
+- Use `AsyncMock` and `unittest.IsolatedAsyncioTestCase` for async paths.
+- Keep reusable data in `tests/fixtures/`.
+- Prefer focused slices when validating a subsystem change.
+- `conftest.py` patches `SEARXNG_BASE_URL` and `TAVILY_API_KEY` for deterministic unit tests.

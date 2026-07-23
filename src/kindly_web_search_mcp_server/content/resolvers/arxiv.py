@@ -123,6 +123,7 @@ def _default_user_agent() -> str:
 def _get_int_env(name: str, default: int) -> int:
     """Read an integer env var with safe fallback."""
     from ...utils.environment import get_int_env as _env_int
+
     return _env_int(name, default)
 
 

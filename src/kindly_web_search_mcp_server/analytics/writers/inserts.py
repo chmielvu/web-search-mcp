@@ -149,6 +149,7 @@ _RERANK_CANDIDATE_COLUMNS = [
     "recency_boost",
     "entity_overlap_score",
     "survived",
+    "diversity_removed",
     "payload_json",
 ]
 
@@ -288,6 +289,7 @@ _PROVIDER_CALLS_WRITER = TableWriter(
     table_name=_PC_TABLE_NAME,
     ensure_name="_ensure_provider_calls",
     columns=_PROVIDER_CALL_COLUMNS,
+    defaults={"status": "unknown"},
     task_name="analytics.provider_calls",
 )
 _SEARCH_CANDIDATES_WRITER = TableWriter(
@@ -306,6 +308,7 @@ _RERANK_CANDIDATES_WRITER = TableWriter(
     table_name=_RC_TABLE_NAME,
     ensure_name="_ensure_rerank_candidates",
     columns=_RERANK_CANDIDATE_COLUMNS,
+    defaults={"survived": True, "diversity_removed": False},
     task_name="analytics.rerank_candidates",
 )
 _FINAL_RESULTS_WRITER = TableWriter(

@@ -81,7 +81,9 @@ class TestBrightDataAliasRouting(unittest.TestCase):
         run_mock = AsyncMock(
             return_value=[WebSearchResult(title="Yandex", link="https://y.com", snippet="y")]
         )
-        with patch("kindly_web_search_mcp_server.search.providers.brightdata.run_provider", run_mock):
+        with patch(
+            "kindly_web_search_mcp_server.search.providers.brightdata.run_provider", run_mock
+        ):
             results = _run_async(
                 search_brightdata("test", num_results=5, provider_name="brightdata_yandex")
             )

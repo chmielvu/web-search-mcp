@@ -31,3 +31,19 @@ def canonicalize_url(url: str) -> str:
     if not scheme or not netloc:
         return url.strip()
     return urlunsplit((scheme, netloc, path, query, fragment))
+
+
+def extract_domain_from_url(url: str) -> str | None:
+    """Extract and normalize domain from URL.
+
+    Returns the hostname in lowercase with 'www.' prefix removed.
+    Returns None for invalid or empty URLs.
+    """
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        if host:
+            return host.lower().removeprefix("www.")
+    except Exception:
+        pass
+    return None

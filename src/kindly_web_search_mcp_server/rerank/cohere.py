@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from typing import Any
 
@@ -13,7 +14,13 @@ from ..settings import settings
 _COHERE_CLIENTS: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
 
-def _get_cohere_client(timeout: float = 30.0) -> httpx.AsyncClient:
+def _get_cohere_client(timeout: float = 5.0) -> httpx.AsyncClient:
+    """Return a loop-scoped client.
+
+    Note: httpx bakes Timeout into the client at construction. Callers that
+    need a different timeout MUST pass timeout= on the request (see
+    cohere_rerank), not rely on this factory alone.
+    """
     loop = asyncio.get_running_loop()
     client = _COHERE_CLIENTS.get(loop)
     if client is None or client.is_closed:
@@ -23,24 +30,34 @@ def _get_cohere_client(timeout: float = 30.0) -> httpx.AsyncClient:
 
 
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
+    """Parse Cohere POST /v2/rerank response.
+
+    Cohere contract (docs.cohere.com/v2/reference/rerank):
+    - top_n limits returned results; if omitted, all results are returned
+    - each result requires index + relevance_score
+    - relevance_score is normalized to [0, 1] (clamp minor drift)
+
+    Accept any non-empty results list with 0 < len <= document_count.
+    Do not require a full permutation of input indices.
+    """
     results = data.get("results")
     if not isinstance(results, list):
         raise ValueError("Cohere rerank response missing results list")
-
-    if len(results) != document_count:
+    if not results:
+        raise ValueError("Cohere rerank response returned no results")
+    if len(results) > document_count:
         raise ValueError(
-            f"Cohere rerank returned {len(results)} results, expected {document_count}"
+            f"Cohere rerank returned {len(results)} results, expected at most {document_count}"
         )
 
     ranked: list[tuple[int, float]] = []
-    seen_indices = set()
+    seen_indices: set[int] = set()
     for item in results:
         if not isinstance(item, dict):
             raise ValueError("Cohere rerank result item is not an object")
         index = item.get("index")
         score = item.get("relevance_score")
 
-        # Validate index
         if not isinstance(index, int) or isinstance(index, bool):
             raise ValueError(f"Cohere rerank returned non-integer index: {index!r}")
         if not 0 <= index < document_count:
@@ -49,19 +66,17 @@ def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tup
             raise ValueError(f"Cohere rerank returned duplicate index: {index!r}")
         seen_indices.add(index)
 
-        # Validate score
         if isinstance(score, bool) or not isinstance(score, (int, float)):
             raise ValueError(f"Cohere rerank returned non-numeric score: {score!r}")
         f_score = float(score)
-        import math
-
-        if not math.isfinite(f_score) or not 0.0 <= f_score <= 1.0:
-            raise ValueError(f"Cohere rerank returned out of range / non-finite score: {score!r}")
+        if not math.isfinite(f_score):
+            raise ValueError(f"Cohere rerank returned non-finite score: {score!r}")
+        if f_score < 0.0:
+            f_score = 0.0
+        elif f_score > 1.0:
+            f_score = 1.0
 
         ranked.append((index, f_score))
-
-    if len(seen_indices) != document_count:
-        raise ValueError("Cohere rerank response is not a complete permutation of document indices")
 
     return ranked
 
@@ -73,7 +88,7 @@ async def cohere_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
-    timeout: float = 30.0,
+    timeout: float = 5.0,
     http_client: httpx.AsyncClient | None = None,
     base_url: str | None = None,
 ) -> list[tuple[int, float]]:
@@ -99,6 +114,8 @@ async def cohere_rerank(
         endpoint = "https://api.cohere.com/v2/rerank"
 
     client = http_client or _get_cohere_client(timeout)
-    response = await client.post(endpoint, json=payload, headers=headers)
+    # Per-request timeout so a cached client cannot silently keep a longer
+    # default and block the fallback chain for 30s.
+    response = await client.post(endpoint, json=payload, headers=headers, timeout=timeout)
     response.raise_for_status()
     return _parse_rerank_results(response.json(), len(documents))

@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import os
 import sys
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
+import unittest
+from unittest.mock import AsyncMock, patch
 from typing import Any
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -305,6 +305,31 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         # All calls should have used the paid key.
         for call in mock_client.call_args_list:
             self.assertEqual(call.kwargs.get("api_key"), "paid-token")
+
+    async def test_per_item_summary_passes_page_content(self) -> None:
+        from kindly_web_search_mcp_server.content.summary_backend import _per_item_summary
+        from kindly_web_search_mcp_server.content.summary_models import SummaryOutput
+
+        mock_output = SummaryOutput(
+            summary="Item summary",
+            key_points=["Key 1"],
+            important_entities=[],
+            verbatim_terms=[],
+            limitations=[],
+        )
+        item = {
+            "input_url": "https://example.com/item",
+            "page_content": "Detailed page markdown content",
+        }
+        with patch(
+            "kindly_web_search_mcp_server.content.summary_backend._generate_summary",
+            new=AsyncMock(return_value=(mock_output, None)),
+        ) as mock_gen:
+            res = await _per_item_summary(item, mode="brief", focus_query=None)
+            self.assertEqual(res["summary"], "Item summary")
+            mock_gen.assert_awaited_once()
+            _, kwargs = mock_gen.call_args
+            self.assertEqual(kwargs["source_text"], "Detailed page markdown content")
 
 
 if __name__ == "__main__":

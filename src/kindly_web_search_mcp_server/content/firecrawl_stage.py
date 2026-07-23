@@ -157,5 +157,24 @@ async def run_firecrawl_batch(
             if has_error
             else None,
         )
+    invalid_urls = getattr(result, "invalid_urls", None) or []
+    for invalid_url in invalid_urls:
+        input_url = _resolve_input_url(invalid_url, urls, input_by_normalized) or invalid_url
+        if input_url not in artifacts:
+            artifacts[input_url] = ContentArtifact(
+                input_url=input_url,
+                normalized_url=canonicalize_url(input_url),
+                fetched_url=None,
+                status="error",
+                source_type="html",
+                fetch_backend="firecrawl_cloud",
+                content_type="text/markdown",
+                markdown="",
+                error=ContentError(
+                    code="invalid_url",
+                    message="Firecrawl server flagged URL as invalid or unresolvable.",
+                    retryable=False,
+                ),
+            )
 
     return artifacts

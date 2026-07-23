@@ -28,14 +28,14 @@ class TestPageContentResolver(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.tools.search.run_web_search",
+                "kindly_web_search_mcp_server.tools.search.web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
         ):
             mock_search.return_value = WebSearchResponse(query="q", results=search_results)
 
             # Pass ctx explicitly to bypass CurrentContext() injection
-            out = await web_search("q", research_goal="testing", num_results=1, ctx=mock_ctx)
+            out = await web_search("q", research_goal="testing", ctx=mock_ctx)
 
         self.assertNotIn("page_content", out["results"][0])
 
@@ -56,13 +56,13 @@ class TestPageContentResolver(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.tools.search.run_web_search",
+                "kindly_web_search_mcp_server.tools.search.web_search",
                 new_callable=AsyncMock,
             ) as mock_search,
         ):
             mock_search.return_value = WebSearchResponse(query="q", results=results)
 
-            out = await web_search("q", research_goal="testing", num_results=1, ctx=mock_ctx)
+            out = await web_search("q", research_goal="testing", ctx=mock_ctx)
 
         self.assertNotIn("page_content", out["results"][0])
 

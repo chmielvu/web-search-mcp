@@ -10,8 +10,6 @@ from kindly_web_search_mcp_server.prompts.registry import build_prompt
     [
         "query_understanding",
         "entity_extraction",
-        "worker_rewrite",
-        "gemini_search",
         "grok_search",
         "rerank",
     ],
@@ -22,7 +20,6 @@ def test_prompt_registry_renders_known_keys(name: str) -> None:
         query="FastAPI",
         research_goal="find docs",
         intent="general",
-        must_keep_terms=["FastAPI"],
         provider_name="worker",
     )
 

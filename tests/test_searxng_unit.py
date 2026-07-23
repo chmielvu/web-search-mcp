@@ -19,7 +19,7 @@ def _mock_searxng_settings(**overrides: object) -> MagicMock:
         "searxng_user_agent": "",
         "searxng_language": "",
         "searxng_safesearch": "",
-        "searxng_timeout_seconds": 10.0,
+        "search_retrieve_budget_seconds": 10.0,
     }
     defaults.update(overrides)
     mock_settings = MagicMock()

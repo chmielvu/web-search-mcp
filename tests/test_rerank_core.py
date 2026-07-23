@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -60,13 +59,9 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch.object(
-                core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)
-            ) as mock_bi,
-            patch.object(
-                core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)
-            ) as mock_cross,
-            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)) as mock_llm,
+            patch.object(core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)),
+            patch.object(core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)),
+            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)),
         ):
             result = await core.rerank_results(
                 "How do bridges stay standing?",

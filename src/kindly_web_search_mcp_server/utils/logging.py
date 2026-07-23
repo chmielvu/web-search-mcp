@@ -2,36 +2,87 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 
-def configure_logging(*, level: int | str | None = None) -> None:
+import json
+import sys
+from datetime import UTC, datetime
+
+
+class JsonStderrLogFormatter(logging.Formatter):
+    """Format log records as single-line JSON (JSONL) for stderr stream processing by jq, Vector, or Fluent Bit."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        ctx = getattr(record, "context", None)
+        if isinstance(ctx, dict):
+            payload["context"] = ctx
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging(
+    *,
+    level: int | str | None = None,
+    log_format: str | None = None,
+) -> None:
     """
     Configure logging defaults for both local runs and MCP stdio hosts.
 
     Goals:
-    - Avoid noisy third-party logs during tool execution (especially `httpx` request logs).
+    - Avoid noisy third-party logs during tool execution.
     - Keep configuration idempotent so hosts can override it safely.
-    - Install process log handler (QueueHandler → QueueListener → BatchDuckDBLogHandler)
-      for centralized DuckDB log storage with 48h TTL.
+    - Support `log_format='json'` (or env `LOG_FORMAT=json`) for single-line JSONL stderr output
+      compatible with `jq`, `Vector` VRL, `Fluent Bit`, and `Fluentd`.
+    - Install process log handler (QueueHandler -> QueueListener -> BatchDuckDBLogHandler).
     """
     root = logging.getLogger()
     if level is None:
         level = os.environ.get("LOG_LEVEL", "INFO")
     if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
+        resolved_level = getattr(logging, level.upper(), logging.INFO)
+    else:
+        resolved_level = level
 
-    # Only set up basicConfig if nothing configured yet (common for scripts).
+    if log_format is None:
+        log_format = os.environ.get(
+            "LOG_FORMAT", os.environ.get("WEB_SEARCH_CLI_LOG_FORMAT", "text")
+        ).lower()
+
     if not root.handlers:
-        logging.basicConfig(level=level)
-    root.setLevel(level)
+        handler = logging.StreamHandler(sys.stderr)
+        if log_format == "json":
+            handler.setFormatter(JsonStderrLogFormatter())
+        root.addHandler(handler)
+    else:
+        for handler in root.handlers:
+            if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stderr:
+                if log_format == "json":
+                    handler.setFormatter(JsonStderrLogFormatter())
 
+    root.setLevel(resolved_level)
     # Silence common noisy libraries unless the host explicitly configures them.
+    # `rustls`, `h2`, `hyper_util`, and `cookie_store` produce ~110 lines of
+    # TLS / HTTP-2 / cookie chatter per HTTP request at DEBUG. Drop them to
+    # WARNING so they stay available for opt-in debugging without drowning
+    # the transcript at the default level.
     noisy_loggers = (
         "httpx",
         "httpcore",
         "urllib3",
         "asyncio",
         "primp",
+        "rustls",
+        "h2",
+        "hyper_util",
+        "cookie_store",
     )
     for name in noisy_loggers:
         # `asyncio` can emit noisy warnings about slow callbacks in some environments.

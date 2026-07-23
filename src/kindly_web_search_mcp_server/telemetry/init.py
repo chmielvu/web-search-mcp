@@ -82,8 +82,8 @@ def init_telemetry(
         if exporter is not None:
             active.span_exporter = _OpenInferenceFilteringSpanExporter(exporter)
             LOGGER.info("Phoenix LLM-only filter applied (LLM + RERANKER only)")
-
         OpenAIInstrumentor().instrument(tracer_provider=_provider)
+        _initialized = True
     _shutdown = False
 
 

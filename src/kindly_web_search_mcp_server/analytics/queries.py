@@ -116,9 +116,8 @@ def _is_latency_question(question: str) -> bool:
 
 
 def _is_run_quality_question(question: str) -> bool:
-    return (
-        ("quality" in question or "score" in question or "verdict" in question)
-        and ("run" in question or "result" in question or "outcome" in question)
+    return ("quality" in question or "score" in question or "verdict" in question) and (
+        "run" in question or "result" in question or "outcome" in question
     )
 
 

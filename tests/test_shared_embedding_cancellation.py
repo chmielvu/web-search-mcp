@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import time
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from kindly_web_search_mcp_server.models import WebSearchResult, WebSearchResponse
 from kindly_web_search_mcp_server.search import retrieval, ranking
 from kindly_web_search_mcp_server.search.contracts import (
     BranchRole,
-    DiagnosticsCollector,
     QueryBranch,
     SearchRun,
 )
@@ -59,11 +58,10 @@ async def test_qdrant_cancellation_does_not_cancel_shared_task(
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
     )
-    from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
     async def mock_qdrant_func(query, num_results, **kwargs):
         # Await the query_embedding, which is shielded
-        emb = await kwargs["query_embedding"]
+        await kwargs["query_embedding"]
         return [WebSearchResult(title="Qdrant Hit", link="https://qdrant.com", snippet="qdrant")]
 
     def mock_get_def(name):
@@ -197,7 +195,6 @@ async def test_retrieve_budget_uses_bounded_drain_without_cancelling_shared_embe
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
     )
-    from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
     embedding_event = asyncio.Event()
     release_provider_event = asyncio.Event()
@@ -277,7 +274,6 @@ async def test_retrieve_caller_cancellation_is_reraised_after_bounded_drain(
     from kindly_web_search_mcp_server.search.provider_catalog import (
         ProviderDefinition,
     )
-    from kindly_web_search_mcp_server.search.provider_registry import _make_adapter
 
     release_provider_event = asyncio.Event()
 

@@ -60,7 +60,7 @@ async def test_run_firecrawl_batch_empty_markdown_is_error(monkeypatch):
     assert artifact.error.code == "firecrawl_empty"
 
 
-async def test_run_firecrawl_batch_exception_returns_empty(monkeypatch):
+async def test_run_firecrawl_batch_exception_returns_none(monkeypatch):
     batch_scrape = AsyncMock(side_effect=RuntimeError("boom"))
     _install_client(monkeypatch, batch_scrape)
 
@@ -68,7 +68,7 @@ async def test_run_firecrawl_batch_exception_returns_empty(monkeypatch):
         ["https://example.com"], options=FetchOptions(), batch_params=None
     )
 
-    assert result == {}
+    assert result is None
 
 
 async def test_run_firecrawl_batch_missing_url_omitted(monkeypatch):
@@ -98,7 +98,7 @@ async def test_run_firecrawl_batch_include_links_adds_format(monkeypatch):
     assert "links" in kwargs["formats"]
 
 
-async def test_run_firecrawl_batch_no_api_key_returns_empty(monkeypatch):
+async def test_run_firecrawl_batch_no_api_key_returns_none(monkeypatch):
     monkeypatch.setattr(firecrawl_stage, "_client", None)
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.content.firecrawl_stage.settings.firecrawl_api_key",
@@ -109,7 +109,24 @@ async def test_run_firecrawl_batch_no_api_key_returns_empty(monkeypatch):
         ["https://example.com"], options=FetchOptions(), batch_params=None
     )
 
-    assert result == {}
+    assert result is None
+
+
+async def test_run_firecrawl_batch_invalid_urls_mapped_to_error(monkeypatch):
+    response_mock = MagicMock(data=[], invalid_urls=["https://invalid-domain.xyz"])
+    batch_scrape = AsyncMock(return_value=response_mock)
+    _install_client(monkeypatch, batch_scrape)
+
+    result = await firecrawl_stage.run_firecrawl_batch(
+        ["https://invalid-domain.xyz"], options=FetchOptions(), batch_params=None
+    )
+
+    assert result is not None
+    assert "https://invalid-domain.xyz" in result
+    artifact = result["https://invalid-domain.xyz"]
+    assert artifact.status == "error"
+    assert artifact.error is not None
+    assert artifact.error.code == "invalid_url"
 
 
 if __name__ == "__main__":

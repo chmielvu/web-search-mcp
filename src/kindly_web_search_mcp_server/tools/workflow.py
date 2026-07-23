@@ -50,4 +50,3 @@ def get_workflow_doc() -> str:
 - analytics://schema: DuckDB observability schema
 - analytics://reports/{report_name}?days=N: analytics reports (candidate-survival, etc.)
 """
-

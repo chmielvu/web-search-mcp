@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import duckdb
 import sys
 from pathlib import Path
 
@@ -10,48 +11,37 @@ class TestABViews:
     """Test A/B analytics views with sample data."""
 
     def _setup_db(self, db_path: Path) -> None:
-        import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_search_runs,
-            _ensure_query_understanding,
-            _ensure_query_rewrites,
-            _ensure_provider_calls,
-            _ensure_provider_candidates,
-            _ensure_merged_candidates,
-            _ensure_rerank_stages,
-            _ensure_rerank_candidates,
-            _ensure_final_results,
-            _ensure_search_quality_scores,
-            _ensure_judge_evaluations,
-            _ensure_ab_experiments,
-            _ensure_ab_experiment_variants,
             _ensure_ab_assignments,
+            _ensure_ab_experiment_variants,
+            _ensure_ab_experiments,
             _ensure_ab_results,
             _ensure_ab_shadow_runs,
         )
         from kindly_web_search_mcp_server.analytics.views import ensure_views
+        from kindly_web_search_mcp_server.analytics.writers.schema import (
+            ensure_store_schema,
+        )
 
+        # Create the 16 base pipeline tables (canonical aggregator).
+        # The 2026-07-20 schema consolidation removed query_understanding,
+        # query_rewrites, provider_candidates, and merged_candidates — they
+        # are no longer referenced from this aggregator.
+        ensure_store_schema(db_path=str(db_path))
+
+        # The 5 A/B-specific tables live in a separate schema writer
+        # (analytics/writers/ab_schema.py) and are NOT created by
+        # `ensure_store_schema`. Create them explicitly via the surviving
+        # duckdb_store re-exports.
         con = duckdb.connect(str(db_path))
-        # Create all base tables (existing views depend on these)
-        _ensure_search_runs(con)
-        _ensure_query_understanding(con)
-        _ensure_query_rewrites(con)
-        _ensure_provider_calls(con)
-        _ensure_provider_candidates(con)
-        _ensure_merged_candidates(con)
-        _ensure_rerank_stages(con)
-        _ensure_rerank_candidates(con)
-        _ensure_final_results(con)
-        _ensure_search_quality_scores(con)
-        _ensure_judge_evaluations(con)
-        # AB tables
-        _ensure_ab_experiments(con)
-        _ensure_ab_experiment_variants(con)
-        _ensure_ab_assignments(con)
-        _ensure_ab_results(con)
-        _ensure_ab_shadow_runs(con)
-        con.close()
-
+        try:
+            _ensure_ab_experiments(con)
+            _ensure_ab_experiment_variants(con)
+            _ensure_ab_assignments(con)
+            _ensure_ab_results(con)
+            _ensure_ab_shadow_runs(con)
+        finally:
+            con.close()
         # Insert sample data
         con = duckdb.connect(str(db_path))
 
@@ -142,24 +132,11 @@ class TestABViews:
 
     def test_v_ab_experiment_summary_empty_experiment(self) -> None:
         """An experiment with no variants/assignments/results should still appear."""
-        import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_search_runs,
-            _ensure_query_understanding,
-            _ensure_query_rewrites,
-            _ensure_provider_calls,
-            _ensure_provider_candidates,
-            _ensure_merged_candidates,
-            _ensure_rerank_stages,
-            _ensure_rerank_candidates,
-            _ensure_final_results,
-            _ensure_search_quality_scores,
-            _ensure_judge_evaluations,
             _ensure_ab_experiments,
-            _ensure_ab_experiment_variants,
-            _ensure_ab_assignments,
-            _ensure_ab_results,
-            _ensure_ab_shadow_runs,
+        )
+        from kindly_web_search_mcp_server.analytics.writers.schema import (
+            ensure_store_schema,
         )
         from kindly_web_search_mcp_server.analytics.views import ensure_views
 
@@ -167,26 +144,13 @@ class TestABViews:
         if db_path.exists():
             db_path.unlink()
         try:
-            con = duckdb.connect(str(db_path))
-            # Create all base tables (existing views depend on these)
-            _ensure_search_runs(con)
-            _ensure_query_understanding(con)
-            _ensure_query_rewrites(con)
-            _ensure_provider_calls(con)
-            _ensure_provider_candidates(con)
-            _ensure_merged_candidates(con)
-            _ensure_rerank_stages(con)
-            _ensure_rerank_candidates(con)
-            _ensure_final_results(con)
-            _ensure_search_quality_scores(con)
-            _ensure_judge_evaluations(con)
-            _ensure_ab_experiments(con)
-            _ensure_ab_experiment_variants(con)
-            _ensure_ab_assignments(con)
-            _ensure_ab_results(con)
-            _ensure_ab_shadow_runs(con)
-            con.close()
+            ensure_store_schema(db_path=str(db_path))
 
+            con = duckdb.connect(str(db_path))
+            try:
+                _ensure_ab_experiments(con)
+            finally:
+                con.close()
             con = duckdb.connect(str(db_path))
             con.execute("""
                 INSERT INTO ab_experiments (experiment_id, layer, variant_a, variant_b, allocation_rate, status)

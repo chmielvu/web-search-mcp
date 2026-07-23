@@ -73,7 +73,7 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
 
     results: list[WebSearchResult] = []
 
-    with DDGS(timeout=settings.ddg_timeout_seconds) as ddgs:
+    with DDGS(timeout=settings.search_retrieve_budget_seconds) as ddgs:
         try:
             raw_results = ddgs.text(
                 query,

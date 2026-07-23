@@ -1,27 +1,30 @@
 # AGENTS.md - A/B Testing Framework
 
-This directory implements the search-experiment A/B testing layer.
+Search-experiment A/B testing with deterministic bucketing and shadow execution.
 
-## Current Structure
+## Key Files
 
-ab_testing/
-|-- models.py                # Experiment / variant data models
-|-- assignment.py            # Deterministic bucketing
-|-- yaml_loader.py           # YAML load/save helpers
-|-- wiring.py                # Runtime wiring / override lookup
-└── shadow_runner.py         # Shadow execution runner
+| File | Role |
+|---|---|
+| `models.py` | Experiment/variant data models |
+| `assignment.py` | Deterministic user-to-variant bucketing |
+| `yaml_loader.py` | YAML experiment config load/save |
+| `wiring.py` | Runtime wiring / override lookup |
+| `shadow_runner.py` | Shadow mode execution (out-of-band) |
 
 ## Wired Layers
 
 1. `query_understanding`
 2. `reranking`
 
-## Current Behavior
+## Rules
 
-- Shadow variants run out-of-band and should not block the production path
-- Only one active experiment per layer should be running at a time
-- The CLI manages experiments through `web-search-cli experiments ...`
+- Shadow variants run out-of-band and must NOT block the production path.
+- Only one active experiment per layer at a time.
+- CLI manages experiments via `uv run web-search-cli experiments ...`.
 
 ## Testing
 
-- `python -m pytest tests/test_ab_*.py`
+```bash
+uv run pytest tests/test_ab_*.py
+```

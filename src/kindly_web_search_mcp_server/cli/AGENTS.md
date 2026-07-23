@@ -1,65 +1,76 @@
 # AGENTS.md - CLI (web-search-cli)
 
-This directory contains the native Typer CLI for the MCP server.
+Typer CLI for the MCP server. ALL CLI invocations MUST use `uv run web-search-cli`.
 
-## Current Structure
+## Structure
 
+```
 cli/
-|-- app.py                   # Main Typer application entrypoint
-|-- commands/                # Command registration modules
-|   |-- schema.py            # schema command
-|   |-- doctor.py            # doctor command
-|   |-- getskill.py          # getskill command
-|   |-- reference.py         # reference commands
-|   |-- search.py            # search-related CLI commands
-|   |-- content.py           # content commands
-|   |-- links.py             # link-discovery commands
-|   |-- ai.py                # AI/search synthesis commands
-|   |-- youtube.py           # YouTube commands
-|   |-- analytics.py         # analytics query/report commands
-|   |-- experiments.py       # A/B experiment management
-|   |-- server.py            # server/launch helpers
-|   └── sitemap.py           # sitemap command (Tavily Map + legacy fallback)
-└── services/               # Shared service adapters
-    |-- search_web.py        # Web search service adapter
-    |-- quick_search.py      # Quick search adapter
-    |-- content.py           # Content fetch service adapter
-    |-- content_batch.py     # Batch content adapter
-    |-- link_tools.py        # Link discovery adapter
-    |-- ai.py                # AI answer adapters
-    |-- academic.py          # Academic search adapter
-|-- youtube.py           # YouTube adapter
-    └── sitemap.py           # Sitemap adapter
+├── app.py                   # Typer app with 15 command groups
+├── commands/                # Command registration modules
+│   ├── schema.py            # schema command
+│   ├── doctor.py            # doctor command
+│   ├── getskill.py          # getskill command
+│   ├── skills.py            # skills command (list and view markdown)
+│   ├── feedback.py          # feedback command (file auto-reports in feedback/{id}.json)
+│   ├── reference.py         # reference commands
+│   ├── search.py            # search commands
+│   ├── content.py           # content commands
+│   ├── links.py             # link-discovery commands
+│   ├── ai.py                # AI/synthesis commands
+│   ├── youtube.py           # YouTube commands
+│   ├── analytics.py         # analytics query/report commands
+│   ├── experiments.py       # A/B experiment management
+│   ├── server.py            # server/launch helpers
+│   └── sitemap.py           # sitemap generate
+└── services/                # Shared service adapters
+    ├── search_web.py        # Web search
+    ├── quick_search.py      # Quick search
+    ├── content.py           # Content fetch
+    ├── content_batch.py     # Batch content
+    ├── link_tools.py        # Link discovery
+    ├── ai.py                # AI answers
+    ├── academic.py          # Academic search
+    ├── youtube.py           # YouTube
+    └── sitemap.py           # Sitemap
+```
 
 ## Current Behavior
 
-- `app.py` wires all commands into a JSON-first CLI.
-- Global runtime flags include `--agent`, `--human`, `--quiet`,
-  `--profile`, `--log-level`, `--debug`, and `--non-interactive`.
-- `--debug` sets the CLI application log level to `DEBUG` and emits logs on
-  stderr; structured command output remains on stdout.
-- The CLI is the first-class surface; there is no `mcp2cli` compatibility
-  wrapper.
-- `search quick` is backed by Parallel AI Search API, locks advanced mode,
-  and requires repeatable `--search-query` (1-5, 2-3 recommended) plus `--objective`.
+- `app.py` wires all commands into a JSON-first CLI. Standard command output is JSON to stdout (`--brief`, `--version`, skill markdown, and `--raw` mode emit plain text / raw value lines by design).
+- Global reserved flags: `--brief`, `--help`, `--version`, `--yes`, `--dry-run`, `--quiet`, `--fields`, `--raw`, `--log-level`, `--log-format`, `--debug`, `--profile`, `--non-interactive`.
+- `--quiet` (`-q`): suppresses `rules`, `skills`, and `feedback` from response payload (saves tokens for experienced agents).
+- `--raw`: outputs bare value lines to stdout for pipe chaining.
+- `--fields`: comma-separated field projection to reduce response payload size.
+- `--dry-run`: previews feedback mutations (`create`, `close`, `transition`) without modifying files.
+- `--log-format=json`: emits single-line JSON log objects (JSONL) on stderr parseable by `jq`, `Vector` VRL, `Fluent Bit`, `Fluentd`.
+- Inline context: every response includes `rules` (full `.md` content inline), `skills` (catalog), and `feedback` guidance.
+- Built-in feedback system: `feedback create/list/show/close/transition`, stored in project source at `feedback/{id}.json`.
 
-## Main Commands
+## Commands
 
-- `web-search-cli schema`
-- `web-search-cli doctor`
-- `web-search-cli getskill`
-- `web-search-cli reference tools`
-- `web-search-cli search quick --search-query ... --objective ...`  (Parallel AI, advanced mode)
-- `web-search-cli content ...`
-- `web-search-cli links ...`
-- `web-search-cli ai ...`
-- `web-search-cli youtube ...`
-- `web-search-cli analytics query`
-- `web-search-cli analytics report`
-- `web-search-cli experiments list|enable|disable|conclude|stats|create`
-- `web-search-cli sitemap generate`
+```bash
+uv run web-search-cli schema
+uv run web-search-cli doctor
+uv run web-search-cli getskill
+uv run web-search-cli skills [name]
+uv run web-search-cli feedback create --message "..." --type bug
+uv run web-search-cli feedback list
+uv run web-search-cli reference tools
+uv run web-search-cli search quick --search-query ... --objective ...
+uv run web-search-cli content <url>
+uv run web-search-cli links <url>
+uv run web-search-cli ai <query>
+uv run web-search-cli youtube search <query>
+uv run web-search-cli youtube transcript <video-id>
+uv run web-search-cli analytics query
+uv run web-search-cli analytics report <name>
+uv run web-search-cli experiments list|create|enable|disable|conclude|stats
+uv run web-search-cli sitemap generate <url>
+```
 
 ## Testing
 
-- `python -m pytest tests/cli/test_*.py`
-- `python -m pytest tests/test_uvx_cli.py`
+```bash
+uv run pytest tests/cli/
+```

@@ -70,7 +70,7 @@ def _build_headers() -> dict[str, str]:
 
 
 def _get_request_timeout_seconds() -> float | None:
-    raw = settings.searxng_timeout_seconds
+    raw = settings.search_retrieve_budget_seconds
     if raw is None:
         return None
     return float(raw)

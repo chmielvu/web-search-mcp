@@ -64,7 +64,12 @@ def _ensure_db(db_path: Path) -> None:
 
 def _compile_regex(db_path: Path) -> re.Pattern[str]:
     with duckdb.connect(str(db_path), read_only=True) as con:
-        patterns = [row[0] for row in con.execute("SELECT regex_pattern FROM blocklist_patterns WHERE active").fetchall()]
+        patterns = [
+            row[0]
+            for row in con.execute(
+                "SELECT regex_pattern FROM blocklist_patterns WHERE active"
+            ).fetchall()
+        ]
     return re.compile("|".join(patterns), re.IGNORECASE) if patterns else re.compile(r"^$")
 
 
@@ -80,7 +85,9 @@ def _get_blocklist_regex() -> re.Pattern[str]:
                     _ensure_db(path)
                 _regex_cache = _compile_regex(path)
             except Exception:
-                logger.warning("Blocklist database unavailable; disabling URL filtering", exc_info=True)
+                logger.warning(
+                    "Blocklist database unavailable; disabling URL filtering", exc_info=True
+                )
                 _regex_cache = re.compile(r"^$")
     return _regex_cache
 

@@ -90,7 +90,9 @@ async def search_jina(
     headers = {"Authorization": f"Bearer {api_key}"}
 
     async def _do_request(client: httpx.AsyncClient) -> str:
-        response = await client.get(url, headers=headers, timeout=30)
+        response = await client.get(
+            url, headers=headers, timeout=settings.search_retrieve_budget_seconds
+        )
         response.raise_for_status()
         return response.text
 

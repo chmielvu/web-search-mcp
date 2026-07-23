@@ -27,7 +27,7 @@ def _definition(
     description: str,
     *,
     all_of: tuple[str, ...] = (),
-    timeout: float = 10.0,
+    timeout: float | None = None,
     requires_embedding: bool = False,
     specialized: bool = False,
 ) -> ProviderDefinition:
@@ -37,7 +37,9 @@ def _definition(
         adapter_function=adapter_function,
         all_of=all_of,
         description=description,
-        default_timeout_seconds=timeout,
+        default_timeout_seconds=(
+            settings.search_retrieve_budget_seconds if timeout is None else timeout
+        ),
         requires_embedding=requires_embedding,
         specialized=specialized,
     )
@@ -56,7 +58,13 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("SEARXNG_BASE_URL",),
     ),
     _definition("ddg", "providers.ddg", "search_ddg", "DuckDuckGo search"),
-    _definition("gemma", "providers.gemma_serp", "search_gemma", "Gemini grounded search"),
+    _definition(
+        "gemma",
+        "providers.gemma_serp",
+        "search_gemma",
+        "Gemini grounded search",
+        timeout=settings.search_retrieve_budget_seconds,
+    ),
     _definition(
         "degoog",
         "providers.degoog",
@@ -162,7 +170,9 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("OPENROUTER_API_KEY",),
         specialized=True,
     ),
-    _definition("hackernews", "providers.hackernews", "search_hackernews", "Hacker News", specialized=True),
+    _definition(
+        "hackernews", "providers.hackernews", "search_hackernews", "Hacker News", specialized=True
+    ),
     _definition("reddit", "providers.reddit", "search_reddit", "Reddit", specialized=True),
     _definition(
         "github_graphql",

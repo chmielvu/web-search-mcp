@@ -75,17 +75,25 @@ async def web_search(
             "search.research_goal": request.research_goal[:500],
         },
     ) as root_span:
-        response_model = await execute_web_search(
-            request,
-            http_client=await get_http_client(),
-            run_key=tool_call_id,
-            tool_call_id=tool_call_id,
-            session_id=_resolve_session_id(ctx),
-            progress=ctx,
-        )
-        response = _normalize_lightweight_search_response(
-            response_model.model_dump(exclude_none=True), query=request.query
-        )
+        from ..llm.router import bind_run_context, reset_run_context
+
+        ctx_token = bind_run_context(tool_call_id, operation="web_search")
+        try:
+            response_model = await execute_web_search(
+                request,
+                http_client=await get_http_client(),
+                run_key=tool_call_id,
+                tool_call_id=tool_call_id,
+                session_id=_resolve_session_id(ctx),
+                progress=ctx,
+            )
+            response = _normalize_lightweight_search_response(
+                response_model.model_dump(exclude_none=True),
+                query=request.query,
+            )
+        finally:
+            reset_run_context(ctx_token)
+
         if domain_boost or domain_block:
             response["results"] = _apply_domain_filters(
                 response.get("results", []), domain_boost, domain_block
