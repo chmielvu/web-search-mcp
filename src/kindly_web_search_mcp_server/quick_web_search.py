@@ -252,14 +252,21 @@ def register_quick_web_search(mcp: Any) -> None:
     ) -> dict:
         """Fast reconnaissance search using Parallel AI (advanced mode).
 
-        Use as the initial tool call to scope a topic before deeper research.
-        Returns ranked citations with excerpts, publish dates, and usage metadata.
+        When to use this tool:
+        - As the initial step to scope a complex, broad, or unfamiliar topic.
+        - When you need quick keyword-based discovery before deep reading.
+
+        Key features & Sequencing:
+        - Generates multiple citations with excerpts, publish dates, and usage metadata.
+        - You MUST analyze these citations to identify specific, high-value URLs.
+        - After calling this, you SHOULD call get_content or batch_get_content on the most relevant URLs to read their full text.
+        - Do NOT use this if you need deep cross-provider RRF ranking (use web_search instead).
 
         Args:
             search_queries: Concise keyword queries, 3-6 words each. At least one
                 required; 2-3 recommended for best results (max 5).
             objective: Research goal — what you're trying to accomplish.
-            max_results: Max citations to return (default: 10).
+           max_results: Max citations to return (1-20, default: 10).
             max_chars_total: Cap on total excerpt characters across all results.
             max_chars_per_result: Cap on characters per single result's excerpts.
             client_model: Model consuming results for Parallel optimizations.

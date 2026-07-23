@@ -251,22 +251,22 @@ class Settings:
 
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
     process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
-    process_logs_duckdb_path: str = os.environ.get(
-        "PROCESS_LOGS_DUCKDB_PATH",
-        DEFAULT_PROCESS_LOGS_DB,
+    process_logs_sqlite_path: str = os.environ.get(
+        "PROCESS_LOGS_SQLITE_PATH",
+        os.environ.get("PROCESS_LOGS_DUCKDB_PATH", DEFAULT_PROCESS_LOGS_DB),
     )
     process_logs_ttl_hours: int = int(os.environ.get("PROCESS_LOGS_TTL_HOURS", "48"))
 
     # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
-    page_cache_duckdb_path: str = os.environ.get(
-        "PAGE_CACHE_DUCKDB_PATH",
-        DEFAULT_PAGE_CACHE_DB,
+    page_cache_sqlite_path: str = os.environ.get(
+        "PAGE_CACHE_SQLITE_PATH",
+        os.environ.get("PAGE_CACHE_DUCKDB_PATH", DEFAULT_PAGE_CACHE_DB),
     )
 
     # Transcript cache (separate DuckDB file for YouTube transcript caching)
-    transcript_cache_duckdb_path: str = os.environ.get(
-        "TRANSCRIPT_CACHE_DUCKDB_PATH",
-        DEFAULT_TRANSCRIPT_CACHE_DB,
+    transcript_cache_sqlite_path: str = os.environ.get(
+        "TRANSCRIPT_CACHE_SQLITE_PATH",
+        os.environ.get("TRANSCRIPT_CACHE_DUCKDB_PATH", DEFAULT_TRANSCRIPT_CACHE_DB),
     )
 
     # Telegram search provider (Telethon MTProto)

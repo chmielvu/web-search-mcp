@@ -1,13 +1,12 @@
-"""DuckDB-backed URL blocklist (patterns managed via add_blocklist_pattern)."""
+"""SQLite-backed URL blocklist (patterns managed via add_blocklist_pattern)."""
 
 from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 import threading
 from pathlib import Path
-
-import duckdb
 
 from ..models import WebSearchResult
 from ..settings import settings
@@ -19,76 +18,91 @@ _db_lock = threading.Lock()
 
 
 def _resolve_db_path() -> Path:
-    configured = settings.blocklist_duckdb_path.strip()
-    return Path(configured) if configured else Path("data") / "blocklist.duckdb"
+    configured = getattr(settings, "blocklist_sqlite_path", None) or getattr(
+        settings, "blocklist_duckdb_path", ""
+    )
+    configured = configured.strip()
+    return Path(configured) if configured else Path("data") / "blocklist.sqlite"
 
 
 def _translate_ublacklist_to_regex(pattern: str) -> str:
     """Translate uBlacklist globs, including optional subdomains, to regex."""
-    value = pattern.strip()
-    if not value:
-        raise ValueError("blocklist pattern cannot be empty")
-    scheme = ""
-    body = value
-    if body.startswith("*://"):
+    pattern = pattern.strip()
+    if not pattern:
+        return r"^$"
+
+    # Normalize double slashes in URL schemes
+    if pattern.startswith("*://"):
         scheme = r"https?://"
-        body = body[4:]
+        pattern = pattern[4:]
+    elif "://" in pattern:
+        scheme_part, pattern = pattern.split("://", 1)
+        scheme = f"^{re.escape(scheme_part)}://"
+    else:
+        scheme = r"^https?://"
+
     subdomain = ""
-    if body.startswith("*."):
+    if pattern.startswith("*."):
         subdomain = r"(?:[^/]+\.)?"
-        body = body[2:]
-    escaped = re.escape(body).replace(r"\*", ".*")
-    return f"^{scheme}{subdomain}{escaped}$"
+        pattern = pattern[2:]
+
+    # Escape special regex chars except wildcard *
+    parts = pattern.split("*")
+    escaped_parts = [re.escape(p) for p in parts]
+    escaped = ".*".join(escaped_parts)
+
+    return f"{scheme}{subdomain}{escaped}$"
 
 
 def _ensure_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with duckdb.connect(str(db_path)) as con:
-        con.execute("CREATE SEQUENCE IF NOT EXISTS blocklist_seq START 1")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS blocklist_patterns (
-                id INTEGER PRIMARY KEY DEFAULT nextval('blocklist_seq'),
-                glob_pattern VARCHAR NOT NULL,
-                regex_pattern VARCHAR NOT NULL,
-                source VARCHAR NOT NULL DEFAULT 'ublacklist',
-                active BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        con.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_blocklist_glob ON blocklist_patterns (glob_pattern)"
-        )
+    with _db_lock:
+        con = sqlite3.connect(str(db_path), timeout=10.0)
+        con.execute("PRAGMA journal_mode=WAL;")
+        con.execute("PRAGMA synchronous=NORMAL;")
+        con.execute("PRAGMA busy_timeout=5000;")
+        try:
+            with con:
+                con.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS blocklist_patterns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        glob_pattern TEXT NOT NULL UNIQUE,
+                        regex_pattern TEXT NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'manual',
+                        active INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+                con.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_blocklist_glob ON blocklist_patterns (glob_pattern);"
+                )
+        finally:
+            con.close()
 
 
 def _compile_regex(db_path: Path) -> re.Pattern[str]:
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        patterns = [
-            row[0]
-            for row in con.execute(
-                "SELECT regex_pattern FROM blocklist_patterns WHERE active"
-            ).fetchall()
-        ]
+    con = sqlite3.connect(str(db_path), timeout=10.0)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT regex_pattern FROM blocklist_patterns WHERE active = 1"
+        ).fetchall()
+        patterns = [row["regex_pattern"] for row in rows]
+    finally:
+        con.close()
     return re.compile("|".join(patterns), re.IGNORECASE) if patterns else re.compile(r"^$")
 
 
 def _get_blocklist_regex() -> re.Pattern[str]:
     global _regex_cache
-    if _regex_cache is not None:
-        return _regex_cache
-    with _regex_lock:
-        if _regex_cache is None:
-            path = _resolve_db_path()
-            try:
-                with _db_lock:
-                    _ensure_db(path)
-                _regex_cache = _compile_regex(path)
-            except Exception:
-                logger.warning(
-                    "Blocklist database unavailable; disabling URL filtering", exc_info=True
-                )
-                _regex_cache = re.compile(r"^$")
+    if _regex_cache is None:
+        with _regex_lock:
+            if _regex_cache is None:
+                db_path = _resolve_db_path()
+                _ensure_db(db_path)
+                _regex_cache = _compile_regex(db_path)
     return _regex_cache
 
 
@@ -110,41 +124,42 @@ def filter_blocked_results(results: list[WebSearchResult]) -> list[WebSearchResu
 def add_blocklist_pattern(glob_pattern: str, source: str = "manual") -> bool:
     regex_pattern = _translate_ublacklist_to_regex(glob_pattern)
     path = _resolve_db_path()
+    _ensure_db(path)
     with _db_lock:
-        _ensure_db(path)
-        with duckdb.connect(str(path)) as con:
-            exists = con.execute(
-                "SELECT COUNT(*) FROM blocklist_patterns WHERE glob_pattern = ?",
-                [glob_pattern],
-            ).fetchone()[0]
-            if exists:
+        con = sqlite3.connect(str(path), timeout=10.0)
+        try:
+            with con:
                 con.execute(
-                    "UPDATE blocklist_patterns SET regex_pattern = ?, source = ?, active = TRUE WHERE glob_pattern = ?",
-                    [regex_pattern, source, glob_pattern],
+                    """
+                    INSERT INTO blocklist_patterns (glob_pattern, regex_pattern, source, active)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT(glob_pattern) DO UPDATE SET
+                        regex_pattern = excluded.regex_pattern,
+                        source = excluded.source,
+                        active = 1
+                    """,
+                    (glob_pattern, regex_pattern, source),
                 )
-            else:
-                con.execute(
-                    "INSERT INTO blocklist_patterns (glob_pattern, regex_pattern, source, active) VALUES (?, ?, ?, TRUE)",
-                    [glob_pattern, regex_pattern, source],
-                )
+        finally:
+            con.close()
     reload_blocklist()
     return True
 
 
 def remove_blocklist_pattern(glob_pattern: str) -> bool:
     path = _resolve_db_path()
+    _ensure_db(path)
     with _db_lock:
-        _ensure_db(path)
-        with duckdb.connect(str(path)) as con:
-            count = con.execute(
-                "SELECT COUNT(*) FROM blocklist_patterns WHERE glob_pattern = ? AND active",
-                [glob_pattern],
-            ).fetchone()[0]
-            if count:
-                con.execute(
-                    "UPDATE blocklist_patterns SET active = FALSE WHERE glob_pattern = ?",
-                    [glob_pattern],
+        con = sqlite3.connect(str(path), timeout=10.0)
+        try:
+            with con:
+                cursor = con.execute(
+                    "UPDATE blocklist_patterns SET active = 0 WHERE glob_pattern = ?",
+                    (glob_pattern,),
                 )
+                count = cursor.rowcount
+        finally:
+            con.close()
     if count:
         reload_blocklist()
     return bool(count)

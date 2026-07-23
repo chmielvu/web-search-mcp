@@ -9,6 +9,7 @@ from urllib.parse import quote_plus
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,7 @@ def parse_brightdata_response(
                         title=title.strip(),
                         link=link.strip(),
                         snippet=str(snippet).strip(),
+                        domain=extract_domain_from_url(link.strip()),
                         published_date=item.get("date"),
                     )
                 )
@@ -193,6 +195,7 @@ def parse_brightdata_response(
                         title=title.strip(),
                         link=link.strip(),
                         snippet=str(snippet).strip(),
+                        domain=extract_domain_from_url(link.strip()),
                     )
                 )
                 if len(results) >= num_results:

@@ -49,9 +49,9 @@ def ensure_duckdb_dirs() -> None:
 
 # Default file paths (fixed locations)
 DEFAULT_ANALYTICS_DB = str(ANALYTICS_DIR / "search_events.duckdb")
-DEFAULT_PAGE_CACHE_DB = str(CACHE_DIR / "page_cache.duckdb")
-DEFAULT_TRANSCRIPT_CACHE_DB = str(CACHE_DIR / "transcript_cache.duckdb")
-DEFAULT_PROCESS_LOGS_DB = str(LOGS_DIR / "process_logs.duckdb")
+DEFAULT_PAGE_CACHE_DB = str(CACHE_DIR / "page_cache.sqlite")
+DEFAULT_TRANSCRIPT_CACHE_DB = str(CACHE_DIR / "transcript_cache.sqlite")
+DEFAULT_PROCESS_LOGS_DB = str(LOGS_DIR / "process_logs.sqlite")
 DEFAULT_QUERY_UNDERSTANDING_JSONL = str(TRAINING_DIR / "query_understanding.jsonl")
 DEFAULT_EXPERIMENTS_YAML = str(EXPERIMENTS_DIR / "experiments.yaml")
 DEFAULT_EXTENSION_DIR = str(EXTENSIONS_DIR)

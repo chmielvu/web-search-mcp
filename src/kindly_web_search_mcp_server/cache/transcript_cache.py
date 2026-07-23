@@ -12,23 +12,23 @@ from typing import Any
 
 from ..telemetry import record_cache_lookup
 from .observability import emit_cache_lookup_event, emit_cache_store_event
-from .transcript_duckdb import (
+from .transcript_sqlite import (
     TRANSCRIPT_CACHE_DEFAULT_TTL_SECONDS,
-    TranscriptDuckDBCache as _TranscriptDuckDBCache,
+    TranscriptSQLiteCache as _TranscriptSQLiteCache,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class TranscriptCache:
-    """DuckDB-backed transcript cache.
+    """SQLite-backed transcript cache.
 
-    Thin facade over TranscriptDuckDBCache (in transcript_duckdb.py) that
+    Thin facade over TranscriptSQLiteCache (in transcript_sqlite.py) that
     adds observability logging and telemetry recording.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
-        self._backend = _TranscriptDuckDBCache(db_path=db_path)
+        self._backend = _TranscriptSQLiteCache(db_path=db_path)
 
     def lookup(
         self,
@@ -118,7 +118,7 @@ def get_transcript_cache(db_path: str | None = None) -> TranscriptCache:
     if _TRANSCRIPT_CACHE is None:
         from ..settings import settings
 
-        actual_path = db_path or settings.transcript_cache_duckdb_path
+        actual_path = db_path or settings.transcript_cache_sqlite_path
         _TRANSCRIPT_CACHE = TranscriptCache(db_path=actual_path)
         logger.info("Initialized transcript cache at %s", actual_path)
     return _TRANSCRIPT_CACHE

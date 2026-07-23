@@ -8,6 +8,7 @@ from typing import Any
 import json
 import sys
 from datetime import UTC, datetime
+from opentelemetry import trace
 
 
 class JsonStderrLogFormatter(logging.Formatter):
@@ -20,6 +21,11 @@ class JsonStderrLogFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        span = trace.get_current_span()
+        if span and span.get_span_context().is_valid:
+            ctx = span.get_span_context()
+            payload["trace_id"] = format(ctx.trace_id, "032x")
+            payload["span_id"] = format(ctx.span_id, "016x")
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         ctx = getattr(record, "context", None)
@@ -108,13 +114,15 @@ def _install_process_logging() -> None:
     if not getattr(_settings, "process_logs_enabled", True):
         return
 
-    db_path = getattr(_settings, "process_logs_duckdb_path", "")
+    db_path = getattr(_settings, "process_logs_sqlite_path", None) or getattr(
+        _settings, "process_logs_duckdb_path", ""
+    )
     if not db_path:
         return
 
     ttl_hours = getattr(_settings, "process_logs_ttl_hours", 48)
 
-    result = _install_duckdb_handler(db_path=db_path, ttl_hours=ttl_hours)
+    result = _install_sqlite_handler(db_path=db_path, ttl_hours=ttl_hours)
     if result is not None:
         handler, listener = result
         # Store references so tests/stats can access them.
@@ -123,10 +131,10 @@ def _install_process_logging() -> None:
         _process_logging_installed = True
 
 
-def _install_duckdb_handler(db_path: str, ttl_hours: int) -> tuple | None:
-    """Try to install the DuckDB log handler. Returns (handler, listener) or None."""
+def _install_sqlite_handler(db_path: str, ttl_hours: int) -> tuple | None:
+    """Try to install the SQLite log handler. Returns (handler, listener) or None."""
     try:
-        from .duckdb_log_handler import install_process_logging as _install  # noqa: PLC0415
+        from .sqlite_log_handler import install_process_logging as _install  # noqa: PLC0415
 
         return _install(db_path=db_path, ttl_hours=ttl_hours)
     except Exception:  # noqa: BLE001

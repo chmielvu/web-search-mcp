@@ -9,6 +9,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from .base import run_provider
 from .brave_common import (
     BraveError,
@@ -195,7 +196,15 @@ async def search_brave(
                 )
             if not isinstance(snippet, str):
                 snippet = ""
-            results.append(WebSearchResult(title=title, link=link, snippet=snippet.strip()))
+            domain = extract_domain_from_url(link)
+            results.append(
+                WebSearchResult(
+                    title=title,
+                    link=link,
+                    snippet=snippet.strip(),
+                    domain=domain,
+                )
+            )
             if len(results) >= num_results:
                 break
         return results

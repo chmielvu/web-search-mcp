@@ -111,6 +111,10 @@ mcp = FastMCP(
         "For the tool routing reference card, read docs://workflow."
     ),
 )
+# Add argument aliasing middleware (rewrites hallucinated parameters before validation)
+from .middleware import create_argument_aliasing_middleware
+
+mcp.add_middleware(create_argument_aliasing_middleware())
 
 # Add expensive tool protection middleware
 # Implements "think first, then call expensive tool" pattern

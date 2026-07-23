@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from typing import Any, Awaitable, Sequence
@@ -169,6 +170,9 @@ Output queries: [
 Return JSON of the form:
 {{"queries": ["<keyword1>", "<keyword2>", "<keyword3>", "<neural>"]}}"""
 
+_REWRITE_CACHE: dict[str, tuple[_RewriteQueries, dict[str, Any]]] = {}
+_REWRITE_CACHE_MAX_SIZE = 256
+
 
 async def _rewrite_queries(
     *,
@@ -187,6 +191,13 @@ async def _rewrite_queries(
         suggestions=list(suggestions),
         spell_correction=correction or "",
     )
+    cache_key = hashlib.sha256(user_content.encode("utf-8")).hexdigest()
+    if cache_key in _REWRITE_CACHE:
+        cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]
+        hit_meta = dict(cached_meta)
+        hit_meta["cached"] = True
+        return cached_parsed, hit_meta
+
     started = time.monotonic()
     generation = await build_worker_router().complete_json(
         messages=[
@@ -205,6 +216,9 @@ async def _rewrite_queries(
         "latency_ms": (time.monotonic() - started) * 1000.0,
         "prompt": f"query={query!r}\nresearch_goal={research_goal!r}",
     }
+    if len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
+        _REWRITE_CACHE.clear()
+    _REWRITE_CACHE[cache_key] = (parsed, metadata)
     return parsed, metadata
 
 

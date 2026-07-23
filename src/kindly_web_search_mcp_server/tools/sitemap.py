@@ -26,11 +26,15 @@ async def generate_sitemap(
     allow_external: bool = False,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Generate a sitemap using Tavily Map, with Crawl4AI as fallback.
+    """Generate a structural sitemap for a website using Tavily Map (with Crawl4AI fallback).
 
-    Tavily Map is the primary backend and exposes its native URL mapping
-    response. The legacy Crawl4AI semantic sitemap path is only used as a
-    fallback when Tavily fails or returns no discovered URLs.
+    When to use this tool:
+    - To map full URL hierarchies and site structures for documentation sites, blogs, or APIs.
+    - When planning deep site crawls with specific path regex filters.
+
+    Parameters explained:
+    - select_paths: Array of regex strings to include (e.g., ["/docs/.*", "/api/.*"]).
+    - exclude_paths: Array of regex strings to skip (e.g., ["/blog/tag/.*"]).
 
     Args:
         url: The target website URL to generate a sitemap from.

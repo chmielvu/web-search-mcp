@@ -28,10 +28,15 @@ async def gemini_search(
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """AI-powered search with Google Search grounding.
+    """AI-powered search synthesis grounded with real-time Google Search results.
 
-    Returns a synthesized answer with inline [N] citations. Fast, good for
-    factual lookups and current events.
+    When to use this tool:
+    - For quick factual lookups, current event summaries, and direct AI-synthesized answers.
+    - When you need inline grounding citations [N] without manually fetching multiple URLs yourself.
+
+    Key constraints:
+    - Do NOT use when you need to inspect raw source pages yourself (use web_search + get_content).
+    - Do NOT call this tool more than 3 times per question.
 
     Args:
         query: The search query string.

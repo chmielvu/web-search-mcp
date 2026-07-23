@@ -11,6 +11,7 @@ from typing import Any
 
 from ...models import WebSearchResult
 from ...settings import settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from .base import run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
@@ -100,11 +101,14 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
             if not isinstance(snippet, str):
                 snippet = ""
 
+            link_str = link.strip()
+            domain = extract_domain_from_url(link_str)
             results.append(
                 WebSearchResult(
                     title=title.strip(),
-                    link=link.strip(),
+                    link=link_str,
                     snippet=snippet.strip(),
+                    domain=domain,
                     providers=["ddg"],
                 )
             )

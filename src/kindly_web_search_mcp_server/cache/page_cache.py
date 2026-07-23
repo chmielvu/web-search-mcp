@@ -13,29 +13,29 @@ from typing import Any
 
 from ..telemetry import record_cache_lookup
 from .observability import emit_cache_lookup_event, emit_cache_store_event
-from .page_duckdb import (
+from .page_sqlite import (
     PAGE_CACHE_DEFAULT_TTL_SECONDS,
-    PageDuckDBCache as _PageDuckDBCache,
+    PageSQLiteCache as _PageSQLiteCache,
 )
 
 logger = logging.getLogger(__name__)
 
 # Re-export for callers that expect the const at this module (e.g. __init__.py)
-# (definition lives in page_duckdb.py to be co-located with the impl)
+# (definition lives in page_sqlite.py to be co-located with the impl)
 
 
 class PageCache:
-    """DuckDB-backed page content cache.
+    """SQLite-backed page content cache.
 
-    Thin facade over PageDuckDBCache (in page_duckdb.py) that preserves the
+    Thin facade over PageSQLiteCache (in page_sqlite.py) that preserves the
     exact public API + singleton used by server.py / get_content.
 
-    Separate DuckDB file controlled by PAGE_CACHE_DUCKDB_PATH.
+    Separate SQLite file controlled by PAGE_CACHE_SQLITE_PATH.
     """
 
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path
-        self._backend = _PageDuckDBCache(db_path=db_path)
+        self._backend = _PageSQLiteCache(db_path=db_path)
 
     def lookup(
         self,
@@ -256,13 +256,13 @@ _PAGE_CACHE: PageCache | None = None
 def get_page_cache(db_path: str | None = None) -> PageCache:
     """Get or create the page cache singleton.
 
-    Uses PAGE_CACHE_DUCKDB_PATH (separate file) unless db_path explicitly passed.
+    Uses PAGE_CACHE_SQLITE_PATH (separate file) unless db_path explicitly passed.
     """
     global _PAGE_CACHE
     if _PAGE_CACHE is None:
         from ..settings import settings
 
-        actual_path = db_path or settings.page_cache_duckdb_path
+        actual_path = db_path or settings.page_cache_sqlite_path
         _PAGE_CACHE = PageCache(db_path=actual_path)
         logger.info("Initialized page cache at %s", actual_path)
     return _PAGE_CACHE

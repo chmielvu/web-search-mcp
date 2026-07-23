@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from ..utils.url_canonicalize import extract_domain_from_url
 
 LOGGER = logging.getLogger(__name__)
 _OUTCOME_TASKS: set[asyncio.Task[None]] = set()
@@ -150,7 +151,7 @@ async def persist_search_outcome(run):
                 "link": res.link,
                 "title": res.title,
                 "snippet": res.snippet,
-                "domain": res.domain or "",
+                "domain": res.domain or extract_domain_from_url(res.link) or "",
                 "rrf_score": res.score or 0.0,
                 "provider_count": res.provider_count or 0,
                 "providers": list(res.providers or []),
@@ -168,7 +169,7 @@ async def persist_search_outcome(run):
                     "title": res.title,
                     "link": res.link,
                     "snippet": res.snippet,
-                    "domain": res.domain or "",
+                    "domain": res.domain or extract_domain_from_url(res.link) or "",
                     "final_score": res.score,
                     "providers": list(res.providers or []),
                     "provider_count": res.provider_count or 0,

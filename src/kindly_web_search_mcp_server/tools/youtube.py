@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -34,25 +35,27 @@ async def youtube_transcript(
     video_id_or_url: str,
     language: str | None = None,
     translate_to: str | None = None,
-    format: str = "text",
+    output_format: Literal["text", "timestamped", "json"] = "text",
     backend: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResultType:
     """Extract captions from a YouTube video.
 
-    Supports multiple URL formats, language selection, translation, and
-    timestamped/text/JSON output. Use after youtube_search to get video content.
+    When to use this tool:
+    - To extract full transcript captions, timestamps, or structured segment JSON from a YouTube video.
+    - You SHOULD call youtube_search first to discover valid video_id_or_url targets.
 
     Args:
         video_id_or_url: YouTube video ID, full URL, or short URL.
         language: Language code for captions (e.g., "en", "ja", "de").
             Auto-detected when not specified.
         translate_to: Translate captions to this language code.
-        format: Output format — "text" (plain paragraph), "timestamped"
+        output_format: Output format — "text" (plain paragraph), "timestamped"
             ([MM:SS] prefixes), or "json" (segments array).
         backend: "auto" (try yt-dlp then legacy API), "ytdlp" (yt-dlp only),
             or "api" (legacy youtube-transcript-api only). Default: server setting.
     """
+    format = output_format
     from ..settings import settings
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
@@ -190,8 +193,9 @@ async def youtube_search(
 ) -> YouTubeSearchResultType:
     """Find YouTube videos by search query via SearXNG.
 
-    Returns titles, links, and snippets. Use before youtube_transcript to
-    get captions from a specific video.
+    When to use this tool:
+    - Use this tool FIRST to search YouTube and discover video targets before calling youtube_transcript.
+    - Returns titles, links, video IDs, and snippets.
 
     Args:
         query: Search term for YouTube.

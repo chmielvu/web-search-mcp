@@ -8,6 +8,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from .base import run_provider
 
 
@@ -44,7 +45,9 @@ async def search_serper(
     api_key = _get_serper_api_key()
     url = "https://google.serper.dev/search"
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
-    body = {"q": query, "num": num_results}
+    bounded_num = max(1, min(num_results, 10))
+    clean_query = query.strip()
+    body = {"q": clean_query, "num": bounded_num}
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         response = await client.post(url, json=body, headers=headers)
@@ -79,7 +82,15 @@ async def search_serper(
             if not isinstance(snippet, str):
                 snippet = ""
 
-            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
+            domain = extract_domain_from_url(link)
+            results.append(
+                WebSearchResult(
+                    title=title.strip(),
+                    link=link.strip(),
+                    snippet=snippet.strip(),
+                    domain=domain,
+                )
+            )
             if len(results) >= num_results:
                 break
         return results

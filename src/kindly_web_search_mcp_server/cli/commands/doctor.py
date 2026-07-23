@@ -40,6 +40,26 @@ def _check_duckdb_file(path: Path) -> dict:
         return {"name": f"duckdb_file_{name}", "ok": False, "path": str(path), "error": str(exc)}
 
 
+def _check_sqlite_file(path: Path) -> dict:
+    import sqlite3
+
+    name = path.name
+    if not path.exists():
+        return {
+            "name": f"sqlite_file_{name}",
+            "ok": False,
+            "path": str(path),
+            "error": "file not found",
+        }
+    try:
+        conn = sqlite3.connect(str(path), timeout=5.0)
+        conn.execute("SELECT 1")
+        conn.close()
+        return {"name": f"sqlite_file_{name}", "ok": True, "path": str(path)}
+    except Exception as exc:  # noqa: BLE001
+        return {"name": f"sqlite_file_{name}", "ok": False, "path": str(path), "error": str(exc)}
+
+
 def _check_analytics_schema() -> dict:
     path = _db_path()
     if not path.exists():
@@ -94,8 +114,8 @@ def register(app: typer.Typer) -> None:
             },
             {"name": "repo_root", "ok": REPO_ROOT.exists(), "path": str(REPO_ROOT)},
             _check_duckdb_file(_db_path()),
-            _check_duckdb_file(Path(settings.page_cache_duckdb_path)),
-            _check_duckdb_file(Path(settings.transcript_cache_duckdb_path)),
+            _check_sqlite_file(Path(settings.page_cache_sqlite_path)),
+            _check_sqlite_file(Path(settings.transcript_cache_sqlite_path)),
             _check_analytics_schema(),
         ]
         emit_json({"checks": checks}, command="doctor")

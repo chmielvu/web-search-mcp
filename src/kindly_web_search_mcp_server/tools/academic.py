@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -25,13 +25,18 @@ async def academic_search(
     fields_of_study: list[str] | None = None,
     venue: str | None = None,
     open_access_only: bool = False,
-    sort: str = "relevance",
+    sort: Literal["relevance", "citations", "date"] = "relevance",
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResultType:
-    """Search 6 scholarly sources with cross-source deduplication.
+    """Search 6 scholarly sources (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) with cross-source deduplication.
 
-    Sources: Semantic Scholar, arXiv, OpenAlex, CrossRef, PubMed, CORE.
-    Supports year, venue, field-of-study, and open-access filters.
+    When to use this tool:
+    - For research questions requiring peer-reviewed papers, scientific citations, or academic literature.
+    - When standard web search produces non-scholarly blog posts or commercial content.
+
+    Parameters explained:
+    - sort: Result ordering — "relevance" (default), "citations", or "date".
+    - open_access_only: Set to true if you only want freely available full-text papers.
 
     Args:
         query: Academic search query. Use technical terminology for best results.

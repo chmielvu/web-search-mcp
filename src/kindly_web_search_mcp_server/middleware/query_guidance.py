@@ -13,7 +13,9 @@ from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
+from mcp.types import TextContent
 
+from ..errors import format_tool_error
 from .session_tracking import SessionTracker, get_session_id
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ def _append_enrichment(
         structured.setdefault("suggested_next_tools", []).extend(next_tools)
     if next_prompts:
         structured.setdefault("suggested_prompts", []).extend(next_prompts)
-    return ToolResult(structured_content=structured, meta=result.meta)
+    return ToolResult(structured_content=structured, meta=result.meta, is_error=result.is_error)
 
 
 def _extract_domain(url: str) -> str:
@@ -214,6 +216,26 @@ def _guide_quick_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     return ("", ["web_search", "get_content"], [])
 
 
+def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
+    data = _unwrap_fastmcp_result(data)
+    action = data.get("action", "")
+    err_type = data.get("error_type", "")
+    next_tools: list[str] = []
+    if err_type in ("rate_limit_exceeded", "rate_limit", "http_429"):
+        next_tools = ["gemini_search", "quick_web_search"]
+    elif err_type in ("forbidden", "unauthorized", "auth", "http_401", "http_403"):
+        next_tools = ["quick_web_search"]
+    elif err_type in ("validation_error", "value_error", "content"):
+        next_tools = ["web_search", "quick_web_search"]
+
+    msg = (
+        f"ERROR RECOVERY: {action}"
+        if action
+        else "Tool Error encountered. Review parameters and API configuration."
+    )
+    return (msg, next_tools, ["research_methodology"])
+
+
 GUIDANCE_GENERATORS = {
     "web_search": _guide_web_search,
     "get_content": _guide_get_content,
@@ -238,7 +260,25 @@ class DynamicGuidanceMiddleware(Middleware):
 
     async def on_call_tool(self, context: MiddlewareContext, call_next) -> Any:
         tool_name = context.message.name
-        result = await call_next(context)
+        try:
+            result = await call_next(context)
+        except Exception as exc:
+            logger.exception("Error executing tool '%s': %s", tool_name, exc)
+            err_dict = format_tool_error(exc, provider=tool_name)
+            msg, next_tools, next_prompts = _guide_error(err_dict)
+            structured = dict(err_dict)
+            ag = list(structured.get("agent_guidance") or [])
+            ag.append({"source": "error_recovery_guidance", "message": msg.strip()})
+            structured["agent_guidance"] = ag
+            if next_tools:
+                structured.setdefault("suggested_next_tools", []).extend(next_tools)
+            if next_prompts:
+                structured.setdefault("suggested_prompts", []).extend(next_prompts)
+            return ToolResult(
+                content=[TextContent(type="text", text=str(exc))],
+                structured_content=structured,
+                is_error=True,
+            )
 
         if tool_name == "gemini_search":
             session_id = get_session_id(context)
@@ -257,6 +297,22 @@ class DynamicGuidanceMiddleware(Middleware):
                         next_prompts=next_prompts,
                     )
             return result
+
+        if isinstance(result, ToolResult) and isinstance(result.structured_content, dict):
+            unwrapped = _unwrap_fastmcp_result(result.structured_content)
+            if (
+                getattr(result, "is_error", False)
+                or unwrapped.get("isError") is True
+                or ("error" in unwrapped and unwrapped.get("status") == "error")
+            ):
+                msg, next_tools, next_prompts = _guide_error(unwrapped)
+                return _append_enrichment(
+                    result,
+                    "error_recovery_guidance",
+                    msg,
+                    next_tools=next_tools,
+                    next_prompts=next_prompts,
+                )
 
         generator = GUIDANCE_GENERATORS.get(tool_name)
         if generator is None:

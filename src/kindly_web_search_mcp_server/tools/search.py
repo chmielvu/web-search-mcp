@@ -34,7 +34,21 @@ async def web_search(
     domain_block: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResultType:
-    """Run one validated multi-provider web search across configured backends.
+    """Run one validated multi-provider web search across configured backends with RRF ranking.
+
+    When to use this tool:
+    - For thorough, deep multi-provider search across web engines (Brave, Tavily, SearXNG, etc.).
+    - When you need domain filtering, intent classification, and provider consensus signals.
+
+    Selection & Chaining Process:
+    1. Provide a specific search query containing exact terms, error codes, or dates.
+    2. Provide a natural-language research_goal used for intent policy and relevance scoring.
+    3. Evaluate results based on provider_count (>=2 indicates high consensus).
+    4. You MUST call get_content on the top URLs to read their full context before finalizing your answer.
+
+    Do NOT use for:
+    - Initial fast scoping (use quick_web_search first).
+    - AI-grounded synthesized answers (use gemini_search instead).
 
     Args:
         query: Search query string. Be specific — include keywords, dates,

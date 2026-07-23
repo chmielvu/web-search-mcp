@@ -12,6 +12,10 @@ from .query_guidance import (
     DynamicGuidanceMiddleware,
     create_dynamic_guidance_middleware,
 )
+from .alias_mapping import (
+    ArgumentAliasingMiddleware,
+    create_argument_aliasing_middleware,
+)
 from .rate_limits import (
     DifferentiatedRateLimitMiddleware,
     create_differentiated_rate_limit_middleware,
@@ -26,6 +30,8 @@ __all__ = [
     "GEMINI_QUERY_ADVISORY",
     "DynamicGuidanceMiddleware",
     "create_dynamic_guidance_middleware",
+    "ArgumentAliasingMiddleware",
+    "create_argument_aliasing_middleware",
     "DifferentiatedRateLimitMiddleware",
     "create_differentiated_rate_limit_middleware",
 ]

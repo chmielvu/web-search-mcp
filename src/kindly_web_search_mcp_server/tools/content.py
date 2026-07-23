@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -31,7 +31,7 @@ async def get_content(
     url: str,
     char_offset: int = 0,
     char_length: int = 20_000,
-    summary_mode: str = "none",
+    summary_mode: Literal["none", "brief", "detailed"] = "none",
     focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
@@ -41,7 +41,17 @@ async def get_content(
 ) -> GetContentResultType:
     """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
 
-    Use when you already have a URL. Check window.has_more for pagination continuation.
+    When to use this tool:
+    - When you have a specific target URL and need to read its full text, code blocks, or metadata.
+    - After running a search tool to inspect a specific source in detail.
+
+    Pagination & Continuation:
+    - This tool returns a windowed chunk of text to save context space.
+    - You MUST inspect the 'window.has_more' field in the response.
+    - If 'has_more' is true, you MUST call this tool again, setting 'char_offset' to the value of 'window.next_offset'.
+
+    Parameters explained:
+    - summary_mode: Set to "none" for raw text, "brief" for a 1-2 sentence summary, or "detailed" for paragraph summaries.
 
     Args:
         url: The URL to fetch content from.
@@ -296,7 +306,7 @@ async def batch_get_content(
     per_item_char_length: int = 8_000,
     total_char_budget: int = 120_000,
     cursor: str | None = None,
-    summary_mode: str = "none",
+    summary_mode: Literal["none", "brief", "detailed"] = "none",
     focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
@@ -304,10 +314,18 @@ async def batch_get_content(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> BatchGetContentResponse:
-    """Fetch multiple URLs in parallel with a total character budget and continuation cursor.
+    """Fetch multiple URLs in parallel with total character budget and continuation cursor.
 
-    Prefer over repeated get_content calls when you have 3+ URLs. Check has_more
-    and cursor for continuation.
+    When to use this tool:
+    - When you need to fetch content from 3 or more URLs concurrently.
+    - To efficiently gather page context across multiple sources within a strict character budget.
+
+    Pagination & Continuation:
+    - Inspect the 'has_more' and 'cursor' fields in the response.
+    - If 'has_more' is true, re-invoke this tool passing the 'cursor' value to get the next batch.
+
+    Do NOT use for:
+    - Single or 2 URLs (use get_content instead, it has lower overhead).
 
     Args:
         urls: List of URLs to fetch (max 30).
@@ -472,10 +490,15 @@ async def discover_links(
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Extract outbound links from a page or sitemap.
+    """Extract outbound links from a webpage or sitemap without returning page body text.
 
-    Returns URLs only — no page content. Use before get_content to discover
-    candidate pages, or after to explore related links.
+    When to use this tool:
+    - Before calling get_content, to map available links on a hub, directory, or documentation root page.
+    - To explore link graphs and select relevant URLs for subsequent batch fetching.
+
+    Parameters explained:
+    - same_domain_only: Set to true if you only want internal navigation links.
+    - include_external: Set to false to filter out outbound web links.
 
     Args:
         url: The page or sitemap URL to extract links from.

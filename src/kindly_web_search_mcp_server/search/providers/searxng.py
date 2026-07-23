@@ -10,6 +10,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from ..normalize import canonicalize_url
 from ..options import SearchOptions
 from .base import run_provider
@@ -305,6 +306,7 @@ async def search_searxng(
                     title=title,
                     link=link,
                     snippet=snippet,
+                    domain=extract_domain_from_url(link),
                     published_date=published_date,
                     source_engines=engines or None,
                     category=category,
