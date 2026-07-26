@@ -21,19 +21,23 @@ async def test_get_content_returns_single_url_field_with_fetched_url() -> None:
     )
 
     mock_ctx = AsyncMock()
-    with patch(
-        "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-        new_callable=AsyncMock,
-        return_value=mock_artifact,
-    ):
-        result = await get_content("https://example.com/redirect-source", ctx=mock_ctx)
+    with patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_cache:
+        mock_cache_inst = AsyncMock()
+        mock_cache_inst.alookup.return_value = None
+        mock_cache.return_value = mock_cache_inst
+        with patch(
+            "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
+            new_callable=AsyncMock,
+            return_value=mock_artifact,
+        ):
+            result = await get_content("https://example.com/redirect-source", ctx=mock_ctx)
 
-        assert result["url"] == "https://example.com/actual-destination"
-        assert "input_url" not in result
-        assert "normalized_url" not in result
-        assert "fetched_url" not in result
-        assert result["status"] == "success"
-        assert result["fetch_backend"] == "test_backend"
+            assert result["url"] == "https://example.com/actual-destination"
+            assert "input_url" not in result
+            assert "normalized_url" not in result
+            assert "fetched_url" not in result
+            assert result["status"] == "success"
+            assert result["fetch_backend"] == "test_backend"
 
 
 @pytest.mark.asyncio
@@ -50,17 +54,21 @@ async def test_get_content_returns_single_url_field_fallback_when_fetched_url_no
     )
 
     mock_ctx = AsyncMock()
-    with patch(
-        "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-        new_callable=AsyncMock,
-        return_value=mock_artifact,
-    ):
-        result = await get_content("https://example.com/page", ctx=mock_ctx)
+    with patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_cache:
+        mock_cache_inst = AsyncMock()
+        mock_cache_inst.alookup.return_value = None
+        mock_cache.return_value = mock_cache_inst
+        with patch(
+            "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
+            new_callable=AsyncMock,
+            return_value=mock_artifact,
+        ):
+            result = await get_content("https://example.com/page", ctx=mock_ctx)
 
-        assert result["url"] == "https://example.com/page"
-        assert "input_url" not in result
-        assert "normalized_url" not in result
-        assert "fetched_url" not in result
+            assert result["url"] == "https://example.com/page"
+            assert "input_url" not in result
+            assert "normalized_url" not in result
+            assert "fetched_url" not in result
 
 
 @pytest.mark.asyncio
@@ -77,7 +85,7 @@ async def test_get_content_cache_hit_provenance() -> None:
     with patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_cache:
         mock_cache_inst = AsyncMock()
         mock_cache_inst.alookup.return_value = mock_cached
-        mock_get_cache.return_value = mock_cache_inst
+        mock_get_cache.return_value = mock_get_cache.return_value = mock_cache_inst
 
         result = await get_content("https://example.com/cached-page", ctx=mock_ctx)
 

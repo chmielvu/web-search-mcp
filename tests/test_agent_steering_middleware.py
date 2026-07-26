@@ -41,6 +41,76 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Zero results", guidance["message"])
         self.assertIn("gemini_search", structured["suggested_next_tools"])
 
+    async def test_dynamic_guidance_empty_coding_intent(self) -> None:
+        async def call_next(context: MiddlewareContext) -> ToolResult:
+            return ToolResult(
+                structured_content={
+                    "query": "asyncio.gather timeout",
+                    "results": [],
+                    "providers_used": ["github", "sourcegraph"],
+                    "total_results": 0,
+                    "intent": "ai_coding_and_infrastructure",
+                }
+            )
+
+        context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
+        with patch(
+            "kindly_web_search_mcp_server.middleware.query_guidance._gemini_is_available",
+            return_value=True,
+        ):
+            result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
+
+        structured = result.structured_content
+        guidance = structured["agent_guidance"][0]
+        msg = guidance["message"].casefold()
+        self.assertIn("zero results", msg)
+        # Cause-aware: specialized/code path, not broaden-only
+        self.assertTrue(
+            "specialized" in msg or "code" in msg or "repo" in msg or "symbol" in msg,
+            msg,
+        )
+        self.assertNotEqual(
+            guidance["message"],
+            "Zero results. Broaden: remove specific terms, set rewrite=true.",
+        )
+
+    async def test_dynamic_guidance_includes_query_shaping(self) -> None:
+        async def call_next(context: MiddlewareContext) -> ToolResult:
+            return ToolResult(
+                structured_content={
+                    "query": "python asyncio",
+                    "results": [
+                        {
+                            "title": "docs",
+                            "link": "https://docs.python.org/3/library/asyncio.html",
+                            "provider_count": 2,
+                        }
+                    ],
+                    "providers_used": ["searxng", "brave"],
+                    "total_results": 1,
+                    "intent": "ai_coding_and_infrastructure",
+                    "query_shaping": [
+                        {
+                            "provider": "github",
+                            "shaped": "python asyncio language:Python",
+                            "rules": ["github.language"],
+                        }
+                    ],
+                }
+            )
+
+        context = MiddlewareContext(message=SimpleNamespace(name="web_search"))
+        with patch(
+            "kindly_web_search_mcp_server.middleware.query_guidance._gemini_is_available",
+            return_value=False,
+        ):
+            result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
+
+        structured = result.structured_content
+        guidance = structured["agent_guidance"][0]
+        self.assertIn("github", guidance["message"])
+        self.assertIn("Query shaped", guidance["message"])
+
     async def test_dynamic_guidance_on_get_content_truncated(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
             return ToolResult(

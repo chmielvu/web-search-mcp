@@ -17,7 +17,7 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
             run_batch_fetch,
         )
 
-        async def _fake_fetch(url: str) -> ContentArtifact:
+        async def _fake_fetch(url: str, *args, **kwargs) -> ContentArtifact:
             return ContentArtifact(
                 input_url=url,
                 normalized_url=url,
@@ -69,7 +69,7 @@ class TestBatchOrchestrator(unittest.IsolatedAsyncioTestCase):
             run_batch_fetch,
         )
 
-        async def _slow_fetch(url: str):
+        async def _slow_fetch(url: str, *args, **kwargs):
             await asyncio.sleep(0.05)
 
         with patch(

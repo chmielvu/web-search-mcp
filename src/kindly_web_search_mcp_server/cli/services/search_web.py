@@ -11,7 +11,7 @@ from ...utils.http_client import get_http_client
 
 
 async def fetch_web_search_payload(
-    query: str,
+    query: str | list[str],
     *,
     rewrite: bool,
     research_goal: str,
@@ -19,17 +19,32 @@ async def fetch_web_search_payload(
     domain_filters: list[str] | None = None,
     domain_boost: list[str] | None = None,
     domain_block: list[str] | None = None,
+    reranking_instructions: str | None = None,
     diagnostics: bool = False,
     **_obsolete_options: object,
 ) -> dict[str, Any]:
+    if isinstance(query, list):
+        cleaned_queries = tuple(q.strip() for q in query if q and q.strip())[:4]
+        if not cleaned_queries:
+            raise ValueError("query must contain at least one non-blank string.")
+        primary_query = cleaned_queries[0]
+        seed_queries = cleaned_queries
+    elif isinstance(query, str) and query.strip():
+        primary_query = query.strip()
+        seed_queries = (primary_query,)
+    else:
+        raise ValueError("query must be non-blank.")
+
     search_options = build_search_options(
         site_filters=[*(site_filters or []), *(domain_filters or [])],
     )
     request = WebSearchRequest(
-        query=query,
+        query=primary_query,
+        queries=seed_queries,
         research_goal=research_goal,
         rewrite=rewrite,
         options=search_options,
+        reranking_instructions=reranking_instructions,
     )
     run_key = str(uuid.uuid4())
     response, run = await execute_web_search(
@@ -38,7 +53,7 @@ async def fetch_web_search_payload(
         run_key=run_key,
         tool_call_id=run_key,
         return_diagnostics=True,
-    )
+    )  # type: ignore[assignment,misc]
     payload = response.model_dump(exclude_none=True)
     if domain_boost or domain_block:
         from ...tools._helpers import _apply_domain_filters

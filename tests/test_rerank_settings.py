@@ -13,7 +13,7 @@ class TestRerankSettings(unittest.TestCase):
 
         configured = Settings()
         self.assertEqual(configured.rankllm_openrouter_model, "nvidia/nemotron-3-nano-30b-a3b:free")
-        self.assertEqual(configured.rankllm_gemini_model, "gemini-3.1-flash-lite")
+        self.assertEqual(configured.rankllm_gemini_model, "gemini-3.5-flash-lite")
         self.assertEqual(configured.rankllm_timeout_seconds, 20.0)
 
     def test_rerank_bi_encoder_defaults(self) -> None:

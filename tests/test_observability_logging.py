@@ -116,6 +116,44 @@ def test_preview_text_truncates() -> None:
     assert preview_text(value, limit=10) == ("x" * 10) + "…"
 
 
+def test_emit_tool_observability_event_persists_correlated_typed_rows(monkeypatch) -> None:
+    captured: list[dict[str, object]] = []
+
+    def capture(*, db_path=None, **kwargs):
+        captured.append(kwargs)
+
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.analytics.duckdb_store.insert_tool_call_event",
+        capture,
+    )
+    logger = logging.getLogger("test.typed_tool_observability")
+    logger.handlers = []
+    logger.addHandler(logging.NullHandler())
+
+    emit_tool_observability_event(
+        logger,
+        "web_search",
+        "request",
+        query="typed telemetry",
+        Authorization="Bearer should-not-persist",
+    )
+    emit_tool_observability_event(
+        logger,
+        "web_search",
+        "response",
+        query="typed telemetry",
+        results=[],
+        duration_ms=12.5,
+    )
+
+    assert len(captured) == 2
+    assert captured[0]["tool_call_id"] == captured[1]["tool_call_id"]
+    assert captured[0]["status"] == "started"
+    assert captured[1]["status"] == "empty"
+    assert captured[1]["duration_ms"] == 12.5
+    assert "authorization" not in str(captured[0]["payload_json"]).lower()
+
+
 def test_configure_structlog_preserves_existing_handlers(monkeypatch) -> None:
     monkeypatch.setenv("LOG_LEVEL", "INFO")
 

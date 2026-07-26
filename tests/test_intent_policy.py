@@ -7,6 +7,8 @@ import pytest
 from kindly_web_search_mcp_server.search.intent_policy import (
     resolve_intent_policy,
     _INTENT_POLICIES,
+    get_subscribed_specialized_providers,
+    register_provider_subscription,
 )
 from kindly_web_search_mcp_server.search.intents import normalize_intent
 from kindly_web_search_mcp_server.search.options import SearchOptions
@@ -80,3 +82,26 @@ def test_resolve_intent_policy_merges_configured_goggles(monkeypatch) -> None:
 def test_resolve_intent_policy_leaves_goggles_empty_by_default() -> None:
     policy = resolve_intent_policy("general")
     assert "goggles" not in policy.provider_arguments.get("brave", {})
+
+
+def test_subscribed_specialized_providers() -> None:
+    social = resolve_intent_policy("social_media")
+    assert social.specialized_providers == ("telegram", "reddit")
+
+    coding = resolve_intent_policy("ai_coding_and_infrastructure")
+    assert coding.specialized_providers == (
+        "telegram",
+        "hackernews",
+        "github",
+        "sourcegraph",
+        "gitlab",
+        "reddit",
+    )
+
+
+def test_register_provider_subscription() -> None:
+    register_provider_subscription("custom_provider", ["general"])
+    providers = get_subscribed_specialized_providers("general")
+    assert "custom_provider" in providers
+    policy = resolve_intent_policy("general")
+    assert "custom_provider" in policy.specialized_providers

@@ -1,6 +1,9 @@
 import re
 
 
+from ..heuristics.text_clean import clean_text_for_llm
+
+
 _BOILERPLATE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)^\s*share\s+(this|on\s+.*)\s*$"),
     re.compile(r"(?i)^\s*sign\s+up\s+for\s+(our\s+)?newsletter\s*$"),
@@ -27,6 +30,7 @@ def sanitize_markdown(markdown: str) -> str:
     """
     Cleans up the markdown content by removing excessive newlines and whitespace.
     """
+    markdown = clean_text_for_llm(markdown, role="page")
     # Replace multiple newlines with a single one
     markdown = re.sub(r"\n{3,}", "\n\n", markdown)
     # Replace multiple spaces with a single one, but not spaces at the start of a line

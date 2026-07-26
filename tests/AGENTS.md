@@ -40,4 +40,5 @@ uv run pytest tests/test_content_*.py
 - Use `AsyncMock` and `unittest.IsolatedAsyncioTestCase` for async paths.
 - Keep reusable data in `tests/fixtures/`.
 - Prefer focused slices when validating a subsystem change.
+- Analytics lifecycle tests use temporary DuckDB files and `drain_duckdb_writes`; tool telemetry assertions patch the typed `insert_tool_call_event` seam rather than the removed generic event sink.
 - `conftest.py` patches `SEARXNG_BASE_URL` and `TAVILY_API_KEY` for deterministic unit tests.

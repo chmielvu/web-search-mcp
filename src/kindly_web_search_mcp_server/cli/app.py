@@ -16,6 +16,7 @@ from .commands import (
     experiments,
     getskill,
     feedback,
+    inference,
     links,
     reference,
     schema,
@@ -122,6 +123,7 @@ reference.register(app)
 search.register(app)
 content.register(app)
 links.register(app)
+inference.register(app)
 ai.register(app)
 youtube.register(app)
 analytics.register(app)

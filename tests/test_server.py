@@ -40,12 +40,20 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("input_url", get_content_schema)
         self.assertIn("page_content", get_content_schema)
         self.assertIn("window", get_content_schema)
+        get_content_parameters = tools["get_content"].parameters
+        self.assertEqual(get_content_parameters["properties"]["ai_summary"]["type"], "boolean")
+        self.assertFalse(get_content_parameters["properties"]["ai_summary"]["default"])
+        self.assertNotIn("summary_mode", get_content_parameters["properties"])
 
         batch_schema = str(tools["batch_get_content"].output_schema)
         self.assertIn("results", batch_schema)
         self.assertIn("total_requested", batch_schema)
         self.assertIn("cursor", batch_schema)
         self.assertIn("summary", batch_schema)
+        batch_parameters = tools["batch_get_content"].parameters
+        self.assertEqual(batch_parameters["properties"]["ai_summary"]["type"], "boolean")
+        self.assertFalse(batch_parameters["properties"]["ai_summary"]["default"])
+        self.assertNotIn("summary_mode", batch_parameters["properties"])
 
         transcript_schema = str(tools["youtube_transcript"].output_schema)
         self.assertIn("video_id", transcript_schema)
@@ -541,15 +549,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["url"], "https://example.com")
         self.assertEqual(out["error"]["code"], "timeout")
 
-    async def test_batch_get_content_executes_local_summary_import(self) -> None:
-        """Regression: line-375 local import must resolve and create_batch_summaries must run.
-
-        Pre-fix, the local ``from ...content.summary_models import VALID_SUMMARY_MODES``
-        climbed above the package root and raised ``ImportError: attempted relative
-        import beyond top-level package`` before ``create_batch_summaries`` was
-        awaited. Patching the orchestrator and summary creator lets the wrapper
-        reach and complete the corrected import without real network calls.
-        """
+    async def test_batch_get_content_executes_summary_helper(self) -> None:
+        """The batch wrapper invokes the summary helper without network calls."""
         from kindly_web_search_mcp_server.server import batch_get_content
 
         mock_ctx = AsyncMock()

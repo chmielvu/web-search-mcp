@@ -18,6 +18,12 @@ from mcp.types import TextContent
 from ..errors import format_tool_error
 from .session_tracking import SessionTracker, get_session_id
 
+from ..heuristics.guidance_messages import (
+    format_shaping_guidance,
+    web_search_empty_guidance,
+    web_search_specialized_gap_guidance,
+)
+
 logger = logging.getLogger(__name__)
 GEMINI_TOOLS = frozenset({"gemini_search"})
 GEMINI_QUERY_ADVISORY = """
@@ -100,16 +106,41 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     next_prompts: list[str] = ["research_methodology"]
     parts: list[str] = []
     gemini_ok = _gemini_is_available()
+    intent = data.get("intent")
+    shaping = data.get("query_shaping") or []
 
     if not results:
-        guidance = "Zero results. Broaden: remove specific terms, set rewrite=true."
-        tools: list[str] = []
+        guidance, tools = web_search_empty_guidance(
+            intent=intent if isinstance(intent, str) else None,
+            providers_used=providers if isinstance(providers, list) else [],
+            query=str(data.get("query") or ""),
+            shaping=shaping if isinstance(shaping, list) else [],
+        )
         if gemini_ok:
-            guidance += " Or try gemini_search for a grounded answer without URLs."
-            tools.append("gemini_search")
+            if "gemini_search" not in tools:
+                guidance += " Or try gemini_search for a grounded answer without URLs."
+                tools.append("gemini_search")
+        elif "gemini_search" in tools:
+            # empty_guidance may suggest gemini; drop if unavailable
+            tools = [t for t in tools if t != "gemini_search"]
         return (guidance, tools, next_prompts)
 
     parts.append(f"{len(results)} results from {len(providers)} providers.")
+
+    shape_msg = format_shaping_guidance(shaping if isinstance(shaping, list) else [])
+    if shape_msg:
+        parts.append(shape_msg)
+
+    gap_msg, gap_tools = web_search_specialized_gap_guidance(
+        intent=intent if isinstance(intent, str) else None,
+        providers_used=providers if isinstance(providers, list) else [],
+        results=results if isinstance(results, list) else [],
+    )
+    if gap_msg:
+        parts.append(gap_msg)
+    for t in gap_tools:
+        if t not in next_tools:
+            next_tools.append(t)
 
     # Feature surfacing: point out domains that get specialized treatment
     special = []
@@ -222,17 +253,20 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
     err_type = data.get("error_type", "")
     next_tools: list[str] = []
     if err_type in ("rate_limit_exceeded", "rate_limit", "http_429"):
-        next_tools = ["gemini_search", "quick_web_search"]
+        next_tools = ["quick_web_search", "gemini_search"]
     elif err_type in ("forbidden", "unauthorized", "auth", "http_401", "http_403"):
+        next_tools = ["quick_web_search"]
+    elif err_type in ("network", "timeout", "http_502", "http_503", "http_504"):
         next_tools = ["quick_web_search"]
     elif err_type in ("validation_error", "value_error", "content"):
         next_tools = ["web_search", "quick_web_search"]
 
-    msg = (
-        f"ERROR RECOVERY: {action}"
-        if action
-        else "Tool Error encountered. Review parameters and API configuration."
-    )
+    if action:
+        msg = f"ERROR RECOVERY: {action}"
+    elif err_type in ("network", "timeout", "http_502", "http_503", "http_504"):
+        msg = "ERROR RECOVERY: Retry once; if persistent use quick_web_search."
+    else:
+        msg = "Tool Error encountered. Review parameters and API configuration."
     return (msg, next_tools, ["research_methodology"])
 
 

@@ -92,13 +92,13 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         ):
             result = await create_summary(
                 "hello world",
-                mode="brief",
+                ai_summary=True,
                 focus_query="docs",
                 source_urls=["https://example.com"],
             )
 
-        self.assertEqual(result["model"], "gemini-3.1-flash-lite")
-        self.assertEqual(result["model_used"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["model"], "gemini-3.5-flash-lite")
+        self.assertEqual(result["model_used"], "gemini-3.5-flash-lite")
         self.assertEqual(result["input_tokens"], 14)
         self.assertEqual(result["output_tokens"], 8)
         self.assertEqual(span.attributes["summary.key_points_count"], 1)
@@ -106,9 +106,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_create.call_args.kwargs["system"], "gemini")
         self.assertEqual(
             mock_create.call_args.kwargs["attributes"]["llm.model_name"],
-            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
         )
-        self.assertEqual(fake_client.calls[0][0], "gemini-3.1-flash-lite")
+        self.assertEqual(fake_client.calls[0][0], "gemini-3.5-flash-lite")
 
     async def test_grok_paths_trace_request(self) -> None:
         from kindly_web_search_mcp_server.search.providers.grok import (

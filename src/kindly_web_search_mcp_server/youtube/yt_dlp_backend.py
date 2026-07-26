@@ -172,3 +172,52 @@ def _parse_json3(subtitle_data: Any) -> list[dict[str, Any]]:
         )
 
     return segments
+
+
+def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
+    """Extract video metadata using yt-dlp (best-effort).
+
+    Uses extract_flat=True for fast metadata-only extraction.
+    Returns dict with keys: title, description, channel, channel_url,
+    duration_seconds, view_count, upload_date, tags.
+
+    All fields are optional and may be None if unavailable.
+    Raises YouTubeError if yt-dlp is not installed.
+    """
+    try:
+        import yt_dlp
+    except ImportError:
+        raise YouTubeError(
+            "yt-dlp not installed. Install with: pip install yt-dlp"
+        )
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    ydl_opts = {
+        "skip_download": True,
+        "extract_flat": True,
+        "quiet": True,
+        "no_warnings": True,
+        "socket_timeout": 10,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        logger.debug("yt-dlp metadata extraction failed for %s: %s", video_id, exc)
+        return {}
+
+    if not info or not isinstance(info, dict):
+        return {}
+
+    return {
+        "title": info.get("title"),
+        "description": info.get("description"),
+        "channel": info.get("channel") or info.get("uploader"),
+        "channel_url": info.get("channel_url") or info.get("uploader_url"),
+        "duration_seconds": info.get("duration"),
+        "view_count": info.get("view_count"),
+        "upload_date": info.get("upload_date"),
+        "tags": info.get("tags"),
+    }

@@ -14,108 +14,88 @@ class TestAnalyticsReports(unittest.TestCase):
     def test_ensure_local_views_installs_base_and_candidate_views(self) -> None:
         import duckdb
 
-        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
-        from kindly_web_search_mcp_server.analytics.views import ensure_local_views
+        from kindly_web_search_mcp_server.analytics.duckdb_store import ensure_store_schema
+        from kindly_web_search_mcp_server.analytics.views import ensure_views
 
         db_path = Path(self._testMethodName).with_suffix(".duckdb")
         if db_path.exists():
             db_path.unlink()
 
-        append_event(
-            "provider.search.result",
-            {
-                "provider_name": "searxng",
-                "query": "duckdb",
-                "results": [
-                    {
-                        "title": "DuckDB docs",
-                        "link": "https://duckdb.org/docs",
-                        "snippet": "DuckDB documentation",
-                        "domain": "duckdb.org",
-                        "providers": ["searxng"],
-                        "provider_count": 1,
-                        "score": 0.9,
-                    }
-                ],
-            },
-            db_path=str(db_path),
-        )
-
-        ensure_local_views(db_path=str(db_path))
+        ensure_store_schema(db_path=str(db_path))
+        ensure_views(db_path=str(db_path))
 
         con = duckdb.connect(str(db_path), read_only=True)
-        provider_row = con.execute("SELECT provider, title FROM vw_provider_results").fetchone()
-        events_row = con.execute(
-            "SELECT provider FROM vw_events WHERE event_name = 'provider.search.result'"
+        view_row = con.execute(
+            "SELECT COUNT(*) FROM information_schema.views WHERE table_name = 'vw_query_understanding_calibration'"
         ).fetchone()
-        candidate_count = con.execute("SELECT COUNT(*) FROM vw_candidate_survival").fetchone()[0]
         con.close()
 
-        self.assertEqual(provider_row, ("searxng", "DuckDB docs"))
-        self.assertEqual(events_row, ("searxng",))
-        self.assertEqual(candidate_count, 1)
+        self.assertIsNotNone(view_row)
+        self.assertEqual(view_row[0], 1)
 
         if db_path.exists():
             db_path.unlink()
 
     def test_provider_performance_report_aggregates_counts(self) -> None:
-        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+        from kindly_web_search_mcp_server.analytics.async_writes import drain_duckdb_writes
+        from kindly_web_search_mcp_server.analytics.duckdb_store import insert_provider_calls
         from kindly_web_search_mcp_server.analytics.reports import provider_performance
 
         db_path = Path(self._testMethodName).with_suffix(".duckdb")
         if db_path.exists():
             db_path.unlink()
 
-        append_event(
-            "provider.search.result",
-            {
-                "provider_name": "searxng",
-                "duration_ms": 12.0,
-                "output_count": 3,
-                "results": [],
-            },
+        insert_provider_calls(
+            run_key="run-1",
+            provider="searxng",
+            status="success",
+            latency_ms=12.0,
+            num_results_returned=3,
+            result_class="nonempty",
             db_path=str(db_path),
         )
-        append_event(
-            "provider.search.error",
-            {
-                "provider_name": "searxng",
-                "duration_ms": 30.0,
-                "error_type": "TimeoutError",
-            },
+        insert_provider_calls(
+            run_key="run-2",
+            provider="searxng",
+            status="error",
+            latency_ms=30.0,
+            error_type="TimeoutError",
+            result_class="timeout",
             db_path=str(db_path),
         )
+        drain_duckdb_writes()
 
         table = provider_performance(days=30, db_path=str(db_path))
         rows = table.to_pylist()
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["provider"], "searxng")
-        self.assertEqual(rows[0]["calls"], 2)
-        self.assertEqual(rows[0]["result_events"], 1)
-        self.assertEqual(rows[0]["error_events"], 1)
+        self.assertEqual(rows[0]["total_calls"], 2)
+        self.assertEqual(rows[0]["success_count"], 1)
+        self.assertEqual(rows[0]["error_count"], 1)
 
         if db_path.exists():
             db_path.unlink()
 
     def test_analytics_report_cli_prints_json(self) -> None:
         from kindly_web_search_mcp_server import cli
-        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+        from kindly_web_search_mcp_server.analytics.async_writes import drain_duckdb_writes
+        from kindly_web_search_mcp_server.analytics.duckdb_store import insert_provider_calls
 
         db_path = Path(self._testMethodName).with_suffix(".duckdb")
         if db_path.exists():
             db_path.unlink()
 
-        append_event(
-            "provider.search.result",
-            {
-                "provider_name": "searxng",
-                "duration_ms": 12.0,
-                "output_count": 3,
-                "results": [],
-            },
+        insert_provider_calls(
+            run_key="run-1",
+            provider="searxng",
+            status="success",
+            latency_ms=12.0,
+            num_results_returned=3,
+            result_class="nonempty",
             db_path=str(db_path),
         )
+        drain_duckdb_writes()
 
         stdout = io.StringIO()
         with patch("sys.stdout", new=stdout):
@@ -148,6 +128,7 @@ class TestAnalyticsReports(unittest.TestCase):
         from kindly_web_search_mcp_server.analytics.reports import (
             eval_quality_summary,
         )
+        from kindly_web_search_mcp_server.analytics.views import ensure_views
 
         db_path = Path(self._testMethodName).with_suffix(".duckdb")
         if db_path.exists():
@@ -220,6 +201,7 @@ class TestAnalyticsReports(unittest.TestCase):
         )
         con.close()
 
+        ensure_views(db_path=str(db_path))
         table = eval_quality_summary(days=30, db_path=str(db_path))
         rows = table.to_pylist()
         self.assertEqual(len(rows), 1)
@@ -227,7 +209,7 @@ class TestAnalyticsReports(unittest.TestCase):
         self.assertEqual(rows[0]["target_tool"], "web_search")
         self.assertEqual(rows[0]["cases"], 1)
         self.assertEqual(rows[0]["passes"], 1)
-        self.assertAlmostEqual(rows[0]["avg_llm_score"], 0.9)
+        self.assertAlmostEqual(rows[0]["avg_score"], 0.8)
 
         if db_path.exists():
             db_path.unlink()

@@ -10,14 +10,16 @@ overall_score and rationale.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
-from ..llm.phoenix_tracing import LLMTraceContext
-from ..llm.router import build_worker_router
+from ..telemetry.phoenix_tracing import LLMTraceContext
+from ..inference.router import build_worker_router
 from ..settings import settings
 from .judge_prompt import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
 
@@ -94,6 +96,9 @@ class SearchRelevanceResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+    provider_name: str | None = None
+    status: str = "success"
+    error_type: str | None = None
 
     @property
     def model_used(self) -> str:
@@ -132,6 +137,29 @@ class SearchRelevanceJudge:
         self.model = model or settings.judge_model
         self._router = build_worker_router()
 
+    @staticmethod
+    def _parse_response(content: object) -> Judge4DResponse:
+        if isinstance(content, Judge4DResponse):
+            return content
+        if not isinstance(content, str):
+            raise ValueError("judge generation content must be a string")
+        raw = content.strip()
+        marker = raw.find("[RESULT]")
+        candidates = [raw]
+        if marker >= 0:
+            candidates.insert(0, raw[marker + len("[RESULT]") :].strip())
+        for candidate in candidates:
+            try:
+                return Judge4DResponse.model_validate(json.loads(candidate))
+            except (ValueError, TypeError):
+                match = re.search(r"\{.*\}", candidate, re.DOTALL)
+                if match:
+                    try:
+                        return Judge4DResponse.model_validate(json.loads(match.group(0)))
+                    except (ValueError, TypeError):
+                        continue
+        raise ValueError("legacy judge response did not contain valid 4-D JSON")
+
     async def evaluate(
         self,
         query: str,
@@ -155,10 +183,13 @@ class SearchRelevanceJudge:
                 overall_score=0.0,
                 rationale="No results to evaluate.",
                 judge_model=self.model,
+                provider_name=None,
                 duration_ms=0.0,
                 input_tokens=None,
                 output_tokens=None,
                 error="no_results",
+                status="error",
+                error_type="no_results",
             )
 
         start = asyncio.get_event_loop().time()
@@ -183,7 +214,7 @@ class SearchRelevanceJudge:
                 langfuse=langfuse,
             )
 
-            judge_output: Judge4DResponse = generation.content  # type: ignore[assignment]
+            judge_output = self._parse_response(generation.content)
 
             duration_ms = round((asyncio.get_event_loop().time() - start) * 1000.0, 3)
 
@@ -198,10 +229,11 @@ class SearchRelevanceJudge:
                 source_quality_score=judge_output.source_quality.score,
                 overall_score=judge_output.overall_score,
                 rationale=judge_output.overall_rationale,
-                judge_model=self.model,
+                judge_model=getattr(generation, "model_used", self.model),
+                provider_name=getattr(getattr(generation, "endpoint", None), "name", None),
                 duration_ms=duration_ms,
-                input_tokens=generation.input_tokens,
-                output_tokens=generation.output_tokens,
+                input_tokens=getattr(generation, "input_tokens", None),
+                output_tokens=getattr(generation, "output_tokens", None),
             )
 
         except Exception as exc:
@@ -219,10 +251,13 @@ class SearchRelevanceJudge:
                 overall_score=0.0,
                 rationale="",
                 judge_model=self.model,
+                provider_name=None,
                 duration_ms=duration_ms,
                 input_tokens=None,
                 output_tokens=None,
                 error=f"{type(exc).__name__}: {exc}",
+                status="error",
+                error_type="parse_or_provider_error",
             )
 
 

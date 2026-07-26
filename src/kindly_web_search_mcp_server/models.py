@@ -104,6 +104,8 @@ class WebSearchResponse(BaseModel):
     )
     warnings: list[ProviderWarning] | None = None
     diagnostics: list[dict[str, Any]] | None = None
+    intent: str | None = None
+    query_shaping: list[dict[str, Any]] | None = None
 
 
 class GetContentResponse(BaseModel):

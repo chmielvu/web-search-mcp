@@ -9,6 +9,9 @@ publish dates and raw excerpts.
 
 from __future__ import annotations
 
+import logging
+import time
+from uuid import uuid4
 from typing import Any
 
 from fastmcp.dependencies import CurrentContext
@@ -19,6 +22,9 @@ from parallel import AsyncParallel
 from .errors import format_tool_error
 from .settings import settings
 from .tools.catalog import tool_kwargs
+from .utils.observability import emit_tool_observability_event
+
+LOGGER = logging.getLogger(__name__)
 
 
 # ── Models ──────────────────────────────────────────────────────────────
@@ -279,6 +285,21 @@ def register_quick_web_search(mcp: Any) -> None:
             timeout_seconds: Timeout for live fetch when content needs retrieval.
             disable_cache_fallback: If True, error instead of using stale cache.
         """
+        started = time.monotonic()
+        tool_call_id = str(uuid4())
+        emit_tool_observability_event(
+            LOGGER,
+            "quick_web_search",
+            "request",
+            tool_call_id=tool_call_id,
+            search_queries=search_queries,
+            objective=objective,
+            session_id=session_id,
+            max_results=max_results,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            client_model=client_model,
+        )
         await ctx.info(f"Quick web search ({len(search_queries)} queries)...")
         try:
             response = await _quick_web_search_impl(
@@ -298,6 +319,31 @@ def register_quick_web_search(mcp: Any) -> None:
                 disable_cache_fallback=disable_cache_fallback,
             )
         except Exception as exc:
+            emit_tool_observability_event(
+                LOGGER,
+                "quick_web_search",
+                "error",
+                tool_call_id=tool_call_id,
+                search_queries=search_queries,
+                objective=objective,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
             return format_tool_error(exc, provider="parallel")
         await ctx.info(f"Found {response.total_citations} citations")
+        emit_tool_observability_event(
+            LOGGER,
+            "quick_web_search",
+            "response",
+            tool_call_id=tool_call_id,
+            search_queries=search_queries,
+            objective=objective,
+            citations=response.citations,
+            total_citations=response.total_citations,
+            warnings=response.warnings,
+            usage=response.usage,
+            provider="parallel",
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
         return response.model_dump(exclude_none=True)

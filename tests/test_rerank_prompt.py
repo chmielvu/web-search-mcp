@@ -55,3 +55,11 @@ def test_build_cross_encoder_query_caps_only_goal_to_500_characters() -> None:
     prefix, goal = output.rsplit(" | Research goal: ", 1)
     assert prefix.startswith(query)
     assert len(goal) == 500
+
+
+def test_build_cross_encoder_query_with_reranking_instructions() -> None:
+    output = build_cross_encoder_query(
+        "query", "general", "goal", reranking_instructions="Prioritize GitHub repos."
+    )
+    assert "Caller reranking instructions: Prioritize GitHub repos." in output
+    assert output.endswith("Research goal: goal")

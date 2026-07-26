@@ -92,7 +92,7 @@ async def test_strict_boundaries_preserve_rankllm_window_and_every_tail(
     async def fake_cross(**kwargs):
         assert len(kwargs["candidates"]) == 100
         return _stage_outcome(
-            list(reversed(kwargs["candidates"])),
+            list(reversed(kwargs["candidates"]))[:30],
             provider="cohere_fast",
             model="rerank-v4.0-fast",
             cross=True,

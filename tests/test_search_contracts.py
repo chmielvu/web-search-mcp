@@ -93,3 +93,18 @@ def test_request_enforces_goal_and_result_window() -> None:
         WebSearchRequest(query="query", research_goal="")
     with pytest.raises(ValidationError):
         WebSearchRequest(query="query", research_goal="goal", num_results=16)
+
+
+def test_request_multi_query_and_reranking_instructions() -> None:
+    req = WebSearchRequest(
+        query="query 1",
+        queries=("query 1", "query 2"),
+        research_goal="goal",
+        reranking_instructions="Prioritize official docs.",
+    )
+    assert req.queries == ("query 1", "query 2")
+    assert req.reranking_instructions == "Prioritize official docs."
+
+    default_req = WebSearchRequest(query="query", research_goal="goal")
+    assert default_req.queries == ()
+    assert default_req.reranking_instructions is None

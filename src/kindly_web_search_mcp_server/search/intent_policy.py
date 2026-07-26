@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Sequence
 
 from .intents import SearchIntent, normalize_intent
 from .options import SearchOptions
@@ -31,6 +31,40 @@ class IntentSearchPolicy:
 
 _BASE_POLICY_KWARGS: dict[str, Any] = {"rewrite_temperature": 0.0}
 
+_DEFAULT_INTENT_PROVIDER_SUBSCRIPTIONS: dict[SearchIntent, tuple[str, ...]] = {
+    "social_media": ("telegram", "reddit"),
+    "ai_coding_and_infrastructure": (
+        "telegram",
+        "hackernews",
+        "github",
+        "sourcegraph",
+        "gitlab",
+        "reddit",
+    ),
+    "news": ("telegram", "brave_news"),
+    "general": (),
+    "comparison": (),
+    "digital_humanities": (),
+}
+
+_INTENT_SUBSCRIPTIONS: dict[SearchIntent, list[str]] = {
+    intent: list(providers) for intent, providers in _DEFAULT_INTENT_PROVIDER_SUBSCRIPTIONS.items()
+}
+
+
+def get_subscribed_specialized_providers(intent: SearchIntent) -> tuple[str, ...]:
+    """Return tuple of specialized provider names subscribed to the given intent."""
+    return tuple(_INTENT_SUBSCRIPTIONS.get(intent, []))
+
+
+def register_provider_subscription(provider_name: str, intents: Sequence[SearchIntent]) -> None:
+    """Register a specialized provider for one or more intents."""
+    for intent in intents:
+        current = _INTENT_SUBSCRIPTIONS.setdefault(intent, [])
+        if provider_name not in current:
+            current.append(provider_name)
+
+
 _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "general": IntentSearchPolicy(
         intent="general",
@@ -40,7 +74,6 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "ai_coding_and_infrastructure": IntentSearchPolicy(
         intent="ai_coding_and_infrastructure",
-        specialized_providers=("telegram",),
         search_options_overrides={"searxng_categories": ("it",)},
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False}
@@ -63,7 +96,6 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     ),
     "social_media": IntentSearchPolicy(
         intent="social_media",
-        specialized_providers=("telegram",),
         search_options_overrides={"searxng_categories": ("general",)},
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False}
@@ -74,7 +106,6 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         intent="news",
         policy_version="1.1",
         freshness="week",
-        specialized_providers=("telegram", "brave_news"),
         search_options_overrides={"searxng_categories": ("news", "general")},
         provider_arguments={
             "brightdata": {"search_type": "news", "language": "en"},
@@ -88,6 +119,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
 def resolve_intent_policy(intent: str | None) -> IntentSearchPolicy:
     normalized = normalize_intent(intent)
     base = _INTENT_POLICIES[normalized]
+    specialized_providers = get_subscribed_specialized_providers(normalized)
+    base = replace(base, specialized_providers=specialized_providers)
     goggles = settings.brave_goggles_by_intent.get(normalized)
     if not goggles:
         return base

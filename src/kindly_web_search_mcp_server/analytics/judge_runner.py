@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from ..settings import settings
-from ..llm.phoenix_tracing import LLMTraceContext
+from ..telemetry.phoenix_tracing import LLMTraceContext
 from .duckdb_store import insert_judge_evaluation
 from .search_relevance_judge import SearchRelevanceJudge
 
@@ -114,9 +114,13 @@ async def run_judge_evaluation(
             output_tokens=result.output_tokens,
             tokens_used=tokens_used,
             cost_usd=None,
+            status=result.status,
+            error_type=result.error_type,
+            error_message=result.error,
             payload_json={
                 "result_count": len(results),
                 "error": result.error,
+                "judge_provider": result.provider_name,
             },
         )
     except Exception as exc:

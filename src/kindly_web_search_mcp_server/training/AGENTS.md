@@ -15,6 +15,8 @@ Write-only JSONL sink for query understanding training data.
 - Keep records write-only and easy to append.
 - `append_query_understanding_record()` writes the understanding snapshot.
 - `append_query_outcome_record()` writes the observed outcome snapshot.
+- Understanding records include classifier score vectors, model/endpoint/latency, confidence threshold, decision path, and fallback reason when available.
+- Analytics mirrors those decisions in `query_understanding_events`; unlabeled rows are not treated as calibration truth.
 - `SessionStateStore` keeps TTL-based session data in memory.
 
 ## Testing

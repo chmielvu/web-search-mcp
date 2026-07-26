@@ -139,6 +139,7 @@ async def rank_and_finalize(
                 query_type_hint=(run.plan.understanding.intent if run.plan else None),
                 run_key=run.run_key,
                 session_id=run.session_id,
+                reranking_instructions=run.request.reranking_instructions,
             )
             ranked_pool = list(reranked.results)
             rerank_provider = reranked.provider
@@ -205,4 +206,10 @@ async def rank_and_finalize(
             total_results=returned,
             providers_used=providers_used,
             warnings=_stable_warnings(outcomes) or None,
+            intent=(
+                str(run.plan.understanding.intent)
+                if run.plan is not None
+                else (run.diagnostics.intent or None)
+            ),
+            query_shaping=(run.diagnostics.query_shaping or None) or None,
         )

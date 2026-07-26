@@ -101,7 +101,7 @@ _FACET_SCHEMAS: dict[str, dict[str, object]] = {
     "judge_rewrite_coverage": {
         "type": "object",
         "properties": {
-            "covered_count": {"type": "integer", "minimum": 0, "maximum": 4},
+            "covered_count": {"type": "integer", "minimum": 0, "maximum": 5},
             "redundant": {"type": "boolean"},
             "missing_facets": {
                 "type": "array",
@@ -588,6 +588,7 @@ def _insert_judgment(
     confidence: int | None = None,
     context_shown: str | None = None,
     error_message: str | None = None,
+    payload_json: str | None = None,
 ) -> None:
     """Persist one judgment row to `llm_judgments` (extended schema)."""
     # Serialize inserts: parallel facet workers each hold their own
@@ -611,7 +612,7 @@ def _insert_judgment(
                 round(duration_ms * 1000.0, 2),
                 status,
                 error_message,
-                None,
+                payload_json,
                 facet,
                 reasoning if reasoning is not None else "",
                 rubric_version,
@@ -666,12 +667,40 @@ def _store_judgment_row(
             confidence_int = conf if isinstance(conf, int) else None
             status = "success"
             error_message = None
+            payload_json = json.dumps(
+                {
+                    "facet": judgment_kind,
+                    "schema_version": _DEFAULT_RUBRIC_VERSION,
+                    "parsed": parsed,
+                },
+                ensure_ascii=False,
+                default=str,
+            )
     else:
         verdict_str = (raw or "")[:200]
         reasoning_str = ""
         confidence_int = None
         status = "error"
         error_message = "no [RESULT] parse" if raw else "no llm output"
+        payload_json = json.dumps(
+            {
+                "facet": judgment_kind,
+                "schema_version": _DEFAULT_RUBRIC_VERSION,
+                "error": error_message,
+                "raw_preview": (raw or "")[:500],
+            },
+            ensure_ascii=False,
+        )
+    if parsed is not None and status == "error":
+        payload_json = json.dumps(
+            {
+                "facet": judgment_kind,
+                "schema_version": _DEFAULT_RUBRIC_VERSION,
+                "error": error_message,
+                "raw_preview": (raw or "")[:500],
+            },
+            ensure_ascii=False,
+        )
     _insert_judgment(
         connection,
         run_key=run_key,
@@ -688,6 +717,7 @@ def _store_judgment_row(
         confidence=confidence_int,
         context_shown=context_shown,
         error_message=error_message,
+        payload_json=payload_json,
     )
 
 
@@ -695,7 +725,8 @@ _REWRITE_STRATEGIES = (
     "exact-phrase or site-scoped keyword",
     "keyword with exclusions or required terms",
     "broad operator-based keyword",
-    "natural-language neural / semantic",
+    "natural-language neural (semantic)",
+    "specialized domain query (intent-targeted)",
 )
 
 
@@ -790,7 +821,7 @@ def _build_run_digest(
     )
     if rewrites:
         parts.append("rewrites:")
-        for i, r in enumerate(rewrites[:4]):
+        for i, r in enumerate(rewrites[:5]):
             strat = _REWRITE_STRATEGIES[i] if i < len(_REWRITE_STRATEGIES) else "unknown"
             parts.append(f"  {i + 1}. {r}  [{strat}]")
     else:
@@ -996,7 +1027,7 @@ def judge_search_run(
         # truthy AND rewrites non-empty (1 call, judge_quality).
         if rewrite_enabled and rewrites:
             variants_lines = []
-            for i, variant in enumerate(rewrites[:4]):
+            for i, variant in enumerate(rewrites[:5]):
                 strat = _REWRITE_STRATEGIES[i] if i < len(_REWRITE_STRATEGIES) else "unknown"
                 variants_lines.append(f"  {i + 1}. {variant}  [{strat}]")
             coverage_ctx = _ctx(
@@ -1012,9 +1043,8 @@ def judge_search_run(
             )
 
             def _coverage_verdict(p: dict) -> str:
-                return (
-                    f"covered={p.get('covered_count', 0)}/4; redundant={bool(p.get('redundant'))}"
-                )
+                rewrites_slice = rewrites[:5]
+                return f"covered={p.get('covered_count', 0)}/{len(rewrites_slice)}; redundant={bool(p.get('redundant'))}"
 
             _store_judgment_row(
                 connection,
@@ -1031,8 +1061,6 @@ def judge_search_run(
                 build_reasoning=lambda p: str(p.get("reasoning") or ""),
             )
             judgments_written += 1
-
-        # (d)/(e) Parallel independent per-result facets. Each worker opens
         # its own short-lived DuckDB connection (connections are not shared
         # across threads). Cap workers at 4 to avoid unbounded HF QPS.
         stage_rows = connection.execute(

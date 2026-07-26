@@ -1,6 +1,92 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed — MCP timeout and content routing reliability
+- Bound the complete RankLLM fallback chain to one total budget and drain canceled coordinator tasks, so provider failures cannot keep `web_search` past its MCP execution deadline or leave unhandled sliding-window tasks on the event loop.
+- Fixed specialized content routing to treat parser results of `None` as non-matches; non-YouTube URLs now continue through generic extraction instead of entering the YouTube API resolver.
+
+### Changed — Cerebras rewrite fallback models
+- Strengthened `worker_llm` so Cerebras tries `gpt-oss-120b` with both keys, then `zai-glm-4.7` with both keys, then `gemma-4-31b` with both keys before crossing to Groq and other providers.
+- Added model-aware Cerebras prompt handling: GLM 4.7 and Gemma 4 31B no longer receive the GPT OSS Harmony `Reasoning:` directive, and GLM/Gemma receive the documented `reasoning_effort` parameter when supplied.
+- Live Bash calls with both Cerebras keys returned HTTP 200 for GLM and Gemma Chat Completions using a system message and JSON response format. GLM required `reasoning_effort=none` for a short rewrite response because its default reasoning consumed a small test token budget; Gemma accepted the system role directly.
+
+### Changed — Cerebras and Groq model catalog refresh
+- Queried the authenticated Cerebras `/v1/models` and `/v1/models/{model_id}` endpoints and registered the active `zai-glm-4.7` and `gemma-4-31b` chat models alongside `gpt-oss-120b`.
+- Queried the authenticated Groq `/openai/v1/models` and `/openai/v1/models/{model}` endpoints and registered every applicable active text-generation model: `groq/compound`, `groq/compound-mini`, `llama-3.1-8b-instant`, `openai/gpt-oss-20b`, `allam-2-7b`, `llama-3.3-70b-versatile`, `openai/gpt-oss-120b`, and `qwen/qwen3.6-27b`. Moderation/safety, speech-output, and transcription-only models remain outside the generic chat catalog.
+- The live Groq model list contained no Llama 4 entry; retrieve checks for `meta-llama/llama-4-scout-17b-16e-instruct` and `meta-llama/llama-4-maverick-17b-128e-instruct` both returned HTTP 404.
+- Corrected the catalog display names for `gpt-oss-120b` and `gpt-oss-20b` to the provider-reported GPT OSS names and marked the Groq GPT OSS 20B entry as supporting structured output.
+
+### Fixed — Inference adapter routing and RankLLM contracts
+- Split the OpenRouter chat alias (`openrouter` → OpenAI-compatible adapter) from the OpenRouter rerank adapter (`openrouter_rerank`), eliminating adapter overwrite warnings and preventing chat calls from being sent to `/rerank`.
+- RankLLM now uses a dedicated OpenRouter chat model fallback; no chain references `gemini-2.5-flash@openrouter`.
+- Restored RankLLM model context capacities, normalized string candidate IDs before permutation validation, and classify Google-backed RankLLM success correctly.
+- Reuse cached Gemini clients and propagate worker run/operation context so LLM analytics records retain their required `run_key`.
+
+### Fixed — Inference provider key failover and retry classification
+- Added qualified `cerebras:second` and `groq:second` provider configurations using `SECOND_CEREBRAS_API_KEY` and `SECOND_GROQ_API_KEY`; worker and classifier chains now try the secondary key before crossing to another provider.
+- The fallback engine now retries transient transport, timeout, rate-limit, conflict, and server failures while surfacing deterministic authentication, permission, request-validation, not-found, and local configuration failures immediately.
+- `ModelSpec` now accepts the repository's existing `GEMINI_SECOND_API_KEY` spelling as a compatibility alias for the catalog's `SECOND_GEMINI_API_KEY` entry.
+- Updated inference regression coverage and catalog documentation for the expanded chains.
+
+### Added — Unified model & provider registry
+- **`inference/registry.py`** replaces `model_registry.py` + `provider_registry.py` as a single self-documenting file. Every model is defined once as a canonical entry (`define_model()`) then associated with providers (`add_provider()`). Chain references use `"canonical_id@provider"` format.
+- **Provider config helpers**: `as_openai()`, `as_google()`, `as_huggingface()`, `as_rerank()`, `as_embedding()` set sensible defaults per provider family.
+- **Cross-provider model ID normalization**: `normalize_model_id()` strips known provider prefixes (e.g., `"openai/gpt-oss-120b"` → `"gpt-oss-120b"`); `resolve_model_id()` returns the provider-specific string.
+- **Provider adapter aliasing**: `register_provider_alias("cerebras", "openai")` lets multiple provider names share one adapter.
+- **`catalog.py` rewritten**: Uses `define_model()` + `add_provider()` + `@`-format chain references. Same 7 chains, same behavior.
+- **Eliminated duplicate model registrations**: Each model is defined once (9 models total). Multiple API keys / timeouts are handled by qualified provider keys (e.g., `"google:second"` uses `SECOND_GEMINI_API_KEY`, `"google:rankllm"` uses the rankllm timeout). No model is ever registered twice.
+
+### Added — Typed provider, tool, classifier, and quality analytics
+- Added `provider_calls` request diagnostics (`request_query`, `request_url`, HTTP status, result class, and bounded response metadata) so planner queries can be compared with adapter requests without storing credentials.
+- Added `tool_calls` lifecycle facts with stable request/response/error correlation, typed counts/statuses, bounded payloads, and credential-field filtering; missing MCP wrappers now emit lifecycle telemetry for web search, quick search, YouTube, and Composio Similarlinks.
+- Added `query_understanding_events` plus score-vector/model/threshold/fallback fields to JSONL records, preserving classifier confidence decisions and explicit LLM fallback paths.
+- Added quality diagnostics and reports for provider reliability, result-quality misses, and unlabeled classifier confidence distributions; calibration metrics require explicit human labels.
+
+### Fixed — Analytics view creation and specialized provider diagnostics
+- Fixed analytics view bootstrap deadlock caused by reacquiring the non-reentrant schema lock and corrected DuckDB aggregate grouping in quality/calibration views.
+- Specialized GitHub, Sourcegraph, and GitLab retrieval now records structured request metadata and preserves dialect-shaping diagnostics.
+
+### Changed — Gemini 3.5 Flash-Lite migration
+- **RankLLM** now uses `gemini-3.5-flash-lite` as its Google primary, falls back to `gemini-3.1-flash-lite`, and then preserves the existing OpenRouter fallback.
+- **`get_content` and `batch_get_content` summaries** now use `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → existing Gemma/per-item fallbacks, with model metadata reflecting the tier that produced each summary.
+- **`gemini_search` is unchanged** and continues to use its existing Gemini 3.1 grounding tier.
+
+### Changed — Content AI summary contract
+- **`get_content` and `batch_get_content`** now accept `ai_summary: bool = false`; `true` enables the detailed source-grounded Gemini summary and `false` returns content without a summary.
+- Removed the public `summary_mode` contract and its brief summary option.
+
+### Added — Heuristics helpers (query augment, clean, guidance)
+- **`heuristics/` package**: stdlib-first query repair (`clean_query` / `repair_unicode` via `ftfy`), `QueryFeatures` extraction, provider-dialect `augment_query_for_provider` (github/sourcegraph/gitlab/hackernews/reddit), and cause-aware `guidance_messages` for middleware.
+- **Retrieve-boundary shaping**: `search/retrieval._call_provider` cleans all provider queries and dialect-shapes specialized providers; records `diagnostics.query_shaping` for response echo.
+- **Planning specialized fallback**: deterministic specialized branch uses intent-aware shaped query (`sourcegraph` dialect for coding, `reddit` for social).
+- **Public response fields**: additive `WebSearchResponse.intent` + `query_shaping` serialized in `public_output` (no full diagnostics leak).
+- **Middleware**: empty/coding guidance and shaping echo in `query_guidance._guide_web_search`; network error recovery hints in `_guide_error`.
+- **Text surfaces**: `normalize_query` delegates to `clean_query`; snippet/page/transcript paths run `clean_text_for_llm`.
+- **Tests**: `tests/test_heuristics_text_clean.py`, `tests/test_heuristics_augment.py`; extended agent-steering middleware cases.
+
+### Added — Modular Provider Routing & 5-Variant Query Rewrite Pipeline
+- **Dynamic Intent-Provider Subscriptions (`search/intent_policy.py`)**: Replaced hardcoded static specialized provider tuples with `_DEFAULT_INTENT_PROVIDER_SUBSCRIPTIONS` registry dict and dynamic provider lookups (`get_subscribed_specialized_providers`, `register_provider_subscription`). Intent policy resolves specialized providers dynamically per intent (e.g., `ai_coding_and_infrastructure` subscribes Telegram, HackerNews, GitHub, Sourcegraph, GitLab, and Reddit; `social_media` subscribes Telegram and Reddit).
+- **Modular Intent-Specific Rewrite Prompt Guidance (`prompts/query_rewrite.py` & `search/planning.py`)**: Introduced `_SPECIALIZED_REWRITE_GUIDANCE` and `_DEFAULT_SPECIALIZED_GUIDANCE` prompt modules providing intent-specific instructions for code search operators, community discussions, and temporal event queries.
+- **5-Variant LLM Query Rewrite Expansion (`search/planning.py`)**: Upgraded LLM search query rewriting from 4 variants to 5 variants (`[keyword1, keyword2, keyword3, neural, specialized]`). Updated `_RewriteQueries` Pydantic model, prompt instructions, examples, and fallback handling to format and return 5 strategic queries. The 5th query is assigned directly to `BranchRole.SPECIALIZED`.
+- **SearchPlan & Analytics Alignment (`search/contracts.py` & `analytics/`)**: Updated `SearchPlan.rewrite_queries` contracts and DuckDB `rewritten_branch_queries` schema comments. Aligned `analytics/judges.py` (`_REWRITE_STRATEGIES`, `judge_rewrite_coverage` schema, and verdict formatting) to judge 5 rewrite variants cleanly across distinct retrieval facets.
+
+### Added — Public code and community search providers
+- Added Sourcegraph GraphQL code search with literal/RE2 regexp modes, optional `SOURCEGRAPH_TOKEN`, and line-match snippets.
+- Added GitLab blob search with optional `GITLAB_TOKEN`, encoded repository links, and source-line snippets.
+- Unified GitHub search under `providers.github`: REST text-match code search works without credentials; a `GITHUB_TOKEN` additionally enables GraphQL Issues and Discussions.
+- Upgraded Reddit to OAuth2 client-credentials when configured, with public fallback, rate-limit header handling, and post-body snippets.
+- Switched Hacker News to Algolia's relevance-ranked endpoint and removed keyword focus gating.
+
+### Added — Unified Inference Subsystem (Phase 1 Scaffolding)
+- **`kindly_web_search_mcp_server.inference`**: Created declarative model catalog (`catalog.py`) and generic execution engine (`engine.py`) supporting structured `ModelSpec` definitions and fallback chain traversal (`FallbackChainSpec`).
+- **Telemetry Integration**: Integrated OpenTelemetry span creation (`create_llm_operation_span`) and exception tracking (`set_span_error`) into `execute_with_fallback` execution flow.
+- **Subsystem Tests**: Created `tests/test_inference_subsystem.py` verifying catalog resolution, fallback chain execution, timeout enforcement, non-retryable exception short-circuiting, and exhaustion handling.
+
+### Changed — DuckDB to SQLite WAL Clean Cutover (Non-Search DBs)
+- **Migrated 5 Non-Search DBs to SQLite WAL**: Swapped `page_cache`, `transcript_cache`, `process_logs`, `blocklist`, and `telegram_registry` from individual DuckDB files to SQLite (`sqlite3` stdlib) using `PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`. `search_events.duckdb` remains strictly on DuckDB for heavy OLAP analytics.
+- **FTS5 & Schema Enhancements**: Added SQLite FTS5 virtual tables for `transcript_cache` (`transcript_fts`) and `process_logs` (`process_logs_fts`); added `level_num` and `environment` debugging metadata to process logs.
+- **Configuration & Path Updates**: Updated default database constants in `utils/paths.py` and settings in `settings.py` (`page_cache_sqlite_path`, `transcript_cache_sqlite_path`, `process_logs_sqlite_path`, `blocklist_sqlite_path`, `telegram_registry_sqlite_path`). Deleted legacy `.duckdb` backend files.
+
 ### Added — Agent-Native CLI Uplift (`web-search-cli`)
 - **Level 3 Agent-Native Specification**: Created root `agent/` directory scaffolding: `agent/brief.md`, `agent/rules/{trigger,workflow,writeback}.md`, `agent/skills/getting-started.md`.
 - **Subcommands**: Added `skills` (`web-search-cli skills [name]`) for skill discovery/viewing, and `feedback` (`web-search-cli feedback create|list|show|close|transition`) storing issue entries in `{PROJECT_ROOT}/feedback/{id}.json`.

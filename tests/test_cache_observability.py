@@ -45,7 +45,7 @@ class TestCacheObservability(unittest.TestCase):
 
         with (
             patch(
-                "kindly_web_search_mcp_server.cache.page_cache._PageDuckDBCache",
+                "kindly_web_search_mcp_server.cache.page_cache._PageSQLiteCache",
                 return_value=backend,
             ),
             patch(

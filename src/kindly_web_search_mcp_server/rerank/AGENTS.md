@@ -32,8 +32,10 @@ Provider RRF + BM25 → Bi-encoder (if pool > cross-encoder limit) → Cross-enc
 - **Bi-encoder**: Runs only for pools above cross-encoder limit.
 - **Cross-encoder**: Cohere `rerank-v4.0-fast` as primary, timeout 5s, fail-fast
   into next provider (OpenRouter → Voyage).
-- **RankLLM**: Receives only normalized query (not research goal). Gemini
-  first, OpenRouter fallback. Strict complete-permutation validation.
+- **RankLLM**: Receives only normalized query (not research goal). Gemini 3.5
+  first, Gemini 3.1 fallback, then OpenRouter. Strict complete-permutation validation.
+  The complete fallback chain has a total timeout budget and canceled provider
+  tasks are drained so a slow/failed model cannot outlive the MCP tool call.
 - **Diversity**: Conditional MMR triggered by similarity or host-overflow.
   Reconstructs the untouched tail — candidate identities never silently dropped.
 - **Research goal**: Passed separately to cross-encoder only (not RankLLM).
@@ -43,7 +45,7 @@ Provider RRF + BM25 → Bi-encoder (if pool > cross-encoder limit) → Cross-enc
 - Provider timeouts: 5s default (fail-fast into next provider).
 - SDK retries disabled (`max_retries=0`); fallback belongs to orchestration.
 - Cohere/OpenRouter parsers accept partial `top_n` result lists.
-- RankLLM primary model is `gemini-3.1-flash-lite` with OpenRouter as fallback.
+- RankLLM uses `gemini-3.5-flash-lite` primary, `gemini-3.1-flash-lite` Google fallback, then OpenRouter.
 - `scripts/rerank_eval_diversity.py` is stale — imports removed `rerank.diversity`.
 
 ## Testing

@@ -7,7 +7,7 @@ Provides ``_resolve_tier1`` which tries all specialized resolvers in order
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from ..errors import classify_error
 from ..utils.url_canonicalize import canonicalize_url
@@ -23,6 +23,27 @@ from .resolvers.github_issues import fetch_github_issue_thread_markdown, parse_g
 from .resolvers.stackexchange import fetch_stackexchange_thread_markdown, parse_stackexchange_url
 from .resolvers.telegram import TelegramContentError, fetch_telegram_markdown, parse_telegram_url
 from .resolvers.wikipedia import fetch_wikipedia_article_markdown, parse_wikipedia_url
+from .resolvers.github_pulls import (
+    fetch_github_pull_thread_markdown,
+    parse_github_pull_url,
+)
+from .resolvers.github_repo import (
+    fetch_github_repo_markdown,
+    parse_github_repo_url,
+)
+from .resolvers.hackernews import (
+    fetch_hackernews_thread_markdown,
+    parse_hackernews_url,
+)
+from .resolvers.raw_text import fetch_raw_text_markdown, is_raw_text_url
+from .resolvers.reddit import (
+    fetch_reddit_thread_markdown,
+    parse_reddit_url,
+)
+from .resolvers.youtube import (
+    fetch_youtube_content_markdown,
+    parse_youtube_content_url,
+)
 from .status_classifier import classify_markdown
 
 LOGGER = logging.getLogger(__name__)
@@ -38,14 +59,16 @@ def _to_content_error(exc: Exception, code: str, provider: str | None = None) ->
 async def _maybe_specialized(
     url: str,
     *,
-    parser: Callable[[str], str],
+    parser: Callable[[str], Any],
     fetcher: Callable[[str], Awaitable[str]],
     source_type: str,
 ) -> ContentArtifact | None:
     """Try a specialized resolver. Returns None if the URL doesn't match."""
     try:
-        parser(url)
+        parsed = parser(url)
     except Exception:
+        return None
+    if parsed is None:
         return None
 
     try:
@@ -94,6 +117,9 @@ async def _maybe_specialized(
 
 async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | None:
     """Try all specialized resolvers in order. Returns an artifact or None if no resolver matches."""
+    if is_raw_text_url(url):
+        return await fetch_raw_text_markdown(url, fetch_options=options)
+
     specialized = await _maybe_specialized(
         url,
         parser=parse_stackexchange_url,
@@ -117,6 +143,52 @@ async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | N
         parser=parse_github_discussion_url,
         fetcher=fetch_github_discussion_thread_markdown,
         source_type="github_discussion",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_github_pull_url,
+        fetcher=fetch_github_pull_thread_markdown,
+        source_type="github_pull",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_github_repo_url,
+        fetcher=fetch_github_repo_markdown,
+        source_type="github_repo",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_hackernews_url,
+        fetcher=fetch_hackernews_thread_markdown,
+        source_type="hackernews",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_reddit_url,
+        fetcher=fetch_reddit_thread_markdown,
+        source_type="reddit",
+    )
+    if specialized is not None:
+        return specialized
+
+    # YouTube (video URLs)
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_youtube_content_url,
+        fetcher=fetch_youtube_content_markdown,
+        source_type="youtube",
     )
     if specialized is not None:
         return specialized

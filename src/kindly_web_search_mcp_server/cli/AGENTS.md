@@ -46,6 +46,7 @@ cli/
 - `--log-format=json`: emits single-line JSON log objects (JSONL) on stderr parseable by `jq`, `Vector` VRL, `Fluent Bit`, `Fluentd`.
 - Inline context: every response includes `rules` (full `.md` content inline), `skills` (catalog), and `feedback` guidance.
 - Built-in feedback system: `feedback create/list/show/close/transition`, stored in project source at `feedback/{id}.json`.
+- Content commands use `--ai-summary/--no-ai-summary` (default disabled) for the detailed source-grounded Gemini summary; the former `--summary-mode` option is removed.
 
 ## Commands
 

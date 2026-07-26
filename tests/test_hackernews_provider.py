@@ -10,11 +10,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class TestHackerNewsProvider(unittest.IsolatedAsyncioTestCase):
-    async def test_irrelevant_query_skips_hackernews(self) -> None:
-        from kindly_web_search_mcp_server.search.providers.hackernews import search_hackernews
+    async def test_general_query_uses_relevance_search(self) -> None:
+        import kindly_web_search_mcp_server.search.providers.hackernews as hackernews
 
-        results = await search_hackernews("pizza near me", num_results=5)
-        self.assertEqual(results, [])
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "hits": [
+                {
+                    "title": "Pizza on HN",
+                    "url": "https://example.com/pizza",
+                    "author": "alice",
+                    "points": 10,
+                    "num_comments": 2,
+                    "created_at": "2026-06-01T12:00:00Z",
+                }
+            ]
+        }
+        client = SimpleNamespace(get=AsyncMock(return_value=response))
+
+        async def fake_run_provider(
+            _provider_name,
+            _query,
+            _num_results,
+            *,
+            request,
+            parse_response,
+            http_client,
+            timeout_seconds,
+        ):
+            data = await request(client)
+            return parse_response(data)
+
+        with patch.object(hackernews, "run_provider", side_effect=fake_run_provider):
+            results = await hackernews.search_hackernews("pizza near me", num_results=5)
+
+        self.assertEqual([item.title for item in results], ["Pizza on HN"])
+        self.assertEqual(client.get.call_args.kwargs["params"]["tags"], "story")
+        self.assertEqual(client.get.call_args.args[0], "https://hn.algolia.com/api/v1/search")
 
     async def test_discussion_query_searches_story_and_comments(self) -> None:
         import kindly_web_search_mcp_server.search.providers.hackernews as hackernews

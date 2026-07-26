@@ -21,6 +21,13 @@ async def append_query_understanding_record(
     prompt_name: str,
     path: str,
     session_id: str | None = None,
+    decision_path: str | None = None,
+    classifier_scores: dict[str, float] | None = None,
+    classifier_model: str | None = None,
+    classifier_endpoint: str | None = None,
+    classifier_latency_ms: float | None = None,
+    confidence_threshold: float | None = None,
+    fallback_reason: str | None = None,
 ) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -38,6 +45,13 @@ async def append_query_understanding_record(
         "model": model_name,
         "prompt": prompt_name,
         "session_id": session_id,
+        "decision_path": decision_path,
+        "classifier_scores": classifier_scores,
+        "classifier_model": classifier_model,
+        "classifier_endpoint": classifier_endpoint,
+        "classifier_latency_ms": classifier_latency_ms,
+        "confidence_threshold": confidence_threshold,
+        "fallback_reason": fallback_reason,
     }
     line = json.dumps(record, ensure_ascii=False, sort_keys=True)
     await _append_line(target, line)
@@ -52,6 +66,7 @@ async def append_query_outcome_record(
     results: list[dict[str, object]],
     path: str,
     session_id: str | None = None,
+    run_key: str | None = None,
 ) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -65,6 +80,7 @@ async def append_query_outcome_record(
         "results": results,
         "result_count": len(results),
         "session_id": session_id,
+        "run_key": run_key,
     }
     line = json.dumps(record, ensure_ascii=False, sort_keys=True)
     await _append_line(target, line)

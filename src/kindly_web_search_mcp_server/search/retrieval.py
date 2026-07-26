@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Sequence
@@ -17,6 +18,11 @@ from ..utils.task_scope import cancel_and_drain_tasks
 from .contracts import BranchOutcome, ProviderRankedResults, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
 from .provider_registry import get_provider_adapter, get_provider_definition
+from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
+
+from ..heuristics.augment import SPECIALIZED_AUGMENT_PROVIDERS, augment_query_for_provider
+from ..heuristics.query_features import build_query_features
+from ..heuristics.text_clean import clean_query
 
 
 def _canonical_url(url: str) -> str:
@@ -36,7 +42,7 @@ async def _call_provider(
     embedding_task: Awaitable[Sequence[float]] | None,
     *,
     retrieve_deadline: float,
-) -> tuple[str, Sequence[WebSearchResult] | BaseException]:
+) -> tuple[str, Sequence[WebSearchResult] | BaseException, ProviderRequestMetadata, str]:
     definition = get_provider_definition(provider_name)
     adapter = get_provider_adapter(provider_name)
     # Live budget only — do not trust catalog snapshot from import time.
@@ -44,14 +50,66 @@ async def _call_provider(
     remaining = max(0.0, retrieve_deadline - time.monotonic())
     timeout = min(provider_cap, remaining)
     if timeout <= 0:
-        return provider_name, TimeoutError()
+        return (
+            provider_name,
+            TimeoutError(),
+            ProviderRequestMetadata(
+                provider=provider_name,
+                result_class="incomplete",
+                error_type="retrieve_budget",
+                error_summary="retrieve budget exhausted",
+            ),
+            branch.query,
+        )
+    query = branch.query
+    understanding = run.plan.understanding if run.plan else None
+    features = build_query_features(
+        query,
+        understanding=understanding,
+        support_terms=branch.support_terms or (),
+    )
+    if provider_name in SPECIALIZED_AUGMENT_PROVIDERS:
+        aug = augment_query_for_provider(provider_name, query, features)
+        query_for_call = aug.query
+        provider_arguments = dict(
+            run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
+        )
+        aug_metadata = dict(aug.metadata)
+        if aug_metadata.get("pattern_type"):
+            provider_arguments["pattern_type"] = aug_metadata["pattern_type"]
+        if aug.changed or aug.rules_applied:
+            run.diagnostics.query_shaping.append(
+                {
+                    "provider": provider_name,
+                    "branch_role": branch.role.value,
+                    "original": query,
+                    "shaped": aug.query,
+                    "rules": list(aug.rules_applied),
+                    "metadata": aug_metadata,
+                }
+            )
+    else:
+        provider_arguments = dict(
+            run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
+        )
+        query_for_call = clean_query(query) or query
+        if query_for_call != query:
+            run.diagnostics.query_shaping.append(
+                {
+                    "provider": provider_name,
+                    "branch_role": branch.role.value,
+                    "original": query,
+                    "shaped": query_for_call,
+                    "rules": ["clean.query"],
+                }
+            )
     try:
         result = await asyncio.wait_for(
             adapter(
-                branch.query,
+                query_for_call,
                 num_results=branch.max_results,
                 options=run.request.options,
-                arguments=(run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}),
+                arguments=provider_arguments,
                 http_client=run.http_client,
                 query_embedding=embedding_task if definition.requires_embedding else None,
             ),
@@ -61,13 +119,44 @@ async def _call_provider(
             item.model_copy(update={"providers": sorted({*(item.providers or []), provider_name})})
             for item in result
         ]
-        return provider_name, normalized
+        return (
+            provider_name,
+            normalized,
+            get_provider_request_metadata()
+            or ProviderRequestMetadata(
+                provider=provider_name,
+                result_class="nonempty" if normalized else "empty",
+            ),
+            query_for_call,
+        )
     except asyncio.CancelledError:
         raise
     except TimeoutError:
-        return provider_name, TimeoutError()
+        return (
+            provider_name,
+            TimeoutError(),
+            get_provider_request_metadata()
+            or ProviderRequestMetadata(
+                provider=provider_name,
+                result_class="timeout",
+                error_type="timeout",
+                error_summary="provider request timed out",
+            ),
+            query_for_call,
+        )
     except Exception as exc:
-        return provider_name, exc
+        return (
+            provider_name,
+            exc,
+            get_provider_request_metadata()
+            or ProviderRequestMetadata(
+                provider=provider_name,
+                result_class="error",
+                error_type=type(exc).__name__,
+                error_summary=str(exc)[:500],
+            ),
+            query_for_call,
+        )
 
 
 _MAX_URLS = 32
@@ -87,7 +176,18 @@ def _record_provider_result(
     status_override: str | None = None,
     error_type_override: str | None = None,
     error_message_override: str | None = None,
+    request_query: str | None = None,
+    metadata: ProviderRequestMetadata | None = None,
 ) -> None:
+    metadata = metadata or ProviderRequestMetadata(provider=name)
+    response_meta_json = json.dumps(metadata.response_meta, ensure_ascii=False, default=str)
+    common = {
+        "request_query": request_query or branch.query,
+        "request_url": metadata.endpoint,
+        "http_status": metadata.http_status,
+        "result_class": metadata.result_class,
+        "response_meta_json": response_meta_json,
+    }
     if status_override == "incomplete":
         warnings_by_name[name] = _warning(name, "retrieve_budget", "retrieve budget exhausted")
         provider_calls.append(
@@ -100,6 +200,7 @@ def _record_provider_result(
                 "num_results_returned": 0,
                 "latency_ms": latency_ms,
                 "candidate_urls": [],
+                **common,
             }
         )
         return
@@ -108,8 +209,10 @@ def _record_provider_result(
         return
 
     if isinstance(value, BaseException):
-        error_type = error_type_override or (
-            "timeout" if isinstance(value, TimeoutError) else "provider_error"
+        error_type = (
+            error_type_override
+            or metadata.error_type
+            or ("timeout" if isinstance(value, TimeoutError) else "provider_error")
         )
         warnings_by_name[name] = _warning(name, error_type, error_type)
         provider_calls.append(
@@ -118,10 +221,13 @@ def _record_provider_result(
                 "status": status_override or "error",
                 "branch_role": branch.role.value,
                 "error_type": error_type,
-                "error_message": (error_message_override or str(value))[:500],
+                "error_message": (error_message_override or metadata.error_summary or str(value))[
+                    :500
+                ],
                 "num_results_returned": 0,
                 "latency_ms": latency_ms,
                 "candidate_urls": [],
+                **common,
             }
         )
         return
@@ -153,11 +259,18 @@ def _record_provider_result(
     provider_calls.append(
         {
             "provider": name,
-            "status": "success",
+            "status": (
+                "incomplete"
+                if metadata.result_class == "incomplete"
+                else "error"
+                if metadata.result_class == "error"
+                else "success"
+            ),
             "branch_role": branch.role.value,
             "num_results_returned": len(value),
             "latency_ms": latency_ms,
             "candidate_urls": [item.link for item in value][:_MAX_URLS],
+            **common,
         }
     )
 
@@ -213,7 +326,17 @@ async def retrieve_branches(
             [] for _ in range(len(run.plan.branches))
         ]
 
-        tasks: list[asyncio.Task[tuple[str, Sequence[WebSearchResult] | BaseException, float]]] = []
+        tasks: list[
+            asyncio.Task[
+                tuple[
+                    str,
+                    Sequence[WebSearchResult] | BaseException,
+                    ProviderRequestMetadata,
+                    str,
+                    float,
+                ]
+            ]
+        ] = []
         slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
         started_at: dict[str, float] = {}
         for branch_index, branch in enumerate(run.plan.branches):
@@ -230,13 +353,25 @@ async def retrieve_branches(
                 async def _invoke(
                     b: QueryBranch = branch,
                     n: str = name,
-                ) -> tuple[str, Sequence[WebSearchResult] | BaseException, float]:
+                ) -> tuple[
+                    str,
+                    Sequence[WebSearchResult] | BaseException,
+                    ProviderRequestMetadata,
+                    str,
+                    float,
+                ]:
                     call_started = time.monotonic()
                     started_at[n] = call_started
-                    provider_name, value = await _call_provider(
+                    provider_name, value, metadata, request_query = await _call_provider(
                         run, b, n, embedding_task, retrieve_deadline=retrieve_deadline
                     )
-                    return provider_name, value, (time.monotonic() - call_started) * 1000.0
+                    return (
+                        provider_name,
+                        value,
+                        metadata,
+                        request_query,
+                        (time.monotonic() - call_started) * 1000.0,
+                    )
 
                 task = asyncio.create_task(_invoke(), name=f"search.provider.{name}")
                 tasks.append(task)
@@ -279,14 +414,23 @@ async def retrieve_branches(
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
                         status_override="incomplete",
+                        request_query=branch.query,
+                        metadata=ProviderRequestMetadata(
+                            provider=provider_name,
+                            result_class="incomplete",
+                            error_type="retrieve_budget",
+                            error_summary="retrieve budget exhausted",
+                        ),
                     )
                     continue
 
                 if task not in done:
                     raise RuntimeError("Provider task missing from asyncio.wait partition")
 
+                metadata = ProviderRequestMetadata(provider=provider_name)
+                request_query = branch.query
                 try:
-                    _returned_name, value, latency_ms = task.result()
+                    _returned_name, value, metadata, request_query, latency_ms = task.result()
                 except asyncio.CancelledError as exc:
                     elapsed_ms = (
                         time.monotonic() - started_at.get(provider_name, retrieve_started)
@@ -301,6 +445,8 @@ async def retrieve_branches(
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        request_query=request_query,
+                        metadata=metadata,
                     )
                     continue
                 except Exception as exc:
@@ -317,6 +463,8 @@ async def retrieve_branches(
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        request_query=request_query,
+                        metadata=metadata,
                     )
                     continue
                 _record_provider_result(
@@ -329,6 +477,8 @@ async def retrieve_branches(
                     warnings_by_name=warnings_by_name,
                     provider_calls=calls,
                     provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                    request_query=request_query,
+                    metadata=metadata,
                 )
         except asyncio.CancelledError:
             await cancel_and_drain_tasks(tasks)

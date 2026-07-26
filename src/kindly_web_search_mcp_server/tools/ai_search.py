@@ -11,7 +11,7 @@ from fastmcp.server.context import Context
 
 from ..analytics.judge_runner import run_judge_evaluation
 from ..errors import format_tool_error
-from ..search.gemini_search_tool import gemini_search_with_grounding_dual
+from ..search.gemini_search_tool import gemini_search_with_grounding
 from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
 from ..telemetry import record_gemini_search
@@ -57,25 +57,17 @@ async def gemini_search(
     start_time = time.time()
     await ctx.report_progress(progress=10, total=100, message="Querying Gemini with grounding...")
     try:
-        result = await gemini_search_with_grounding_dual(
+        result = await gemini_search_with_grounding(
             query, structured_output=structured_output, research_goal=research_goal
         )
-        response = result
-        response.pop("search_widget_html", None) if isinstance(
-            response.get("search_widget_html"), str
-        ) else None
+        response = result.model_dump(exclude_none=True)
+        response.pop("search_widget_html", None)
         duration_seconds = time.time() - start_time
 
         # Record Gemini search telemetry from overview branch
-        overview = response.get("overview", {})
-        deepdive = response.get("deepdive", {})
-        grounding_queries_ov = len(overview.get("web_search_queries", []))
-        grounding_queries_dd = len(deepdive.get("web_search_queries", []))
-        grounding_chunks_ov = len(overview.get("grounding_chunks", []))
-        grounding_chunks_dd = len(deepdive.get("grounding_chunks", []))
         record_gemini_search(
-            grounding_queries=grounding_queries_ov + grounding_queries_dd,
-            grounding_chunks=grounding_chunks_ov + grounding_chunks_dd,
+            grounding_queries=result.web_search_queries_count,
+            grounding_chunks=result.grounding_chunks_count,
             structured_output=structured_output,
             duration_seconds=duration_seconds,
         )
@@ -87,30 +79,21 @@ async def gemini_search(
             query=query,
             structured_output=structured_output,
             research_goal=research_goal,
-            overview_answer=overview.get("answer"),
-            deepdive_answer=deepdive.get("answer"),
-            model_used=response.get("model_used"),
-            both_succeeded=response.get("both_succeeded"),
-            overview_input_tokens=overview.get("input_tokens"),
-            deepdive_input_tokens=deepdive.get("input_tokens"),
-            overview_web_search_queries=overview.get("web_search_queries", []),
-            deepdive_web_search_queries=deepdive.get("web_search_queries", []),
-            error=response.get("error"),
+            model_used=result.model_used,
+            prompt_tokens=result.prompt_tokens,
+            web_search_queries=result.search_queries,
+            error=result.error,
         )
         _record_tool_success(
             "gemini_search",
             input_query=query,
-            output_content=overview.get("answer")
-            if isinstance(overview.get("answer"), str)
-            else str(overview.get("answer", "")),
+            output_content=result.answer,
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
             try:
                 _run_key = str(uuid.uuid4())
-                all_chunks = overview.get("grounding_chunks", []) + deepdive.get(
-                    "grounding_chunks", []
-                )
+                all_chunks = result.sources
                 _judge_results = [
                     type(
                         "obj",

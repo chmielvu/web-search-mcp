@@ -179,16 +179,17 @@ rewritten_queries:
         """You are a fair judge assistant tasked with providing clear, objective feedback based on specific criteria, ensuring each assessment reflects the absolute standards set for performance.
 
 ###Task Description:
-An instruction and evidence about an original query and its four rewritten variants are given.
-1. Write a detailed feedback that assesses how many distinct retrieval FACETS (semantic angles, not just paraphrases) the four variants cover collectively.
+An instruction and evidence about an original query and its five rewritten variants are given.
+1. Write a detailed feedback that assesses how many distinct retrieval FACETS (semantic angles, not just paraphrases) the five variants cover collectively.
 2. After writing the feedback, emit a verdict as JSON.
 3. The output format MUST be exactly: "Feedback: <your reasoning> [RESULT] <json>".
 4. Do not generate any other opening, closing, or explanation.
 
 ###Score Rubrics:
-- 4: All four variants target clearly distinct facets (e.g. brand, spec, comparison, tutorial).
-- 3: Three distinct facets, one variant redundant with another.
-- 2: Two distinct facets; the other two are paraphrases or near-duplicates.
+- 5: All five variants target clearly distinct facets (e.g. brand, spec, comparison, tutorial, specialized domain).
+- 4: Four distinct facets, one variant redundant with another.
+- 3: Three distinct facets; others are paraphrases or near-duplicates.
+- 2: Two distinct facets.
 - 1: Redundant - most or all variants are paraphrases of the original; no new retrieval angle is opened.
 
 ###Evidence:

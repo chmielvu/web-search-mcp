@@ -215,7 +215,7 @@ class Settings:
     rankllm_openrouter_model: str = os.environ.get(
         "RANKLLM_OPENROUTER_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free"
     )
-    rankllm_gemini_model: str = os.environ.get("RANKLLM_GEMINI_MODEL", "gemini-3.1-flash-lite")
+    rankllm_gemini_model: str = os.environ.get("RANKLLM_GEMINI_MODEL", "gemini-3.5-flash-lite")
     rankllm_timeout_seconds: float = float(os.environ.get("RANKLLM_TIMEOUT_SECONDS", "20.0"))
     rankllm_max_passage_words: int = int(os.environ.get("RANKLLM_MAX_PASSAGE_WORDS", "300"))
     rankllm_temperature: float = float(os.environ.get("RANKLLM_TEMPERATURE", "0.0"))
@@ -299,7 +299,7 @@ class Settings:
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
 
     # Gemini summaries (for get_content / batch_get_content optional summaries)
-    summary_gemini_model: str = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-3.1-flash-lite")
+    summary_gemini_model: str = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-3.5-flash-lite")
     summary_gemma_fallback_model: str = os.environ.get(
         "SUMMARY_GEMMA_FALLBACK_MODEL", "gemma-4-26b-a4b-it"
     )
@@ -330,6 +330,14 @@ class Settings:
     youtube_api_daily_quota: int = int(os.environ.get("YOUTUBE_API_DAILY_QUOTA", "10000"))
     youtube_api_language: str = os.environ.get("YOUTUBE_API_LANGUAGE", "")
     youtube_api_region: str = os.environ.get("YOUTUBE_API_REGION", "")
+
+    # Cloudflare Workers AI Whisper (ASR for captionless videos, replaces HF Space)
+    cf_whisper_account_id: str = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+    cf_whisper_api_token: str = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+    cf_whisper_max_audio_seconds: int = int(os.environ.get("CF_WHISPER_MAX_AUDIO_SECONDS", "600"))
+    cf_whisper_api_base_url: str = os.environ.get(
+        "CF_WHISPER_API_BASE_URL", "https://api.cloudflare.com/client/v4"
+    )
 
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
@@ -403,6 +411,8 @@ class Settings:
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
     reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
+    reddit_client_id: str = os.environ.get("REDDIT_CLIENT_ID", "")
+    reddit_client_secret: str = os.environ.get("REDDIT_CLIENT_SECRET", "")
 
     # StackExchange config (consolidated from raw os.environ reads in stackexchange.py)
     stackexchange_sites: str = os.environ.get("STACKEXCHANGE_SITES", "stackoverflow")

@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from opentelemetry import metrics, trace
 
-from ..llm.phoenix_tracing import current_openinference_attributes
+from .phoenix_tracing import current_openinference_attributes
 from .attributes import (
     CACHE_TYPE,
     CIRCUIT_STATE,

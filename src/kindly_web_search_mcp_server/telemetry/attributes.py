@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..llm.phoenix_tracing import (
+from .phoenix_tracing import (
     INPUT_MIME_TYPE,
     INPUT_VALUE,
     LLM_INVOCATION_PARAMETERS,

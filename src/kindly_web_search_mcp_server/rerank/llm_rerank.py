@@ -1,15 +1,12 @@
 """Bounded RankLLM listwise reranking with application-owned fallback."""
 
 from __future__ import annotations
+
 import asyncio
-from dataclasses import dataclass
-from contextlib import redirect_stdout
 import logging
-import io
-import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 from ..models import WebSearchResult
 from ..settings import settings
@@ -88,7 +85,7 @@ def _get_bounded_genai_class() -> type:
 
 
 _openrouter_coordinator: type | None = None
-_gemini_coordinator: type | None = None
+_gemini_coordinators: dict[str, Any] = {}
 
 
 def _route_model(provider: str, model: str) -> str:
@@ -100,51 +97,42 @@ def _build_openai_coordinator(
     *, model: str, context_size: int, api_key: str, base_url: str | None
 ) -> Any:
     BoundedSafeOpenai = _get_bounded_openai_class()
-    captured_stdout = io.StringIO()
-    with redirect_stdout(captured_stdout):
-        coordinator = BoundedSafeOpenai(
-            model=model,
-            context_size=context_size,
-            prompt_template_path=str(_TEMPLATE_PATH),
-            window_size=RANKLLM_INPUT_LIMIT,
-            stride=RANKLLM_INPUT_LIMIT,
-            max_passage_words=settings.rankllm_max_passage_words,
-            keys=api_key,
-            base_url=base_url,
-        )
-    if output := captured_stdout.getvalue().strip():
-        logger.debug("Suppressed SafeOpenai constructor stdout: %s", output)
-    return coordinator
+    return BoundedSafeOpenai(
+        model=model,
+        context_size=context_size,
+        prompt_template_path=str(_TEMPLATE_PATH),
+        window_size=RANKLLM_INPUT_LIMIT,
+        stride=RANKLLM_INPUT_LIMIT,
+        max_passage_words=settings.rankllm_max_passage_words,
+        keys=api_key,
+        base_url=base_url,
+    )
 
 
-def _build_genai_coordinator(*, model: str, context_size: int, api_key: str) -> Any:
+def _build_genai_coordinator(*, model: str, api_key: str) -> Any:
     BoundedSafeGenai = _get_bounded_genai_class()
-    captured_stdout = io.StringIO()
-    with redirect_stdout(captured_stdout):
-        coordinator = BoundedSafeGenai(
-            model=model,
-            context_size=context_size,
-            prompt_template_path=str(_TEMPLATE_PATH),
-            window_size=RANKLLM_INPUT_LIMIT,
-            stride=RANKLLM_INPUT_LIMIT,
-            max_passage_words=settings.rankllm_max_passage_words,
-            keys=api_key,
-            temperature=settings.rankllm_temperature,
-        )
-    if output := captured_stdout.getvalue().strip():
-        logger.debug("Suppressed SafeGenai constructor stdout: %s", output)
-    return coordinator
+    return BoundedSafeGenai(
+        model=model,
+        context_size=1_048_576,
+        prompt_template_path=str(_TEMPLATE_PATH),
+        window_size=RANKLLM_INPUT_LIMIT,
+        stride=RANKLLM_INPUT_LIMIT,
+        max_passage_words=settings.rankllm_max_passage_words,
+        keys=api_key,
+        temperature=settings.rankllm_temperature,
+    )
 
 
-def _get_openrouter_coordinator() -> Any | None:
+def _get_openrouter_coordinator() -> Any:
     global _openrouter_coordinator
     if _openrouter_coordinator is not None:
         return _openrouter_coordinator
-    api_key = (settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
+    api_key = settings.openrouter_api_key
     if not api_key:
         return None
+    model = settings.rankllm_openrouter_model
     _openrouter_coordinator = _build_openai_coordinator(
-        model=settings.rankllm_openrouter_model,
+        model=model,
         context_size=131_072,
         api_key=api_key,
         base_url=settings.openrouter_chat_base_url,
@@ -152,31 +140,17 @@ def _get_openrouter_coordinator() -> Any | None:
     return _openrouter_coordinator
 
 
-def _get_gemini_coordinator() -> Any | None:
-    global _gemini_coordinator
-    if _gemini_coordinator is not None:
-        return _gemini_coordinator
-    api_key = (settings.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")).strip()
+def _get_gemini_coordinator(model: str | None = None) -> Any:
+    api_key = settings.gemini_api_key
     if not api_key:
         return None
-    _gemini_coordinator = _build_genai_coordinator(
-        model=settings.rankllm_gemini_model,
-        context_size=1_048_576,
-        api_key=api_key,
-    )
-    return _gemini_coordinator
-
-
-def _candidate_content(result: WebSearchResult) -> str:
-    snippet = (result.snippet or "")[:1_500]
-    providers = ", ".join(result.providers or []) or "unknown"
-    return (
-        f"Snippet: {snippet}\n"
-        f"URL: {result.link}\n"
-        f"Domain: {result.domain or 'unknown'}\n"
-        f"Providers: {providers}\n"
-        f"ProviderCount: {result.provider_count or 1}"
-    )
+    model_id = model or settings.rankllm_gemini_model
+    if model_id not in _gemini_coordinators:
+        _gemini_coordinators[model_id] = _build_genai_coordinator(
+            model=model_id,
+            api_key=api_key,
+        )
+    return _gemini_coordinators[model_id]
 
 
 def _build_request(
@@ -185,22 +159,28 @@ def _build_request(
     request_id: str,
 ) -> Any:
     Candidate, Query, Request, _ = _load_rank_llm_openai()
-    rankllm_candidates = [
+    rank_candidates = [
         Candidate(
-            docid=index,
-            score=float(result.score or 0.0),
-            doc={"title": result.title, "content": _candidate_content(result)},
+            docid=str(index),
+            doc={
+                "title": candidate.title,
+                "content": f"Title: {candidate.title}\nSnippet: {candidate.snippet}\nURL: {candidate.link}",
+            },
+            score=0.0,
         )
-        for index, result in enumerate(candidates)
+        for index, candidate in enumerate(candidates)
     ]
     return Request(
         query=Query(text=query, qid=request_id),
-        candidates=rankllm_candidates,
+        candidates=rank_candidates,
     )
 
 
 def _ranked_permutation(result: Any, candidate_count: int) -> list[RerankResult]:
-    returned_ids = [candidate.docid for candidate in result.candidates]
+    try:
+        returned_ids = [int(candidate.docid) for candidate in result.candidates]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("RankLLM result contains a non-integer candidate id") from exc
     expected_ids = set(range(candidate_count))
     if len(returned_ids) != candidate_count or set(returned_ids) != expected_ids:
         raise ValueError("RankLLM result is not a complete candidate permutation")
@@ -223,6 +203,17 @@ async def _run_coordinator(
     request: Any,
     candidate_count: int,
 ) -> tuple[list[RerankResult], int | None, int | None]:
+    async def _cancel_and_drain() -> None:
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except BaseException:
+            # Cancellation and provider failures are intentionally consumed
+            # after the coordinator task has been awaited, preventing
+            # unhandled RankLLM child-task warnings on the MCP event loop.
+            pass
+
     task = asyncio.create_task(
         coordinator.rerank_batch_async(
             [request],
@@ -237,12 +228,13 @@ async def _run_coordinator(
     try:
         results = await asyncio.wait_for(asyncio.shield(task), timeout=outer_timeout)
     except TimeoutError as exc:
-        if task.done():
-            raise
-        task.cancel()
+        await _cancel_and_drain()
         raise _CoordinatorGuardTimeout(
             "RankLLM provider call did not terminate within the outer guard"
         ) from exc
+    except asyncio.CancelledError:
+        await _cancel_and_drain()
+        raise
     if len(results) != 1:
         raise ValueError("RankLLM returned an unexpected result batch")
     ranked = _ranked_permutation(results[0], candidate_count)
@@ -255,44 +247,11 @@ async def rerank_with_llm(
     candidates: list[WebSearchResult],
     *,
     request_id: str | None = None,
+    reranking_instructions: str | None = None,
 ) -> LLMRerankOutcome:
     """Rerank one complete window via OpenRouter, then Gemini, or fail open."""
-    if not candidates:
-        return LLMRerankOutcome("bypass", None, [])
+    from ..inference.bridges.rankllm import rerank_with_rankllm_bridge
 
-    request = _build_request(query, candidates, request_id or "rerank-request")
-    errors: list[Exception] = []
-    routes = (
-        ("gemini", settings.rankllm_gemini_model, _get_gemini_coordinator),
-        ("openrouter", settings.rankllm_openrouter_model, _get_openrouter_coordinator),
+    return await rerank_with_rankllm_bridge(
+        query, candidates, request_id=request_id, reranking_instructions=reranking_instructions
     )
-    for endpoint_name, model, factory in routes:
-        coordinator = factory()
-        if coordinator is None:
-            continue
-        try:
-            ranked, input_tokens, output_tokens = await _run_coordinator(
-                coordinator,
-                request,
-                len(candidates),
-            )
-            return LLMRerankOutcome(
-                endpoint_name=endpoint_name,
-                model=model,
-                ranked=ranked,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            )
-        except Exception as exc:
-            errors.append(exc)
-            logger.warning(
-                "%s RankLLM failed: %s: %s",
-                endpoint_name,
-                type(exc).__name__,
-                exc,
-            )
-            if isinstance(exc, _CoordinatorGuardTimeout):
-                break
-
-    error = errors[-1] if errors else ValueError("No RankLLM provider credential is configured")
-    return LLMRerankOutcome("chain_failed", None, [], error=error)

@@ -29,6 +29,8 @@ async def persist_search_outcome(run):
         insert_search_candidates,
         insert_search_run,
     )
+    from ..settings import settings
+    from ..training.query_understanding_jsonl import append_query_outcome_record
     from .diagnostics import build_diagnostics
 
     outcome = run.snapshot()
@@ -45,6 +47,30 @@ async def persist_search_outcome(run):
     rw = diag.get("rewrite", {})
     mc = dc.merge_counts or {}
     writes = []
+
+    if settings.query_understanding_jsonl_enabled and outcome.plan is not None:
+        try:
+            bounded_results = [
+                {
+                    "title": result.title[:1000],
+                    "link": result.link,
+                    "snippet": result.snippet[:2000],
+                    "rank": rank,
+                }
+                for rank, result in enumerate((r.results if r is not None else ())[:15], start=1)
+            ]
+            await append_query_outcome_record(
+                raw_query=outcome.request.query,
+                normalized_query=outcome.plan.normalized_query,
+                research_goal=outcome.request.research_goal,
+                understanding=outcome.plan.understanding,
+                results=bounded_results,
+                path=settings.query_understanding_jsonl_path,
+                session_id=outcome.session_id,
+                run_key=rk,
+            )
+        except Exception as exc:
+            LOGGER.warning("query understanding outcome JSONL write failed: %s", exc)
 
     selected: list[str] = []
     if outcome.plan is not None:
@@ -140,6 +166,11 @@ async def persist_search_outcome(run):
                     "error_type": c.get("error_type"),
                     "error_message": c.get("error_message"),
                     "candidate_urls": c.get("candidate_urls", []),
+                    "request_query": c.get("request_query"),
+                    "request_url": c.get("request_url"),
+                    "http_status": c.get("http_status"),
+                    "result_class": c.get("result_class"),
+                    "response_meta_json": c.get("response_meta_json"),
                     "payload_json": {},
                 }
             )

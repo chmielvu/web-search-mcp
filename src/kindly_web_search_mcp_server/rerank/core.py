@@ -32,6 +32,8 @@ async def rerank_results(
     run_key: str | None = None,
     session_id: str | None = None,
     precomputed_embedding: list[float] | None = None,
+    reranking_instructions: str | None = None,
+    top_k: int | None = None,
 ) -> RerankOutput:
     """Apply conditional bi, cross, and RankLLM funnel stages."""
     if not research_goal or not research_goal.strip():
@@ -102,7 +104,9 @@ async def rerank_results(
         # 2. Cross-encoder Stage (ranks and truncates to 30)
         cross_start = time.monotonic()
         cross_outcome = await run_cross_encoder_stage(
-            query=build_cross_encoder_query(query, query_type_hint, research_goal),
+            query=build_cross_encoder_query(
+                query, query_type_hint, research_goal, reranking_instructions=reranking_instructions
+            ),
             candidates=bi_candidates,
             query_type_hint=query_type_hint,
             original_count=original_count,
@@ -154,13 +158,16 @@ async def rerank_results(
             run_key=run_key,
             main_span=main_span,
             logger=logger,
+            reranking_instructions=reranking_instructions,
         )
         llm_candidates = llm_outcome.candidates
         llm_duration = (time.monotonic() - llm_start) * 1000.0
 
         llm_status = "failed_open"
         if llm_outcome.error is None:
-            llm_status = "success" if llm_outcome.provider == "gemini" else "fallback_success"
+            llm_status = (
+                "success" if llm_outcome.provider in {"gemini", "google"} else "fallback_success"
+            )
 
         llm_summary = RerankStageSummary(
             stage="rankllm",
@@ -222,8 +229,18 @@ async def rerank_results(
             bypassed=False,
             query_type_hint=query_type_hint,
         )
+        final_results = list(llm_candidates)
+        if top_k is not None and top_k > len(final_results):
+            seen_urls = {c.link for c in final_results}
+            for c in candidates:
+                if c.link not in seen_urls:
+                    final_results.append(c)
+                    seen_urls.add(c.link)
+                    if len(final_results) >= top_k:
+                        break
+
         return RerankOutput(
-            results=llm_candidates,
+            results=final_results,
             embedding_context=bi_outcome.embedding_context,
             provider=final_provider,
             model=final_model,

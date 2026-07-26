@@ -21,7 +21,7 @@ async def fetch_batch_content_payload(
     include_links: bool,
     max_links: int,
     strip_selectors: str | None,
-    summary_mode: str = "none",
+    ai_summary: bool = False,
     focus_query: str | None = None,
 ) -> dict[str, Any]:
     fetch_options = build_fetch_options(
@@ -42,12 +42,9 @@ async def fetch_batch_content_payload(
         fetch_options=fetch_options,
     )
 
-    from ...content.summary_models import VALID_SUMMARY_MODES
-
-    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],
-        mode=safe_summary_mode,  # type: ignore[arg-type]
+        ai_summary=ai_summary,
         focus_query=focus_query,
         max_concurrency=max_concurrency,
     )

@@ -5,7 +5,20 @@ from typing import Annotated
 import typer
 
 
-server_app = typer.Typer(no_args_is_help=True)
+server_app = typer.Typer(no_args_is_help=False)
+
+
+@server_app.callback(invoke_without_command=True)
+def server_callback(
+    ctx: typer.Context,
+    http: Annotated[bool, typer.Option("--http/--no-http")] = False,
+    sse: Annotated[bool, typer.Option("--sse/--no-sse")] = False,
+    stdio: Annotated[bool, typer.Option("--stdio/--no-stdio")] = True,
+    host: Annotated[str | None, typer.Option("--host")] = None,
+    port: Annotated[int | None, typer.Option("--port")] = None,
+) -> None:
+    if ctx.invoked_subcommand is None:
+        start_cmd(http=http, sse=sse, stdio=stdio, host=host, port=port)
 
 
 @server_app.command("start")

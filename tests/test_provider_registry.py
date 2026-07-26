@@ -16,11 +16,15 @@ from kindly_web_search_mcp_server.search.provider_registry import (
 
 def test_registry_has_exact_provider_matrix() -> None:
     assert tuple(PROVIDER_DEFINITIONS) == tuple(PROVIDER_ADAPTERS)
-    assert len(PROVIDER_DEFINITIONS) == 22
+    assert len(PROVIDER_DEFINITIONS) == 24
     assert PROVIDER_DEFINITIONS["qdrant"].requires_embedding is True
     assert "brightdata_bing" in PROVIDER_DEFINITIONS
     assert "brightdata_yandex" in PROVIDER_DEFINITIONS
     assert "langsearch" in PROVIDER_DEFINITIONS
+    assert "github" in PROVIDER_DEFINITIONS
+    assert "sourcegraph" in PROVIDER_DEFINITIONS
+    assert "gitlab" in PROVIDER_DEFINITIONS
+    assert "github_graphql" not in PROVIDER_DEFINITIONS
     assert PROVIDER_DEFINITIONS["langsearch"].adapter_module == "providers.langsearch"
     assert PROVIDER_DEFINITIONS["langsearch"].adapter_function == "search_langsearch"
     assert not hasattr(PROVIDER_DEFINITIONS["ddg"], "targets")

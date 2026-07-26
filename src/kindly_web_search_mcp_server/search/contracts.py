@@ -44,10 +44,12 @@ class QueryBranch(ContractModel):
 
 class WebSearchRequest(ContractModel):
     query: NonBlank
+    queries: tuple[NonBlank, ...] = ()
     research_goal: NonBlank
     num_results: Literal[15] = 15
     rewrite: bool = True
     options: SearchOptions = Field(default_factory=SearchOptions)
+    reranking_instructions: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +63,8 @@ class SearchPlan:
     policy_version: str
     rewrite_queries: tuple[
         str, ...
-    ] = ()  # 4 planner rewrites (k1, k2, k3, neural); distinct from `branches` which is the 6-branch topology
+    ] = ()  # 5 planner rewrites (k1, k2, k3, neural, specialized); distinct from `branches` which is the 6-branch topology
+    seed_queries: tuple[str, ...] = ()
 
     @classmethod
     def create(
@@ -74,7 +77,8 @@ class SearchPlan:
         provider_arguments: Mapping[str, Mapping[str, Any]],
         branches: Sequence[QueryBranch],
         policy_version: str,
-        rewrite_queries: Sequence[str] = (),  # 4 planner rewrites (k1, k2, k3, neural)
+        rewrite_queries: Sequence[str] = (),  # 5 planner rewrites (k1, k2, k3, neural, specialized)
+        seed_queries: Sequence[str] = (),
     ) -> "SearchPlan":
         copied = {
             name: MappingProxyType(dict(values)) for name, values in provider_arguments.items()
@@ -88,6 +92,7 @@ class SearchPlan:
             branches=tuple(branches),
             policy_version=policy_version,
             rewrite_queries=tuple(rewrite_queries),
+            seed_queries=tuple(seed_queries),
         )
 
 
@@ -127,6 +132,7 @@ class DiagnosticsCollector:
     merged_candidates: list[Any] = field(default_factory=list)
     candidate_embeddings: list[dict[str, Any]] = field(default_factory=list)
     total_latency_ms: float | None = None
+    query_shaping: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

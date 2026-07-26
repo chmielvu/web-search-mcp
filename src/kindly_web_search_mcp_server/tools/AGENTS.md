@@ -36,11 +36,15 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `youtube_search` | YouTube video results | YouTube Data API v3 or SearXNG |
 | `generate_sitemap` | Structured heading hierarchy | Crawl4AI-based |
 
+`get_content` and `batch_get_content` accept `ai_summary: bool = false`; when enabled they return only the detailed source-grounded Gemini summary. The former `summary_mode` and brief-summary option are removed.
+
 ## Rules
 
 - Actual MCP tool implementations live in this directory + feature packages.
 - Visibility is profile-based via `profiles.py`, not hard-coded in call sites.
 - Tool orchestration belongs in tool functions, not service adapters.
+- `emit_tool_observability_event` assigns one stable `tool_call_id` per invocation and writes bounded typed lifecycle rows to analytics `tool_calls`; request/response/error events must reuse that ID.
+- Tool telemetry payloads exclude credential-like fields and classify response rows as `success`, `empty`, `partial`, or `error` from explicit status/error/result counts.
 
 ## Testing
 

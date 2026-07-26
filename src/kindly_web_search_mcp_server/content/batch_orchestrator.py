@@ -11,6 +11,7 @@ from ..utils.url_canonicalize import canonicalize_url
 from .artifact import ContentArtifact, ContentError
 from .firecrawl_stage import run_firecrawl_batch
 from .options import FetchOptions
+from .resolvers.raw_text import fetch_raw_text_markdown, is_raw_text_url
 from .windowing import slice_content
 
 LOGGER = logging.getLogger(__name__)
@@ -39,9 +40,12 @@ def _normalize_urls(urls: list[str]) -> list[str]:
     seen: set[str] = set()
     for raw in urls:
         candidate = raw.strip()
-        if not candidate or candidate in seen:
+        if not candidate:
             continue
-        seen.add(candidate)
+        canon = canonicalize_url(candidate)
+        if canon in seen:
+            continue
+        seen.add(canon)
         normalized.append(candidate)
     return normalized
 
@@ -111,11 +115,11 @@ async def run_batch_fetch(
             LOGGER.warning("Page cache lookup failed in batch for %s: %s", url, exc)
 
         async with sem:
-            from .stages import _fetch_via_crawl4ai
+            from .fetch_pipeline import fetch_content_artifact
 
             try:
                 return await asyncio.wait_for(
-                    _fetch_via_crawl4ai(url, fetch_options or FetchOptions()),
+                    fetch_content_artifact(url, fetch_options=fetch_options or FetchOptions()),
                     timeout=max(0.001, params.per_url_timeout_seconds),
                 )
             except asyncio.TimeoutError:
@@ -201,38 +205,52 @@ async def run_batch_fetch(
 
     pending_urls = [u for u in normalized_urls if _is_pending(u)]
 
-    # Firecrawl Cloud batch scrape is the first backend. None means unavailable
-    # or failed -> fall back to Crawl4AI for the whole batch.
-    firecrawl_artifacts = await run_firecrawl_batch(
-        pending_urls, options=fetch_options, batch_params=params
+    # Partition into raw text/markdown URLs vs generic web URLs.
+    # Raw text/markdown URLs (.md, .txt) skip Firecrawl/heavy scrapers.
+    raw_pending = [u for u in pending_urls if is_raw_text_url(u)]
+    non_raw_pending = [u for u in pending_urls if not is_raw_text_url(u)]
+
+    raw_artifacts: dict[str, ContentArtifact] = {}
+    if raw_pending:
+        fetched_raw = await asyncio.gather(
+            *[fetch_raw_text_markdown(u, fetch_options=fetch_options) for u in raw_pending]
+        )
+        for u, art in zip(raw_pending, fetched_raw):
+            raw_artifacts[u] = art
+
+    firecrawl_artifacts = (
+        await run_firecrawl_batch(non_raw_pending, options=fetch_options, batch_params=params)
+        if non_raw_pending
+        else {}
     )
 
     if firecrawl_artifacts is not None:
-        # Firecrawl ran (success). Slice its artifacts into results. Remaining
-        # slices of covered URLs come from the same Firecrawl doc on the next
-        # cursor call; this call emits one slice per URL.
         for url in pending_urls:
             if remaining_budget <= 0:
                 break
-            artifact = firecrawl_artifacts.get(url)
+            artifact = raw_artifacts.get(url) or firecrawl_artifacts.get(url)
             if artifact is not None:
                 _append_result(artifact)
+            elif url in non_raw_pending:
+                fallback_art = await _run_crawl4ai(url)
+                _append_result(fallback_art)
     else:
-        # Firecrawl unavailable/failed -> Crawl4AI for the whole batch.
         window_urls: list[str] = []
         for url in pending_urls:
             window_urls.append(url)
             if len(window_urls) >= params.max_concurrency:
                 break
 
-        artifacts = await asyncio.gather(*[_run_crawl4ai(url) for url in window_urls])
+        async def _fetch_item(u: str) -> ContentArtifact:
+            if u in raw_artifacts:
+                return raw_artifacts[u]
+            return await _run_crawl4ai(u)
+
+        artifacts = await asyncio.gather(*[_fetch_item(u) for u in window_urls])
         for artifact in artifacts:
             if remaining_budget <= 0:
                 break
             _append_result(artifact)
-
-    # Find the first index that still has work left; that's where the cursor
-    # resumes from. Fully consumed URLs before it are skipped on resume.
     next_index = next(
         (i for i, url in enumerate(normalized_urls) if _is_pending(url)),
         len(normalized_urls),

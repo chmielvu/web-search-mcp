@@ -302,6 +302,11 @@ docs/superpowers/
 # Local SearXNG Docker setup
 searxng-settings/
 
+# Agent/local skill config (machine-specific)
+.commandcode/
+.pi/
+skills/web-search-mcp-use/
+
 # Local MCP config (machine-specific editor config)
 .mcp.json
 
@@ -383,6 +388,24 @@ test-results/live-web-search/
 /test_*_backfills_*.duckdb
 
 
+
+# Scratch/report files at repo root (non-source)
+/agent/
+/agent
+/data/
+/data/
+/reports/
+/0.4.8
+/WATCHDOG.yml
+/_budget_fail.txt
+/_verify_out.txt
+/stderr.txt
+/stdout.txt
+/doctor_output.json
+/architecture.md
+/duckdb_analytics_*.md
+/duckdb_search_events_*.md
+/web-search-mcp-evaluation-report.md
 
 # LLM-wiki per-repo knowledge vault (sources, concepts, analyses,
 # meta cache). Local-only build output — regeneratable from upstream

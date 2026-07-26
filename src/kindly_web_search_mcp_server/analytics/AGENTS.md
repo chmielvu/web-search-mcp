@@ -7,7 +7,7 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | File | Role |
 |---|---|
 | `duckdb_store.py` | Thin facade re-exporting writers + schema |
-| `writers/schema.py` | DDL for 31+ tables (fact tables, provider health, quality, judge) |
+| `writers/schema.py` | DDL for fact tables, provider health, quality, judge, tool-call, and classifier events |
 | `writers/core.py` | `TableWriter` + public insert wrappers |
 | `writers/connection.py` | `_db_path` + `_LOCK` + FlockMTL resources |
 | `async_writes.py` | Single-worker DuckDB write executor |
@@ -15,8 +15,8 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `judge_calibration.py` | Cohen's κ calibration harness |
 | `judge_runner.py` | Fire-and-forget judge evaluation |
 | `quality_metrics.py` | Run-level quality scoring |
-| `reports.py` | Named analytics reports |
-| `views.py` | 13 dashboard views + A/B + eval views |
+| `reports.py` | Named analytics reports, including provider reliability, quality misses, and classifier calibration |
+| `views.py` | Dashboard, quality-diagnostic, calibration, A/B, and eval views |
 | `summaries.py` | Daily aggregate refresh |
 | `app.py` | Rich-based analytics UI |
 | `motherduck_sync.py` | MotherDuck sync helpers |
@@ -25,7 +25,7 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 
 All analytics rows join on `run_key`. Pipeline tables:
 
-1. `search_runs` — request side (query, intent, rewrite metadata, timings)
+1. `search_runs` — request side (query, intent, rewrite metadata [5 planner rewrites], timings)
 2. `search_branches` — per-branch topology (6 fixed roles)
 3. `provider_calls` — every outbound provider call
 4. `search_candidates` — deduplicated RRF-scored candidates
@@ -34,7 +34,9 @@ All analytics rows join on `run_key`. Pipeline tables:
 7. `query_embeddings` + `candidate_embeddings` — vector storage
 8. `llm_call_log` — unified LLM cost tracking
 9. `search_quality_scores` — computed quality metrics
-10. `llm_judgments` — 6-facet FlockMTL judge verdicts
+10. `llm_judgments` — 6-facet FlockMTL judge verdicts (coverage max 5 rewrites)
+11. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
+12. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
 
 ## Branch-Role Model
 
@@ -45,7 +47,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 
 - **Orchestrator**: `judges.py::judge_search_run(run_key)` + `schedule_judge_search_run(run_key)`
 - **Facets**: `judge_run_overview` (1/run), `judge_intent_coherence` (1/run),
-  `judge_rewrite_coverage` (1/run), `judge_rerank_improvement` (1/rerank_stages),
+  `judge_rewrite_coverage` (1/run, 5 rewrite variants), `judge_rerank_improvement` (1/rerank_stages),
   `judge_result_quality` (1/final_result, ≤15), `judge_failure_cause` (1/run if failed)
 - **Trigger**: `schedule_judge_search_run` is fire-and-forget on `ThreadPoolExecutor(max_workers=4)`,
   wired into `search/outcomes.py::submit_search_outcome`
@@ -60,6 +62,10 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - Hot-path collection is in-memory only.
 - Judge evaluation never blocks the response path.
 - `llm_call_log` is the unified source for per-call LLM cost attribution.
+- `tool_calls` is the source of truth for MCP tool lifecycle analytics; legacy `search_events` persistence is not used.
+- Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
+- Confidence-only classifier rows are reported as `unlabeled`; calibration and Brier scores require explicit human labels.
+- Quality-miss reports use typed judge payload fields (`intent_match`, `informativeness`) and preserve rank/provider provenance.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 
 ## Testing

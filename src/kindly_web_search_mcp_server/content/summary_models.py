@@ -5,8 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-SummaryMode = Literal["none", "brief", "detailed"]
-VALID_SUMMARY_MODES: frozenset[str] = frozenset({"none", "brief", "detailed"})
+SummaryMode = Literal["detailed"]
 
 
 class SummaryError(RuntimeError):

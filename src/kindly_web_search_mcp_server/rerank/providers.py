@@ -1,19 +1,16 @@
 """Cross-encoder rerank provider fallback chain.
 
-The chain is hardcoded; there is no per-provider configurability. Each
-provider in the chain is a thin wrapper over its corresponding vendor
-function (cohere / openrouter / voyage).
+Routes through the unified ``kindly_web_search_mcp_server.inference`` fallback engine
+and dynamic model catalog while preserving legacy output contracts.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
+from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
 from ..models import WebSearchResult
-from ..settings import settings
 from .cohere import cohere_rerank
 from .models import RerankCandidate, RerankResult
 from .openrouter import openrouter_cohere_rerank
@@ -22,11 +19,7 @@ from .voyage import voyage_rerank
 logger = logging.getLogger(__name__)
 
 
-_ProviderCallable = Callable[[str, list[str]], Awaitable[list[tuple[int, float]]]]
-
-
-# The single hardcoded provider chain. There is no per-provider
-# configurability by design.
+# Legacy alias maintained for backwards compatibility
 _PROVIDER_CHAIN: tuple[str, ...] = ("cohere_fast", "cohere_fast_openrouter", "voyage")
 
 
@@ -71,107 +64,78 @@ def build_rerank_candidates(
     return rerank_candidates
 
 
-async def _call_cohere_fast(
-    query: str,
-    documents: list[str],
-) -> list[tuple[int, float]]:
-    return await cohere_rerank(
-        query,
-        documents,
-        timeout=settings.cohere_rerank_timeout,
-        api_key=settings.cohere_api_key or None,
-        model=settings.cohere_rerank_model,
-        base_url=settings.cohere_rerank_base_url,
-    )
+def _spec_to_provider_id(spec: ModelSpec) -> str:
+    if spec.provider == "cohere":
+        return "cohere_fast"
+    if spec.provider == "openrouter_rerank":
+        return "cohere_fast_openrouter"
+    return spec.provider
 
 
-async def _call_cohere_fast_openrouter(
-    query: str,
-    documents: list[str],
-) -> list[tuple[int, float]]:
-    return await openrouter_cohere_rerank(
-        query,
-        documents,
-        timeout=settings.openrouter_rerank_timeout,
-        api_key=settings.openrouter_api_key or None,
-        model=settings.openrouter_rerank_model,
-        base_url=settings.openrouter_rerank_base_url,
-    )
-
-
-async def _call_voyage(
-    query: str,
-    documents: list[str],
-) -> list[tuple[int, float]]:
-    return await voyage_rerank(
-        query,
-        documents,
-        timeout=30.0,
-        api_key=settings.voyage_api_key or None,
-        model=settings.voyage_rerank_model,
-    )
-
-
-_PROVIDER_DISPATCH: dict[str, _ProviderCallable] = {
-    "cohere_fast": _call_cohere_fast,
-    "cohere_fast_openrouter": _call_cohere_fast_openrouter,
-    "voyage": _call_voyage,
-}
+async def _parse_rerank_result(spec: ModelSpec, gen) -> list[tuple[int, float]]:
+    """Parse an LLMGeneration content back into rerank results."""
+    content = gen.content
+    if content.startswith("["):
+        import json
+        try:
+            raw = json.loads(content)
+            return [(item["index"], item["relevance_score"]) for item in raw]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+    # Fallback: use legacy cohere/openrouter/voyage rerank functions
+    documents = getattr(gen, "_documents", None)
+    query = getattr(gen, "_query", None)
+    if documents and query:
+        if spec.provider == "cohere":
+            return await cohere_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id, base_url=spec.base_url)
+        if spec.provider == "openrouter_rerank":
+            return await openrouter_cohere_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id, base_url=spec.base_url)
+        if spec.provider == "voyage":
+            return await voyage_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id)
+    raise ValueError(f"Cannot parse rerank result from {spec.provider}: {content[:200]}")
 
 
 async def rerank_with_provider_fallback(
     query: str,
     candidates: list[WebSearchResult],
 ) -> RerankProviderOutcome:
-    """Run the cross-encoder rerank against the single hardcoded chain."""
+    """Run cross-encoder rerank using the unified inference fallback engine."""
     prepared = build_rerank_candidates(candidates)
     documents = [candidate.document for candidate in prepared]
-    backend_error: Exception | None = None
+    chain = get_chain("cross_encoder_rerank")
 
-    for provider_id in _PROVIDER_CHAIN:
-        call = _PROVIDER_DISPATCH[provider_id]
-        _t0 = time.time()
-        try:
-            ranked_pairs = await call(query, documents)
-        except Exception as exc:
-            backend_error = exc
-            logger.warning(
-                "rerank provider %s failed in %.2fs: %s: %s, trying next",
-                provider_id,
-                time.time() - _t0,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-
-        logger.info(
-            "rerank provider %s succeeded in %.2fs (ranked=%d)",
-            provider_id,
-            time.time() - _t0,
-            len(ranked_pairs),
+    try:
+        exec_res = await execute_with_fallback(
+            chain,
+            operation="rerank_cross_encoder",
+            query=query,
+            documents=documents,
+            top_n=len(candidates),
         )
-        ranked = [RerankResult(index=index, score=score) for index, score in ranked_pairs]
+        gen = exec_res.payload
+        ranked_list = await _parse_rerank_result(exec_res.spec, gen)
+        ranked = [RerankResult(index=index, score=score) for index, score in ranked_list]
+        provider_id = _spec_to_provider_id(exec_res.spec)
         return RerankProviderOutcome(
             provider_id=provider_id,
-            model=_default_model_for(provider_id),
+            model=exec_res.spec.model_id,
             ranked=ranked,
             ordered_candidates=[candidates[item.index] for item in ranked],
         )
-
-    return RerankProviderOutcome(
-        provider_id="chain",
-        model=None,
-        ranked=[],
-        ordered_candidates=candidates,
-        error=backend_error,
-    )
+    except ChainExhaustedError as exc:
+        last_error = exc.errors[-1][1] if exc.errors else exc
+        return RerankProviderOutcome(
+            provider_id="chain",
+            model=None,
+            ranked=[],
+            ordered_candidates=candidates,
+            error=last_error,
+        )
 
 
 def _default_model_for(provider_id: str) -> str | None:
-    if provider_id == "cohere_fast":
-        return settings.cohere_rerank_model
-    if provider_id == "cohere_fast_openrouter":
-        return settings.openrouter_rerank_model
-    if provider_id == "voyage":
-        return settings.voyage_rerank_model
+    chain = get_chain("cross_encoder_rerank")
+    for spec in chain.models:
+        if _spec_to_provider_id(spec) == provider_id:
+            return spec.model_id
     return None

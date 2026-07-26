@@ -2,9 +2,10 @@
 
 Tries multiple backends sequentially:
   1. yt-dlp player API (7-client rotation)
-  2. Whisper ASR via HF ZeroGPU Space (if WHISPER_SPACE_URL configured)
-  3. Legacy youtube-transcript-api (with proxy support)
-  4. Transcript cache (checked before cascade in fetch_transcript_with_cache)
+  2. Cloudflare Workers AI Whisper (if CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN set)
+  3. Whisper ASR via HF ZeroGPU Space (if WHISPER_SPACE_URL configured)
+  4. Legacy youtube-transcript-api (with proxy support)
+  5. Transcript cache (checked before cascade in fetch_transcript_with_cache)
 
 Each backend normalizes output to:
   [{"text": str, "start": float, "duration": float}, ...]
@@ -18,11 +19,12 @@ from typing import Any
 from ..settings import settings
 from .models import YouTubeError, TranscriptBackendError
 from .transcript import fetch_transcript_data, calculate_total_duration
+from .cf_whisper import CfWhisperError, _transcribe_sync
 from .yt_dlp_backend import ytdlp_extract_subtitles
 
 logger = logging.getLogger(__name__)
 
-_VALID_BACKENDS = ("auto", "ytdlp", "api")
+_VALID_BACKENDS = ("auto", "ytdlp", "cf_whisper", "api")
 
 
 def fetch_transcript_cascade(
@@ -38,7 +40,8 @@ def fetch_transcript_cascade(
         video_id: YouTube video ID
         language: Preferred language code
         translate_to: Target language for translation
-        backend: "auto" (cascade), "ytdlp" (yt-dlp only), "api" (legacy only)
+        backend: "auto" (cascade), "ytdlp" (yt-dlp only), "cf_whisper" (Cloudflare only),
+                 "api" (legacy only)
 
     Returns:
         Tuple of (segments, backend_used).
@@ -71,13 +74,39 @@ def fetch_transcript_cascade(
             errors.append(f"yt-dlp: {type(exc).__name__}: {exc}")
             logger.debug("yt-dlp unexpected error for %s: %s", video_id, exc)
 
-    # --- Layer 2: Whisper ASR (if WHISPER_SPACE_URL configured) ---
+    # --- Layer 2: Cloudflare Workers AI Whisper ---
+    if backend in ("auto", "cf_whisper"):
+        cf_id = settings.cf_whisper_account_id.strip()
+        cf_token = settings.cf_whisper_api_token.strip()
+        if cf_id and cf_token:
+            try:
+                segments = _transcribe_sync(
+                    video_id,
+                    language=language,
+                    task="translate" if translate_to else "transcribe",
+                )
+                if segments:
+                    return segments, "cf_whisper"
+                if backend == "cf_whisper":
+                    raise CfWhisperError(f"Cloudflare Whisper returned empty for {video_id}")
+            except CfWhisperError as exc:
+                errors.append(f"cf_whisper: {exc}")
+                logger.debug("Cloudflare Whisper failed for %s: %s", video_id, exc)
+            except Exception as exc:
+                errors.append(f"cf_whisper: {type(exc).__name__}: {exc}")
+                logger.debug("Cloudflare Whisper unexpected error for %s: %s", video_id, exc)
+        elif backend == "cf_whisper":
+            raise YouTubeError(
+                "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured"
+            )
+
+    # --- Layer 3: Whisper ASR (if WHISPER_SPACE_URL configured) ---
     if backend in ("auto",) and settings.whisper_space_url.strip():
         errors, segments = _try_whisper(video_id, errors)
         if segments is not None:
             return segments, "whisper"
 
-    # --- Layer 3: Legacy youtube-transcript-api ---
+    # --- Layer 4: Legacy youtube-transcript-api ---
     if backend in ("auto", "api"):
         try:
             segments = fetch_transcript_data(video_id, language=language, translate_to=translate_to)

@@ -13,7 +13,7 @@ from typing import Any
 from openai import OpenAI
 
 from ..analytics.evals import ensure_eval_tables
-from ..llm.config import build_classifier_endpoint
+from ..inference.router import build_classifier_router
 from ..settings import settings
 
 LOGGER = logging.getLogger(__name__)
@@ -77,8 +77,9 @@ def _parse_strict_json(text: str) -> dict[str, Any]:
 
 def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
     """Call the configured OpenAI-compatible endpoint for an offline judge."""
-    endpoint = build_classifier_endpoint()
-    model = model or getattr(settings, "JUDGE_MODEL", None) or endpoint.model
+    router = build_classifier_router()
+    endpoint = router.endpoints[0]
+    effective_model = model or getattr(settings, "JUDGE_MODEL", None) or endpoint.model or "gpt-4o-mini"
     try:
         with OpenAI(
             api_key=endpoint.api_key,
@@ -87,7 +88,7 @@ def _call_judge_llm(prompt: str, *, model: str | None = None) -> str:
             max_retries=0,
         ) as client:
             response = client.chat.completions.create(
-                model=model,
+                model=effective_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=300,

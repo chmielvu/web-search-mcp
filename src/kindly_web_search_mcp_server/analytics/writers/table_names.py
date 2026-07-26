@@ -19,6 +19,10 @@ _PH_TABLE_NAME = "provider_health_transitions"
 # LLM call log
 _LLM_CALL_LOG_TABLE_NAME = "llm_call_log"
 
+# Typed observability facts
+_TC_TABLE_NAME = "tool_calls"
+_QUE_TABLE_NAME = "query_understanding_events"
+
 # Quality / judge tables
 _SQS_TABLE_NAME = "search_quality_scores"
 _JE_TABLE_NAME = "judge_evaluations"
@@ -48,6 +52,8 @@ __all__ = [
     "_CE_TABLE_NAME",
     "_PH_TABLE_NAME",
     "_LLM_CALL_LOG_TABLE_NAME",
+    "_TC_TABLE_NAME",
+    "_QUE_TABLE_NAME",
     "_SQS_TABLE_NAME",
     "_JE_TABLE_NAME",
     "_SUM_PVD_TABLE_NAME",

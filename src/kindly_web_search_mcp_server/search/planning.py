@@ -8,15 +8,19 @@ import logging
 import time
 from typing import Any, Awaitable, Sequence
 
-from ..llm.router import build_worker_router
+from ..inference.router import build_worker_router
 from ..telemetry.spans import get_tracer
 from .providers.brave import spellcheck_brave, suggest_brave_queries
 from .contracts import BranchRole, ContractModel, QueryBranch, SearchPlan, SearchRun
 from .intent_policy import resolve_intent_policy
+from .intents import SearchIntent
 from .keyword_extract import extract_support_terms
 from .understanding.resolver import resolve_query_understanding
 from .normalize import normalize_query
 from .provider_registry import select_paid_google_provider, select_provider_names
+
+from ..heuristics.augment import specialized_fallback_query
+from ..heuristics.query_features import build_query_features
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
@@ -75,18 +79,20 @@ def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
 
 
 _REWRITE_SYSTEM = (
-    "Rewrite the user query into effective search queries: three keyword "
-    "queries for Brave/Google/Bing/Yandex using search operators, and one "
-    "natural-language neural query for Exa-style semantic search."
+    "Rewrite the user query into 5 effective search queries: three keyword "
+    "queries for Brave/Google/Bing/Yandex, one natural-language neural query "
+    "for Exa-style semantic search, and one specialized provider query "
+    "tailored for the target domain."
 )
 
 _REWRITE_USER = """You are a search query optimizer that generates strategic search queries for web search engines.
 
-TASK: Given a user query, a research goal, and enrichment evidence, generate 3 keyword search variants (for Brave/Google/Bing/Yandex) plus 1 natural-language neural query (for Exa-style semantic search) that explore complementary aspects.
+TASK: Given a user query or input seed queries, a research goal, and enrichment evidence, generate 3 keyword search variants (for Brave/Google/Bing/Yandex), 1 natural-language neural query (for Exa-style semantic search), plus 1 specialized provider query tailored for the target domain that explore complementary aspects.
 
 <CURRENT_CONTEXT>
 Current Year: {current_year}
 Query: "{query}"
+Input Seed Queries: {seed_queries}
 Research Goal: "{research_goal}"
 </CURRENT_CONTEXT>
 
@@ -125,18 +131,23 @@ The neural query targets Exa-style semantic/vector search. Write it as a single
 full descriptive SENTENCE with NO operators — the engine retrieves by meaning,
 not keyword matching. Include the core intent and key entities from the query
 and research goal. Do NOT use quotes, site:, -, +, or any operator syntax.
-</NEURAL_QUERY_RULES>
+
+<SPECIALIZED_QUERY_RULES>
+{specialized_guidance}
+</SPECIALIZED_QUERY_RULES>
 
 <INSTRUCTIONS>
 1. First, normalize the query for search (apply spell_correction if present):
+   - If multiple input seed queries are provided in Input Seed Queries, use them as guidance representing complementary angles of the single focused topic.
    - If it's a natural language question, extract key search terms
    - If it's a keyword dump, organize into a coherent phrase
    - Keep quoted phrases, technical terms and specific brands intact
 2. Generate three DIFFERENT keyword queries using the operator rules above
 3. Generate one natural-language neural query using the neural rules above
-4. Add temporal markers ({current_year}) to keyword queries where appropriate
+4. Generate one specialized provider query using the specialized rules above
+5. Add temporal markers ({current_year}) to keyword queries where appropriate
 
-IMPORTANT: Always generate EXACTLY 3 keyword queries + 1 neural query - no more, no less.
+IMPORTANT: Always generate EXACTLY 3 keyword queries + 1 neural query + 1 specialized query (5 queries total) - no more, no less.
 </INSTRUCTIONS>
 
 <TEMPORAL_RULES>
@@ -153,7 +164,8 @@ Output queries: [
   "Docker container orchestration {current_year}",
   "container orchestration best practices site:docs.docker.com",
   "Docker orchestration Kubernetes -swarm +production",
-  "What are the best production-grade tools for orchestrating Docker containers in {current_year}?"
+  "What are the best production-grade tools for orchestrating Docker containers in {current_year}?",
+  "repo:docker/cli container orchestration best practices"
 ]
 
 Example 2 - Spelling corrected:
@@ -163,12 +175,30 @@ Output queries: [
   "pytorch attention mechanism tutorial",
   "attention mechanism implementation site:pytorch.org",
   "pytorch transformer attention -nlp +code",
-  "How do I implement the attention mechanism in PyTorch with a working code example?"
+  "How do I implement the attention mechanism in PyTorch with a working code example?",
+  "path:torch/nn attention mechanism implementation"
 ]
 </EXAMPLES>
+{{"queries": ["<keyword1>", "<keyword2>", "<keyword3>", "<neural>", "<specialized>"]}}"""
 
-Return JSON of the form:
-{{"queries": ["<keyword1>", "<keyword2>", "<keyword3>", "<neural>"]}}"""
+_DEFAULT_SPECIALIZED_GUIDANCE = "Generate a specialized domain reference query targeting authoritative documentation and technical specifications."
+
+_SPECIALIZED_REWRITE_GUIDANCE: dict[SearchIntent, str] = {
+    "ai_coding_and_infrastructure": (
+        "Generate a specialized code search query tailored for repository, code, issue, and discussion searches across GitHub, Sourcegraph, GitLab, and Hacker News. "
+        "Use code search operators or terms (e.g., repo:, path:, filetype:, lang:, patternType:regexp, or exact function/symbol names)."
+    ),
+    "social_media": (
+        "Generate a specialized social and discussion query tailored for Reddit subreddits and Telegram channels. "
+        "Focus on community opinion, thread discussions, and user experiences."
+    ),
+    "news": (
+        "Generate a specialized breaking news and temporal event query for news outlets and channels, incorporating recent date markers and news keywords."
+    ),
+    "general": _DEFAULT_SPECIALIZED_GUIDANCE,
+    "comparison": _DEFAULT_SPECIALIZED_GUIDANCE,
+    "digital_humanities": _DEFAULT_SPECIALIZED_GUIDANCE,
+}
 
 _REWRITE_CACHE: dict[str, tuple[_RewriteQueries, dict[str, Any]]] = {}
 _REWRITE_CACHE_MAX_SIZE = 256
@@ -177,19 +207,24 @@ _REWRITE_CACHE_MAX_SIZE = 256
 async def _rewrite_queries(
     *,
     query: str,
+    seed_queries: tuple[str, ...] = (),
     research_goal: str,
     terms: tuple[str, ...],
     suggestions: tuple[str, ...],
     correction: str | None,
     current_year: str,
+    intent: SearchIntent = "general",
 ) -> tuple[_RewriteQueries, dict[str, Any]]:
+    specialized_guidance = _SPECIALIZED_REWRITE_GUIDANCE.get(intent, _DEFAULT_SPECIALIZED_GUIDANCE)
     user_content = _REWRITE_USER.format(
         current_year=current_year,
         query=query,
+        seed_queries=list(seed_queries) if seed_queries else [query],
         research_goal=research_goal,
         support_terms=list(terms),
         suggestions=list(suggestions),
         spell_correction=correction or "",
+        specialized_guidance=specialized_guidance,
     )
     cache_key = hashlib.sha256(user_content.encode("utf-8")).hexdigest()
     if cache_key in _REWRITE_CACHE:
@@ -206,15 +241,18 @@ async def _rewrite_queries(
         ],
         response_model=_RewriteQueries,
         timeout_seconds=20.0,
+        reasoning_effort="none",
         operation="rewrite",
     )
     parsed = _RewriteQueries.model_validate_json(generation.content)
+    if len(parsed.queries) == 4:
+        parsed.queries.append(parsed.queries[-1])
     metadata = {
         "model": generation.model_used,
         "input_tokens": generation.input_tokens,
         "output_tokens": generation.output_tokens,
         "latency_ms": (time.monotonic() - started) * 1000.0,
-        "prompt": f"query={query!r}\nresearch_goal={research_goal!r}",
+        "prompt": f"query={query!r}\nresearch_goal={research_goal!r}\nintent={intent!r}",
     }
     if len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
         _REWRITE_CACHE.clear()
@@ -274,12 +312,19 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 brave_fallback = _keyword_query(sugg, terms)
                 break
 
+        spec_features = build_query_features(
+            keyword_base or normalized_query,
+            understanding=understanding,
+            support_terms=terms,
+        )
+        specialized_fallback = specialized_fallback_query(understanding.intent, spec_features)
+
         fallback = (
             brave_fallback,
             keyword_query,
             keyword_query,
             normalized_query,
-            normalized_query,
+            specialized_fallback,
         )
 
         # --- resolve query texts ---
@@ -287,25 +332,27 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             try:
                 rewrite, rewrite_meta = await _rewrite_queries(
                     query=normalized_query,
+                    seed_queries=request.queries if request.queries else (normalized_query,),
                     research_goal=request.research_goal,
                     terms=terms,
                     suggestions=suggestions,
                     correction=correction,
                     current_year=time.strftime("%Y"),
+                    intent=understanding.intent,
                 )
                 rewrite_meta["branch_count"] = 6
                 dc.rewrite_metadata = rewrite_meta
-                if len(rewrite.queries) < 4:
+                if len(rewrite.queries) < 5:
                     raise ValueError(
-                        f"Expected 4 queries, got {len(rewrite.queries)}: {rewrite.queries}"
+                        f"Expected 5 queries, got {len(rewrite.queries)}: {rewrite.queries}"
                     )
-                q0, q1, q2, q3 = (normalize_query(q) for q in rewrite.queries[:4])
+                q0, q1, q2, q3, q4 = (normalize_query(q) for q in rewrite.queries[:5])
                 queries = (
                     q0,
                     q1,
                     q2,
                     q3,
-                    q3,  # SPECIALIZED reuses neural query
+                    q4,
                 )
             except Exception as exc:
                 LOGGER.warning(
@@ -317,11 +364,11 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             dc.rewrite_metadata = {"branch_count": 6}
             queries = fallback
 
-        # Persist the 4 planner rewrites (k1, k2, k3, neural) separately from
+        # Persist the 5 planner rewrites (k1, k2, k3, neural, specialized) separately from
         # the 6-branch dispatched topology. Empty tuple when rewrite was
         # disabled or errored — the judge then writes no rewrite rows.
         rewrite_queries: tuple[str, ...] = (
-            tuple(rewrite.queries[:4])
+            tuple(rewrite.queries[:5])
             if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
             else ()
         )
@@ -429,6 +476,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             branches=branches,
             policy_version=policy.policy_version,
             rewrite_queries=rewrite_queries,
+            seed_queries=request.queries if request.queries else (normalized_query,),
         )
         run.plan = plan
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0

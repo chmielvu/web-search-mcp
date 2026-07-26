@@ -1,3 +1,45 @@
+# 2026-07-25 Typed analytics, provider diagnostics, and tool lifecycle telemetry
+- **Scope**: Implement the approved analytics-quality/provider-reliability plan without changing reranking behavior.
+- **Shipped**:
+  - Added typed `tool_calls` and `query_understanding_events` DuckDB facts plus async writers and migrations.
+  - Extended `provider_calls` with planner-vs-adapter query fields, endpoint/status/result class, and bounded response metadata.
+  - Added GitHub/Sourcegraph/GitLab dialect shaping and structured request metadata; retrieval persists diagnostics while keeping planner `branch_query` separate from adapter `request_query`.
+  - Added typed classifier predictions, confidence threshold/fallback decision paths, score vectors, JSONL/analytics persistence, and calibration-safe reports.
+  - Repaired judge payload persistence/parsing and added result-quality miss/provenance views and reports.
+  - Routed tool lifecycle events through a stable `tool_call_id` seam with bounded, credential-filtered payloads; instrumented web search, quick search, YouTube, and Composio Similarlinks.
+  - Fixed analytics view bootstrap lock recursion and DuckDB aggregate grouping errors.
+- **Verification**:
+  - Focused provider, classifier, judge, observability, analytics, and tool suites are green (including 39 analytics-quality tests and 69 tool tests).
+  - Temporary DuckDB smoke verified correlated tool rows, typed provider metadata, all dashboard views, and the three new reports.
+- **Unverified**: Authenticated live Sourcegraph/GitLab/GitHub specialized requests and human-labeled classifier calibration remain unverified; no reranking code was changed.
+
+# 2026-07-24 Heuristics helpers — query augment, clean, guidance
+- **Scope**: Add `heuristics/` package and wire clean/augment/guidance into normalize, retrieval, planning, ranking, public output, middleware, and transcript path.
+- **Shipped**:
+  - `heuristics/{text_clean,query_features,augment,guidance_messages}.py` + package `AGENTS.md`
+  - `ftfy>=6.2.0` dependency (pyproject; install via `uv pip install` when `uv sync` locks .exe)
+  - Retrieve boundary shaping + `DiagnosticsCollector.query_shaping`
+  - Planning specialized fallback via `specialized_fallback_query`
+  - Public `intent` + `query_shaping` on `WebSearchResponse`
+  - Cause-aware empty/gap/shaping middleware guidance
+- **Verification**: `uv run --no-sync pytest tests/test_heuristics_*.py tests/test_agent_steering_middleware.py tests/test_public_output_serialization.py tests/test_search_planning_why.py tests/test_provider_registry.py tests/test_github_provider.py` → 32+ green; augment smoke shows github `language:Python`, sourcegraph `lang:python`, HN strips `repo:`.
+
+# 2026-07-24 Modular Provider Routing & 5-Variant Query Rewrite Pipeline
+- **Scope**: Replace hardcoded specialized provider lists with dynamic intent-provider subscription mapping, expand LLM query rewriting from 4 to 5 variants, and align analytics persistence and LLM-as-Judge evaluators for 5 rewrite variants.
+- **Fixes & Enhancements Shipped**:
+  - `src/kindly_web_search_mcp_server/search/intent_policy.py`: Added `_DEFAULT_INTENT_PROVIDER_SUBSCRIPTIONS` mapping and dynamic subscription management (`get_subscribed_specialized_providers`, `register_provider_subscription`). Updated `resolve_intent_policy` to dynamically resolve specialized providers per intent (`ai_coding_and_infrastructure` subscribes Telegram, HackerNews, GitHub, Sourcegraph, GitLab, and Reddit; `social_media` subscribes Telegram and Reddit).
+  - `src/kindly_web_search_mcp_server/prompts/query_rewrite.py`: Re-exported `SPECIALIZED_REWRITE_GUIDANCE` and `DEFAULT_SPECIALIZED_GUIDANCE` intent-specific rewrite guidance modules.
+  - `src/kindly_web_search_mcp_server/search/planning.py`: Expanded `_RewriteQueries` Pydantic model and prompt templates (`_REWRITE_SYSTEM`, `_REWRITE_USER`) from 4 to 5 queries (`[keyword1, keyword2, keyword3, neural, specialized]`). Updated `_rewrite_queries` signature (`intent: SearchIntent`) and resilient normalization (`len == 4` appends 5th). Updated `plan_search` to assign `queries[4]` to `BranchRole.SPECIALIZED`.
+  - `src/kindly_web_search_mcp_server/search/contracts.py`: Updated comments on `SearchPlan.rewrite_queries` to indicate 5 planner rewrites `(k1, k2, k3, neural, specialized)`.
+  - `src/kindly_web_search_mcp_server/analytics/writers/schema.py`: Updated DDL comment on `rewritten_branch_queries` column.
+  - `src/kindly_web_search_mcp_server/analytics/writers/connection.py`: Updated prompt text and rubrics for `judge_rewrite_coverage` prompt to 5 variants.
+  - `src/kindly_web_search_mcp_server/analytics/judges.py`: Updated `_REWRITE_STRATEGIES` to 5 entries, `judge_rewrite_coverage` JSON schema maximum to 5, `rewrites[:5]` slicing, and verdict formatting string.
+  - `tests/test_intent_policy.py`, `tests/test_query_rewrite_5variants.py`: Added unit tests verifying dynamic intent provider registration, 5-variant query rewrite JSON parsing, and 4-to-5 query normalization.
+- **Verification**:
+  - `uv run pytest tests/test_intent_policy.py tests/test_search_planning_why.py tests/test_judges_facets.py tests/test_provider_registry.py tests/test_eval_judges.py tests/test_query_rewrite_5variants.py`: 42/42 passed (`EXIT=0`).
+  - `uv run ruff check src/ tests/` && `uv run ruff format --check src/ tests/`: 0 errors, 471 files unchanged.
+  - Live CLI smoke: `uv run web-search-cli search web --query "python asyncio best practices" --raw --brief` verified returning valid response.
+
 # 2026-07-22 Agent-Native CLI Uplift (`web-search-cli`)
 - **Scope**: Uplift of `web-search-cli` toward Level 3 Agent-Native specification alignment.
 - **Fixes & Enhancements Shipped**:

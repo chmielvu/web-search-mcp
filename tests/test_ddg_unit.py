@@ -217,10 +217,9 @@ def test_search_ddg_signature_has_no_freshness_kwarg() -> None:
 
 
 def test_ddg_registered_as_free_peer_provider() -> None:
-    from kindly_web_search_mcp_server.search.provider_config import (
-        ProviderGroup,
-        get_provider_configs,
+    from kindly_web_search_mcp_server.search.provider_catalog import (
+        PROVIDER_DEFINITIONS_LIST,
     )
 
-    config = get_provider_configs()["ddg"]
-    assert config.group == ProviderGroup.free
+    defn = next(p for p in PROVIDER_DEFINITIONS_LIST if p.name == "ddg")
+    assert not defn.specialized

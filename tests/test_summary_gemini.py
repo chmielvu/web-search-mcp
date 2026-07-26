@@ -38,6 +38,13 @@ class _FakeClient:
 
 
 class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
+    async def test_create_summary_disabled_by_default(self) -> None:
+        from kindly_web_search_mcp_server.content.summary import create_summary
+
+        result = await create_summary("Local page text")
+
+        self.assertIsNone(result)
+
     async def test_create_summary_uses_url_context_on_primary_model(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_summary
 
@@ -73,31 +80,32 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         ):
             result = await create_summary(
                 "Local page text",
-                mode="brief",
+                ai_summary=True,
                 focus_query="Gemini",
                 source_urls=["https://example.com/article"],
             )
 
         self.assertEqual(result["summary"], "Test summary")
-        self.assertEqual(result["model"], "gemini-3.1-flash-lite")
-        self.assertEqual(result["model_used"], "gemini-3.1-flash-lite")
+        self.assertEqual(result["model"], "gemini-3.5-flash-lite")
+        self.assertEqual(result["model_used"], "gemini-3.5-flash-lite")
         self.assertEqual(result["input_tokens"], 14)
         self.assertEqual(result["output_tokens"], 8)
         self.assertEqual(result["backend"], "gemini-api")
 
         model, contents, config = fake_client.models.calls[0]
-        self.assertEqual(model, "gemini-3.1-flash-lite")
+        self.assertEqual(model, "gemini-3.5-flash-lite")
         self.assertIn("example.com/article", contents)
         self.assertTrue(getattr(config, "tools", None))
         self.assertIsNotNone(getattr(config.tools[0], "url_context", None))
         self.assertEqual(getattr(config, "response_mime_type", None), "application/json")
 
-    async def test_create_summary_falls_back_to_gemma_when_primary_fails(self) -> None:
+    async def test_create_summary_falls_back_through_gemini_31_to_gemma(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_summary
 
         fake_client = _FakeClient(
             [
                 RuntimeError("primary unavailable"),
+                RuntimeError("Gemini 3.1 unavailable"),
                 _FakeResponse(
                     {
                         "summary": "Fallback summary",
@@ -109,7 +117,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
                 ),
             ]
         )
-        fake_client.models.effects[1].usage_metadata = SimpleNamespace(
+        fake_client.models.effects[2].usage_metadata = SimpleNamespace(
             prompt_token_count=13,
             response_token_count=6,
             total_token_count=19,
@@ -128,7 +136,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         ):
             result = await create_summary(
                 "Local page text",
-                mode="detailed",
+                ai_summary=True,
                 focus_query="Gemma fallback",
                 source_urls=["https://example.com/article"],
             )
@@ -139,10 +147,11 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["input_tokens"], 13)
         self.assertEqual(result["output_tokens"], 6)
         self.assertEqual(result["backend"], "gemma-fallback")
-        self.assertEqual(len(fake_client.models.calls), 2)
-        self.assertEqual(fake_client.models.calls[0][0], "gemini-3.1-flash-lite")
-        self.assertEqual(fake_client.models.calls[1][0], "gemma-4-26b-a4b-it")
-        self.assertFalse(getattr(fake_client.models.calls[1][2], "tools", None))
+        self.assertEqual(len(fake_client.models.calls), 3)
+        self.assertEqual(fake_client.models.calls[0][0], "gemini-3.5-flash-lite")
+        self.assertEqual(fake_client.models.calls[1][0], "gemini-3.1-flash-lite")
+        self.assertEqual(fake_client.models.calls[2][0], "gemma-4-26b-a4b-it")
+        self.assertFalse(getattr(fake_client.models.calls[2][2], "tools", None))
 
     async def test_create_batch_summaries_uses_single_batched_call(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_batch_summaries
@@ -210,7 +219,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         ):
             summaries = await create_batch_summaries(
                 items,
-                mode="brief",
+                ai_summary=True,
                 focus_query="batch",
                 max_concurrency=2,
             )
@@ -236,6 +245,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         fake_client = _FakeClient(
             [
                 RuntimeError("batch failed"),
+                RuntimeError("Gemini 3.1 batch fallback failed"),
                 _FakeResponse(
                     {
                         "summary": "First fallback summary",
@@ -293,7 +303,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         ):
             summaries = await create_batch_summaries(
                 items,
-                mode="brief",
+                ai_summary=True,
                 focus_query="batch",
                 max_concurrency=2,
             )
@@ -305,6 +315,15 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         # All calls should have used the paid key.
         for call in mock_client.call_args_list:
             self.assertEqual(call.kwargs.get("api_key"), "paid-token")
+        self.assertEqual(
+            [call[0] for call in fake_client.models.calls],
+            [
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-3.5-flash-lite",
+                "gemini-3.5-flash-lite",
+            ],
+        )
 
     async def test_per_item_summary_passes_page_content(self) -> None:
         from kindly_web_search_mcp_server.content.summary_backend import _per_item_summary
@@ -325,7 +344,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.content.summary_backend._generate_summary",
             new=AsyncMock(return_value=(mock_output, None)),
         ) as mock_gen:
-            res = await _per_item_summary(item, mode="brief", focus_query=None)
+            res = await _per_item_summary(item, mode="detailed", focus_query=None)
             self.assertEqual(res["summary"], "Item summary")
             mock_gen.assert_awaited_once()
             _, kwargs = mock_gen.call_args

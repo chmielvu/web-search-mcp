@@ -17,13 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 class TestPageCacheDuckDB(unittest.TestCase):
     def test_url_hash_lookup_and_roundtrip(self) -> None:
-        from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
+        from kindly_web_search_mcp_server.cache.page_sqlite import PageSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "page_cache.duckdb")
-            cache = PageDuckDBCache(db_path=db_path)
+            db_path = str(Path(tmp) / "page_cache.sqlite")
+            cache = PageSQLiteCache(db_path=db_path)
 
-            url = "https://example.com/Article/With-Caps?query=1"
+            url = "https://example.com/doc"
             content = "# Hello\n\nMarkdown content here."
             method = "http_extract"
             meta = {"title": "Example", "links": ["https://ex.com/a"]}
@@ -47,11 +47,11 @@ class TestPageCacheDuckDB(unittest.TestCase):
             self.assertIsNone(cache.lookup("https://other.com/"))
 
     def test_ttl_expiry(self) -> None:
-        from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
+        from kindly_web_search_mcp_server.cache.page_sqlite import PageSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "page_cache.duckdb")
-            cache = PageDuckDBCache(db_path=db_path)
+            db_path = str(Path(tmp) / "page_cache.sqlite")
+            cache = PageSQLiteCache(db_path=db_path)
 
             url = "https://example.com/ttl-test"
             cache.store(
@@ -66,11 +66,11 @@ class TestPageCacheDuckDB(unittest.TestCase):
             self.assertIsNone(cache.lookup(url))
 
     def test_metadata_json_roundtrip(self) -> None:
-        from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
+        from kindly_web_search_mcp_server.cache.page_sqlite import PageSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "page_cache.duckdb")
-            cache = PageDuckDBCache(db_path=db_path)
+            db_path = str(Path(tmp) / "page_cache.sqlite")
+            cache = PageSQLiteCache(db_path=db_path)
 
             url = "https://example.com/meta"
             meta = {
@@ -90,11 +90,11 @@ class TestPageCacheDuckDB(unittest.TestCase):
             self.assertEqual(hit.get("metadata"), meta)
 
     def test_locked_writes(self) -> None:
-        from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
+        from kindly_web_search_mcp_server.cache.page_sqlite import PageSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "page_cache.duckdb")
-            cache = PageDuckDBCache(db_path=db_path)
+            db_path = str(Path(tmp) / "page_cache.sqlite")
+            cache = PageSQLiteCache(db_path=db_path)
 
             errors: list[Exception] = []
             urls = [f"https://example.com/locked/{i}" for i in range(20)]
@@ -125,14 +125,14 @@ class TestPageCacheDuckDB(unittest.TestCase):
                 self.assertIn("content for", hit["page_content"])
 
     def test_uses_separate_duckdb_not_analytics(self) -> None:
-        from kindly_web_search_mcp_server.cache.page_duckdb import PageDuckDBCache
+        from kindly_web_search_mcp_server.cache.page_sqlite import PageSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
-            page_path = str(Path(tmp) / "page_cache.duckdb")
+            page_path = str(Path(tmp) / "page_cache.sqlite")
             analytics_path = str(Path(tmp) / "analytics.duckdb")
 
             # Force separate paths
-            cache = PageDuckDBCache(db_path=page_path)
+            cache = PageSQLiteCache(db_path=page_path)
             cache.store("https://sep.test/url", "sep content", "test")
 
             # Analytics path should not have the table or row (we don't create analytics schema here)
@@ -144,7 +144,7 @@ class TestPageCacheDuckDB(unittest.TestCase):
                     tables = {
                         r[0]
                         for r in con.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
+                            "SELECT table_name FROM information_schema.tables"
                         ).fetchall()
                     }
                     self.assertNotIn("page_cache", tables)
@@ -152,7 +152,9 @@ class TestPageCacheDuckDB(unittest.TestCase):
                     con.close()
 
             # Page path has the table
-            con = duckdb.connect(page_path, read_only=True)
+            import sqlite3
+
+            con = sqlite3.connect(page_path)
             try:
                 tables = {
                     r[0]

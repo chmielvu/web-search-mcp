@@ -138,6 +138,68 @@ class TestJudgerunnerMockedLLM:
             if db_path.exists():
                 db_path.unlink()
 
+    def test_string_generation_is_parsed_into_four_dimensions(self, monkeypatch) -> None:
+        import asyncio
+        from kindly_web_search_mcp_server.analytics import search_relevance_judge as module
+
+        content = json.dumps(
+            {
+                "relevance": {"grade": "good", "score": 0.8, "rationale": "on topic"},
+                "accuracy": {"grade": "good", "score": 0.8, "rationale": "correct"},
+                "completeness": {"grade": "fair", "score": 0.6, "rationale": "partial"},
+                "source_quality": {"grade": "good", "score": 0.8, "rationale": "credible"},
+                "overall_score": 0.75,
+                "overall_rationale": "Useful result set.",
+            }
+        )
+
+        class _Router:
+            async def complete_json(self, **kwargs):
+                return SimpleNamespace(
+                    content=content,
+                    model_used="model-4d",
+                    input_tokens=12,
+                    output_tokens=8,
+                    endpoint=SimpleNamespace(name="groq"),
+                )
+
+        monkeypatch.setattr(module, "build_worker_router", lambda: _Router())
+        judge = module.SearchRelevanceJudge(model="model-4d")
+        result = asyncio.run(
+            judge.evaluate(
+                query="FastAPI docs",
+                intent="general",
+                results=[self._make_result("FastAPI", "https://fastapi.tiangolo.com", "docs")],
+            )
+        )
+
+        assert result.status == "success"
+        assert result.relevance_score == 0.8
+        assert result.overall_score == 0.75
+        assert result.provider_name == "groq"
+
+    def test_malformed_string_is_auditable_error(self, monkeypatch) -> None:
+        import asyncio
+        from kindly_web_search_mcp_server.analytics import search_relevance_judge as module
+
+        class _Router:
+            async def complete_json(self, **kwargs):
+                return SimpleNamespace(content="not json", model_used="model-4d")
+
+        monkeypatch.setattr(module, "build_worker_router", lambda: _Router())
+        judge = module.SearchRelevanceJudge(model="model-4d")
+        result = asyncio.run(
+            judge.evaluate(
+                query="FastAPI docs",
+                intent="general",
+                results=[self._make_result("FastAPI", "https://fastapi.tiangolo.com", "docs")],
+            )
+        )
+
+        assert result.status == "error"
+        assert result.error_type == "parse_or_provider_error"
+        assert result.relevance_score == 0.0
+
     def test_empty_results_skips_evaluation(self, monkeypatch) -> None:
         """No results should cause early return without LLM call."""
         from kindly_web_search_mcp_server.analytics.judge_runner import (

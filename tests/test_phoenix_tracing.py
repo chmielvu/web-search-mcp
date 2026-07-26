@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 def test_openinference_context_attributes_serializes_context() -> None:
-    from kindly_web_search_mcp_server.llm.phoenix_tracing import (
+    from kindly_web_search_mcp_server.telemetry.phoenix_tracing import (
         LLMTraceContext,
         openinference_context_attributes,
     )
@@ -36,8 +36,8 @@ def test_openinference_context_scope_populates_context_attributes() -> None:
     from unittest.mock import patch
     from contextlib import contextmanager
 
-    import kindly_web_search_mcp_server.llm.phoenix_tracing as tracing_mod
-    from kindly_web_search_mcp_server.llm.phoenix_tracing import (
+    import kindly_web_search_mcp_server.telemetry.phoenix_tracing as tracing_mod
+    from kindly_web_search_mcp_server.telemetry.phoenix_tracing import (
         LLMTraceContext,
         current_openinference_attributes,
         openinference_context_scope,

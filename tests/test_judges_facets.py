@@ -427,6 +427,17 @@ class TestJudgeFacets:
                 assert "score" not in str(col["data"]).lower(), (
                     f"BLINDNESS VIOLATED: context column {col['name']} contains score"
                 )
+        con = duckdb.connect(temp_db, read_only=True)
+        try:
+            typed = con.execute(
+                "SELECT json_extract(payload_json, '$.parsed.intent_match')::BOOLEAN, "
+                "json_extract(payload_json, '$.parsed.informativeness')::INTEGER "
+                "FROM llm_judgments WHERE judgment_kind = 'result_quality' "
+                "ORDER BY judgment_target LIMIT 1"
+            ).fetchone()
+        finally:
+            con.close()
+        assert typed == (True, 4)
 
     def test_failure_cause_only_for_failed_or_empty_runs(
         self, temp_db, mock_run_prompt, mock_ensure_loaded

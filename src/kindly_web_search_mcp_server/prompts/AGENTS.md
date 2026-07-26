@@ -9,7 +9,7 @@ Prompt templates, builders, and registry for all subsystems.
 | `registry.py` | Prompt registry and lookup |
 | `builders.py` | Prompt-building helpers |
 | `query_understanding.py` | Query understanding prompts |
-| `query_rewrite.py` | Query rewrite prompts |
+| `query_rewrite.py` | Query rewrite prompt templates & intent-specific guidance (`SPECIALIZED_REWRITE_GUIDANCE`) |
 | `rerank.py` | Reranking prompts |
 | `rerank_llm.py` / `rerank_llm.yaml` | LLM rerank prompts and config |
 | `entity_extraction.py` | Entity extraction prompts |
@@ -22,6 +22,7 @@ Prompt templates, builders, and registry for all subsystems.
 - Prompt registry is versioned and used by the search pipeline.
 - Prompt families are separated by task and provider (not one giant blob).
 - Prompt changes must stay aligned with tests that exercise the registry.
+- `rerank_llm.yaml` follows the installed RankLLM `multiturn_listwise` keys (`prefix_user`, `body_user`, `suffix_user`).
 
 ## Testing
 

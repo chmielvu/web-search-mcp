@@ -58,4 +58,9 @@ def serialize_public_web_search_response(response: Any) -> dict[str, Any]:
     if "warnings" in raw and raw["warnings"] is not None:
         public["warnings"] = _dump(raw["warnings"])
 
+    if raw.get("intent") is not None:
+        public["intent"] = raw["intent"]
+    if raw.get("query_shaping") is not None:
+        public["query_shaping"] = _dump(raw["query_shaping"])
+
     return public

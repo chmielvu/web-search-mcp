@@ -12,12 +12,14 @@ from .table_names import (
     _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
     _QE_TABLE_NAME,
+    _QUE_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
     _SB_TABLE_NAME,
     _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
+    _TC_TABLE_NAME,
 )
 
 # ---------------------------------------------------------------------------
@@ -89,6 +91,66 @@ _PROVIDER_CALL_COLUMNS = [
     "error_type",
     "error_message",
     "candidate_urls",
+    "request_query",
+    "request_url",
+    "http_status",
+    "result_class",
+    "response_meta_json",
+    "payload_json",
+]
+
+_TOOL_CALL_COLUMNS = [
+    "event_id",
+    "tool_call_id",
+    "session_id",
+    "trace_id",
+    "span_id",
+    "tool_name",
+    "phase",
+    "status",
+    "query",
+    "research_goal",
+    "input_url",
+    "normalized_url",
+    "input_count",
+    "output_count",
+    "duration_ms",
+    "provider",
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "request_fingerprint",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+_QUERY_UNDERSTANDING_COLUMNS = [
+    "run_key",
+    "tool_call_id",
+    "session_id",
+    "raw_query",
+    "normalized_query",
+    "research_goal",
+    "predicted_intent",
+    "predicted_confidence",
+    "final_intent",
+    "final_confidence",
+    "decision_path",
+    "fallback_reason",
+    "classifier_model",
+    "classifier_provider",
+    "classifier_endpoint",
+    "classifier_latency_ms",
+    "confidence_threshold",
+    "scores_json",
+    "entities_json",
+    "preserved_terms",
+    "compared_entities",
+    "time_sensitivity",
+    "domain_hints",
+    "should_decompose",
+    "rationale",
     "payload_json",
 ]
 
@@ -225,6 +287,9 @@ _JUDGE_EVALUATION_COLUMNS = [
     "output_tokens",
     "tokens_used",
     "cost_usd",
+    "status",
+    "error_type",
+    "error_message",
     "payload_json",
 ]
 
@@ -291,6 +356,18 @@ _PROVIDER_CALLS_WRITER = TableWriter(
     columns=_PROVIDER_CALL_COLUMNS,
     defaults={"status": "unknown"},
     task_name="analytics.provider_calls",
+)
+_TOOL_CALLS_WRITER = TableWriter(
+    table_name=_TC_TABLE_NAME,
+    ensure_name="_ensure_tool_calls",
+    columns=_TOOL_CALL_COLUMNS,
+    task_name="analytics.tool_calls",
+)
+_QUERY_UNDERSTANDING_WRITER = TableWriter(
+    table_name=_QUE_TABLE_NAME,
+    ensure_name="_ensure_query_understanding_events",
+    columns=_QUERY_UNDERSTANDING_COLUMNS,
+    task_name="analytics.query_understanding_events",
 )
 _SEARCH_CANDIDATES_WRITER = TableWriter(
     table_name=_SC_TABLE_NAME,

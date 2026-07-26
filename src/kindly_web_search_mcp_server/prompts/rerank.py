@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 
-def build_cross_encoder_query(user_query: str, query_type: str | None, research_goal: str) -> str:
+def build_cross_encoder_query(
+    user_query: str,
+    query_type: str | None,
+    research_goal: str,
+    reranking_instructions: str | None = None,
+) -> str:
     if not research_goal or not research_goal.strip():
         raise ValueError("research_goal must be non-blank")
 
@@ -24,5 +29,10 @@ def build_cross_encoder_query(user_query: str, query_type: str | None, research_
     formatted = template.format(user_query=user_query)
     capped_goal = research_goal.strip()[:500]
 
-    result = f"{formatted} | Research goal: {capped_goal}"
+    if reranking_instructions and reranking_instructions.strip():
+        instructions_segment = f" Caller reranking instructions: {reranking_instructions.strip()} |"
+    else:
+        instructions_segment = ""
+
+    result = f"{formatted} |{instructions_segment} Research goal: {capped_goal}"
     return " ".join(result.split()).strip()

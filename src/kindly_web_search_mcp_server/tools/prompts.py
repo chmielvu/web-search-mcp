@@ -145,7 +145,7 @@ def research_methodology_prompt() -> list[Message]:
                     "## Deep-Reading Phase",
                     "",
                     "Snippets are teasers, not evidence. Always deep-read the best candidates:",
-                    "- get_content for a single URL with summary_mode=brief or detailed",
+                    "- get_content for a single URL with ai_summary=true for a detailed summary",
                     "- batch_get_content for 3+ URLs in parallel with character budget",
                     "- Set focus_query to bias summaries toward what you care about",
                     "- Check window.has_more — content may be truncated; paginate with char_offset",

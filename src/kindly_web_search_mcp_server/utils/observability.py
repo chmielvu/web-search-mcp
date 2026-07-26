@@ -5,6 +5,7 @@ import json
 import logging
 from hashlib import sha256
 from typing import Any
+from uuid import uuid4
 
 from ..observability.events import PERSISTED_EVENT_PREFIXES
 from .environment import get_int_env
@@ -12,6 +13,9 @@ from .environment import get_int_env
 # Context variable to store run_key for the current search pipeline
 _run_key_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_run_key_context", default=None
+)
+_tool_call_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_tool_call_id_context", default=None
 )
 
 
@@ -23,6 +27,16 @@ def set_current_run_key(run_key: str | None) -> None:
 def get_current_run_key() -> str | None:
     """Get the run_key for the current context."""
     return _run_key_context.get()
+
+
+def set_current_tool_call_id(tool_call_id: str | None) -> None:
+    """Set the stable lifecycle identifier for the current tool invocation."""
+    _tool_call_id_context.set(tool_call_id)
+
+
+def get_current_tool_call_id() -> str | None:
+    """Get the stable lifecycle identifier for the current tool invocation."""
+    return _tool_call_id_context.get()
 
 
 try:
@@ -234,6 +248,19 @@ def serialize_tool_event_fields(
 ) -> dict[str, Any]:
     normalized: dict[str, Any] = {}
     for name, value in fields.items():
+        lowered_name = name.lower()
+        if any(
+            marker in lowered_name
+            for marker in (
+                "authorization",
+                "api_key",
+                "apikey",
+                "access_token",
+                "password",
+                "secret",
+            )
+        ):
+            continue
         if name in {"page_content", "content_preview", "answer"}:
             normalized[name] = preview_text(str(value), limit=_max_text_chars())
         elif name == "results" and isinstance(value, list):
@@ -258,12 +285,124 @@ def serialize_tool_event_fields(
     return normalized
 
 
+def _tool_status(phase: str, fields: dict[str, Any]) -> str:
+    explicit = fields.get("status")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip().lower()
+    if phase == "request":
+        return "started"
+    if phase == "error" or fields.get("isError") is True or fields.get("error"):
+        return "error"
+    output_count = _tool_output_count(fields)
+    if output_count == 0:
+        return "empty"
+    return "success"
+
+
+def _tool_int(fields: dict[str, Any], *names: str) -> int | None:
+    for name in names:
+        value = fields.get(name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _tool_input_count(fields: dict[str, Any]) -> int | None:
+    value = _tool_int(fields, "input_count", "query_count", "num_queries")
+    if value is not None:
+        return value
+    for name in ("queries", "search_queries"):
+        items = fields.get(name)
+        if isinstance(items, (list, tuple)):
+            return len(items)
+    return None
+
+
+def _tool_output_count(fields: dict[str, Any]) -> int | None:
+    value = _tool_int(
+        fields,
+        "output_count",
+        "result_count",
+        "total_results",
+        "total_citations",
+        "returned_links",
+        "num_results_returned",
+    )
+    if value is not None:
+        return value
+    for name in ("results", "citations", "links"):
+        items = fields.get(name)
+        if isinstance(items, (list, tuple)):
+            return len(items)
+    return None
+
+
+def _insert_tool_call_analytics(
+    *,
+    tool_name: str,
+    phase: str,
+    tool_call_id: str,
+    fields: dict[str, Any],
+    payload: dict[str, Any],
+    trace_context: dict[str, str],
+    logger: logging.Logger,
+) -> None:
+    try:
+        from ..settings import settings
+        from ..analytics.duckdb_store import insert_tool_call_event
+    except Exception as exc:  # pragma: no cover - optional analytics dependency
+        logger.debug("DuckDB tool-call sink unavailable: %s", exc)
+        return
+    if not settings.analytics_enabled:
+        return
+
+    input_url = fields.get("url") or fields.get("video_id_or_url")
+    normalized_url = fields.get("canonical_url") or fields.get("video_url")
+    query = fields.get("query") or fields.get("objective")
+    payload_with_context = dict(payload)
+    payload_with_context["tool_call_id"] = tool_call_id
+    try:
+        insert_tool_call_event(
+            event_id=str(uuid4()),
+            tool_call_id=tool_call_id,
+            session_id=fields.get("session_id"),
+            trace_id=trace_context.get("trace_id"),
+            span_id=trace_context.get("span_id"),
+            tool_name=tool_name,
+            phase=phase,
+            status=_tool_status(phase, fields),
+            query=str(query) if query is not None else None,
+            research_goal=fields.get("research_goal") or fields.get("objective"),
+            input_url=str(input_url) if input_url is not None else None,
+            normalized_url=str(normalized_url) if normalized_url is not None else None,
+            input_count=_tool_input_count(fields),
+            output_count=_tool_output_count(fields),
+            duration_ms=fields.get("duration_ms"),
+            provider=fields.get("provider") or fields.get("provider_name"),
+            model=fields.get("model") or fields.get("model_used") or fields.get("client_model"),
+            input_tokens=fields.get("input_tokens"),
+            output_tokens=fields.get("output_tokens"),
+            request_fingerprint=payload.get("request_fingerprint"),
+            error_type=fields.get("error_type"),
+            error_message=(
+                fields.get("error_message")
+                if isinstance(fields.get("error_message"), str)
+                else preview_text(str(fields.get("error")))
+                if fields.get("error") is not None
+                else None
+            ),
+            payload_json=payload_with_context,
+        )
+    except Exception as exc:  # pragma: no cover - best-effort sink
+        logger.debug("DuckDB tool-call sink failed for %s: %s", tool_name, exc)
+
+
 def _persist_analytics_event(
     event: str,
     payload: dict[str, Any],
     logger: logging.Logger,
 ) -> None:
-    if not event.startswith(PERSISTED_EVENT_PREFIXES):
+    if not event.startswith(PERSISTED_EVENT_PREFIXES) or event.startswith("tool."):
         return
 
     try:
@@ -288,20 +427,18 @@ def emit_tool_observability_event(
 ) -> None:
     event = f"tool.{tool_name}.{phase}"
     trace_context = current_trace_context()
+    explicit_tool_call_id = fields.get("tool_call_id")
+    tool_call_id = (
+        explicit_tool_call_id.strip()
+        if isinstance(explicit_tool_call_id, str) and explicit_tool_call_id.strip()
+        else get_current_tool_call_id()
+    ) or str(uuid4())
+    set_current_tool_call_id(tool_call_id)
+    fields = dict(fields)
+    fields["tool_call_id"] = tool_call_id
     payload = {"event": event, "tool_name": tool_name}
     payload.update(trace_context)
     payload.update(serialize_tool_event_fields(phase, fields, tool_name=tool_name))
-
-    analytics_payload = {"event": event, "tool_name": tool_name}
-    analytics_payload.update(trace_context)
-    analytics_payload.update(
-        {name: _normalize_for_analytics(value) for name, value in fields.items()}
-    )
-    if phase == "request":
-        analytics_payload["request_fingerprint"] = _tool_request_fingerprint(
-            tool_name,
-            fields,
-        )
 
     extra: dict[str, str | bool | int | float | None] = {"obs_event": event}
     for name, value in payload.items():
@@ -310,7 +447,15 @@ def emit_tool_observability_event(
         extra[_record_key(name)] = _normalize_for_extra(value)
 
     logger.log(level, json.dumps(payload, ensure_ascii=True, sort_keys=True), extra=extra)
-    _persist_analytics_event(event, analytics_payload, logger)
+    _insert_tool_call_analytics(
+        tool_name=tool_name,
+        phase=phase,
+        tool_call_id=tool_call_id,
+        fields=fields,
+        payload=payload,
+        trace_context=trace_context,
+        logger=logger,
+    )
 
 
 def emit_observability_event(

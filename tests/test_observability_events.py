@@ -42,7 +42,6 @@ class TestObservabilityEventPrefixes(unittest.TestCase):
             "query.rewrite.completed",
             "search.merge.completed",
             "provider.search.result",
-            "tool.web_search.response",
             "content.stage.resolution",
             "middleware.rate_limit.acquired",
             "session.started",

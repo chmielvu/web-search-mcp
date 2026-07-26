@@ -118,7 +118,7 @@ async def fetch_content_payload(
     *,
     char_offset: int = 0,
     char_length: int = 20_000,
-    summary_mode: str = "none",
+    ai_summary: bool = False,
     focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
@@ -128,10 +128,6 @@ async def fetch_content_payload(
     max_length = get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    from ...content.summary_models import VALID_SUMMARY_MODES
-
-    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
-
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
         include_links=include_links,
@@ -174,7 +170,7 @@ async def fetch_content_payload(
     )
     summary = await create_summary(
         windowed.content,
-        mode=safe_summary_mode,  # type: ignore[arg-type]
+        ai_summary=ai_summary,
         focus_query=focus_query,
         source_urls=[
             artifact["fetched_url"] or artifact["normalized_url"],

@@ -317,6 +317,104 @@ def provider_final_contribution(*, days: int = 7, db_path: str | None = None) ->
     return _run(sql, db_path=db_path)
 
 
+def provider_reliability(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Provider yield and typed failure classes with explicit denominators."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            provider,
+            COUNT(*) AS calls,
+            COUNT(*) FILTER (WHERE result_class = 'nonempty') AS nonempty_calls,
+            COUNT(*) FILTER (WHERE result_class = 'empty') AS empty_calls,
+            COUNT(*) FILTER (WHERE result_class = 'error') AS error_calls,
+            COUNT(*) FILTER (WHERE result_class = 'timeout') AS timeout_calls,
+            COUNT(*) FILTER (WHERE result_class = 'incomplete') AS incomplete_calls,
+            ROUND(100.0 * COUNT(*) FILTER (WHERE result_class = 'nonempty')
+                / NULLIF(COUNT(*), 0), 1) AS nonempty_rate_pct,
+            ROUND(quantile_cont(latency_ms, 0.50), 0) AS p50_latency_ms,
+            ROUND(quantile_cont(latency_ms, 0.95), 0) AS p95_latency_ms,
+            MODE(error_type) AS common_error
+        FROM provider_calls
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY provider
+        ORDER BY calls DESC, provider
+    """
+    return _run(sql, db_path=db_path)
+
+
+def quality_misses(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Result-quality misses by intent, rank, provenance, and classifier confidence."""
+    window = max(1, int(days))
+    sql = f"""
+        WITH rows AS (
+            SELECT
+                lj.recorded_at,
+                sr.intent,
+                sr.understanding_confidence AS classifier_confidence,
+                fr.rank,
+                array_to_string(fr.providers, ',') AS provider_group,
+                try_cast(json_extract(lj.payload_json, '$.parsed.intent_match') AS BOOLEAN) AS intent_match,
+                try_cast(json_extract(lj.payload_json, '$.parsed.informativeness') AS INTEGER) AS informativeness,
+                lj.status AS judge_status
+            FROM llm_judgments lj
+            LEFT JOIN search_runs sr ON sr.run_key = lj.run_key
+            LEFT JOIN final_results fr
+                ON fr.run_key = lj.run_key AND fr.link = lj.judgment_target
+            WHERE lj.judgment_kind = 'result_quality'
+              AND lj.recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        )
+        SELECT
+            COALESCE(intent, 'unknown') AS intent,
+            COALESCE(provider_group, 'unknown') AS provider_group,
+            CASE
+                WHEN rank IS NULL THEN 'unknown'
+                WHEN rank <= 3 THEN '1-3'
+                WHEN rank <= 10 THEN '4-10'
+                ELSE '11+'
+            END AS rank_bucket,
+            CASE
+                WHEN classifier_confidence IS NULL THEN 'unknown'
+                WHEN classifier_confidence < 0.50 THEN '0.00-0.49'
+                WHEN classifier_confidence < 0.75 THEN '0.50-0.74'
+                WHEN classifier_confidence < 0.90 THEN '0.75-0.89'
+                ELSE '0.90-1.00'
+            END AS confidence_bucket,
+            COUNT(*) AS judged_results,
+            COUNT(*) FILTER (WHERE intent_match = false) AS intent_misses,
+            COUNT(*) FILTER (WHERE informativeness <= 2) AS low_informativeness,
+            COUNT(*) FILTER (WHERE judge_status <> 'success') AS judge_errors
+        FROM rows
+        GROUP BY ALL
+        ORDER BY judged_results DESC, intent, provider_group, rank_bucket
+    """
+    return _run(sql, db_path=db_path)
+
+
+def classifier_calibration(*, days: int = 30, db_path: str | None = None) -> pa.Table:
+    """Confidence distribution; unlabeled rows never become fake calibration labels."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            CASE
+                WHEN final_confidence < 0.50 THEN '0.00-0.49'
+                WHEN final_confidence < 0.75 THEN '0.50-0.74'
+                WHEN final_confidence < 0.90 THEN '0.75-0.89'
+                ELSE '0.90-1.00'
+            END AS confidence_bucket,
+            decision_path,
+            'unlabeled' AS label_source,
+            COUNT(*) AS events,
+            ROUND(AVG(final_confidence), 3) AS avg_confidence,
+            CAST(NULL AS DOUBLE) AS observed_agreement,
+            CAST(NULL AS DOUBLE) AS brier_score
+        FROM query_understanding_events
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY ALL
+        ORDER BY confidence_bucket, decision_path
+    """
+    return _run(sql, db_path=db_path)
+
+
 _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "provider-performance": provider_performance,
     "rewrite-effectiveness": rewrite_effectiveness,
@@ -325,6 +423,9 @@ _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "eval-quality-summary": eval_quality_summary,
     "latency-breakdown": latency_breakdown,
     "provider-final-contribution": provider_final_contribution,
+    "provider-reliability": provider_reliability,
+    "quality-misses": quality_misses,
+    "classifier-calibration": classifier_calibration,
 }
 
 

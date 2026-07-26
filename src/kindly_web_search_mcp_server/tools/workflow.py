@@ -13,8 +13,8 @@ def get_workflow_doc() -> str:
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost, domain_block, num_results |
 | Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
 | Scholarly papers | academic_search | query, sources, year_from, year_to, fields_of_study, venue, sort |
-| Read one URL | get_content | url, char_offset, char_length, summary_mode, focus_query, include_links |
-| Read 3+ URLs | batch_get_content | urls, max_concurrency, per_item_char_length, total_char_budget, cursor, summary_mode |
+| Read one URL | get_content | url, char_offset, char_length, ai_summary, focus_query, include_links |
+| Read 3+ URLs | batch_get_content | urls, max_concurrency, per_item_char_length, total_char_budget, cursor, ai_summary |
 | Discover links | discover_links | url, max_links, include_external, same_domain_only |
 | Similar pages | composio_similarlinks | url |
 | Find videos | youtube_search | query, num_results |
@@ -31,10 +31,9 @@ def get_workflow_doc() -> str:
 - batch_get_content: if has_more, call again with cursor from response
 - discover_links: if has_more, call again with offset/limit
 
-## Summary Modes
-- summary_mode=none: raw page content only
-- summary_mode=brief: 1-2 sentence Gemini summary
-- summary_mode=detailed: paragraph-level Gemini summary
+## AI Summaries
+- ai_summary=false: return raw page content only (default)
+- ai_summary=true: include a detailed source-grounded Gemini summary
 - focus_query: bias summary toward a specific topic, term, or comparison
 
 ## Filter Parameters

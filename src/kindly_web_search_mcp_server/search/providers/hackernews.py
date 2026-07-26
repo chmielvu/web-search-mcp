@@ -13,11 +13,12 @@ from typing import Any
 import httpx
 
 from ...models import WebSearchResult
+from ...settings import settings
 from .base import run_provider
 
 logger = logging.getLogger(__name__)
 
-_HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
+_HN_SEARCH_URL = "https://hn.algolia.com/api/v1/search"
 _HN_DISCUSSION_MARKERS = (
     "discussion",
     "comment",
@@ -32,35 +33,10 @@ _HN_DISCUSSION_MARKERS = (
     "ask hn",
     "show hn",
 )
-_HN_FOCUS_MARKERS = (
-    "startup",
-    "open source",
-    "programming",
-    "developer",
-    "code",
-    "rust",
-    "python",
-    "javascript",
-    "database",
-    "linux",
-    "security",
-    "ai",
-    "llm",
-    "model",
-    "benchmark",
-    "launch",
-    "release",
-    "news",
-)
 
 
 class HackerNewsError(RuntimeError):
     pass
-
-
-def _should_use_hackernews(query: str) -> bool:
-    normalized = query.casefold()
-    return any(marker in normalized for marker in _HN_FOCUS_MARKERS)
 
 
 def _should_search_comments(query: str) -> bool:
@@ -151,13 +127,11 @@ async def search_hackernews(
 ) -> list[WebSearchResult]:
     """Search HackerNews stories and comments via Algolia API.
 
-    The provider stays quiet for queries that are unlikely to benefit from HN.
-    When a query looks discussion-oriented, both stories and comments are
-    searched and the results are merged with de-duplication.
+    Uses Algolia's relevance-ranked endpoint. When a query looks
+    discussion-oriented, both stories and comments are searched and the
+    results are merged with de-duplication.
     """
     if not query.strip() or num_results < 1:
-        return []
-    if not _should_use_hackernews(query):
         return []
 
     tags = _selected_tags(query)
@@ -271,5 +245,5 @@ async def search_hackernews(
         request=_do_request,
         parse_response=_parse_response,
         http_client=http_client,
-        timeout_seconds=15.0,
+        timeout_seconds=settings.search_retrieve_budget_seconds,
     )

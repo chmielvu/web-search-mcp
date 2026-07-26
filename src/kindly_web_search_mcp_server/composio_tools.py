@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
+from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -14,6 +17,9 @@ from .models import (
 )
 from .tools.catalog import tool_kwargs
 from .errors import format_tool_error
+from .utils.observability import emit_tool_observability_event
+
+LOGGER = logging.getLogger(__name__)
 
 SIMILARLINKS_SLUG = "COMPOSIO_SEARCH_EXA_SIMILARLINK"
 WEB_SEARCH_SLUG = "COMPOSIO_SEARCH_TAVILY"
@@ -96,6 +102,21 @@ def register_composio_tools(mcp: Any) -> None:
         """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
         Use get_content on selected links when page text is needed.
         """
+        started = time.monotonic()
+        tool_call_id = str(uuid4())
+        emit_tool_observability_event(
+            LOGGER,
+            "composio_similarlinks",
+            "request",
+            tool_call_id=tool_call_id,
+            url=url,
+            num_results=num_results,
+            search_type=search_type,
+            category=category,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            provider="composio",
+        )
         try:
             response = await _composio_similarlinks_impl(
                 url,
@@ -106,6 +127,28 @@ def register_composio_tools(mcp: Any) -> None:
                 exclude_domains,
             )
         except Exception as exc:
+            emit_tool_observability_event(
+                LOGGER,
+                "composio_similarlinks",
+                "error",
+                tool_call_id=tool_call_id,
+                url=url,
+                provider="composio",
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
             return format_tool_error(exc, provider="composio")
         await ctx.info(f"Found {response.total_results} similar links")
+        emit_tool_observability_event(
+            LOGGER,
+            "composio_similarlinks",
+            "response",
+            tool_call_id=tool_call_id,
+            url=url,
+            provider="composio",
+            results=response.results,
+            output_count=response.total_results,
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
         return response.model_dump(exclude_none=True)

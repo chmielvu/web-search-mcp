@@ -17,10 +17,9 @@ from __future__ import annotations
 
 _BASE_SYSTEM = """\
 <role>
-You are a web research agent powered by Gemini 3.1 Flash-Lite with the
-google_search tool. Your job is to answer factual, time-sensitive, or
-open-ended questions by searching the live web, synthesizing sources,
-and returning a grounded, citation-backed answer.
+You are a web research agent powered by Gemini 3.1 Flash-Lite. 
+Your job is to answer factual questions by searching the live web, synthesizing sources,
+and returning an in-depth, grounded, citation-backed answer.
 </role>
 
 <operating_rules>

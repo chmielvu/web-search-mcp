@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 
@@ -19,10 +19,13 @@ def get_cmd(
     url: Annotated[str, typer.Option("--url", help="URL to fetch.")],
     char_offset: Annotated[int, typer.Option("--char-offset")] = 0,
     char_length: Annotated[int, typer.Option("--char-length")] = 20_000,
-    summary_mode: Annotated[
-        Literal["none", "brief", "detailed"],
-        typer.Option("--summary-mode"),
-    ] = "none",
+    ai_summary: Annotated[
+        bool,
+        typer.Option(
+            "--ai-summary/--no-ai-summary",
+            help="Include a detailed source-grounded Gemini summary.",
+        ),
+    ] = False,
     focus_query: Annotated[
         str | None,
         typer.Option("--focus-query"),
@@ -50,7 +53,7 @@ def get_cmd(
                 url,
                 char_offset=char_offset,
                 char_length=char_length,
-                summary_mode=summary_mode,
+                ai_summary=ai_summary,
                 focus_query=focus_query,
                 include_metadata=include_metadata,
                 include_links=include_links,
@@ -90,10 +93,13 @@ def batch_cmd(
         float,
         typer.Option("--per-url-timeout-seconds"),
     ] = 120.0,
-    summary_mode: Annotated[
-        Literal["none", "brief", "detailed"],
-        typer.Option("--summary-mode"),
-    ] = "none",
+    ai_summary: Annotated[
+        bool,
+        typer.Option(
+            "--ai-summary/--no-ai-summary",
+            help="Include a detailed source-grounded Gemini summary for each item.",
+        ),
+    ] = False,
     focus_query: Annotated[
         str | None,
         typer.Option("--focus-query"),
@@ -114,8 +120,9 @@ def batch_cmd(
 ) -> None:
     """Fetch multiple URLs with a total content budget.
 
-    Optional summary_mode=brief|detailed adds a Gemini summary to each returned item.
-    Use focus_query to bias summaries toward a topic, term, or comparison.
+    Use --ai-summary to add a detailed source-grounded Gemini summary to each
+    returned item. Use focus_query to bias summaries toward a topic, term, or
+    comparison.
     """
     from ..services.content_batch import fetch_batch_content_payload
 
@@ -128,7 +135,7 @@ def batch_cmd(
                 per_item_char_length=per_item_char_length,
                 total_char_budget=total_char_budget,
                 per_url_timeout_seconds=per_url_timeout_seconds,
-                summary_mode=summary_mode,
+                ai_summary=ai_summary,
                 focus_query=focus_query,
                 include_metadata=include_metadata,
                 include_links=include_links,

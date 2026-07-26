@@ -6,9 +6,9 @@ import json
 import logging
 
 from ..entity.models import EntitySpan
-from ..llm.phoenix_tracing import LLMTraceContext
-from ..llm.structured import StructuredLLMRequest
-from ..llm.worker import build_llm_worker
+from ..telemetry.phoenix_tracing import LLMTraceContext
+from ..inference.worker import StructuredLLMRequest
+from ..inference.worker import build_llm_worker
 from ..prompts.builders import REASONING_EFFORT_LOW
 from ..prompts.registry import build_prompt
 

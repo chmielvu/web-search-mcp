@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Literal
+from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -31,7 +31,7 @@ async def get_content(
     url: str,
     char_offset: int = 0,
     char_length: int = 20_000,
-    summary_mode: Literal["none", "brief", "detailed"] = "none",
+    ai_summary: bool = False,
     focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
@@ -51,14 +51,14 @@ async def get_content(
     - If 'has_more' is true, you MUST call this tool again, setting 'char_offset' to the value of 'window.next_offset'.
 
     Parameters explained:
-    - summary_mode: Set to "none" for raw text, "brief" for a 1-2 sentence summary, or "detailed" for paragraph summaries.
+    - ai_summary: Set to true to include a detailed source-grounded Gemini summary.
 
     Args:
         url: The URL to fetch content from.
         char_offset: Starting character position for windowed content (0-based).
         char_length: Maximum characters to return (default 20k, max 50k).
-        summary_mode: "none" (default), "brief" (1-2 sentence), or "detailed"
-            (paragraph-level) Gemini URL-context summary.
+        ai_summary: Whether to include a detailed source-grounded Gemini URL-context
+            summary (default false).
         focus_query: Topic, term, or comparison to bias the summary toward.
         include_metadata: Include page metadata (title, author, date) in response.
         include_links: Include outbound links discovered on the page.
@@ -76,7 +76,7 @@ async def get_content(
         url=url,
         char_offset=char_offset,
         char_length=char_length,
-        summary_mode=summary_mode,
+        ai_summary=ai_summary,
         focus_query=focus_query,
         include_metadata=include_metadata,
         include_links=include_links,
@@ -87,9 +87,6 @@ async def get_content(
     max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
     safe_offset = max(0, char_offset)
-    from ..content.summary_models import VALID_SUMMARY_MODES
-
-    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     fetch_options = build_fetch_options(
         include_metadata=include_metadata,
         include_links=include_links,
@@ -134,19 +131,10 @@ async def get_content(
         await ctx.report_progress(progress=30, total=100, message="Resolving content...")
         fetched = None
         try:
-            fetch_coro = fetch_content_artifact(url, fetch_options=fetch_options)
-            try:
-                fetched = await asyncio.wait_for(
-                    fetch_coro,
-                    timeout=_resolve_tool_total_timeout_seconds(),
-                )
-            except TypeError as exc:
-                if "fetch_options" not in str(exc):
-                    raise
-                fetched = await asyncio.wait_for(
-                    fetch_content_artifact(url),
-                    timeout=_resolve_tool_total_timeout_seconds(),
-                )
+            fetched = await asyncio.wait_for(
+                fetch_content_artifact(url, fetch_options=fetch_options),
+                timeout=_resolve_tool_total_timeout_seconds(),
+            )
         except asyncio.TimeoutError:
             artifact = {
                 "input_url": url,
@@ -228,7 +216,7 @@ async def get_content(
     )
     summary = await create_summary(
         windowed.content,
-        mode=safe_summary_mode,  # type: ignore[arg-type]
+        ai_summary=ai_summary,
         focus_query=focus_query,
         source_urls=[
             artifact["fetched_url"] or artifact["normalized_url"],
@@ -306,7 +294,7 @@ async def batch_get_content(
     per_item_char_length: int = 8_000,
     total_char_budget: int = 120_000,
     cursor: str | None = None,
-    summary_mode: Literal["none", "brief", "detailed"] = "none",
+    ai_summary: bool = False,
     focus_query: str | None = None,
     include_metadata: bool = True,
     include_links: bool = False,
@@ -334,7 +322,8 @@ async def batch_get_content(
         total_char_budget: Maximum total characters across all URLs (default 120k,
             max 300k). Further URLs are skipped when budget is exhausted.
         cursor: Continuation cursor from a prior response for pagination.
-        summary_mode: "none" (default), "brief", or "detailed" per-item summary.
+        ai_summary: Whether to include a detailed source-grounded Gemini summary
+            for each item (default false).
         focus_query: Topic, term, or comparison to bias per-item summaries toward.
         include_metadata: Include page metadata for each result.
         include_links: Include outbound links for each result.
@@ -367,7 +356,7 @@ async def batch_get_content(
         per_item_char_length=safe_item_length,
         total_char_budget=safe_total_budget,
         has_cursor=bool(cursor),
-        summary_mode=summary_mode,
+        ai_summary=ai_summary,
         focus_query=focus_query,
         include_metadata=include_metadata,
         include_links=include_links,
@@ -400,12 +389,9 @@ async def batch_get_content(
         ),
     )
 
-    from ..content.summary_models import VALID_SUMMARY_MODES
-
-    safe_summary_mode = summary_mode if summary_mode in VALID_SUMMARY_MODES else "none"
     summaries = await create_batch_summaries(
         output["results"],
-        mode=safe_summary_mode,  # type: ignore[arg-type]
+        ai_summary=ai_summary,
         focus_query=focus_query,
         max_concurrency=safe_concurrency,
     )

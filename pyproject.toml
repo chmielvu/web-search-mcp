@@ -32,6 +32,7 @@ dependencies = [
     "huggingface-hub>=0.28.0",
     "youtube-transcript-api>=0.6.0",
     "yt-dlp>=2024.0.0",
+    "ftfy>=6.2.0",
     "ddgs>=7.0.0",
     "parallel-web>=1.0",
     "rich>=13.0.0",

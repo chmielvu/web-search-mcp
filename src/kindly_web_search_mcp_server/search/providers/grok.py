@@ -29,7 +29,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...prompts.provider_grok import build_provider_grok_prompt
-from ...llm.usage import extract_llm_usage
+from ...telemetry.usage import extract_llm_usage
 from ...settings import settings
 from ...telemetry import create_llm_operation_span, set_span_error, set_span_success
 from .base import run_provider

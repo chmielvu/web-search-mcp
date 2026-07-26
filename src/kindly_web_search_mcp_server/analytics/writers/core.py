@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from uuid import uuid4
 from collections.abc import Callable
 from typing import Any
 
@@ -12,7 +13,7 @@ import duckdb
 
 from .connection import _db_path, _LOCK
 from ..async_writes import dispatch_duckdb_write
-from ...llm.usage import extract_llm_usage
+from ...telemetry.usage import extract_llm_usage
 
 _logger = logging.getLogger(__name__)
 _FACADE_MODULE = "kindly_web_search_mcp_server.analytics.duckdb_store"
@@ -146,6 +147,28 @@ def insert_provider_calls(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _PROVIDER_CALLS_WRITER
 
     _PROVIDER_CALLS_WRITER.insert(db_path=db_path, **kwargs)
+
+
+def insert_tool_call_event(*, db_path: str | None = None, **kwargs: Any) -> None:
+    """Persist one bounded MCP tool lifecycle event asynchronously."""
+    from .inserts import _TOOL_CALLS_WRITER
+
+    values = dict(kwargs)
+    values.setdefault("event_id", str(uuid4()))
+    if isinstance(values.get("payload_json"), (dict, list)):
+        values["payload_json"] = json.dumps(values["payload_json"], ensure_ascii=False, default=str)
+    _TOOL_CALLS_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+def insert_query_understanding_event(*, db_path: str | None = None, **kwargs: Any) -> None:
+    """Persist one query-understanding decision asynchronously."""
+    from .inserts import _QUERY_UNDERSTANDING_WRITER
+
+    values = dict(kwargs)
+    for field in ("scores_json", "entities_json", "payload_json"):
+        if isinstance(values.get(field), (dict, list)):
+            values[field] = json.dumps(values[field], ensure_ascii=False, default=str)
+    _QUERY_UNDERSTANDING_WRITER.dispatch_insert(db_path=db_path, **values)
 
 
 def insert_search_candidates(*, db_path: str | None = None, **kwargs: Any) -> None:

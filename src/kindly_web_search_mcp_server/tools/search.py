@@ -20,21 +20,28 @@ from ._helpers import (
     _normalize_lightweight_search_response,
     _resolve_session_id,
 )
+from ..utils.observability import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
 
 async def web_search(
-    query: str,
-    research_goal: str,
+    query: str = "",
+    queries: list[str] | None = None,
+    research_goal: str = "",
     rewrite: bool = True,
     site_filters: list[str] | None = None,
     domain_filters: list[str] | None = None,
     domain_boost: list[str] | None = None,
     domain_block: list[str] | None = None,
+    reranking_instructions: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResultType:
     """Run one validated multi-provider web search across configured backends with RRF ranking.
+
+    Multi-query input:
+    - You may pass up to 4 input seed queries via `queries` (e.g. `queries=["query 1", "query 2"]`).
+    - Keep all input queries focused on a single topic/search objective to ensure coherent search planning.
 
     When to use this tool:
     - For thorough, deep multi-provider search across web engines (Brave, Tavily, SearXNG, etc.).
@@ -71,14 +78,52 @@ async def web_search(
 
     started = time.monotonic()
     tool_call_id = str(uuid.uuid4())
+    emit_tool_observability_event(
+        LOGGER,
+        "web_search",
+        "request",
+        tool_call_id=tool_call_id,
+        query=query,
+        queries=queries,
+        research_goal=research_goal,
+        rewrite=rewrite,
+    )
+    try:
+        if queries:
+            cleaned_queries = tuple(q.strip() for q in queries if q and q.strip())[:4]
+            if not cleaned_queries:
+                raise ValueError("queries must contain at least one non-blank string.")
+            primary_query = query.strip() if (query and query.strip()) else cleaned_queries[0]
+            seed_queries = cleaned_queries
+        elif query and query.strip():
+            primary_query = query.strip()
+            seed_queries = (primary_query,)
+        else:
+            raise ValueError("Either query or queries must be provided and non-blank.")
+    except Exception as exc:
+        emit_tool_observability_event(
+            LOGGER,
+            "web_search",
+            "error",
+            tool_call_id=tool_call_id,
+            query=query,
+            research_goal=research_goal,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+        raise
+
     search_options = build_search_options(
         site_filters=[*(site_filters or []), *(domain_filters or [])],
     )
     request = WebSearchRequest(
-        query=query,
+        query=primary_query,
+        queries=seed_queries,
         research_goal=research_goal,
         rewrite=rewrite,
         options=search_options,
+        reranking_instructions=reranking_instructions,
     )
     await ctx.report_progress(progress=5, total=100, message="Planning search...")
     with create_chain_span(
@@ -89,18 +134,34 @@ async def web_search(
             "search.research_goal": request.research_goal[:500],
         },
     ) as root_span:
-        from ..llm.router import bind_run_context, reset_run_context
+        from ..inference.engine import bind_run_context, reset_run_context
 
         ctx_token = bind_run_context(tool_call_id, operation="web_search")
         try:
-            response_model = await execute_web_search(
-                request,
-                http_client=await get_http_client(),
-                run_key=tool_call_id,
-                tool_call_id=tool_call_id,
-                session_id=_resolve_session_id(ctx),
-                progress=ctx,
-            )
+            try:
+                response_model = await execute_web_search(
+                    request,
+                    http_client=await get_http_client(),
+                    run_key=tool_call_id,
+                    tool_call_id=tool_call_id,
+                    session_id=_resolve_session_id(ctx),
+                    progress=ctx,
+                )
+            except Exception as exc:
+                emit_tool_observability_event(
+                    LOGGER,
+                    "web_search",
+                    "error",
+                    tool_call_id=tool_call_id,
+                    query=request.query,
+                    research_goal=request.research_goal,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    duration_ms=(time.monotonic() - started) * 1000,
+                )
+                raise
+            if isinstance(response_model, tuple):
+                response_model = response_model[0]
             response = _normalize_lightweight_search_response(
                 response_model.model_dump(exclude_none=True),
                 query=request.query,
@@ -118,6 +179,18 @@ async def web_search(
         providers_used=response.get("providers_used", []),
         duration_seconds=time.monotonic() - started,
         result_count=len(response.get("results", [])),
+    )
+    emit_tool_observability_event(
+        LOGGER,
+        "web_search",
+        "response",
+        tool_call_id=tool_call_id,
+        query=request.query,
+        research_goal=request.research_goal,
+        providers=response.get("providers_used", []),
+        results=response.get("results", []),
+        output_count=len(response.get("results", [])),
+        duration_ms=(time.monotonic() - started) * 1000,
     )
     await ctx.report_progress(progress=100, total=100, message="Done")
     return response  # type: ignore[return-value]

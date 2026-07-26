@@ -1,8 +1,8 @@
-"""Analytics view bootstrap — 10 human-readable dashboard views.
+"""Analytics view bootstrap — 18 dashboard, quality-diagnostic, A/B, and eval views.
 
-Replaces the 16 JSON-parsing views and 7 observability views with clean,
-dashboard-ready views using CASE labels, ROUND, COALESCE, quantile_cont,
-and date_trunc.  A/B and eval views are preserved.
+Uses CASE labels, ROUND, COALESCE, quantile_cont, and date_trunc.  Quality-diagnostic
+views join llm_judgments to search_runs and final_results; calibration views are
+confidence-only and never fabricate human labels.
 """
 
 from __future__ import annotations
@@ -186,9 +186,14 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             COUNT(*) FILTER (WHERE status = 'success') AS success_count,
             ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'success') / COUNT(*), 1) AS success_rate_pct,
             ROUND(AVG(latency_ms), 0) AS avg_latency_ms,
+            ROUND(quantile_cont(latency_ms, 0.50), 0) AS p50_latency_ms,
             ROUND(quantile_cont(latency_ms, 0.95), 0) AS p95_latency_ms,
             SUM(num_results_returned) AS total_results_returned,
             COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
+            COUNT(*) FILTER (WHERE result_class = 'empty') AS empty_count,
+            COUNT(*) FILTER (WHERE result_class = 'timeout') AS timeout_count,
+            COUNT(*) FILTER (WHERE result_class = 'incomplete') AS incomplete_count,
+            ROUND(100.0 * COUNT(*) FILTER (WHERE result_class = 'empty') / COUNT(*), 1) AS empty_rate_pct,
             MODE(error_type) AS most_common_error
         FROM provider_calls
         GROUP BY provider
@@ -339,7 +344,8 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             ROUND(quantile_cont(overall_score, 0.50), 3) AS median_score
         FROM judge_evaluations
         WHERE evaluated_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
-        GROUP BY relevance_grade, quality_tier
+          AND status = 'success'
+        GROUP BY ALL
         ORDER BY relevance_grade, quality_tier
         """,
         # 9. Provider health
@@ -443,6 +449,175 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         GROUP BY 1, 2, 3, 4, 5
         ORDER BY 1 DESC, 2, 3
         """,
+        # 14. Legacy four-dimensional judge health.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_legacy_judge_quality AS
+        SELECT
+            run_key,
+            recorded_at,
+            evaluated_at,
+            tool_name,
+            judge_model,
+            model_used,
+            link,
+            relevance_grade,
+            relevance_score,
+            accuracy_grade,
+            accuracy_score,
+            completeness_grade,
+            completeness_score,
+            source_quality_grade,
+            source_quality_score,
+            overall_score,
+            status,
+            error_type,
+            error_message,
+            status = 'success' AND overall_score IS NOT NULL AS usable_row,
+            rationale
+        FROM judge_evaluations
+        """,
+        # 15. Typed result-quality diagnostics at result grain.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_result_quality_diagnostics AS
+        SELECT
+            lj.recorded_at,
+            lj.run_key,
+            lj.judgment_target AS link,
+            sr.query,
+            sr.research_goal,
+            sr.intent,
+            sr.understanding_confidence AS classifier_confidence,
+            fr.rank,
+            fr.providers,
+            fr.provider_count,
+            lj.status AS judge_status,
+            lj.error_message AS judge_error,
+            try_cast(json_extract(lj.payload_json, '$.parsed.intent_match') AS BOOLEAN) AS intent_match,
+            try_cast(json_extract(lj.payload_json, '$.parsed.informativeness') AS INTEGER) AS informativeness,
+            lj.confidence AS judge_confidence,
+            CASE
+                WHEN fr.rank IS NULL THEN 'missing_provenance'
+                WHEN fr.providers IS NULL OR len(fr.providers) = 0 THEN 'missing_provider'
+                ELSE 'complete'
+            END AS provenance_status,
+            CASE
+                WHEN fr.rank IS NULL THEN NULL
+                WHEN fr.rank <= 3 THEN '1-3'
+                WHEN fr.rank <= 10 THEN '4-10'
+                ELSE '11+'
+            END AS rank_bucket
+        FROM llm_judgments lj
+        LEFT JOIN search_runs sr ON sr.run_key = lj.run_key
+        LEFT JOIN final_results fr
+            ON fr.run_key = lj.run_key AND fr.link = lj.judgment_target
+        WHERE lj.judgment_kind = 'result_quality'
+        """,
+        # 16. Misses grouped by stable, available diagnostics.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_quality_miss_summary AS
+        SELECT
+            date_trunc('day', recorded_at) AS day,
+            intent,
+            COALESCE(array_to_string(providers, ','), 'unknown') AS provider_group,
+            rank_bucket,
+            provenance_status,
+            CASE
+                WHEN classifier_confidence IS NULL THEN 'unknown'
+                WHEN classifier_confidence < 0.50 THEN '0.00-0.49'
+                WHEN classifier_confidence < 0.75 THEN '0.50-0.74'
+                WHEN classifier_confidence < 0.90 THEN '0.75-0.89'
+                ELSE '0.90-1.00'
+            END AS confidence_bucket,
+            COUNT(*) AS judged_results,
+            COUNT(*) FILTER (WHERE intent_match = false) AS intent_misses,
+            COUNT(*) FILTER (WHERE informativeness <= 2) AS low_informativeness,
+            COUNT(*) FILTER (WHERE judge_status <> 'success') AS judge_errors,
+            ROUND(AVG(classifier_confidence), 3) AS avg_classifier_confidence
+        FROM {t}.vw_result_quality_diagnostics
+        GROUP BY ALL
+        ORDER BY day DESC, judged_results DESC
+        """,
+        # 17. Query understanding events joined to canonical search outcomes.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_query_understanding_events AS
+        SELECT
+            q.recorded_at,
+            q.run_key,
+            q.tool_call_id,
+            q.session_id,
+            q.raw_query,
+            q.normalized_query,
+            q.research_goal,
+            q.predicted_intent,
+            q.predicted_confidence,
+            q.final_intent,
+            q.final_confidence,
+            q.decision_path,
+            q.fallback_reason,
+            q.classifier_model,
+            q.classifier_provider,
+            q.classifier_endpoint,
+            q.classifier_latency_ms,
+            q.confidence_threshold,
+            q.scores_json,
+            q.entities_json,
+            q.preserved_terms,
+            q.compared_entities,
+            q.time_sensitivity,
+            q.domain_hints,
+            q.should_decompose,
+            q.rationale,
+            sr.final_result_count,
+            sr.provider_count,
+            sr.status AS search_status,
+            sr.duration_ms AS search_duration_ms
+        FROM query_understanding_events q
+        LEFT JOIN search_runs sr ON sr.run_key = q.run_key
+        """,
+        # 18. Calibration-safe confidence report. Production rows are unlabeled
+        # unless a human adjudication row is explicitly present.
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_query_understanding_calibration AS
+        WITH labeled AS (
+            SELECT
+                q.*,
+                cs.human_verdict,
+                CASE
+                    WHEN cs.human_verdict IS NOT NULL THEN 'human'
+                    ELSE 'unlabeled'
+                END AS label_source,
+                CASE
+                    WHEN cs.human_verdict IS NOT NULL
+                    THEN (q.final_intent = cs.human_verdict)
+                    ELSE NULL
+                END AS observed_agreement
+            FROM query_understanding_events q
+            LEFT JOIN judge_calibration_set cs
+                ON cs.run_key = q.run_key AND cs.facet = 'query_understanding'
+        )
+        SELECT
+            CASE
+                WHEN final_confidence < 0.50 THEN '0.00-0.49'
+                WHEN final_confidence < 0.75 THEN '0.50-0.74'
+                WHEN final_confidence < 0.90 THEN '0.75-0.89'
+                ELSE '0.90-1.00'
+            END AS confidence_bucket,
+            decision_path,
+            label_source,
+            COUNT(*) AS event_count,
+            ROUND(AVG(final_confidence), 3) AS avg_confidence,
+            ROUND(AVG(observed_agreement::INTEGER), 3) AS observed_agreement,
+            ROUND(
+                AVG(CASE WHEN label_source = 'human'
+                    THEN POWER(final_confidence - observed_agreement::INTEGER, 2)
+                    ELSE NULL
+                END),
+                4
+            ) AS brier_score
+        FROM labeled
+        GROUP BY ALL
+        ORDER BY confidence_bucket, decision_path, label_source
+        """,
     ]
 
 
@@ -453,11 +628,12 @@ def ensure_views(*, db_path: str | None = None) -> None:
     path = _db_path(db_path)
     if not path.exists():
         return
+    # Schema installation acquires the same process lock. Perform it before
+    # taking the view-creation lock to avoid a non-reentrant lock deadlock.
+    ensure_store_schema(db_path=db_path)
     with _LOCK:
         connection = duckdb.connect(str(path))
         try:
-            # Ensure all tables exist (9 pipeline + health + quality + judge + vss)
-            ensure_store_schema(db_path=db_path)
             # Eval tables
             for statement in build_eval_table_sql("main"):
                 connection.execute(statement)

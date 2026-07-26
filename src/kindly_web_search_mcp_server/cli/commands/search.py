@@ -51,12 +51,26 @@ def quick_cmd(
 
 @search_app.command("web")
 def web_cmd(
-    query: Annotated[str, typer.Option("--query", help="Search query text.")],
+    query: Annotated[
+        list[str],
+        typer.Option(
+            "--query",
+            "-q",
+            help="Search query text (can be specified up to 4 times for multi-query search).",
+        ),
+    ] = ...,
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
     research_goal: Annotated[
         str,
         typer.Option("--research-goal", help="Required search objective."),
     ] = ...,
+    reranking_instructions: Annotated[
+        str | None,
+        typer.Option(
+            "--reranking-instructions",
+            help="Instructions for cross-encoder & LLM rerankers specifying what sites/sources to prioritize or demote.",
+        ),
+    ] = None,
     searxng_category: Annotated[
         list[str] | None,
         typer.Option("--searxng-category"),
@@ -102,6 +116,7 @@ def web_cmd(
                 query,
                 rewrite=rewrite,
                 research_goal=research_goal,
+                reranking_instructions=reranking_instructions,
                 searxng_categories=searxng_category,
                 searxng_engines=searxng_engine,
                 searxng_language=searxng_language,

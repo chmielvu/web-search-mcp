@@ -2,24 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
-
-@dataclass(frozen=True, slots=True)
-class LLMUsage:
-    """Token usage extracted from an LLM response."""
-
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    total_tokens: int | None = None
-
-    @property
-    def has_values(self) -> bool:
-        return any(
-            value is not None
-            for value in (self.input_tokens, self.output_tokens, self.total_tokens)
-        )
+from ..inference.types import LLMUsage
 
 
 def _as_mapping(value: Any) -> dict[str, Any] | None:

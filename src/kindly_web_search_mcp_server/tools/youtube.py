@@ -4,6 +4,7 @@ import asyncio
 import logging
 import time
 from typing import Literal
+from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -27,6 +28,9 @@ from ..youtube import (
     parse_youtube_url,
     search_youtube,
 )
+
+from ..heuristics.text_clean import clean_text_for_llm
+from ..utils.observability import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +65,19 @@ async def youtube_transcript(
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
     effective_backend = backend or settings.youtube_transcript_backend
+    started = time.monotonic()
+    tool_call_id = str(uuid4())
+    emit_tool_observability_event(
+        LOGGER,
+        "youtube_transcript",
+        "request",
+        tool_call_id=tool_call_id,
+        video_id_or_url=video_id_or_url,
+        language=language,
+        translate_to=translate_to,
+        output_format=format,
+        backend=effective_backend,
+    )
 
     try:
         # Parse URL/ID
@@ -94,6 +111,9 @@ async def youtube_transcript(
         else:
             transcript_text = format_transcript_text(segments)
 
+        if transcript_text:
+            transcript_text = clean_text_for_llm(transcript_text, role="transcript")
+
         # Truncate if needed
         if len(transcript_text) > max_chars:
             transcript_text = transcript_text[:max_chars].rstrip() + "…"
@@ -122,6 +142,22 @@ async def youtube_transcript(
             error=None,
         ).model_dump(exclude_none=True)
 
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_transcript",
+            "response",
+            tool_call_id=tool_call_id,
+            video_id=video_id,
+            video_url=canonical_url,
+            language=actual_language,
+            output_format=format,
+            backend=backend_used,
+            transcript_text=transcript_text,
+            transcript_segments=segments if format == "json" else None,
+            output_count=len(segments),
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response  # type: ignore[return-value]
 
@@ -134,6 +170,17 @@ async def youtube_transcript(
             backend_used=effective_backend,
         )
         error_msg = f"Transcript fetch timed out after {timeout_seconds}s"
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_transcript",
+            "error",
+            tool_call_id=tool_call_id,
+            video_id_or_url=video_id_or_url,
+            backend=effective_backend,
+            error_type="timeout",
+            error_message=error_msg,
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
         return {  # type: ignore[return-value]
             "video_id": "",
             "video_url": video_id_or_url,
@@ -152,6 +199,17 @@ async def youtube_transcript(
             is_translated=bool(translate_to),
             duration_seconds=None,
             backend_used=effective_backend,
+        )
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_transcript",
+            "error",
+            tool_call_id=tool_call_id,
+            video_id_or_url=video_id_or_url,
+            backend=effective_backend,
+            error_type="content",
+            error_message=str(e),
+            duration_ms=(time.monotonic() - started) * 1000,
         )
         return {  # type: ignore[return-value]
             "video_id": "",
@@ -174,6 +232,17 @@ async def youtube_transcript(
         )
         LOGGER.warning("YouTube transcript unexpected error: %s", e)
         structured = format_tool_error(e, provider="youtube")
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_transcript",
+            "error",
+            tool_call_id=tool_call_id,
+            video_id_or_url=video_id_or_url,
+            backend=effective_backend,
+            error_type=structured["error_type"],
+            error_message=str(structured["error"]),
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
         return {  # type: ignore[return-value]
             "video_id": "",
             "video_url": video_id_or_url,
@@ -207,6 +276,15 @@ async def youtube_search(
     num_results = min(num_results, 20)
 
     start_time = time.time()
+    tool_call_id = str(uuid4())
+    emit_tool_observability_event(
+        LOGGER,
+        "youtube_search",
+        "request",
+        tool_call_id=tool_call_id,
+        query=query,
+        num_results=num_results,
+    )
 
     try:
         await ctx.report_progress(progress=20, total=100, message="Searching YouTube...")
@@ -227,6 +305,18 @@ async def youtube_search(
             search_backend=search_backend,
         ).model_dump(exclude_none=True)
 
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_search",
+            "response",
+            tool_call_id=tool_call_id,
+            query=query,
+            results=results,
+            output_count=len(results),
+            provider=search_backend,
+            duration_ms=(time.time() - start_time) * 1000,
+        )
+
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response  # type: ignore[return-value]
 
@@ -236,6 +326,16 @@ async def youtube_search(
             num_results=0,
             duration_seconds=duration_seconds,
             search_backend="error",
+        )
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_search",
+            "error",
+            tool_call_id=tool_call_id,
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            duration_ms=duration_seconds * 1000,
         )
         return {  # type: ignore[return-value]
             "query": query,
@@ -253,4 +353,14 @@ async def youtube_search(
             duration_seconds=duration_seconds,
         )
         LOGGER.warning("YouTube search unexpected error: %s", e)
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_search",
+            "error",
+            tool_call_id=tool_call_id,
+            query=query,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            duration_ms=duration_seconds * 1000,
+        )
         return format_tool_error(e, provider="youtube")  # type: ignore[return-value]

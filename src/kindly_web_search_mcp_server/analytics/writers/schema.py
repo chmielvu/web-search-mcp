@@ -27,6 +27,7 @@ from .table_names import (
     _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
     _PH_TABLE_NAME,
+    _QUE_TABLE_NAME,
     _QE_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
@@ -34,6 +35,7 @@ from .table_names import (
     _SB_TABLE_NAME,
     _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
+    _TC_TABLE_NAME,
 )
 
 _logger = logging.getLogger(__name__)
@@ -92,7 +94,7 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         rewrite_output_tokens INTEGER,
         rewrite_latency_ms    DOUBLE,
         rewrite_error         VARCHAR,
-        rewritten_branch_queries VARCHAR[],   -- 4 rewrites from the planner (k1, k2, k3, neural)
+        rewritten_branch_queries VARCHAR[],   -- 5 rewrites from the planner (k1, k2, k3, neural, specialized)
         payload_json          JSON
         """,
     )
@@ -149,8 +151,98 @@ def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
         error_type            VARCHAR,
         error_message         VARCHAR,
         candidate_urls        VARCHAR[],
+        request_query         VARCHAR,
+        request_url           VARCHAR,
+        http_status           INTEGER,
+        result_class          VARCHAR,
+        response_meta_json    JSON,
         payload_json          JSON
         """,
+    )
+
+
+def _ensure_tool_calls(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _TC_TABLE_NAME,
+        """
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        event_id             VARCHAR NOT NULL,
+        tool_call_id         VARCHAR,
+        session_id           VARCHAR,
+        trace_id             VARCHAR,
+        span_id              VARCHAR,
+        tool_name            VARCHAR NOT NULL,
+        phase                VARCHAR NOT NULL,
+        status               VARCHAR,
+        query                VARCHAR,
+        research_goal        VARCHAR,
+        input_url            VARCHAR,
+        normalized_url       VARCHAR,
+        input_count          INTEGER,
+        output_count         INTEGER,
+        duration_ms          DOUBLE,
+        provider             VARCHAR,
+        model                VARCHAR,
+        input_tokens         INTEGER,
+        output_tokens        INTEGER,
+        request_fingerprint  VARCHAR,
+        error_type           VARCHAR,
+        error_message        VARCHAR,
+        payload_json         JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_recorded "
+        "ON tool_calls(tool_name, recorded_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_call_id ON tool_calls(tool_call_id)"
+    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status)")
+
+
+def _ensure_query_understanding_events(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _QUE_TABLE_NAME,
+        """
+        recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key                 VARCHAR,
+        tool_call_id            VARCHAR,
+        session_id              VARCHAR,
+        raw_query               VARCHAR NOT NULL,
+        normalized_query        VARCHAR,
+        research_goal           VARCHAR,
+        predicted_intent        VARCHAR,
+        predicted_confidence    DOUBLE,
+        final_intent            VARCHAR NOT NULL,
+        final_confidence        DOUBLE,
+        decision_path            VARCHAR NOT NULL,
+        fallback_reason         VARCHAR,
+        classifier_model        VARCHAR,
+        classifier_provider     VARCHAR,
+        classifier_endpoint     VARCHAR,
+        classifier_latency_ms   DOUBLE,
+        confidence_threshold    DOUBLE,
+        scores_json             JSON,
+        entities_json           JSON,
+        preserved_terms         VARCHAR[],
+        compared_entities       VARCHAR[],
+        time_sensitivity        VARCHAR,
+        domain_hints            VARCHAR[],
+        should_decompose        BOOLEAN,
+        rationale               VARCHAR,
+        payload_json            JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_query_understanding_intent_recorded "
+        "ON query_understanding_events(predicted_intent, recorded_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_query_understanding_run_key "
+        "ON query_understanding_events(run_key)"
     )
 
 
@@ -516,6 +608,9 @@ def _ensure_judge_evaluations(
         output_tokens        INTEGER,
         tokens_used          INTEGER,
         cost_usd             DOUBLE,
+        status               VARCHAR NOT NULL DEFAULT 'success',
+        error_type           VARCHAR,
+        error_message        VARCHAR,
         payload_json         JSON
         """,
     )
@@ -604,6 +699,17 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_search_runs(connection)
             _ensure_search_branches(connection)
             _ensure_provider_calls(connection)
+            _ensure_columns(
+                connection,
+                "provider_calls",
+                {
+                    "request_query": "VARCHAR",
+                    "request_url": "VARCHAR",
+                    "http_status": "INTEGER",
+                    "result_class": "VARCHAR",
+                    "response_meta_json": "JSON",
+                },
+            )
             _ensure_search_candidates(connection)
             _ensure_rerank_stages(connection)
             _ensure_rerank_candidates(connection)
@@ -612,6 +718,8 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_candidate_embeddings(connection)
             _ensure_provider_health_transitions(connection)
             _ensure_llm_call_log(connection)
+            _ensure_tool_calls(connection)
+            _ensure_query_understanding_events(connection)
             _ensure_llm_judgments(connection)
             _ensure_columns(
                 connection,
@@ -628,6 +736,15 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_judge_calibration_set(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
+            _ensure_columns(
+                connection,
+                "judge_evaluations",
+                {
+                    "status": "VARCHAR NOT NULL DEFAULT 'success'",
+                    "error_type": "VARCHAR",
+                    "error_message": "VARCHAR",
+                },
+            )
             if settings.vss_enabled:
                 ensure_vss_extension(connection)
             if flockmtl_loaded:

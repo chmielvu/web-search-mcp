@@ -7,9 +7,9 @@ import time as time_module
 
 from ...settings import settings
 from ...utils.background_tasks import fire_and_forget
-from ...llm.phoenix_tracing import LLMTraceContext
-from ...llm.worker import build_llm_worker
-from ...llm.structured import StructuredLLMRequest
+from ...inference.worker import build_llm_worker
+from ...inference.worker import StructuredLLMRequest
+from ...telemetry.phoenix_tracing import LLMTraceContext
 from ...prompts.builders import REASONING_EFFORT_LOW
 from ...prompts.registry import build_prompt
 from ...training.session_state import get_session_state_store
@@ -30,9 +30,14 @@ def _build_ab_router(ab_overrides: dict) -> object:
     The variant config may contain ``model`` and/or ``timeout_seconds``
     keys to override the default classifier endpoint.
     """
-    from ...llm.models import LLMEndpoint
-    from ...llm.router import LLMRouter
-    from ...llm.config import build_vercel_gpt_oss_endpoint
+    from ...inference.registry import (
+        add_provider,
+        as_openai,
+        define_model,
+    )
+    from ...inference.chain import ChainSpec
+    from ...inference.types import ModelCapability
+    from ...inference.router import LLMRouter
 
     cfg = ab_overrides["config"]
     model = cfg.get("model", settings.query_understanding_model)
@@ -41,14 +46,37 @@ def _build_ab_router(ab_overrides: dict) -> object:
     # Normalise model name
     model_str: str = f"groq/{model.removeprefix('groq/')}"
 
-    endpoint = LLMEndpoint(
-        name="groq",
-        model=model_str,
-        base_url=settings.groq_base_url,
-        api_key=settings.groq_api_key,
-        timeout_seconds=timeout,
+    define_model(
+        "ab-groq",
+        display_name="A/B Groq",
+        description="A/B test variant — groq with overridden model/timeout.",
+        capabilities={ModelCapability.CHAT},
     )
-    return LLMRouter((endpoint, build_vercel_gpt_oss_endpoint(timeout_seconds=timeout)))
+    add_provider(
+        "ab-groq", "groq",
+        as_openai(
+            model_id=model_str,
+            base_url=settings.groq_base_url,
+            api_key_env="GROQ_API_KEY",
+            default_timeout=timeout,
+        ),
+    )
+    define_model(
+        "ab-vercel",
+        display_name="A/B Vercel",
+        description="A/B test variant — vercel with overridden timeout.",
+        capabilities={ModelCapability.CHAT},
+    )
+    add_provider(
+        "ab-vercel", "vercel",
+        as_openai(
+            model_id=settings.vercel_rewrite_model,
+            base_url=settings.vercel_ai_gateway_base_url,
+            api_key_env="AI_GATEWAY_API_KEY",
+            default_timeout=timeout,
+        ),
+    )
+    return LLMRouter(chain=ChainSpec("ab_router", ("ab-groq@groq", "ab-vercel@vercel")))
 
 
 async def resolve_query_understanding(
@@ -67,14 +95,13 @@ async def resolve_query_understanding(
     from .onnx_classifier import classify_intent
 
     onnx_result = await classify_intent(normalized_query)
-    if onnx_result is not None:
-        label, confidence = onnx_result
+    if onnx_result is not None and onnx_result.label is not None:
         # Even at moderate confidence we trust the classifier — it's
         # the primary path. The LLM fallback only triggers if the
-        # classifier service is down (onnx_result is None).
+        # classifier service is down (onnx_result is None or has no label).
         understanding = QueryUnderstandingResult(
-            intent=normalize_intent(label),
-            confidence=confidence,
+            intent=normalize_intent(onnx_result.label),
+            confidence=onnx_result.confidence,
             rationale="onnx-classifier",
             should_decompose=False,
         )
@@ -176,8 +203,8 @@ async def resolve_query_understanding(
                 reasoning_effort=REASONING_EFFORT_LOW,
                 langfuse=langfuse_trace,
             )
-            result_model_name = generation.endpoint.model
-            result_provider_name = generation.endpoint.name
+            result_model_name = generation.spec.model_id
+            result_provider_name = generation.spec.provider
             result_input_tokens = generation.input_tokens
             result_output_tokens = generation.output_tokens
             content = generation.content

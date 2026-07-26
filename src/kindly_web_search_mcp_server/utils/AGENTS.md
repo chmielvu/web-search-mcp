@@ -16,7 +16,7 @@ Cross-cutting helpers shared across the codebase.
 | `observability.py` | Observability event helpers |
 | `public_output.py` | Public response serialization |
 | `diagnostics.py` | Diagnostics helpers and env masking |
-| `duckdb_log_handler.py` | DuckDB process-log handler |
+| `sqlite_log_handler.py` | SQLite (WAL) process-log handler with FTS5 |
 | `snippet_normalizer.py` | Snippet cleanup helpers |
 | `structured_logging.py` | Structured logging helpers |
 
@@ -24,6 +24,7 @@ Cross-cutting helpers shared across the codebase.
 
 - Keep cross-cutting helpers out of feature packages.
 - Centralize logging, HTTP client reuse, observability, output shaping.
+- Tool lifecycle events are normalized and routed through `utils/observability.py` into typed analytics `tool_calls`; do not resurrect the removed generic `search_events` sink.
 - Provide small reusable primitives (singleflight, snippet cleanup, URL canonicalization).
 
 ## Testing

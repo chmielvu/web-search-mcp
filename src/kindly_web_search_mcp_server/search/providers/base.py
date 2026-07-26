@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
 import httpx
+from dataclasses import dataclass, field
+import contextvars
 
 from ...models import WebSearchResult
 from ...settings import settings
@@ -16,6 +18,57 @@ TResponse = TypeVar("TResponse")
 RequestFn = Callable[[httpx.AsyncClient], Awaitable[TResponse]]
 ClientlessRequestFn = Callable[[], Awaitable[TResponse]]
 ParseFn = Callable[[TResponse], list[WebSearchResult]]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRequestMetadata:
+    provider: str
+    endpoint: str | None = None
+    http_status: int | None = None
+    result_class: str | None = None
+    error_type: str | None = None
+    error_summary: str | None = None
+    auth_mode: str | None = None
+    response_meta: dict[str, object] = field(default_factory=dict)
+
+
+class ProviderRequestError(RuntimeError):
+    """Normalized provider failure retaining request diagnostics."""
+
+    def __init__(self, message: str, *, metadata: ProviderRequestMetadata) -> None:
+        super().__init__(message)
+        self.metadata = metadata
+
+
+_provider_metadata_context: contextvars.ContextVar[ProviderRequestMetadata | None] = (
+    contextvars.ContextVar("provider_request_metadata", default=None)
+)
+
+
+def set_provider_request_metadata(metadata: ProviderRequestMetadata) -> None:
+    _provider_metadata_context.set(metadata)
+
+
+def get_provider_request_metadata() -> ProviderRequestMetadata | None:
+    return _provider_metadata_context.get()
+
+
+def _with_metadata(
+    metadata: ProviderRequestMetadata,
+    **updates: object,
+) -> ProviderRequestMetadata:
+    values = {
+        "provider": metadata.provider,
+        "endpoint": metadata.endpoint,
+        "http_status": metadata.http_status,
+        "result_class": metadata.result_class,
+        "error_type": metadata.error_type,
+        "error_summary": metadata.error_summary,
+        "auth_mode": metadata.auth_mode,
+        "response_meta": metadata.response_meta,
+    }
+    values.update(updates)
+    return ProviderRequestMetadata(**values)
 
 
 def _attach_provider_name(
@@ -47,13 +100,60 @@ async def run_provider(
     if not query.strip() or num_results < 1:
         return []
 
+    existing_metadata = get_provider_request_metadata()
+    if existing_metadata is None or existing_metadata.provider != provider_name:
+        set_provider_request_metadata(ProviderRequestMetadata(provider=provider_name))
+
     if timeout_seconds is None:
         timeout_seconds = settings.search_retrieve_budget_seconds
 
     async def _fetch(client: httpx.AsyncClient) -> list[WebSearchResult]:
-        payload = await request(client)
-        results = parse_response(payload)
-        return _attach_provider_name(results, provider_name)[:num_results]
+        try:
+            payload = await request(client)
+            results = parse_response(payload)
+        except ProviderRequestError:
+            raise
+        except httpx.TimeoutException as exc:
+            metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+            metadata = _with_metadata(
+                metadata,
+                result_class="timeout",
+                error_type="timeout",
+                error_summary=str(exc)[:500],
+            )
+            set_provider_request_metadata(metadata)
+            raise ProviderRequestError(str(exc) or "provider request timed out", metadata=metadata)
+        except httpx.HTTPStatusError as exc:
+            response = exc.response
+            metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+            metadata = _with_metadata(
+                metadata,
+                endpoint=str(response.request.url),
+                http_status=response.status_code,
+                result_class="error",
+                error_type="http_status",
+                error_summary=str(exc)[:500],
+            )
+            set_provider_request_metadata(metadata)
+            raise ProviderRequestError(str(exc), metadata=metadata) from exc
+        except Exception as exc:
+            metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+            metadata = _with_metadata(
+                metadata,
+                result_class="error",
+                error_type=type(exc).__name__,
+                error_summary=str(exc)[:500],
+            )
+            set_provider_request_metadata(metadata)
+            raise ProviderRequestError(str(exc), metadata=metadata) from exc
+        attached = _attach_provider_name(results, provider_name)[:num_results]
+        metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+        metadata = _with_metadata(
+            metadata,
+            result_class="nonempty" if attached else "empty",
+        )
+        set_provider_request_metadata(metadata)
+        return attached
 
     if http_client is not None:
         return await _fetch(http_client)

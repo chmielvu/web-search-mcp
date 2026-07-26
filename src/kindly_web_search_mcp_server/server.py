@@ -296,16 +296,16 @@ def _resolve_host_port(host: str | None, port: int | None) -> tuple[str, int]:
 
 
 def _warm_heavy_imports() -> None:
-    """Pre-import modules with expensive lazy dependencies.
+    """Pre-import the inference router module before server startup.
 
-    ``llm.router`` imports ``openai.resources.chat``, which contends with
+    ``inference.router`` imports ``openai.resources.chat``, which contends with
     other lazy imports for the global import lock under stdio transport.
     Calling this from ``main()`` before ``mcp.run()`` ensures the work
     happens during server startup, not during the first tool call.
     """
     import importlib
 
-    importlib.import_module(".llm.router", package=__package__)
+    importlib.import_module(".inference.router", package=__package__)
 
 
 def main(argv: list[str] | None = None) -> None:

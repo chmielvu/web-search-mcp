@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from ..heuristics.text_clean import clean_text_for_llm
+
 # Hard cap on snippet characters (prevents context-budget blowouts)
 MAX_SNIPPET_LENGTH = 500
 
@@ -42,7 +44,7 @@ def normalize_snippet(text: str, *, max_length: int = MAX_SNIPPET_LENGTH) -> str
     if not text:
         return ""
 
-    cleaned = text
+    cleaned = clean_text_for_llm(text, role="snippet")
     for pattern in _STRIP_PATTERNS:
         cleaned = pattern.sub(" ", cleaned)
 
