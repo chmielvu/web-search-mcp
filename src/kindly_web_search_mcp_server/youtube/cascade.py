@@ -96,9 +96,7 @@ def fetch_transcript_cascade(
                 errors.append(f"cf_whisper: {type(exc).__name__}: {exc}")
                 logger.debug("Cloudflare Whisper unexpected error for %s: %s", video_id, exc)
         elif backend == "cf_whisper":
-            raise YouTubeError(
-                "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured"
-            )
+            raise YouTubeError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured")
 
     # --- Layer 3: Whisper ASR (if WHISPER_SPACE_URL configured) ---
     if backend in ("auto",) and settings.whisper_space_url.strip():

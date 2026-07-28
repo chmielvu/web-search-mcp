@@ -595,6 +595,8 @@ def _ensure_judge_evaluations(
         link                 VARCHAR,
         relevance_grade      VARCHAR,
         relevance_score      DOUBLE,
+        relevance_raw        INTEGER,
+        relevance_scale      VARCHAR,
         accuracy_grade       VARCHAR,
         accuracy_score       DOUBLE,
         completeness_grade   VARCHAR,
@@ -740,6 +742,8 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 connection,
                 "judge_evaluations",
                 {
+                    "relevance_raw": "INTEGER",
+                    "relevance_scale": "VARCHAR",
                     "status": "VARCHAR NOT NULL DEFAULT 'success'",
                     "error_type": "VARCHAR",
                     "error_message": "VARCHAR",

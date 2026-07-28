@@ -1,6 +1,44 @@
 # Changelog
 
 ## [Unreleased]
+
+### Changed — Gemma SERP now uses Pollinations
+- Replaced the raw Gemini Search grounding request with Pollinations' OpenAI-compatible `gemini-fast` chat-completions endpoint, using `POLLINATIONS_API_KEY`, explicit system instructions, and structured JSON result parsing.
+- Preserved the public `gemma` provider name while recording Pollinations, native web-search grounding, and the underlying Gemini 2.5 Flash-Lite model in result diagnostics. The prompt was tuned against live `polli` calls to decompose queries, keep retrieved URLs exact, and output JSON-only results; generation now allows `temperature=0.3` and `max_tokens=4096`.
+- Passed request seed `queries` and `research_goal` into the Gemma prompt with explicit context semantics for decomposition and relevance ranking.
+
+### Fixed — Bright Data SERP localization, pagination, and latency
+- Preserved four-letter Bing locales, added bounded Google/Bing/Yandex pagination, and stopped forcing Yandex's USA region for non-US searches.
+- Added compatibility for Bright Data's documented Bing `webPages.value` response, explicit Yandex timeouts, and structured HTTP diagnostics including `Retry-After` and `x-brd-err-msg`.
+- Required an explicit Bright Data SERP zone in provider reachability/configuration and enabled the documented `parsed_light` fast path for Google top-ten web searches.
+
+### Fixed — Lifecycle, provider diagnostics, cache telemetry, and BrightData errors
+- Judge executor shutdown is restartable across the process lifetime; a completed shutdown no longer permanently suppresses later fire-and-forget judge jobs.
+- Provider request metadata is reset per invocation, page-cache store failures report error telemetry, and SQLite log-handler close flushes buffered records before closing.
+- BrightData Google and Bing failures now propagate through the shared provider error contract instead of being converted to empty results.
+- Shadow A/B callables continue to receive the legacy `top_n` keyword when the retrieval path supplies `top_k`; judge-evaluation writes preserve legacy relevance columns and default missing statuses.
+- Added Telethon to the project dependencies and lockfile for the Telegram provider.
+### Fixed — Voyage rerank MCP failures
+- Corrected the unified Voyage `/v1/rerank` adapter to send the API's `top_k` request field and serialize its `data` response list, preventing a 400 fallback failure from surfacing during `web_search`.
+- Added a regression test covering the request field and serialized response contract.
+### Changed — Hosted GLiNER2 query understanding
+- Replaced the application-local TinyBERT/ONNX and LLM query-understanding paths with one async HTTP gateway targeting the VPS unified GLiNER2 service at `INTENT_CLASSIFIER_URL` (default `http://127.0.0.1:8000`).
+- Added normalized intent/entity/relation contracts with grounded source offsets, expanded entity labels, allowlisted relations, model version, latency, and deterministic fail-open behavior.
+- Routed optional content entity extraction through the same VPS gateway; the client accepts the live `/extract` response wrapper and preserves exact source spans.
+- Added a local parity service contract at `/v2/query-understanding` and pinned its deployment model to `fastino/gliner2-multi-v1` with `gliner2[local]==1.3.1`.
+- The checked-in parity service exposes the new contract; the live VPS currently still advertises legacy `/classify`/`/extract` routes, so `/v2/query-understanding` requires deployment of this service before query classification is live.
+### Changed — Native xAI Grok web/X search
+- Replaced the OpenRouter chat-completions adapter with direct xAI `/v1/responses` requests using native `web_search` and `x_search`, so X-search semantics and citations come from xAI without an extra routing layer.
+- Added explicit xAI backend settings (`XAI_API_KEY`, `XAI_BASE_URL`, `GROK_MODEL`, `GROK_MAX_TURNS`, and `GROK_STORE`) plus observable web-search, X-search, source, cache-token, reasoning-token, and total-token diagnostics.
+- Registered the light RRF provider as `grok_xai`; web domain filters are validated against xAI's five-domain limit and allowed/excluded filters cannot be combined.
+- Vertex configuration is documented but rejected for this search path because Google's managed Grok Responses endpoint currently documents text/function/structured-output capabilities, not xAI's native server-side web/X search tools.
+### Fixed — Grok, Gemini, and YouTube provider regressions
+- Grok now reads xAI's current `usage.server_side_tool_usage_details.web_search_calls` and `x_search_calls` fields while retaining compatibility with the legacy uppercase usage shape, so server-side search counts no longer report zero.
+- Gemini grounding calls again create first-class Google LLM spans with fallback-tier, model, grounding-source, query, and token attributes.
+- YouTube Data API failures raised inside the shared provider runner are translated back to the public `YouTubeApiError` contract, preserving quota/error handling and router fallback behavior.
+### Fixed — GLiNER2 entity extraction regressions
+- GLiNER2 combined-schema field parsing now preserves documented choices, dtypes, and descriptions; content extraction keeps label descriptions in gateway payloads.
+- Long entity chunks no longer skip source text when a boundary finder returns an early paragraph or sentence cut.
 ### Fixed — MCP timeout and content routing reliability
 - Bound the complete RankLLM fallback chain to one total budget and drain canceled coordinator tasks, so provider failures cannot keep `web_search` past its MCP execution deadline or leave unhandled sliding-window tasks on the event loop.
 - Fixed specialized content routing to treat parser results of `None` as non-matches; non-YouTube URLs now continue through generic extraction instead of entering the YouTube API resolver.

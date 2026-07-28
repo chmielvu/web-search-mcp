@@ -1,4 +1,4 @@
-"""Tests for DuckDB-backed transcript cache."""
+"""Tests for SQLite-backed transcript cache."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
-class TestTranscriptCacheDuckDB(unittest.TestCase):
-    """Test TranscriptDuckDBCache low-level backend."""
+class TestTranscriptCacheSQLite(unittest.TestCase):
+    """Test TranscriptSQLiteCache low-level backend."""
 
     def test_store_and_lookup_roundtrip(self) -> None:
         """Store segments, lookup returns them."""
@@ -34,6 +34,7 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
 
             hit = cache.lookup(video_id, language="en")
             self.assertIsNotNone(hit)
+            assert hit is not None
             self.assertEqual(len(hit["segments"]), 2)
             self.assertEqual(hit["segments"][0]["text"], "Never gonna give you up")
             self.assertEqual(hit["segment_count"], 2)
@@ -90,14 +91,14 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
             self.assertIsNone(cache.lookup(video_id, language="en"))
 
     def test_concurrent_writes(self) -> None:
-        """20 threads writing same video_id, no errors."""
+        """20 threads writing different video_ids, no errors."""
         from kindly_web_search_mcp_server.cache.transcript_sqlite import TranscriptSQLiteCache
 
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "transcript_cache.sqlite")
             cache = TranscriptSQLiteCache(db_path=db_path)
 
-            errors = []
+            errors: list[Exception] = []
 
             def writer(vid: str) -> None:
                 try:
@@ -106,7 +107,6 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
                 except Exception as e:  # noqa: BLE001
                     errors.append(e)
 
-            # 20 threads all writing different video IDs
             video_ids = [f"concurrent_{i}" for i in range(20)]
             threads = [threading.Thread(target=writer, args=(vid,)) for vid in video_ids]
             for t in threads:
@@ -116,13 +116,13 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
 
             self.assertEqual(len(errors), 0, f"Concurrent write errors: {errors}")
 
-            # All should be readable
             for vid in video_ids:
                 hit = cache.lookup(vid, language="en")
                 self.assertIsNotNone(hit, f"Missing after concurrent write: {vid}")
+                assert hit is not None
                 self.assertIn(f"text for {vid}", hit["segments"][0]["text"])
 
-    def test_separate_duckdb_file(self) -> None:
+    def test_separate_sqlite_file(self) -> None:
         """Transcript cache uses its own db path (not page cache)."""
         from kindly_web_search_mcp_server.cache.transcript_sqlite import TranscriptSQLiteCache
 
@@ -134,7 +134,6 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
             segments = [{"text": "test", "start": 0.0, "duration": 1.0}]
             cache.store("vid123", "en", None, segments, 1.0)
 
-            # Transcript path has the table
             import sqlite3
 
             con = sqlite3.connect(transcript_path)
@@ -149,7 +148,6 @@ class TestTranscriptCacheDuckDB(unittest.TestCase):
             finally:
                 con.close()
 
-            # Page path should not exist or not have transcript_cache table
             if Path(page_path).exists():
                 con = sqlite3.connect(page_path)
                 try:

@@ -274,6 +274,8 @@ _JUDGE_EVALUATION_COLUMNS = [
     "link",
     "relevance_grade",
     "relevance_score",
+    "relevance_raw",
+    "relevance_scale",
     "accuracy_grade",
     "accuracy_score",
     "completeness_grade",
@@ -417,6 +419,7 @@ _JUDGE_EVALUATION_WRITER = TableWriter(
     table_name=_JE_TABLE_NAME,
     ensure_name="_ensure_judge_evaluations",
     columns=_JUDGE_EVALUATION_COLUMNS,
+    defaults={"status": "success"},
     task_name="analytics.judge_evaluation",
 )
 _AB_EXPERIMENT_WRITER = TableWriter(

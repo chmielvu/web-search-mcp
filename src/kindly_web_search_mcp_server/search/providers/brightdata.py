@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+import math
+import time
+from collections.abc import Callable
+from typing import TypeVar
 
 import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import run_provider
+from .base import ProviderRequestError, RequestFn, run_provider
 from .brightdata_common import (
     BrightDataError,
     build_bing_url,
@@ -18,12 +21,123 @@ from .brightdata_common import (
     get_brightdata_api_key,
     parse_brightdata_response,
     resolve_payload_base,
+    yandex_region_for_country,
 )
 
-logger = logging.getLogger(__name__)
-
-
 _SUPPORTED_PROVIDERS = frozenset({"brightdata", "brightdata_bing", "brightdata_yandex"})
+_PAGE_SIZE = 10
+_MAX_PAGE_COUNT = 10
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+TResponse = TypeVar("TResponse")
+
+
+def _retry_delay(error: ProviderRequestError, remaining_seconds: float) -> float | None:
+    """Return one small retry delay when the remaining request budget allows it."""
+    raw_delay = error.metadata.response_meta.get("retry_after")
+    try:
+        delay = float(raw_delay) if raw_delay is not None else 0.1
+    except (TypeError, ValueError):
+        delay = 0.1
+    if delay < 0:
+        return None
+    delay = min(delay, 2.0)
+    return delay if delay < remaining_seconds else None
+
+
+async def _run_page(
+    provider_name: str,
+    query: str,
+    page_limit: int,
+    *,
+    page_index: int,
+    request_factory: Callable[[int, float], RequestFn[TResponse]],
+    parse_response: Callable[[TResponse], list[WebSearchResult]],
+    http_client: httpx.AsyncClient | None,
+    deadline: float,
+) -> list[WebSearchResult]:
+    """Run one page and allow at most one budget-aware transient retry."""
+    for attempt in range(2):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return []
+        try:
+            return await run_provider(
+                provider_name=provider_name,
+                query=query,
+                num_results=page_limit,
+                request=request_factory(page_index, remaining),
+                parse_response=parse_response,
+                http_client=http_client,
+                timeout_seconds=remaining,
+            )
+        except ProviderRequestError as exc:
+            if attempt or exc.metadata.http_status not in _RETRYABLE_STATUS_CODES:
+                raise
+            remaining = deadline - time.monotonic()
+            delay = _retry_delay(exc, remaining)
+            if delay is None:
+                raise
+            await asyncio.sleep(delay)
+    return []
+
+
+async def _run_paginated(
+    provider_name: str,
+    query: str,
+    num_results: int,
+    *,
+    request_factory: Callable[[int, float], RequestFn[TResponse]],
+    parse_response: Callable[[TResponse], list[WebSearchResult]],
+    http_client: httpx.AsyncClient | None,
+    timeout_seconds: float,
+) -> list[WebSearchResult]:
+    """Fetch only the bounded pages needed to satisfy ``num_results``."""
+    if http_client is None:
+        # Reuse one connection pool across pages for direct callers. The
+        # normal search path already injects the shared run-level client.
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as owned_client:
+            return await _run_paginated(
+                provider_name,
+                query,
+                num_results,
+                request_factory=request_factory,
+                parse_response=parse_response,
+                http_client=owned_client,
+                timeout_seconds=timeout_seconds,
+            )
+
+    page_limit = min(_PAGE_SIZE, num_results)
+    page_count = min(_MAX_PAGE_COUNT, max(1, math.ceil(num_results / _PAGE_SIZE)))
+    deadline = time.monotonic() + timeout_seconds
+    results: list[WebSearchResult] = []
+    seen_links: set[str] = set()
+
+    for page_index in range(page_count):
+        page_results = await _run_page(
+            provider_name,
+            query,
+            page_limit,
+            page_index=page_index,
+            request_factory=request_factory,
+            parse_response=parse_response,
+            http_client=http_client,
+            deadline=deadline,
+        )
+        added = 0
+        for result in page_results:
+            key = result.link.strip().rstrip("/").casefold()
+            if key in seen_links:
+                continue
+            seen_links.add(key)
+            results.append(result)
+            added += 1
+            if len(results) >= num_results:
+                return results[:num_results]
+        if len(page_results) < page_limit or added == 0:
+            break
+        if deadline - time.monotonic() <= 0:
+            break
+    return results[:num_results]
 
 
 async def search_brightdata(
@@ -37,7 +151,7 @@ async def search_brightdata(
     exact_match: bool = True,
     freshness: str | None = None,
     provider_name: str = "brightdata",
-    yandex_region: str = "84",
+    yandex_region: str | None = None,
 ) -> list[WebSearchResult]:
     if not query.strip() or num_results < 1:
         return []
@@ -70,45 +184,59 @@ async def search_brightdata(
             http_client=http_client,
             payload_base=payload_base,
             req_headers=req_headers,
-            yandex_url=build_yandex_url(query, yandex_region, language),
+            yandex_region=yandex_region or yandex_region_for_country(country),
+            language=language,
         )
 
     google_timeout = settings.search_retrieve_budget_seconds
+    page_limit = min(_PAGE_SIZE, num_results)
+    use_light_json = search_type == "web" and num_results <= _PAGE_SIZE
 
-    async def _google_request(client: httpx.AsyncClient) -> dict:
-        google_url = build_google_url(query, country, language, search_type, exact_match, freshness)
-        body = {**payload_base, "url": google_url}
-        response = await client.post(
-            _endpoint(),
-            json=body,
-            headers=req_headers,
-            timeout=httpx.Timeout(google_timeout),
-        )
-        response.raise_for_status()
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise BrightDataError("BrightData response was not valid JSON.") from exc
-        if not isinstance(data, dict):
-            raise BrightDataError("BrightData response was not a JSON object.")
-        return data
+    def _google_request_factory(page_index: int, request_timeout: float) -> RequestFn[dict]:
+        async def _request(client: httpx.AsyncClient) -> dict:
+            google_url = build_google_url(
+                query,
+                country,
+                language,
+                search_type,
+                exact_match,
+                freshness,
+                start=page_index * _PAGE_SIZE,
+            )
+            body = {**payload_base, "url": google_url}
+            if use_light_json:
+                # Bright Data's current direct REST docs recommend this
+                # parsed top-10 format for lower latency and smaller payloads.
+                body["data_format"] = "parsed_light"
+            response = await client.post(
+                _endpoint(),
+                json=body,
+                headers=req_headers,
+                timeout=httpx.Timeout(request_timeout),
+            )
+            response.raise_for_status()
+            try:
+                data = response.json()
+            except ValueError as exc:
+                raise BrightDataError("BrightData response was not valid JSON.") from exc
+            if not isinstance(data, dict):
+                raise BrightDataError("BrightData response was not a JSON object.")
+            return data
+
+        return _request
 
     def _google_parse(data: dict) -> list[WebSearchResult]:
-        return parse_brightdata_response(data, search_type, num_results)
+        return parse_brightdata_response(data, search_type, page_limit)
 
-    try:
-        return await run_provider(
-            provider_name,
-            query,
-            num_results,
-            request=_google_request,
-            parse_response=_google_parse,
-            http_client=http_client,
-            timeout_seconds=google_timeout,
-        )
-    except Exception as exc:
-        logger.warning("BrightData Google failed: %s", exc)
-        return []
+    return await _run_paginated(
+        provider_name,
+        query,
+        num_results,
+        request_factory=_google_request_factory,
+        parse_response=_google_parse,
+        http_client=http_client,
+        timeout_seconds=google_timeout,
+    )
 
 
 def _endpoint() -> str:
@@ -178,18 +306,24 @@ async def _search_bing(
     country: str,
     language: str,
 ) -> list[WebSearchResult]:
-    url = build_bing_url(query, country, language)
-    body = {**payload_base, "url": url}
+    del api_key
     bing_timeout = settings.search_retrieve_budget_seconds
+    page_limit = min(_PAGE_SIZE, num_results)
 
-    try:
-
-        async def _do_bing(client: httpx.AsyncClient) -> list[WebSearchResult]:
+    def _request_factory(page_index: int, request_timeout: float) -> RequestFn[dict]:
+        async def _request(client: httpx.AsyncClient) -> dict:
+            url = build_bing_url(
+                query,
+                country,
+                language,
+                first=1 + page_index * _PAGE_SIZE,
+            )
+            body = {**payload_base, "url": url}
             response = await client.post(
                 _endpoint(),
                 json=body,
                 headers=headers,
-                timeout=httpx.Timeout(bing_timeout),
+                timeout=httpx.Timeout(request_timeout),
             )
             response.raise_for_status()
             try:
@@ -198,23 +332,22 @@ async def _search_bing(
                 raise BrightDataError("BrightData Bing response was not valid JSON.") from exc
             if not isinstance(data, dict):
                 raise BrightDataError("BrightData Bing response was not a JSON object.")
-            return parse_brightdata_response(data, "web", num_results)
+            return data
 
-        if http_client is not None:
-            return await _do_bing(http_client)
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=5.0, read=bing_timeout)
-        ) as client:
-            return await _do_bing(client)
-    except (asyncio.TimeoutError, httpx.TimeoutException):
-        logger.debug("BrightData Bing search timed out after %.1fs", bing_timeout)
-        return []
-    except asyncio.CancelledError:
-        logger.debug("BrightData Bing search cancelled")
-        raise
-    except Exception:
-        logger.debug("BrightData Bing search failed", exc_info=True)
-        return []
+        return _request
+
+    def _parse(data: dict) -> list[WebSearchResult]:
+        return parse_brightdata_response(data, "web", page_limit)
+
+    return await _run_paginated(
+        provider_name="brightdata_bing",
+        query=query,
+        num_results=num_results,
+        request_factory=_request_factory,
+        parse_response=_parse,
+        http_client=http_client,
+        timeout_seconds=bing_timeout,
+    )
 
 
 def parse_yandex_html_response(
@@ -262,29 +395,42 @@ async def _search_yandex(
     http_client: httpx.AsyncClient | None,
     payload_base: dict,
     req_headers: dict,
-    yandex_url: str,
+    yandex_region: str | None,
+    language: str,
 ) -> list[WebSearchResult]:
     """Fetch Yandex SERP via BrightData and parse the raw HTML response."""
-    body = {**payload_base, "url": yandex_url}
+    yandex_timeout = settings.search_retrieve_budget_seconds
+    page_limit = min(_PAGE_SIZE, num_results)
 
-    async def _request(client: httpx.AsyncClient) -> str:
-        response = await client.post(
-            _endpoint(),
-            json=body,
-            headers=req_headers,
-        )
-        response.raise_for_status()
-        return response.text
+    def _request_factory(page_index: int, request_timeout: float) -> RequestFn[str]:
+        async def _request(client: httpx.AsyncClient) -> str:
+            yandex_url = build_yandex_url(
+                query,
+                yandex_region,
+                language,
+                page=page_index + 1 if num_results > _PAGE_SIZE else None,
+            )
+            body = {**payload_base, "url": yandex_url}
+            response = await client.post(
+                _endpoint(),
+                json=body,
+                headers=req_headers,
+                timeout=httpx.Timeout(request_timeout),
+            )
+            response.raise_for_status()
+            return response.text
+
+        return _request
 
     def _parse(html: str) -> list[WebSearchResult]:
-        return parse_yandex_html_response(html, num_results)
+        return parse_yandex_html_response(html, page_limit)
 
-    return await run_provider(
+    return await _run_paginated(
         provider_name="brightdata_yandex",
         query=query,
         num_results=num_results,
-        request=_request,
+        request_factory=_request_factory,
         parse_response=_parse,
         http_client=http_client,
-        timeout_seconds=settings.search_retrieve_budget_seconds,
+        timeout_seconds=yandex_timeout,
     )

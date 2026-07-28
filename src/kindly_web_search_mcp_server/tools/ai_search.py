@@ -153,18 +153,20 @@ async def grok_search(
     excluded_domains: list[str] | None = None,
     ctx: Context = CurrentContext(),
 ) -> dict:
-    """Search web and X (Twitter) via Grok 4.3 via OpenRouter.
+    """Search the web and public X posts with native xAI Grok tools.
 
-    Returns AI-synthesized answer with citations from both platforms.
-    Use when you need social media data alongside web results. **Expensive tool.**
+    Returns an AI-synthesized answer with citations from web and X. This uses
+    the direct xAI Responses API because Vertex's managed Grok Responses
+    endpoint does not currently expose xAI's native search tools. **Expensive
+    tool**: xAI bills server-side web/X tool invocations separately.
 
     Args:
         query: The search query string.
         research_goal: What you intend to learn. Used to focus the AI synthesis.
         num_results: Target number of web/X results to incorporate (1-10).
-        model: OpenRouter model name override (default: auto-selected Grok 4.3).
-        allowed_domains: Only cite results from these domains.
-        excluded_domains: Exclude results from these domains.
+        model: Direct xAI model override (default: configured Grok model).
+        allowed_domains: Only cite results from these web domains (max 5).
+        excluded_domains: Exclude results from these web domains (max 5).
     """
     emit_tool_observability_event(
         LOGGER,
@@ -176,7 +178,11 @@ async def grok_search(
     )
     start_time = time.time()
 
-    await ctx.report_progress(progress=10, total=100, message="Searching web and X via Grok 4.3...")
+    await ctx.report_progress(
+        progress=10,
+        total=100,
+        message="Searching web and X via native xAI Grok tools...",
+    )
 
     try:
         result = await _grok_search_core(
@@ -197,6 +203,13 @@ async def grok_search(
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
             "search_queries_used": result.search_queries_used,
+            "backend": result.backend,
+            "web_search_calls": result.web_search_calls,
+            "x_search_calls": result.x_search_calls,
+            "sources_used": result.sources_used,
+            "cached_input_tokens": result.cached_input_tokens,
+            "reasoning_tokens": result.reasoning_tokens,
+            "total_tokens": result.total_tokens,
             "error": result.error,
         }
 
@@ -210,8 +223,14 @@ async def grok_search(
             citations_count=len(result.citations),
             model=result.model,
             model_used=result.model_used,
+            backend=result.backend,
+            web_search_calls=result.web_search_calls,
+            x_search_calls=result.x_search_calls,
+            sources_used=result.sources_used,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            cached_input_tokens=result.cached_input_tokens,
+            reasoning_tokens=result.reasoning_tokens,
             duration_seconds=duration_seconds,
         )
         _record_tool_success(
@@ -268,7 +287,7 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_openrouter")
+        return format_tool_error(e, provider="grok_xai")
     except httpx.HTTPError as e:
         LOGGER.warning("Grok search HTTP error: %s", e)
         emit_tool_observability_event(
@@ -281,7 +300,7 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_openrouter")
+        return format_tool_error(e, provider="grok_xai")
     except Exception as e:
         LOGGER.warning("Grok search unexpected error: %s", e)
         emit_tool_observability_event(
@@ -294,4 +313,4 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_openrouter")
+        return format_tool_error(e, provider="grok_xai")

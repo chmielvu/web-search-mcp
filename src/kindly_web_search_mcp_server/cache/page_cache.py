@@ -64,7 +64,7 @@ class PageCache:
         self,
         canonical_url: str,
     ) -> dict[str, Any] | None:
-        """Async variant of :meth:`lookup` that runs DuckDB I/O in a thread."""
+        """Async variant of :meth:`lookup` that runs SQLite I/O in a thread."""
         # Defensive: if a MagicMock test fixture leaked into production,
         # `_backend.alookup` is auto-created as a sync attribute on `MagicMock()`,
         # so `hasattr` returns True but the value is not awaitable. A real backend
@@ -161,7 +161,7 @@ class PageCache:
         metadata: dict[str, Any] | None = None,
         ttl_seconds: int | None = None,
     ) -> None:
-        """Store resolved page content via DuckDB backend."""
+        """Store resolved page content via SQLite backend."""
         self._store_inner(canonical_url, page_content, extraction_method, metadata, ttl_seconds)
 
     async def astore(
@@ -172,7 +172,7 @@ class PageCache:
         metadata: dict[str, Any] | None = None,
         ttl_seconds: int | None = None,
     ) -> None:
-        """Async variant of :meth:`store` that runs DuckDB I/O in a thread."""
+        """Async variant of :meth:`store` that runs SQLite I/O in a thread."""
         try:
             await self._backend.astore(
                 canonical_url=canonical_url,

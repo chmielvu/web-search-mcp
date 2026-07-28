@@ -1,82 +1,43 @@
-"""LLM-backed query understanding."""
+"""Hosted GLiNER2 query understanding resolver."""
 
 from __future__ import annotations
 
 import logging
-import time as time_module
 
+from ...entity.gliner_client import GatewayAnalysis, get_gliner_client
 from ...settings import settings
-from ...utils.background_tasks import fire_and_forget
-from ...inference.worker import build_llm_worker
-from ...inference.worker import StructuredLLMRequest
-from ...telemetry.phoenix_tracing import LLMTraceContext
-from ...prompts.builders import REASONING_EFFORT_LOW
-from ...prompts.registry import build_prompt
-from ...training.session_state import get_session_state_store
 from ...training.query_understanding_jsonl import append_query_understanding_record
+from ...training.session_state import get_session_state_store
 from ...utils.observability import emit_observability_event
-from ...ab_testing.wiring import get_ab_overrides
-from ...ab_testing.shadow_runner import run_shadow
-from ..intents import SearchIntent, normalize_intent
 from ..normalize import normalize_query
+from ..intents import SearchIntent
 from .models import QueryUnderstandingResult
 
 logger = logging.getLogger(__name__)
 
 
-def _build_ab_router(ab_overrides: dict) -> object:
-    """Build a custom LLM router from experiment variant config.
+_GLINER_MODEL = "fastino/gliner2-multi-v1"
 
-    The variant config may contain ``model`` and/or ``timeout_seconds``
-    keys to override the default classifier endpoint.
-    """
-    from ...inference.registry import (
-        add_provider,
-        as_openai,
-        define_model,
-    )
-    from ...inference.chain import ChainSpec
-    from ...inference.types import ModelCapability
-    from ...inference.router import LLMRouter
 
-    cfg = ab_overrides["config"]
-    model = cfg.get("model", settings.query_understanding_model)
-    timeout = float(cfg.get("timeout_seconds", 20.0))
-
-    # Normalise model name
-    model_str: str = f"groq/{model.removeprefix('groq/')}"
-
-    define_model(
-        "ab-groq",
-        display_name="A/B Groq",
-        description="A/B test variant — groq with overridden model/timeout.",
-        capabilities={ModelCapability.CHAT},
-    )
-    add_provider(
-        "ab-groq", "groq",
-        as_openai(
-            model_id=model_str,
-            base_url=settings.groq_base_url,
-            api_key_env="GROQ_API_KEY",
-            default_timeout=timeout,
+def _deterministic_fallback(reason: str) -> GatewayAnalysis:
+    return GatewayAnalysis(
+        understanding=QueryUnderstandingResult(
+            intent="general",
+            confidence=0.0,
+            entities=[],
+            relations=[],
+            preserved_terms=[],
+            compared_entities=[],
+            domain_hints=[],
+            time_sensitivity="none",
+            rationale=reason,
+            should_decompose=False,
         ),
+        model_version=_GLINER_MODEL,
+        latency_ms=0.0,
+        fallback=True,
+        error_reason=reason,
     )
-    define_model(
-        "ab-vercel",
-        display_name="A/B Vercel",
-        description="A/B test variant — vercel with overridden timeout.",
-        capabilities={ModelCapability.CHAT},
-    )
-    add_provider(
-        "ab-vercel", "vercel",
-        as_openai(
-            model_id=settings.vercel_rewrite_model,
-            base_url=settings.vercel_ai_gateway_base_url,
-            api_key_env="AI_GATEWAY_API_KEY",
-            default_timeout=timeout,
-        ),
-    )
-    return LLMRouter(chain=ChainSpec("ab_router", ("ab-groq@groq", "ab-vercel@vercel")))
 
 
 async def resolve_query_understanding(
@@ -87,229 +48,43 @@ async def resolve_query_understanding(
     session_id: str | None = None,
     run_key: str | None = None,
 ) -> QueryUnderstandingResult:
+    """Resolve intent, grounded entities, and relations with one VPS request.
+
+    ``research_goal`` and ``intent_hint`` remain accepted for caller
+    compatibility, but query understanding is deliberately query-only and
+    never constructs an LLM request.
+    """
+    del intent_hint
     normalized_query = normalize_query(query)
-
-    # ------------------------------------------------------------------
-    # Primary path: ONNX intent classifier (fast, ~5ms)
-    # ------------------------------------------------------------------
-    from .onnx_classifier import classify_intent
-
-    onnx_result = await classify_intent(normalized_query)
-    if onnx_result is not None and onnx_result.label is not None:
-        # Even at moderate confidence we trust the classifier — it's
-        # the primary path. The LLM fallback only triggers if the
-        # classifier service is down (onnx_result is None or has no label).
-        understanding = QueryUnderstandingResult(
-            intent=normalize_intent(onnx_result.label),
-            confidence=onnx_result.confidence,
-            rationale="onnx-classifier",
-            should_decompose=False,
-        )
-
-        # Emit observability + write JSONL + analytics (same as LLM path)
-        emit_observability_event(
-            logger,
-            "search.query_understanding.resolved",
-            query=normalized_query,
-            intent=understanding.intent,
-            confidence=understanding.confidence,
-            should_decompose=False,
-            model="tinybert-4l-onnx-int8",
-            model_used="tinybert-4l-onnx-int8",
-            provider="onnx",
-            fallback=False,
-        )
-        if settings.query_understanding_jsonl_enabled:
-            try:
-                await append_query_understanding_record(
-                    raw_query=query,
-                    normalized_query=normalized_query,
-                    research_goal=research_goal,
-                    understanding=understanding,
-                    model_name="tinybert-4l-onnx-int8",
-                    prompt_name="onnx-classifier",
-                    path=settings.query_understanding_jsonl_path,
-                    session_id=session_id,
-                )
-                if session_id:
-                    get_session_state_store().get(session_id).last_intent = understanding.intent
-            except Exception as exc:
-                logger.warning("query understanding JSONL write failed: %s", exc)
-
-        return understanding
-
-    # ------------------------------------------------------------------
-    # Fallback path: LLM-backed query understanding (slow, ~1-10s)
-    # Only reached if the ONNX classifier service is unavailable.
-    # ------------------------------------------------------------------
-    logger.warning("ONNX classifier unavailable, falling back to LLM query understanding")
-
-    system_prompt, user_prompt = build_prompt(
-        "query_understanding",
-        query=normalized_query,
-        research_goal=research_goal,
-        intent=intent_hint,
-        provider_name="groq",
-    )
-
-    # ------------------------------------------------------------------
-    # A/B experiment override: check if this run_key is enrolled
-    # ------------------------------------------------------------------
-    ab_overrides = (
-        get_ab_overrides(run_key=run_key, layer="query_understanding") if run_key else None
-    )
-    timeout_seconds = settings.query_classifier_timeout_seconds
-    use_ab_router = False
-    if ab_overrides:
-        cfg = ab_overrides["config"]
-        shadow_mode = ab_overrides["shadow_mode"]
-        if "timeout_seconds" in cfg:
-            timeout_seconds = float(cfg["timeout_seconds"])
-        # Build router with different endpoint config if model differs
-        use_ab_router = bool("model" in cfg or "timeout_seconds" in cfg)
-    else:
-        shadow_mode = False
-
-    fallback_reason = "Query classifier unavailable; defaulting to general."
-    result_model_name = "fallback-general"
-    result_provider_name = "fallback"
-    result_input_tokens: int | None = None
-    result_output_tokens: int | None = None
-    fallback_used = False
-    control_start = time_module.monotonic()
-    langfuse_trace = LLMTraceContext(
-        trace_name="query_understanding",
-        session_id=session_id or run_key,
-        metadata={
-            "task": "query_understanding",
-            "run_key": run_key,
-            "intent_hint": intent_hint or "",
-            "research_goal": research_goal or "",
-        },
-    )
-
+    client = get_gliner_client()
     try:
-        if use_ab_router:
-            # A/B variant: use a custom router with overridden model/timeout
-            router = _build_ab_router(ab_overrides)  # type: ignore[arg-type]
-            generation = await router.complete_json(  # type: ignore[attr-defined]
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.0,
-                timeout_seconds=timeout_seconds,
-                response_model=QueryUnderstandingResult,
-                reasoning_effort=REASONING_EFFORT_LOW,
-                langfuse=langfuse_trace,
-            )
-            result_model_name = generation.spec.model_id
-            result_provider_name = generation.spec.provider
-            result_input_tokens = generation.input_tokens
-            result_output_tokens = generation.output_tokens
-            content = generation.content
-        else:
-            # Production path: use the standard LLMWorker
-            result = await build_llm_worker().complete_structured(
-                StructuredLLMRequest(
-                    task="query_understand",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=0.0,
-                    timeout_seconds=timeout_seconds,
-                    response_model=QueryUnderstandingResult,
-                    reasoning_effort=REASONING_EFFORT_LOW,
-                    langfuse=langfuse_trace,
-                )
-            )
-            result_model_name = result.model_name
-            result_provider_name = result.endpoint_name
-            result_input_tokens = result.input_tokens
-            result_output_tokens = result.output_tokens
-            content = result.content
+        analysis = await client.analyze_query(normalized_query)
+    except Exception as exc:  # pragma: no cover - gateway owns normal failures
+        logger.warning("hosted GLiNER2 resolver failed: %s", exc)
+        analysis = _deterministic_fallback("gliner2-unexpected-error")
 
-        control_duration_ms = (time_module.monotonic() - control_start) * 1000
-        understanding = QueryUnderstandingResult.model_validate_json(content)
-        understanding = understanding.model_copy(
-            update=dict(intent=normalize_intent(understanding.intent))
-        )
-    except Exception as exc:
-        control_duration_ms = (time_module.monotonic() - control_start) * 1000
-        logger.warning("query understanding failed; falling back to general: %s", exc)
-        fallback_used = True
-        emit_observability_event(
-            logger,
-            "search.query_understanding.fallback",
-            query=normalized_query,
-            error=str(exc)[:300],
-            fallback_intent="general",
-            fallback_reason=fallback_reason,
-        )
-        understanding = QueryUnderstandingResult(
-            intent="general",
-            confidence=0.0,
-            rationale=fallback_reason,
-            should_decompose=False,
-        )
-
-    # ------------------------------------------------------------------
-    # Shadow mode: fire-and-forget the variant in the background
-    # ------------------------------------------------------------------
-    if shadow_mode and ab_overrides and run_key and not fallback_used:
-        shadow_cfg = ab_overrides["config"]
-        shadow_router = _build_ab_router(ab_overrides)
-        shadow_timeout = float(
-            shadow_cfg.get("timeout_seconds", settings.query_classifier_timeout_seconds)
-        )
-
-        async def _shadow_fn() -> QueryUnderstandingResult:
-            shadow_gen = await shadow_router.complete_json(  # type: ignore[attr-defined]
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.0,
-                timeout_seconds=shadow_timeout,
-                response_model=QueryUnderstandingResult,
-                reasoning_effort=REASONING_EFFORT_LOW,
-                langfuse=langfuse_trace,
-            )
-            return QueryUnderstandingResult.model_validate_json(shadow_gen.content)
-
-        fire_and_forget(
-            run_shadow(
-                run_key=run_key,
-                experiment_id=ab_overrides["experiment_id"],
-                variant=ab_overrides["variant_key"],
-                layer="query_understanding",
-                shadow_fn=_shadow_fn,
-                shadow_kwargs={},
-                control_duration_ms=control_duration_ms,
-                control_result_summary={
-                    "intent": understanding.intent,
-                    "confidence": understanding.confidence,
-                    "model": result_model_name,
-                },
-            ),
-            name=f"shadow-qu-{run_key[:8]}",
-        )
+    understanding = analysis.understanding
+    event_fields = {
+        "query": normalized_query,
+        "intent": understanding.intent,
+        "confidence": understanding.confidence,
+        "should_decompose": understanding.should_decompose,
+        "model": analysis.model_version,
+        "model_used": analysis.model_version,
+        "provider": "gliner2",
+        "latency_ms": analysis.latency_ms,
+        "entities": [entity.model_dump() for entity in understanding.entities],
+        "relations": [relation.model_dump() for relation in understanding.relations],
+        "preserved_terms": understanding.preserved_terms,
+        "compared_entities": understanding.compared_entities,
+        "fallback": analysis.fallback,
+        "fallback_reason": analysis.error_reason,
+        "run_key": run_key,
+    }
     emit_observability_event(
         logger,
         "search.query_understanding.resolved",
-        query=normalized_query,
-        intent=understanding.intent,
-        confidence=understanding.confidence,
-        should_decompose=understanding.should_decompose,
-        model=result_model_name,
-        model_used=result_model_name,
-        provider=result_provider_name,
-        input_tokens=result_input_tokens,
-        output_tokens=result_output_tokens,
-        entities=[entity.model_dump() for entity in understanding.entities],
-        preserved_terms=understanding.preserved_terms,
-        fallback=fallback_used,
+        **event_fields,
     )
     if settings.query_understanding_jsonl_enabled:
         try:
@@ -318,10 +93,16 @@ async def resolve_query_understanding(
                 normalized_query=normalized_query,
                 research_goal=research_goal,
                 understanding=understanding,
-                model_name=result_model_name,
-                prompt_name="query_understanding",
+                model_name=analysis.model_version,
+                prompt_name="gliner2-combined",
                 path=settings.query_understanding_jsonl_path,
                 session_id=session_id,
+                decision_path="gliner2_fallback" if analysis.fallback else "gliner2",
+                classifier_model=analysis.model_version,
+                classifier_endpoint=f"{client.base_url}/v2/query-understanding",
+                classifier_latency_ms=analysis.latency_ms,
+                confidence_threshold=settings.intent_classifier_confidence_threshold,
+                fallback_reason=analysis.error_reason,
             )
             if session_id:
                 get_session_state_store().get(session_id).last_intent = understanding.intent

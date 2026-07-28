@@ -23,7 +23,7 @@ def get_providers_status() -> str:
         "",
         "## AI Search",
         f"**Gemini**: {'✓ Configured' if settings.gemini_api_key else '✗ Not configured'}",
-        "**Gemma 4**: ✓ Free provider (always available)",
+        f"**Gemma SERP / Pollinations**: {'✓ Configured' if os.environ.get('POLLINATIONS_API_KEY') else '✗ Not configured'}",
         "",
         "## Academic Search",
         f"**Semantic Scholar**: ✓ Always available (API key optional: {'set' if os.environ.get('S2_API_KEY', '').strip() else 'not set — shared rate limit'})",

@@ -56,6 +56,7 @@ dependencies = [
     "judges>=0.1.1",  # LLM-as-Judge evaluators (ReliableCIRelevance, etc.)
     "pyyaml>=6.0.1",
     "rank-llm[cloud] @ git+https://github.com/castorini/rank_llm.git@54fb0c055cd1692ac75ae44cd48e1933155f99dd",
+    "telethon>=1.44.0",
 ]
 
 [project.optional-dependencies]
@@ -63,9 +64,6 @@ eval = ["mcpevals"]
 pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
     "pymupdf4llm>=0.2.7; python_version < '3.14'",
-]
-entity-extraction = [
-    "gliner2>=0.1.0",
 ]
 
 [project.scripts]
@@ -109,7 +107,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"src/classifier_service/runtime.py" = ["F401"]
+
 "src/kindly_web_search_mcp_server/analytics/app.py" = ["E402"]
 "tests/test_shadow_runner.py" = ["E402"]
 
@@ -130,7 +128,6 @@ include = ["src"]
 exclude = [
     ".venv",
     "**/__pycache__",
-    "src/classifier_service",
 ]
 typeCheckingMode = "basic"
 pythonVersion = "3.12"

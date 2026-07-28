@@ -5,15 +5,7 @@ import pytest
 from kindly_web_search_mcp_server.prompts.registry import build_prompt
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "query_understanding",
-        "entity_extraction",
-        "grok_search",
-        "rerank",
-    ],
-)
+@pytest.mark.parametrize("name", ["gemini_search", "grok_search", "rerank"])
 def test_prompt_registry_renders_known_keys(name: str) -> None:
     system, user = build_prompt(
         name,

@@ -34,6 +34,26 @@ Query rewrite generates 5 strategic variants: 3 keyword queries, 1 natural-langu
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
 - Sourcegraph, GitLab, and GitHub adapters publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials.
+- Each `run_provider` invocation starts with fresh request metadata; provider-specific seed fields are initialized inside the request callback so prior-call endpoint/status/error fields cannot leak.
+
+## Bright Data SERP adapter
+
+- Configure `BRIGHTDATA_SERP_ZONE` explicitly; `BRIGHTDATA_ZONE` remains a compatibility alias, while the implicit `sdk_serp` fallback is rejected.
+- Google uses `data_format=parsed_light` for web searches requesting at most 10 results, and uses bounded `start` pagination for larger result windows. Bing uses `first`; Yandex uses `p` and never assumes the USA region for non-US countries.
+- The parser accepts both the existing URL-based `organic` response and Bright Data's documented Bing `webPages.value` response. HTTP failures retain status, retry, Bright Data error headers, and coarse auth/rate-limit/upstream classification.
+
+## Gemma SERP adapter
+
+- The public provider name remains `gemma`, but its backend is Pollinations `POST /v1/chat/completions` with model `gemini-fast` and `POLLINATIONS_API_KEY`.
+- Pollinations `gemini-fast` is backed by Gemini 2.5 Flash-Lite. Pass its documented `{"type": "google_search"}` tool explicitly, keep the system prompt concise and structured with internal query decomposition plus a runtime-date freshness guard, request a strict JSON result object, and record native grounding in diagnostics.
+- The provider receives the request's seed `queries` and `research_goal` through provider arguments; the user prompt labels both values as context/data and explains that `queries` guide complementary decomposition while `research_goal` guides relevance ranking.
+
+
+## Query Understanding Gateway
+
+- `search/understanding/resolver.py` makes one combined request through `entity/gliner_client.py`; it does not invoke local ONNX, `gliner2`, or an LLM fallback.
+- The hosted contract is `POST /v2/query-understanding`; entity spans must match exact source offsets and relation endpoints require grounded high-confidence entities.
+- `search/understanding/adapter.py` is the pure normalization boundary. Keep transport handling in `entity/gliner_client.py` and search policy derivation in the adapter.
 
 ## Cold-Start Import Warm-Up
 
@@ -57,3 +77,11 @@ uv run pytest tests/test_provider_registry.py tests/test_bm25_rerank.py tests/te
 uv run pytest tests/test_search_orchestrator.py tests/test_search_contracts.py
 uv run pytest tests/test_search_ranking.py tests/test_search_planning_why.py
 ```
+
+## Grok Native Search Boundary
+
+- `providers/grok.py` calls xAI's `/v1/responses` endpoint directly and exposes both native `web_search` and `x_search` server-side tools.
+- The provider catalog name is `grok_xai`; its reachability credential is `XAI_API_KEY`. Do not route native search through the OpenRouter chat-completions adapter.
+- `GROK_BACKEND=vertex` is rejected for this search provider. Vertex's managed Grok Responses endpoint is documented for text Responses, function calling, and structured output, but not xAI's native web/X search tools.
+- xAI bills server-side web/X tool invocations separately from model tokens. Preserve `server_side_tool_usage_details` (and the legacy alias), citation count, cache-token, reasoning-token, and total-token fields in telemetry and tool responses.
+- xAI web domain filters are nested under the `web_search` tool and allow either `allowed_domains` or `excluded_domains`, not both; X handle/date filters are not part of the current public MCP contract.

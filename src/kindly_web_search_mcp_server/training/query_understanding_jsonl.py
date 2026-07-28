@@ -42,6 +42,7 @@ async def append_query_understanding_record(
         "rationale": understanding.rationale,
         "preserved_terms": understanding.preserved_terms,
         "entities": [entity.model_dump() for entity in understanding.entities],
+        "relations": [relation.model_dump() for relation in understanding.relations],
         "model": model_name,
         "prompt": prompt_name,
         "session_id": session_id,

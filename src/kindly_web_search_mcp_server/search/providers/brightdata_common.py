@@ -28,7 +28,16 @@ _BRIGHTDATA_FRESHNESS_MAP: dict[str, str] = {
 
 
 class BrightDataError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response_meta: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_meta = response_meta or {}
 
 
 class BrightDataConfigError(BrightDataError):
@@ -44,8 +53,36 @@ def get_brightdata_api_key() -> str:
     return api_key
 
 
+def get_brightdata_zone() -> str:
+    """Resolve an explicitly configured SERP zone.
+
+    ``BRIGHTDATA_SERP_ZONE`` is the documented name.  ``BRIGHTDATA_ZONE`` is
+    retained as a compatibility alias, but the historical ``sdk_serp``
+    fallback is intentionally rejected because it can silently select the
+    wrong product zone.
+    """
+    zone = get_env_value("BRIGHTDATA_SERP_ZONE", "").strip()
+    if not zone:
+        zone = get_env_value("BRIGHTDATA_ZONE", "").strip()
+    if zone:
+        return zone
+    if not zone:
+        configured_zone = getattr(settings, "brightdata_zone", "")
+        if isinstance(configured_zone, str):
+            zone = configured_zone.strip()
+    if zone and zone != "sdk_serp":
+        return zone
+    if not zone or zone == "sdk_serp":
+        raise BrightDataConfigError(
+            "BRIGHTDATA_SERP_ZONE is not configured. Set it to the name of an "
+            "existing Bright Data SERP zone. BRIGHTDATA_ZONE is accepted as "
+            "a compatibility alias."
+        )
+    return zone
+
+
 def resolve_payload_base() -> dict:
-    zone = get_env_value("BRIGHTDATA_ZONE", settings.brightdata_zone).strip() or "sdk_serp"
+    zone = get_brightdata_zone()
     payload: dict = {
         "zone": zone,
         "format": "raw",
@@ -73,6 +110,7 @@ def build_google_url(
     search_type: str = "web",
     exact_match: bool = True,
     freshness: str | None = None,
+    start: int | None = None,
 ) -> str:
     q = quote_plus(query)
     url = f"https://www.google.com/search?q={q}"
@@ -82,6 +120,8 @@ def build_google_url(
         url += f"&hl={language}"
     if exact_match:
         url += "&nfpr=1"
+    if start is not None:
+        url += f"&start={max(0, start)}"
     url += "&brd_json=1"
     if search_type == "news":
         url += "&tbm=nws"
@@ -95,21 +135,28 @@ def build_bing_url(
     query: str,
     country: str = "us",
     language: str = "en",
+    first: int | None = None,
 ) -> str:
     q = quote_plus(query)
     url = f"https://www.bing.com/search?q={q}"
     if country:
         url += f"&cc={country}"
     if language:
-        url += f"&setLang={language}-{country.upper()}"
+        normalized_language = language.strip().replace("_", "-")
+        if len(normalized_language) == 2 and country:
+            normalized_language = f"{normalized_language.lower()}-{country.upper()}"
+        url += f"&setLang={normalized_language}"
+    if first is not None:
+        url += f"&first={max(1, first)}"
     url += "&brd_json=1"
     return url
 
 
 def build_yandex_url(
     query: str,
-    region: str = "84",
+    region: str | None = "84",
     language: str = "en",
+    page: int | None = None,
 ) -> str:
     q = quote_plus(query)
     url = f"https://www.yandex.com/search/?text={q}"
@@ -117,7 +164,22 @@ def build_yandex_url(
         url += f"&lr={region}"
     if language:
         url += f"&lang={language}"
+    if page is not None:
+        url += f"&p={max(1, page)}"
     return url
+
+
+def yandex_region_for_country(country: str | None) -> str | None:
+    """Return only region mappings verified by the Bright Data docs.
+
+    Bright Data documents numeric Yandex ``lr`` values rather than a complete
+    country-code mapping.  Keep the known USA mapping for backwards
+    compatibility and require callers to provide ``yandex_region`` for other
+    locales instead of silently using USA.
+    """
+    if not country:
+        return None
+    return {"us": "84"}.get(country.strip().lower())
 
 
 def detect_upstream_error(data: dict) -> str | None:
@@ -137,12 +199,29 @@ def detect_upstream_error(data: dict) -> str | None:
     return f"BrightData upstream {status_code}: {msg or 'unknown error'}"
 
 
+def _upstream_response_metadata(data: dict) -> dict[str, object]:
+    headers = data.get("headers")
+    if not isinstance(headers, dict):
+        return {}
+    response_meta: dict[str, object] = {}
+    for key in ("retry-after", "x-brd-err-msg", "proxy-status"):
+        value = headers.get(key)
+        if value:
+            response_meta[key.replace("-", "_")] = str(value)[:500]
+    return response_meta
+
+
 def parse_brightdata_response(
     data: dict, search_type: str, num_results: int
 ) -> list[WebSearchResult]:
     upstream = detect_upstream_error(data)
     if upstream:
-        raise BrightDataError(upstream)
+        status_code = data.get("status_code")
+        raise BrightDataError(
+            upstream,
+            status_code=status_code if isinstance(status_code, int) else None,
+            response_meta=_upstream_response_metadata(data),
+        )
 
     results: list[WebSearchResult] = []
 
@@ -176,13 +255,16 @@ def parse_brightdata_response(
 
     if len(results) == 0:
         organic = data.get("organic", [])
+        if not isinstance(organic, list) or not organic:
+            web_pages = data.get("webPages")
+            organic = web_pages.get("value", []) if isinstance(web_pages, dict) else []
         if isinstance(organic, list):
             for item in organic:
                 if not isinstance(item, dict):
                     continue
-                title = item.get("title")
-                link = item.get("link")
-                snippet = item.get("description") or ""
+                title = item.get("title") or item.get("name")
+                link = item.get("link") or item.get("url")
+                snippet = item.get("description") or item.get("snippet") or ""
                 if not (
                     isinstance(title, str)
                     and title.strip()

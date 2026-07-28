@@ -39,11 +39,7 @@ class PageSQLiteCache:
     def _resolve_path(self) -> Path:
         if self.db_path:
             return Path(self.db_path)
-        # Fall back to settings (or settings property)
-        path_str = getattr(settings, "page_cache_sqlite_path", None) or getattr(
-            settings, "page_cache_duckdb_path", "duckdb_data/cache/page_cache.sqlite"
-        )
-        return Path(path_str)
+        return Path(settings.page_cache_sqlite_path)
 
     def _get_connection(self) -> sqlite3.Connection:
         path = self._resolve_path()
@@ -259,7 +255,4 @@ class PageSQLiteCache:
                     con.close()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("page_cache store failed for %s: %s", canonical_url, exc)
-
-
-# Aliases for backwards compatibility during migration
-PageDuckDBCache = PageSQLiteCache
+                raise

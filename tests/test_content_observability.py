@@ -25,7 +25,7 @@ class TestContentObservability(unittest.TestCase):
         self.assertEqual(emit_event.call_args.kwargs["reason"], "access_blocked:access denied")
         self.assertFalse(emit_event.call_args.kwargs["cacheable"])
 
-    def test_content_stage_events_persist_to_duckdb(self) -> None:
+    def test_content_stage_events_emit_observability_events(self) -> None:
         from kindly_web_search_mcp_server.telemetry import (
             record_content_error,
             record_content_fallback,
@@ -33,8 +33,8 @@ class TestContentObservability(unittest.TestCase):
         )
 
         with patch(
-            "kindly_web_search_mcp_server.analytics.duckdb_store.append_event"
-        ) as append_event:
+            "kindly_web_search_mcp_server.telemetry.records_content.emit_observability_event"
+        ) as emit_event:
             record_content_resolution(
                 stage="safe_http",
                 url="https://example.com",
@@ -55,7 +55,7 @@ class TestContentObservability(unittest.TestCase):
                 error_type="arxiv_fetch_failed",
             )
 
-        event_names = [call.args[0] for call in append_event.call_args_list]
+        event_names = [call.args[1] for call in emit_event.call_args_list]
         self.assertEqual(
             event_names,
             [

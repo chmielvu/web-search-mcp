@@ -36,6 +36,7 @@ from kindly_web_search_mcp_server.search.contracts import (
     DiagnosticsCollector,
     QueryBranch,
 )
+from kindly_web_search_mcp_server.search.providers.base import ProviderRequestMetadata
 
 
 def _result(provider: str, title: str, snippet: str = "snippet") -> WebSearchResult:
@@ -89,9 +90,14 @@ async def test_retrieve_branches_two_providers_both_attempted(
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult]]:
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
         await asyncio.sleep(0)
-        return provider_name, [_result(provider_name, "ok")]
+        return (
+            provider_name,
+            [_result(provider_name, "ok")],
+            ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+            _branch.query,
+        )
 
     monkeypatch.setattr(retrieval, "_call_provider", fast_call_provider)
 
@@ -123,10 +129,15 @@ async def test_retrieve_branches_all_branches_return_results_regardless_of_slown
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult]]:
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
         if provider_name == "slow":
             await asyncio.sleep(0.05)
-        return provider_name, [_result(provider_name, f"{provider_name} branch")]
+        return (
+            provider_name,
+            [_result(provider_name, f"{provider_name} branch")],
+            ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+            _branch.query,
+        )
 
     monkeypatch.setattr(retrieval, "_call_provider", varied)
 
@@ -163,10 +174,15 @@ async def test_retrieve_branches_partial_results_preserved_across_budget_deadlin
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult]]:
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
         if provider_name == "fast":
             await asyncio.sleep(0)
-            return provider_name, [_result("fast", "partial branch")]
+            return (
+                provider_name,
+                [_result("fast", "partial branch")],
+                ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+                _branch.query,
+            )
         try:
             await asyncio.sleep(10.0)
         except asyncio.CancelledError:

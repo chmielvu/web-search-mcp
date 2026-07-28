@@ -80,6 +80,29 @@ class TestCacheObservability(unittest.TestCase):
         self.assertEqual(emit_store.call_args.args[2], "ok")
         self.assertEqual(emit_store.call_args.kwargs["metadata_present"], True)
 
+    def test_page_cache_emits_error_when_backend_store_fails(self) -> None:
+        from kindly_web_search_mcp_server.cache.page_cache import PageCache
+
+        backend = MagicMock()
+        backend.store.side_effect = OSError("disk full")
+        with (
+            patch(
+                "kindly_web_search_mcp_server.cache.page_cache._PageSQLiteCache",
+                return_value=backend,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.cache.page_cache.emit_cache_store_event"
+            ) as emit_store,
+        ):
+            PageCache(db_path="unused").store(
+                "https://example.com/page",
+                "hello world",
+                "http_extract",
+            )
+
+        assert emit_store.call_args.args[2] == "error"
+        assert emit_store.call_args.kwargs["error_type"] == "OSError"
+
 
 if __name__ == "__main__":
     unittest.main()

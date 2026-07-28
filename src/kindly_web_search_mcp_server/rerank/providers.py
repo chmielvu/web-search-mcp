@@ -77,6 +77,7 @@ async def _parse_rerank_result(spec: ModelSpec, gen) -> list[tuple[int, float]]:
     content = gen.content
     if content.startswith("["):
         import json
+
         try:
             raw = json.loads(content)
             return [(item["index"], item["relevance_score"]) for item in raw]
@@ -87,11 +88,25 @@ async def _parse_rerank_result(spec: ModelSpec, gen) -> list[tuple[int, float]]:
     query = getattr(gen, "_query", None)
     if documents and query:
         if spec.provider == "cohere":
-            return await cohere_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id, base_url=spec.base_url)
+            return await cohere_rerank(
+                query,
+                documents,
+                api_key=spec.api_key or None,
+                model=spec.model_id,
+                base_url=spec.base_url,
+            )
         if spec.provider == "openrouter_rerank":
-            return await openrouter_cohere_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id, base_url=spec.base_url)
+            return await openrouter_cohere_rerank(
+                query,
+                documents,
+                api_key=spec.api_key or None,
+                model=spec.model_id,
+                base_url=spec.base_url,
+            )
         if spec.provider == "voyage":
-            return await voyage_rerank(query, documents, api_key=spec.api_key or None, model=spec.model_id)
+            return await voyage_rerank(
+                query, documents, api_key=spec.api_key or None, model=spec.model_id
+            )
     raise ValueError(f"Cannot parse rerank result from {spec.provider}: {content[:200]}")
 
 

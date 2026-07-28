@@ -20,6 +20,8 @@ Search-experiment A/B testing with deterministic bucketing and shadow execution.
 ## Rules
 
 - Shadow variants run out-of-band and must NOT block the production path.
+- `shadow_runner.run_shadow` normalizes the retrieval-facing `top_k` keyword
+  to the legacy shadow callable's `top_n` keyword when needed.
 - Only one active experiment per layer at a time.
 - CLI manages experiments via `uv run web-search-cli experiments ...`.
 

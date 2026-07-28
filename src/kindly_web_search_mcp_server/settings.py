@@ -100,8 +100,8 @@ class Settings:
     query_classifier_timeout_seconds: float = float(
         os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
-    # ONNX intent classifier (primary path, replaces LLM for intent resolution)
-    intent_classifier_url: str = os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:18686")
+    # Hosted unified-ml GLiNER2 gateway used for query understanding.
+    intent_classifier_url: str = os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000")
     intent_classifier_timeout_seconds: float = float(
         os.environ.get("INTENT_CLASSIFIER_TIMEOUT_SECONDS", "3")
     )
@@ -222,12 +222,12 @@ class Settings:
 
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
     rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
-    # Entity extraction (GLiNER2, optional extra, opt-in only)
-    # Per joint plan: explicit disabled by default; error events on failure when enabled.
+    # Optional content extraction through the hosted GLiNER2 gateway.
+    # Query understanding has its separate INTENT_CLASSIFIER_ENABLED gate.
     entity_extraction_enabled: bool = (
         os.environ.get("ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
     )
-    gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2-base-v1")
+    gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2-multi-v1")
     gliner_threshold: float = float(os.environ.get("GLINER_THRESHOLD", "0.5"))
 
     # Entity overlap feature for rerank (measured only; off by default)
@@ -257,16 +257,16 @@ class Settings:
     )
     process_logs_ttl_hours: int = int(os.environ.get("PROCESS_LOGS_TTL_HOURS", "48"))
 
-    # Page cache (Phase 5.2: separate DuckDB file, NOT shared with analytics DB)
+    # Page cache (separate SQLite WAL file, NOT shared with analytics DB)
     page_cache_sqlite_path: str = os.environ.get(
         "PAGE_CACHE_SQLITE_PATH",
-        os.environ.get("PAGE_CACHE_DUCKDB_PATH", DEFAULT_PAGE_CACHE_DB),
+        DEFAULT_PAGE_CACHE_DB,
     )
 
-    # Transcript cache (separate DuckDB file for YouTube transcript caching)
+    # Transcript cache (separate SQLite WAL file for YouTube transcript caching)
     transcript_cache_sqlite_path: str = os.environ.get(
         "TRANSCRIPT_CACHE_SQLITE_PATH",
-        os.environ.get("TRANSCRIPT_CACHE_DUCKDB_PATH", DEFAULT_TRANSCRIPT_CACHE_DB),
+        DEFAULT_TRANSCRIPT_CACHE_DB,
     )
 
     # Telegram search provider (Telethon MTProto)
@@ -290,9 +290,21 @@ class Settings:
         "OPENROUTER_CHAT_BASE_URL", "https://openrouter.ai/api/v1"
     )
 
-    # Grok Search via OpenRouter (native web_search + x_search for xAI models)
-    grok_model: str = os.environ.get("GROK_MODEL", "x-ai/grok-4.3")
+    # Grok native search through the direct xAI Responses API
+    grok_backend: str = os.environ.get("GROK_BACKEND", "xai").strip().lower()
+    grok_xai_api_key: str = os.environ.get("XAI_API_KEY", "")
+    grok_xai_base_url: str = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
+    grok_model: str = os.environ.get("GROK_MODEL", "grok-4.5")
     grok_timeout_seconds: float = float(os.environ.get("GROK_TIMEOUT_SECONDS", "60.0"))
+    grok_max_turns: int = int(os.environ.get("GROK_MAX_TURNS", "3"))
+    grok_store: bool = os.environ.get("GROK_STORE", "false").strip().lower() == "true"
+
+    # Vertex can serve Grok text Responses, but not the native search tools used
+    # here. These fields document the separate Vertex configuration boundary.
+    grok_vertex_project_id: str = os.environ.get("GROK_VERTEX_PROJECT_ID", "")
+    grok_vertex_location: str = os.environ.get("GROK_VERTEX_LOCATION", "global")
+    grok_vertex_model: str = os.environ.get("GROK_VERTEX_MODEL", "grok-4.20-reasoning")
+    grok_vertex_base_url: str = os.environ.get("GROK_VERTEX_BASE_URL", "")
     # Gemini Grounding (for gemini_search MCP tool)
     gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
     gemini_second_api_key: str = os.environ.get("GEMINI_SECOND_API_KEY", "")

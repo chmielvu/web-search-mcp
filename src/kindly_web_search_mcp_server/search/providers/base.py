@@ -71,6 +71,33 @@ def _with_metadata(
     return ProviderRequestMetadata(**values)
 
 
+def _classify_http_status(status_code: int) -> str:
+    if status_code in {401, 403, 407}:
+        return "auth"
+    if status_code == 429:
+        return "rate_limit"
+    if status_code >= 500:
+        return "upstream"
+    return "http_status"
+
+
+def _response_metadata(response: httpx.Response) -> dict[str, object]:
+    """Keep bounded, non-sensitive headers useful for provider diagnostics."""
+    metadata: dict[str, object] = {}
+    for key in (
+        "retry-after",
+        "x-brd-err-msg",
+        "proxy-status",
+        "x-request-id",
+        "x-response-id",
+        "content-type",
+    ):
+        value = response.headers.get(key)
+        if value:
+            metadata[key.replace("-", "_")] = value[:500]
+    return metadata
+
+
 def _attach_provider_name(
     results: list[WebSearchResult],
     provider_name: str,
@@ -100,9 +127,10 @@ async def run_provider(
     if not query.strip() or num_results < 1:
         return []
 
-    existing_metadata = get_provider_request_metadata()
-    if existing_metadata is None or existing_metadata.provider != provider_name:
-        set_provider_request_metadata(ProviderRequestMetadata(provider=provider_name))
+    # Every invocation gets a fresh request context. Provider-specific
+    # metadata is initialized inside the request callback below, so fields
+    # from a previous call cannot leak into this request.
+    set_provider_request_metadata(ProviderRequestMetadata(provider=provider_name))
 
     if timeout_seconds is None:
         timeout_seconds = settings.search_retrieve_budget_seconds
@@ -126,23 +154,48 @@ async def run_provider(
         except httpx.HTTPStatusError as exc:
             response = exc.response
             metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+            try:
+                endpoint = str(response.request.url)
+            except RuntimeError:
+                endpoint = None
+            response_meta = dict(metadata.response_meta)
+            response_meta.update(_response_metadata(response))
+            error_summary = (
+                response.headers.get("x-brd-err-msg")
+                or response.headers.get("proxy-status")
+                or str(exc)
+            )
             metadata = _with_metadata(
                 metadata,
-                endpoint=str(response.request.url),
+                endpoint=endpoint,
                 http_status=response.status_code,
                 result_class="error",
-                error_type="http_status",
-                error_summary=str(exc)[:500],
+                error_type=_classify_http_status(response.status_code),
+                error_summary=error_summary[:500],
+                response_meta=response_meta,
             )
             set_provider_request_metadata(metadata)
             raise ProviderRequestError(str(exc), metadata=metadata) from exc
         except Exception as exc:
             metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
+            response_meta = dict(metadata.response_meta)
+            upstream_meta = getattr(exc, "response_meta", None)
+            if isinstance(upstream_meta, dict):
+                response_meta.update(upstream_meta)
+            status_code = getattr(exc, "status_code", None)
+            if not isinstance(status_code, int):
+                status_code = metadata.http_status
             metadata = _with_metadata(
                 metadata,
                 result_class="error",
-                error_type=type(exc).__name__,
+                http_status=status_code,
+                error_type=(
+                    _classify_http_status(status_code)
+                    if isinstance(status_code, int)
+                    else type(exc).__name__
+                ),
                 error_summary=str(exc)[:500],
+                response_meta=response_meta,
             )
             set_provider_request_metadata(metadata)
             raise ProviderRequestError(str(exc), metadata=metadata) from exc

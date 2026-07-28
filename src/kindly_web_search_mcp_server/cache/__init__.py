@@ -2,8 +2,8 @@
 
 Provides:
 - exact query cache (LRU)
-- page cache (DuckDB, separate file)
-- transcript cache (DuckDB, separate file)
+- page cache (SQLite WAL, separate file)
+- transcript cache (SQLite WAL, separate file)
 """
 
 from .query_cache import (
@@ -25,11 +25,11 @@ __all__ = [
     "provider_cache_key",
     "QUERY_CACHE_DEFAULT_MAX_ENTRIES",
     "QUERY_CACHE_DEFAULT_TTL_SECONDS",
-    # Page cache (DuckDB)
+    # Page cache (SQLite)
     "PageCache",
     "get_page_cache",
     "PAGE_CACHE_DEFAULT_TTL_SECONDS",
-    # Transcript cache (DuckDB)
+    # Transcript cache (SQLite)
     "TranscriptCache",
     "get_transcript_cache",
 ]

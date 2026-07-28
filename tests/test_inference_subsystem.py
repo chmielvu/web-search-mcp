@@ -174,6 +174,51 @@ def test_qualified_provider_adapter_lookup():
     _PROVIDER_ADAPTERS.pop("test_adapter", None)
 
 
+@pytest.mark.asyncio
+async def test_voyage_adapter_uses_voyage_request_contract(monkeypatch):
+    import httpx
+    from kindly_web_search_mcp_server.inference.adapters.voyage import execute_voyage_rerank
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"index": 1, "relevance_score": 0.9}]}
+
+    class _FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return _FakeResponse()
+
+    fake_client = _FakeClient()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: fake_client)
+    spec = get_chain("cross_encoder_rerank").models[-1]
+
+    generation = await execute_voyage_rerank(
+        spec,
+        query="authoritative docs",
+        documents=["doc a", "doc b"],
+        top_n=2,
+    )
+
+    url, request = fake_client.calls[0]
+    assert url == "https://api.voyageai.com/v1/rerank"
+    assert request["json"]["top_k"] == 2
+    assert "top_n" not in request["json"]
+    assert request["json"]["documents"] == ["doc a", "doc b"]
+    assert generation.content == '[{"index": 1, "relevance_score": 0.9}]'
+
+
 def test_openrouter_chat_and_rerank_adapters_are_distinct():
     assert get_provider("openrouter").name == "openai"
     assert get_provider("openrouter_rerank").name == "openrouter_rerank"

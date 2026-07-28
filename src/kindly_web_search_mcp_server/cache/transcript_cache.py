@@ -1,7 +1,7 @@
 """Transcript cache facade with observability.
 
 Caches YouTube transcript segments by composite key
-(video_id + language + translate_to), with TTL and DuckDB backend.
+(video_id + language + translate_to), with TTL and SQLite backend.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class TranscriptCache:
         duration_seconds: float,
         ttl_seconds: int | None = None,
     ) -> None:
-        """Store transcript segments via DuckDB backend."""
+        """Store transcript segments via SQLite backend."""
         try:
             self._backend.store(
                 video_id=video_id,

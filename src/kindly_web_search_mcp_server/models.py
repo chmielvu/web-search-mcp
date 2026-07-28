@@ -202,7 +202,7 @@ class GeminiSearchResponse(BaseModel):
 
 
 class GrokCitation(BaseModel):
-    """Single citation from grok_search result (OpenRouter url_citation)."""
+    """Single citation from the native xAI Grok Responses search result."""
 
     url: str
     title: str | None = None
@@ -210,13 +210,20 @@ class GrokCitation(BaseModel):
 
 
 class GrokSearchResponse(BaseModel):
-    """Response from grok_search tool — Grok 4.3 via OpenRouter web+X search."""
+    """Response from grok_search with native xAI web/X citations."""
 
     query: str
     answer: str
     citations: list[GrokCitation] = Field(default_factory=list)
     model: str
     search_queries_used: int = 0
+    backend: str = "xai"
+    web_search_calls: int = 0
+    x_search_calls: int = 0
+    sources_used: int = 0
+    cached_input_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    total_tokens: int | None = None
     error: str | None = None
 
 

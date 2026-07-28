@@ -145,12 +145,9 @@ async def fetch_youtube_content_markdown(
 
     # If both failed, raise
     if not metadata and not transcript_segments:
-        raise YoutubeResolverError(
-            f"Could not fetch any content for YouTube video {video_id}"
-        )
+        raise YoutubeResolverError(f"Could not fetch any content for YouTube video {video_id}")
 
     return _render_youtube_markdown(video_id, metadata, transcript_segments)
-
 
 
 def parse_youtube_content_url(url: str) -> YouTubeTarget | None:

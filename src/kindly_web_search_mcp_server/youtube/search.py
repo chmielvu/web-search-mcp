@@ -244,7 +244,11 @@ async def search_youtube_videos(
                 metadata_parts.append(f"Published: {published_date}")
 
             if metadata_parts:
-                enriched_snippet = f"{snippet.strip()} | {' | '.join(metadata_parts)}" if snippet.strip() else " | ".join(metadata_parts)
+                enriched_snippet = (
+                    f"{snippet.strip()} | {' | '.join(metadata_parts)}"
+                    if snippet.strip()
+                    else " | ".join(metadata_parts)
+                )
             else:
                 enriched_snippet = snippet.strip()
 
@@ -357,10 +361,7 @@ async def search_youtube_html_scrape(
             if not isinstance(section, dict):
                 continue
             try:
-                item_sections = (
-                    section.get("itemSectionRenderer", {})
-                    .get("contents", [])
-                )
+                item_sections = section.get("itemSectionRenderer", {}).get("contents", [])
             except AttributeError:
                 continue
 
@@ -387,31 +388,19 @@ async def search_youtube_html_scrape(
                     continue
 
                 # Channel
-                owner_runs = (
-                    video_renderer.get("ownerText", {})
-                    .get("runs", [])
-                )
+                owner_runs = video_renderer.get("ownerText", {}).get("runs", [])
                 channel = "".join(
                     run.get("text", "") for run in owner_runs if isinstance(run, dict)
                 )
 
                 # Duration
-                duration_text = (
-                    video_renderer.get("lengthText", {})
-                    .get("simpleText", "")
-                )
+                duration_text = video_renderer.get("lengthText", {}).get("simpleText", "")
 
                 # Views
-                view_count_text = (
-                    video_renderer.get("viewCountText", {})
-                    .get("simpleText", "")
-                )
+                view_count_text = video_renderer.get("viewCountText", {}).get("simpleText", "")
 
                 # Published time
-                published_text = (
-                    video_renderer.get("publishedTimeText", {})
-                    .get("simpleText", "")
-                )
+                published_text = video_renderer.get("publishedTimeText", {}).get("simpleText", "")
 
                 # Build snippet
                 snippet_parts: list[str] = []
@@ -495,8 +484,7 @@ async def resolve_channel_handle(
             return channel_id
 
     raise YouTubeSearchError(
-        f"Could not resolve channel handle @{handle} "
-        "(HTML scrape and API both failed)"
+        f"Could not resolve channel handle @{handle} (HTML scrape and API both failed)"
     )
 
 
@@ -558,7 +546,9 @@ async def _resolve_channel_via_api(
     async def _do_request(client: httpx.AsyncClient) -> str | None:
         try:
             resp = await client.get(
-                url, params=params, headers=headers,
+                url,
+                params=params,
+                headers=headers,
                 timeout=settings.youtube_api_timeout_seconds,
             )
             resp.raise_for_status()

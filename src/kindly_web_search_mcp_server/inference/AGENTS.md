@@ -176,6 +176,7 @@ engine.execute_with_fallback(chain, operation, **kwargs) → tries primary → e
 - Domain bridges may impose a total chain budget in addition to per-provider
   timeouts; canceled provider tasks must be awaited and drained before failure
   is returned to an MCP tool.
+- Voyage's `/v1/rerank` adapter must send `top_k` and serialize the response's `data` list; `top_n`/`results` are not part of the Voyage contract.
 
 ## Catalog Chains
 

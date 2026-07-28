@@ -66,7 +66,10 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
 - Confidence-only classifier rows are reported as `unlabeled`; calibration and Brier scores require explicit human labels.
 - Quality-miss reports use typed judge payload fields (`intent_match`, `informativeness`) and preserve rank/provider provenance.
+- Judge-evaluation writes retain the legacy `relevance_raw` and `relevance_scale`
+  columns for compatible readers and default missing status values to `success`.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
+- Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.
 
 ## Testing
 

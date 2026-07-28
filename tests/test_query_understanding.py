@@ -1,225 +1,127 @@
 from __future__ import annotations
 
-from unittest import IsolatedAsyncioTestCase
 from types import SimpleNamespace
+from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
-from kindly_web_search_mcp_server.entity.models import EntitySpan
+from kindly_web_search_mcp_server.entity.models import EntityRelation, EntitySpan
+from kindly_web_search_mcp_server.entity.gliner_client import GatewayAnalysis
 from kindly_web_search_mcp_server.search.understanding.models import QueryUnderstandingResult
-from kindly_web_search_mcp_server.search.understanding.onnx_classifier import ClassifierPrediction
 from kindly_web_search_mcp_server.search.understanding.resolver import resolve_query_understanding
 from kindly_web_search_mcp_server.settings import settings
 
 
 class TestQueryUnderstanding(IsolatedAsyncioTestCase):
-    def test_query_understanding_result_preserves_terms(self) -> None:
-        result = QueryUnderstandingResult(
-            intent="comparison",
-            confidence=0.88,
-            entities=[EntitySpan(text="FastAPI", label="package", start=0, end=7, confidence=0.9)],
-            preserved_terms=["FastAPI", "Pydantic"],
-            compared_entities=["FastAPI", "Starlette"],
-            rationale="Compare frameworks.",
+    async def test_resolver_makes_one_combined_vps_call_and_derives_fields(self) -> None:
+        query = "Compare FastAPI with Starlette in Python"
+        fastapi_start = query.index("FastAPI")
+        starlette_start = query.index("Starlette")
+        fastapi = EntitySpan(
+            text="FastAPI",
+            label="package",
+            start=fastapi_start,
+            end=fastapi_start + 7,
+            confidence=0.96,
         )
-
-        self.assertEqual(result.schema_version, "0.3")
-        self.assertEqual(result.preserved_terms, ["FastAPI", "Pydantic"])
-        self.assertEqual(result.compared_entities, ["FastAPI", "Starlette"])
-
-    async def test_query_understanding_falls_back_to_general_when_llm_fails(self) -> None:
-        class _BrokenWorker:
-            async def complete_structured(self, request) -> None:  # noqa: ANN001
-                raise RuntimeError("boom")
-
+        starlette = EntitySpan(
+            text="Starlette",
+            label="package",
+            start=starlette_start,
+            end=starlette_start + 9,
+            confidence=0.94,
+        )
+        understanding = QueryUnderstandingResult(
+            intent="comparison",
+            confidence=0.91,
+            entities=[fastapi, starlette],
+            relations=[
+                EntityRelation(
+                    relation="compares_with",
+                    head=fastapi,
+                    tail=starlette,
+                    confidence=0.94,
+                )
+            ],
+            preserved_terms=["FastAPI", "Starlette"],
+            compared_entities=["FastAPI", "Starlette"],
+            domain_hints=["Python"],
+            rationale="gliner2-combined",
+            should_decompose=True,
+        )
+        client = SimpleNamespace(
+            base_url="http://127.0.0.1:8000",
+            analyze_query=AsyncMock(
+                return_value=GatewayAnalysis(
+                    understanding=understanding,
+                    model_version="fastino/gliner2-multi-v1",
+                    latency_ms=123.4,
+                )
+            ),
+        )
         with (
             patch.object(settings, "query_understanding_jsonl_enabled", False),
-            patch(  # ONNX classifier returns None → forces LLM fallback
-                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
             patch(
-                "kindly_web_search_mcp_server.search.understanding.resolver.build_llm_worker",
-                return_value=_BrokenWorker(),
+                "kindly_web_search_mcp_server.search.understanding.resolver.get_gliner_client",
+                return_value=client,
             ),
         ):
             result = await resolve_query_understanding(
-                query="FastAPI docs vs Starlette docs",
-                research_goal=None,
+                query=query,
+                research_goal="Compare frameworks",
                 intent_hint=None,
                 session_id=None,
+                run_key="run-123",
             )
 
-        self.assertEqual(result.intent, "general")
-        self.assertEqual(result.confidence, 0.0)
-        self.assertFalse(result.should_decompose)
+        self.assertEqual(result.intent, "comparison")
+        self.assertEqual(result.relations[0].relation, "compares_with")
+        self.assertEqual(result.compared_entities, ["FastAPI", "Starlette"])
+        self.assertTrue(result.should_decompose)
+        client.analyze_query.assert_awaited_once_with(query)
 
-    async def test_query_understanding_forwards_langfuse_context(self) -> None:
-        class _Worker:
-            def __init__(self) -> None:
-                self.complete_structured = AsyncMock(
-                    return_value=SimpleNamespace(
-                        model_name="groq/openai/gpt-oss-20b",
-                        endpoint_name="groq",
-                        content=(
-                            '{"intent":"general","confidence":0.9,'
-                            '"should_decompose":false,"rationale":"ok",'
-                            '"entities":[],"preserved_terms":[]}'
-                        ),
-                    )
+    async def test_service_failure_returns_general_without_llm_fallback(self) -> None:
+        fallback = QueryUnderstandingResult(
+            intent="general",
+            confidence=0.0,
+            rationale="gliner2-unavailable",
+        )
+        client = SimpleNamespace(
+            base_url="http://127.0.0.1:8000",
+            analyze_query=AsyncMock(
+                return_value=GatewayAnalysis(
+                    understanding=fallback,
+                    model_version="fastino/gliner2-multi-v1",
+                    latency_ms=2.0,
+                    fallback=True,
+                    error_reason="gliner2-unavailable",
                 )
-
-        worker = _Worker()
+            ),
+        )
         with (
             patch.object(settings, "query_understanding_jsonl_enabled", False),
-            patch.object(settings, "analytics_enabled", False),
-            patch(  # ONNX classifier returns None → forces LLM fallback
-                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
             patch(
-                "kindly_web_search_mcp_server.search.understanding.resolver.get_ab_overrides",
-                return_value=None,
-            ),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.resolver.build_llm_worker",
-                return_value=worker,
+                "kindly_web_search_mcp_server.search.understanding.resolver.get_gliner_client",
+                return_value=client,
             ),
         ):
             result = await resolve_query_understanding(
                 query="FastAPI docs",
-                research_goal="Locate official docs",
+                research_goal=None,
                 intent_hint=None,
-                session_id="session-123",
-                run_key="run-456",
             )
 
         self.assertEqual(result.intent, "general")
-        request = worker.complete_structured.await_args.args[0]
-        self.assertIsNotNone(request.langfuse)
-        self.assertEqual(request.langfuse.trace_name, "query_understanding")
-        self.assertEqual(request.langfuse.session_id, "session-123")
-        self.assertEqual(request.langfuse.metadata["task"], "query_understanding")
-        self.assertEqual(request.langfuse.metadata["run_key"], "run-456")
+        self.assertEqual(result.rationale, "gliner2-unavailable")
+        self.assertEqual(result.entities, [])
+        self.assertEqual(result.relations, [])
+        client.analyze_query.assert_awaited_once()
 
-    async def test_high_confidence_classifier_is_primary_and_persists_scores(self) -> None:
-        classifier = ClassifierPrediction(
-            label="news",
-            confidence=0.91,
-            scores={"news": 0.91, "general": 0.09},
-            model="tinybert-test",
-            endpoint="http://classifier/classify",
-            latency_ms=4.0,
-            http_status=200,
+    async def test_result_relations_default_empty_for_legacy_callers(self) -> None:
+        result = QueryUnderstandingResult(
+            intent="general",
+            confidence=0.4,
+            preserved_terms=["FastAPI"],
+            rationale="legacy-fixture",
         )
-        with (
-            patch.object(settings, "query_understanding_jsonl_enabled", False),
-            patch.object(settings, "analytics_enabled", True),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
-                new_callable=AsyncMock,
-                return_value=classifier,
-            ),
-            patch(
-                "kindly_web_search_mcp_server.analytics.duckdb_store.insert_query_understanding_event"
-            ) as insert_event,
-        ):
-            result = await resolve_query_understanding(
-                query="latest AI news",
-                research_goal="Find current news",
-                run_key="run-high",
-            )
-
-        self.assertEqual(result.intent, "news")
-        self.assertEqual(result.confidence, 0.91)
-        self.assertEqual(insert_event.call_args.kwargs["decision_path"], "onnx")
-        self.assertEqual(insert_event.call_args.kwargs["scores_json"], classifier.scores)
-
-    async def test_low_confidence_classifier_uses_llm_then_records_path(self) -> None:
-        classifier = ClassifierPrediction(
-            label="comparison",
-            confidence=0.2,
-            scores={"comparison": 0.2, "general": 0.8},
-            model="tinybert-test",
-            endpoint="http://classifier/classify",
-            latency_ms=4.0,
-            http_status=200,
-        )
-
-        class _Worker:
-            async def complete_structured(self, request) -> object:  # noqa: ANN001
-                return SimpleNamespace(
-                    model_name="llm-test",
-                    endpoint_name="groq",
-                    content=(
-                        '{"intent":"comparison","confidence":0.84,'
-                        '"should_decompose":false,"rationale":"llm",'
-                        '"entities":[],"preserved_terms":[],"compared_entities":[]}'
-                    ),
-                )
-
-        with (
-            patch.object(settings, "query_understanding_jsonl_enabled", False),
-            patch.object(settings, "analytics_enabled", True),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
-                new_callable=AsyncMock,
-                return_value=classifier,
-            ),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.resolver.build_llm_worker",
-                return_value=_Worker(),
-            ),
-            patch(
-                "kindly_web_search_mcp_server.analytics.duckdb_store.insert_query_understanding_event"
-            ) as insert_event,
-        ):
-            result = await resolve_query_understanding(
-                query="FastAPI versus Starlette",
-                research_goal="Compare frameworks",
-                run_key="run-low",
-            )
-
-        self.assertEqual(result.intent, "comparison")
-        self.assertEqual(result.confidence, 0.84)
-        self.assertEqual(
-            insert_event.call_args.kwargs["decision_path"], "classifier_low_confidence_llm"
-        )
-
-    async def test_classifier_candidate_survives_llm_failure(self) -> None:
-        classifier = ClassifierPrediction(
-            label="social_media",
-            confidence=0.31,
-            scores={"social_media": 0.31, "general": 0.69},
-        )
-
-        class _BrokenWorker:
-            async def complete_structured(self, request) -> None:  # noqa: ANN001
-                raise RuntimeError("llm unavailable")
-
-        with (
-            patch.object(settings, "query_understanding_jsonl_enabled", False),
-            patch.object(settings, "analytics_enabled", True),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.onnx_classifier.classify_intent",
-                new_callable=AsyncMock,
-                return_value=classifier,
-            ),
-            patch(
-                "kindly_web_search_mcp_server.search.understanding.resolver.build_llm_worker",
-                return_value=_BrokenWorker(),
-            ),
-            patch(
-                "kindly_web_search_mcp_server.analytics.duckdb_store.insert_query_understanding_event"
-            ) as insert_event,
-        ):
-            result = await resolve_query_understanding(
-                query="reddit API experiences",
-                research_goal="Find community discussion",
-                run_key="run-fallback",
-            )
-
-        self.assertEqual(result.intent, "social_media")
-        self.assertEqual(result.confidence, 0.31)
-        self.assertEqual(insert_event.call_args.kwargs["decision_path"], "fallback_classifier")
+        self.assertEqual(result.relations, [])
+        self.assertEqual(result.schema_version, "0.3")

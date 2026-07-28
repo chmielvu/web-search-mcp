@@ -134,9 +134,7 @@ class TestParseCloudflareResponse:
         data = {
             "success": True,
             "result": {
-                "segments": [
-                    {"vtt": "just some text", "text": "Hello", "start": 0.0, "end": 1.0}
-                ]
+                "segments": [{"vtt": "just some text", "text": "Hello", "start": 0.0, "end": 1.0}]
             },
         }
         segments = _parse_cloudflare_response(data)

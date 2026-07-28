@@ -45,7 +45,7 @@ def generate_cmd(
         typer.Option("--allow-external/--no-allow-external"),
     ] = False,
 ) -> None:
-    """Generate a sitemap with Tavily Map and legacy Crawl4AI fallback."""
+    """Generate a sitemap with Tavily Map (no fallback backend)."""
     from ..services.sitemap import fetch_sitemap_payload
 
     try:
@@ -67,7 +67,7 @@ def generate_cmd(
         raise CliError(
             kind="tool_error",
             message=str(exc),
-            hint="Check the URL and Tavily/Crawl4AI readiness. Run `web-search-cli doctor` to verify.",
+            hint="Check the URL and TAVILY_API_KEY. Run `web-search-cli doctor` to verify.",
             exit_code=ExitCode.INTERNAL_ERROR,
             context={
                 "command": "sitemap generate",

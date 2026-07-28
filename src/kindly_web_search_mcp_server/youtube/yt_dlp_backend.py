@@ -187,9 +187,7 @@ def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
     try:
         import yt_dlp
     except ImportError:
-        raise YouTubeError(
-            "yt-dlp not installed. Install with: pip install yt-dlp"
-        )
+        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp")
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 

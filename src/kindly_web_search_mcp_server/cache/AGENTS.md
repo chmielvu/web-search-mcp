@@ -1,6 +1,6 @@
 # AGENTS.md - Caching Layer
 
-In-memory LRU query cache + DuckDB page/transcript caches.
+In-memory LRU query cache + SQLite page/transcript caches.
 
 ## Key Files
 
@@ -20,10 +20,11 @@ In-memory LRU query cache + DuckDB page/transcript caches.
 - Cache-hit backend indicator is `cache` in tool/cli output.
 - `PageSQLiteCache`/`PageCache` is async via `alookup`/`astore` (thread-pool);
   sync `lookup`/`store` kept for tests/CLI.
+- SQLite backend store failures propagate to the async facade, which emits an error cache event instead of reporting a false successful store.
 
 ## Testing
 
 ```bash
-uv run pytest tests/test_exact_lru_cache.py tests/test_page_cache_duckdb.py tests/test_transcript_cache.py
+uv run pytest tests/test_exact_lru_cache.py tests/test_page_cache_sqlite.py tests/test_transcript_cache.py
 uv run pytest tests/test_cache_observability.py
 ```

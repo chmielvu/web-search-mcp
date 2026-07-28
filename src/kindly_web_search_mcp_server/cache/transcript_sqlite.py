@@ -37,10 +37,7 @@ class TranscriptSQLiteCache:
     def _resolve_path(self) -> Path:
         if self.db_path:
             return Path(self.db_path)
-        path_str = getattr(settings, "transcript_cache_sqlite_path", None) or getattr(
-            settings, "transcript_cache_duckdb_path", "duckdb_data/cache/transcript_cache.sqlite"
-        )
-        return Path(path_str)
+        return Path(settings.transcript_cache_sqlite_path)
 
     def _get_connection(self) -> sqlite3.Connection:
         path = self._resolve_path()
@@ -320,7 +317,3 @@ class TranscriptSQLiteCache:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("transcript_cache search failed for query %r: %s", query, exc)
                 return []
-
-
-# Alias for compatibility
-TranscriptDuckDBCache = TranscriptSQLiteCache

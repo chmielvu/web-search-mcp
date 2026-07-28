@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 
 CLOUDFLARE_WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo"
 
-_VTT_TIME_RE = re.compile(
-    r"(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})\.(?P<ms>\d{3})"
-)
+_VTT_TIME_RE = re.compile(r"(?P<h>\d+):(?P<m>\d{2}):(?P<s>\d{2})\.(?P<ms>\d{3})")
 
 
 class CfWhisperError(YouTubeError):
@@ -115,11 +113,13 @@ def _parse_cloudflare_response(data: dict[str, Any]) -> list[dict[str, Any]]:
             text = str(text) if text is not None else ""
 
         if text.strip():
-            segments.append({
-                "text": text.strip(),
-                "start": start,
-                "duration": max(duration, 0.0),
-            })
+            segments.append(
+                {
+                    "text": text.strip(),
+                    "start": start,
+                    "duration": max(duration, 0.0),
+                }
+            )
 
     return segments
 
@@ -132,9 +132,7 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
     try:
         import yt_dlp
     except ImportError:
-        raise CfWhisperError(
-            "yt-dlp not installed. Install with: pip install yt-dlp"
-        )
+        raise CfWhisperError("yt-dlp not installed. Install with: pip install yt-dlp")
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -145,11 +143,13 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": tmp_path.replace(".mp3", ""),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "0",
-            }],
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "0",
+                }
+            ],
             "max_filesize": None,
             "quiet": True,
             "no_warnings": True,
@@ -158,11 +158,13 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
 
         # If max_seconds is set, limit download to that duration
         if max_seconds and max_seconds > 0:
+
             def _duration_filter(info, *, incomplete):
                 duration = info.get("duration")
                 if duration and duration > max_seconds:
                     return f"Video too long ({duration}s > {max_seconds}s)"
                 return None
+
             ydl_opts["match_filter"] = _duration_filter
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -227,9 +229,7 @@ def _transcribe_sync(
     api_token = settings.cf_whisper_api_token.strip()
 
     if not account_id or not api_token:
-        raise CfWhisperError(
-            "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured"
-        )
+        raise CfWhisperError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured")
 
     if max_audio_seconds is None:
         max_audio_seconds = settings.cf_whisper_max_audio_seconds
@@ -265,21 +265,13 @@ def _transcribe_sync(
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status == 429:
-            logger.warning(
-                "Cloudflare Whisper rate limited (429) for video %s, skipping", video_id
-            )
+            logger.warning("Cloudflare Whisper rate limited (429) for video %s, skipping", video_id)
             raise CfWhisperError("Cloudflare Whisper rate limited (429)")
-        raise CfWhisperError(
-            f"Cloudflare API returned HTTP {status}: {exc.response.text[:200]}"
-        )
+        raise CfWhisperError(f"Cloudflare API returned HTTP {status}: {exc.response.text[:200]}")
     except httpx.TimeoutException:
-        raise CfWhisperError(
-            f"Cloudflare API timed out for video {video_id} (300s timeout)"
-        )
+        raise CfWhisperError(f"Cloudflare API timed out for video {video_id} (300s timeout)")
     except Exception as exc:
-        raise CfWhisperError(
-            f"Cloudflare API request failed: {type(exc).__name__}: {exc}"
-        )
+        raise CfWhisperError(f"Cloudflare API request failed: {type(exc).__name__}: {exc}")
 
     # Step 3: Parse segments
     return _parse_cloudflare_response(data)

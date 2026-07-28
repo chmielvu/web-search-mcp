@@ -26,7 +26,7 @@ async def execute_voyage_rerank(
         if documents is not None:
             body["documents"] = documents
         if top_n is not None:
-            body["top_n"] = top_n
+            body["top_k"] = top_n
         base_url = spec.base_url or "https://api.voyageai.com/v1/rerank"
         response = await client.post(
             base_url,
@@ -35,7 +35,7 @@ async def execute_voyage_rerank(
         )
         response.raise_for_status()
         data = response.json()
-        results = data.get("results", [])
+        results = data.get("data", [])
 
     content = json.dumps(results)
     return LLMGeneration(

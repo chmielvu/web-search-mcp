@@ -5,20 +5,23 @@ Entity extraction for query handling and content analysis.
 ## Key Files
 
 | File | Role |
-|---|---|
-| `gliner_client.py` | Optional lazy GLiNER2 HTTP client |
-| `models.py` | `EntitySpan`, `EntitySet` models |
+| `gliner_client.py` | Hosted VPS GLiNER2 HTTP gateway for query/content extraction |
+| `models.py` | `EntitySpan` and `EntityRelation` models |
 | `chunk.py` | Offset-preserving chunking for long text |
 | `overlap.py` | Entity overlap scoring for rerank |
-| `default_schema.py` | Default entity label schemas |
-| `postprocess.py` | Validation, deduplication, normalization |
+| `default_schema.py` | Default entity/relation label schemas |
+| `postprocess.py` | Source-grounded validation, deduplication, normalization |
 
 ## Rules
 
-- GLiNER2 is optional and lazily loaded — never force it as a dependency.
+- The application never imports `gliner2` or `torch`; inference is performed by the configured VPS gateway.
+- Query understanding uses one `/v2/query-understanding` request and fails open to deterministic `general` when unavailable.
+- Content extraction is opt-in via `ENTITY_EXTRACTION_ENABLED` and uses the same gateway's `/extract` endpoint.
 - `chunk.py` preserves global offsets for long text.
-- `postprocess.py` is the last stage before returning entity spans.
-- Public surface: `EntitySpan`, default schemas, chunking, post-processing.
+- Preserve label descriptions in `/extract` payloads; they are part of GLiNER2's entity schema, not cosmetic metadata.
+- Chunk boundaries may honor paragraph/sentence cuts only when doing so does not leave uncovered source gaps.
+- `postprocess.py` is the last stage before returning entity spans and retains exact source surface text.
+- Public surface: `EntitySpan`, `EntityRelation`, default schemas, chunking, post-processing, and `get_gliner_client`.
 
 ## Testing
 

@@ -53,38 +53,84 @@ def init_telemetry(
     service_version: str | None = None,
     prometheus_port: int | None = None,
 ) -> None:
-    """Initialize Phoenix tracing with LLM-only span filtering."""
+    """Initialize OTLP tracing with LLM-only span filtering.
+
+    Sets up a ``TracerProvider`` with a ``BatchSpanProcessor`` wrapping an
+    ``OTLPSpanExporter`` directly — no ``phoenix.otel`` import.  The Phoenix
+    library's ``register()`` convenience pulls in ``sklearn``/``scipy`` C
+    extensions that hold the GIL for 25-30 s; under MCP stdio that GIL hold
+    starves the event loop's ``ThreadPoolExecutor`` (``Thread.start()``
+    blocks on ``_started.wait()`` waiting for the GIL), causing the
+    ``web_search`` tool to hang.  Using the lightweight ``opentelemetry-sdk``
+    directly avoids the heavy import entirely while sending spans to the
+    same OTLP endpoint Phoenix expects.
+    """
     del service_name, service_version, prometheus_port
     global _initialized, _provider, _shutdown
     if _initialized:
         return
     if not settings.otel_enabled:
         LOGGER.info("OTEL_ENABLED=false — telemetry initialization skipped")
-        return
-    with _redirect_stdout_to_stderr():
-        from ._internal import _OpenInferenceFilteringSpanExporter
-        from openinference.instrumentation.openai import OpenAIInstrumentor
-        from phoenix.otel import register
-
-        _provider = register(
-            project_name=settings.phoenix_project_name,
-            endpoint=settings.phoenix_collector_endpoint,
-            headers=settings.phoenix_client_headers,
-            batch=True,
-            auto_instrument=False,
-            set_global_tracer_provider=True,
-        )
-
-        # Wrap the OTLP exporter so only LLM/RERANKER spans reach Phoenix.
-        active = _provider._active_span_processor
-        # register() creates a single BatchSpanProcessor; unwrap its exporter.
-        exporter = getattr(active, "span_exporter", None)
-        if exporter is not None:
-            active.span_exporter = _OpenInferenceFilteringSpanExporter(exporter)
-            LOGGER.info("Phoenix LLM-only filter applied (LLM + RERANKER only)")
-        OpenAIInstrumentor().instrument(tracer_provider=_provider)
         _initialized = True
+        return
+
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+        OTLPSpanExporter as HTTPOTLPSpanExporter,
+    )
+
+    from ._internal import (
+        _OpenInferenceFilteringSpanExporter,
+        _resolve_otlp_signal_endpoint,
+        _resolve_phoenix_headers,
+        _service_version,
+    )
+
+    resource = Resource.create(
+        {
+            "service.name": "web-search-mcp",
+            "service.version": _service_version(),
+        }
+    )
+    provider = TracerProvider(resource=resource)
+
+    endpoint = _resolve_otlp_signal_endpoint(
+        "traces",
+        base_endpoint=settings.phoenix_collector_endpoint,
+    )
+    headers = _resolve_phoenix_headers()
+
+    if endpoint:
+        exporter = HTTPOTLPSpanExporter(
+            endpoint=endpoint,
+            headers=headers,
+        )
+        filtered = _OpenInferenceFilteringSpanExporter(exporter)
+        processor = BatchSpanProcessor(filtered)
+        provider.add_span_processor(processor)
+        LOGGER.info(
+            "OTLP span exporter configured (endpoint=%s, LLM+RERANKER only)",
+            endpoint,
+        )
+    else:
+        LOGGER.warning("No OTLP traces endpoint resolved; spans will be dropped")
+
+    trace.set_tracer_provider(provider)
+    _provider = provider
+    _initialized = True
     _shutdown = False
+
+    # OpenAI auto-instrumentation is optional and does not import
+    # sklearn/scipy; load it lazily on first use instead of at init.
+    try:
+        from openinference.instrumentation.openai import OpenAIInstrumentor
+
+        OpenAIInstrumentor().instrument(tracer_provider=provider)
+    except Exception:
+        LOGGER.debug("OpenAI auto-instrumentation skipped", exc_info=True)
 
 
 def init_telemetry_background(
@@ -92,7 +138,7 @@ def init_telemetry_background(
     service_version: str | None = None,
     prometheus_port: int | None = None,
 ) -> None:
-    """Compatibility name; initialization is deliberately synchronous."""
+    """Compatibility name; initialization launches a lazy background thread."""
     init_telemetry(service_name, service_version, prometheus_port)
 
 

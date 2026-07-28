@@ -1,7 +1,7 @@
 """Telemetry internal helpers, exporters, and endpoint resolution."""
 
 from __future__ import annotations
-from typing import Any
+from typing import Any, Sequence
 
 import logging
 import os
@@ -15,12 +15,23 @@ from typing import TYPE_CHECKING
 from .constants import _OTEL_SDK_AVAILABLE
 
 if TYPE_CHECKING:
-    from opentelemetry.sdk.trace import SpanProcessor
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        SpanExporter,
+        SpanExportResult,
+    )
 elif _OTEL_SDK_AVAILABLE:
-    from opentelemetry.sdk.trace import SpanProcessor
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        SpanExporter,
+        SpanExportResult,
+    )
 else:
+    ReadableSpan = Any  # type: ignore[assignment, misc]
+    SpanExporter = object  # type: ignore[assignment, misc]
+    SpanExportResult = Any  # type: ignore[assignment, misc]
     SpanProcessor = object  # type: ignore[assignment, misc]
     BatchSpanProcessor = Any  # type: ignore[misc]
 
@@ -192,7 +203,7 @@ class _LoggingExporterProxy:
         return getattr(self._exporter, name)
 
 
-class _OpenInferenceFilteringSpanExporter:
+class _OpenInferenceFilteringSpanExporter(SpanExporter):
     """Export only LLM and RERANKER OpenInference spans to the wrapped exporter.
 
     Drops all generic pipeline spans (CHAIN, RETRIEVER, TOOL) and raw HTTP
@@ -202,10 +213,10 @@ class _OpenInferenceFilteringSpanExporter:
 
     _ALLOWED = frozenset({"LLM", "RERANKER"})
 
-    def __init__(self, exporter: Any) -> None:
+    def __init__(self, exporter: SpanExporter) -> None:
         self._exporter = exporter
 
-    def export(self, spans: Any) -> Any:
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         filtered = [
             s
             for s in spans
@@ -214,12 +225,13 @@ class _OpenInferenceFilteringSpanExporter:
         ]
         if filtered:
             return self._exporter.export(filtered)
-        from opentelemetry.sdk.trace.export import SpanExportResult
-
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
         return self._exporter.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return self._exporter.force_flush(timeout_millis=timeout_millis)
 
 
 def _probe_otlp_endpoint(

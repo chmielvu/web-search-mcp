@@ -42,6 +42,12 @@ def test_brightdata_default_timeout_uses_retrieve_budget() -> None:
     assert outer > 10.0
 
 
+def test_brightdata_requires_api_key_and_explicit_zone() -> None:
+    definition = PROVIDER_DEFINITIONS["brightdata"]
+    assert definition.all_of == ("BRIGHTDATA_API_KEY",)
+    assert definition.any_of == ("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE")
+
+
 def test_request_enforces_goal_and_result_window() -> None:
     with pytest.raises(ValidationError):
         WebSearchRequest(query="query", research_goal="")

@@ -88,6 +88,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "cohere": bool(settings.cohere_api_key),
             "openrouter": bool(settings.openrouter_api_key),
             "gemini": bool(settings.gemini_api_key),
+            "pollinations": bool(os.environ.get("POLLINATIONS_API_KEY")),
             "voyage": bool(settings.voyage_api_key),
             "composio": bool(
                 os.environ.get("COMPOSIO_API_KEY") and os.environ.get("COMPOSIO_USER_ID")

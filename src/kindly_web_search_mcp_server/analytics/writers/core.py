@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import sys
 from uuid import uuid4
 from collections.abc import Callable
@@ -15,7 +14,6 @@ from .connection import _db_path, _LOCK
 from ..async_writes import dispatch_duckdb_write
 from ...telemetry.usage import extract_llm_usage
 
-_logger = logging.getLogger(__name__)
 _FACADE_MODULE = "kindly_web_search_mcp_server.analytics.duckdb_store"
 
 
@@ -222,7 +220,7 @@ def insert_judge_evaluation(*, db_path: str | None = None, **kwargs: Any) -> Non
 def insert_llm_call_log(*, db_path: str | None = None, **kwargs: Any) -> None:
     from .inserts import _LLM_CALL_LOG_WRITER
 
-    _LLM_CALL_LOG_WRITER.insert(db_path=db_path, **kwargs)
+    _LLM_CALL_LOG_WRITER.dispatch_insert(db_path=db_path, **kwargs)
 
 
 def insert_ab_experiment(*, db_path: str | None = None, **kwargs: Any) -> None:
@@ -365,22 +363,3 @@ def _input_tokens_value(payload: dict[str, Any]) -> int | None:
 def _output_tokens_value(payload: dict[str, Any]) -> int | None:
     usage = extract_llm_usage(payload)
     return usage.output_tokens if usage else None
-
-
-def append_event(
-    event_name: str,
-    payload: dict[str, Any],
-    *,
-    db_path: str | None = None,
-) -> None:
-    """Append a normalized observability payload to the legacy event log.
-
-    .. deprecated:: The ``search_events`` table is removed in the new schema.
-       This function is retained as a no-op stub for any callers that have not
-       yet migrated to the new table-specific insert functions.
-    """
-    _logger.debug(
-        "append_event called for '%s' — search_events table removed; "
-        "use table-specific insert_* functions instead.",
-        event_name,
-    )

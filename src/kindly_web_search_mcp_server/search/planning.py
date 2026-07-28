@@ -18,6 +18,7 @@ from .keyword_extract import extract_support_terms
 from .understanding.resolver import resolve_query_understanding
 from .normalize import normalize_query
 from .provider_registry import select_paid_google_provider, select_provider_names
+from .providers.brightdata_common import yandex_region_for_country
 
 from ..heuristics.augment import specialized_fallback_query
 from ..heuristics.query_features import build_query_features
@@ -449,13 +450,23 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             for name, bundle in (policy.provider_arguments or {}).items()
         }
         brightdata_base = provider_arguments.get("brightdata", {})
-        provider_arguments["brightdata_yandex"] = {
+        brightdata_country = str(brightdata_base.get("country", "us"))
+        configured_yandex_region = brightdata_base.get("yandex_region")
+        yandex_region = (
+            str(configured_yandex_region).strip()
+            if configured_yandex_region is not None and str(configured_yandex_region).strip()
+            else yandex_region_for_country(brightdata_country)
+        )
+        yandex_arguments = {
             **brightdata_base,
             "provider_name": "brightdata_yandex",
+            "country": brightdata_country,
             "language": str(brightdata_base.get("language", "en")),
-            "yandex_region": "84",
             "search_type": "web",
         }
+        if yandex_region:
+            yandex_arguments["yandex_region"] = yandex_region
+        provider_arguments["brightdata_yandex"] = yandex_arguments
         provider_arguments["brightdata_bing"] = {
             **brightdata_base,
             "provider_name": "brightdata_bing",
@@ -466,6 +477,11 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         provider_arguments["serpapi"] = {
             **provider_arguments.get("serpapi", {}),
             "engine": "baidu",
+        }
+        provider_arguments["gemma"] = {
+            **provider_arguments.get("gemma", {}),
+            "queries": list(request.queries) if request.queries else [normalized_query],
+            "research_goal": request.research_goal,
         }
         plan = SearchPlan.create(
             normalized_query=normalized_query,

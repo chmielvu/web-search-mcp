@@ -16,7 +16,7 @@ import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
-from ..search.providers.base import run_provider
+from ..search.providers.base import ProviderRequestError, run_provider
 from .models import YouTubeApiError
 from .api_quota import get_youtube_api_quota_tracker
 
@@ -160,15 +160,18 @@ async def search_youtube_api(
 
         return results
 
-    results = await run_provider(
-        "youtube_api",
-        query,
-        num_results,
-        request=_do_request,
-        parse_response=_parse_response,
-        http_client=http_client,
-        timeout_seconds=timeout_seconds,
-    )
+    try:
+        results = await run_provider(
+            "youtube_api",
+            query,
+            num_results,
+            request=_do_request,
+            parse_response=_parse_response,
+            http_client=http_client,
+            timeout_seconds=timeout_seconds,
+        )
+    except ProviderRequestError as exc:
+        raise YouTubeApiError(str(exc)) from exc
 
     # Phase 3: Enrich results with metadata from videos.list (best-effort)
     if results:

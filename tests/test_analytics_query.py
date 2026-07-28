@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -32,129 +33,108 @@ class TestAnalyticsQuery(unittest.TestCase):
         self.assertNotIn("missing-local.duckdb", repr(connect.call_args))
         connection.execute.assert_called_once_with("ATTACH 'md:my_db' AS \"md_my_db\"")
 
-    def test_build_analytics_query_plan_routes_fetch_questions(self) -> None:
+    def test_build_analytics_query_plan_routes_provider_questions(self) -> None:
         from kindly_web_search_mcp_server.analytics.queries import (
             build_analytics_query_plan,
         )
 
         plan = build_analytics_query_plan(
-            "fetch quality for get_content windows",
+            "provider performance for brave",
             view_prefix="main.",
             max_rows=12,
         )
 
-        self.assertEqual(plan.rationale, "fetch")
-        self.assertIn("vw_fetch_events", plan.sql)
+        self.assertEqual(plan.rationale, "provider")
+        self.assertIn("provider_calls", plan.sql)
         self.assertIn("LIMIT 12", plan.sql)
 
-    def test_run_analytics_query_returns_fetch_metrics(self) -> None:
-        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
+    def test_build_analytics_query_plan_rejects_removed_fetch_topic(self) -> None:
         from kindly_web_search_mcp_server.analytics.queries import (
-            run_analytics_query,
+            build_analytics_query_plan,
         )
 
-        db_path = Path(self._testMethodName).with_suffix(".duckdb")
-        if db_path.exists():
-            db_path.unlink()
+        with self.assertRaises(ValueError) as ctx:
+            build_analytics_query_plan("fetch quality for get_content windows")
 
-        append_event(
-            "tool.get_content.response",
+        self.assertIn("Supported topics", str(ctx.exception))
+
+    def test_run_analytics_query_returns_provider_metrics(self) -> None:
+        from kindly_web_search_mcp_server.analytics import queries
+
+        rows = [
             {
-                "input_url": "https://example.com/article",
-                "normalized_url": "https://example.com/article",
-                "fetched_url": "https://example.com/article",
-                "status": "success",
-                "source_type": "html",
-                "fetch_backend": "safe_http_extract",
-                "content_type": "text/markdown",
-                "page_content": "alpha beta gamma",
-                "word_count": 3,
-                "window": {
-                    "offset": 0,
-                    "length": 20,
-                    "returned_chars": 16,
-                    "total_chars": 16,
-                    "has_more": False,
-                    "next_offset": None,
-                },
-                "metadata": {"title": "Example"},
-                "links": [],
-                "summary": None,
-            },
-            db_path=str(db_path),
-        )
+                "provider": "brave",
+                "total_calls": 2,
+                "success_count": 2,
+                "success_rate_pct": 100.0,
+                "avg_latency_ms": 10.0,
+                "p95_latency_ms": 12.0,
+                "total_results_returned": 5,
+                "error_count": 0,
+                "most_common_error": None,
+            }
+        ]
+        local_result: dict[str, Any] = {
+            "question": "provider performance",
+            "scope": "local",
+            "view_prefix": "main.",
+            "rationale": "provider",
+            "sql": "SELECT 1",
+            "row_count": 1,
+            "rows": rows,
+        }
 
-        result = run_analytics_query(
-            "fetch quality",
-            scope="local",
-            max_rows=5,
-            db_path=str(db_path),
-        )
+        with patch.object(queries, "run_local_analytics_query", return_value=local_result):
+            result = cast(
+                dict[str, Any],
+                queries.run_analytics_query(
+                    "provider performance",
+                    scope="local",
+                    max_rows=5,
+                    db_path="analytics.duckdb",
+                ),
+            )
 
-        self.assertEqual(result["rationale"], "fetch")
+        self.assertEqual(result["rationale"], "provider")
         self.assertEqual(result["row_count"], 1)
-        self.assertEqual(result["view_prefix"], "main.")
-        row = result["rows"][0]
-        self.assertEqual(row["fetch_backend"], "safe_http_extract")
-        self.assertEqual(row["status"], "success")
-        self.assertEqual(row["avg_word_count"], 3.0)
-        self.assertEqual(row["partial_windows"], 0)
-
-        if db_path.exists():
-            db_path.unlink()
+        self.assertEqual(result["rows"][0]["provider"], "brave")
 
     def test_analytics_query_cli_prints_json(self) -> None:
         from kindly_web_search_mcp_server import cli
-        from kindly_web_search_mcp_server.analytics.duckdb_store import append_event
 
-        db_path = Path(self._testMethodName).with_suffix(".duckdb")
-        if db_path.exists():
-            db_path.unlink()
-
-        append_event(
-            "tool.get_content.response",
-            {
-                "input_url": "https://example.com/article",
-                "normalized_url": "https://example.com/article",
-                "fetched_url": "https://example.com/article",
-                "status": "success",
-                "source_type": "html",
-                "fetch_backend": "safe_http_extract",
-                "content_type": "text/markdown",
-                "page_content": "alpha beta gamma",
-                "word_count": 3,
-                "window": {
-                    "offset": 0,
-                    "length": 20,
-                    "returned_chars": 16,
-                    "total_chars": 16,
-                    "has_more": False,
-                    "next_offset": None,
-                },
-            },
-            db_path=str(db_path),
-        )
+        payload_data: dict[str, Any] = {
+            "question": "provider performance",
+            "scope": "local",
+            "view_prefix": "main.",
+            "rationale": "provider",
+            "sql": "SELECT 1",
+            "row_count": 1,
+            "rows": [{"provider": "brave", "total_calls": 2}],
+        }
 
         stdout = io.StringIO()
-        with patch("sys.stdout", new=stdout):
+        with (
+            patch("sys.stdout", new=stdout),
+            patch(
+                "kindly_web_search_mcp_server.analytics.queries.run_analytics_query",
+                return_value=payload_data,
+            ),
+        ):
             cli.main(
                 [
                     "analytics",
                     "query",
                     "--question",
-                    "fetch quality",
+                    "provider performance",
                     "--db-path",
-                    str(db_path),
+                    "analytics.duckdb",
                 ]
             )
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(payload["data"]["rationale"], "fetch")
+        self.assertEqual(payload["data"]["rationale"], "provider")
         self.assertEqual(payload["data"]["row_count"], 1)
-        self.assertEqual(payload["data"]["rows"][0]["fetch_backend"], "safe_http_extract")
-
-        if db_path.exists():
-            db_path.unlink()
+        self.assertEqual(payload["data"]["rows"][0]["provider"], "brave")
 
 
 if __name__ == "__main__":

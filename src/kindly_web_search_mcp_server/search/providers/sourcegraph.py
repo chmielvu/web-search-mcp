@@ -77,16 +77,16 @@ async def search_sourcegraph(
         pattern_type = "literal"
     clean_query = query.replace("patternType:regexp", "").strip()
     token = token or os.environ.get("SOURCEGRAPH_TOKEN", "").strip() or None
-    set_provider_request_metadata(
-        ProviderRequestMetadata(
-            provider="sourcegraph",
-            endpoint=_SOURCEGRAPH_URL,
-            auth_mode="token" if token else "anonymous",
-            response_meta={"pattern_type": pattern_type, "token_present": bool(token)},
-        )
-    )
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
+        set_provider_request_metadata(
+            ProviderRequestMetadata(
+                provider="sourcegraph",
+                endpoint=_SOURCEGRAPH_URL,
+                auth_mode="token" if token else "anonymous",
+                response_meta={"pattern_type": pattern_type, "token_present": bool(token)},
+            )
+        )
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"token {token}"

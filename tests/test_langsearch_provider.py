@@ -141,15 +141,18 @@ class TestLangSearchProvider(unittest.TestCase):
             from kindly_web_search_mcp_server.search.providers.langsearch import (
                 search_langsearch,
             )
+            from kindly_web_search_mcp_server.search.providers.base import ProviderRequestError
 
             def handler(request: httpx.Request) -> httpx.Response:
                 return httpx.Response(500, text="Internal Server Error")
 
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as client:
-                # HTTP errors propagate via response.raise_for_status() in run_provider
-                with self.assertRaises(httpx.HTTPStatusError):
+                # run_provider preserves status and wraps HTTP failures with metadata.
+                with self.assertRaises(ProviderRequestError) as context:
                     await search_langsearch("test", num_results=5, http_client=client)
+                self.assertEqual(context.exception.metadata.http_status, 500)
+                self.assertEqual(context.exception.metadata.error_type, "upstream")
 
         anyio.run(run)
 

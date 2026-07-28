@@ -20,6 +20,10 @@ from .rate_limits import (
     DifferentiatedRateLimitMiddleware,
     create_differentiated_rate_limit_middleware,
 )
+from .stdout_guard import (
+    StdoutGuardMiddleware,
+    create_stdout_guard_middleware,
+)
 
 __all__ = [
     "EXPENSIVE_TOOLS",
@@ -34,4 +38,6 @@ __all__ = [
     "create_argument_aliasing_middleware",
     "DifferentiatedRateLimitMiddleware",
     "create_differentiated_rate_limit_middleware",
+    "StdoutGuardMiddleware",
+    "create_stdout_guard_middleware",
 ]

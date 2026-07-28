@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from ..inference.adapters.genai import get_genai_client as _adapter_get_genai_client
 from ..prompts.provider_gemini import build_dual_prompt, build_provider_gemini_prompt
 from ..settings import settings
+from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 
 logger = logging.getLogger(__name__)
 _genai_module: Any | None = None
@@ -328,94 +329,120 @@ async def _call_single_grounding(
     span_name: str = "grounded_search",
 ) -> GeminiGroundingResult:
     """Execute a single grounded search through the fallback tier."""
-    types = _get_genai_types()
+    with create_llm_operation_span(
+        span_name,
+        system="google",
+        attributes={
+            "llm.model_name": GEMINI_GROUNDING_TIER[0],
+            "search.query": query[:500],
+            "search.fallback_tier_count": len(GEMINI_GROUNDING_TIER),
+            "search.structured_output": structured_output,
+        },
+    ) as span:
+        types = _get_genai_types()
 
-    fallback_chain: list[str] = []
-    fallback_reason: str | None = None
-    last_error: Exception | None = None
+        fallback_chain: list[str] = []
+        fallback_reason: str | None = None
+        last_error: Exception | None = None
 
-    for model_id in GEMINI_GROUNDING_TIER:
-        config_dict = _build_grounding_config(
-            structured_output=structured_output, model_id=model_id
-        )
-
-        is_gemini = _is_gemini_model(model_id)
-        is_gemini3 = _is_gemini3_model(model_id)
-
-        if is_gemini:
-            config_dict["system_instruction"] = system_prompt
-
-        use_query = query
-        if structured_output and not is_gemini3:
-            use_query = (
-                f"{query}\n\n"
-                f"Respond in valid JSON with this exact structure (no markdown fences):\n"
-                f'{{"executive_summary": "brief summary", '
-                f'"key_findings": ["finding with [N] citation", ...], '
-                f'"sources": [{{"url": "https://...", "title": "Source Title"}}], '
-                f'"confidence": "high|medium|low", '
-                f'"uncertainties": null or ["gap description"]}}'
+        for model_id in GEMINI_GROUNDING_TIER:
+            config_dict = _build_grounding_config(
+                structured_output=structured_output, model_id=model_id
             )
-            config_dict.pop("response_mime_type", None)
-            config_dict.pop("response_json_schema", None)
 
-        config = types.GenerateContentConfig(**config_dict)
+            is_gemini = _is_gemini_model(model_id)
+            is_gemini3 = _is_gemini3_model(model_id)
 
-        for attempt in range(2):
-            api_key = _api_key_for_model(model_id)
-            client = get_gemini_client(api_key)
-            if not client:
-                fallback_reason = (
-                    f"Set {'GEMINI_SECOND_API_KEY' if model_id == GEMINI_GROUNDING_TIER[-1] else 'GEMINI_API_KEY'} "
-                    f"environment variable for {model_id}"
+            if is_gemini:
+                config_dict["system_instruction"] = system_prompt
+
+            use_query = query
+            if structured_output and not is_gemini3:
+                use_query = (
+                    f"{query}\n\n"
+                    f"Respond in valid JSON with this exact structure (no markdown fences):\n"
+                    f'{{"executive_summary": "brief summary", '
+                    f'"key_findings": ["finding with [N] citation", ...], '
+                    f'"sources": [{{"url": "https://...", "title": "Source Title"}}], '
+                    f'"confidence": "high|medium|low", '
+                    f'"uncertainties": null or ["gap description"]}}'
                 )
-                logger.warning("Skipping Gemini grounding tier %s: %s", model_id, fallback_reason)
-                break
+                config_dict.pop("response_mime_type", None)
+                config_dict.pop("response_json_schema", None)
 
-            if model_id not in fallback_chain:
-                fallback_chain.append(model_id)
+            config = types.GenerateContentConfig(**config_dict)
 
-            try:
-                response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model=model_id,
-                    contents=use_query,
-                    config=config,
-                )
-                return _process_grounding_response(
-                    response,
-                    model_id,
-                    query,
-                    structured_output,
-                    fallback_chain,
-                    fallback_reason,
-                )
-            except Exception as exc:
-                error_type, should_fallback, should_retry = _classify_gemini_error(exc)
-                fallback_reason = error_type
-                last_error = exc
-                logger.warning(
-                    "Gemini grounding attempt failed for %s (attempt %d): %s",
-                    model_id,
-                    attempt + 1,
-                    exc,
-                )
-                if should_retry and attempt == 0:
-                    continue
-                break
+            for attempt in range(2):
+                api_key = _api_key_for_model(model_id)
+                client = get_gemini_client(api_key)
+                if not client:
+                    fallback_reason = (
+                        f"Set {'GEMINI_SECOND_API_KEY' if model_id == GEMINI_GROUNDING_TIER[-1] else 'GEMINI_API_KEY'} "
+                        f"environment variable for {model_id}"
+                    )
+                    logger.warning(
+                        "Skipping Gemini grounding tier %s: %s", model_id, fallback_reason
+                    )
+                    break
 
-    err_msg = (
-        f"All fallback models failed: {last_error}" if last_error else "All fallback models failed"
-    )
-    return GeminiGroundingResult(
-        query=query,
-        mode="single",
-        answer="",
-        model_used=fallback_chain[-1] if fallback_chain else GEMINI_GROUNDING_TIER[0],
-        fallback_chain=fallback_chain,
-        fallback_reason=fallback_reason,
-        error=err_msg,
-    )
+                if model_id not in fallback_chain:
+                    fallback_chain.append(model_id)
+
+                try:
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=model_id,
+                        contents=use_query,
+                        config=config,
+                    )
+                    result = _process_grounding_response(
+                        response,
+                        model_id,
+                        query,
+                        structured_output,
+                        fallback_chain,
+                        fallback_reason,
+                        span=span,
+                    )
+                    span.set_attribute(
+                        "search.grounding_chunk_count", result.grounding_chunks_count
+                    )
+                    span.set_attribute("search.model_used", result.model_used)
+                    span.set_attribute("llm.model_name", result.model_used)
+                    span.set_attribute(
+                        "search.web_search_queries_count", result.web_search_queries_count
+                    )
+                    set_span_success(span, result_count=len(result.sources))
+                    return result
+                except Exception as exc:
+                    error_type, should_fallback, should_retry = _classify_gemini_error(exc)
+                    fallback_reason = error_type
+                    last_error = exc
+                    logger.warning(
+                        "Gemini grounding attempt failed for %s (attempt %d): %s",
+                        model_id,
+                        attempt + 1,
+                        exc,
+                    )
+                    if should_retry and attempt == 0:
+                        continue
+                    break
+
+        err_msg = (
+            f"All fallback models failed: {last_error}"
+            if last_error
+            else "All fallback models failed"
+        )
+        set_span_error(span, last_error or RuntimeError(err_msg))
+        return GeminiGroundingResult(
+            query=query,
+            mode="single",
+            answer="",
+            model_used=fallback_chain[-1] if fallback_chain else GEMINI_GROUNDING_TIER[0],
+            fallback_chain=fallback_chain,
+            fallback_reason=fallback_reason,
+            error=err_msg,
+        )
 
 
 async def gemini_search_with_grounding(

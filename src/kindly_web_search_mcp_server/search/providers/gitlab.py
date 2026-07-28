@@ -46,15 +46,15 @@ async def search_gitlab(
         return []
 
     token = token or os.environ.get("GITLAB_TOKEN", "").strip() or None
-    set_provider_request_metadata(
-        ProviderRequestMetadata(
-            provider="gitlab",
-            endpoint=_GITLAB_SEARCH_URL,
-            auth_mode="private-token" if token else "anonymous",
-        )
-    )
 
     async def _do_request(client: httpx.AsyncClient) -> list[dict[str, Any]]:
+        set_provider_request_metadata(
+            ProviderRequestMetadata(
+                provider="gitlab",
+                endpoint=_GITLAB_SEARCH_URL,
+                auth_mode="private-token" if token else "anonymous",
+            )
+        )
         headers = {"Accept": "application/json"}
         if token:
             headers["PRIVATE-TOKEN"] = token

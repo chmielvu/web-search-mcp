@@ -26,6 +26,7 @@ Cross-cutting helpers shared across the codebase.
 - Centralize logging, HTTP client reuse, observability, output shaping.
 - Tool lifecycle events are normalized and routed through `utils/observability.py` into typed analytics `tool_calls`; do not resurrect the removed generic `search_events` sink.
 - Provide small reusable primitives (singleflight, snippet cleanup, URL canonicalization).
+- `BatchSQLiteLogHandler.close()` flushes buffered records before marking the handler closed, preserving the final batch on shutdown.
 
 ## Testing
 

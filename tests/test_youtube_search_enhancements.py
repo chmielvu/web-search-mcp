@@ -166,7 +166,6 @@ class TestSearxngMetadataEnhancement:
         assert len(result) == 0
 
 
-
 # ============================================================================
 # Channel Resolution Tests
 # ============================================================================
@@ -185,6 +184,7 @@ class TestResolveChannelHandle:
         """Verify @ prefix is stripped before resolution."""
         # Patch settings to prevent API key usage
         from unittest.mock import patch as mock_patch
+
         with mock_patch.object(settings, "youtube_api_key", ""):
             mock_client = AsyncMock(spec=httpx.AsyncClient)
             mock_response = MagicMock(spec=httpx.Response)
@@ -216,6 +216,7 @@ class TestResolveChannelHandle:
     async def test_resolve_via_html_no_channel_id(self) -> None:
         """When channel ID not found in HTML, should fall through to error."""
         from unittest.mock import patch as mock_patch
+
         with mock_patch.object(settings, "youtube_api_key", ""):
             mock_client = AsyncMock(spec=httpx.AsyncClient)
             mock_response = MagicMock(spec=httpx.Response)
@@ -226,6 +227,7 @@ class TestResolveChannelHandle:
 
             with pytest.raises(YouTubeSearchError, match="Could not resolve"):
                 await resolve_channel_handle("nonexistent", http_client=mock_client)
+
 
 class TestSearchChannelVideos:
     """Tests for channel video search."""
@@ -263,41 +265,21 @@ def _build_mock_yt_initial_data_html() -> str:
                                         {
                                             "videoRenderer": {
                                                 "videoId": "abc123def45",
-                                                "title": {
-                                                    "runs": [{"text": "Test Video 1"}]
-                                                },
-                                                "ownerText": {
-                                                    "runs": [{"text": "TestChannel"}]
-                                                },
-                                                "lengthText": {
-                                                    "simpleText": "5:30"
-                                                },
-                                                "viewCountText": {
-                                                    "simpleText": "1,200,000 views"
-                                                },
-                                                "publishedTimeText": {
-                                                    "simpleText": "2 years ago"
-                                                },
+                                                "title": {"runs": [{"text": "Test Video 1"}]},
+                                                "ownerText": {"runs": [{"text": "TestChannel"}]},
+                                                "lengthText": {"simpleText": "5:30"},
+                                                "viewCountText": {"simpleText": "1,200,000 views"},
+                                                "publishedTimeText": {"simpleText": "2 years ago"},
                                             }
                                         },
                                         {
                                             "videoRenderer": {
                                                 "videoId": "xyz789abc01",
-                                                "title": {
-                                                    "runs": [{"text": "Test Video 2"}]
-                                                },
-                                                "ownerText": {
-                                                    "runs": [{"text": "AnotherChannel"}]
-                                                },
-                                                "lengthText": {
-                                                    "simpleText": "10:15"
-                                                },
-                                                "viewCountText": {
-                                                    "simpleText": "50K views"
-                                                },
-                                                "publishedTimeText": {
-                                                    "simpleText": "1 month ago"
-                                                },
+                                                "title": {"runs": [{"text": "Test Video 2"}]},
+                                                "ownerText": {"runs": [{"text": "AnotherChannel"}]},
+                                                "lengthText": {"simpleText": "10:15"},
+                                                "viewCountText": {"simpleText": "50K views"},
+                                                "publishedTimeText": {"simpleText": "1 month ago"},
                                             }
                                         },
                                     ]
@@ -368,7 +350,11 @@ def _run_parse_response_test(data: dict) -> list[WebSearchResult]:
             metadata_parts.append(f"Published: {published_date}")
 
         if metadata_parts:
-            enriched_snippet = f"{snippet.strip()} | {' | '.join(metadata_parts)}" if snippet.strip() else " | ".join(metadata_parts)
+            enriched_snippet = (
+                f"{snippet.strip()} | {' | '.join(metadata_parts)}"
+                if snippet.strip()
+                else " | ".join(metadata_parts)
+            )
         else:
             enriched_snippet = snippet.strip()
 

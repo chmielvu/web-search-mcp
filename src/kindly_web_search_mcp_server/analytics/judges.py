@@ -215,13 +215,17 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
             # Deliberately skip: _threads_queues[t] = self._work_queue
 
 
+@dataclass(frozen=True, slots=True)
+class _JudgeExecutorLifecycle:
+    generation: int
+    state: str
+
+
 _JUDGE_EXECUTOR: ThreadPoolExecutor | None = None
 _JUDGE_EXECUTOR_LOCK = Lock()
-_IS_SHUTTING_DOWN: bool = False
+_JUDGE_LIFECYCLE = _JudgeExecutorLifecycle(generation=0, state="running")
 _JUDGE_SCHEDULE_LOCK = Lock()
-"""Serializes _IS_SHUTTING_DOWN checks with executor acquisition so
-``schedule_judge_search_run`` and ``shutdown_judge_executor`` can't
-race between the flag check and the ``submit()`` call."""
+"""Serializes lifecycle checks with executor acquisition and shutdown."""
 
 
 def _get_judge_executor() -> ThreadPoolExecutor:
@@ -239,23 +243,39 @@ def _get_judge_executor() -> ThreadPoolExecutor:
 def shutdown_judge_executor(*, wait: bool = False) -> None:
     """Stop the shared judge ThreadPoolExecutor.
 
-    wait=False cancels pending facet/run jobs (cancel_futures=True).
-    Workers are daemon and not in concurrent.futures' atexit join map,
-    so CLI process exit is not pinned by in-flight HF calls.
-    wait=True waits for in-flight judge_search_run calls (avoid on CLI).
+    ``wait=False`` cancels pending facet/run jobs (``cancel_futures=True``).
+    Workers are daemon and not in concurrent.futures' atexit join map, so CLI
+    process exit is not pinned by in-flight HF calls.
 
-    Uses _JUDGE_SCHEDULE_LOCK to atomically set _IS_SHUTTING_DOWN and
-    swap out the executor so schedule_judge_search_run cannot submit
-    to a shutting-down executor.
+    The lifecycle state blocks new submissions only while this shutdown is in
+    progress. Completion advances the executor generation and reopens the
+    scheduler for a fresh lazy executor.
     """
-    global _JUDGE_EXECUTOR, _IS_SHUTTING_DOWN
+    global _JUDGE_EXECUTOR, _JUDGE_LIFECYCLE
     with _JUDGE_SCHEDULE_LOCK:
-        _IS_SHUTTING_DOWN = True
+        if _JUDGE_LIFECYCLE.state == "shutting_down":
+            return
+        generation = _JUDGE_LIFECYCLE.generation
+        _JUDGE_LIFECYCLE = _JudgeExecutorLifecycle(
+            generation=generation,
+            state="shutting_down",
+        )
         with _JUDGE_EXECUTOR_LOCK:
             executor = _JUDGE_EXECUTOR
             _JUDGE_EXECUTOR = None
-    if executor is not None:
-        executor.shutdown(wait=wait, cancel_futures=not wait)
+    try:
+        if executor is not None:
+            executor.shutdown(wait=wait, cancel_futures=not wait)
+    finally:
+        with _JUDGE_SCHEDULE_LOCK:
+            if (
+                _JUDGE_LIFECYCLE.generation == generation
+                and _JUDGE_LIFECYCLE.state == "shutting_down"
+            ):
+                _JUDGE_LIFECYCLE = _JudgeExecutorLifecycle(
+                    generation=generation + 1,
+                    state="running",
+                )
 
 
 # Default rubric version stamped on every judgment row. A future prompt
@@ -1115,7 +1135,7 @@ def judge_search_run(
 
         if facet_jobs:
             with _JUDGE_SCHEDULE_LOCK:
-                if _IS_SHUTTING_DOWN:
+                if _JUDGE_LIFECYCLE.state == "shutting_down":
                     logger.debug(
                         "Judge executor is shutting down; skipping parallel facets for %s",
                         run_key,
@@ -1377,8 +1397,8 @@ def schedule_judge_search_run(run_key: str) -> Future[int]:
     ``_DaemonThreadPoolExecutor`` that deliberately skips
     ``_threads_queues`` registration:
 
-    1. ``_JUDGE_SCHEDULE_LOCK`` serialises the ``_IS_SHUTTING_DOWN``
-       check with ``shutdown_judge_executor`` so our own shutdown path
+    1. ``_JUDGE_SCHEDULE_LOCK`` serialises the lifecycle-state check
+       with ``shutdown_judge_executor`` so our own shutdown path
        never races with submission.
 
     2. If ``submit()`` raises ``RuntimeError`` (from CPython's
@@ -1391,7 +1411,7 @@ def schedule_judge_search_run(run_key: str) -> Future[int]:
        already-closed caller connection.
     """
     with _JUDGE_SCHEDULE_LOCK:
-        if _IS_SHUTTING_DOWN:
+        if _JUDGE_LIFECYCLE.state == "shutting_down":
             logger.debug("Judge executor is shutting down; skipping judge for %s", run_key)
             f: Future[int] = Future()
             f.set_result(0)

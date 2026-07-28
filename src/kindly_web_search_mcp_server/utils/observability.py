@@ -402,19 +402,20 @@ def _persist_analytics_event(
     payload: dict[str, Any],
     logger: logging.Logger,
 ) -> None:
+    """Best-effort structured-log side channel only.
+
+    Typed analytics persistence lives in table-specific writers
+    (``insert_tool_call_event``, ``insert_provider_calls``, search outcome
+    batches, etc.). The legacy ``search_events`` / ``append_event`` sink was
+    removed; non-tool observability events remain log-only by design.
+    """
+    del payload  # reserved for a future typed sink; keep signature stable
     if not event.startswith(PERSISTED_EVENT_PREFIXES) or event.startswith("tool."):
         return
-
-    try:
-        from ..analytics.duckdb_store import append_event
-    except Exception as exc:  # pragma: no cover - optional analytics dependency
-        logger.debug("DuckDB analytics sink unavailable: %s", exc)
-        return
-
-    try:
-        append_event(event, payload)
-    except Exception as exc:  # pragma: no cover - best-effort sink
-        logger.debug("DuckDB analytics sink failed for %s: %s", event, exc)
+    logger.debug(
+        "observability event %s is log-only; typed analytics uses insert_* writers",
+        event,
+    )
 
 
 def emit_tool_observability_event(

@@ -14,6 +14,7 @@ from kindly_web_search_mcp_server.search.contracts import (
     DiagnosticsCollector,
     QueryBranch,
 )
+from kindly_web_search_mcp_server.search.providers.base import ProviderRequestMetadata
 
 
 def _branch(*providers: str) -> QueryBranch:
@@ -27,7 +28,7 @@ def _branch(*providers: str) -> QueryBranch:
 
 def _run(*branches: QueryBranch) -> Any:
     return SimpleNamespace(
-        plan=SimpleNamespace(branches=branches, provider_arguments={}),
+        plan=SimpleNamespace(branches=branches, provider_arguments={}, understanding=None),
         request=SimpleNamespace(options=None),
         http_client=None,
         run_key="retrieve-budget-test",
@@ -59,11 +60,31 @@ async def test_retrieve_budget_keeps_done_and_marks_pending_in_schedule_order(
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult] | BaseException]:
+    ) -> tuple[
+        str,
+        list[WebSearchResult] | BaseException,
+        ProviderRequestMetadata,
+        str,
+    ]:
         if provider_name == "fast":
-            return provider_name, [_result(provider_name)]
+            return (
+                provider_name,
+                [_result(provider_name)],
+                ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+                _branch.query,
+            )
         if provider_name == "failed":
-            return provider_name, RuntimeError("provider unavailable")
+            return (
+                provider_name,
+                RuntimeError("provider unavailable"),
+                ProviderRequestMetadata(
+                    provider=provider_name,
+                    result_class="error",
+                    error_type="provider_error",
+                    error_summary="provider unavailable",
+                ),
+                _branch.query,
+            )
         try:
             await asyncio.sleep(10)
         except asyncio.CancelledError:
@@ -109,9 +130,14 @@ async def test_retrieve_budget_returns_early_when_all_tasks_finish(
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult]]:
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
         await asyncio.sleep(0.01)
-        return provider_name, [_result(provider_name)]
+        return (
+            provider_name,
+            [_result(provider_name)],
+            ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+            _branch.query,
+        )
 
     monkeypatch.setattr(retrieval, "_call_provider", call_provider)
     monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 1.0)
@@ -139,7 +165,7 @@ async def test_retrieve_caller_cancellation_drains_every_child(
         _embedding_task: Any,
         *,
         retrieve_deadline: float = 0.0,
-    ) -> tuple[str, list[WebSearchResult]]:
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
         started[provider_name].set()
         try:
             await asyncio.sleep(10)
@@ -221,7 +247,7 @@ async def test_call_provider_uses_live_budget_not_catalog_snapshot(
 
     run = _run(_branch("live"))
     started = time.monotonic()
-    name, value = await retrieval._call_provider(
+    name, value, _metadata, _request_query = await retrieval._call_provider(
         run,
         run.plan.branches[0],
         "live",

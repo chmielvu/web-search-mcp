@@ -27,6 +27,7 @@ def _definition(
     description: str,
     *,
     all_of: tuple[str, ...] = (),
+    any_of: tuple[str, ...] = (),
     timeout: float | None = None,
     requires_embedding: bool = False,
     specialized: bool = False,
@@ -36,6 +37,7 @@ def _definition(
         adapter_module=adapter_module,
         adapter_function=adapter_function,
         all_of=all_of,
+        any_of=any_of,
         description=description,
         default_timeout_seconds=(
             settings.search_retrieve_budget_seconds if timeout is None else timeout
@@ -62,7 +64,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "gemma",
         "providers.gemma_serp",
         "search_gemma",
-        "Gemini grounded search",
+        "Pollinations Gemini Fast search",
+        all_of=("POLLINATIONS_API_KEY",),
         timeout=settings.search_retrieve_budget_seconds,
     ),
     _definition(
@@ -121,6 +124,7 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_brightdata",
         "Bright Data Google",
         all_of=("BRIGHTDATA_API_KEY",),
+        any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
@@ -129,6 +133,7 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_brightdata",
         "Bright Data Bing",
         all_of=("BRIGHTDATA_API_KEY",),
+        any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
@@ -137,6 +142,7 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_brightdata",
         "Bright Data Yandex",
         all_of=("BRIGHTDATA_API_KEY",),
+        any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
     ),
     _definition(
@@ -163,11 +169,11 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("LANGSEARCH_API_KEY",),
     ),
     _definition(
-        "grok_openrouter",
+        "grok_xai",
         "providers.grok",
-        "search_grok_openrouter",
-        "Grok via OpenRouter",
-        all_of=("OPENROUTER_API_KEY",),
+        "search_grok_xai",
+        "Grok native xAI web and X search",
+        all_of=("XAI_API_KEY",),
         specialized=True,
     ),
     _definition(

@@ -2,6 +2,31 @@
 
 from __future__ import annotations
 
+_ENTITY_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "text": {"type": "string"},
+        "label": {"type": "string"},
+        "start": {"type": ["integer", "null"]},
+        "end": {"type": ["integer", "null"]},
+        "confidence": {"type": ["number", "null"]},
+    },
+    "required": ["text", "label", "start", "end", "confidence"],
+}
+
+_RELATION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "relation": {"type": "string"},
+        "head": _ENTITY_SCHEMA,
+        "tail": _ENTITY_SCHEMA,
+        "confidence": {"type": ["number", "null"]},
+    },
+    "required": ["relation", "head", "tail", "confidence"],
+}
+
 QUERY_UNDERSTANDING_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -19,37 +44,15 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
             ],
         },
         "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-        "entities": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "text": {"type": "string"},
-                    "label": {"type": "string"},
-                    "start": {"type": ["integer", "null"]},
-                    "end": {"type": ["integer", "null"]},
-                    "confidence": {"type": ["number", "null"]},
-                },
-                "required": ["text", "label", "start", "end", "confidence"],
-            },
-        },
-        "preserved_terms": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-        "compared_entities": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
+        "entities": {"type": "array", "items": _ENTITY_SCHEMA},
+        "relations": {"type": "array", "items": _RELATION_SCHEMA},
+        "preserved_terms": {"type": "array", "items": {"type": "string"}},
+        "compared_entities": {"type": "array", "items": {"type": "string"}},
         "time_sensitivity": {
             "type": "string",
             "enum": ["none", "recent", "current", "historical"],
         },
-        "domain_hints": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
+        "domain_hints": {"type": "array", "items": {"type": "string"}},
         "rationale": {"type": "string"},
         "should_decompose": {"type": "boolean"},
     },
@@ -58,6 +61,7 @@ QUERY_UNDERSTANDING_JSON_SCHEMA = {
         "intent",
         "confidence",
         "entities",
+        "relations",
         "preserved_terms",
         "compared_entities",
         "time_sensitivity",

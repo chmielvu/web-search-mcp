@@ -278,12 +278,13 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
         """Flush remaining buffer and mark as closed."""
         if self._closed:
             return
-        self._closed = True
         try:
             self.flush()
         except Exception:  # noqa: BLE001
             pass
-        super().close()
+        finally:
+            self._closed = True
+            super().close()
 
 
 def install_process_logging(

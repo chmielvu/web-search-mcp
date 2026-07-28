@@ -84,7 +84,6 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 | `src/kindly_web_search_mcp_server/telemetry/AGENTS.md` | OpenTelemetry instrumentation |
 | `src/kindly_web_search_mcp_server/training/AGENTS.md` | Write-only JSONL training data sink |
 | `src/kindly_web_search_mcp_server/utils/AGENTS.md` | Cross-cutting helpers (HTTP, logging, async) |
-| `src/classifier_service/AGENTS.md` | Standalone intent-classifier service |
 | `tests/AGENTS.md` | Test organization and conventions |
 | `docs/AGENTS.md` | Human-readable documentation |
 | `duckdb_data/AGENTS.md` | DuckDB database inventory and read-only access |
@@ -111,7 +110,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (9070 symbols, 15082 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (8489 symbols, 14524 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

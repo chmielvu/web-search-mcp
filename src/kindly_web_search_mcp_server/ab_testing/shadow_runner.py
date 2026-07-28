@@ -36,7 +36,10 @@ async def run_shadow(
     error_type = None
 
     try:
-        shadow_result = await shadow_fn(**shadow_kwargs)
+        normalized_kwargs = dict(shadow_kwargs)
+        if "top_k" in normalized_kwargs and "top_n" not in normalized_kwargs:
+            normalized_kwargs["top_n"] = normalized_kwargs.pop("top_k")
+        shadow_result = await shadow_fn(**normalized_kwargs)
         shadow_duration_ms = (time.monotonic() - shadow_start) * 1000
     except Exception as exc:
         shadow_duration_ms = (time.monotonic() - shadow_start) * 1000
