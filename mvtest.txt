@@ -1,0 +1,4 @@
+Parser Error: syntax error at or near "MATERIALIZED"
+
+LINE 3: CREATE MATERIALIZED VIEW mv_test AS SELECT run_key, COUNT(*) AS...
+               ^

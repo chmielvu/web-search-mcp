@@ -123,6 +123,30 @@ def record_rerank_candidate_rows(
             entity_overlap_scores=entity_overlap_scores,
         )
         insert_rerank_candidate_rows_batch(rows)
+        # Build candidate_stage_events rows from the same data
+        stage_execution_id = _canonical_result_id(f"{run_key}|{stage}")
+        stage_event_rows = []
+        for row in rows:
+            rank_before = row.get("rank_before")
+            rank_after = row.get("rank_after")
+            entered = rank_before is None and rank_after is not None
+            survived = rank_after is not None
+            stage_event_rows.append({
+                "stage_execution_id": stage_execution_id,
+                "run_key": run_key,
+                "canonical_result_id": row["canonical_result_id"],
+                "entered": entered,
+                "survived": survived,
+                "rank_before": rank_before,
+                "rank_after": rank_after,
+                "score_before": row.get("score_before"),
+                "score_after": row.get("score_after"),
+                "score_name": stage,
+                "removal_reason": None if survived else "rerank_stage_removed",
+                "payload_json": row.get("payload_json"),
+            })
+        from ..analytics.duckdb_store import insert_funnel_uplift_batches
+        insert_funnel_uplift_batches(candidate_stage_events=stage_event_rows)
     except Exception as exc:
         logger.debug("analytics insert_rerank_candidates failed: %s", exc)
 

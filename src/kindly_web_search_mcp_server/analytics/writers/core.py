@@ -273,6 +273,367 @@ def insert_search_outcome_batches(
         writer.insert_batch(rows, db_path=db_path)
 
 
+def _serialize_json_fields(values: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    out = dict(values)
+    for field in fields:
+        val = out.get(field)
+        if isinstance(val, (dict, list)):
+            out[field] = json.dumps(val, ensure_ascii=False, default=str)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Quick Web Search insert helpers
+# ---------------------------------------------------------------------------
+def insert_quick_web_search_run(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _QUICK_WEB_SEARCH_RUNS_WRITER
+
+    values = _serialize_json_fields(kwargs, ("warnings", "usage", "payload_json"))
+    _QUICK_WEB_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+def insert_quick_web_search_citations(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _QUICK_WEB_SEARCH_CITATIONS_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _QUICK_WEB_SEARCH_CITATIONS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+# ---------------------------------------------------------------------------
+# Gemini Search insert helpers
+# ---------------------------------------------------------------------------
+def insert_gemini_search_run(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _GEMINI_SEARCH_RUNS_WRITER
+
+    values = _serialize_json_fields(kwargs, ("structured_data", "payload_json"))
+    _GEMINI_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+def insert_gemini_search_sources(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _GEMINI_SEARCH_SOURCES_WRITER
+
+    serialized = [_serialize_json_fields(r, ("source_json",)) for r in rows]
+    _GEMINI_SEARCH_SOURCES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_gemini_search_attempts(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _GEMINI_SEARCH_ATTEMPTS_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _GEMINI_SEARCH_ATTEMPTS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+# ---------------------------------------------------------------------------
+# Code Search insert helpers
+# ---------------------------------------------------------------------------
+def insert_code_search_run(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _CODE_SEARCH_RUNS_WRITER
+
+    values = _serialize_json_fields(
+        kwargs,
+        ("planner_source_tokens", "planner_qualifiers", "provider_hit_counts", "payload_json"),
+    )
+    _CODE_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+def insert_code_search_providers(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_PROVIDERS_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _CODE_SEARCH_PROVIDERS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_code_search_diagnostics(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_DIAGNOSTICS_WRITER
+
+    serialized = [_serialize_json_fields(r, ("details",)) for r in rows]
+    _CODE_SEARCH_DIAGNOSTICS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_code_search_hits(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_HITS_WRITER
+
+    serialized = [
+        _serialize_json_fields(r, ("score_components", "source_metadata", "payload_json"))
+        for r in rows
+    ]
+    _CODE_SEARCH_HITS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_code_search_hit_variants(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_HIT_VARIANTS_WRITER
+
+    _CODE_SEARCH_HIT_VARIANTS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
+def insert_code_search_query_variants(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_QUERY_VARIANTS_WRITER
+
+    _CODE_SEARCH_QUERY_VARIANTS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
+def insert_code_search_repositories(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CODE_SEARCH_REPOSITORIES_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _CODE_SEARCH_REPOSITORIES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_code_search_rerank(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _CODE_SEARCH_RERANK_WRITER
+
+    values = _serialize_json_fields(kwargs, ("payload_json",))
+    _CODE_SEARCH_RERANK_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+# ---------------------------------------------------------------------------
+# Content Operations and Summary insert helpers
+# ---------------------------------------------------------------------------
+def insert_content_operation(*, db_path: str | None = None, **kwargs: Any) -> None:
+    from .inserts import _CONTENT_OPERATIONS_WRITER
+
+    values = _serialize_json_fields(kwargs, ("payload_json",))
+    _CONTENT_OPERATIONS_WRITER.dispatch_insert(db_path=db_path, **values)
+
+
+def insert_content_fetches(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CONTENT_FETCHES_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _CONTENT_FETCHES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_content_summaries(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CONTENT_SUMMARIES_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _CONTENT_SUMMARIES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_content_summary_attempts(
+    rows: list[dict[str, Any]], *, db_path: str | None = None
+) -> None:
+    from .inserts import _CONTENT_SUMMARY_ATTEMPTS_WRITER
+
+    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
+    _CONTENT_SUMMARY_ATTEMPTS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
+
+
+def insert_quick_web_search_batches(
+    *,
+    quick_web_search_runs: list[dict[str, Any]] | None = None,
+    quick_web_search_citations: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist one quick search outcome synchronously across child tables."""
+    from .inserts import _QUICK_WEB_SEARCH_CITATIONS_WRITER, _QUICK_WEB_SEARCH_RUNS_WRITER
+
+    if quick_web_search_runs:
+        serialized_runs = [
+            _serialize_json_fields(r, ("warnings", "usage", "payload_json"))
+            for r in quick_web_search_runs
+        ]
+        _QUICK_WEB_SEARCH_RUNS_WRITER.insert_batch(serialized_runs, db_path=db_path)
+    if quick_web_search_citations:
+        serialized_citations = [
+            _serialize_json_fields(r, ("payload_json",)) for r in quick_web_search_citations
+        ]
+        _QUICK_WEB_SEARCH_CITATIONS_WRITER.insert_batch(serialized_citations, db_path=db_path)
+
+
+def insert_gemini_search_batches(
+    *,
+    gemini_search_runs: list[dict[str, Any]] | None = None,
+    gemini_search_sources: list[dict[str, Any]] | None = None,
+    gemini_search_attempts: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist one Gemini search outcome synchronously across child tables."""
+    from .inserts import (
+        _GEMINI_SEARCH_ATTEMPTS_WRITER,
+        _GEMINI_SEARCH_RUNS_WRITER,
+        _GEMINI_SEARCH_SOURCES_WRITER,
+    )
+
+    if gemini_search_runs:
+        serialized_runs = [
+            _serialize_json_fields(r, ("structured_data", "payload_json"))
+            for r in gemini_search_runs
+        ]
+        _GEMINI_SEARCH_RUNS_WRITER.insert_batch(serialized_runs, db_path=db_path)
+    if gemini_search_sources:
+        serialized_sources = [
+            _serialize_json_fields(r, ("source_json",)) for r in gemini_search_sources
+        ]
+        _GEMINI_SEARCH_SOURCES_WRITER.insert_batch(serialized_sources, db_path=db_path)
+    if gemini_search_attempts:
+        serialized_attempts = [
+            _serialize_json_fields(r, ("payload_json",)) for r in gemini_search_attempts
+        ]
+        _GEMINI_SEARCH_ATTEMPTS_WRITER.insert_batch(serialized_attempts, db_path=db_path)
+
+
+def insert_code_search_batches(
+    *,
+    code_search_runs: list[dict[str, Any]] | None = None,
+    code_search_providers: list[dict[str, Any]] | None = None,
+    code_search_diagnostics: list[dict[str, Any]] | None = None,
+    code_search_hits: list[dict[str, Any]] | None = None,
+    code_search_hit_variants: list[dict[str, Any]] | None = None,
+    code_search_query_variants: list[dict[str, Any]] | None = None,
+    code_search_repositories: list[dict[str, Any]] | None = None,
+    code_search_rerank: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist one code search outcome synchronously across child tables."""
+    from .inserts import (
+        _CODE_SEARCH_DIAGNOSTICS_WRITER,
+        _CODE_SEARCH_HITS_WRITER,
+        _CODE_SEARCH_HIT_VARIANTS_WRITER,
+        _CODE_SEARCH_PROVIDERS_WRITER,
+        _CODE_SEARCH_QUERY_VARIANTS_WRITER,
+        _CODE_SEARCH_REPOSITORIES_WRITER,
+        _CODE_SEARCH_RERANK_WRITER,
+        _CODE_SEARCH_RUNS_WRITER,
+    )
+
+    if code_search_runs:
+        serialized_runs = [
+            _serialize_json_fields(
+                r,
+                ("planner_source_tokens", "planner_qualifiers", "provider_hit_counts", "payload_json"),
+            )
+            for r in code_search_runs
+        ]
+        _CODE_SEARCH_RUNS_WRITER.insert_batch(serialized_runs, db_path=db_path)
+    if code_search_providers:
+        serialized_providers = [
+            _serialize_json_fields(r, ("payload_json",)) for r in code_search_providers
+        ]
+        _CODE_SEARCH_PROVIDERS_WRITER.insert_batch(serialized_providers, db_path=db_path)
+    if code_search_diagnostics:
+        serialized_diags = [
+            _serialize_json_fields(r, ("details",)) for r in code_search_diagnostics
+        ]
+        _CODE_SEARCH_DIAGNOSTICS_WRITER.insert_batch(serialized_diags, db_path=db_path)
+    if code_search_hits:
+        serialized_hits = [
+            _serialize_json_fields(r, ("score_components", "source_metadata", "payload_json"))
+            for r in code_search_hits
+        ]
+        _CODE_SEARCH_HITS_WRITER.insert_batch(serialized_hits, db_path=db_path)
+    if code_search_hit_variants:
+        _CODE_SEARCH_HIT_VARIANTS_WRITER.insert_batch(code_search_hit_variants, db_path=db_path)
+    if code_search_query_variants:
+        _CODE_SEARCH_QUERY_VARIANTS_WRITER.insert_batch(code_search_query_variants, db_path=db_path)
+    if code_search_repositories:
+        serialized_repos = [
+            _serialize_json_fields(r, ("payload_json",)) for r in code_search_repositories
+        ]
+        _CODE_SEARCH_REPOSITORIES_WRITER.insert_batch(serialized_repos, db_path=db_path)
+    if code_search_rerank:
+        serialized_rerank = [
+            _serialize_json_fields(r, ("payload_json",)) for r in code_search_rerank
+        ]
+        _CODE_SEARCH_RERANK_WRITER.insert_batch(serialized_rerank, db_path=db_path)
+
+
+def insert_content_operation_batches(
+    *,
+    content_operations: list[dict[str, Any]] | None = None,
+    content_fetches: list[dict[str, Any]] | None = None,
+    content_summaries: list[dict[str, Any]] | None = None,
+    content_summary_attempts: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist one content operation outcome synchronously across child tables."""
+    from .inserts import (
+        _CONTENT_FETCHES_WRITER,
+        _CONTENT_OPERATIONS_WRITER,
+        _CONTENT_SUMMARIES_WRITER,
+        _CONTENT_SUMMARY_ATTEMPTS_WRITER,
+    )
+
+    if content_operations:
+        serialized_ops = [
+            _serialize_json_fields(r, ("payload_json",)) for r in content_operations
+        ]
+        _CONTENT_OPERATIONS_WRITER.insert_batch(serialized_ops, db_path=db_path)
+    if content_fetches:
+        serialized_fetches = [
+            _serialize_json_fields(r, ("payload_json",)) for r in content_fetches
+        ]
+        _CONTENT_FETCHES_WRITER.insert_batch(serialized_fetches, db_path=db_path)
+    if content_summaries:
+        serialized_summaries = [
+            _serialize_json_fields(r, ("payload_json",)) for r in content_summaries
+        ]
+        _CONTENT_SUMMARIES_WRITER.insert_batch(serialized_summaries, db_path=db_path)
+    if content_summary_attempts:
+        serialized_attempts = [
+            _serialize_json_fields(r, ("payload_json",)) for r in content_summary_attempts
+        ]
+        _CONTENT_SUMMARY_ATTEMPTS_WRITER.insert_batch(serialized_attempts, db_path=db_path)
+
+
+def insert_funnel_uplift_batches(
+    *,
+    result_catalog: list[dict[str, Any]] | None = None,
+    provider_results: list[dict[str, Any]] | None = None,
+    query_variants: list[dict[str, Any]] | None = None,
+    candidate_stage_events: list[dict[str, Any]] | None = None,
+    tool_output_items: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist web-search funnel uplift facts synchronously."""
+    from .inserts import (
+        _CANDIDATE_STAGE_EVENTS_WRITER,
+        _PROVIDER_RESULTS_WRITER,
+        _QUERY_VARIANTS_WRITER,
+        _RESULT_CATALOG_WRITER,
+        _TOOL_OUTPUT_ITEMS_WRITER,
+    )
+
+    if result_catalog:
+        _RESULT_CATALOG_WRITER.insert_batch(result_catalog, db_path=db_path)
+    if provider_results:
+        serialized_pr = [
+            _serialize_json_fields(r, ("payload_json",)) for r in provider_results
+        ]
+        _PROVIDER_RESULTS_WRITER.insert_batch(serialized_pr, db_path=db_path)
+    if query_variants:
+        _QUERY_VARIANTS_WRITER.insert_batch(query_variants, db_path=db_path)
+    if candidate_stage_events:
+        serialized_cse = [
+            _serialize_json_fields(r, ("payload_json",)) for r in candidate_stage_events
+        ]
+        _CANDIDATE_STAGE_EVENTS_WRITER.insert_batch(serialized_cse, db_path=db_path)
+    if tool_output_items:
+        _TOOL_OUTPUT_ITEMS_WRITER.insert_batch(tool_output_items, db_path=db_path)
+
+
 # ---------------------------------------------------------------------------
 # Value-extraction helpers (kept for backward compat with any callers)
 # ---------------------------------------------------------------------------

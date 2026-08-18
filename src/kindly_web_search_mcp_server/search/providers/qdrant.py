@@ -14,13 +14,13 @@ from ...embeddings import embed_query
 from ...index.bm25_encoder import encode_bm25
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import run_clientless_provider
+from .base import ProviderRequestError, provider_retry_max_retries, run_clientless_provider
 from ..options import SearchOptions
 
 LOGGER = logging.getLogger(__name__)
 
 
-class QdrantSearchError(RuntimeError):
+class QdrantSearchError(ProviderRequestError):
     pass
 
 
@@ -194,6 +194,9 @@ async def search_qdrant(
         num_results,
         request=_request,
         parse_response=lambda results: results,
+        # Bounded retry honors a server-issued Retry-After; raw SDK errors are
+        # normalized into the provider error contract (http_status, retryable).
+        max_retries=provider_retry_max_retries("qdrant"),
     )
 
 

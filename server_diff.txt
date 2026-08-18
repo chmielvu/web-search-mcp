@@ -1,0 +1,117 @@
+diff --git a/src/kindly_web_search_mcp_server/server.py b/src/kindly_web_search_mcp_server/server.py
+index 8b1ef8e..0dce83f 100644
+--- a/src/kindly_web_search_mcp_server/server.py
++++ b/src/kindly_web_search_mcp_server/server.py
+@@ -4,6 +4,7 @@ from __future__ import annotations
+ # Load .env file before any other imports that read environment variables
+ from pathlib import Path
+ import os
++import threading
+ 
+ from dotenv import load_dotenv
+ 
+@@ -16,16 +17,16 @@ os.environ.setdefault("FASTMCP_BANNER", "false")
+ os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
+ os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
+ 
+-# Initialize OpenTelemetry BEFORE any other imports
+-# This ensures all HTTP calls (httpx, etc.) are auto-instrumented.
+-# init_telemetry_background runs in a daemon thread so that an unreachable
+-# OTLP endpoint (Grafana Cloud) never blocks MCP startup (~70s hang).
++# Initialize OpenTelemetry in a background daemon thread. Importing
++# Phoenix (which transitively imports sklearn/scipy's C extensions) costs
++# ~25-30s even with zero contention (measured in isolation) -- far too
++# slow to run synchronously on the stdio handshake path, and no tool call
++# may ever await it (see _ensure_telemetry's docstring below).
+ import logging
+ 
+ from .composio_tools import register_composio_tools
+ from .quick_web_search import register_quick_web_search
+ from .settings import settings
+-from .telemetry import init_telemetry_background
+ from .tools._helpers import (
+     _app_lifespan,
+     _resolve_tool_total_timeout_seconds,  # noqa: F401  re-exported for tests
+@@ -59,9 +60,50 @@ from .utils.observability import emit_observability_event
+ from .analytics.app import analytics_app
+ 
+ configure_logging()
+-init_telemetry_background(service_name="web-search-mcp")
+ LOGGER = logging.getLogger(__name__)
+ 
++# tqdm spawns a monitor thread (Thread.start()) the first time any tqdm
++# instance is created in this process, regardless of disable=True /
++# show_progress=False (tqdm.std.tqdm.__new__ checks monitor_interval, not
++# the disable kwarg). Under heavy GIL contention -- e.g. a concurrent
++# import of a large C extension -- that Thread.start() call can stall for
++# a very long time. bm25s and rank_llm both instantiate tqdm during the
++# web_search rerank stage, so disable the monitor thread globally; it only
++# exists to force-refresh stalled progress bars, which are irrelevant here.
++import tqdm as _tqdm_pkg
++
++_tqdm_pkg.tqdm.monitor_interval = 0
++
++_telemetry_init_lock = threading.Lock()
++_telemetry_init_started = False
++
++
++def _ensure_telemetry() -> None:
++    """Start telemetry initialization in a background daemon thread (idempotent).
++
++    Fire-and-forget by design. Telemetry is best-effort observability, so no
++    tool call may ever await this -- an earlier revision made
++    ``on_call_tool`` block on it, which just moved the ~25-30s Phoenix
++    import cost onto the first tool call's latency budget instead of
++    removing it. This is called as early as possible in ``main()`` purely
++    to give that import maximum head start before real traffic arrives.
++    """
++    global _telemetry_init_started
++    with _telemetry_init_lock:
++        if _telemetry_init_started:
++            return
++        _telemetry_init_started = True
++
++    def _run() -> None:
++        try:
++            from .telemetry import init_telemetry_background
++
++            init_telemetry_background(service_name="web-search-mcp")
++        except Exception:
++            LOGGER.warning("Telemetry background init failed", exc_info=True)
++
++    threading.Thread(target=_run, name="telemetry-init", daemon=True).start()
++
+ import argparse
+ import sys
+ from typing import Literal
+@@ -111,6 +153,19 @@ mcp = FastMCP(
+         "For the tool routing reference card, read docs://workflow."
+     ),
+ )
++# Add stdout guard middleware FIRST so it wraps every other middleware and
++# the tool call itself. MCP's stdio transport captures sys.stdout.buffer
++# once at startup and treats it as a newline-delimited JSON-RPC channel;
++# any stray print() anywhere in the tool-call path (rank_llm's reranker
++# prints "Template validated successfully!", "Loading {model} ...", etc.
++# directly to stdout) corrupts that stream and the client hangs waiting
++# for a response line that will never parse -- explaining "Transport
++# closed"/timeouts on web_search specifically (the only tool that reaches
++# rank_llm) while fast tools on the same transport are unaffected.
++from .middleware import create_stdout_guard_middleware
++
++mcp.add_middleware(create_stdout_guard_middleware())
++
+ # Add argument aliasing middleware (rewrites hallucinated parameters before validation)
+ from .middleware import create_argument_aliasing_middleware
+ 
+@@ -347,6 +402,10 @@ def main(argv: list[str] | None = None) -> None:
+             if hasattr(mcp, "settings") and hasattr(mcp.settings, key):  # type: ignore[attr-defined]
+                 setattr(mcp.settings, key, value)  # type: ignore[attr-defined]
+ 
++    # Start telemetry first (background thread, non-blocking -- see
++    # _ensure_telemetry) so its ~25-30s Phoenix import gets the maximum
++    # possible head start before any tool call can arrive.
++    _ensure_telemetry()
+     _warm_heavy_imports()
+     try:
+         mcp.run(transport=transport, mount_path=args.mount_path, show_banner=False)

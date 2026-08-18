@@ -16,7 +16,6 @@ from ..telemetry import record_mcp_tool_call, record_tool_details
 from ..telemetry.init import shutdown_telemetry
 from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
 from ..analytics.async_writes import shutdown_duckdb_write_executor
-from ..content.firecrawl_stage import close_firecrawl_client
 from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
 from ..utils.http_client import close_http_client
 from ..utils.public_output import serialize_public_web_search_response
@@ -97,10 +96,8 @@ def _public_settings_snapshot() -> dict[str, object]:
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
         "models": {
-            "cohere_rerank_model": settings.cohere_rerank_model,
             "openrouter_rerank_model": settings.openrouter_rerank_model,
             "voyage_rerank_model": settings.voyage_rerank_model,
-            "jina_rerank_model": settings.jina_rerank_model,
             "judge_model": settings.judge_model,
             "rankllm_timeout_seconds": settings.rankllm_timeout_seconds,
             "grok_model": settings.grok_model,
@@ -126,6 +123,48 @@ def _analytics_schema_snapshot() -> dict[str, object]:
         "analytics_db_path": settings.analytics_duckdb_path,
         "object_count": len(_OBJECT_DESCRIPTIONS),
         "objects": _OBJECT_DESCRIPTIONS,
+    }
+
+
+def _search_history_snapshot(limit: int = 20) -> dict[str, object]:
+    """Return recent search runs from the DuckDB analytics store."""
+    import duckdb
+
+    from ..analytics.formatting import json_safe_rows
+
+    path = settings.analytics_duckdb_path
+    if not path or not os.path.exists(path):
+        return {
+            "search_history": [],
+            "count": 0,
+            "note": "Analytics DuckDB not available.",
+        }
+
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        table = connection.execute(
+            "SELECT "
+            "CAST(recorded_at AS VARCHAR) AS recorded_at, run_key, query, normalized_query, "
+            "intent, status, duration_ms, final_result_count, "
+            "selected_providers, branch_count, provider_count "
+            "FROM search_runs "
+            "ORDER BY recorded_at DESC "
+            "LIMIT ?",
+            [limit],
+        ).fetchall()
+        columns = [
+            "recorded_at", "run_key", "query", "normalized_query",
+            "intent", "status", "duration_ms", "final_result_count",
+            "selected_providers", "branch_count", "provider_count",
+        ]
+        rows = [dict(zip(columns, row)) for row in table]
+    finally:
+        connection.close()
+
+    return {
+        "search_history": json_safe_rows(rows),
+        "count": len(rows),
+        "limit": limit,
     }
 
 
@@ -168,7 +207,6 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
     try:
         await close_crawl4ai_client()
         await close_camoufox_client()
-        await close_firecrawl_client()
     except Exception as exc:
         LOGGER.warning(
             "Error closing remote content clients during shutdown: %s", type(exc).__name__

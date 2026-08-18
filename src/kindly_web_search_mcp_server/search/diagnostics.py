@@ -21,7 +21,6 @@ class _DiagBase(BaseModel):
 class DiagnosticsEnrichment(_DiagBase):
     rake_terms: tuple[str, ...] = ()
     brave_autosuggest: tuple[str, ...] = ()
-    brave_spellcheck: str | None = None
     intent: str | None = None
     understanding_confidence: float | None = None
     policy_version: str | None = None
@@ -133,9 +132,7 @@ def _enrichment_from_run(run: SearchRun, dc: DiagnosticsCollector) -> Diagnostic
     return DiagnosticsEnrichment(
         rake_terms=_coerce_str_tuple(raw.get("rake_terms")),
         brave_autosuggest=_coerce_str_tuple(raw.get("brave_autosuggest")),
-        brave_spellcheck=raw.get("brave_spellcheck")
-        if isinstance(raw.get("brave_spellcheck"), str)
-        else None,
+
         intent=intent,
         understanding_confidence=confidence,
         policy_version=plan.policy_version if plan is not None else None,

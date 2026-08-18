@@ -178,13 +178,10 @@ async def run_llm_stage(
     run_key: str | None,
     main_span: Any,
     logger: logging.Logger,
-    reranking_instructions: str | None = None,
 ) -> RankedStageOutcome:
     stage_start = time.monotonic()
     try:
-        outcome = await rerank_with_llm(
-            query, candidates, request_id=request_id, reranking_instructions=reranking_instructions
-        )
+        outcome = await rerank_with_llm(query, candidates, request_id=request_id)
     except Exception as exc:
         outcome = None
         error = exc

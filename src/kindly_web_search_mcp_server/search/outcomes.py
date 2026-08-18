@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..utils.url_canonicalize import extract_domain_from_url
 
 LOGGER = logging.getLogger(__name__)
@@ -83,6 +84,8 @@ async def persist_search_outcome(run):
         {
             "_w": insert_search_run,
             "run_key": rk,
+            "tool_call_id": outcome.tool_call_id,
+            "session_id": outcome.session_id,
             "query": outcome.request.query,
             "normalized_query": outcome.plan.normalized_query if outcome.plan else "",
             "research_goal": outcome.request.research_goal,
@@ -109,7 +112,6 @@ async def persist_search_outcome(run):
             "reranker_model": outcome.rerank_metadata.get("reranker_model"),
             "rake_terms": en.get("rake_terms", []),
             "brave_autosuggest": en.get("brave_autosuggest", []),
-            "brave_spellcheck": en.get("brave_spellcheck"),
             "rewrite_prompt": rw.get("prompt"),
             "rewrite_model": rw.get("model"),
             "rewrite_input_tokens": rw.get("input_tokens"),
@@ -136,6 +138,7 @@ async def persist_search_outcome(run):
                 "_w": insert_search_branches,
                 "run_key": rk,
                 "branch_index": i,
+                "branch_id": _canonical_result_id(f"{rk}|{i}"),
                 "branch_role": b.role.value,
                 "branch_query": b.query,
                 "branch_why": b.why,
@@ -171,6 +174,11 @@ async def persist_search_outcome(run):
                     "http_status": c.get("http_status"),
                     "result_class": c.get("result_class"),
                     "response_meta_json": c.get("response_meta_json"),
+                    "retry_after_seconds": c.get("retry_after"),
+                    "retryable": c.get("retryable"),
+                    "provider_call_id": _canonical_result_id(
+                        f"{rk}|{br.get('branch_index', '')}|{c.get('provider', '')}"
+                    ),
                     "payload_json": {},
                 }
             )
@@ -180,6 +188,7 @@ async def persist_search_outcome(run):
                 "_w": insert_search_candidates,
                 "run_key": rk,
                 "link": res.link,
+                "canonical_result_id": _canonical_result_id(res.link),
                 "title": res.title,
                 "snippet": res.snippet,
                 "domain": res.domain or extract_domain_from_url(res.link) or "",
@@ -205,8 +214,8 @@ async def persist_search_outcome(run):
                     "providers": list(res.providers or []),
                     "provider_count": res.provider_count or 0,
                     "entities_count": 0,
-                    "candidate_id": None,
-                    "canonical_result_id": None,
+                    "candidate_id": _candidate_id(res.link, res.title, res.snippet),
+                    "canonical_result_id": _canonical_result_id(res.link),
                     "payload_json": {},
                 }
             )
@@ -286,6 +295,17 @@ async def persist_search_outcome(run):
             compute_search_quality(rk)
         except Exception as e:
             LOGGER.debug("persist search quality failed: %s", e)
+        # Persist funnel uplift facts (provider_results, query_variants, tool_output_items)
+        try:
+            from ..analytics.duckdb_store import insert_funnel_uplift_batches
+            pr_rows = dc.provider_result_rows or []
+            if pr_rows:
+                insert_funnel_uplift_batches(provider_results=pr_rows)
+            qv_rows = dc.query_variant_rows or []
+            if qv_rows:
+                insert_funnel_uplift_batches(query_variants=qv_rows)
+        except Exception as e:
+            LOGGER.debug("persist funnel uplift batches failed: %s", e)
 
     future = dispatch_duckdb_write("search.outcome." + rk, _write)
     if future is not None:

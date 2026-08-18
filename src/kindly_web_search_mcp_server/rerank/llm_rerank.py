@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..models import WebSearchResult
+from ..prompts.rerank_llm import load_rerank_system_message
 from ..settings import settings
 from .limits import RANKLLM_INPUT_LIMIT
 from .models import RerankResult
@@ -120,6 +121,7 @@ def _build_genai_coordinator(*, model: str, api_key: str) -> Any:
         max_passage_words=settings.rankllm_max_passage_words,
         keys=api_key,
         temperature=settings.rankllm_temperature,
+        system_instruction=load_rerank_system_message(),
     )
 
 
@@ -164,7 +166,14 @@ def _build_request(
             docid=str(index),
             doc={
                 "title": candidate.title,
-                "content": f"Title: {candidate.title}\nSnippet: {candidate.snippet}\nURL: {candidate.link}",
+                "content": (
+                    f"Title: {candidate.title}\n"
+                    f"Snippet: {candidate.snippet}\n"
+                    f"URL: {candidate.link}\n"
+                    f"Domain: {candidate.domain or 'unknown'}\n"
+                    f"Providers: {', '.join(candidate.providers or []) or 'unknown'}\n"
+                    f"ProviderCount: {candidate.provider_count or 1}"
+                ),
             },
             score=0.0,
         )
@@ -219,7 +228,7 @@ async def _run_coordinator(
             [request],
             rank_start=0,
             rank_end=candidate_count,
-            shuffle_candidates=False,
+            shuffle_candidates=True,
             logging=False,
             populate_invocations_history=True,
         )
@@ -247,11 +256,8 @@ async def rerank_with_llm(
     candidates: list[WebSearchResult],
     *,
     request_id: str | None = None,
-    reranking_instructions: str | None = None,
 ) -> LLMRerankOutcome:
     """Rerank one complete window via OpenRouter, then Gemini, or fail open."""
     from ..inference.bridges.rankllm import rerank_with_rankllm_bridge
 
-    return await rerank_with_rankllm_bridge(
-        query, candidates, request_id=request_id, reranking_instructions=reranking_instructions
-    )
+    return await rerank_with_rankllm_bridge(query, candidates, request_id=request_id)

@@ -58,17 +58,32 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
             output_tokens=50,
         )
 
+        bi_mock = AsyncMock(return_value=bi_outcome)
+        cross_mock = AsyncMock(return_value=cross_outcome)
+        llm_mock = AsyncMock(return_value=llm_outcome)
         with (
-            patch.object(core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)),
-            patch.object(core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)),
-            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)),
+            patch.object(core, "run_conditional_bi_encoder", bi_mock),
+            patch.object(core, "run_cross_encoder_stage", cross_mock),
+            patch.object(core, "run_llm_stage", llm_mock),
         ):
             result = await core.rerank_results(
                 "How do bridges stay standing?",
                 base,
                 research_goal="Find primary engineering evidence",
                 query_type_hint="general",
+                reranking_instructions="Prefer direct engineering evidence.",
             )
+
+        self.assertEqual(
+            bi_mock.await_args.args[0],
+            "How do bridges stay standing?\nResearch goal: Find primary engineering evidence",
+        )
+        cross_query = cross_mock.await_args.kwargs["query"]
+        self.assertIn("Intent: general", cross_query)
+        self.assertIn("Caller preference: Prefer direct engineering evidence.", cross_query)
+        rankllm_query = llm_mock.await_args.kwargs["query"]
+        self.assertIn("RESEARCH GOAL:\nFind primary engineering evidence", rankllm_query)
+        self.assertIn("CALLER PREFERENCE:\nPrefer direct engineering evidence.", rankllm_query)
 
         assert result is not None
         self.assertEqual(len(result.results), 15)

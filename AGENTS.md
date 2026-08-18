@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-07-23 | Last verified: 2026-07-23 -->
+<!-- Last updated: 2026-08-14 | Last verified: 2026-08-14 -->
 
 # AGENTS.md — Kindly Web Search MCP Server
 
@@ -28,20 +28,22 @@ FastMCP server + Typer CLI for multi-provider web search, content extraction, re
 | Test (all) | `uv run pytest` | ~30s |
 | Run MCP Server | `uv run web-search-cli server` | foreground |
 | CLI Doctor | `uv run web-search-cli doctor` | ~8s |
+| Public-code prototype test | `uv run python -m unittest discover -s prototypes/public_code_search -p "test_*.py"` | <1s |
 
 ## CLI & MCP Tools Overview
 
 ### FastMCP Tools
-- `web_search`: Multi-provider search with RRF merge, intent policy & multi-stage reranking
+- `web_search`: Multi-provider web search with RRF merge, intent policy & multi-stage reranking
 - `quick_web_search`: Parallel AI reconnaissance search (fast, 3-6 word queries)
 - `get_content` / `batch_get_content`: 7-stage content fetcher with markdown windowing & summaries
 - `gemini_search`: Google Search grounded answer synthesis
 - `discover_links` & `generate_sitemap`: Outbound link extraction & Tavily-backed sitemap generation
+- `code_search`: Public code, documentation, implementation, and repository discovery with automatic backend selection
 - `youtube_search` & `youtube_transcript`: YouTube video discovery & caption extraction
 
 ### Typer CLI (`uv run web-search-cli <command>`)
 - **Core Commands**: `doctor`, `schema`, `reference tools`, `skills`, `getskill`, `feedback`
-- **Search & Fetch Operations**: `search web`, `search quick`, `academic`, `content <url>`, `links <url>`, `ai <query>`, `youtube search/transcript`, `sitemap generate`
+- **Search & Fetch Operations**: `search web`, `search quick`, `search academic`, `search code`, `content <url>`, `links <url>`, `ai <query>`, `youtube search/transcript`, `sitemap generate`
 - **Analytics & Labs**: `analytics query`, `analytics report <name>`, `experiments list|create|enable`
 - **Global Flags**: `--brief`, `--quiet` (`-q`, suppresses rules/skills), `--raw` (bare stdout), `--fields` (field projection), `--log-format=json`, `--dry-run`
 
@@ -87,6 +89,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 | `tests/AGENTS.md` | Test organization and conventions |
 | `docs/AGENTS.md` | Human-readable documentation |
 | `duckdb_data/AGENTS.md` | DuckDB database inventory and read-only access |
+| `prototypes/public_code_search/` | Agent-oriented public GitHub code search, hybrid GraphQL/REST discovery, ranking, and exact-revision fetch |
 
 ## Boundaries
 
@@ -110,7 +113,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (8489 symbols, 14524 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (10440 symbols, 17483 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -13,10 +13,17 @@ from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..normalize import canonicalize_url
 from ..options import SearchOptions
-from .base import run_provider
+from .base import (
+    ProviderRequestError,
+    ProviderRequestMetadata,
+    _RETRYABLE_HTTP_STATUSES,
+    _classify_http_status,
+    _parse_retry_after,
+    run_provider,
+)
 
 
-class SearxngError(RuntimeError):
+class SearxngError(ProviderRequestError):
     pass
 
 
@@ -234,17 +241,47 @@ async def search_searxng(
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            retry_after = _parse_retry_after(exc.response.headers.get("Retry-After"))
             if status == 403:
                 raise SearxngError(
                     "SearXNG returned 403 Forbidden. JSON output may be disabled on the instance "
                     "(formats are configured in settings.yml; request uses format=json). "
-                    "Fix: enable the 'json' format in the SearXNG instance configuration."
+                    "Fix: enable the 'json' format in the SearXNG instance configuration.",
+                    metadata=ProviderRequestMetadata(
+                        provider="searxng",
+                        http_status=status,
+                        result_class="error",
+                        error_type="auth",
+                        error_summary="SearXNG returned 403 Forbidden",
+                        retry_after=retry_after,
+                        retryable=False,
+                    ),
                 ) from exc
             if status == 429:
                 raise SearxngError(
-                    "SearXNG returned 429 Too Many Requests (rate limited)."
+                    "SearXNG returned 429 Too Many Requests (rate limited).",
+                    metadata=ProviderRequestMetadata(
+                        provider="searxng",
+                        http_status=status,
+                        result_class="error",
+                        error_type="rate_limit",
+                        error_summary="SearXNG returned 429 Too Many Requests (rate limited)",
+                        retry_after=retry_after,
+                        retryable=True,
+                    ),
                 ) from exc
-            raise SearxngError(f"SearXNG returned HTTP {status}.") from exc
+            raise SearxngError(
+                f"SearXNG returned HTTP {status}.",
+                metadata=ProviderRequestMetadata(
+                    provider="searxng",
+                    http_status=status,
+                    result_class="error",
+                    error_type=_classify_http_status(status),
+                    error_summary=f"SearXNG returned HTTP {status}",
+                    retry_after=retry_after,
+                    retryable=status in _RETRYABLE_HTTP_STATUSES,
+                ),
+            ) from exc
 
         try:
             data = resp.json()

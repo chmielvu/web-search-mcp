@@ -6,6 +6,7 @@ by the unified ML service exposed through ``INTENT_CLASSIFIER_URL``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -43,6 +44,20 @@ class GatewayAnalysis:
     """Normalized query result plus transport metadata for observability."""
 
     understanding: Any
+    model_version: str
+    latency_ms: float
+    fallback: bool = False
+    error_reason: str | None = None
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class QueryFeatureAnalysis:
+    """Lightweight classifier and grounded entities for code-query planning."""
+
+    intent: str | None
+    confidence: float
+    entities: tuple[EntitySpan, ...]
     model_version: str
     latency_ms: float
     fallback: bool = False
@@ -208,6 +223,76 @@ class GLiNER2Client:
             fallback=True,
         )
         return self._fallback_result(reason, model=self._model_name, latency_ms=latency_ms)
+
+    async def analyze_query_features(self, text: str) -> QueryFeatureAnalysis:
+        """Use the deployed classifier and NER endpoints without relation extraction."""
+
+        from ..search.understanding.adapter import normalize_content_entities
+
+        normalized_text = text.strip()
+        if not normalized_text:
+            return QueryFeatureAnalysis(
+                intent=None,
+                confidence=0.0,
+                entities=(),
+                model_version=self._model_name,
+                latency_ms=0.0,
+                fallback=True,
+                error_reason="gliner2-empty-query",
+            )
+        started = time.perf_counter()
+        classify_result, ner_result = await asyncio.gather(
+            self._post(
+                "/classify",
+                {"text": normalized_text},
+                operation="code_query_classification",
+            ),
+            self._post(
+                "/ner",
+                {"text": normalized_text, "labels": list(DEFAULT_QUERY_LABELS)},
+                operation="code_query_entities",
+            ),
+            return_exceptions=True,
+        )
+        warnings: list[str] = []
+        intent: str | None = None
+        confidence = 0.0
+        entities: list[EntitySpan] = []
+        if isinstance(classify_result, BaseException):
+            warnings.append(f"classifier-{type(classify_result).__name__}")
+        else:
+            classify_payload, _ = classify_result
+            raw_intent = classify_payload.get("intent")
+            if isinstance(raw_intent, str) and raw_intent.strip():
+                intent = raw_intent.strip()
+            scores = classify_payload.get("scores")
+            if isinstance(scores, list):
+                confidence = max(
+                    (
+                        float(item.get("score"))
+                        for item in scores
+                        if isinstance(item, dict)
+                        and item.get("label") == intent
+                        and isinstance(item.get("score"), (int, float))
+                    ),
+                    default=0.0,
+                )
+        if isinstance(ner_result, BaseException):
+            warnings.append(f"ner-{type(ner_result).__name__}")
+        else:
+            ner_payload, _ = ner_result
+            entities = normalize_content_entities(ner_payload, normalized_text)
+        fallback = intent is None and not entities
+        return QueryFeatureAnalysis(
+            intent=intent,
+            confidence=max(0.0, min(1.0, confidence)),
+            entities=tuple(entities),
+            model_version=self._model_name,
+            latency_ms=(time.perf_counter() - started) * 1000.0,
+            fallback=fallback,
+            error_reason="gliner2-query-features-unavailable" if fallback else None,
+            warnings=tuple(warnings),
+        )
 
     async def extract_entities(
         self,

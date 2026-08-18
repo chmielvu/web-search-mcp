@@ -47,7 +47,12 @@ def apply_ranked_results(
     if not ranked_results:
         return candidates, [], 0.0, 0.0
 
-    ordered_ranked = list(ranked_results)
+    ordered_ranked = [
+        item for item in ranked_results
+        if isinstance(getattr(item, "index", None), int) and 0 <= item.index < len(candidates)
+    ]
+    if not ordered_ranked:
+        return candidates, [], 0.0, 0.0
     raw_scores = [result.score for result in ordered_ranked]
     normalized_scores = raw_scores if preserve_raw_scores else normalize_scores_minmax(raw_scores)
     apply_recency = searxng_time_range is None and recency_weight > 0

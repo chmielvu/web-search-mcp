@@ -136,7 +136,11 @@ async def rank_and_finalize(
                 run.plan.normalized_query if run.plan else run.request.query,
                 [result.model_copy() for result in merged],
                 research_goal=run.request.research_goal,
-                query_type_hint=(run.plan.understanding.intent if run.plan else None),
+                query_type_hint=(
+                    run.plan.understanding.intent
+                    if (run.plan and run.plan.understanding)
+                    else None
+                ),
                 run_key=run.run_key,
                 session_id=run.session_id,
                 reranking_instructions=run.request.reranking_instructions,
@@ -153,14 +157,15 @@ async def rank_and_finalize(
                 if ctx.query_embedding:
                     dc.query_embedding = list(ctx.query_embedding)
         if dc.query_embedding is None and embedding_task is not None:
-            if embedding_task.done() and embedding_task.cancelled():
+            is_task_or_future = isinstance(embedding_task, (asyncio.Task, asyncio.Future))
+            if is_task_or_future and embedding_task.done() and embedding_task.cancelled():
                 logger.warning("Shared embedding task was cancelled; continuing without it")
             else:
                 try:
                     vec = await asyncio.shield(embedding_task)
                     dc.query_embedding = list(vec)
                 except asyncio.CancelledError:
-                    if embedding_task.cancelled():
+                    if is_task_or_future and embedding_task.cancelled():
                         logger.warning("Shared embedding task was cancelled; continuing without it")
                     else:
                         raise

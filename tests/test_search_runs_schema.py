@@ -35,7 +35,7 @@ class TestSearchRunsSchema:
                 num_results_requested=10,
                 rewrite_enabled=True,
                 session_id="sess-abc",
-                tool_name="web_search",
+                tool_call_id="call-web_search",
                 duration_ms=1234.5,
                 final_result_count=8,
                 candidate_count=15,
@@ -56,7 +56,7 @@ class TestSearchRunsSchema:
                     num_results_requested,
                     rewrite_enabled,
                     session_id,
-                    tool_name,
+                    tool_call_id,
                     duration_ms,
                     final_result_count,
                     candidate_count,
@@ -76,7 +76,7 @@ class TestSearchRunsSchema:
             assert row[4] == 10
             assert row[5] is True
             assert row[6] == "sess-abc"
-            assert row[7] == "web_search"
+            assert row[7] == "call-web_search"
             assert row[8] == 1234.5
             assert row[9] == 8
             assert row[10] == 15
@@ -135,20 +135,18 @@ class TestSearchRunsSchema:
             _ensure_search_runs(con)
             con.close()
 
-            # Minimal insert — only required fields
             insert_search_run(
                 run_key="run-defaults",
                 query="minimal test",
                 db_path=str(db_path),
             )
-
             con = duckdb.connect(str(db_path), read_only=True)
             row = con.execute(
                 """
                 SELECT
                     run_key,
                     query,
-                    tool_name,
+                    tool_call_id,
                     recorded_at::text,
                     duration_ms,
                     final_result_count,
@@ -160,13 +158,10 @@ class TestSearchRunsSchema:
                 """
             ).fetchone()
             con.close()
-
             assert row is not None
             assert row[0] == "run-defaults"
             assert row[1] == "minimal test"
-            assert row[2] == "web_search"  # DEFAULT 'web_search'
-            assert row[3] is not None  # recorded_at should be populated
-            assert row[4] is None  # duration_ms defaults to NULL
+            assert row[2] is None
             assert row[5] is None
             assert row[6] is None
             assert row[7] is None

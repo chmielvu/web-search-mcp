@@ -25,6 +25,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
 
         self.assertIn("web_search", tools)
+        self.assertIn("code_search", tools)
         self.assertIn("get_content", tools)
         self.assertIn("batch_get_content", tools)
         self.assertIn("generate_sitemap", tools)
@@ -32,6 +33,10 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("youtube_transcript", tools)
         self.assertIn("youtube_search", tools)
 
+        code_search_schema = str(tools["code_search"].output_schema)
+        self.assertIn("query", code_search_schema)
+        self.assertNotIn("mode", code_search_schema)
+        self.assertIn("results", code_search_schema)
         web_schema = str(tools["web_search"].output_schema)
         self.assertIn("query", web_schema)
         self.assertIn("results", web_schema)
@@ -73,10 +78,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("status://features", uris)
         self.assertIn("docs://workflow", uris)
         self.assertIn("settings://public", uris)
-
         self.assertIn("analytics://schema", uris)
         self.assertIn("analytics://candidate-survival", uris)
-
     def test_public_read_resource_reads_native_resources(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
 
@@ -84,7 +87,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         schema_result = asyncio.run(mcp.read_resource("analytics://schema"))
 
         self.assertIn("query_understanding", str(settings_result))
-        self.assertIn("search_runs", str(schema_result))
+        self.assertIn("vw_run_timeline", str(schema_result))
 
     def test_features_status_reports_personal_enhanced_flags(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
@@ -126,13 +129,45 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"days": 7', str(candidate_result))
         self.assertIn('"days": 14', str(template_result))
 
+    def test_search_history_resource_returns_valid_json(self) -> None:
+        import json
+        from kindly_web_search_mcp_server.tools.resources import get_search_history_resource
+
+        result = get_search_history_resource(limit=5)
+        content = result.contents[0].content
+        data = json.loads(content)
+
+        self.assertIn("search_history", data)
+        self.assertIn("count", data)
+        self.assertIn("limit", data)
+        self.assertEqual(data["limit"], 5)
+        self.assertIsInstance(data["search_history"], list)
+
+    def test_search_history_resource_handles_missing_duckdb(self) -> None:
+        import json
+        from kindly_web_search_mcp_server.tools.resources import get_search_history_resource
+
+        with patch("kindly_web_search_mcp_server.tools._helpers.os.path.exists", return_value=False):
+            result = get_search_history_resource(limit=10)
+            data = json.loads(result.contents[0].content)
+
+        self.assertEqual(data["search_history"], [])
+        self.assertEqual(data["count"], 0)
+        self.assertIn("not available", data["note"].lower())
+
+    def test_search_history_resource_read_through_server(self) -> None:
+        from kindly_web_search_mcp_server.server import mcp
+
+        result = asyncio.run(mcp.read_resource("search://history"))
+        self.assertIn("search_history", str(result))
+
     def test_public_resource_template_list_includes_native_templates(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
 
         templates = asyncio.run(mcp.list_resource_templates())
         uri_templates = {str(getattr(template, "uri_template", "")) for template in templates}
 
-        self.assertIn("analytics://reports/{report_name}", uri_templates)
+        self.assertIn("analytics://reports/{report_name}{?days}", uri_templates)
 
     def test_public_prompt_list_includes_native_prompts(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
@@ -140,7 +175,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         prompts = asyncio.run(mcp.list_prompts())
         names = {getattr(prompt, "name", "") for prompt in prompts}
 
-        self.assertEqual(names, {"web_search_workflow", "query_refinement"})
+        self.assertEqual(names, {"web_search_workflow", "query_refinement", "research_methodology"})
 
     def test_public_render_prompt_renders_native_prompts(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
@@ -549,58 +584,59 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["url"], "https://example.com")
         self.assertEqual(out["error"]["code"], "timeout")
 
-    async def test_batch_get_content_executes_summary_helper(self) -> None:
-        """The batch wrapper invokes the summary helper without network calls."""
+    async def test_batch_get_content_composes_get_content_calls(self) -> None:
+        """batch_get_content composes N parallel get_content calls."""
         from kindly_web_search_mcp_server.server import batch_get_content
 
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
         mock_ctx.report_progress = AsyncMock()
 
-        fake_output = {
-            "results": [
-                {
-                    "input_url": "https://example.com",
-                    "normalized_url": "https://example.com",
-                    "fetched_url": "https://example.com/",
-                    "status": "success",
-                    "source_type": "html",
-                    "fetch_backend": "test",
-                    "content_type": "text/markdown",
-                    "page_content": "# Title\n\nHello",
-                    "window": {"total_chars": 14, "has_more": False},
-                }
-            ],
-            "total_requested": 1,
-            "total_returned": 1,
-            "total_chars_returned": 14,
-            "has_more": False,
-            "cursor": None,
+        fake_single_url_result = {
+            "input_url": "https://example.com",
+            "normalized_url": "https://example.com",
+            "url": "https://example.com/",
+            "status": "success",
+            "source_type": "html",
+            "fetch_backend": "test",
+            "content_type": "text/markdown",
+            "page_content": "# Title\n\nHello",
+            "window": {"total_chars": 14, "has_more": False},
+            "metadata": None,
+            "links": None,
+            "continuation_notice": None,
+            "content_quality": "success",
+            "content_word_count": 2,
+            "cached": False,
+            "origin_backend": "test",
+            "summary": None,
         }
 
         with (
             patch(
-                "kindly_web_search_mcp_server.tools.content.run_batch_fetch",
+                "kindly_web_search_mcp_server.tools.content.get_content",
                 new_callable=AsyncMock,
-            ) as mock_run_batch,
+                return_value=fake_single_url_result,
+            ) as mock_get_content,
             patch(
                 "kindly_web_search_mcp_server.tools.content.create_batch_summaries",
                 new_callable=AsyncMock,
             ) as mock_summaries,
         ):
-            mock_run_batch.return_value = fake_output
             mock_summaries.return_value = [None]
             tool_fn = (
                 batch_get_content.fn if hasattr(batch_get_content, "fn") else batch_get_content
             )
             out = await tool_fn(["https://example.com"], ctx=mock_ctx)
 
-        mock_run_batch.assert_awaited_once()
+        mock_get_content.assert_awaited_once()
         mock_summaries.assert_awaited_once()
         self.assertEqual(out["total_requested"], 1)
         self.assertEqual(out["total_returned"], 1)
         self.assertEqual(out["results"][0]["status"], "success")
         self.assertIn("Hello", out["results"][0]["page_content"])
+        self.assertEqual(out["results"][0]["input_url"], "https://example.com")
+        self.assertEqual(out["results"][0]["fetched_url"], "https://example.com/")
 
     async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -709,7 +745,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(out["object_count"], 0)
         self.assertIn("objects", out)
 
-        self.assertIn("search_runs", out["objects"])
+        self.assertIn("vw_run_timeline", out["objects"])
         self.assertIn("eval_cases", out["objects"])
 
     def test_warm_heavy_imports_loads_keyword_extract_and_router(self) -> None:
@@ -719,10 +755,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         with patch("importlib.import_module") as mock_import:
             _warm_heavy_imports()
-            self.assertEqual(mock_import.call_count, 2)
+            self.assertEqual(mock_import.call_count, 1)
             calls = [c.args[0] for c in mock_import.call_args_list]
-            self.assertIn(".search.keyword_extract", calls)
-            self.assertIn(".llm.router", calls)
+            self.assertIn(".inference.router", calls)
 
     def test_main_method_calls_warm_heavy_imports_before_run(self) -> None:
         from unittest.mock import patch

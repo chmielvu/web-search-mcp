@@ -31,7 +31,7 @@ from ...settings import settings
 from ...telemetry.spans import create_llm_operation_span
 from ...telemetry.span_enhancements import set_span_error, set_span_success
 from ...telemetry.usage import extract_llm_usage
-from .base import run_provider
+from .base import ProviderRequestError, run_provider
 
 __all__ = [
     "GrokBackendCapabilityError",
@@ -57,7 +57,7 @@ present in the response citations.
 """.strip()
 
 
-class GrokProviderError(RuntimeError):
+class GrokProviderError(ProviderRequestError):
     """Base error for direct xAI Grok requests."""
 
 

@@ -99,8 +99,50 @@ def test_parse_response_rejects_non_search_urls() -> None:
     assert gemma_serp._parse_response(data) == []
 
 
+def test_parse_response_accepts_explicit_empty_results() -> None:
+    data = {
+        "choices": [
+            {"message": {"content": '{"results":[]}'}}
+        ]
+    }
+
+    assert gemma_serp._parse_response(data) == []
+
+
 @pytest.mark.asyncio
 async def test_search_gemma_requires_pollinations_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POLLINATIONS_API_KEY", raising=False)
 
     assert await gemma_serp.search_gemma("query", num_results=5) == []
+
+
+@pytest.mark.asyncio
+async def test_search_gemma_rejects_empty_success_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("POLLINATIONS_API_KEY", "test-key")
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "gemini-fast",
+                "choices": [{"message": {"role": "assistant", "content": ""}}],
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(
+            gemma_serp.ProviderRequestError, match="empty assistant content"
+        ) as exc_info:
+            await gemma_serp.search_gemma(
+                "query with an empty model response",
+                num_results=5,
+                http_client=client,
+            )
+
+    assert exc_info.value.metadata is not None
+    assert exc_info.value.metadata.result_class == "error"
+    assert exc_info.value.metadata.error_type == "invalid_response"
+    assert exc_info.value.metadata.http_status == 200

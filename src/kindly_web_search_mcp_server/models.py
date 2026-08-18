@@ -8,7 +8,7 @@ P2 Pattern: Typed Pydantic output schemas from Brave/Tavily MCP
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -69,11 +69,29 @@ class WebSearchResult(BaseModel):
 
 
 class ProviderWarning(BaseModel):
-    """Warning about a partial failure from a provider."""
+    """Warning about a partial failure from a provider.
+
+    Follows the MCP tool error contract: machine-readable ``error_type``,
+    an actionable ``action`` hint the agent can act on, ``retry_after`` when
+    the provider throttled us, and ``retryable`` to signal transient vs
+    permanent failures without re-deriving it from the error text.
+    """
 
     provider: str
     error: str
     error_type: str | None = None
+    action: str | None = Field(
+        default=None,
+        description="Actionable recovery hint for the agent (e.g. wait Ns, verify key).",
+    )
+    retry_after: float | None = Field(
+        default=None,
+        description="Seconds to wait before retrying, when the provider rate-limited us.",
+    )
+    retryable: bool | None = Field(
+        default=None,
+        description="True when the failure is transient and a retry may succeed.",
+    )
 
 
 class ContentLink(BaseModel):
@@ -365,6 +383,10 @@ class AcademicPaper(BaseModel):
     fields_of_study: list[str] | None = None
     is_open_access: bool | None = None
     score: float | None = None
+    source_type: Literal["general", "polish", "archive"] = "general"
+    date_descriptive: str | None = None
+    highlights: list[str] | None = None
+    fulltext_url: str | None = None
 
 
 class AcademicSearchResponse(BaseModel):
@@ -374,6 +396,7 @@ class AcademicSearchResponse(BaseModel):
     results: list[AcademicPaper] = Field(default_factory=list)
     total_results: int = 0
     sources_used: list[str] = Field(default_factory=list)
+    source_types_used: list[str] = Field(default_factory=list)
     warnings: list[ProviderWarning] | None = None
 
 

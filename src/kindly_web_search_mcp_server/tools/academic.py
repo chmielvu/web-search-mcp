@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
-
+from ..errors import format_tool_error
 from ..cache import get_query_cache, provider_cache_key
 from ..models import AcademicSearchResultType
 from ..search.normalize import normalize_query
@@ -20,6 +21,7 @@ async def academic_search(
     query: str,
     limit: int = 5,
     sources: list[str] | None = None,
+    source_type: Literal["general", "polish", "archive"] | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
     fields_of_study: list[str] | None = None,
@@ -28,7 +30,7 @@ async def academic_search(
     sort: Literal["relevance", "citations", "date"] = "relevance",
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResultType:
-    """Search 6 scholarly sources (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) with cross-source deduplication.
+    """Search scholarly sources with cross-source deduplication.
 
     When to use this tool:
     - For research questions requiring peer-reviewed papers, scientific citations, or academic literature.
@@ -42,7 +44,13 @@ async def academic_search(
         query: Academic search query. Use technical terminology for best results.
         limit: Maximum papers to return (1-20, default 5).
         sources: Specific sources to query (e.g., ["arxiv", "semanticscholar"]).
-            All 6 are queried when not specified.
+            Available: arxiv, semanticscholar, openalex, crossref, pubmed, core,
+            radon, bn, pbn, polona, dlibra, rds, europeana.
+            Default: arxiv + semanticscholar.
+        source_type: Source group to query — "general" (default; international
+            scholarly indexes), "polish" (Polish scholarly sources: RAD-on,
+            Biblioteka Nauki, PBN), or "archive" (historical/digital archives:
+            Polona, dLibra libraries, RDS Dataverse, Europeana).
         year_from: Filter papers published in or after this year.
         year_to: Filter papers published in or before this year.
         fields_of_study: Filter by academic discipline (e.g., ["Computer Science",
@@ -69,6 +77,7 @@ async def academic_search(
         normalized_query=normalized_query,
         limit=limit,
         sources=sources,
+        source_type=source_type,
         sources_key=sources_key,
         year_from=year_from,
         year_to=year_to,
@@ -85,10 +94,12 @@ async def academic_search(
         "venue": venue,
         "open_access_only": open_access_only,
         "sort": sort,
+        "source_type": source_type,
     }
 
     filter_key = json.dumps(filter_params, sort_keys=True, default=str)
-    cache_providers_key = f"academic:{sources_key}:{filter_key[:24]}"
+    filter_digest = hashlib.sha256(filter_key.encode("utf-8")).hexdigest()[:16]
+    cache_providers_key = f"academic:{sources_key}:{filter_digest}"
 
     try:
         exact_cache = get_query_cache()
@@ -132,6 +143,7 @@ async def academic_search(
             query,
             limit=limit,
             sources=sources,
+            source_type=source_type,
             year_from=year_from,
             year_to=year_to,
             fields_of_study=fields_of_study,
@@ -159,7 +171,7 @@ async def academic_search(
 
     try:
         flight_key = _academic_search_flight.make_key(
-            normalized_query, limit, sources_key, filter_key
+            normalized_query, limit, sources_key, filter_digest
         )
         response = await _academic_search_flight.do(flight_key, _execute_academic_search)
 
@@ -174,15 +186,9 @@ async def academic_search(
             "response",
             cache_hit="miss",
             query=query,
-            normalized_query=normalized_query,
             result_count=len(response.get("results", [])),
             sources_used=response.get("sources_used", []),
-            warnings=response.get("warnings", []),
-            results=response.get("results", []),
-        )
-        await ctx.report_progress(progress=100, total=100, message="Done")
-        await ctx.info(
-            f"Found {len(response.get('results', []))} academic results from {response.get('sources_used', [])}"
+            source_types_used=response.get("source_types_used", []),
         )
         return response
     except Exception as e:
@@ -194,9 +200,7 @@ async def academic_search(
             "error",
             level=30,
             query=query,
-            error_type=type(e).__name__,
-            error_message=str(e)[:200],
+            error=str(e)[:200],
         )
-        from ..errors import format_tool_error
 
         return format_tool_error(e, provider="academic_search")  # type: ignore[return-value]

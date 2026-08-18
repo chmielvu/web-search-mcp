@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -17,24 +17,54 @@ search_app = typer.Typer(no_args_is_help=True)
 @search_app.command("quick")
 def quick_cmd(
     search_query: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option(
             "--search-query",
             help="Keyword search query (3-6 words). Repeat for 2-3 queries.",
         ),
-    ],
+    ] = None,
+    query: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--query", help="Alias for --search-query."
+        ),
+    ] = None,
     objective: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--objective", help="Research goal — what you're trying to accomplish with this search."
         ),
-    ],
+    ] = None,
+    research_goal: Annotated[
+        str | None,
+        typer.Option(
+            "--research-goal", help="Alias for --objective."
+        ),
+    ] = None,
 ) -> None:
     """Run the Parallel AI-backed quick web search path."""
     from ..services.quick_search import fetch_quick_web_search_payload
 
+    queries = (search_query or []) + (query or [])
+    goal = objective or research_goal or ""
+    if not queries:
+        raise CliError(
+            kind="usage_error",
+            message="Either --search-query or --query must be provided.",
+            hint="Specify at least one search query string.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search quick"},
+        )
+    if not goal:
+        raise CliError(
+            kind="usage_error",
+            message="Either --objective or --research-goal must be provided.",
+            hint="Specify an objective or research goal string.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search quick"},
+        )
     try:
-        payload = run_cli_async(fetch_quick_web_search_payload(search_query, objective))
+        payload = run_cli_async(fetch_quick_web_search_payload(queries, goal))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -149,11 +179,94 @@ def web_cmd(
     emit_json(payload, command="search web")
 
 
+@search_app.command("code")
+def code_cmd(
+    query: Annotated[str, typer.Option("--query", help="Code, documentation, or repository search query.")],
+    research_goal: Annotated[
+        str | None,
+        typer.Option("--research-goal", help="Optional task context for query rewriting and reranking."),
+    ] = None,
+    repository: Annotated[
+        list[str] | None,
+        typer.Option("--repository", "--repositories", help="GitHub owner/name scope; repeatable (max 25)."),
+    ] = None,
+    language: Annotated[str | None, typer.Option("--language")] = None,
+    path: Annotated[str | None, typer.Option("--path")] = None,
+    filename: Annotated[str | None, typer.Option("--filename")] = None,
+    extension: Annotated[str | None, typer.Option("--extension")] = None,
+    regexp: Annotated[
+        bool,
+        typer.Option("--regexp/--no-regexp", help="Treat the query as a regular expression where supported."),
+    ] = False,
+    deep: Annotated[
+        bool,
+        typer.Option("--deep/--no-deep", help="Fetch bounded source windows and broaden repository discovery."),
+    ] = False,
+    repo_name: Annotated[str | None, typer.Option("--repo-name")] = None,
+    library_name: Annotated[str | None, typer.Option("--library-name")] = None,
+    topic: Annotated[str | None, typer.Option("--topic")] = None,
+    mode: Annotated[
+        Literal["code", "docs", "discovery"],
+        typer.Option("--mode", help="Search mode: code, docs, or discovery."),
+    ] = "code",
+) -> None:
+    """Search public code, documentation, and GitHub repositories."""
+    from ..services.search_code import fetch_code_search_payload
+    if not query.strip():
+        raise CliError(
+            kind="usage_error",
+            message="--query must be a non-blank string.",
+            hint="Provide a code, documentation, or repository search query.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search code", "query": query},
+        )
+
+    try:
+        payload = run_cli_async(
+            fetch_code_search_payload(
+                query,
+                research_goal=research_goal,
+                repositories=repository,
+                language=language,
+                path=path,
+                filename=filename,
+                extension=extension,
+                regexp=regexp,
+                deep=deep,
+                repo_name=repo_name,
+                library_name=library_name,
+                topic=topic,
+                mode=mode,
+            )
+        )
+    except ValueError as exc:
+        raise CliError(
+            kind="usage_error",
+            message=str(exc),
+            hint="Check the code-search options and retry.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search code"},
+        ) from exc
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=str(exc),
+            hint="Run `web-search-cli doctor` and verify code-search providers.",
+            exit_code=ExitCode.PROVIDER_ERROR,
+            context={"command": "search code", "exception_type": type(exc).__name__},
+        ) from exc
+    emit_json(payload, command="search code")
+
+
 @search_app.command("academic")
 def academic_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
     limit: Annotated[int, typer.Option("--limit")] = 5,
     source: Annotated[list[str] | None, typer.Option("--source")] = None,
+    source_type: Annotated[
+        str | None,
+        typer.Option("--source-type", help="general | polish | archive"),
+    ] = None,
     year_from: Annotated[int | None, typer.Option("--year-from")] = None,
     year_to: Annotated[int | None, typer.Option("--year-to")] = None,
     field_of_study: Annotated[
@@ -170,12 +283,23 @@ def academic_cmd(
     """Search scholarly sources and return deduplicated papers."""
     from ..services.academic import fetch_academic_search_payload
 
+    if limit < 1:
+        raise CliError(
+            kind="usage_error",
+            message="--limit must be >= 1",
+            hint="Use a limit between 1 and 20.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search academic"},
+        )
+    limit = min(limit, 20)
+
     try:
         payload = run_cli_async(
             fetch_academic_search_payload(
                 query,
                 limit=limit,
                 sources=source,
+                source_type=source_type,
                 year_from=year_from,
                 year_to=year_to,
                 fields_of_study=field_of_study,

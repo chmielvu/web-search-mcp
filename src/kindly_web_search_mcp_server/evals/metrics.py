@@ -1,7 +1,6 @@
 """Deterministic eval metrics for tool routing and ranked candidates."""
 
-from __future__ import annotations
-
+from collections.abc import Mapping
 import math
 from urllib.parse import urlparse
 
@@ -10,17 +9,12 @@ def expected_tool_called(tool_calls: list[dict[str, object]], tool_name: str) ->
     return 1.0 if _tool_called(tool_calls, tool_name) else 0.0
 
 
-def forbidden_tool_not_called(
-    tool_calls: list[dict[str, object]], tool_name: str
-) -> float:
+def forbidden_tool_not_called(tool_calls: list[dict[str, object]], tool_name: str) -> float:
     return 0.0 if _tool_called(tool_calls, tool_name) else 1.0
 
 
 def latency_within_budget(latency_ms: float, budget_ms: float) -> float:
     return 1.0 if latency_ms <= budget_ms else 0.0
-
-
-
 
 
 def _tool_called(tool_calls: list[dict[str, object]], tool_name: str) -> bool:
@@ -49,7 +43,6 @@ def _binary_relevance(candidate: dict[str, object]) -> float:
 
 def _dcg(gains: list[float]) -> float:
     return sum(gain / math.log2(index + 1) for index, gain in enumerate(gains, start=1))
-
 
 
 def mrr_at_k(
@@ -98,16 +91,37 @@ def ndcg_at_k(
     return _dcg(gains) / ideal_dcg
 
 
+def graded_ndcg_at_k(
+    ranked_ids: list[str],
+    grades: Mapping[str, int | float],
+    k: int = 10,
+) -> float:
+    """NDCG@K for human-assigned graded relevance judgments."""
+    if k < 1:
+        raise ValueError("k must be at least 1")
+    gains = [max(0.0, float(grades.get(item_id, 0))) for item_id in ranked_ids[:k]]
+    ideal_gains = sorted(
+        (max(0.0, float(value)) for value in grades.values()),
+        reverse=True,
+    )[:k]
+    ideal_dcg = _dcg(ideal_gains)
+    return _dcg(gains) / ideal_dcg if ideal_dcg else 0.0
+
+
 def top_k_domain_hit(
     candidates: list[dict[str, object]] | list[str],
     gold: list[str] | str,
     k: int = 5,
 ) -> float:
     if isinstance(gold, str) and candidates and isinstance(candidates[0], dict):
-        return 1.0 if any(
-            _candidate_domain_matches(candidate, gold)  # type: ignore[arg-type]
-            for candidate in candidates[:k]
-        ) else 0.0
+        return (
+            1.0
+            if any(
+                _candidate_domain_matches(candidate, gold)  # type: ignore[arg-type]
+                for candidate in candidates[:k]
+            )
+            else 0.0
+        )
     if isinstance(gold, str):
         gold = [gold]
     ranked: list[str] = []
@@ -146,5 +160,3 @@ def duplicate_url_rate(candidates: list[dict[str, object]] | list[str]) -> float
 
 def candidate_count_delta(before: int, after: int) -> int:
     return before - after
-
-

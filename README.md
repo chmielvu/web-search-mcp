@@ -76,6 +76,7 @@ mcp-server --http --port 8000
 | `batch_get_content` | Fetch content from multiple URLs concurrently with optional per-item Gemini summaries |
 | `discover_links` | Discover and categorize links from a page |
 | `gemini_search` | AI-synthesized answers via Gemini + Google Search |
+| `code_search` | Search public source code, implementation examples, technical documentation, and GitHub repositories with automatic backend selection |
 
 | `grok_search` | AI-synthesized answers via Grok/xAI |
 | `academic_search` | Search across academic databases (arXiv, PubMed, Semantic Scholar, OpenAlex, CrossRef) |

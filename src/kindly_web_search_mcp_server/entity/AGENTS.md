@@ -16,6 +16,7 @@ Entity extraction for query handling and content analysis.
 
 - The application never imports `gliner2` or `torch`; inference is performed by the configured VPS gateway.
 - Query understanding uses one `/v2/query-understanding` request and fails open to deterministic `general` when unavailable.
+- Code-search query enrichment uses the deployed lightweight `/classify` and `/ner` endpoints in parallel through `GLiNER2Client.analyze_query_features`; it does not alter the web-search intent contract or run relation extraction.
 - Content extraction is opt-in via `ENTITY_EXTRACTION_ENABLED` and uses the same gateway's `/extract` endpoint.
 - `chunk.py` preserves global offsets for long text.
 - Preserve label descriptions in `/extract` payloads; they are part of GLiNER2's entity schema, not cosmetic metadata.

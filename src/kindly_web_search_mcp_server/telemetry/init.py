@@ -74,12 +74,17 @@ def init_telemetry(
         _initialized = True
         return
 
-    from opentelemetry import trace
+    from opentelemetry import trace, metrics as otel_metrics
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter as HTTPOTLPSpanExporter,
+    )
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter,
     )
 
     from ._internal import (
@@ -87,6 +92,7 @@ def init_telemetry(
         _resolve_otlp_signal_endpoint,
         _resolve_phoenix_headers,
         _service_version,
+        build_grafana_cloud_headers,
     )
 
     resource = Resource.create(
@@ -122,6 +128,44 @@ def init_telemetry(
     _provider = provider
     _initialized = True
     _shutdown = False
+
+    # --- Metrics export to Grafana Cloud ---
+    metrics_readers = []
+
+    grafana_headers = build_grafana_cloud_headers(
+        instance_id=settings.grafana_cloud_instance_id,
+        api_key=settings.grafana_cloud_api_key,
+    )
+
+    grafana_metrics_endpoint = _resolve_otlp_signal_endpoint(
+        "metrics",
+        base_endpoint=settings.grafana_cloud_otlp_endpoint,
+    )
+
+    if grafana_metrics_endpoint:
+        try:
+            metrics_reader = PeriodicExportingMetricReader(
+                OTLPMetricExporter(
+                    endpoint=grafana_metrics_endpoint,
+                    headers=grafana_headers,
+                ),
+                export_interval_millis=60000,
+            )
+            metrics_readers.append(metrics_reader)
+            LOGGER.info(
+                "OTLP metrics exporter configured (endpoint=%s)",
+                grafana_metrics_endpoint,
+            )
+        except Exception as exc:
+            LOGGER.warning("Failed to configure OTLP metrics exporter: %s", exc)
+
+    if metrics_readers:
+        meter_provider = MeterProvider(
+            metric_readers=metrics_readers,
+            resource=resource,
+        )
+        otel_metrics.set_meter_provider(meter_provider)
+        LOGGER.info("MeterProvider configured with %d readers", len(metrics_readers))
 
     # OpenAI auto-instrumentation is optional and does not import
     # sklearn/scipy; load it lazily on first use instead of at init.

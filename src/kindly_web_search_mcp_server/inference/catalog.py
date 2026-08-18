@@ -367,8 +367,8 @@ def _register_all() -> None:
         "rerank-v4",
         "cohere",
         as_rerank(
-            model_id=settings.cohere_rerank_model,
-            base_url=settings.cohere_rerank_base_url,
+            model_id=os.environ.get("COHERE_RERANK_MODEL", "rerank-v4.0-fast"),
+            base_url=os.environ.get("COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"),
             api_key_env="COHERE_API_KEY",
             default_timeout=settings.cohere_rerank_timeout,
         ),

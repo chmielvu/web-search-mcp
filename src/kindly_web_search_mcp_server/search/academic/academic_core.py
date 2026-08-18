@@ -128,18 +128,16 @@ async def search_core(
     params = {
         "q": query,
         "limit": min(limit * 2, 100),
+        "offset": 0,
     }
-    if year_from:
-        params["year_from"] = year_from
-    if year_to:
-        params["year_to"] = year_to
-    if open_access_only:
-        params["has_fulltext"] = "true"
+    # CORE API v3 (/search/works) does not support year_from/year_to or
+    # has_fulltext query params. They are kept in the signature for
+    # compatibility but intentionally ignored here.
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             resp = await client.get(
-                f"{CORE_API_URL}/search",
+                f"{CORE_API_URL}/search/works",
                 headers=headers,
                 params=params,
             )

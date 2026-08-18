@@ -9,6 +9,8 @@ searchPosts is called via raw Telethon functions for global public channel searc
 
 from __future__ import annotations
 
+from .base import ProviderRequestError
+
 import logging
 from typing import Any
 
@@ -20,7 +22,7 @@ from ...settings import settings
 logger = logging.getLogger(__name__)
 
 
-class TelegramSearchError(RuntimeError):
+class TelegramSearchError(ProviderRequestError):
     pass
 
 

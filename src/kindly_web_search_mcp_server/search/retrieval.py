@@ -31,8 +31,58 @@ def _canonical_url(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc.lower(), path, parsed.query, ""))
 
 
-def _warning(provider: str, error_type: str, error: str) -> ProviderWarning:
-    return ProviderWarning(provider=provider, error=error, error_type=error_type)
+def _warning(
+    provider: str,
+    error_type: str,
+    error: str,
+    *,
+    action: str | None = None,
+    retry_after: float | None = None,
+    retryable: bool | None = None,
+) -> ProviderWarning:
+    """Build a warning carrying the MCP error contract fields.
+
+    ``action`` is an agent-actionable recovery hint, ``retry_after`` is the
+    provider-issued throttle window (seconds), and ``retryable`` marks
+    transient failures so the agent does not re-derive retry semantics from
+    the free-text error.
+    """
+    return ProviderWarning(
+        provider=provider,
+        error=error,
+        error_type=error_type,
+        action=action,
+        retry_after=retry_after,
+        retryable=retryable,
+    )
+
+
+def _provider_action_hint(
+    provider: str,
+    error_type: str,
+    retry_after: float | None,
+) -> str | None:
+    """Concise, agent-actionable recovery hint for a provider failure."""
+    if error_type == "rate_limit":
+        wait = f"{int(retry_after)}s" if retry_after else "30-60s"
+        return (
+            f"Provider {provider} is rate limited; wait {wait} before retrying "
+            "or reduce query frequency."
+        )
+    if error_type in {"auth", "http_401", "http_403", "forbidden", "unauthorized"}:
+        return f"Provider {provider} rejected credentials; verify the API key/token configuration."
+    if error_type in {"timeout", "upstream", "network", "http_408", "http_425"} or (
+        error_type and error_type.startswith("http_5")
+    ):
+        return f"Provider {provider} failed transiently; a retry may succeed."
+    if error_type == "retrieve_budget":
+        return (
+            "Retrieve budget exhausted; reduce branch count or raise "
+            "SEARCH_RETRIEVE_BUDGET_SECONDS."
+        )
+    if error_type in {"content", "config"}:
+        return f"Provider {provider} returned an invalid response; check provider configuration."
+    return None
 
 
 async def _call_provider(
@@ -49,6 +99,12 @@ async def _call_provider(
     provider_cap = settings.search_retrieve_budget_seconds
     remaining = max(0.0, retrieve_deadline - time.monotonic())
     timeout = min(provider_cap, remaining)
+    # Per-provider timeout cap (catalog) bounds a single call below the
+    # global retrieve budget so slow providers cannot hog the fan-out.
+    # getattr keeps stubbed definitions (old catalog shape) working.
+    per_call_cap = getattr(definition, "per_call_timeout_seconds", None)
+    if per_call_cap is not None:
+        timeout = min(timeout, per_call_cap)
     if timeout <= 0:
         return (
             provider_name,
@@ -173,6 +229,8 @@ def _record_provider_result(
     warnings_by_name: dict[str, ProviderWarning],
     provider_calls: list[dict[str, Any]],
     provider_ranked_results_list: list[ProviderRankedResults],
+    provider_result_rows: list[dict[str, Any]] | None = None,
+    run_key: str = "",
     status_override: str | None = None,
     error_type_override: str | None = None,
     error_message_override: str | None = None,
@@ -187,9 +245,17 @@ def _record_provider_result(
         "http_status": metadata.http_status,
         "result_class": metadata.result_class,
         "response_meta_json": response_meta_json,
+        "retry_after": metadata.retry_after,
+        "retryable": metadata.retryable,
     }
     if status_override == "incomplete":
-        warnings_by_name[name] = _warning(name, "retrieve_budget", "retrieve budget exhausted")
+        warnings_by_name[name] = _warning(
+            name,
+            "retrieve_budget",
+            "retrieve budget exhausted",
+            action=_provider_action_hint(name, "retrieve_budget", None),
+            retryable=False,
+        )
         provider_calls.append(
             {
                 "provider": name,
@@ -214,7 +280,16 @@ def _record_provider_result(
             or metadata.error_type
             or ("timeout" if isinstance(value, TimeoutError) else "provider_error")
         )
-        warnings_by_name[name] = _warning(name, error_type, error_type)
+        retry_after = metadata.retry_after
+        retryable = metadata.retryable
+        warnings_by_name[name] = _warning(
+            name,
+            error_type,
+            metadata.error_summary or error_type,
+            action=_provider_action_hint(name, error_type, retry_after),
+            retry_after=retry_after,
+            retryable=retryable,
+        )
         provider_calls.append(
             {
                 "provider": name,
@@ -247,6 +322,26 @@ def _record_provider_result(
             results=tuple(deduped_results),
         )
     )
+    # Collect provider_result rows for funnel uplift analytics
+    if provider_result_rows is not None:
+        from ..analytics.observability_store import _canonical_result_id as _cri
+        for rank, item in enumerate(deduped_results, start=1):
+            provider_result_rows.append({
+                "provider_result_id": _cri(f"{name}|{branch_index}|{item.link}"),
+                "provider_call_id": _cri(f"{run_key}|{branch_index}|{name}"),
+                "run_key": run_key,
+                "branch_id": _cri(f"{run_key}|{branch_index}"),
+                "provider": name,
+                "provider_rank": rank,
+                "canonical_result_id": _cri(item.link),
+                "raw_url": item.link,
+                "title": getattr(item, "title", None),
+                "snippet": getattr(item, "snippet", None),
+                "raw_score": getattr(item, "score", None),
+                "is_eligible": True,
+                "rejection_reason": None,
+                "payload_json": None,
+            })
 
     for item in value:
         key = _canonical_url(item.link)
@@ -323,6 +418,9 @@ async def retrieve_branches(
         branch_warnings: list[dict[str, ProviderWarning]] = []
         branch_calls: list[list[dict[str, Any]]] = []
         branch_provider_ranked_results: list[list[ProviderRankedResults]] = [
+            [] for _ in range(len(run.plan.branches))
+        ]
+        branch_provider_result_rows: list[list[dict[str, Any]]] = [
             [] for _ in range(len(run.plan.branches))
         ]
 
@@ -413,6 +511,8 @@ async def retrieve_branches(
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        run_key=run.run_key,
                         status_override="incomplete",
                         request_query=branch.query,
                         metadata=ProviderRequestMetadata(
@@ -445,6 +545,8 @@ async def retrieve_branches(
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        run_key=run.run_key,
                         request_query=request_query,
                         metadata=metadata,
                     )
@@ -463,6 +565,8 @@ async def retrieve_branches(
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
                         provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        run_key=run.run_key,
                         request_query=request_query,
                         metadata=metadata,
                     )
@@ -477,6 +581,8 @@ async def retrieve_branches(
                     warnings_by_name=warnings_by_name,
                     provider_calls=calls,
                     provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                    provider_result_rows=branch_provider_result_rows[branch_index],
+                    run_key=run.run_key,
                     request_query=request_query,
                     metadata=metadata,
                 )
@@ -514,6 +620,11 @@ async def retrieve_branches(
             preview["provider_calls"] = calls_with_index
             branch_rows_diag.append(preview)
         run.diagnostics.branch_results = branch_rows_diag
+        # Collect provider_result rows for funnel uplift analytics
+        all_provider_result_rows: list[dict[str, Any]] = []
+        for branch_rows_list in branch_provider_result_rows:
+            all_provider_result_rows.extend(branch_rows_list)
+        run.diagnostics.provider_result_rows = all_provider_result_rows
         elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
         run.diagnostics.phase_timings["search.retrieve"] = elapsed_ms
         if run.diagnostics.enrichment is None:

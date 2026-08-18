@@ -1,13 +1,17 @@
 """Semantic Scholar API provider for academic search.
 
-Uses the semanticscholar Python SDK (pip install semanticscholar):
+Uses the Semantic Scholar Graph API directly via httpx (no Python SDK):
 - 214M+ papers, 2.49B+ citations
 - Free tier: 1 RPS with API key, shared rate limit without
 - Rich metadata: abstracts, citations, fields of study, open access
-- Supports year/venue/fieldOfStudy filters
+- Supports year/venue/fieldsOfStudy filters
 
-Phase 1 Fix: Switch to AsyncSemanticScholar for native async,
-fail-fast with retry=False, configurable timeout.
+The previous ``semanticscholar`` SDK was removed: in 0.12.0
+``PaginatedResults.items`` is a method (not a property) so iteration raised
+TypeError, and ``Paper.__dict__`` exposes underscore-prefixed attrs
+(``_title``, ...) which dropped every paper. Direct HTTP avoids both issues and
+makes fail-fast behavior explicit: 429s and timeouts return ``[]`` without the
+SDK's 10x exponential-backoff retry storm.
 """
 
 from __future__ import annotations
@@ -15,21 +19,38 @@ from __future__ import annotations
 import logging
 import os
 
-from semanticscholar import AsyncSemanticScholar
+import httpx
 
 from ...models import AcademicPaper
 
 logger = logging.getLogger(__name__)
 
-# Fail-fast configuration (Phase 1.2)
+S2_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+# Configurable timeout (default 30s), read at module load.
 S2_TIMEOUT = int(os.environ.get("S2_TIMEOUT", "30"))
-# retry=False means SDK won't retry on 429/5xx - we handle fail-fast
-S2_RETRY_ENABLED = os.environ.get("S2_MAX_RETRIES", "0") != "0"  # False when 0
+
+# Fields requested from the Graph API — kept aligned with _normalize_paper.
+S2_FIELDS = (
+    "title,abstract,year,authors,citationCount,venue,url,"
+    "externalIds,fieldsOfStudy,isOpenAccess,openAccessPdf"
+)
 
 
 def _get_api_key() -> str | None:
     raw = (os.environ.get("S2_API_KEY") or "").strip()
     return raw if raw else None
+
+
+def _build_year_param(year_from: int | None, year_to: int | None) -> str | None:
+    """Build the S2 ``year`` filter: "YYYY-YYYY", "YYYY-", "-YYYY", or None."""
+    if year_from and year_to:
+        return f"{year_from}-{year_to}"
+    if year_from:
+        return f"{year_from}-"
+    if year_to:
+        return f"-{year_to}"
+    return None
 
 
 def _normalize_paper(raw: dict) -> AcademicPaper | None:
@@ -106,67 +127,68 @@ async def search_semanticscholar(
     venue: str | None = None,
     open_access_only: bool = False,
 ) -> list[AcademicPaper]:
-    """Search Semantic Scholar using AsyncSemanticScholar (native async).
+    """Search Semantic Scholar Graph API via httpx.
 
-    Fail-fast configuration:
-    - retry=False: SDK does not retry on 429/5xx
-    - timeout=S2_TIMEOUT: Configurable timeout (default 30s)
-    - Returns empty list on error (not raise)
+    Fail-fast behavior:
+    - 429 -> log a "rate limited" warning and return ``[]``
+    - timeout / HTTP / network / parse errors -> log and return ``[]``
+    - never raises; lets the orchestrator return partial results
 
-    This lets the orchestrator return partial results from other providers.
+    The limit is over-fetched (``limit * 2``, capped at 100) then trimmed.
     """
     if not query.strip():
         return []
 
-    api_key = _get_api_key()
-    sch = AsyncSemanticScholar(
-        api_key=api_key,  # type: ignore[arg-type]
-        timeout=S2_TIMEOUT,
-        retry=S2_RETRY_ENABLED,  # False when S2_MAX_RETRIES=0 (fail fast)
-    )
+    params: dict[str, str | int] = {
+        "query": query,
+        "limit": min(limit * 2, 100),
+        "fields": S2_FIELDS,
+    }
 
-    year_str: str | None = None
-    if year_from and year_to:
-        year_str = f"{year_from}-{year_to}"
-    elif year_from:
-        year_str = f"{year_from}-"
-    elif year_to:
-        year_str = f"-{year_to}"
+    year_str = _build_year_param(year_from, year_to)
+    if year_str is not None:
+        params["year"] = year_str
+    if venue:
+        # Graph API accepts a comma-joined list of venue names.
+        params["venue"] = venue
+    if fields_of_study:
+        params["fieldsOfStudy"] = ",".join(fields_of_study)
+    if open_access_only:
+        params["openAccessPdf"] = "true"
+
+    headers: dict[str, str] = {}
+    api_key = _get_api_key()
+    if api_key:
+        headers["x-api-key"] = api_key
 
     try:
-        results = await sch.search_paper(
-            query,
-            year=year_str,  # type: ignore[arg-type]
-            fields_of_study=fields_of_study,  # type: ignore[arg-type]
-            venue=[venue] if venue else None,  # type: ignore[arg-type]
-            limit=min(limit * 2, 100),
-            open_access_pdf=True if open_access_only else None,  # type: ignore[arg-type]
+        async with httpx.AsyncClient(timeout=S2_TIMEOUT) as client:
+            resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
+            if resp.status_code == 429:
+                logger.warning(
+                    "Semantic Scholar search rate limited (429); "
+                    "set S2_API_KEY for higher limits"
+                )
+                return []
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+    except httpx.TimeoutException as e:
+        logger.warning(
+            "Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s", e
         )
-
-        papers: list[AcademicPaper] = []
-        # AsyncSemanticScholar returns PaginatedResults - iterate items directly
-        for item in results.items if hasattr(results, "items") else results:  # type: ignore[union-attr]
-            raw = item.__dict__ if hasattr(item, "__dict__") else dict(item)
-            paper = _normalize_paper(raw)
-            if paper is not None:
-                papers.append(paper)
-            if len(papers) >= limit:
-                break
-        return papers
-
-    except Exception as e:
-        msg = str(e)
-        if "429" in msg or "rate" in msg.lower():
-            logger.warning(
-                "Semantic Scholar search rate-limited: %s. Set S2_API_KEY for higher limits.",
-                e,
-            )
-        elif "timeout" in msg.lower() or "timed out" in msg.lower():
-            logger.warning(
-                "Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s",
-                e,
-            )
-        else:
-            logger.warning("Semantic Scholar search failed: %s", e)
-        # Return empty, not raise - let orchestrator return partial results
         return []
+    except Exception as e:
+        logger.warning("Semantic Scholar search failed: %s", e)
+        return []
+
+    papers: list[AcademicPaper] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        paper = _normalize_paper(item)
+        if paper is not None:
+            papers.append(paper)
+        if len(papers) >= limit:
+            break
+
+    return papers

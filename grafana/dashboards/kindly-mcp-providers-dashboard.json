@@ -1,22 +1,27 @@
 {
   "title": "Kindly MCP - Provider Health & Latency",
-  "uid": "kindly-mcp-providers-v1",
+  "uid": "kindly-mcp-providers-v2",
   "version": 1,
-  "tags": ["kindly", "mcp", "providers", "otel"],
+  "tags": ["kindly", "mcp", "providers", "otel", "health"],
   "schemaVersion": 41,
   "refresh": "1m",
   "time": { "from": "now-3h", "to": "now" },
   "templating": {
     "list": [
       {
-        "name": "service",
-        "type": "constant",
-        "query": "web-search-mcp"
-      },
-      {
         "name": "datasource",
         "type": "datasource",
-        "pluginId": "prometheus"
+        "query": "prometheus",
+        "label": "Prometheus"
+      },
+      {
+        "name": "provider",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(provider_name)",
+        "label": "Provider",
+        "includeAll": true,
+        "allValue": ".+"
       }
     ]
   },
@@ -24,15 +29,11 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "Provider Call Rate by Provider",
+      "title": "Provider Request Rate",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (provider_name) (rate(web_search_provider_calls_total{service_name=\"$service\"}[2m]))",
-          "legendFormat": "{{provider_name}}",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(provider_calls_total{provider_name=~\"$provider\"}[5m])) by (provider_name)", "refId": "A", "legendFormat": "{{provider_name}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps" } }
     },
@@ -43,103 +44,81 @@
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, provider_name) (rate(web_search_provider_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
-          "legendFormat": "p95 {{provider_name}}",
-          "refId": "A"
-        }
+        { "expr": "histogram_quantile(0.95, sum(rate(provider_duration_seconds_bucket{provider_name=~\"$provider\"}[5m])) by (le, provider_name))", "refId": "A", "legendFormat": "{{provider_name}}" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } }
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Provider Success % (5m)",
+      "title": "Provider Success Rate",
       "gridPos": { "x": 0, "y": 8, "w": 24, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (provider_name) (rate(web_search_provider_calls_total{service_name=\"$service\", provider_status=\"success\"}[5m])) / sum by (provider_name) (rate(web_search_provider_calls_total{service_name=\"$service\"}[5m]))",
-          "refId": "A",
-          "legendFormat": "{{provider_name}}"
-        }
+        { "expr": "sum(rate(provider_calls_total{provider_name=~\"$provider\", status=\"success\"}[5m])) by (provider_name) / sum(rate(provider_calls_total{provider_name=~\"$provider\"}[5m])) by (provider_name) * 100", "refId": "A" }
       ],
-      "options": { "reduceOptions": { "calcs": ["mean"] } },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0.8,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.92 },
-              { "color": "green", "value": 0.98 }
-            ]
-          }
-        }
-      }
+      "options": { "reduceOptions": { "calcs": ["mean"] }, "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ {"color": "red", "value": null}, {"color": "yellow", "value": 90}, {"color": "green", "value": 99} ] } } }
     },
     {
       "id": 4,
-      "type": "stat",
-      "title": "Providers in Open/Half-Open State",
-      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 4 },
+      "type": "timeseries",
+      "title": "Provider Error Rate",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(web_search_provider_circuit_state{service_name=\"$service\", circuit_state=~\"open|half_open\"})",
-          "refId": "A",
-          "legendFormat": "Open circuits"
-        }
+        { "expr": "sum(rate(provider_calls_total{provider_name=~\"$provider\", status=\"error\"}[5m])) by (provider_name) / sum(rate(provider_calls_total{provider_name=~\"$provider\"}[5m])) by (provider_name) * 100", "refId": "A", "legendFormat": "{{provider_name}}" }
       ],
-      "options": {
-        "reduceOptions": { "values": false, "calcs": ["lastNotNull"] },
-        "textMode": "value",
-        "graphMode": "area",
-        "colorMode": "value"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 3 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "percent" } }
     },
     {
       "id": 5,
-      "type": "table",
-      "title": "Current Circuit States",
-      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 4 },
+      "type": "stat",
+      "title": "Provider Freshness (seconds since last success)",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (provider_name, circuit_state) (web_search_provider_circuit_state{service_name=\"$service\"})",
-          "refId": "A",
-          "format": "table"
+        { "expr": "time() - max by (provider_name) (provider_last_success_timestamp{provider_name=~\"$provider\"})", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ {"color": "green", "value": null}, {"color": "yellow", "value": 600}, {"color": "red", "value": 1800} ] } } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Circuit Breaker State Changes",
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(circuit_breaker_transitions_total{provider_name=~\"$provider\"}[5m])) by (provider_name, transition)", "refId": "A", "legendFormat": "{{provider_name}} {{transition}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Results Returned per Provider",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(provider_results_total{provider_name=~\"$provider\"}[5m])) by (provider_name)", "refId": "A", "legendFormat": "{{provider_name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Provider Health Summary",
+      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { 
+          "expr": "provider_health_status{provider_name=~\"$provider\"}", 
+          "refId": "A", 
+          "format": "table", 
+          "instant": true
         }
       ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "provider_name": "Provider",
-              "circuit_state": "State",
-              "Value": "Current Value"
-            }
-          }
-        }
-      ]
+      "transform": "table"
     }
   ]
 }

@@ -117,10 +117,11 @@ async def web_search(
     search_options = build_search_options(
         site_filters=[*(site_filters or []), *(domain_filters or [])],
     )
+    effective_research_goal = research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
     request = WebSearchRequest(
         query=primary_query,
         queries=seed_queries,
-        research_goal=research_goal,
+        research_goal=effective_research_goal,
         rewrite=rewrite,
         options=search_options,
         reranking_instructions=reranking_instructions,

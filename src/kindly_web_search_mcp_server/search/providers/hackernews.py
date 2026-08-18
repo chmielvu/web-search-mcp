@@ -14,7 +14,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import run_provider
+from .base import ProviderRequestError, run_provider
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ _HN_DISCUSSION_MARKERS = (
 )
 
 
-class HackerNewsError(RuntimeError):
+class HackerNewsError(ProviderRequestError):
     pass
 
 

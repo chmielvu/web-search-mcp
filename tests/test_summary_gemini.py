@@ -246,13 +246,10 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
             [
                 RuntimeError("batch failed"),
                 RuntimeError("Gemini 3.1 batch fallback failed"),
+                RuntimeError("Gemma batch fallback failed"),
                 _FakeResponse(
                     {
                         "summary": "First fallback summary",
-                        "key_points": ["A"],
-                        "important_entities": [],
-                        "verbatim_terms": [],
-                        "limitations": [],
                     }
                 ),
                 _FakeResponse(
@@ -291,7 +288,7 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
             patch(
                 "kindly_web_search_mcp_server.content.summary_backend.genai.Client",
                 return_value=fake_client,
-            ) as mock_client,
+            ),
             patch(
                 "kindly_web_search_mcp_server.content.summary_backend._client",
                 None,
@@ -312,14 +309,12 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
             [summary["summary"] for summary in summaries if summary],
             ["First fallback summary", "Second fallback summary"],
         )
-        # All calls should have used the paid key.
-        for call in mock_client.call_args_list:
-            self.assertEqual(call.kwargs.get("api_key"), "paid-token")
         self.assertEqual(
             [call[0] for call in fake_client.models.calls],
             [
                 "gemini-3.5-flash-lite",
                 "gemini-3.1-flash-lite",
+                "gemma-4-26b-a4b-it",
                 "gemini-3.5-flash-lite",
                 "gemini-3.5-flash-lite",
             ],

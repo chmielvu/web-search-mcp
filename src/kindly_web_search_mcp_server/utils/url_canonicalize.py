@@ -17,7 +17,7 @@ _TRACKING_PARAMS: frozenset[str] = frozenset(
 def canonicalize_url(url: str) -> str:
     parts = urlsplit(url.strip())
     scheme = parts.scheme.lower()
-    netloc = parts.netloc.lower()
+    netloc = parts.netloc.lower().removeprefix("www.")
     path = parts.path or ""
     query_items = [
         (key, value)

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
+import time
 from typing import Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..cache import get_page_cache
-from ..content.batch_orchestrator import BatchParams, run_batch_fetch
 from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.link_discovery import discover_links as discover_page_links
 from ..content.options import build_fetch_options
@@ -66,7 +68,7 @@ async def get_content(
         strip_selectors: CSS selectors to remove from content before extraction
             (e.g., "nav, footer, .sidebar").
     """
-
+    started = time.monotonic()
     await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
     await ctx.info(f"Fetching: {url[:80]}...")
     emit_tool_observability_event(
@@ -260,6 +262,7 @@ async def get_content(
         LOGGER,
         "get_content",
         "response",
+        duration_ms=(time.monotonic() - started) * 1000.0,
         input_url=url,
         normalized_url=artifact["normalized_url"],
         fetched_url=fetched_url_val,
@@ -330,9 +333,24 @@ async def batch_get_content(
         max_links: Maximum links per result when include_links is True.
         strip_selectors: CSS selectors to remove from content before extraction.
     """
+    # ── Resolve pending URLs from cursor or input ────────────────────
     max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
-    _urls = urls or []
-    bounded_urls: list[str] = _urls[: max(1, max_urls)]
+    if cursor:
+        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+        pending_urls: list[str] = decoded.get("urls", []) or []
+    else:
+        _urls = urls or []
+        pending_urls = list(dict.fromkeys(_urls))[:max_urls]
+
+    if not pending_urls:
+        response = BatchGetContentResponse().model_dump(exclude_none=True)
+        _record_tool_success(
+            "batch_get_content",
+            input_url_count=0,
+            output_result_count=0,
+        )
+        return response  # type: ignore[return-value]
+    started = time.monotonic()
     safe_concurrency = max(1, min(max_concurrency, 8))
     safe_item_length = max(
         500,
@@ -350,8 +368,8 @@ async def batch_get_content(
         LOGGER,
         "batch_get_content",
         "request",
-        urls=bounded_urls,
-        url_count=len(bounded_urls),
+        urls=pending_urls,
+        url_count=len(pending_urls),
         max_concurrency=safe_concurrency,
         per_item_char_length=safe_item_length,
         total_char_budget=safe_total_budget,
@@ -363,108 +381,182 @@ async def batch_get_content(
         max_links=max_links,
         strip_selectors=strip_selectors,
     )
+    response_emitted = False
+    try:
+        await ctx.info(
+            f"Batch fetching {len(pending_urls)} URLs (concurrency={safe_concurrency}, budget={safe_total_budget})..."
+        )
+        await ctx.report_progress(
+            progress=10, total=100, message=f"Fetching {len(pending_urls)} URLs..."
+        )
 
-    await ctx.info(
-        f"Batch fetching {len(bounded_urls)} URLs (concurrency={safe_concurrency}, budget={safe_total_budget})..."
-    )
-    await ctx.report_progress(
-        progress=10, total=100, message=f"Fetching {len(bounded_urls)} URLs..."
-    )
-    output = await run_batch_fetch(
-        urls=bounded_urls,
-        params=BatchParams(
+        # ── Core: N parallel get_content calls ───────────────────────────
+        remaining_budget = safe_total_budget
+        results: list[dict] = []
+        processed_urls: set[str] = set()
+
+        async def _fetch_one(url: str) -> tuple[str, dict | None]:
+            try:
+                raw = await get_content(
+                    url=url,
+                    char_offset=0,
+                    char_length=min(safe_item_length, remaining_budget),
+                    ai_summary=False,  # summaries batched below
+                    focus_query=focus_query,
+                    include_metadata=include_metadata,
+                    include_links=include_links,
+                    max_links=max_links,
+                    strip_selectors=strip_selectors,
+                    ctx=ctx,
+                )
+                raw_dict = raw if isinstance(raw, dict) else raw.model_dump(exclude_none=True)
+                return (url, raw_dict)
+            except Exception as exc:
+                LOGGER.warning("get_content failed for %s: %s", url, exc)
+                return (url, {
+                    "input_url": url,
+                    "normalized_url": canonicalize_url(url),
+                    "fetched_url": None,
+                    "status": "error",
+                    "source_type": "unknown",
+                    "fetch_backend": "exception",
+                    "page_content": "",
+                    "window": {},
+                    "metadata": None,
+                    "links": None,
+                    "continuation_notice": None,
+                    "content_type": None,
+                    "error": {
+                        "code": type(exc).__name__,
+                        "message": str(exc)[:500],
+                        "retryable": True,
+                    },
+                    "summary": None,
+                    "content_quality": "error",
+                    "content_word_count": 0,
+                })
+
+        for url in pending_urls:
+            if remaining_budget <= 0:
+                break
+            _, raw = await _fetch_one(url)
+            if raw is None:
+                continue
+
+            page_content = raw.get("page_content", "")
+            chars_used = len(page_content)
+            if chars_used > remaining_budget:
+                break
+            processed_urls.add(url)
+            remaining_budget -= chars_used
+
+            results.append({
+                "input_url": raw.get("input_url") or url,
+                "normalized_url": raw.get("normalized_url") or canonicalize_url(url),
+                "fetched_url": raw.get("url") or raw.get("fetched_url"),
+                "status": raw.get("status", "error"),
+                "source_type": raw.get("source_type", "unknown"),
+                "fetch_backend": raw.get("fetch_backend", "unknown"),
+                "content_type": raw.get("content_type"),
+                "page_content": page_content,
+                "window": raw.get("window", {}),
+                "metadata": raw.get("metadata") if include_metadata else None,
+                "links": raw.get("links") if include_links else None,
+                "continuation_notice": raw.get("continuation_notice"),
+                "error": raw.get("error"),
+                "summary": None,
+                "content_quality": raw.get("content_quality") or raw.get("status"),
+                "content_word_count": raw.get("content_word_count", 0) or len(page_content.split()),
+            })
+            done = len(results)
+            await ctx.report_progress(
+                progress=min(90, 10 + int(80 * done / len(pending_urls))),
+                total=100,
+                message=f"Fetched {done}/{len(pending_urls)} URLs...",
+            )
+
+        unconsumed = [u for u in pending_urls if u not in processed_urls]
+        has_more = bool(unconsumed)
+        next_cursor: str | None = None
+        if has_more:
+            next_cursor = base64.urlsafe_b64encode(
+                json.dumps({"urls": unconsumed}, separators=(",", ":")).encode()
+            ).decode()
+
+        summaries = await create_batch_summaries(
+            results,
+            ai_summary=ai_summary,
+            focus_query=focus_query,
             max_concurrency=safe_concurrency,
-            per_item_char_length=safe_item_length,
-            total_char_budget=safe_total_budget,
-            per_url_timeout_seconds=max(
-                10.0, _resolve_tool_total_timeout_seconds() / max(len(bounded_urls), 1)
-            ),
-        ),
-        cursor=cursor,
-        fetch_options=build_fetch_options(
-            include_metadata=include_metadata,
-            include_links=include_links,
-            max_links=max_links,
-            strip_selectors=strip_selectors,
-        ),
-    )
+        )
+        for idx, s in enumerate(summaries):
+            if idx < len(results):
+                results[idx]["summary"] = s
 
-    summaries = await create_batch_summaries(
-        output["results"],
-        ai_summary=ai_summary,
-        focus_query=focus_query,
-        max_concurrency=safe_concurrency,
-    )
+        total_chars = sum(len(r["page_content"]) for r in results)
+        success_count = sum(1 for r in results if r["status"] == "success")
 
-    response = BatchGetContentResponse(
-        results=[  # type: ignore[arg-type]
+        response = BatchGetContentResponse(
+            results=results,  # type: ignore[arg-type]
+            total_requested=len(pending_urls),
+            total_returned=len(results),
+            total_chars_returned=total_chars,
+            has_more=has_more,
+            cursor=next_cursor,
+        ).model_dump(exclude_none=True)
+        for result in response["results"]:
+            result.setdefault("fetched_url", None)
+
+        await ctx.report_progress(
+            progress=100,
+            total=100,
+            message=f"Done: {success_count}/{len(response['results'])} fetched",
+        )
+        await ctx.info(
+            f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
+        )
+
+        analytics_results = [
             {
-                "input_url": item["input_url"],
-                "normalized_url": item["normalized_url"],
-                "fetched_url": item["fetched_url"],
-                "status": item["status"],
-                "source_type": item["source_type"],
-                "fetch_backend": item["fetch_backend"],
-                "content_type": item.get("content_type"),
-                "page_content": item["page_content"],
-                "window": item["window"],
-                "metadata": item.get("metadata") if include_metadata else None,
-                "links": item.get("links") if include_links else None,
-                "continuation_notice": item.get("continuation_notice"),
-                "error": item.get("error"),
-                "summary": summaries[idx],
-                "content_quality": item["status"],
-                "content_word_count": item.get("word_count") or len(item["page_content"].split()),
+                **result,
+                "page_char_count": len(result["page_content"]),
+                "word_count": len(result["page_content"].split()),
             }
-            for idx, item in enumerate(output["results"])
-        ],
-        total_requested=output["total_requested"],
-        total_returned=output["total_returned"],
-        total_chars_returned=output["total_chars_returned"],
-        has_more=output["has_more"],
-        cursor=output["cursor"],
-    ).model_dump(exclude_none=True)
-    for result in response["results"]:
-        result.setdefault("fetched_url", None)
-
-    success_count = sum(1 for r in response["results"] if r["status"] == "success")
-    await ctx.report_progress(
-        progress=100,
-        total=100,
-        message=f"Done: {success_count}/{len(response['results'])} fetched",
-    )
-    await ctx.info(
-        f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
-    )
-    analytics_results = [
-        {
-            **result,
-            "page_char_count": len(result["page_content"]),
-            "word_count": len(result["page_content"].split()),
-        }
-        for result in response["results"]
-    ]
-    emit_tool_observability_event(
-        LOGGER,
-        "batch_get_content",
-        "response",
-        url_count=len(bounded_urls),
-        success_count=success_count,
-        error_count=len(response["results"]) - success_count,
-        results=analytics_results,
-        has_more=response["has_more"],
-        cursor=response.get("cursor"),
-        total_requested=response.get("total_requested"),
-        total_returned=response.get("total_returned"),
-        total_chars_returned=response.get("total_chars_returned"),
-        total_page_char_count=sum(item["page_char_count"] for item in analytics_results),
-        total_word_count=sum(item["word_count"] for item in analytics_results),
-    )
-    _record_tool_success(
-        "batch_get_content",
-        input_url_count=len(bounded_urls),
-        output_result_count=len(response["results"]),
-    )
+            for result in response["results"]
+        ]
+        emit_tool_observability_event(
+            LOGGER,
+            "batch_get_content",
+            "response",
+            duration_ms=(time.monotonic() - started) * 1000.0,
+            url_count=len(pending_urls),
+            error_count=len(response["results"]) - success_count,
+            results=analytics_results,
+            has_more=response["has_more"],
+            cursor=response.get("cursor"),
+            total_requested=response.get("total_requested"),
+            total_returned=response.get("total_returned"),
+            total_chars_returned=response.get("total_chars_returned"),
+            total_page_char_count=sum(item["page_char_count"] for item in analytics_results),
+            total_word_count=sum(item["word_count"] for item in analytics_results),
+        )
+        response_emitted = True
+        _record_tool_success(
+            "batch_get_content",
+            input_url_count=len(pending_urls),
+            output_result_count=len(response["results"]),
+        )
+        return response  # type: ignore[return-value]
+    finally:
+        if not response_emitted:
+            emit_tool_observability_event(
+                LOGGER,
+                "batch_get_content",
+                "response",
+                status="error",
+                duration_ms=(time.monotonic() - started) * 1000.0,
+                url_count=len(pending_urls),
+            )
     return response  # type: ignore[return-value]
 
 
@@ -495,56 +587,70 @@ async def discover_links(
             (e.g., "nav, footer, .sidebar").
     """
 
-    await ctx.report_progress(progress=10, total=100, message="Discovering links...")
-    await ctx.info(f"Discovering links from: {url[:80]}...")
-    emit_tool_observability_event(
-        LOGGER,
-        "discover_links",
-        "request",
-        url=url,
-        max_links=max_links,
-        include_external=include_external,
-        same_domain_only=same_domain_only,
-        strip_selectors=strip_selectors,
-    )
+    started = time.monotonic()
+    response_emitted = False
+    try:
+        await ctx.report_progress(progress=10, total=100, message="Discovering links...")
+        await ctx.info(f"Discovering links from: {url[:80]}...")
+        emit_tool_observability_event(
+            LOGGER,
+            "discover_links",
+            "request",
+            url=url,
+            max_links=max_links,
+            include_external=include_external,
+            same_domain_only=same_domain_only,
+            strip_selectors=strip_selectors,
+        )
 
-    output = await discover_page_links(
-        url,
-        max_links=max_links,
-        include_external=include_external,
-        same_domain_only=same_domain_only,
-        strip_selectors=strip_selectors,
-    )
+        output = await discover_page_links(
+            url,
+            max_links=max_links,
+            include_external=include_external,
+            same_domain_only=same_domain_only,
+            strip_selectors=strip_selectors,
+        )
 
-    response = DiscoverLinksResponse(
-        input_url=output["input_url"],
-        normalized_url=output["normalized_url"],
-        fetched_url=output.get("fetched_url"),
-        source_type=output["source_type"],
-        links=output.get("links", []),
-        returned_links=output.get("returned_links", 0),
-        has_more=output.get("has_more", False),
-        metadata=output.get("metadata"),
-        error=output.get("error"),
-    ).model_dump(exclude_none=True)
+        response = DiscoverLinksResponse(
+            input_url=output["input_url"],
+            normalized_url=output["normalized_url"],
+            fetched_url=output.get("fetched_url"),
+            source_type=output["source_type"],
+            links=output.get("links", []),
+            returned_links=output.get("returned_links", 0),
+            has_more=output.get("has_more", False),
+            metadata=output.get("metadata"),
+            error=output.get("error"),
+        ).model_dump(exclude_none=True)
 
-    await ctx.report_progress(progress=100, total=100, message="Done")
-    await ctx.info(f"Discovered {response['returned_links']} links from {response['source_type']}")
-    emit_tool_observability_event(
-        LOGGER,
-        "discover_links",
-        "response",
-        url=url,
-        source_type=response["source_type"],
-        returned_links=response["returned_links"],
-        has_more=response["has_more"],
-        links=response.get("links", []),
-        metadata=response.get("metadata"),
-        error=response.get("error"),
-    )
-    _record_tool_success(
-        "discover_links",
-        input_url_count=1,
-        output_result_count=len(response.get("links", [])),
-    )
-    return response
+        await ctx.report_progress(progress=100, total=100, message="Done")
+        await ctx.info(f"Discovered {response['returned_links']} links from {response['source_type']}")
+        emit_tool_observability_event(
+            LOGGER,
+            "discover_links",
+            "response",
+            duration_ms=(time.monotonic() - started) * 1000.0,
+            url=url,
+            returned_links=response["returned_links"],
+            has_more=response["has_more"],
+            links=response.get("links", []),
+            metadata=response.get("metadata"),
+            error=response.get("error"),
+        )
+        response_emitted = True
+        _record_tool_success(
+            "discover_links",
+            input_url_count=1,
+            output_result_count=len(response.get("links", [])),
+        )
+        return response
+    finally:
+        if not response_emitted:
+            emit_tool_observability_event(
+                LOGGER,
+                "discover_links",
+                "response",
+                status="error",
+                duration_ms=(time.monotonic() - started) * 1000.0,
+                url=url,
+            )

@@ -9,7 +9,12 @@ from typing import Any
 from opentelemetry import trace
 
 from ..models import WebSearchResult
-from ..prompts.rerank import build_cross_encoder_query
+from ..prompts.rerank import (
+    _normalize_prompt_text,
+    build_cross_encoder_query,
+    build_rankllm_query,
+    build_relevance_query,
+)
 from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
 from ..telemetry import record_rerank_stage
 from ..utils.observability import emit_observability_event
@@ -42,6 +47,7 @@ async def rerank_results(
         record_rerank_stage(stage="empty", input_count=0, output_count=0, duration_seconds=0.0)
         return RerankOutput(results=[], embedding_context=None, provider=None, model=None)
 
+    relevance_query = build_relevance_query(query, research_goal)
     original_count = len(candidates)
     pipeline_started = time.monotonic()
     stage_summaries: list[RerankStageSummary] = []
@@ -61,7 +67,7 @@ async def rerank_results(
         # 1. Bi-encoder Stage (truncates to 100)
         bi_start = time.monotonic()
         bi_outcome = await run_conditional_bi_encoder(
-            query,
+            relevance_query,
             candidates,
             precomputed_embedding=precomputed_embedding,
             logger=logger,
@@ -84,6 +90,8 @@ async def rerank_results(
             error_type=bi_outcome.status if bi_status == "failed_open" else None,
             max_score=None,
             avg_score=None,
+            query_type_hint=query_type_hint,
+            entity_overlap_enabled=False,
             payload_json={"status": bi_outcome.status},
         )
         stage_summaries.append(bi_summary)
@@ -143,22 +151,30 @@ async def rerank_results(
             error_type=type(cross_outcome.error).__name__ if cross_outcome.error else None,
             max_score=cross_max_score,
             avg_score=cross_avg_score,
+            instruction_present=bool(reranking_instructions),
+            query_type_hint=query_type_hint,
             payload_json={},
         )
         stage_summaries.append(cross_summary)
         funnel_counts["cross_output_count"] = len(cross_candidates)
 
         # 3. RankLLM Stage (ranks and truncates to 15)
+        rankllm_query = build_rankllm_query(
+            query,
+            research_goal,
+            query_type_hint,
+            reranking_instructions=reranking_instructions,
+        )
+        normalized_caller = _normalize_prompt_text(reranking_instructions, cap=500)
         llm_start = time.monotonic()
         llm_outcome = await run_llm_stage(
-            query=query,
+            query=rankllm_query,
             candidates=cross_candidates,
             request_id=session_id or run_key,
             query_type_hint=query_type_hint,
             run_key=run_key,
             main_span=main_span,
             logger=logger,
-            reranking_instructions=reranking_instructions,
         )
         llm_candidates = llm_outcome.candidates
         llm_duration = (time.monotonic() - llm_start) * 1000.0
@@ -182,6 +198,9 @@ async def rerank_results(
             avg_score=None,
             input_tokens=llm_outcome.input_tokens,
             output_tokens=llm_outcome.output_tokens,
+            instruction_present=bool(normalized_caller),
+            instruction_length=len(normalized_caller) if normalized_caller else None,
+            query_type_hint=query_type_hint,
             payload_json={},
         )
         stage_summaries.append(llm_summary)
@@ -216,8 +235,8 @@ async def rerank_results(
             provider=final_provider,
             model=final_model or "",
             max_score=cross_max_score or 0.0,
-            instruction_present=False,
-            instruction_length=None,
+            instruction_present=bool(normalized_caller),
+            instruction_length=len(normalized_caller) if normalized_caller else None,
             query_type_hint=query_type_hint,
         )
         emit_observability_event(

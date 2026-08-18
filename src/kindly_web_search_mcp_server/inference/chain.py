@@ -33,6 +33,8 @@ _CHAINS: dict[str, ChainSpec] = {}
 
 
 def register_chain(name: str, model_spec_ids: list[str]) -> ChainSpec:
+    if not model_spec_ids:
+        raise ValueError(f"Chain '{name}' must have at least one model spec ID.")
     if name in _CHAINS:
         logger.warning("Overwriting existing chain: %s", name)
     spec = ChainSpec(name=name, model_spec_ids=tuple(model_spec_ids))

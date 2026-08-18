@@ -15,20 +15,42 @@ import duckdb
 from .connection import (
     _db_path,
     _ensure_columns,
-    _LOCK,
+    _ensure_flockmtl_resources_table,
     _install_flockmtl_once,
+    _LOCK,
     ensure_flockmtl_loaded,
     ensure_flockmtl_resources,
 )
 from .table_names import (
     _CE_TABLE_NAME,
+    _CF_TABLE_NAME,
+    _CO_TABLE_NAME,
+    _CSD_TABLE_NAME,
+    _CSE_TABLE_NAME,
+    _CSH_TABLE_NAME,
+    _CSHV_TABLE_NAME,
+    _CSP_TABLE_NAME,
+    _CSQV_TABLE_NAME,
+    _CSREPO_TABLE_NAME,
+    _CSRERANK_TABLE_NAME,
+    _CSR_TABLE_NAME,
+    _CSUMA_TABLE_NAME,
+    _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
+    _GSA_TABLE_NAME,
+    _GSR_TABLE_NAME,
+    _GSS_TABLE_NAME,
     _JE_TABLE_NAME,
     _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
     _PH_TABLE_NAME,
-    _QUE_TABLE_NAME,
+    _PR_TABLE_NAME,
     _QE_TABLE_NAME,
+    _QUE_TABLE_NAME,
+    _QV_TABLE_NAME,
+    _QWSC_TABLE_NAME,
+    _QWSR_TABLE_NAME,
+    _RC_CAT_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
@@ -36,6 +58,7 @@ from .table_names import (
     _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
     _TC_TABLE_NAME,
+    _TOI_TABLE_NAME,
 )
 
 _logger = logging.getLogger(__name__)
@@ -87,7 +110,6 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         reranker_model        VARCHAR,
         rake_terms             VARCHAR[],
         brave_autosuggest     VARCHAR[],
-        brave_spellcheck      VARCHAR,
         rewrite_prompt        VARCHAR,
         rewrite_model         VARCHAR,
         rewrite_input_tokens  INTEGER,
@@ -617,6 +639,664 @@ def _ensure_judge_evaluations(
         """,
     )
 
+# ---------------------------------------------------------------------------
+# Quick Web Search tables
+# ---------------------------------------------------------------------------
+def _ensure_quick_web_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _QWSR_TABLE_NAME,
+        """
+        terminal_event_id       VARCHAR NOT NULL PRIMARY KEY,
+        tool_call_id            VARCHAR NOT NULL,
+        recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        trace_id                VARCHAR,
+        session_id              VARCHAR,
+        search_id               VARCHAR,
+        provider_session_id     VARCHAR,
+        search_queries          VARCHAR[],
+        objective               VARCHAR,
+        max_results             INTEGER,
+        max_chars_total         INTEGER,
+        max_chars_per_result    INTEGER,
+        client_model            VARCHAR,
+        include_domains         VARCHAR[],
+        exclude_domains         VARCHAR[],
+        after_date              VARCHAR,
+        location                VARCHAR,
+        max_age_seconds         INTEGER,
+        timeout_seconds         DOUBLE,
+        disable_cache_fallback  BOOLEAN,
+        status                  VARCHAR,
+        duration_ms             DOUBLE,
+        total_citations         INTEGER,
+        warnings                JSON,
+        usage                   JSON,
+        error_type              VARCHAR,
+        error_message           VARCHAR,
+        payload_json            JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qwsr_tool_call_id ON quick_web_search_runs(tool_call_id)"
+    )
+
+
+def _ensure_quick_web_search_citations(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _QWSC_TABLE_NAME,
+        """
+        terminal_event_id VARCHAR NOT NULL,
+        tool_call_id      VARCHAR NOT NULL,
+        citation_index    INTEGER NOT NULL,
+        title             VARCHAR,
+        url               VARCHAR,
+        snippet           VARCHAR,
+        publish_date      VARCHAR,
+        excerpts          VARCHAR[],
+        payload_json      JSON,
+        PRIMARY KEY (terminal_event_id, citation_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qwsc_tool_call_id ON quick_web_search_citations(tool_call_id)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gemini Search tables
+# ---------------------------------------------------------------------------
+def _ensure_gemini_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GSR_TABLE_NAME,
+        """
+        terminal_event_id            VARCHAR NOT NULL PRIMARY KEY,
+        tool_call_id                 VARCHAR NOT NULL,
+        recorded_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        trace_id                     VARCHAR,
+        session_id                   VARCHAR,
+        query                        VARCHAR NOT NULL,
+        research_goal                VARCHAR,
+        structured_output_requested  BOOLEAN,
+        mode                         VARCHAR,
+        answer                       VARCHAR,
+        structured_data              JSON,
+        search_queries               VARCHAR[],
+        model_used                   VARCHAR,
+        prompt_tokens                INTEGER,
+        completion_tokens            INTEGER,
+        total_tokens                 INTEGER,
+        grounding_chunks_count       INTEGER,
+        web_search_queries_count     INTEGER,
+        fallback_chain               VARCHAR[],
+        fallback_reason              VARCHAR,
+        status                       VARCHAR,
+        duration_ms                  DOUBLE,
+        error_message                VARCHAR,
+        payload_json                 JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gsr_tool_call_id ON gemini_search_runs(tool_call_id)"
+    )
+
+
+def _ensure_gemini_search_sources(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GSS_TABLE_NAME,
+        """
+        terminal_event_id VARCHAR NOT NULL,
+        tool_call_id      VARCHAR NOT NULL,
+        source_kind       VARCHAR NOT NULL,
+        source_index      INTEGER NOT NULL,
+        url               VARCHAR,
+        title             VARCHAR,
+        source_json       JSON,
+        PRIMARY KEY (terminal_event_id, source_kind, source_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gss_tool_call_id ON gemini_search_sources(tool_call_id)"
+    )
+
+
+def _ensure_gemini_search_attempts(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GSA_TABLE_NAME,
+        """
+        tool_call_id            VARCHAR NOT NULL,
+        attempt_index           INTEGER NOT NULL,
+        branch_name             VARCHAR,
+        model_requested         VARCHAR,
+        model_used              VARCHAR,
+        fallback_tier           INTEGER,
+        fallback_reason         VARCHAR,
+        prompt_tokens           INTEGER,
+        completion_tokens       INTEGER,
+        total_tokens            INTEGER,
+        grounding_chunk_count   INTEGER,
+        web_search_query_count  INTEGER,
+        status                  VARCHAR,
+        duration_ms             DOUBLE,
+        error_type              VARCHAR,
+        error_message           VARCHAR,
+        payload_json            JSON,
+        PRIMARY KEY (tool_call_id, attempt_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gsa_tool_call_id ON gemini_search_attempts(tool_call_id)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Code Search tables
+# ---------------------------------------------------------------------------
+def _ensure_code_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSR_TABLE_NAME,
+        """
+        terminal_event_id          VARCHAR NOT NULL PRIMARY KEY,
+        tool_call_id               VARCHAR NOT NULL,
+        recorded_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+        trace_id                   VARCHAR,
+        session_id                 VARCHAR,
+        query                      VARCHAR NOT NULL,
+        research_goal              VARCHAR,
+        language                   VARCHAR,
+        path                       VARCHAR,
+        filename                   VARCHAR,
+        extension                  VARCHAR,
+        regexp_requested           BOOLEAN,
+        deep_requested             BOOLEAN,
+        max_results_requested      INTEGER,
+        repo_name                  VARCHAR,
+        library_name               VARCHAR,
+        topic                      VARCHAR,
+        repository_filters         VARCHAR[],
+        planner_original_query     VARCHAR,
+        planner_search_text        VARCHAR,
+        planner_api_query          VARCHAR,
+        planner_mode               VARCHAR,
+        planner_structural_kind    VARCHAR,
+        planner_exa_semantic_query VARCHAR,
+        planner_regex_source       VARCHAR,
+        planner_anchor_terms       VARCHAR[],
+        planner_concept_terms      VARCHAR[],
+        planner_source_tokens      JSON,
+        planner_qualifiers         JSON,
+        planner_warnings           VARCHAR[],
+        planner_backend_channels   VARCHAR[],
+        planner_variants           VARCHAR[],
+        planner_variant_kinds      VARCHAR[],
+        provider_response_count    INTEGER,
+        provider_hit_counts        JSON,
+        request_count              INTEGER,
+        hydration_count            INTEGER,
+        rerank_count               INTEGER,
+        returned_count             INTEGER,
+        repository_count           INTEGER,
+        diagnostic_count           INTEGER,
+        truncated                  BOOLEAN,
+        dropped_count              INTEGER,
+        estimated_output_tokens    INTEGER,
+        duration_ms                DOUBLE,
+        outcome                    VARCHAR,
+        error_type                 VARCHAR,
+        error_message              VARCHAR,
+        payload_json               JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_csr_tool_call_id ON code_search_runs(tool_call_id)"
+    )
+
+
+def _ensure_code_search_providers(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSP_TABLE_NAME,
+        """
+        terminal_event_id VARCHAR NOT NULL,
+        response_index    INTEGER NOT NULL,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        provider          VARCHAR NOT NULL,
+        hit_count         INTEGER,
+        request_count     INTEGER,
+        outcome           VARCHAR,
+        compiled_queries  VARCHAR[],
+        duration_ms       DOUBLE,
+        error_type        VARCHAR,
+        error_message     VARCHAR,
+        payload_json      JSON,
+        PRIMARY KEY (terminal_event_id, response_index)
+        """,
+    )
+
+
+def _ensure_code_search_diagnostics(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSD_TABLE_NAME,
+        """
+        terminal_event_id   VARCHAR NOT NULL,
+        diagnostic_index    INTEGER NOT NULL,
+        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        provider            VARCHAR,
+        outcome             VARCHAR,
+        failure_kind        VARCHAR,
+        message             VARCHAR,
+        status_code         INTEGER,
+        retry_after_seconds DOUBLE,
+        query               VARCHAR,
+        details             JSON,
+        PRIMARY KEY (terminal_event_id, diagnostic_index)
+        """,
+    )
+
+
+def _ensure_code_search_hits(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSH_TABLE_NAME,
+        """
+        terminal_event_id          VARCHAR NOT NULL,
+        hit_rank                   INTEGER NOT NULL,
+        recorded_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+        url                        VARCHAR,
+        repository                 VARCHAR,
+        path                       VARCHAR,
+        sha                        VARCHAR,
+        provider                   VARCHAR,
+        query_variant              VARCHAR,
+        search_rank                INTEGER,
+        result_kind                VARCHAR,
+        evidence_role              VARCHAR,
+        title                      VARCHAR,
+        snippet                    VARCHAR,
+        published_date             VARCHAR,
+        final_score                DOUBLE,
+        score_components           JSON,
+        reasons                    VARCHAR[],
+        hydrated                   BOOLEAN,
+        hydrated_source_truncated  BOOLEAN,
+        line_start                 INTEGER,
+        line_end                   INTEGER,
+        commit_oid                 VARCHAR,
+        fragment_count             INTEGER,
+        symbol_count               INTEGER,
+        match_span_count           INTEGER,
+        location_precision         VARCHAR,
+        lines_available            BOOLEAN,
+        revision_available         BOOLEAN,
+        match_data_available       BOOLEAN,
+        source_metadata            JSON,
+        payload_json               JSON,
+        PRIMARY KEY (terminal_event_id, hit_rank)
+        """,
+    )
+
+
+def _ensure_code_search_hit_variants(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSHV_TABLE_NAME,
+        """
+        terminal_event_id  VARCHAR NOT NULL,
+        hit_rank           INTEGER NOT NULL,
+        association_index  INTEGER NOT NULL,
+        variant_index      INTEGER,
+        provider           VARCHAR,
+        query_variant      VARCHAR,
+        search_rank        INTEGER,
+        PRIMARY KEY (terminal_event_id, hit_rank, association_index)
+        """,
+    )
+
+
+def _ensure_code_search_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSQV_TABLE_NAME,
+        """
+        terminal_event_id VARCHAR NOT NULL,
+        variant_index     INTEGER NOT NULL,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        query_text        VARCHAR NOT NULL,
+        variant_kind      VARCHAR,
+        PRIMARY KEY (terminal_event_id, variant_index)
+        """,
+    )
+
+
+def _ensure_code_search_repositories(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSREPO_TABLE_NAME,
+        """
+        terminal_event_id  VARCHAR NOT NULL,
+        repository_index   INTEGER NOT NULL,
+        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        name_with_owner    VARCHAR,
+        url                VARCHAR,
+        description        VARCHAR,
+        stars              INTEGER,
+        forks              INTEGER,
+        pushed_at          VARCHAR,
+        language           VARCHAR,
+        topics             VARCHAR[],
+        license_spdx_id    VARCHAR,
+        homepage_url       VARCHAR,
+        default_branch     VARCHAR,
+        head_oid           VARCHAR,
+        archived           BOOLEAN,
+        fork               BOOLEAN,
+        discovery_rank     INTEGER,
+        discovery_score    DOUBLE,
+        discovery_queries  VARCHAR[],
+        proof_hits         INTEGER,
+        proof_paths        VARCHAR[],
+        proof_providers    VARCHAR[],
+        verified           BOOLEAN,
+        payload_json       JSON,
+        PRIMARY KEY (terminal_event_id, repository_index)
+        """,
+    )
+
+
+def _ensure_code_search_rerank(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSRERANK_TABLE_NAME,
+        """
+        terminal_event_id   VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        provider            VARCHAR,
+        model               VARCHAR,
+        input_count         INTEGER,
+        output_count        INTEGER,
+        reranked_count      INTEGER,
+        status              VARCHAR,
+        diagnostic_outcome  VARCHAR,
+        diagnostic_message  VARCHAR,
+        duration_ms         DOUBLE,
+        payload_json        JSON
+        """,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Content Operations and Summary tables
+# ---------------------------------------------------------------------------
+def _ensure_content_operations(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CO_TABLE_NAME,
+        """
+        terminal_event_id VARCHAR NOT NULL PRIMARY KEY,
+        tool_call_id      VARCHAR NOT NULL,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        trace_id          VARCHAR,
+        session_id        VARCHAR,
+        tool_name         VARCHAR NOT NULL,
+        input_count       INTEGER,
+        output_count      INTEGER,
+        duration_ms       DOUBLE,
+        status            VARCHAR,
+        error_type        VARCHAR,
+        error_message     VARCHAR,
+        payload_json      JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_co_tool_call_id ON content_operations(tool_call_id)"
+    )
+
+
+def _ensure_content_fetches(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CF_TABLE_NAME,
+        """
+        terminal_event_id       VARCHAR NOT NULL,
+        tool_call_id            VARCHAR NOT NULL,
+        item_index              INTEGER NOT NULL,
+        recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        input_url               VARCHAR,
+        normalized_url          VARCHAR,
+        fetched_url             VARCHAR,
+        source_type             VARCHAR,
+        fetch_backend           VARCHAR,
+        status                  VARCHAR,
+        content_length          INTEGER,
+        page_char_count         INTEGER,
+        word_count              INTEGER,
+        window_offset           INTEGER,
+        window_length           INTEGER,
+        window_returned_chars   INTEGER,
+        window_total_chars      INTEGER,
+        window_has_more         BOOLEAN,
+        window_next_offset      INTEGER,
+        item_duration_ms        DOUBLE,
+        payload_json            JSON,
+        PRIMARY KEY (terminal_event_id, item_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cf_tool_call_id ON content_fetches(tool_call_id)"
+    )
+
+
+def _ensure_content_summaries(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSUM_TABLE_NAME,
+        """
+        terminal_event_id        VARCHAR NOT NULL,
+        tool_call_id             VARCHAR NOT NULL,
+        item_index               INTEGER NOT NULL,
+        recorded_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+        normalized_url           VARCHAR,
+        focus_query              VARCHAR,
+        input_chars              INTEGER,
+        source_url_count         INTEGER,
+        is_batch                 BOOLEAN,
+        batch_size               INTEGER,
+        is_stub                  BOOLEAN,
+        backend                  VARCHAR,
+        model_requested          VARCHAR,
+        model_used               VARCHAR,
+        fallback_attempted       BOOLEAN,
+        fallback_tier            INTEGER,
+        input_tokens             INTEGER,
+        output_tokens            INTEGER,
+        total_tokens             INTEGER,
+        summary_length_chars     INTEGER,
+        key_points_count         INTEGER,
+        important_entities_count INTEGER,
+        verbatim_terms_count     INTEGER,
+        limitations_count        INTEGER,
+        source_date              VARCHAR,
+        status                   VARCHAR,
+        error_type               VARCHAR,
+        error_message            VARCHAR,
+        duration_ms              DOUBLE,
+        payload_json             JSON,
+        PRIMARY KEY (terminal_event_id, item_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_csum_tool_call_id ON content_summaries(tool_call_id)"
+    )
+
+
+def _ensure_content_summary_attempts(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _CSUMA_TABLE_NAME,
+        """
+        tool_call_id       VARCHAR NOT NULL,
+        item_index         INTEGER,
+        attempt_index      INTEGER NOT NULL,
+        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+        is_batch           BOOLEAN,
+        batch_size         INTEGER,
+        backend            VARCHAR,
+        model_requested    VARCHAR,
+        model_used         VARCHAR,
+        fallback_tier      INTEGER,
+        source_url_count   INTEGER,
+        input_chars        INTEGER,
+        input_tokens       INTEGER,
+        output_tokens      INTEGER,
+        total_tokens       INTEGER,
+        duration_ms        DOUBLE,
+        status             VARCHAR,
+        error_type         VARCHAR,
+        error_message      VARCHAR,
+        payload_json       JSON,
+        PRIMARY KEY (tool_call_id, attempt_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_csuma_tool_call_id ON content_summary_attempts(tool_call_id)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Web search funnel uplift tables
+# ---------------------------------------------------------------------------
+def _ensure_result_catalog(connection: duckdb.DuckDBPyConnection) -> None:
+    """Cross-run canonical URL registry — one row per unique URL."""
+    _create_table(
+        connection,
+        _RC_CAT_TABLE_NAME,
+        """
+        canonical_result_id   VARCHAR NOT NULL PRIMARY KEY,
+        canonical_url          VARCHAR NOT NULL UNIQUE,
+        domain                 VARCHAR NOT NULL,
+        title_first_seen       VARCHAR,
+        first_seen_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        first_seen_run_key     VARCHAR,
+        total_run_appearances  INTEGER DEFAULT 0
+        """,
+    )
+
+
+def _ensure_provider_results(connection: duckdb.DuckDBPyConnection) -> None:
+    """Per-provider-per-candidate provenance."""
+    _create_table(
+        connection,
+        _PR_TABLE_NAME,
+        """
+        provider_result_id    VARCHAR NOT NULL PRIMARY KEY,
+        provider_call_id      VARCHAR NOT NULL,
+        run_key               VARCHAR NOT NULL,
+        branch_id             VARCHAR NOT NULL,
+        provider              VARCHAR NOT NULL,
+        provider_rank         INTEGER NOT NULL,
+        canonical_result_id   VARCHAR NOT NULL,
+        raw_url               VARCHAR NOT NULL,
+        title                 VARCHAR,
+        snippet               VARCHAR,
+        raw_score             DOUBLE,
+        is_eligible           BOOLEAN,
+        rejection_reason      VARCHAR,
+        recorded_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+        payload_json          JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pr_run_key ON provider_results(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pr_provider ON provider_results(provider)"
+    )
+
+
+def _ensure_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
+    """Planner query variant lifecycle."""
+    _create_table(
+        connection,
+        _QV_TABLE_NAME,
+        """
+        variant_id      VARCHAR NOT NULL PRIMARY KEY,
+        run_key         VARCHAR NOT NULL,
+        variant_order   INTEGER NOT NULL,
+        variant_role    VARCHAR NOT NULL,
+        query_text      VARCHAR NOT NULL,
+        selected        BOOLEAN NOT NULL DEFAULT FALSE,
+        executed        BOOLEAN NOT NULL DEFAULT FALSE,
+        skip_reason     VARCHAR,
+        recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (run_key, variant_order)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qv_run_key ON query_variants(run_key)"
+    )
+
+
+def _ensure_candidate_stage_events(connection: duckdb.DuckDBPyConnection) -> None:
+    """Per-candidate per-rerank-stage survival tracking."""
+    _create_table(
+        connection,
+        _CSE_TABLE_NAME,
+        """
+        stage_execution_id   VARCHAR NOT NULL,
+        run_key              VARCHAR NOT NULL,
+        canonical_result_id VARCHAR NOT NULL,
+        entered              BOOLEAN NOT NULL,
+        survived             BOOLEAN NOT NULL,
+        rank_before          INTEGER,
+        rank_after           INTEGER,
+        score_before         DOUBLE,
+        score_after          DOUBLE,
+        score_name           VARCHAR,
+        removal_reason       VARCHAR,
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (stage_execution_id, canonical_result_id),
+        payload_json         JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cse_run_key ON candidate_stage_events(run_key)"
+    )
+
+
+def _ensure_tool_output_items(connection: duckdb.DuckDBPyConnection) -> None:
+    """Output items from any tool invocation — links search results to content fetches."""
+    _create_table(
+        connection,
+        _TOI_TABLE_NAME,
+        """
+        output_item_id       VARCHAR NOT NULL PRIMARY KEY,
+        tool_call_id         VARCHAR NOT NULL,
+        session_id           VARCHAR,
+        run_key              VARCHAR,
+        tool_name            VARCHAR NOT NULL,
+        item_type            VARCHAR NOT NULL,
+        item_rank            INTEGER NOT NULL,
+        canonical_result_id VARCHAR,
+        raw_url              VARCHAR,
+        title                VARCHAR,
+        snippet              VARCHAR,
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (tool_call_id, item_type, item_rank)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_toi_tool_call_id ON tool_output_items(tool_call_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_toi_run_key ON tool_output_items(run_key)"
+    )
+
 
 # ---------------------------------------------------------------------------
 # vss extension — HNSW vector indexes on embedding tables
@@ -710,6 +1390,8 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                     "http_status": "INTEGER",
                     "result_class": "VARCHAR",
                     "response_meta_json": "JSON",
+                    "retry_after_seconds": "DOUBLE",
+                    "retryable": "BOOLEAN",
                 },
             )
             _ensure_search_candidates(connection)
@@ -729,7 +1411,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 {
                     "facet": "VARCHAR",
                     "reasoning": "VARCHAR",
-                    "rubric_version": "VARCHAR NOT NULL DEFAULT 'v1'",
+                    "rubric_version": "VARCHAR DEFAULT 'v1'",
                     "confidence": "SMALLINT",
                     "context_shown": "JSON",
                 },
@@ -744,11 +1426,60 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 {
                     "relevance_raw": "INTEGER",
                     "relevance_scale": "VARCHAR",
-                    "status": "VARCHAR NOT NULL DEFAULT 'success'",
+                    "status": "VARCHAR DEFAULT 'success'",
                     "error_type": "VARCHAR",
                     "error_message": "VARCHAR",
                 },
             )
+            # Phase 1: Additive stable IDs on existing tables
+            _ensure_columns(
+                connection,
+                "search_branches",
+                {"branch_id": "VARCHAR"},
+            )
+            _ensure_columns(
+                connection,
+                "provider_calls",
+                {"provider_call_id": "VARCHAR"},
+            )
+            _ensure_columns(
+                connection,
+                "search_candidates",
+                {"canonical_result_id": "VARCHAR"},
+            )
+            _ensure_columns(
+                connection,
+                "tool_calls",
+                {"run_key": "VARCHAR"},
+            )
+            _ensure_summary_intent_daily(connection)
+            _ensure_summary_provider_daily(connection)
+            _ensure_summary_quality_daily(connection)
+            _ensure_summary_rerank_daily(connection)
+            _ensure_quick_web_search_runs(connection)
+            _ensure_quick_web_search_citations(connection)
+            _ensure_gemini_search_runs(connection)
+            _ensure_gemini_search_sources(connection)
+            _ensure_gemini_search_attempts(connection)
+            _ensure_code_search_runs(connection)
+            _ensure_code_search_providers(connection)
+            _ensure_code_search_diagnostics(connection)
+            _ensure_code_search_hits(connection)
+            _ensure_code_search_hit_variants(connection)
+            _ensure_code_search_query_variants(connection)
+            _ensure_code_search_repositories(connection)
+            _ensure_code_search_rerank(connection)
+            _ensure_content_operations(connection)
+            _ensure_content_fetches(connection)
+            _ensure_content_summaries(connection)
+            _ensure_content_summary_attempts(connection)
+            # Phase 2: Web search funnel uplift tables
+            _ensure_result_catalog(connection)
+            _ensure_provider_results(connection)
+            _ensure_query_variants(connection)
+            _ensure_candidate_stage_events(connection)
+            _ensure_tool_output_items(connection)
+            _ensure_flockmtl_resources_table(connection)
             if settings.vss_enabled:
                 ensure_vss_extension(connection)
             if flockmtl_loaded:

@@ -172,7 +172,7 @@ async def test_provider_consensus_bm25_fusion_keeps_all_score_identities() -> No
     run = SimpleNamespace(
         request=request,
         plan=SimpleNamespace(
-            relevance_query="query\nFind primary evidence.",
+            relevance_query="query\nResearch goal: Find primary evidence.",
             normalized_query="query",
             understanding=SimpleNamespace(intent="comparison"),
         ),

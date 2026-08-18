@@ -28,6 +28,13 @@ class RerankPromptTemplate:
 
 
 @lru_cache(maxsize=1)
+def load_rerank_system_message() -> str:
+    with _TEMPLATE_PATH.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return str(data["system_message"]).strip()
+
+
+@lru_cache(maxsize=1)
 def load_rerank_prompt_template() -> RerankPromptTemplate:
     with _TEMPLATE_PATH.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}

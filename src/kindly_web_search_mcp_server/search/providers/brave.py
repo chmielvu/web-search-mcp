@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from ...models import WebSearchResult
-from ...settings import get_env_value, settings
+from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from .base import run_provider
 from .brave_common import (
@@ -31,7 +31,8 @@ async def suggest_brave_queries(
     http_client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     """Return Brave Autosuggest queries and rich entity metadata."""
-    api_key = os.environ.get("BRAVE_SUGGEST_API_KEY", settings.brave_suggest_api_key).strip()
+    raw_key = os.environ.get("BRAVE_SUGGEST_API_KEY") or settings.brave_suggest_api_key
+    api_key = raw_key.strip() if raw_key else ""
     if not api_key:
         return {"suggestions": [], "entities": []}
 
@@ -83,42 +84,6 @@ async def suggest_brave_queries(
             "suggestions": list(dict.fromkeys(suggestions))[:bounded_count],
             "entities": entities,
         }
-
-    if http_client is not None:
-        return await _with_client(http_client)
-    async with httpx.AsyncClient(timeout=settings.search_retrieve_budget_seconds) as client:
-        return await _with_client(client)
-
-
-async def spellcheck_brave(
-    query: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str | None:
-    """Return Brave's corrected query using the dedicated spellcheck API key.
-
-    The dedicated ``BRAVE_SPELLCHECK_API_KEY`` is required; ``BRAVE_API_KEY``
-    is for LLM Context/News and is NOT a fallback here.
-    """
-    api_key = get_env_value("BRAVE_SPELLCHECK_API_KEY", settings.brave_spellcheck_api_key).strip()
-    if not api_key:
-        return None
-    url = "https://api.search.brave.com/res/v1/spellcheck"
-    headers = {
-        "X-Subscription-Token": api_key,
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip",
-    }
-
-    async def _with_client(client: httpx.AsyncClient) -> str | None:
-        response = await client.get(url, params={"q": query}, headers=headers)
-        response.raise_for_status()
-        content_type = response.headers.get("content-type", "")
-        if "application/json" not in content_type:
-            return None
-        data = response.json()
-        correction = data.get("correction") if isinstance(data, dict) else None
-        return correction.strip() if isinstance(correction, str) and correction.strip() else None
 
     if http_client is not None:
         return await _with_client(http_client)

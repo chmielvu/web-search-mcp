@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _SOURCEGRAPH_URL = "https://sourcegraph.com/.api/graphql"
 
 
-class SourcegraphError(RuntimeError):
+class SourcegraphError(ProviderRequestError):
     """Raised when Sourcegraph returns an unusable GraphQL response."""
 
 

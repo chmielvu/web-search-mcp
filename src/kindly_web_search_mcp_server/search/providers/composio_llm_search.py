@@ -7,12 +7,12 @@ from typing import Any
 from ...composio_client import execute_composio_tool
 from ...composio_tools import WEB_SEARCH_SLUG
 from ...models import WebSearchResult
-from .base import run_clientless_provider
+from .base import ProviderRequestError, run_clientless_provider
 
 COMPOSIO_LLM_SEARCH_SLUG = WEB_SEARCH_SLUG
 
 
-class ComposioLLMSearchError(RuntimeError):
+class ComposioLLMSearchError(ProviderRequestError):
     """Composio web-search provider error."""
 
 

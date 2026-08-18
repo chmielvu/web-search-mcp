@@ -37,6 +37,12 @@ class RerankStageSummary(BaseModel):
     avg_score: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    score_threshold: float | None = None
+    alpha_blend: float | None = None
+    instruction_present: bool | None = None
+    instruction_length: int | None = None
+    query_type_hint: str | None = None
+    entity_overlap_enabled: bool | None = None
     payload_json: dict[str, Any] = Field(default_factory=dict)
 
 

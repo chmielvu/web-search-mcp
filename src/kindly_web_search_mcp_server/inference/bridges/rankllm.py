@@ -28,17 +28,12 @@ async def rerank_with_rankllm_bridge(
     candidates: list[WebSearchResult],
     *,
     request_id: str | None = None,
-    reranking_instructions: str | None = None,
 ) -> LLMRerankOutcome:
     """Rerank candidates using RankLLM routed through the unified inference engine."""
     if not candidates:
         return LLMRerankOutcome("bypass", None, [])
 
-    rankllm_query = query
-    if reranking_instructions and reranking_instructions.strip():
-        rankllm_query = f"{query} | Caller reranking instructions: {reranking_instructions.strip()}"
-
-    request = _build_request(rankllm_query, candidates, request_id or "rerank-request")
+    request = _build_request(query, candidates, request_id or "rerank-request")
     chain = get_chain("rankllm")
 
     async def _handle_rankllm_spec(spec: ModelSpec) -> tuple[Any, int | None, int | None]:

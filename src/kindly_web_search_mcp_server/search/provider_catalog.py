@@ -18,6 +18,13 @@ class ProviderDefinition(ContractModel):
     default_timeout_seconds: float = Field(gt=0)
     requires_embedding: bool = False
     specialized: bool = False
+    # Resilience metadata (MCP tool-design contract): how hard this provider
+    # may be retried, how long to cool down after a rate limit, and any
+    # per-call timeout cap below the global retrieve budget.
+    per_call_timeout_seconds: float | None = Field(default=None, gt=0)
+    max_retries: int = Field(default=0, ge=0)
+    retryable: bool = True
+    cooldown_seconds: float | None = Field(default=None, ge=0)
 
 
 def _definition(
@@ -31,6 +38,10 @@ def _definition(
     timeout: float | None = None,
     requires_embedding: bool = False,
     specialized: bool = False,
+    per_call_timeout: float | None = None,
+    max_retries: int = 0,
+    retryable: bool = True,
+    cooldown_seconds: float | None = None,
 ) -> ProviderDefinition:
     return ProviderDefinition(
         name=name,
@@ -44,6 +55,10 @@ def _definition(
         ),
         requires_embedding=requires_embedding,
         specialized=specialized,
+        per_call_timeout_seconds=per_call_timeout,
+        max_retries=max_retries,
+        retryable=retryable,
+        cooldown_seconds=cooldown_seconds,
     )
 
 
@@ -58,8 +73,18 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_searxng",
         "SearXNG metasearch",
         all_of=("SEARXNG_BASE_URL",),
+        per_call_timeout=15.0,
+        max_retries=1,
+        cooldown_seconds=5.0,
     ),
-    _definition("ddg", "providers.ddg", "search_ddg", "DuckDuckGo search"),
+    _definition(
+        "ddg",
+        "providers.ddg",
+        "search_ddg",
+        "DuckDuckGo search",
+        max_retries=1,
+        cooldown_seconds=2.0,
+    ),
     _definition(
         "gemma",
         "providers.gemma_serp",
@@ -67,6 +92,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Pollinations Gemini Fast search",
         all_of=("POLLINATIONS_API_KEY",),
         timeout=settings.search_retrieve_budget_seconds,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "degoog",
@@ -74,6 +101,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_degoog",
         "DeGoog search",
         all_of=("DEGOOG_BASE_URL",),
+        max_retries=1,
+        cooldown_seconds=5.0,
     ),
     _definition(
         "qdrant",
@@ -82,6 +111,9 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Qdrant web index",
         all_of=("QDRANT_SPACE_URL",),
         requires_embedding=True,
+        per_call_timeout=15.0,
+        max_retries=1,
+        cooldown_seconds=5.0,
     ),
     _definition(
         "composio_llm_search",
@@ -89,6 +121,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_composio_llm_search",
         "Composio LLM search",
         all_of=("COMPOSIO_API_KEY", "COMPOSIO_USER_ID"),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "search_router",
@@ -96,6 +130,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_search_router",
         "Search Router",
         all_of=("SEARCH_ROUTER_API_KEY",),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "brave",
@@ -103,6 +139,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_brave",
         "Brave LLM Context",
         all_of=("BRAVE_API_KEY",),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "serper",
@@ -110,6 +148,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_serper",
         "Serper",
         all_of=("SERPER_API_KEY",),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "serpapi",
@@ -117,6 +157,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_serpapi",
         "SerpAPI",
         all_of=("SERPAPI_API_KEY",),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "brightdata",
@@ -126,6 +168,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("BRIGHTDATA_API_KEY",),
         any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
+        max_retries=1,
+        cooldown_seconds=30.0,
     ),
     _definition(
         "brightdata_bing",
@@ -135,6 +179,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("BRIGHTDATA_API_KEY",),
         any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
+        max_retries=1,
+        cooldown_seconds=30.0,
     ),
     _definition(
         "brightdata_yandex",
@@ -144,6 +190,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         all_of=("BRIGHTDATA_API_KEY",),
         any_of=("BRIGHTDATA_SERP_ZONE", "BRIGHTDATA_ZONE"),
         timeout=brightdata_provider_call_timeout_seconds(),
+        max_retries=1,
+        cooldown_seconds=30.0,
     ),
     _definition(
         "tavily",
@@ -151,7 +199,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_tavily",
         "Tavily",
         all_of=("TAVILY_API_KEY",),
-        specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "jina",
@@ -160,6 +209,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Jina search",
         all_of=("JINA_API_KEY",),
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "langsearch",
@@ -167,6 +218,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_langsearch",
         "LangSearch AI web search",
         all_of=("LANGSEARCH_API_KEY",),
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "grok_xai",
@@ -175,17 +228,35 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Grok native xAI web and X search",
         all_of=("XAI_API_KEY",),
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=15.0,
     ),
     _definition(
-        "hackernews", "providers.hackernews", "search_hackernews", "Hacker News", specialized=True
+        "hackernews",
+        "providers.hackernews",
+        "search_hackernews",
+        "Hacker News",
+        specialized=True,
+        max_retries=1,
+        cooldown_seconds=5.0,
     ),
-    _definition("reddit", "providers.reddit", "search_reddit", "Reddit", specialized=True),
+    _definition(
+        "reddit",
+        "providers.reddit",
+        "search_reddit",
+        "Reddit",
+        specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
+    ),
     _definition(
         "github",
         "providers.github",
         "search_github",
         "GitHub code, Issues, and Discussions",
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=15.0,
     ),
     _definition(
         "sourcegraph",
@@ -193,6 +264,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_sourcegraph",
         "Sourcegraph public code search",
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "gitlab",
@@ -200,6 +273,8 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "search_gitlab",
         "GitLab public code search",
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
     _definition(
         "telegram",
@@ -208,6 +283,9 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Telegram",
         all_of=("TELEGRAM_API_ID", "TELEGRAM_API_HASH"),
         specialized=True,
+        # MTProto flood control is handled inside the adapter; retrying can
+        # deepen flood waits, so the pipeline never auto-retries Telegram.
+        max_retries=0,
     ),
     _definition(
         "brave_news",
@@ -216,5 +294,7 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         "Brave News",
         all_of=("BRAVE_API_KEY",),
         specialized=True,
+        max_retries=1,
+        cooldown_seconds=10.0,
     ),
 )

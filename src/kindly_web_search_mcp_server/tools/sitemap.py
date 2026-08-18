@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-
+import time
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
@@ -53,6 +53,7 @@ async def generate_sitemap(
         exclude_domains: Exclusion regex patterns for domains to skip.
         allow_external: Follow links to external domains when True.
     """
+    started = time.monotonic()
     emit_tool_observability_event(
         LOGGER,
         "generate_sitemap",
@@ -84,21 +85,35 @@ async def generate_sitemap(
             allow_external=allow_external,
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
-        if isinstance(result, dict) and "results" in result:
-            _record_tool_success(
-                "generate_sitemap",
-                input_url_count=1,
-                output_result_count=len(result.get("results", [])),
-            )
-        else:
-            pages = result.get("pages", []) if isinstance(result, dict) else []
-            _record_tool_success(
-                "generate_sitemap",
-                input_url_count=1,
-                output_result_count=len(pages),
-            )
+        duration_ms = (time.monotonic() - started) * 1000.0
+        pages_count = len(result.get("results", [])) if isinstance(result, dict) and "results" in result else len(result.get("pages", [])) if isinstance(result, dict) else 0
+        emit_tool_observability_event(
+            LOGGER,
+            "generate_sitemap",
+            "response",
+            url=url,
+            status="success",
+            output_count=pages_count,
+            duration_ms=duration_ms,
+        )
+        _record_tool_success(
+            "generate_sitemap",
+            input_url_count=1,
+            output_result_count=pages_count,
+        )
         return result
     except Exception as e:
+        duration_ms = (time.monotonic() - started) * 1000.0
         LOGGER.warning("generate_sitemap error: %s", e, exc_info=True)
+        emit_tool_observability_event(
+            LOGGER,
+            "generate_sitemap",
+            "response",
+            url=url,
+            status="error",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            duration_ms=duration_ms,
+        )
         _record_tool_failure("generate_sitemap")
         return format_tool_error(e, provider="tavily_map")

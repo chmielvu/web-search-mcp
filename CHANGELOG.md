@@ -1,11 +1,64 @@
 # Changelog
 
 ## [Unreleased]
+### Added — Full-stack DuckDB analytics schema expansion
+- Added 17 typed fact tables covering quick-web-search runs/citations, Gemini search runs/sources/attempts, code-search runs/providers/diagnostics/hits/hit-variants/query-variants/repositories/rerank, content operations/fetches/summaries/summary-attempts, and tool-call events.
+- Added 22 analytical views covering cross-tool coverage/linkage, quick-search performance/citations, Gemini performance/fallbacks/sources, code-search provider-yield/hit-sources/variant-effectiveness/rerank-execution/diagnostic-patterns/repository-discovery/score-component-distribution, and content fetch-performance/summary-output-signals/attempt-performance/batch-vs-single/fallbacks/focus-comparison/daily-tokens.
+- Added idempotent `ON CONFLICT DO NOTHING` `TableWriter` instances, batch insert dispatchers, `ensure_store_schema` wiring, and `duckdb_store` re-exports for all new tables.
+- Added `_ensure_flockmtl_resources_table` bootstrap in `ensure_store_schema` so views referencing `flockmtl_resources` resolve even when the FlockMTL extension is offline.
+- Added typed analytics persistence in `observability.py` for `quick_web_search`, `gemini_search`, `code_search`, and `get_content`/`batch_get_content` with canonical `terminal_event_id` linkage to `tool_calls.event_id`.
+- Passed unprojected `request`, `plan`, and `response` objects into `code_search` observability before `to_public_result()` strips internal telemetry.
+- Corrected `summary_backend.py` batch backend labeling to `gemini-batch-api`, `gemma-batch-fallback`, and `gemini-per-item-fallback`.
+- Added table and view descriptions in `descriptions.py`, report functions in `reports.py`, and query classifiers/plans in `queries.py`.
+- Added `tests/test_duckdb_schema_expansion.py` covering table creation, persistence batch writers, view execution, event propagation, reports, and query planning.
+
+### Added — Web-search funnel analytics uplift
+- Wired `canonical_result_id` and `candidate_id` into `final_results` via `observability_store._canonical_result_id()` and `_candidate_id()` hash functions, fixing the hardcoded `None` persistence gap.
+- Wired `retry_after_seconds` and `retryable` through `provider_calls` from the retrieval layer, adding additive columns via `_ensure_columns`.
+- Populated `RerankStageSummary` with `score_threshold`, `alpha_blend`, `instruction_present`, `instruction_length`, `query_type_hint`, and `entity_overlap_enabled` fields, fixing always-NULL rerank_stages columns.
+- Added stable hash-based `branch_id`, `provider_call_id`, `canonical_result_id`, and `run_key` columns to existing tables (`search_branches`, `provider_calls`, `search_candidates`, `tool_calls`) via `_ensure_columns` and Python insert paths.
+- Created 5 new funnel uplift tables: `result_catalog` (cross-run canonical URL registry), `provider_results` (per-provider-per-candidate provenance), `query_variants` (planner variant lifecycle), `candidate_stage_events` (rerank survival tracking), and `tool_output_items` (cross-tool output linkage).
+- Created 9 analytical views: `vw_run_stage_funnel`, `vw_run_funnel`, `vw_candidate_trajectory`, `vw_provider_contribution`, `vw_branch_contribution`, `vw_rewrite_value`, `vw_followup_attribution`, `vw_result_usefulness`, and `vw_dense_score_calibration`.
+- Added `refresh_materialized_summaries()` with `summary_provider_discovery_daily` and `summary_rewrite_value_daily` CTAS rollups.
+- Wired runtime data flow for `candidate_stage_events` in `rerank/observability.py`, `provider_results` in `search/retrieval.py` + `outcomes.py`, `query_variants` in `search/planning.py` + `outcomes.py`, and `tool_output_items` in `observability.py`.
+- Added `DiagnosticsCollector.provider_result_rows` and `query_variant_rows` fields for pipeline data flow.
+- Added `_web_search_funnel_uplift_plan.md` design document and `_prototype_schema_model.py` evaluation.
+
+### Added — CLI public code-search parity
+- Added `web-search-cli search code`, forwarding the MCP `code_search` contract for public code, documentation, implementation examples, and repository discovery.
+- Added the typed service adapter, command schema coverage, agent guidance, and focused forwarding/validation tests without duplicating the MCP orchestration layer.
+### Added — Intent-aware reranking quality contract
+- Added one canonical six-intent instruction registry and shared ranking hierarchy across cross-encoder, Voyage, RankLLM, and relevance/bi-encoder inputs.
+- Added a frozen 36-case, 32-candidate-per-case prompt replay with pair-validity checks, position/order metrics, and offline/live promotion gates.
+
+### Changed — RankLLM positional-bias mitigation
+- Enabled candidate-order shuffling for every bounded RankLLM listwise call and
+  explicitly passed the YAML `system_message` into installed `SafeGenai`, so
+  Gemini requests use the repository's prompt contract instead of the SDK
+  default system instruction.
+
+### Fixed — Code-search scope, precision, and outcome fidelity
+- Applied provider-neutral repository/path/filename/extension/language validation after every code-search backend, retaining diagnostics when provider-side filtering is incomplete.
+- Preserved the caller's original query ahead of optional GLiNER2 or worker-LLM enrichment variants, and ranked exact `code_match` evidence above aggregated Exa context, documentation, and repository results.
+- Normalized invalid or zero-based provider coordinates so location metadata never claims line precision without positive one-based lines; transient provider failures now produce `partial` rather than misleading `error` outcomes.
+- Corrected heterogeneous output semantics: clean `no_hit`/`skipped` diagnostics no longer downgrade otherwise successful or empty searches, Context7 repository identifiers are canonicalized while provider IDs remain in metadata, and hit schema descriptions distinguish canonical locations from query-variant provenance.
+- Preserved Exa Context's echoed query and documented request/error metadata, and normalized its documented validation, budget, not-found, rate-limit, and transient HTTP statuses.
+- Passed `research_goal` separately to code-query rewriting and code-candidate reranking, forwarded `deep` explicitly into GitHub hydration windows, and hardened Exa source extraction to strip terminal punctuation/quotes and reject unscoped semantic anchors when a repository scope is explicit.
+
+### Added — Hybrid public GitHub code-search prototype
+- Added agent-oriented `discover` and `hybrid` CLI operations: GitHub GraphQL discovers and enriches public repositories and captures default-branch commit OIDs, then REST code search returns text matches pinned to those exact revisions.
+- Added query planning across GitHub REST and Sourcegraph dialects, regex longest-literal fallback with explicit local-filter limitations, deterministic explainable code ranking, and optional production cross-encoder reranking through the configured provider fallback chain.
+- Added code-search quota preflight/reservation, bounded repository fan-out, partial-result and failure taxonomy metadata, revision-pinned Contents API locators, and focused tests for query refinement, quota handling, GraphQL partial responses, reranking, and exact-revision hit construction.
+
+### Added — DuckDB analytics schema prototype
+- Replaced the dictionary-only analytics sketch with an isolated in-memory DuckDB prototype covering normalized query variants, provider-result lineage, candidate stage trajectories, tool output/fetch attribution, judgment coverage, embedding coverage, and executable analytical views.
+- Added adversarial TUI scenarios for skipped versus empty stages, fail-open without candidate resurrection, incomplete/conflicting tool lifecycles, exact versus bounded inferred follow-ups, and exact vector-neighbor analysis with explicit VSS adoption guidance.
 
 ### Changed — Gemma SERP now uses Pollinations
 - Replaced the raw Gemini Search grounding request with Pollinations' OpenAI-compatible `gemini-fast` chat-completions endpoint, using `POLLINATIONS_API_KEY`, explicit system instructions, and structured JSON result parsing.
 - Preserved the public `gemma` provider name while recording Pollinations, native web-search grounding, and the underlying Gemini 2.5 Flash-Lite model in result diagnostics. The prompt was tuned against live `polli` calls to decompose queries, keep retrieved URLs exact, and output JSON-only results; generation now allows `temperature=0.3` and `max_tokens=4096`.
 - Passed request seed `queries` and `research_goal` into the Gemma prompt with explicit context semantics for decomposition and relevance ranking.
+- Empty or unparseable successful Pollinations responses now raise the provider error contract with `invalid_response` diagnostics; explicit `{"results":[]}` remains a valid empty result.
 
 ### Fixed — Bright Data SERP localization, pagination, and latency
 - Preserved four-letter Bing locales, added bounded Google/Bing/Yandex pagination, and stopped forcing Yandex's USA region for non-US searches.

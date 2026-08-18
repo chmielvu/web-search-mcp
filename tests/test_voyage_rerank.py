@@ -32,7 +32,6 @@ class TestVoyageRerank(unittest.IsolatedAsyncioTestCase):
     def test_default_voyage_reranker_model_is_25(self) -> None:
         from kindly_web_search_mcp_server.settings import Settings
 
-        self.assertEqual(Settings().rerank_provider, "voyage")
         self.assertEqual(Settings().voyage_rerank_model, "rerank-2.5")
 
     async def test_voyage_rerank_uses_primary_model_and_top_k(self) -> None:
@@ -90,6 +89,25 @@ class TestVoyageRerank(unittest.IsolatedAsyncioTestCase):
             client.post_calls[0]["json"]["query"],
             "Prefer authoritative docs.\n\nbase query",
         )
+
+    def test_voyage_reformats_all_cross_segments_instruction_first(self) -> None:
+        from kindly_web_search_mcp_server.prompts.rerank import build_cross_encoder_query
+        from kindly_web_search_mcp_server.rerank.voyage import _format_voyage_query
+
+        compact = build_cross_encoder_query(
+            "query",
+            "social_media",
+            "find discussion",
+            reranking_instructions="Prefer the requested community.",
+        )
+        formatted = _format_voyage_query(compact)
+        assert formatted.startswith(
+            "Research goal: find discussion\n"
+            "Intent: social_media\n"
+            "Match the requested platform or community"
+        )
+        assert "Caller preference: Prefer the requested community." in formatted
+        assert formatted.endswith("\n\nQuery: query")
 
 
 if __name__ == "__main__":

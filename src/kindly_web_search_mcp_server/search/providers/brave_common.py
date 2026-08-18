@@ -8,10 +8,12 @@ while leaving the public provider functions in their own modules.
 
 from __future__ import annotations
 
+from .base import ProviderRequestError
+
 from ...settings import settings, get_env_value
 
 
-class BraveError(RuntimeError):
+class BraveError(ProviderRequestError):
     """Base error for Brave provider failures."""
 
 

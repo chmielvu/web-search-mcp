@@ -15,10 +15,10 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import _attach_provider_name
+from .base import ProviderRequestError, _attach_provider_name
 
 
-class DeGoogError(RuntimeError):
+class DeGoogError(ProviderRequestError):
     pass
 
 

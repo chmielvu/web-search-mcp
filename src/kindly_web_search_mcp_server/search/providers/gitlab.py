@@ -15,6 +15,7 @@ import httpx
 from ...models import WebSearchResult
 from ...settings import settings
 from .base import (
+    ProviderRequestError,
     ProviderRequestMetadata,
     get_provider_request_metadata,
     run_provider,
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 _GITLAB_SEARCH_URL = "https://gitlab.com/api/v4/search"
 
 
-class GitLabError(RuntimeError):
+class GitLabError(ProviderRequestError):
     """Raised when GitLab returns an unusable search response."""
 
 

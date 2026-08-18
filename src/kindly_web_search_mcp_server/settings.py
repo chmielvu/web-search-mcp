@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+os.environ.setdefault("TQDM_DISABLE", "1")
+
+import os
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -188,15 +191,9 @@ class Settings:
     rerank_bi_encoder_max_concurrent_batches: int = int(
         os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
     )
-
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
-    jina_rerank_model: str = os.environ.get("JINA_RERANK_MODEL", "jina-reranker-v3")
     cohere_api_key: str = os.environ.get("COHERE_API_KEY", "")
-    cohere_rerank_model: str = os.environ.get("COHERE_RERANK_MODEL", "rerank-v4.0-fast")
-    cohere_rerank_base_url: str = os.environ.get(
-        "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
-    )
     cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "5.0"))
     openrouter_rerank_model: str = os.environ.get("OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast")
     openrouter_rerank_base_url: str = os.environ.get(
@@ -380,7 +377,6 @@ class Settings:
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
     brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
     brave_suggest_api_key: str = os.environ.get("BRAVE_SUGGEST_API_KEY", "")
-    brave_spellcheck_api_key: str = os.environ.get("BRAVE_SPELLCHECK_API_KEY", "")
     brave_goggles_by_intent: dict[str, list[str]] = field(
         default_factory=lambda: _parse_json_dict_env(
             os.environ.get("BRAVE_GOGGLES_BY_INTENT", "{}"), {}

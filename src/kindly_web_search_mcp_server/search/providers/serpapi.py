@@ -21,10 +21,10 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
-from .base import _attach_provider_name
+from .base import ProviderRequestError, _attach_provider_name
 
 
-class SerpApiError(RuntimeError):
+class SerpApiError(ProviderRequestError):
     pass
 
 
@@ -120,7 +120,7 @@ async def _search_one_engine(
         return _parse_organic(data, engine)
 
     # Import here to avoid circular dependency at module level
-    from .base import run_provider
+    from .base import provider_retry_max_retries, run_provider
 
     return await run_provider(
         f"serpapi_{engine}",
@@ -129,6 +129,9 @@ async def _search_one_engine(
         request=_do_request,
         parse_response=_parse_response,
         http_client=http_client,
+        # Engine-suffixed provider names (``serpapi_{engine}``) are not in the
+        # catalog, so resolve the retry budget from the base ``serpapi`` entry.
+        max_retries=provider_retry_max_retries("serpapi"),
     )
 
 
@@ -161,11 +164,20 @@ async def search_serpapi(
             raise raw
 
     all_results: list[WebSearchResult] = []
+    first_error: BaseException | None = None
     for raw in engine_results_raw:
         if isinstance(raw, BaseException):
+            # Keep the first structured failure so an all-engine rate limit
+            # or outage surfaces as a warning instead of a silent empty
+            # success. ProviderRequestError retains the metadata contract.
+            if first_error is None:
+                first_error = raw
             continue
         if raw:
             all_results.extend(raw)
+
+    if not all_results and first_error is not None:
+        raise first_error
 
     results = all_results[:num_results]
     return _attach_provider_name(results, "serpapi")[:num_results]

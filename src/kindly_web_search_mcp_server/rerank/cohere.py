@@ -102,7 +102,7 @@ async def cohere_rerank(
         raise ValueError("COHERE_API_KEY is required for Cohere reranking")
 
     payload = {
-        "model": model or settings.cohere_rerank_model,
+        "model": model or os.environ.get("COHERE_RERANK_MODEL", "rerank-v4.0-fast"),
         "query": query,
         "documents": documents,
         "top_n": top_n or len(documents),

@@ -44,7 +44,7 @@ def _build_pubmed_query(query: str, year_from: int | None, year_to: int | None) 
 def _extract_abstract(article: ET.Element) -> str | None:
     """Extract abstract from PubMed article XML."""
     abstract_elem = article.find(".//Abstract")
-    if not abstract_elem:
+    if abstract_elem is None:
         return None
 
     abstract_texts = []
@@ -63,12 +63,12 @@ def _extract_abstract(article: ET.Element) -> str | None:
 def _parse_pubmed_article(article: ET.Element) -> AcademicPaper | None:
     """Parse PubMed XML article to AcademicPaper."""
     pmid_elem = article.find(".//PMID")
-    if not pmid_elem or not pmid_elem.text:
+    if pmid_elem is None or not pmid_elem.text:
         return None
     pmid = pmid_elem.text
 
     title_elem = article.find(".//ArticleTitle")
-    title = "".join(title_elem.itertext()).strip() if title_elem else ""
+    title = "".join(title_elem.itertext()).strip() if title_elem is not None else ""
     if not title:
         return None
 
@@ -76,19 +76,24 @@ def _parse_pubmed_article(article: ET.Element) -> AcademicPaper | None:
     for author in article.findall(".//Author"):
         fore_name = author.find("ForeName")
         last_name = author.find("LastName")
-        if fore_name and fore_name.text and last_name and last_name.text:
+        if (
+            fore_name is not None
+            and fore_name.text
+            and last_name is not None
+            and last_name.text
+        ):
             authors.append(f"{fore_name.text} {last_name.text}")
-        elif last_name and last_name.text:
+        elif last_name is not None and last_name.text:
             authors.append(last_name.text)
 
     year_elem = article.find(".//PubDate/Year")
-    year = int(year_elem.text) if year_elem and year_elem.text else None
+    year = int(year_elem.text) if year_elem is not None and year_elem.text else None
 
     venue_elem = article.find(".//Journal/Title")
-    venue = "".join(venue_elem.itertext()).strip() if venue_elem else None
+    venue = "".join(venue_elem.itertext()).strip() if venue_elem is not None else None
 
     doi_elem = article.find(".//ArticleId[@IdType='doi']")
-    doi = doi_elem.text if doi_elem else None
+    doi = doi_elem.text if doi_elem is not None else None
 
     abstract = _extract_abstract(article)
 

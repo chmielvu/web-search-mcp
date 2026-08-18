@@ -69,14 +69,18 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "general": IntentSearchPolicy(
         intent="general",
         search_options_overrides={"searxng_categories": ("general", "it")},
-        provider_arguments={"brightdata": {"country": "us", "language": "en", "exact_match": True}},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": True},
+            "tavily": {"topic": "general"},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "ai_coding_and_infrastructure": IntentSearchPolicy(
         intent="ai_coding_and_infrastructure",
         search_options_overrides={"searxng_categories": ("it",)},
         provider_arguments={
-            "brightdata": {"country": "us", "language": "en", "exact_match": False}
+            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+            "tavily": {"search_depth": "advanced"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -84,14 +88,18 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         intent="digital_humanities",
         search_options_overrides={"searxng_categories": ("it", "science")},
         provider_arguments={
-            "brightdata": {"country": "us", "language": "en", "exact_match": False}
+            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+            "tavily": {"search_depth": "advanced"},
         },
         **_BASE_POLICY_KWARGS,
     ),
     "comparison": IntentSearchPolicy(
         intent="comparison",
         search_options_overrides={"searxng_categories": ("general", "it")},
-        provider_arguments={"brightdata": {"country": "us", "language": "en", "exact_match": True}},
+        provider_arguments={
+            "brightdata": {"country": "us", "language": "en", "exact_match": True},
+            "tavily": {"search_depth": "advanced"},
+        },
         **_BASE_POLICY_KWARGS,
     ),
     "social_media": IntentSearchPolicy(
@@ -110,6 +118,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"search_type": "news", "language": "en"},
             "brave_news": {"freshness": "week"},
+            "tavily": {"topic": "news", "time_range": "week", "search_depth": "advanced"},
         },
         **_BASE_POLICY_KWARGS,
     ),

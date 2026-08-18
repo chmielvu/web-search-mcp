@@ -241,7 +241,6 @@ class TestSearxngParsing(unittest.TestCase):
                         await search_searxng("q", num_results=1, http_client=client)
 
         anyio.run(run)
-
     def test_search_searxng_rejects_invalid_base_url(self) -> None:
         async def run() -> None:
             from kindly_web_search_mcp_server.search.providers.searxng import (

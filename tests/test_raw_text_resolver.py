@@ -91,55 +91,9 @@ class TestRawTextResolver(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(artifact.source_type, "text_file")
         self.assertEqual(artifact.markdown, "Simple text file content.")
 
-    async def test_batch_fetch_uses_raw_text_resolver(self) -> None:
-        from kindly_web_search_mcp_server.content.batch_orchestrator import (
-            BatchParams,
-            run_batch_fetch,
-        )
-
-        body_md = b"# Guide\n\nContent for guide."
-        fake_result_md = SafeFetchResult(
-            input_url="https://example.com/guide.md",
-            fetched_url="https://example.com/guide.md",
-            content_type="text/markdown",
-            body=body_md,
-            text=body_md.decode("utf-8"),
-            is_pdf=False,
-        )
-
-        body_txt = b"Log line 1\nLog line 2"
-        fake_result_txt = SafeFetchResult(
-            input_url="https://example.com/log.txt",
-            fetched_url="https://example.com/log.txt",
-            content_type="text/plain",
-            body=body_txt,
-            text=body_txt.decode("utf-8"),
-            is_pdf=False,
-        )
-
-        async def _mock_safe_fetch(url, **kwargs):
-            if "guide.md" in url:
-                return fake_result_md
-            return fake_result_txt
-
-        with patch(
-            "kindly_web_search_mcp_server.content.resolvers.raw_text.safe_fetch_url",
-            side_effect=_mock_safe_fetch,
-        ):
-            out = await run_batch_fetch(
-                urls=["https://example.com/guide.md", "https://example.com/log.txt"],
-                params=BatchParams(
-                    max_concurrency=2, per_item_char_length=1000, total_char_budget=5000
-                ),
-                cursor=None,
-            )
-
-        self.assertEqual(out["total_requested"], 2)
-        self.assertEqual(out["total_returned"], 2)
-        self.assertEqual(out["results"][0]["fetch_backend"], "raw_text_fetch")
-        self.assertEqual(out["results"][1]["fetch_backend"], "raw_text_fetch")
-        self.assertIn("# Guide", out["results"][0]["page_content"])
-        self.assertIn("Log line 1", out["results"][1]["page_content"])
+    # NOTE: test_batch_fetch_uses_raw_text_resolver was removed — it tested
+    # batch_orchestrator internals which no longer exist. Raw text resolver
+    # routing is covered by test_fetch_content_artifact_tier1_routes_raw_text above.
 
 
 if __name__ == "__main__":

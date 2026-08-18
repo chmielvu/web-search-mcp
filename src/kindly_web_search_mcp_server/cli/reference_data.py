@@ -38,15 +38,15 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "required": ["query", "research_goal"],
     },
     {
-        "tool": "grok_search",
-        "command": "ai grok",
-        "profiles": ["research", "experimental", "full"],
-        "required": ["query", "research_goal"],
-    },
-    {
         "tool": "academic_search",
         "command": "search academic",
         "profiles": ["research", "experimental", "full"],
+        "required": ["query"],
+    },
+    {
+        "tool": "code_search",
+        "command": "search code",
+        "profiles": ["default", "research", "experimental", "full"],
         "required": ["query"],
     },
     {
@@ -59,6 +59,12 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "tool": "composio_similarlinks",
         "command": "links similar",
         "profiles": ["research", "experimental", "full"],
+        "required": ["url"],
+    },
+    {
+        "tool": "generate_sitemap",
+        "command": "sitemap generate",
+        "profiles": ["default", "research", "experimental", "full"],
         "required": ["url"],
     },
     {
@@ -100,6 +106,7 @@ COMMANDS: tuple[str, ...] = (
     "search web",
     "search quick",
     "search academic",
+    "search code",
     "content get",
     "content batch",
     "links discover",
@@ -110,6 +117,7 @@ COMMANDS: tuple[str, ...] = (
     "youtube transcript",
     "analytics query",
     "analytics report",
+    "sitemap generate",
     "reference tools",
     "reference external-tools",
     "server start",

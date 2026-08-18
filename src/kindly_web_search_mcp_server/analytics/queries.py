@@ -121,6 +121,44 @@ def _is_run_quality_question(question: str) -> bool:
     )
 
 
+def _is_quick_search_question(question: str) -> bool:
+    return "quick" in question or "parallel" in question or "citation" in question
+
+
+def _is_gemini_search_question(question: str) -> bool:
+    return "gemini" in question or "grounding" in question
+
+
+def _is_code_search_question(question: str) -> bool:
+    return (
+        "code search" in question
+        or "code_search" in question
+        or "grepapp" in question
+        or "sourcegraph" in question
+        or "github code" in question
+        or "diagnostic" in question
+        or "repository discovery" in question
+    )
+
+
+def _is_content_question(question: str) -> bool:
+    return (
+        "summary" in question
+        or "summaries" in question
+        or "content summary" in question
+        or "content operation" in question
+    )
+
+
+def _is_coverage_question(question: str) -> bool:
+    return (
+        "coverage" in question
+        or "tool call" in question
+        or "linkage" in question
+        or "cross tool" in question
+    )
+
+
 # ---------------------------------------------------------------------------
 # Query plan builder
 # ---------------------------------------------------------------------------
@@ -135,6 +173,100 @@ def build_analytics_query_plan(
     limit = max(1, min(int(max_rows), 500))
     prefix = _normalize_view_prefix(view_prefix)
     q = question.lower().strip()
+
+    if _is_code_search_question(q):
+        sql = f"""
+            SELECT
+                provider,
+                outcome,
+                COUNT(*) AS total_responses,
+                SUM(hit_count) AS total_hits_returned,
+                ROUND(AVG(hit_count), 2) AS avg_hits_per_response,
+                SUM(request_count) AS total_requests,
+                ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms,
+                COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count
+            FROM {prefix}code_search_providers
+            GROUP BY provider, outcome
+            ORDER BY total_responses DESC, provider
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="code_search")
+
+    if _is_quick_search_question(q):
+        sql = f"""
+            SELECT
+                COALESCE(client_model, 'unspecified') AS client_model,
+                status,
+                COUNT(*) AS total_runs,
+                ROUND(AVG(total_citations), 2) AS avg_citations,
+                SUM(total_citations) AS total_citations,
+                ROUND(AVG(duration_ms), 2) AS avg_duration_ms,
+                COUNT(*) FILTER (WHERE status = 'success') AS success_count,
+                COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count
+            FROM {prefix}quick_web_search_runs
+            GROUP BY client_model, status
+            ORDER BY total_runs DESC
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="quick_search")
+
+    if _is_gemini_search_question(q):
+        sql = f"""
+            SELECT
+                COALESCE(model_used, 'unknown') AS model_used,
+                COALESCE(mode, 'standard') AS mode,
+                status,
+                COUNT(*) AS total_runs,
+                ROUND(AVG(grounding_chunks_count), 2) AS avg_grounding_chunks,
+                ROUND(AVG(web_search_queries_count), 2) AS avg_web_search_queries,
+                ROUND(AVG(prompt_tokens), 1) AS avg_prompt_tokens,
+                ROUND(AVG(completion_tokens), 1) AS avg_completion_tokens,
+                ROUND(AVG(duration_ms), 2) AS avg_duration_ms
+            FROM {prefix}gemini_search_runs
+            GROUP BY model_used, mode, status
+            ORDER BY total_runs DESC
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="gemini_search")
+
+    if _is_content_question(q):
+        sql = f"""
+            SELECT
+                COALESCE(backend, 'unspecified') AS backend,
+                COALESCE(model_used, 'unspecified') AS model_used,
+                is_batch,
+                is_stub,
+                status,
+                COUNT(*) AS total_summaries,
+                ROUND(AVG(summary_length_chars), 0) AS avg_summary_chars,
+                ROUND(AVG(key_points_count), 2) AS avg_key_points,
+                ROUND(AVG(important_entities_count), 2) AS avg_entities,
+                ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms
+            FROM {prefix}content_summaries
+            GROUP BY backend, model_used, is_batch, is_stub, status
+            ORDER BY total_summaries DESC
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="content_summaries")
+
+    if _is_coverage_question(q):
+        sql = f"""
+            SELECT
+                tool_name,
+                COUNT(*) AS total_events,
+                COUNT(*) FILTER (WHERE phase = 'request') AS request_events,
+                COUNT(*) FILTER (WHERE phase = 'response') AS response_events,
+                COUNT(*) FILTER (WHERE phase = 'error') AS error_events,
+                COUNT(DISTINCT tool_call_id) AS distinct_tool_calls,
+                ROUND(100.0 * COUNT(*) FILTER (WHERE phase IN ('response', 'error'))
+                    / NULLIF(COUNT(*) FILTER (WHERE phase = 'request'), 0), 2) AS terminal_event_rate_pct,
+                ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms
+            FROM {prefix}tool_calls
+            GROUP BY tool_name
+            ORDER BY total_events DESC
+            LIMIT {limit}
+        """
+        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="tool_call_coverage")
 
     if _is_rerank_question(q):
         sql = f"""

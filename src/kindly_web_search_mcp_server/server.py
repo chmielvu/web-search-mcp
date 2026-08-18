@@ -33,6 +33,7 @@ from .tools._helpers import (
     _resolve_web_search_max_concurrency,  # noqa: F401  re-exported for tests
 )
 from .tools.academic import academic_search
+from .tools.code_search import code_search
 from .tools.ai_search import gemini_search, grok_search
 from .tools.content import batch_get_content, discover_links, get_content
 from .tools.profiles import apply_tool_profile
@@ -49,6 +50,7 @@ from .tools.resources import (
     get_features_status_resource,
     get_providers_status_resource,
     get_public_settings_resource,
+    get_search_history_resource,
     get_workflow_doc_resource,
 )
 from .tools.search import web_search
@@ -107,7 +109,7 @@ def _ensure_telemetry() -> None:
 
 import argparse
 import sys
-from typing import Literal
+from typing import Any, Literal
 
 from fastmcp import FastMCP
 
@@ -217,6 +219,7 @@ mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
 mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
+mcp.tool(**tool_kwargs("code_search"))(code_search)
 
 
 # Register resources
@@ -245,6 +248,11 @@ mcp.resource(
     tags={"analytics", "diagnostic"},
     annotations={"readOnlyHint": True},
 )(get_analytics_report_resource)
+mcp.resource(
+    "search://history{?limit}",
+    tags={"search", "diagnostic"},
+    annotations={"readOnlyHint": True},
+)(get_search_history_resource)
 
 
 # Register prompts
@@ -408,13 +416,14 @@ def main(argv: list[str] | None = None) -> None:
     # possible head start before any tool call can arrive.
     _ensure_telemetry()
     _warm_heavy_imports()
+    run_kwargs: dict[str, Any] = {"transport": transport, "show_banner": False}
+    if transport in ("sse", "streamable-http") and args.mount_path is not None:
+        run_kwargs["mount_path"] = args.mount_path
     try:
-        mcp.run(transport=transport, mount_path=args.mount_path, show_banner=False)
+        mcp.run(**run_kwargs)
     except TypeError:
-        try:
-            mcp.run(transport=transport, show_banner=False)
-        except TypeError:
-            mcp.run(transport=transport)
+        run_kwargs.pop("show_banner", None)
+        mcp.run(**run_kwargs)
 
 
 apply_tool_profile(mcp, settings.tool_profile)

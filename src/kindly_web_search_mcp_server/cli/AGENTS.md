@@ -14,7 +14,7 @@ cli/
 │   ├── skills.py            # skills command (list and view markdown)
 │   ├── feedback.py          # feedback command (file auto-reports in feedback/{id}.json)
 │   ├── reference.py         # reference commands
-│   ├── search.py            # search commands
+│   ├── search.py            # web, quick, academic, and public code search commands
 │   ├── content.py           # content commands
 │   ├── links.py             # link-discovery commands
 │   ├── ai.py                # AI/synthesis commands
@@ -25,6 +25,7 @@ cli/
 │   └── sitemap.py           # sitemap generate
 └── services/                # Shared service adapters
     ├── search_web.py        # Web search
+    ├── search_code.py       # Public code/documentation/repository search
     ├── quick_search.py      # Quick search
     ├── content.py           # Content fetch
     ├── content_batch.py     # Batch content

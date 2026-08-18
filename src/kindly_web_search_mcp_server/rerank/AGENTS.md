@@ -32,13 +32,15 @@ Provider RRF + BM25 → Bi-encoder (if pool > cross-encoder limit) → Cross-enc
 - **Bi-encoder**: Runs only for pools above cross-encoder limit.
 - **Cross-encoder**: Cohere `rerank-v4.0-fast` as primary, timeout 5s, fail-fast
   into next provider (OpenRouter → Voyage).
-- **RankLLM**: Receives only normalized query (not research goal). Gemini 3.5
-  first, Gemini 3.1 fallback, then OpenRouter. Strict complete-permutation validation.
-  The complete fallback chain has a total timeout budget and canceled provider
-  tasks are drained so a slow/failed model cannot outlive the MCP tool call.
+- **RankLLM**: Receives the full labeled query, research goal, intent, caller
+  preference, shared ranking hierarchy, and intent policy. It preserves the
+  Gemini → Gemini → OpenRouter fallback chain, shuffles candidate order before
+  each bounded listwise call to reduce positional bias, validates complete
+  permutations, enforces the total timeout budget, and drains canceled tasks.
 - **Diversity**: Conditional MMR triggered by similarity or host-overflow.
   Reconstructs the untouched tail — candidate identities never silently dropped.
-- **Research goal**: Passed separately to cross-encoder only (not RankLLM).
+- **Relevance query**: The shared `query + Research goal` text is used by
+  planning, BM25, precomputed embeddings, and conditional bi-encoder scoring.
 
 ## Rules
 

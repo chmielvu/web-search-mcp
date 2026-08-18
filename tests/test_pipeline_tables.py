@@ -101,37 +101,34 @@ class TestProviderCandidatesSchema:
 
             insert_provider_candidates(
                 run_key="run-004",
-                provider="searxng",
-                branch_index=0,
-                rank=1,
-                title="FastMCP",
                 link="https://fastmcp.dev",
+                title="FastMCP",
                 snippet="FastMCP Python SDK",
                 domain="fastmcp.dev",
-                score=0.95,
-                published_date="2025-06-01",
+                rrf_score=0.95,
+                provider_count=1,
+                providers=["searxng"],
+                overlap_flag=False,
                 payload_json=None,
                 db_path=str(db_path),
             )
-
             con = duckdb.connect(str(db_path), read_only=True)
             row = con.execute(
-                "SELECT run_key, provider, rank, title, link, score FROM provider_candidates"
+                "SELECT run_key, link, title, snippet, domain, rrf_score, provider_count FROM search_candidates"
             ).fetchone()
             con.close()
-
             assert row is not None
             assert row[0] == "run-004"
-            assert row[1] == "searxng"
-            assert row[2] == 1
-            assert row[3] == "FastMCP"
-            assert row[4] == "https://fastmcp.dev"
+            assert row[1] == "https://fastmcp.dev"
+            assert row[2] == "FastMCP"
+            assert row[3] == "FastMCP Python SDK"
+            assert row[4] == "fastmcp.dev"
             assert row[5] == 0.95
+            assert row[6] == 1
+
         finally:
             if db_path.exists():
                 db_path.unlink()
-
-
 class TestMergedCandidatesSchema:
     """Test merged_candidates table."""
 
@@ -152,9 +149,8 @@ class TestMergedCandidatesSchema:
 
             insert_merged_candidates(
                 run_key="run-005",
-                rank=1,
-                title="FastMCP",
                 link="https://fastmcp.dev",
+                title="FastMCP",
                 snippet="SDK",
                 domain="fastmcp.dev",
                 rrf_score=32.5,
@@ -164,24 +160,22 @@ class TestMergedCandidatesSchema:
                 payload_json=None,
                 db_path=str(db_path),
             )
-
             con = duckdb.connect(str(db_path), read_only=True)
             row = con.execute(
-                "SELECT run_key, rank, rrf_score, provider_count, overlap_flag FROM merged_candidates"
+                "SELECT run_key, link, title, rrf_score, provider_count, overlap_flag FROM search_candidates"
             ).fetchone()
             con.close()
-
             assert row is not None
             assert row[0] == "run-005"
-            assert row[1] == 1
-            assert row[2] == 32.5
-            assert row[3] == 2
-            assert row[4] is True
+            assert row[1] == "https://fastmcp.dev"
+            assert row[2] == "FastMCP"
+            assert row[3] == 32.5
+            assert row[4] == 2
+            assert row[5] is True
+
         finally:
             if db_path.exists():
                 db_path.unlink()
-
-
 class TestRerankStagesSchema:
     """Test rerank_stages table."""
 

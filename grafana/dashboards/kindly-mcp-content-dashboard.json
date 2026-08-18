@@ -1,22 +1,27 @@
 {
   "title": "Kindly MCP - Content Extraction & Scraping",
-  "uid": "kindly-mcp-content-v1",
+  "uid": "kindly-mcp-content-v2",
   "version": 1,
-  "tags": ["kindly", "mcp", "content", "scrape", "otel"],
+  "tags": ["kindly", "mcp", "content", "scrape", "otel", "extraction"],
   "schemaVersion": 41,
   "refresh": "1m",
   "time": { "from": "now-6h", "to": "now" },
   "templating": {
     "list": [
       {
-        "name": "service",
-        "type": "constant",
-        "query": "web-search-mcp"
-      },
-      {
         "name": "datasource",
         "type": "datasource",
-        "pluginId": "prometheus"
+        "query": "prometheus",
+        "label": "Prometheus"
+      },
+      {
+        "name": "stage",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(content_stage)",
+        "label": "Stage",
+        "includeAll": true,
+        "allValue": ".+"
       }
     ]
   },
@@ -28,38 +33,20 @@
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(content_resolutions_total[5m]))", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "ops" } }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "crawl4ai_remote Usage %",
+      "title": "Crawl4AI Usage %",
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_final_stage=\"crawl4ai_remote\", content_status=\"success\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\", content_status=\"success\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(content_resolutions_total{content_stage=\"crawl4ai\"}[5m])) / sum(rate(content_resolutions_total[5m])) * 100", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.15 },
-              { "color": "red", "value": 0.35 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "percent" } }
     },
     {
       "id": 3,
@@ -68,84 +55,119 @@
       "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_content_fallback_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_content_resolutions_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(content_fallbacks_total[5m])) / sum(rate(content_resolutions_total[5m])) * 100", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.08 },
-              { "color": "red", "value": 0.2 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [ {"color": "green", "value": null}, {"color": "yellow", "value": 10}, {"color": "red", "value": 25} ] } } }
     },
     {
       "id": 4,
-      "type": "timeseries",
-      "title": "Content Resolution by Final Stage",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "type": "stat",
+      "title": "Avg Word Count",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (content_final_stage) (rate(web_search_content_resolutions_total{service_name=\"$service\"}[2m]))",
-          "legendFormat": "{{content_final_stage}}",
-          "refId": "A"
-        }
+        { "expr": "avg(content_word_count)", "refId": "A" }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
+      "fieldConfig": { "defaults": { "unit": "short" } }
     },
     {
       "id": 5,
-      "type": "heatmap",
-      "title": "Extraction Duration by Stage (heatmap)",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "type": "stat",
+      "title": "Avg Size (bytes)",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (le, content_stage) (rate(web_search_content_duration_seconds_bucket{service_name=\"$service\"}[5m]))",
-          "format": "heatmap",
-          "legendFormat": "{{content_stage}}",
-          "refId": "A"
-        }
+        { "expr": "avg(content_size_bytes)", "refId": "A" }
       ],
-      "options": {
-        "calculate": false,
-        "yAxis": { "unit": "s" }
-      }
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
     },
     {
       "id": 6,
-      "type": "table",
-      "title": "Extraction Errors by Stage (last 3h)",
-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "type": "stat",
+      "title": "Success Rate",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "topk(15, sum by (content_stage, error_type) (increase(web_search_content_errors_total{service_name=\"$service\"}[3h])))",
-          "format": "table",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(content_resolutions_total{status=\"success\"}[5m])) / sum(rate(content_resolutions_total[5m])) * 100", "refId": "A" }
       ],
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "content_stage": "Stage",
-              "error_type": "Error Type",
-              "Value": "Count"
-            }
-          }
-        }
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ {"color": "red", "value": null}, {"color": "yellow", "value": 90}, {"color": "green", "value": 99} ] } } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Resolutions by Stage",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(content_resolutions_total{content_stage=~\"$stage\"}[5m])) by (content_stage)", "refId": "A", "legendFormat": "{{content_stage}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Extraction Latency (p95)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(content_extraction_duration_seconds_bucket[5m])) by (le, content_stage))", "refId": "A", "legendFormat": "{{content_stage}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Fallbacks Over Time",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(content_fallbacks_total[5m])) by (content_stage)", "refId": "A", "legendFormat": "{{content_stage}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Word Count Distribution",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(content_word_count_bucket[5m])) by (le))", "refId": "A", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(content_word_count_bucket[5m])) by (le))", "refId": "B", "legendFormat": "p95" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 11,
+      "type": "piechart",
+      "title": "Stage Distribution",
+      "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(content_resolutions_total) by (content_stage)", "refId": "A", "legendFormat": "{{content_stage}}" }
       ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Avg Fallback Count",
+      "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg(content_fallback_count)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1, "min": 0 } }
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Stage Performance",
+      "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (content_stage) (rate(content_resolutions_total[5m]))", "refId": "A", "format": "table", "instant": true }
+      ],
+      "transform": "table"
     }
   ]
 }

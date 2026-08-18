@@ -47,6 +47,7 @@ Query rewrite generates 5 strategic variants: 3 keyword queries, 1 natural-langu
 - The public provider name remains `gemma`, but its backend is Pollinations `POST /v1/chat/completions` with model `gemini-fast` and `POLLINATIONS_API_KEY`.
 - Pollinations `gemini-fast` is backed by Gemini 2.5 Flash-Lite. Pass its documented `{"type": "google_search"}` tool explicitly, keep the system prompt concise and structured with internal query decomposition plus a runtime-date freshness guard, request a strict JSON result object, and record native grounding in diagnostics.
 - The provider receives the request's seed `queries` and `research_goal` through provider arguments; the user prompt labels both values as context/data and explains that `queries` guide complementary decomposition while `research_goal` guides relevance ranking.
+- A successful HTTP response with blank or unparseable assistant content is an invalid provider response, not a successful empty search; preserve the structured `invalid_response` metadata so retrieval analytics distinguish model-contract failures from valid zero-result responses.
 
 
 ## Query Understanding Gateway

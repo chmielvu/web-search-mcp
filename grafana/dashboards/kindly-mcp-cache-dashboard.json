@@ -1,22 +1,27 @@
 {
   "title": "Kindly MCP - Cache Effectiveness",
-  "uid": "kindly-mcp-cache-v1",
+  "uid": "kindly-mcp-cache-v2",
   "version": 1,
-  "tags": ["kindly", "mcp", "cache", "otel"],
+  "tags": ["kindly", "mcp", "cache", "otel", "performance"],
   "schemaVersion": 41,
   "refresh": "1m",
   "time": { "from": "now-12h", "to": "now" },
   "templating": {
     "list": [
       {
-        "name": "service",
-        "type": "constant",
-        "query": "web-search-mcp"
-      },
-      {
         "name": "datasource",
         "type": "datasource",
-        "pluginId": "prometheus"
+        "query": "prometheus",
+        "label": "Prometheus"
+      },
+      {
+        "name": "cache_type",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(cache_type)",
+        "label": "Cache Type",
+        "includeAll": true,
+        "allValue": ".+"
       }
     ]
   },
@@ -24,119 +29,127 @@
     {
       "id": 1,
       "type": "stat",
-      "title": "Overall Cache Hit Rate (5m)",
+      "title": "Overall Hit Rate (5m)",
       "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_hit=\"true\"}[5m])) / sum(rate(web_search_cache_requests_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) * 100", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.65 },
-              { "color": "green", "value": 0.82 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ {"color": "red", "value": null}, {"color": "yellow", "value": 50}, {"color": "green", "value": 80} ] } } }
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Exact Cache Hit Rate",
+      "title": "Exact Match Hit Rate",
       "gridPos": { "x": 6, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"exact\", cache_hit=\"true\"}[5m])) / sum(rate(web_search_cache_requests_total{service_name=\"$service\", cache_type=\"exact\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(cache_hits_total{cache_type=\"exact\"}[5m])) / (sum(rate(cache_hits_total{cache_type=\"exact\"}[5m])) + sum(rate(cache_misses_total{cache_type=\"exact\"}[5m]))) * 100", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0.5,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.55 },
-              { "color": "green", "value": 0.75 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ {"color": "red", "value": null}, {"color": "yellow", "value": 50}, {"color": "green", "value": 80} ] } } }
     },
     {
       "id": 3,
-      "type": "timeseries",
-      "title": "Cache Hit Rate by Type",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 5 },
+      "type": "stat",
+      "title": "Avg Lookup Latency",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (cache_type) (rate(web_search_cache_requests_total{service_name=\"$service\", cache_hit=\"true\"}[2m])) / sum by (cache_type) (rate(web_search_cache_requests_total{service_name=\"$service\"}[2m]))",
-          "legendFormat": "{{cache_type}} hit rate",
-          "refId": "A"
-        }
+        { "expr": "histogram_quantile(0.50, sum(rate(cache_lookup_duration_seconds_bucket[5m])) by (le))", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [ {"color": "green", "value": null}, {"color": "yellow", "value": 0.01}, {"color": "red", "value": 0.1} ] } } }
     },
     {
       "id": 4,
-      "type": "timeseries",
-      "title": "Cache Request Rate by Type",
-      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "type": "stat",
+      "title": "Cache Size",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 5 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum by (cache_type) (rate(web_search_cache_requests_total{service_name=\"$service\"}[2m]))",
-          "legendFormat": "{{cache_type}} requests",
-          "refId": "A"
-        }
+        { "expr": "sum(cache_entries_total)", "refId": "A" }
       ],
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom"
-        }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "short" } }
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Cache Lookup Duration (p95 by type)",
+      "title": "Hit Rate by Cache Type",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(cache_hits_total{cache_type=~\"$cache_type\"}[5m])) by (cache_type) / (sum(rate(cache_hits_total{cache_type=~\"$cache_type\"}[5m])) by (cache_type) + sum(rate(cache_misses_total{cache_type=~\"$cache_type\"}[5m])) by (cache_type)) * 100", "refId": "A", "legendFormat": "{{cache_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Lookup Latency (p50/p95)",
       "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, cache_type) (rate(web_search_cache_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
-          "legendFormat": "p95 {{cache_type}}",
-          "refId": "A"
-        }
+        { "expr": "histogram_quantile(0.50, sum(rate(cache_lookup_duration_seconds_bucket[5m])) by (le))", "refId": "A", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(cache_lookup_duration_seconds_bucket[5m])) by (le))", "refId": "B", "legendFormat": "p95" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Hits vs Misses",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(cache_hits_total[5m]))", "refId": "A", "legendFormat": "Hits" },
+        { "expr": "sum(rate(cache_misses_total[5m]))", "refId": "B", "legendFormat": "Misses" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Cache Evictions",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(cache_evictions_total[5m])) by (cache_type)", "refId": "A", "legendFormat": "{{cache_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "id": 9,
+      "type": "bargauge",
+      "title": "Hit Rate by Type",
+      "gridPos": { "x": 0, "y": 21, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(cache_hits_total{cache_type=\"exact\"}[5m])) / (sum(rate(cache_hits_total{cache_type=\"exact\"}[5m])) + sum(rate(cache_misses_total{cache_type=\"exact\"}[5m]))) * 100", "refId": "A", "legendFormat": "Exact" },
+        { "expr": "sum(rate(cache_hits_total{cache_type=\"semantic\"}[5m])) / (sum(rate(cache_hits_total{cache_type=\"semantic\"}[5m])) + sum(rate(cache_misses_total{cache_type=\"semantic\"}[5m]))) * 100", "refId": "B", "legendFormat": "Semantic" },
+        { "expr": "sum(rate(cache_hits_total{cache_type=\"page\"}[5m])) / (sum(rate(cache_hits_total{cache_type=\"page\"}[5m])) + sum(rate(cache_misses_total{cache_type=\"page\"}[5m]))) * 100", "refId": "C", "legendFormat": "Page" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Bytes Cached",
+      "gridPos": { "x": 8, "y": 21, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(cache_bytes_total)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Hit Rate Savings",
+      "gridPos": { "x": 16, "y": 21, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(cache_hits_total[1h])) * avg(provider_latency_seconds) * 1000", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 } }
     }
   ]
 }

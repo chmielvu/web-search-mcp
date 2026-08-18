@@ -7,12 +7,33 @@ from .table_names import (
     _ABE_TABLE_NAME,
     _ABS_TABLE_NAME,
     _CE_TABLE_NAME,
+    _CF_TABLE_NAME,
+    _CO_TABLE_NAME,
+    _CSD_TABLE_NAME,
+    _CSE_TABLE_NAME,
+    _CSH_TABLE_NAME,
+    _CSHV_TABLE_NAME,
+    _CSP_TABLE_NAME,
+    _CSQV_TABLE_NAME,
+    _CSREPO_TABLE_NAME,
+    _CSRERANK_TABLE_NAME,
+    _CSR_TABLE_NAME,
+    _CSUMA_TABLE_NAME,
+    _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
+    _GSA_TABLE_NAME,
+    _GSR_TABLE_NAME,
+    _GSS_TABLE_NAME,
     _JE_TABLE_NAME,
     _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
+    _PR_TABLE_NAME,
     _QE_TABLE_NAME,
     _QUE_TABLE_NAME,
+    _QV_TABLE_NAME,
+    _QWSC_TABLE_NAME,
+    _QWSR_TABLE_NAME,
+    _RC_CAT_TABLE_NAME,
     _RC_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
@@ -20,6 +41,7 @@ from .table_names import (
     _SC_TABLE_NAME,
     _SQS_TABLE_NAME,
     _TC_TABLE_NAME,
+    _TOI_TABLE_NAME,
 )
 
 # ---------------------------------------------------------------------------
@@ -51,7 +73,6 @@ _SEARCH_RUN_COLUMNS = [
     "reranker_model",
     "rake_terms",
     "brave_autosuggest",
-    "brave_spellcheck",
     "rewrite_prompt",
     "rewrite_model",
     "rewrite_input_tokens",
@@ -65,6 +86,7 @@ _SEARCH_RUN_COLUMNS = [
 _SEARCH_BRANCH_COLUMNS = [
     "run_key",
     "branch_index",
+    "branch_id",
     "branch_role",
     "branch_query",
     "branch_why",
@@ -96,12 +118,16 @@ _PROVIDER_CALL_COLUMNS = [
     "http_status",
     "result_class",
     "response_meta_json",
+    "retry_after_seconds",
+    "retryable",
+    "provider_call_id",
     "payload_json",
 ]
 
 _TOOL_CALL_COLUMNS = [
     "event_id",
     "tool_call_id",
+    "run_key",
     "session_id",
     "trace_id",
     "span_id",
@@ -157,6 +183,7 @@ _QUERY_UNDERSTANDING_COLUMNS = [
 _SEARCH_CANDIDATE_COLUMNS = [
     "run_key",
     "link",
+    "canonical_result_id",
     "title",
     "snippet",
     "domain",
@@ -336,6 +363,378 @@ _LLM_CALL_LOG_COLUMNS = [
     "payload_json",
 ]
 
+# ---------------------------------------------------------------------------
+# Quick Web Search column lists
+# ---------------------------------------------------------------------------
+_QUICK_WEB_SEARCH_RUN_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "trace_id",
+    "session_id",
+    "search_id",
+    "provider_session_id",
+    "search_queries",
+    "objective",
+    "max_results",
+    "max_chars_total",
+    "max_chars_per_result",
+    "client_model",
+    "include_domains",
+    "exclude_domains",
+    "after_date",
+    "location",
+    "max_age_seconds",
+    "timeout_seconds",
+    "disable_cache_fallback",
+    "status",
+    "duration_ms",
+    "total_citations",
+    "warnings",
+    "usage",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+_QUICK_WEB_SEARCH_CITATION_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "citation_index",
+    "title",
+    "url",
+    "snippet",
+    "publish_date",
+    "excerpts",
+    "payload_json",
+]
+
+# ---------------------------------------------------------------------------
+# Gemini Search column lists
+# ---------------------------------------------------------------------------
+_GEMINI_SEARCH_RUN_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "trace_id",
+    "session_id",
+    "query",
+    "research_goal",
+    "structured_output_requested",
+    "mode",
+    "answer",
+    "structured_data",
+    "search_queries",
+    "model_used",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "grounding_chunks_count",
+    "web_search_queries_count",
+    "fallback_chain",
+    "fallback_reason",
+    "status",
+    "duration_ms",
+    "error_message",
+    "payload_json",
+]
+
+_GEMINI_SEARCH_SOURCE_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "source_kind",
+    "source_index",
+    "url",
+    "title",
+    "source_json",
+]
+
+_GEMINI_SEARCH_ATTEMPT_COLUMNS = [
+    "tool_call_id",
+    "attempt_index",
+    "branch_name",
+    "model_requested",
+    "model_used",
+    "fallback_tier",
+    "fallback_reason",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "grounding_chunk_count",
+    "web_search_query_count",
+    "status",
+    "duration_ms",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+# ---------------------------------------------------------------------------
+# Code Search column lists
+# ---------------------------------------------------------------------------
+_CODE_SEARCH_RUN_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "trace_id",
+    "session_id",
+    "query",
+    "research_goal",
+    "language",
+    "path",
+    "filename",
+    "extension",
+    "regexp_requested",
+    "deep_requested",
+    "max_results_requested",
+    "repo_name",
+    "library_name",
+    "topic",
+    "repository_filters",
+    "planner_original_query",
+    "planner_search_text",
+    "planner_api_query",
+    "planner_mode",
+    "planner_structural_kind",
+    "planner_exa_semantic_query",
+    "planner_regex_source",
+    "planner_anchor_terms",
+    "planner_concept_terms",
+    "planner_source_tokens",
+    "planner_qualifiers",
+    "planner_warnings",
+    "planner_backend_channels",
+    "planner_variants",
+    "planner_variant_kinds",
+    "provider_response_count",
+    "provider_hit_counts",
+    "request_count",
+    "hydration_count",
+    "rerank_count",
+    "returned_count",
+    "repository_count",
+    "diagnostic_count",
+    "truncated",
+    "dropped_count",
+    "estimated_output_tokens",
+    "duration_ms",
+    "outcome",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+_CODE_SEARCH_PROVIDER_COLUMNS = [
+    "terminal_event_id",
+    "response_index",
+    "provider",
+    "hit_count",
+    "request_count",
+    "outcome",
+    "compiled_queries",
+    "duration_ms",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+_CODE_SEARCH_DIAGNOSTIC_COLUMNS = [
+    "terminal_event_id",
+    "diagnostic_index",
+    "provider",
+    "outcome",
+    "failure_kind",
+    "message",
+    "status_code",
+    "retry_after_seconds",
+    "query",
+    "details",
+]
+
+_CODE_SEARCH_HIT_COLUMNS = [
+    "terminal_event_id",
+    "hit_rank",
+    "url",
+    "repository",
+    "path",
+    "sha",
+    "provider",
+    "query_variant",
+    "search_rank",
+    "result_kind",
+    "evidence_role",
+    "title",
+    "snippet",
+    "published_date",
+    "final_score",
+    "score_components",
+    "reasons",
+    "hydrated",
+    "hydrated_source_truncated",
+    "line_start",
+    "line_end",
+    "commit_oid",
+    "fragment_count",
+    "symbol_count",
+    "match_span_count",
+    "location_precision",
+    "lines_available",
+    "revision_available",
+    "match_data_available",
+    "source_metadata",
+    "payload_json",
+]
+
+_CODE_SEARCH_HIT_VARIANT_COLUMNS = [
+    "terminal_event_id",
+    "hit_rank",
+    "association_index",
+    "variant_index",
+    "provider",
+    "query_variant",
+    "search_rank",
+]
+
+_CODE_SEARCH_QUERY_VARIANT_COLUMNS = [
+    "terminal_event_id",
+    "variant_index",
+    "query_text",
+    "variant_kind",
+]
+
+_CODE_SEARCH_REPOSITORY_COLUMNS = [
+    "terminal_event_id",
+    "repository_index",
+    "name_with_owner",
+    "url",
+    "description",
+    "stars",
+    "forks",
+    "pushed_at",
+    "language",
+    "topics",
+    "license_spdx_id",
+    "homepage_url",
+    "default_branch",
+    "head_oid",
+    "archived",
+    "fork",
+    "discovery_rank",
+    "discovery_score",
+    "discovery_queries",
+    "proof_hits",
+    "proof_paths",
+    "proof_providers",
+    "verified",
+    "payload_json",
+]
+
+_CODE_SEARCH_RERANK_COLUMNS = [
+    "terminal_event_id",
+    "provider",
+    "model",
+    "input_count",
+    "output_count",
+    "reranked_count",
+    "status",
+    "diagnostic_outcome",
+    "diagnostic_message",
+    "duration_ms",
+    "payload_json",
+]
+
+# ---------------------------------------------------------------------------
+# Content Operations and Summary column lists
+# ---------------------------------------------------------------------------
+_CONTENT_OPERATION_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "trace_id",
+    "session_id",
+    "tool_name",
+    "input_count",
+    "output_count",
+    "duration_ms",
+    "status",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
+_CONTENT_FETCH_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "item_index",
+    "input_url",
+    "normalized_url",
+    "fetched_url",
+    "source_type",
+    "fetch_backend",
+    "status",
+    "content_length",
+    "page_char_count",
+    "word_count",
+    "window_offset",
+    "window_length",
+    "window_returned_chars",
+    "window_total_chars",
+    "window_has_more",
+    "window_next_offset",
+    "item_duration_ms",
+    "payload_json",
+]
+
+_CONTENT_SUMMARY_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "item_index",
+    "normalized_url",
+    "focus_query",
+    "input_chars",
+    "source_url_count",
+    "is_batch",
+    "batch_size",
+    "is_stub",
+    "backend",
+    "model_requested",
+    "model_used",
+    "fallback_attempted",
+    "fallback_tier",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "summary_length_chars",
+    "key_points_count",
+    "important_entities_count",
+    "verbatim_terms_count",
+    "limitations_count",
+    "source_date",
+    "status",
+    "error_type",
+    "error_message",
+    "duration_ms",
+    "payload_json",
+]
+
+_CONTENT_SUMMARY_ATTEMPT_COLUMNS = [
+    "tool_call_id",
+    "item_index",
+    "attempt_index",
+    "is_batch",
+    "batch_size",
+    "backend",
+    "model_requested",
+    "model_used",
+    "fallback_tier",
+    "source_url_count",
+    "input_chars",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "duration_ms",
+    "status",
+    "error_type",
+    "error_message",
+    "payload_json",
+]
+
 
 # ---------------------------------------------------------------------------
 # TableWriter instances
@@ -440,4 +839,240 @@ _LLM_CALL_LOG_WRITER = TableWriter(
     ensure_name="_ensure_llm_call_log",
     columns=_LLM_CALL_LOG_COLUMNS,
     task_name="analytics.llm_call_log",
+)
+
+# ---------------------------------------------------------------------------
+# New fact TableWriter instances
+# ---------------------------------------------------------------------------
+_QUICK_WEB_SEARCH_RUNS_WRITER = TableWriter(
+    table_name=_QWSR_TABLE_NAME,
+    ensure_name="_ensure_quick_web_search_runs",
+    columns=_QUICK_WEB_SEARCH_RUN_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.quick_web_search_runs",
+)
+_QUICK_WEB_SEARCH_CITATIONS_WRITER = TableWriter(
+    table_name=_QWSC_TABLE_NAME,
+    ensure_name="_ensure_quick_web_search_citations",
+    columns=_QUICK_WEB_SEARCH_CITATION_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.quick_web_search_citations",
+)
+_GEMINI_SEARCH_RUNS_WRITER = TableWriter(
+    table_name=_GSR_TABLE_NAME,
+    ensure_name="_ensure_gemini_search_runs",
+    columns=_GEMINI_SEARCH_RUN_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.gemini_search_runs",
+)
+_GEMINI_SEARCH_SOURCES_WRITER = TableWriter(
+    table_name=_GSS_TABLE_NAME,
+    ensure_name="_ensure_gemini_search_sources",
+    columns=_GEMINI_SEARCH_SOURCE_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.gemini_search_sources",
+)
+_GEMINI_SEARCH_ATTEMPTS_WRITER = TableWriter(
+    table_name=_GSA_TABLE_NAME,
+    ensure_name="_ensure_gemini_search_attempts",
+    columns=_GEMINI_SEARCH_ATTEMPT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.gemini_search_attempts",
+)
+_CODE_SEARCH_RUNS_WRITER = TableWriter(
+    table_name=_CSR_TABLE_NAME,
+    ensure_name="_ensure_code_search_runs",
+    columns=_CODE_SEARCH_RUN_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_runs",
+)
+_CODE_SEARCH_PROVIDERS_WRITER = TableWriter(
+    table_name=_CSP_TABLE_NAME,
+    ensure_name="_ensure_code_search_providers",
+    columns=_CODE_SEARCH_PROVIDER_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_providers",
+)
+_CODE_SEARCH_DIAGNOSTICS_WRITER = TableWriter(
+    table_name=_CSD_TABLE_NAME,
+    ensure_name="_ensure_code_search_diagnostics",
+    columns=_CODE_SEARCH_DIAGNOSTIC_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_diagnostics",
+)
+_CODE_SEARCH_HITS_WRITER = TableWriter(
+    table_name=_CSH_TABLE_NAME,
+    ensure_name="_ensure_code_search_hits",
+    columns=_CODE_SEARCH_HIT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_hits",
+)
+_CODE_SEARCH_HIT_VARIANTS_WRITER = TableWriter(
+    table_name=_CSHV_TABLE_NAME,
+    ensure_name="_ensure_code_search_hit_variants",
+    columns=_CODE_SEARCH_HIT_VARIANT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_hit_variants",
+)
+_CODE_SEARCH_QUERY_VARIANTS_WRITER = TableWriter(
+    table_name=_CSQV_TABLE_NAME,
+    ensure_name="_ensure_code_search_query_variants",
+    columns=_CODE_SEARCH_QUERY_VARIANT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_query_variants",
+)
+_CODE_SEARCH_REPOSITORIES_WRITER = TableWriter(
+    table_name=_CSREPO_TABLE_NAME,
+    ensure_name="_ensure_code_search_repositories",
+    columns=_CODE_SEARCH_REPOSITORY_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_repositories",
+)
+_CODE_SEARCH_RERANK_WRITER = TableWriter(
+    table_name=_CSRERANK_TABLE_NAME,
+    ensure_name="_ensure_code_search_rerank",
+    columns=_CODE_SEARCH_RERANK_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.code_search_rerank",
+)
+_CONTENT_OPERATIONS_WRITER = TableWriter(
+    table_name=_CO_TABLE_NAME,
+    ensure_name="_ensure_content_operations",
+    columns=_CONTENT_OPERATION_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_operations",
+)
+_CONTENT_FETCHES_WRITER = TableWriter(
+    table_name=_CF_TABLE_NAME,
+    ensure_name="_ensure_content_fetches",
+    columns=_CONTENT_FETCH_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_fetches",
+)
+_CONTENT_SUMMARIES_WRITER = TableWriter(
+    table_name=_CSUM_TABLE_NAME,
+    ensure_name="_ensure_content_summaries",
+    columns=_CONTENT_SUMMARY_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_summaries",
+)
+_CONTENT_SUMMARY_ATTEMPTS_WRITER = TableWriter(
+    table_name=_CSUMA_TABLE_NAME,
+    ensure_name="_ensure_content_summary_attempts",
+    columns=_CONTENT_SUMMARY_ATTEMPT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_summary_attempts",
+)
+
+# ---------------------------------------------------------------------------
+# Web search funnel uplift column lists
+# ---------------------------------------------------------------------------
+_RESULT_CATALOG_COLUMNS = [
+    "canonical_result_id",
+    "canonical_url",
+    "domain",
+    "title_first_seen",
+    "first_seen_at",
+    "first_seen_run_key",
+    "total_run_appearances",
+]
+
+_PROVIDER_RESULT_COLUMNS = [
+    "provider_result_id",
+    "provider_call_id",
+    "run_key",
+    "branch_id",
+    "provider",
+    "provider_rank",
+    "canonical_result_id",
+    "raw_url",
+    "title",
+    "snippet",
+    "raw_score",
+    "is_eligible",
+    "rejection_reason",
+    "recorded_at",
+    "payload_json",
+]
+
+_QUERY_VARIANT_COLUMNS = [
+    "variant_id",
+    "run_key",
+    "variant_order",
+    "variant_role",
+    "query_text",
+    "selected",
+    "executed",
+    "skip_reason",
+    "recorded_at",
+]
+
+_CANDIDATE_STAGE_EVENT_COLUMNS = [
+    "stage_execution_id",
+    "run_key",
+    "canonical_result_id",
+    "entered",
+    "survived",
+    "rank_before",
+    "rank_after",
+    "score_before",
+    "score_after",
+    "score_name",
+    "removal_reason",
+    "recorded_at",
+    "payload_json",
+]
+
+_TOOL_OUTPUT_ITEM_COLUMNS = [
+    "output_item_id",
+    "tool_call_id",
+    "session_id",
+    "run_key",
+    "tool_name",
+    "item_type",
+    "item_rank",
+    "canonical_result_id",
+    "raw_url",
+    "title",
+    "snippet",
+    "recorded_at",
+]
+
+# ---------------------------------------------------------------------------
+# Web search funnel uplift TableWriter instances
+# ---------------------------------------------------------------------------
+_RESULT_CATALOG_WRITER = TableWriter(
+    table_name=_RC_CAT_TABLE_NAME,
+    ensure_name="_ensure_result_catalog",
+    columns=_RESULT_CATALOG_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.result_catalog",
+)
+_PROVIDER_RESULTS_WRITER = TableWriter(
+    table_name=_PR_TABLE_NAME,
+    ensure_name="_ensure_provider_results",
+    columns=_PROVIDER_RESULT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.provider_results",
+)
+_QUERY_VARIANTS_WRITER = TableWriter(
+    table_name=_QV_TABLE_NAME,
+    ensure_name="_ensure_query_variants",
+    columns=_QUERY_VARIANT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.query_variants",
+)
+_CANDIDATE_STAGE_EVENTS_WRITER = TableWriter(
+    table_name=_CSE_TABLE_NAME,
+    ensure_name="_ensure_candidate_stage_events",
+    columns=_CANDIDATE_STAGE_EVENT_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.candidate_stage_events",
+)
+_TOOL_OUTPUT_ITEMS_WRITER = TableWriter(
+    table_name=_TOI_TABLE_NAME,
+    ensure_name="_ensure_tool_output_items",
+    columns=_TOOL_OUTPUT_ITEM_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.tool_output_items",
 )

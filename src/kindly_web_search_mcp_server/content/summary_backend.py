@@ -433,8 +433,9 @@ async def summarize_batch_with_fallback(
                 backend = "gemini-batch-api"
                 raw_text = _response_text(response)
                 batch = _parse_batch_summary(raw_text)
-                mapped = _map_batch_summaries(items, batch.summaries, mode=mode, model_id=model_id)
-                span.set_attribute("llm.model_name", model_id)
+                mapped = _map_batch_summaries(
+                    items, batch.summaries, mode=mode, model_id=model_id, backend=backend
+                )
                 if usage:
                     if usage.input_tokens is not None:
                         span.set_attribute("llm.token_count.prompt", usage.input_tokens)
@@ -481,9 +482,8 @@ async def summarize_batch_with_fallback(
             raw_text = _response_text(response)
             batch = _parse_batch_summary(raw_text)
             mapped = _map_batch_summaries(
-                items, batch.summaries, mode=mode, model_id=fallback_model
+                items, batch.summaries, mode=mode, model_id=fallback_model, backend=backend
             )
-            span.set_attribute("llm.model_name", fallback_model)
             span.set_attribute("summary.backend", backend)
             span.set_attribute("summary.batch_size", len(items))
             span.set_attribute("summary.returned_summaries", len(mapped))
@@ -512,6 +512,7 @@ def _map_batch_summaries(
     *,
     mode: SummaryMode,
     model_id: str,
+    backend: str = "gemini-batch-api",
 ) -> list[dict[str, Any]]:
     """Map returned summaries back to original items by URL, preserving order for missing entries."""
     by_url: dict[str, dict[str, Any]] = {}
@@ -524,9 +525,8 @@ def _map_batch_summaries(
             "mode": mode,
             "model": model_id,
             "model_used": model_id,
-            "backend": "gemini-batch-api",
+            "backend": backend,
         }
-
     results: list[dict[str, Any]] = []
     for item in items:
         url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
@@ -577,8 +577,7 @@ async def _per_item_summary(
             payload["mode"] = mode
             payload["model"] = model_id
             payload["model_used"] = model_id
-            payload["backend"] = "gemini-batch-api"
-            return payload
+            payload["backend"] = "gemini-per-item-fallback"
         except Exception as exc:
             logger.warning(
                 "Per-item batch summary failed for %s on %s: %s",

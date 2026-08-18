@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 DEFAULT_PROFILE_TOOLS = frozenset(
     {
         "quick_web_search",
+        "code_search",
         "web_search",
         "get_content",
         "batch_get_content",
@@ -28,6 +29,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "batch_get_content": 60.0,
     "get_content": 30.0,
     "academic_search": 45.0,
+    "code_search": 120.0,
 }
 
 
@@ -41,6 +43,7 @@ class ToolCatalogEntry:
     title: str
     profiles: frozenset[str]
     tags: frozenset[str]
+    description: str = ""
     read_only: bool = True
     idempotent: bool = True
     open_world: bool = True
@@ -56,6 +59,7 @@ def _entry(
     title: str,
     profiles: set[str],
     *,
+    description: str = "",
     read_only: bool = True,
     open_world: bool = True,
     expensive: bool = False,
@@ -73,6 +77,7 @@ def _entry(
         title=title,
         profiles=frozenset(profiles),
         tags=frozenset(tags),
+        description=description,
         read_only=read_only,
         idempotent=idempotent,
         open_world=open_world,
@@ -104,6 +109,22 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         idempotent=False,
     ),
     "academic_search": _entry("academic_search", "Academic Search", {"full"}),
+    "code_search": _entry(
+        "code_search",
+        "Code Search & Repository Discovery",
+        {"regular", "full"},
+        description=(
+            "Search public source code, implementation examples, technical documentation, "
+            "and GitHub repositories. Use this for existing implementations, exact "
+            "identifiers, API usage patterns, error-message matches, code snippets, or "
+            "candidate repositories. Backend selection is automatic across lexical, "
+            "symbol, regular-expression, semantic, repository, and documentation search. "
+            "Use repositories, language, path, filename, extension, or topic to narrow "
+            "the search. Results include ranked evidence, source windows, match spans, "
+            "symbols, repository metadata, exact revisions, provenance, and diagnostics. "
+            "Use web_search or get_content for general web pages and narrative research."
+        ),
+    ),
     "composio_similarlinks": _entry("composio_similarlinks", "Composio Similarlinks", {"full"}),
     "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
     "youtube_transcript": _entry("youtube_transcript", "YouTube Transcript", {"regular", "full"}),
@@ -129,6 +150,8 @@ def tool_kwargs(tool_name: str) -> dict[str, Any]:
         "annotations": entry.annotations,
         "version": entry.version,
     }
+    if entry.description:
+        kwargs["description"] = entry.description
     if entry.timeout is not None:
         kwargs["timeout"] = entry.timeout
     return kwargs

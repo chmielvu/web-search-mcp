@@ -40,6 +40,38 @@ _ABV_TABLE_NAME = "ab_experiment_variants"
 _ABA_TABLE_NAME = "ab_assignments"
 _ABR_TABLE_NAME = "ab_results"
 
+# Quick web search tables
+_QWSR_TABLE_NAME = "quick_web_search_runs"
+_QWSC_TABLE_NAME = "quick_web_search_citations"
+
+# Gemini search tables
+_GSR_TABLE_NAME = "gemini_search_runs"
+_GSS_TABLE_NAME = "gemini_search_sources"
+_GSA_TABLE_NAME = "gemini_search_attempts"
+
+# Code search tables
+_CSR_TABLE_NAME = "code_search_runs"
+_CSP_TABLE_NAME = "code_search_providers"
+_CSD_TABLE_NAME = "code_search_diagnostics"
+_CSH_TABLE_NAME = "code_search_hits"
+_CSHV_TABLE_NAME = "code_search_hit_variants"
+_CSQV_TABLE_NAME = "code_search_query_variants"
+_CSREPO_TABLE_NAME = "code_search_repositories"
+_CSRERANK_TABLE_NAME = "code_search_rerank"
+
+# Content operations and summary tables
+_CO_TABLE_NAME = "content_operations"
+_CF_TABLE_NAME = "content_fetches"
+_CSUM_TABLE_NAME = "content_summaries"
+_CSUMA_TABLE_NAME = "content_summary_attempts"
+
+# Web search funnel uplift tables
+_RC_CAT_TABLE_NAME = "result_catalog"
+_PR_TABLE_NAME = "provider_results"
+_QV_TABLE_NAME = "query_variants"
+_CSE_TABLE_NAME = "candidate_stage_events"
+_TOI_TABLE_NAME = "tool_output_items"
+
 __all__ = [
     "_RUNS_TABLE_NAME",
     "_SB_TABLE_NAME",
@@ -65,4 +97,21 @@ __all__ = [
     "_ABV_TABLE_NAME",
     "_ABA_TABLE_NAME",
     "_ABR_TABLE_NAME",
+    "_QWSR_TABLE_NAME",
+    "_QWSC_TABLE_NAME",
+    "_GSR_TABLE_NAME",
+    "_GSS_TABLE_NAME",
+    "_GSA_TABLE_NAME",
+    "_CSR_TABLE_NAME",
+    "_CSP_TABLE_NAME",
+    "_CSD_TABLE_NAME",
+    "_CSH_TABLE_NAME",
+    "_CSHV_TABLE_NAME",
+    "_CSQV_TABLE_NAME",
+    "_CSREPO_TABLE_NAME",
+    "_CSRERANK_TABLE_NAME",
+    "_CO_TABLE_NAME",
+    "_CF_TABLE_NAME",
+    "_CSUM_TABLE_NAME",
+    "_CSUMA_TABLE_NAME",
 ]

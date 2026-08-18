@@ -17,7 +17,6 @@ Two-tier architecture:
 |---|---|
 | `fetch_pipeline.py` | Single-URL orchestrator (Tier 1 + Tier 2 cascading) |
 | `specialized_pipeline.py` | Tier 1 resolver routing |
-| `batch_orchestrator.py` | Multi-URL fetch with semaphore concurrency |
 | `stages.py` | 4 generic extraction stage functions |
 | `artifact.py` | `ContentArtifact` / `ContentError` models |
 | `options.py` | `FetchOptions` |
@@ -36,10 +35,9 @@ Two-tier architecture:
   match, Tier 2 runs stages in order.
 - Specialized parsers either raise for a non-match or return a target; routing
   must treat an explicit `None` return as no match so generic extraction can run.
-- `batch_orchestrator.py` handles multi-URL fetches per-URL with semaphore
-  concurrency and budget slicing.
+- Multi-URL fetching (batch_get_content) composes N parallel get_content calls
+  in `tools/content.py`. Each URL goes through the full pipeline independently.
 - `sitemap.py` is Tavily-only (no fallback).
-- Page cache pre-check runs inside `run_batch_fetch` for reuse.
 - Per-stage timeouts: Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s.
 - Jina Reader circuit breaker: opens after 3 failures in 60s.
 - Content-type validation rejects non-HTML/XML/plain responses.

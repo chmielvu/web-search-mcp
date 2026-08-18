@@ -131,6 +131,8 @@ class DiagnosticsCollector:
     query_embedding: list[float] | None = None
     merged_candidates: list[Any] = field(default_factory=list)
     candidate_embeddings: list[dict[str, Any]] = field(default_factory=list)
+    provider_result_rows: list[dict[str, Any]] = field(default_factory=list)
+    query_variant_rows: list[dict[str, Any]] = field(default_factory=list)
     total_latency_ms: float | None = None
     query_shaping: list[dict[str, Any]] = field(default_factory=list)
 

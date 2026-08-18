@@ -16,12 +16,12 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
-from .base import run_provider
+from .base import ProviderRequestError, run_provider
 
 logger = logging.getLogger(__name__)
 
 
-class LangSearchError(RuntimeError):
+class LangSearchError(ProviderRequestError):
     pass
 
 

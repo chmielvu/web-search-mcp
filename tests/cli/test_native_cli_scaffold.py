@@ -36,11 +36,84 @@ def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    # 11 unique MCP tools (removed analytics_query/report per Step 5; grok_search duplicate remains)
-    assert len(tools) == 11
+    # The MCP catalog currently exposes 13 unique public tools.
+    assert len(tools) == 13
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
     assert "grok_search" in tools
+    assert "code_search" in tools
+
+
+def test_search_code_forwards_mcp_aligned_options(monkeypatch) -> None:
+    mock_payload = AsyncMock(
+        return_value={
+            "query": "retry backoff",
+            "outcome": "ok",
+            "results": [],
+            "repositories": [],
+            "diagnostics": [],
+            "stats": {},
+            "query_metadata": {},
+        }
+    )
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.cli.services.search_code.fetch_code_search_payload",
+        mock_payload,
+    )
+
+    payload = _payload(
+        runner.invoke(
+            app,
+            [
+                "search",
+                "code",
+                "--query",
+                "retry backoff",
+                "--research-goal",
+                "find implementation examples",
+                "--repository",
+                "owner/repo",
+                "--language",
+                "Python",
+                "--path",
+                "src/",
+                "--mode",
+                "docs",
+                "--deep",
+            ],
+        )
+    )
+
+    mock_payload.assert_awaited_once_with(
+        "retry backoff",
+        research_goal="find implementation examples",
+        repositories=["owner/repo"],
+        language="Python",
+        path="src/",
+        filename=None,
+        extension=None,
+        regexp=False,
+        deep=True,
+        repo_name=None,
+        library_name=None,
+        topic=None,
+        mode="docs",
+    )
+    assert payload["meta"]["command"] == "search code"
+    assert payload["data"]["outcome"] == "ok"
+
+
+def test_search_code_rejects_blank_query_before_adapter(monkeypatch) -> None:
+    mock_payload = AsyncMock()
+    monkeypatch.setattr(
+        "kindly_web_search_mcp_server.cli.services.search_code.fetch_code_search_payload",
+        mock_payload,
+    )
+
+    result = runner.invoke(app, ["search", "code", "--query", "   "])
+
+    assert result.exit_code != 0
+    mock_payload.assert_not_awaited()
 
 
 def test_reference_tools_rejects_invalid_profile() -> None:

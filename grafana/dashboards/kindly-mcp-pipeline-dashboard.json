@@ -1,22 +1,18 @@
 {
   "title": "Kindly MCP - Search Pipeline (Rewrite / Merge / Rerank)",
-  "uid": "kindly-mcp-pipeline-v1",
+  "uid": "kindly-mcp-pipeline-v2",
   "version": 1,
-  "tags": ["kindly", "mcp", "pipeline", "rewrite", "rerank", "otel"],
+  "tags": ["kindly", "mcp", "pipeline", "rewrite", "rerank", "merge", "otel"],
   "schemaVersion": 41,
   "refresh": "1m",
   "time": { "from": "now-6h", "to": "now" },
   "templating": {
     "list": [
       {
-        "name": "service",
-        "type": "constant",
-        "query": "web-search-mcp"
-      },
-      {
         "name": "datasource",
         "type": "datasource",
-        "pluginId": "prometheus"
+        "query": "prometheus",
+        "label": "Prometheus"
       }
     ]
   },
@@ -28,23 +24,9 @@
       "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_query_rewrite_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(rewrite_requests_total[5m]))", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "blue", "value": null },
-              { "color": "green", "value": 0.4 }
-            ]
-          }
-        }
-      }
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
     },
     {
       "id": 2,
@@ -53,84 +35,158 @@
       "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "sum(rate(web_search_rerank_total{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": { "defaults": { "unit": "percentunit" } }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Avg Providers per Search",
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "targets": [
-        {
-          "expr": "sum(rate(web_search_rrf_provider_contribution{service_name=\"$service\"}[5m])) / sum(rate(web_search_requests_total{service_name=\"$service\"}[5m]))",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "timeseries",
-      "title": "Query Rewrite Policy Distribution",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "targets": [
-        {
-          "expr": "sum by (rewrite_policy) (rate(web_search_query_rewrite_total{service_name=\"$service\"}[2m]))",
-          "legendFormat": "{{rewrite_policy}}",
-          "refId": "A"
-        }
+        { "expr": "sum(rate(rerank_requests_total[5m]))", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps" } }
     },
     {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Rerank Latency Breakdown (bi-encoder vs cross-encoder)",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "id": 3,
+      "type": "stat",
+      "title": "Avg Candidates In",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le, rerank_stage) (rate(web_search_rerank_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
-          "legendFormat": "p95 {{rerank_stage}}",
-          "refId": "A"
-        }
+        { "expr": "avg(rerank_input_count)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Avg Results Out",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg(rerank_output_count)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Bi-Encoder p95",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(rerank_stage_duration_seconds_bucket{stage=\"bi_encoder\"}[5m])) by (le))", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } }
     },
     {
       "id": 6,
-      "type": "timeseries",
-      "title": "Merge (RRF) Duration p95",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "type": "stat",
+      "title": "Cross-Encoder p95",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(web_search_merge_duration_seconds_bucket{service_name=\"$service\"}[5m])))",
-          "legendFormat": "p95 merge",
-          "refId": "A"
-        }
+        { "expr": "histogram_quantile(0.95, sum(rate(rerank_stage_duration_seconds_bucket{stage=\"cross_encoder\"}[5m])) by (le))", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" } }
     },
     {
       "id": 7,
-      "type": "table",
-      "title": "Top Rewrite Models & Variant Counts",
-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 7 },
+      "type": "timeseries",
+      "title": "Pipeline Stage Latency (p95)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        {
-          "expr": "topk(10, sum by (rewrite_model, rewrite_variant_count) (increase(web_search_query_rewrite_total{service_name=\"$service\"}[3h])))",
-          "format": "table",
-          "refId": "A"
-        }
-      ]
+        { "expr": "histogram_quantile(0.95, sum(rate(rerank_stage_duration_seconds_bucket[5m])) by (le, stage))", "refId": "A", "legendFormat": "{{stage}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Candidates Through Pipeline",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(rerank_input_count[5m]))", "refId": "A", "legendFormat": "Input" },
+        { "expr": "sum(rate(rerank_output_count[5m]))", "refId": "B", "legendFormat": "Output" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Rewrite Latency",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(rewrite_duration_seconds_bucket[5m])) by (le))", "refId": "A", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(rewrite_duration_seconds_bucket[5m])) by (le))", "refId": "B", "legendFormat": "p95" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Score Distribution by Stage",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg_over_time(rerank_bi_encoder_score[5m])", "refId": "A", "legendFormat": "Bi-Encoder" },
+        { "expr": "avg_over_time(rerank_cross_encoder_score[5m])", "refId": "B", "legendFormat": "Cross-Encoder" },
+        { "expr": "avg_over_time(rerank_llm_score[5m])", "refId": "C", "legendFormat": "LLM Judge" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 11,
+      "type": "bargauge",
+      "title": "Stage Compression Ratio",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg(rerank_compression_ratio{stage=\"bi_encoder\"})", "refId": "A", "legendFormat": "Bi-Encoder" },
+        { "expr": "avg(rerank_compression_ratio{stage=\"cross_encoder\"})", "refId": "B", "legendFormat": "Cross-Encoder" },
+        { "expr": "avg(rerank_compression_ratio{stage=\"rankllm\"})", "refId": "C", "legendFormat": "RankLLM" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Entity Overlap Score",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg_over_time(rerank_entity_overlap_score[5m])", "refId": "A", "legendFormat": "Entity Overlap" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Diversity Filter Rate",
+      "gridPos": { "x": 0, "y": 28, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum(rate(rerank_diversity_filtered_total[5m])) / sum(rate(rerank_candidates_total[5m])) * 100", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" } }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Avg Recency Boost",
+      "gridPos": { "x": 6, "y": 28, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "avg(rerank_recency_boost)", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2 } }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Stage Performance Summary",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "expr": "sum by (stage) (rate(rerank_stage_duration_seconds_sum[5m])) / sum by (stage) (rate(rerank_stage_duration_seconds_count[5m]))", "refId": "A", "format": "table", "instant": true }
+      ],
+      "transform": "table"
     }
   ]
 }

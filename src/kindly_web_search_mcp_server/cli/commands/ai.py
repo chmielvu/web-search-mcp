@@ -72,7 +72,7 @@ def grok_cmd(
         raise CliError(
             kind="tool_error",
             message=str(exc),
-            hint="Check the OpenRouter API key and retry.",
+            hint="Check the XAI_API_KEY and retry.",
             exit_code=ExitCode.PROVIDER_ERROR,
             context={"command": "ai grok"},
         ) from exc

@@ -415,6 +415,159 @@ def classifier_calibration(*, days: int = 30, db_path: str | None = None) -> pa.
     return _run(sql, db_path=db_path)
 
 
+def tool_call_coverage(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Cross-tool coverage: event volumes, terminal rates, duration percentiles."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            tool_name,
+            COUNT(*) AS total_events,
+            COUNT(*) FILTER (WHERE phase = 'request') AS request_events,
+            COUNT(*) FILTER (WHERE phase = 'response') AS response_events,
+            COUNT(*) FILTER (WHERE phase = 'error') AS error_events,
+            COUNT(DISTINCT tool_call_id) AS distinct_tool_calls,
+            ROUND(100.0 * COUNT(*) FILTER (WHERE phase IN ('response', 'error'))
+                / NULLIF(COUNT(*) FILTER (WHERE phase = 'request'), 0), 2) AS terminal_event_rate_pct,
+            ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms,
+            ROUND(quantile_cont(duration_ms, 0.95) FILTER (WHERE duration_ms IS NOT NULL), 2) AS p95_duration_ms
+        FROM tool_calls
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY tool_name
+        ORDER BY total_events DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
+def quick_search_performance(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Quick web search performance: volumes, citations, durations by client model."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            COALESCE(client_model, 'unspecified') AS client_model,
+            status,
+            COUNT(*) AS total_runs,
+            ROUND(AVG(total_citations), 2) AS avg_citations,
+            SUM(total_citations) AS total_citations,
+            COUNT(*) FILTER (WHERE warnings IS NOT NULL AND json_array_length(warnings) > 0) AS runs_with_warnings,
+            ROUND(AVG(duration_ms), 2) AS avg_duration_ms,
+            ROUND(quantile_cont(duration_ms, 0.95), 2) AS p95_duration_ms
+        FROM quick_web_search_runs
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY client_model, status
+        ORDER BY total_runs DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
+def gemini_search_performance(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Gemini grounded search: token usage, grounding chunks, latency percentiles."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            COALESCE(model_used, 'unknown') AS model_used,
+            COALESCE(mode, 'standard') AS mode,
+            status,
+            COUNT(*) AS total_runs,
+            ROUND(AVG(grounding_chunks_count), 2) AS avg_grounding_chunks,
+            ROUND(AVG(web_search_queries_count), 2) AS avg_web_search_queries,
+            ROUND(AVG(prompt_tokens), 1) AS avg_prompt_tokens,
+            ROUND(AVG(completion_tokens), 1) AS avg_completion_tokens,
+            ROUND(AVG(total_tokens), 1) AS avg_total_tokens,
+            ROUND(AVG(duration_ms), 2) AS avg_duration_ms,
+            ROUND(quantile_cont(duration_ms, 0.95), 2) AS p95_duration_ms
+        FROM gemini_search_runs
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY model_used, mode, status
+        ORDER BY total_runs DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
+def code_search_provider_yield(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Code search provider yield: responses, hits, requests, and latency."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            provider,
+            outcome,
+            COUNT(*) AS total_responses,
+            SUM(hit_count) AS total_hits_returned,
+            ROUND(AVG(hit_count), 2) AS avg_hits_per_response,
+            SUM(request_count) AS total_requests,
+            ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms
+        FROM code_search_providers
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY provider, outcome
+        ORDER BY total_responses DESC, provider
+    """
+    return _run(sql, db_path=db_path)
+
+
+def code_search_hit_sources(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Code search hits: provider breakdown, evidence roles, hydration, scores."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            COALESCE(provider, 'unknown') AS provider,
+            COALESCE(result_kind, 'unknown') AS result_kind,
+            COALESCE(evidence_role, 'unknown') AS evidence_role,
+            COUNT(*) AS total_hits,
+            COUNT(*) FILTER (WHERE hydrated = TRUE) AS hydrated_hits,
+            ROUND(AVG(final_score), 4) AS avg_final_score,
+            ROUND(AVG(fragment_count), 2) AS avg_fragments,
+            ROUND(AVG(symbol_count), 2) AS avg_symbols
+        FROM code_search_hits
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY provider, result_kind, evidence_role
+        ORDER BY total_hits DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
+def content_fetch_performance(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Content fetch performance: backends, source types, length, word counts."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            cf.fetch_backend,
+            cf.source_type,
+            cf.status AS fetch_status,
+            COUNT(*) AS total_fetches,
+            ROUND(AVG(cf.content_length), 0) AS avg_content_length,
+            ROUND(AVG(cf.page_char_count), 0) AS avg_page_char_count,
+            ROUND(AVG(cf.word_count), 0) AS avg_word_count,
+            COUNT(*) FILTER (WHERE cf.window_has_more = TRUE) AS truncated_windows_count
+        FROM content_fetches cf
+        WHERE cf.recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY cf.fetch_backend, cf.source_type, cf.status
+        ORDER BY total_fetches DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
+def content_summary_output_signals(*, days: int = 7, db_path: str | None = None) -> pa.Table:
+    """Content summary output shape signals: length, entities, key points, tokens."""
+    window = max(1, int(days))
+    sql = f"""
+        SELECT
+            COALESCE(backend, 'unspecified') AS backend,
+            COALESCE(model_used, 'unspecified') AS model_used,
+            is_batch,
+            COUNT(*) AS total_summaries,
+            ROUND(AVG(summary_length_chars), 0) AS avg_summary_chars,
+            ROUND(AVG(key_points_count), 2) AS avg_key_points,
+            ROUND(AVG(important_entities_count), 2) AS avg_entities,
+            ROUND(AVG(input_tokens) FILTER (WHERE input_tokens IS NOT NULL), 1) AS avg_input_tokens,
+            ROUND(AVG(output_tokens) FILTER (WHERE output_tokens IS NOT NULL), 1) AS avg_output_tokens,
+            ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms
+        FROM content_summaries
+        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
+        GROUP BY backend, model_used, is_batch
+        ORDER BY total_summaries DESC
+    """
+    return _run(sql, db_path=db_path)
+
+
 _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "provider-performance": provider_performance,
     "rewrite-effectiveness": rewrite_effectiveness,
@@ -426,8 +579,14 @@ _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "provider-reliability": provider_reliability,
     "quality-misses": quality_misses,
     "classifier-calibration": classifier_calibration,
+    "tool-call-coverage": tool_call_coverage,
+    "quick-search-performance": quick_search_performance,
+    "gemini-search-performance": gemini_search_performance,
+    "code-search-provider-yield": code_search_provider_yield,
+    "code-search-hit-sources": code_search_hit_sources,
+    "content-fetch-performance": content_fetch_performance,
+    "content-summary-output-signals": content_summary_output_signals,
 }
-
 
 def available_reports() -> tuple[str, ...]:
     return tuple(sorted(_REPORTS))

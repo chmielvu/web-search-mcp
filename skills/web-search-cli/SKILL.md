@@ -52,6 +52,7 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `search web` | Run the full multi-provider web search pipeline. |
 | `search quick` | Run the Composio/Exa-backed quick web search path. |
 | `search academic` | Search scholarly sources and return deduplicated papers. |
+| `search code` | Search public code, documentation, and GitHub repositories. |
 | `content get` | Fetch one known URL with bounded windowing. |
 | `content batch` | Fetch multiple URLs with a total content budget. |
 | `links discover` | Discover links on a page or sitemap. |
@@ -170,6 +171,32 @@ Search scholarly sources and return deduplicated papers.
 
 ```powershell
 web-search-cli search academic --query "agentic rag" --year-from 2024 --open-access-only
+```
+
+### `search code`
+
+Search public source code, implementation examples, documentation, and GitHub repositories. The command forwards the MCP `code_search` contract and selects lexical, symbol, regex, semantic, repository, and documentation channels automatically.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--query` | string (required) | — | Exact identifier, error signature, code query, or natural-language search. |
+| `--research-goal` | string | — | Optional task context for rewriting and reranking. |
+| `--repository` / `--repositories` | list[str] | — | GitHub `owner/name` scope; repeatable, max 25. |
+| `--language` | string | — | Programming language qualifier. |
+| `--path` | string | — | Repository path or glob filter. |
+| `--filename` | string | — | Filename or filename pattern filter. |
+| `--extension` | string | — | File extension filter. |
+| `--regexp` / `--no-regexp` | bool | `False` | Enable regular-expression search where supported. |
+| `--deep` / `--no-deep` | bool | `False` | Fetch bounded source windows and broaden repository discovery. |
+| `--repo-name` | string | — | Repository discovery hint. |
+| `--library-name` | string | — | Library/package discovery hint. |
+| `--topic` | string | — | GitHub topic or ecosystem filter. |
+| `--mode` | `code`, `docs`, `discovery` | `code` | Select implementation, documentation, or repository discovery focus. |
+
+```powershell
+web-search-cli search code --query "FastMCP tool registration" --repository "prefecthq/fastmcp"
+web-search-cli search code --query "retry backoff" --language Python --path "src/" --deep
+web-search-cli search code --query "MCP API reference" --library-name fastmcp --mode docs
 ```
 
 ### `content get`
@@ -561,6 +588,7 @@ MCP surfaces stay in sync.
 | Task | CLI command | MCP tool | Why |
 | --- | --- | --- | --- |
 | Find URLs about a topic | `search web` | `web_search` | Lightweight results, multi-provider merge, `provider_count` agreement signal. |
+| Public code or implementation examples | `search code` | `code_search` | Automatic lexical/symbol/regex/semantic/repository/documentation channels with typed hits and diagnostics. |
 | Quick factual answer with citations | `ai gemini` | `gemini_search` | Google-grounding, `[N]` inline citations, fast. |
 | Web + X/Twitter with synthesis | `ai grok` | `grok_search` | AI-synthesized, real-time web and social data, native xAI search. |
 | Scholarly papers with filters | `search academic` | `academic_search` | 6 sources (S2, ArXiv, PubMed, OpenAlex, CrossRef, CORE), field/venue/year filters. |

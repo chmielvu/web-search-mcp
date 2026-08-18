@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from kindly_web_search_mcp_server.evals.metrics import (
+    graded_ndcg_at_k,
     mrr_at_k,
     ndcg_at_k,
     top_k_domain_hit,
@@ -42,6 +43,11 @@ def test_ndcg_at_k_basic():
     gold = ["gold"]
     score = ndcg_at_k(ranked, gold, k=3)
     assert score > 0.99
+
+
+def test_graded_ndcg_at_k_basic() -> None:
+    assert graded_ndcg_at_k(["low", "high"], {"high": 3, "low": 1}, k=2) < 1.0
+    assert graded_ndcg_at_k(["high", "low"], {"high": 3, "low": 1}, k=2) == pytest.approx(1.0)
 
 
 def test_top_k_domain_hit():

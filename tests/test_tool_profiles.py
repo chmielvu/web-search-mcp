@@ -16,6 +16,7 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
     assert DEFAULT_PROFILE_TOOLS == frozenset(
         {
             "quick_web_search",
+            "code_search",
             "web_search",
             "get_content",
             "batch_get_content",
@@ -52,6 +53,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
 
     assert tools_for_profile("regular") == frozenset(
         {
+            "code_search",
             "web_search",
             "quick_web_search",
             "get_content",
@@ -66,6 +68,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
     assert tools_for_profile("full") == frozenset(
         {
             "academic_search",
+            "code_search",
             "batch_get_content",
             "composio_similarlinks",
             "discover_links",
@@ -120,6 +123,12 @@ def test_apply_tool_profile_uses_fastmcp_tag_visibility() -> None:
         },
     )
     assert mcp.calls[1] == (
+        "enable",
+        {
+            "components": {"resource", "template", "prompt"},
+        },
+    )
+    assert mcp.calls[2] == (
         "disable",
         {
             "tags": {"tool:experimental"},

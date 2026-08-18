@@ -1,0 +1,49 @@
+┌─────────────────────────────┬────────────┐
+│         table_name          │ table_type │
+│           varchar           │  varchar   │
+├─────────────────────────────┼────────────┤
+│ v_ab_experiment_summary     │ VIEW       │
+│ v_ab_shadow_run_analysis    │ VIEW       │
+│ v_ab_variant_comparison     │ VIEW       │
+│ vw_bad_case_queue           │ VIEW       │
+│ vw_branch_summary           │ VIEW       │
+│ vw_candidate_funnel         │ VIEW       │
+│ vw_cost_attribution         │ VIEW       │
+│ vw_daily_trend              │ VIEW       │
+│ vw_embedding_similarity     │ VIEW       │
+│ vw_end_to_end_quality       │ VIEW       │
+│ vw_eval_candidate_survival  │ VIEW       │
+│ vw_eval_case_timeline       │ VIEW       │
+│ vw_eval_pass_rate           │ VIEW       │
+│ vw_eval_provider_quality    │ VIEW       │
+│ vw_flockmtl_resources       │ VIEW       │
+│ vw_judge_facet_agg          │ VIEW       │
+│ vw_judge_quality            │ VIEW       │
+│ vw_legacy_judge_quality     │ VIEW       │
+│ vw_llm_judgments            │ VIEW       │
+│ vw_provider_health          │ VIEW       │
+│         ·                   │  ·         │
+│         ·                   │  ·         │
+│         ·                   │  ·         │
+│ judge_evaluations           │ BASE TABLE │
+│ judge_rubrics               │ BASE TABLE │
+│ llm_call_log                │ BASE TABLE │
+│ llm_judgments               │ BASE TABLE │
+│ llm_quality_scores          │ BASE TABLE │
+│ provider_calls              │ BASE TABLE │
+│ provider_health_transitions │ BASE TABLE │
+│ query_embeddings            │ BASE TABLE │
+│ query_understanding_events  │ BASE TABLE │
+│ rerank_candidates           │ BASE TABLE │
+│ rerank_stages               │ BASE TABLE │
+│ search_branches             │ BASE TABLE │
+│ search_candidates           │ BASE TABLE │
+│ search_quality_scores       │ BASE TABLE │
+│ search_runs                 │ BASE TABLE │
+│ summary_intent_daily        │ BASE TABLE │
+│ summary_provider_daily      │ BASE TABLE │
+│ summary_quality_daily       │ BASE TABLE │
+│ summary_rerank_daily        │ BASE TABLE │
+│ tool_calls                  │ BASE TABLE │
+└─────────────────────────────┴────────────┘
+  72 rows (40 shown)             2 columns

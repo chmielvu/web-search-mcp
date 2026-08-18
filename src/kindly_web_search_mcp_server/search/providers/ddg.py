@@ -12,12 +12,12 @@ from typing import Any
 from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
-from .base import run_clientless_provider
+from .base import ProviderRequestError, run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
 
 
-class DDGError(RuntimeError):
+class DDGError(ProviderRequestError):
     """DuckDuckGo search error."""
 
     pass

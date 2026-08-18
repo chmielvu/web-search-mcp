@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Sequence
 
 from ..inference.router import build_worker_router
 from ..telemetry.spans import get_tracer
-from .providers.brave import spellcheck_brave, suggest_brave_queries
+from .providers.brave import suggest_brave_queries
 from .contracts import BranchRole, ContractModel, QueryBranch, SearchPlan, SearchRun
 from .intent_policy import resolve_intent_policy
 from .intents import SearchIntent
@@ -18,10 +18,9 @@ from .keyword_extract import extract_support_terms
 from .understanding.resolver import resolve_query_understanding
 from .normalize import normalize_query
 from .provider_registry import select_paid_google_provider, select_provider_names
-from .providers.brightdata_common import yandex_region_for_country
-
 from ..heuristics.augment import specialized_fallback_query
 from ..heuristics.query_features import build_query_features
+from ..prompts.rerank import build_relevance_query
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
@@ -30,7 +29,7 @@ _ORIGINAL_FREE_CANDIDATES = ("searxng", "ddg", "gemma", "degoog")
 _PAID_BRAVE_CANDIDATES = ("brave",)
 _NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search", "langsearch")
 _PAID_GOOGLE_CANDIDATES = ("brightdata", "serper", "search_router")
-_PAID_OTHER_CANDIDATES = ("brightdata_yandex", "brightdata_bing", "serpapi")
+_PAID_OTHER_CANDIDATES = ("tavily", "serpapi")
 
 
 class _RewriteQueries(ContractModel):
@@ -100,7 +99,6 @@ Research Goal: "{research_goal}"
 <ENRICHMENT_EVIDENCE>
 Support Terms: {support_terms}
 Autosuggest Suggestions: {suggestions}
-Spell Correction: {spell_correction}
 </ENRICHMENT_EVIDENCE>
 
 <QUERY_NORMALIZATION>
@@ -109,7 +107,6 @@ Transform the input into effective search queries by:
 - Organizing keyword dumps into coherent searches
 - Removing unnecessary words (how, what, when, etc.) unless essential
 - Preserving technical terms, specific models, brands or products, and quoted phrases exactly
-- If spell_correction is non-empty, prefer it over the raw query
 </QUERY_NORMALIZATION>
 
 <KEYWORD_QUERY_RULES>
@@ -138,7 +135,7 @@ and research goal. Do NOT use quotes, site:, -, +, or any operator syntax.
 </SPECIALIZED_QUERY_RULES>
 
 <INSTRUCTIONS>
-1. First, normalize the query for search (apply spell_correction if present):
+1. First, normalize the query for search:
    - If multiple input seed queries are provided in Input Seed Queries, use them as guidance representing complementary angles of the single focused topic.
    - If it's a natural language question, extract key search terms
    - If it's a keyword dump, organize into a coherent phrase
@@ -212,7 +209,6 @@ async def _rewrite_queries(
     research_goal: str,
     terms: tuple[str, ...],
     suggestions: tuple[str, ...],
-    correction: str | None,
     current_year: str,
     intent: SearchIntent = "general",
 ) -> tuple[_RewriteQueries, dict[str, Any]]:
@@ -224,7 +220,6 @@ async def _rewrite_queries(
         research_goal=research_goal,
         support_terms=list(terms),
         suggestions=list(suggestions),
-        spell_correction=correction or "",
         specialized_guidance=specialized_guidance,
     )
     cache_key = hashlib.sha256(user_content.encode("utf-8")).hexdigest()
@@ -279,12 +274,10 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         enrichment = await asyncio.gather(
             _bounded(extract_support_terms(request.research_goal)),
             _bounded(suggest_brave_queries(normalized_query, http_client=run.http_client)),
-            _bounded(spellcheck_brave(normalized_query, http_client=run.http_client)),
             return_exceptions=True,
         )
         terms = _stable_terms(enrichment[0]) if isinstance(enrichment[0], list) else ()
         suggestions = _suggestions(enrichment[1])
-        correction = enrichment[2] if isinstance(enrichment[2], str) else None
         available = select_provider_names(policy.specialized_providers)
         dc = run.diagnostics
         dc.intent = str(understanding.intent)
@@ -292,7 +285,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         dc.enrichment = {
             "rake_terms": list(terms),
             "brave_autosuggest": list(suggestions),
-            "brave_spellcheck": correction,
         }
 
         # --- materialize six independent allowlists ---
@@ -305,7 +297,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         specialized = _branch_names(policy.specialized_providers, available)
 
         # --- compute deterministic fallback queries ---
-        keyword_base = normalize_query(correction) if correction else normalized_query
+        keyword_base = normalized_query
         keyword_query = _keyword_query(keyword_base, terms)
         brave_fallback = keyword_query
         for sugg in suggestions:
@@ -337,7 +329,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                     research_goal=request.research_goal,
                     terms=terms,
                     suggestions=suggestions,
-                    correction=correction,
                     current_year=time.strftime("%Y"),
                     intent=understanding.intent,
                 )
@@ -449,31 +440,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             name: dict(bundle) if isinstance(bundle, dict) else {}
             for name, bundle in (policy.provider_arguments or {}).items()
         }
-        brightdata_base = provider_arguments.get("brightdata", {})
-        brightdata_country = str(brightdata_base.get("country", "us"))
-        configured_yandex_region = brightdata_base.get("yandex_region")
-        yandex_region = (
-            str(configured_yandex_region).strip()
-            if configured_yandex_region is not None and str(configured_yandex_region).strip()
-            else yandex_region_for_country(brightdata_country)
-        )
-        yandex_arguments = {
-            **brightdata_base,
-            "provider_name": "brightdata_yandex",
-            "country": brightdata_country,
-            "language": str(brightdata_base.get("language", "en")),
-            "search_type": "web",
-        }
-        if yandex_region:
-            yandex_arguments["yandex_region"] = yandex_region
-        provider_arguments["brightdata_yandex"] = yandex_arguments
-        provider_arguments["brightdata_bing"] = {
-            **brightdata_base,
-            "provider_name": "brightdata_bing",
-            "country": str(brightdata_base.get("country", "us")),
-            "language": str(brightdata_base.get("language", "en")),
-            "search_type": "web",
-        }
         provider_arguments["serpapi"] = {
             **provider_arguments.get("serpapi", {}),
             "engine": "baidu",
@@ -485,7 +451,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         }
         plan = SearchPlan.create(
             normalized_query=normalized_query,
-            relevance_query=f"{normalized_query}\n{request.research_goal}",
+            relevance_query=build_relevance_query(normalized_query, request.research_goal),
             understanding=understanding,
             options=request.options,
             provider_arguments=provider_arguments,
@@ -495,6 +461,35 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             seed_queries=request.queries if request.queries else (normalized_query,),
         )
         run.plan = plan
+        # Collect query variant rows for funnel uplift analytics
+        from ..analytics.observability_store import _canonical_result_id as _cri
+        variant_rows: list[dict[str, Any]] = []
+        rewrite_failed = bool(dc.rewrite_metadata and "error" in dc.rewrite_metadata)
+        # Original query
+        variant_rows.append({
+            "variant_id": _cri(f"{run.run_key}|original"),
+            "run_key": run.run_key,
+            "variant_order": 0,
+            "variant_role": "original",
+            "query_text": normalized_query,
+            "selected": True,
+            "executed": True,
+            "skip_reason": None,
+        })
+        # 5 rewrites
+        for i in range(5):
+            q_text = queries[i] if i < len(queries) else ""
+            variant_rows.append({
+                "variant_id": _cri(f"{run.run_key}|rewrite|{i}"),
+                "run_key": run.run_key,
+                "variant_order": i + 1,
+                "variant_role": "rewrite",
+                "query_text": q_text,
+                "selected": bool(q_text),
+                "executed": bool(q_text),
+                "skip_reason": "rewrite_failed" if rewrite_failed and not q_text else None,
+            })
+        dc.query_variant_rows = variant_rows
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0
         span.set_attribute("search.branch_count", len(branches))
         span.set_attribute("search.intent", dc.intent or "")

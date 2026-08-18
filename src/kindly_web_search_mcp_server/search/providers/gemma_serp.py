@@ -13,7 +13,16 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import run_provider
+from .base import (
+    ProviderRequestError,
+    ProviderRequestMetadata,
+    _RETRYABLE_HTTP_STATUSES,
+    _parse_retry_after,
+    _with_metadata,
+    get_provider_request_metadata,
+    run_provider,
+    set_provider_request_metadata,
+)
 
 POLLINATIONS_CHAT_COMPLETIONS_URL = "https://gen.pollinations.ai/v1/chat/completions"
 MODEL = "gemini-fast"
@@ -121,32 +130,37 @@ def _message_text(data: dict[str, Any]) -> str:
     message = choices[0].get("message")
     if not isinstance(message, dict):
         return ""
+
     content = message.get("content")
     if isinstance(content, str):
         return content
+
+    parts: list[str] = []
     if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, dict) and isinstance(part.get("text"), str):
-                parts.append(part["text"])
-        return "".join(parts)
-    return ""
+        parts.extend(
+            part["text"]
+            for part in content
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
+    content_blocks = message.get("content_blocks")
+    if isinstance(content_blocks, list):
+        parts.extend(
+            block["text"]
+            for block in content_blocks
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return "".join(parts)
 
 
-def _without_json_fence(text: str) -> str:
-    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.IGNORECASE | re.DOTALL)
-    return match.group(1) if match else text.strip()
-
-
-def _parse_json_results(text: str) -> list[dict[str, str]]:
+def _parse_json_result_payload(text: str) -> tuple[bool, list[dict[str, str]]]:
     try:
         payload = json.loads(_without_json_fence(text))
     except json.JSONDecodeError:
-        return []
+        return False, []
 
     items = payload.get("results", []) if isinstance(payload, dict) else payload
     if not isinstance(items, list):
-        return []
+        return False, []
 
     results: list[dict[str, str]] = []
     for item in items:
@@ -169,7 +183,29 @@ def _parse_json_results(text: str) -> list[dict[str, str]]:
                 "snippet": str(snippet).strip(),
             }
         )
-    return results
+    return True, results
+
+
+def _invalid_response(message: str) -> ProviderRequestError:
+    metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider="gemma")
+    return ProviderRequestError(
+        message,
+        metadata=_with_metadata(
+            metadata,
+            result_class="error",
+            error_type="invalid_response",
+            error_summary=message[:500],
+        ),
+    )
+
+
+def _without_json_fence(text: str) -> str:
+    match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.IGNORECASE | re.DOTALL)
+    return match.group(1) if match else text.strip()
+
+
+
+
 
 
 def _parse_presentation_text(text: str) -> list[dict[str, str]]:
@@ -197,7 +233,15 @@ def _parse_presentation_text(text: str) -> list[dict[str, str]]:
 
 def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
     text = _message_text(data)
-    raw_results = _parse_json_results(text) or _parse_presentation_text(text)
+    if not text.strip():
+        raise _invalid_response("Gemma returned empty assistant content.")
+
+    parsed_json, raw_results = _parse_json_result_payload(text)
+    if not parsed_json:
+        raw_results = _parse_presentation_text(text)
+        if not raw_results:
+            raise _invalid_response("Gemma returned no parseable search results.")
+
     model_used = str(data.get("model") or MODEL)
     results: list[WebSearchResult] = []
     for item in raw_results:
@@ -271,6 +315,10 @@ async def search_gemma(
             timeout=httpx.Timeout(timeout_seconds),
         )
         response.raise_for_status()
+        metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider="gemma")
+        set_provider_request_metadata(
+            _with_metadata(metadata, http_status=response.status_code)
+        )
         try:
             data = response.json()
         except ValueError as exc:
@@ -278,7 +326,30 @@ async def search_gemma(
         if not isinstance(data, dict):
             raise RuntimeError("Pollinations response was not a JSON object.")
         if data.get("error"):
-            raise RuntimeError(f"Pollinations returned an error: {data['error']}")
+            # OpenAI-style error body: {"error": {"message": ..., "type": ...}}.
+            error_body = data["error"]
+            message = (
+                error_body.get("message")
+                if isinstance(error_body, dict)
+                else str(error_body)
+            )
+            error_type = (
+                error_body.get("type")
+                if isinstance(error_body, dict) and error_body.get("type")
+                else "provider_error"
+            )
+            raise ProviderRequestError(
+                f"Pollinations returned an error: {message}",
+                metadata=ProviderRequestMetadata(
+                    provider="gemma",
+                    http_status=response.status_code,
+                    result_class="error",
+                    error_type=error_type,
+                    error_summary=str(message)[:500],
+                    retry_after=_parse_retry_after(response.headers.get("Retry-After")),
+                    retryable=response.status_code in _RETRYABLE_HTTP_STATUSES,
+                ),
+            )
         return data
 
     return await run_provider(

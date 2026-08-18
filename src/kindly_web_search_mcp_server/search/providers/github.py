@@ -40,7 +40,7 @@ _GITHUB_TEXT_MATCH_ACCEPT = "application/vnd.github.text-match+json"
 _GITHUB_API_VERSION = "2022-11-28"
 
 
-class GitHubError(RuntimeError):
+class GitHubError(ProviderRequestError):
     """Raised when a GitHub endpoint returns an unusable response."""
 
 

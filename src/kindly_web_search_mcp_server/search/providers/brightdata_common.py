@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .base import ProviderRequestError
+
 import json
 import logging
 from urllib.parse import quote_plus
@@ -27,7 +29,7 @@ _BRIGHTDATA_FRESHNESS_MAP: dict[str, str] = {
 }
 
 
-class BrightDataError(RuntimeError):
+class BrightDataError(ProviderRequestError):
     def __init__(
         self,
         message: str,

@@ -30,28 +30,21 @@ def _get_voyage_client(timeout: float = 30.0) -> httpx.AsyncClient:
 
 
 def _format_voyage_query(query: str) -> str:
-    """Restructure a pipe-delimited reranker query for Voyage's preferred instruction format.
-
-    ``build_cross_encoder_query`` produces a pipe-delimited string like::
-
-        "user query | Prefer X. Demote Y. | Research goal: ..."
-
-    Voyage's ``rerank-2.5`` instruction-following model performs best when
-    instructions are prepended in natural language followed by an explicit
-    ``Query:`` prefix. This function extracts the user query from the first
-    pipe segment and moves the remaining instruction/goal text into the
-    instruction position.
-    """
+    """Move the compact cross query into Voyage's instruction-first layout."""
     if " | " not in query and "Research goal:" not in query:
-        return query  # Not built by build_cross_encoder_query; pass through unchanged.
-
-    parts = query.split(" | ", 1)
-    if len(parts) != 2:
         return query
 
-    user_query = parts[0].strip()
-    instruction = parts[1].strip()
-    return f"{instruction}\n\nQuery: {user_query}"
+    # The cross builder emits query, goal, intent, policy, and an optional
+    # caller segment in that stable order. Keep the policy text intact.
+    parts = query.split(" | ", 4)
+    if len(parts) < 4:
+        return query
+
+    user_query, research_goal, intent, policy = (part.strip() for part in parts[:4])
+    instruction_lines = [research_goal, intent, policy]
+    if len(parts) == 5 and parts[4].strip():
+        instruction_lines.append(parts[4].strip())
+    return "\n".join(instruction_lines) + f"\n\nQuery: {user_query}"
 
 
 def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tuple[int, float]]:
@@ -91,11 +84,11 @@ async def voyage_rerank(
     api_key: str | None = None,
     model: str | None = None,
     top_n: int | None = None,
+    instruction: str | None = None,
     timeout: float = 30.0,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[tuple[int, float]]:
     """Rerank documents using Voyage's /v1/rerank API."""
-
     if not documents:
         return []
 
@@ -103,9 +96,13 @@ async def voyage_rerank(
     if not resolved_api_key.strip():
         raise ValueError("VOYAGE_API_KEY is required for Voyage reranking")
 
+    formatted_query = (
+        f"{instruction.strip()}\n\n{query}" if instruction else _format_voyage_query(query)
+    )
+
     payload = {
         "model": model or settings.voyage_rerank_model,
-        "query": _format_voyage_query(query),
+        "query": formatted_query,
         "documents": documents,
         "top_k": top_n or len(documents),
         "return_documents": False,

@@ -8,6 +8,7 @@ from ._helpers import (
     _analytics_report_snapshot,
     _analytics_schema_snapshot,
     _public_settings_snapshot,
+    _search_history_snapshot,
 )
 from .status import get_features_status, get_providers_status
 from .workflow import get_workflow_doc
@@ -99,6 +100,19 @@ def get_analytics_report_resource(report_name: str, days: int = 7) -> ResourceRe
                 content=json.dumps(_analytics_report_snapshot(report_name, days=days), indent=2),
                 mime_type="application/json",
                 meta={"title": f"Report: {report_name} ({days}d)"},
+            )
+        ]
+    )
+
+
+def get_search_history_resource(limit: int = 20) -> ResourceResult:
+    """Recent search runs from the server's DuckDB analytics store."""
+    return ResourceResult(
+        contents=[
+            ResourceContent(
+                content=json.dumps(_search_history_snapshot(limit=limit), indent=2),
+                mime_type="application/json",
+                meta={"title": f"Search History (last {limit})"},
             )
         ]
     )

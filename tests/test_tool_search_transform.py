@@ -100,16 +100,15 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
 
 def test_tool_search_emits_surface_events(monkeypatch, caplog):
     """When enabled, server emits tool_surface.search_enabled and tool_surface.profile_applied."""
+    import logging
     monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
-    caplog.set_level("INFO")
-
-    # Force fresh import of server to execute the emit statements at module bottom.
-    if "kindly_web_search_mcp_server.server" in sys.modules:
-        del sys.modules["kindly_web_search_mcp_server.server"]
-    import kindly_web_search_mcp_server.server as server_mod  # noqa: F401
-
-    # The emits happen synchronously at import time (after apply).
-    # Verify via captured logs (real emit path, which also calls _persist but we just check log emission).
+    caplog.set_level(logging.INFO)
+    logging.getLogger("kindly_web_search_mcp_server.server").setLevel(logging.INFO)
+    # Clean any prior server/settings import so bottom-of-module code re-executes with new env.
+    for mod in list(sys.modules):
+        if mod.startswith("kindly_web_search_mcp_server"):
+            del sys.modules[mod]
+    import kindly_web_search_mcp_server.server as _server_mod  # noqa: F401
     logged_events = [rec.getMessage() for rec in caplog.records]
     assert any("tool_surface.profile_applied" in e for e in logged_events), (
         f"expected tool_surface.profile_applied in logs, got: {logged_events[-10:]}"
