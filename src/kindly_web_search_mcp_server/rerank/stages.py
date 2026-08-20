@@ -15,7 +15,7 @@ def normalize_scores_minmax(scores: list[float]) -> list[float]:
     arr = np.array(scores)
     min_s, max_s = arr.min(), arr.max()
     if max_s - min_s < 1e-9:
-        return [0.5] * len(scores)
+        return [1.0 - i / max(len(scores) - 1, 1) for i in range(len(scores))]
     return ((arr - min_s) / (max_s - min_s)).tolist()
 
 
@@ -47,6 +47,7 @@ def apply_ranked_results(
     if not ranked_results:
         return candidates, [], 0.0, 0.0
 
+    original_candidates = list(candidates)
     ordered_ranked = [
         item for item in ranked_results
         if isinstance(getattr(item, "index", None), int) and 0 <= item.index < len(candidates)
@@ -64,6 +65,7 @@ def apply_ranked_results(
             final_score += recency_weight * compute_recency_score(
                 candidates[idx].published_date, half_life_days
             )
+        final_score = min(1.0, final_score)
         updates = {}
         if update_score:
             updates["score"] = final_score
@@ -71,9 +73,16 @@ def apply_ranked_results(
             updates["cross_relevance_score"] = float(ranked_result.score)
         if updates:
             candidates[idx] = candidates[idx].model_copy(update=updates)
-
     candidates = [candidates[item.index] for item in ordered_ranked]
-    relevance_scores = [float(item.score) for item in ordered_ranked[:10]]
+    # Preserve any unranked candidates in their incoming order so partial
+    # provider results can never silently drop candidates.
+    ranked_indices = {item.index for item in ordered_ranked}
+    candidates.extend(
+        original_candidates[index]
+        for index in range(len(original_candidates))
+        if index not in ranked_indices
+    )
+    relevance_scores = [float(item.score) for item in ordered_ranked]
     max_score = max(relevance_scores) if relevance_scores else 0.0
     avg_score = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
     return candidates, relevance_scores, max_score, avg_score
@@ -87,15 +96,16 @@ def apply_entity_overlap_boost(
     entity_overlap_weight: float,
     logger: logging.Logger,
     ab_weight: float | None = None,
-) -> None:
+) -> list[WebSearchResult]:
     if not entity_overlap_enabled or not query_entities:
-        return
+        return candidates
     try:
         from ..entity.overlap import compute_entity_overlap
 
         weight = entity_overlap_weight if ab_weight is None else ab_weight
         overlaps: list[float] = []
-        for candidate in candidates[: min(20, len(candidates))]:
+        new_candidates: list[WebSearchResult] = []
+        for candidate in candidates:
             candidate_entities = getattr(candidate, "entities", None) or []
             overlap = compute_entity_overlap(
                 query_entities,
@@ -103,7 +113,10 @@ def apply_entity_overlap_boost(
             )
             overlaps.append(overlap)
             if getattr(candidate, "score", None) is not None:
-                candidate.score = float(candidate.score) + (weight * overlap)  # type: ignore[arg-type]
+                new_score = float(candidate.score) + (weight * overlap)  # type: ignore[arg-type]
+                new_candidates.append(candidate.model_copy(update={"score": new_score}))
+            else:
+                new_candidates.append(candidate)
         if overlaps:
             logger.debug(
                 "Entity overlap boost applied: mean=%s min=%s max=%s weight=%s",
@@ -112,5 +125,7 @@ def apply_entity_overlap_boost(
                 max(overlaps),
                 weight,
             )
+        return new_candidates
     except Exception as exc:
         logger.debug("entity overlap rerank skipped: %s", exc)
+        return candidates

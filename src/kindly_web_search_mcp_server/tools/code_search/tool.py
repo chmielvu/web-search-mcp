@@ -198,11 +198,11 @@ async def code_search(
       * `docs`: Focuses on API reference documentation and library tutorials.
       * `discovery`: Finds active repositories, stars, and implementations.
 
-    Returns repository, path, line range, and text_matches (code windows). Ranking
-    scores and provider telemetry are omitted.
+    Returns grouped results (Octocode-style): repository → files → text_matches,
+    match_lines with exact spans, symbols, sha, and url. Hints and next
+    continuations guide agents to fetch exact line anchors via get_content.
+    Ranking scores and provider telemetry are omitted.
     """
-
-    started = time.monotonic()
     tool_call_id = str(uuid.uuid4())
     emit_tool_observability_event(
         LOGGER,
@@ -211,6 +211,7 @@ async def code_search(
         tool_call_id=tool_call_id,
         query=query,
     )
+    started = time.monotonic()
     try:
         request = _validate_request(
             query=query,
@@ -318,4 +319,4 @@ async def code_search(
         plan=plan,
         response=response,
     )
-    return to_public_result(response, language=request.language)
+    return to_public_result(response, language=request.language, plan=plan)

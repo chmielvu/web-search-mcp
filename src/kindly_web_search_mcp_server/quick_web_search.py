@@ -17,9 +17,8 @@ from typing import Any
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
-from parallel import AsyncParallel
 
-from .errors import format_tool_error
+from .errors import raise_tool_error
 from .settings import settings
 from .tools.catalog import tool_kwargs
 from .utils.observability import emit_tool_observability_event
@@ -168,6 +167,14 @@ async def _quick_web_search_impl(
     api_key = settings.parallel_api_key
     if not api_key:
         raise RuntimeError("PARALLEL_API_KEY is not set.")
+    try:
+        from parallel import AsyncParallel
+    except ModuleNotFoundError as exc:
+        if exc.name != "parallel":
+            raise
+        raise RuntimeError(
+            "Parallel SDK is unavailable; install the 'parallel-web' dependency."
+        ) from exc
 
     advanced_settings = _build_advanced_settings(
         max_results=max_results,
@@ -255,7 +262,7 @@ def register_quick_web_search(mcp: Any) -> None:
         timeout_seconds: float | None = None,
         disable_cache_fallback: bool | None = None,
         ctx: Context = CurrentContext(),
-    ) -> dict:
+    ) -> QuickWebSearchResponse:
         """Fast reconnaissance search using Parallel AI (advanced mode).
 
         When to use this tool:
@@ -330,7 +337,7 @@ def register_quick_web_search(mcp: Any) -> None:
                 error_message=str(exc),
                 duration_ms=(time.monotonic() - started) * 1000,
             )
-            return format_tool_error(exc, provider="parallel")
+            raise_tool_error(exc, provider="parallel")
         await ctx.info(f"Found {response.total_citations} citations")
         emit_tool_observability_event(
             LOGGER,
@@ -346,4 +353,4 @@ def register_quick_web_search(mcp: Any) -> None:
             provider="parallel",
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        return response.model_dump(exclude_none=True)
+        return response

@@ -74,7 +74,7 @@ class TestLiveShapeContract(unittest.TestCase):
             )
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=client2,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,

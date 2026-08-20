@@ -6,12 +6,15 @@ import asyncio
 import math
 import os
 from typing import Any
+import weakref
 
 import httpx
 
 from ..settings import settings
 
-_COHERE_CLIENTS: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
+_COHERE_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _get_cohere_client(timeout: float = 5.0) -> httpx.AsyncClient:

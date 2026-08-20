@@ -41,9 +41,9 @@ def load_rerank_prompt_template() -> RerankPromptTemplate:
     return RerankPromptTemplate(
         method=str(data["method"]),
         system_message=str(data["system_message"]).strip(),
-        prefix=str(data["prefix"]).strip(),
-        body=str(data["body"]).rstrip(),
-        suffix=str(data["suffix"]).strip(),
+        prefix=str(data["prefix_user"]).strip(),
+        body=str(data["body_user"]).rstrip(),
+        suffix=str(data["suffix_user"]).strip(),
         output_validation_regex=str(data["output_validation_regex"]),
         output_extraction_regex=str(data["output_extraction_regex"]),
     )

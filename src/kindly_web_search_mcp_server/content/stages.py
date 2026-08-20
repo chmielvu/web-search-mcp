@@ -231,23 +231,57 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             error=ContentError(code="fallback_fetch_failed", message=str(exc), retryable=True),
         )
 
-    # Handle PDFs
-    if fetched.is_pdf:
-        pdf_markdown = _render_pdf_markdown(fetched.body, fetched.fetched_url)
-        if pdf_markdown:
+    # Handle Documents & PDFs
+    if fetched.doc_type:
+        from .resolvers.document import (
+            _convert_pdf_to_markdown,
+            _convert_ipynb_to_markdown,
+            _convert_csv_to_markdown,
+            _convert_office_with_markitdown,
+        )
+        import urllib.parse
+
+        doc_type = fetched.doc_type
+        doc_md = ""
+        if doc_type == "pdf":
+            doc_md = _convert_pdf_to_markdown(fetched.body, fetched.fetched_url)
+        elif doc_type == "ipynb":
+            doc_md = _convert_ipynb_to_markdown(
+                fetched.text or fetched.body.decode("utf-8", errors="replace"),
+                fetched.fetched_url,
+            )
+        elif doc_type in ("csv", "tsv"):
+            delimiter = "\t" if doc_type == "tsv" else ","
+            doc_md = _convert_csv_to_markdown(
+                fetched.text or fetched.body.decode("utf-8", errors="replace"),
+                fetched.fetched_url,
+                delimiter=delimiter,
+            )
+        elif doc_type in ("docx", "pptx", "xlsx", "doc", "ppt", "xls", "epub"):
+            filename = (
+                os.path.basename(urllib.parse.urlparse(fetched.fetched_url).path)
+                or f"file.{doc_type}"
+            )
+            md_text = _convert_office_with_markitdown(fetched.body, filename)
+            if md_text:
+                doc_md = (
+                    f"# Document ({doc_type.upper()})\nSource: {fetched.fetched_url}\n\n{md_text}"
+                )
+
+        if doc_md:
+            cls = classify_markdown(doc_md)
             return ContentArtifact(
                 input_url=url,
                 normalized_url=canonical,
                 fetched_url=fetched.fetched_url,
-                status="success",
-                source_type="pdf",
-                fetch_backend="pdf_extract",
+                status="success" if cls.status in ("success", "partial") else cls.status,
+                source_type=doc_type,
+                fetch_backend=f"doc_converter_{doc_type}",
                 content_type=fetched.content_type,
-                markdown=pdf_markdown,
-                word_count=len(pdf_markdown.split()),
+                markdown=doc_md,
+                word_count=len(doc_md.split()),
                 quality_score=1.0,
             )
-
     html = fetched.text
     if opts.strip_selectors:
         html = strip_html_selectors(html, opts.strip_selectors)

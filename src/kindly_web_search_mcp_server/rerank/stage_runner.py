@@ -15,6 +15,7 @@ from .observability import record_rerank_candidate_rows_async
 from .providers import rerank_with_provider_fallback
 from .reporting import record_ranked_stage
 from .stages import apply_ranked_results
+from ..settings import settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,9 +58,14 @@ async def _apply_ranked_stage(
         ranked_results,
         preserve_raw_scores=True,
         store_cross_scores=store_cross_scores,
-        update_score=False,
-        recency_weight=0.0,
+        update_score=True,
+        recency_weight=(
+            settings.rerank_recency_weight if stage_name == "cross_encoder" else 0.0
+        ),
+        half_life_days=settings.rerank_recency_half_life_days,
     )
+    # apply_ranked_results preserves the unranked tail in incoming order.
+
     cross_encoder_scores = None
     if store_cross_scores:
         cross_encoder_scores = {
@@ -105,7 +111,7 @@ async def _apply_ranked_stage(
         output_count=len(sliced_candidates),
         duration_seconds=duration_seconds,
         relevance_scores=relevance_scores if stage_name != "rankllm" else [],
-        max_score=max_score if stage_name != "rankllm" else 0.0,
+        max_score=float(max_score) if (stage_name != "rankllm" and max_score is not None) else 0.0,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )

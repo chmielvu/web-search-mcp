@@ -23,7 +23,7 @@ from .models import (
     Stats,
 )
 from .query import QueryPlan
-from .ranking import compact_hits, rank_hits, verify_regex_hits
+from .ranking import rank_hits, verify_regex_hits
 from .reranking import RerankProfile, rerank_code_hits
 from .sourcegraph import search_sourcegraph
 
@@ -202,15 +202,7 @@ async def execute_code_search(
         if rerank.diagnostic:
             diagnostics.append(rerank.diagnostic)
 
-    candidate_count_pre_compact = len(hits)
-    hits, compacted = compact_hits(
-        hits,
-        max_output_chars=request.budget.max_output_chars,
-        max_results=request.max_results,
-    )
-    hits = [normalize_hit_metadata(hit) for hit in hits]
-    stats.truncated = stats.truncated or compacted
-    stats.dropped_count = max(0, candidate_count_pre_compact - len(hits))
+    hits = [normalize_hit_metadata(hit) for hit in hits[: request.max_results]]
     stats.returned_count = len(hits)
     stats.estimated_tokens = sum(len(hit.model_dump_json()) for hit in hits) // 4
     stats.elapsed_ms = (time.monotonic() - started) * 1000

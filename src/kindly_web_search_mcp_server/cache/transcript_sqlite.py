@@ -86,6 +86,21 @@ class TranscriptSQLiteCache:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Transcript cache schema creation failed: %s", exc)
 
+    def entry_count(self) -> int:
+        """Return the number of cached transcript entries."""
+        with self._lock:
+            try:
+                con = self._get_connection()
+                try:
+                    self._ensure_schema(con)
+                    row = con.execute("SELECT COUNT(*) FROM transcript_cache").fetchone()
+                    return int(row[0]) if row else 0
+                finally:
+                    con.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("transcript_cache: entry_count failed: %s", exc)
+                return 0
+
     def _compute_cache_key(
         self,
         video_id: str,

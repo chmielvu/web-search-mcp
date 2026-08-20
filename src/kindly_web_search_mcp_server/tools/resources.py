@@ -105,6 +105,39 @@ def get_analytics_report_resource(report_name: str, days: int = 7) -> ResourceRe
     )
 
 
+def get_cache_stats_resource(cache_name: str | None = None) -> ResourceResult:
+    """Entry counts for the server's local caches (query, page, transcript).
+
+    Args:
+        cache_name: Optional cache to report ("query", "page", "transcript").
+            When omitted, all three caches are reported.
+    """
+    from ..cache import get_page_cache, get_query_cache, get_transcript_cache
+
+    requested = {cache_name} if cache_name else {"query", "page", "transcript"}
+    stats: dict[str, int] = {}
+    if "query" in requested:
+        stats["query"] = get_query_cache().entry_count()
+    if "page" in requested:
+        stats["page"] = get_page_cache().entry_count()
+    if "transcript" in requested:
+        stats["transcript"] = get_transcript_cache().entry_count()
+    return ResourceResult(
+        contents=[
+            ResourceContent(
+                content=json.dumps(stats, indent=2),
+                mime_type="application/json",
+                meta={"title": "Cache Entry Counts"},
+            )
+        ]
+    )
+
+
+def get_all_cache_stats_resource() -> ResourceResult:
+    """Entry counts for all local caches (query, page, transcript)."""
+    return get_cache_stats_resource(cache_name=None)
+
+
 def get_search_history_resource(limit: int = 20) -> ResourceResult:
     """Recent search runs from the server's DuckDB analytics store."""
     return ResourceResult(

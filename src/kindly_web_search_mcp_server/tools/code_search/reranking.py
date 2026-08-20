@@ -170,16 +170,20 @@ async def rerank_code_hits(
             metadata={"status": "failed_open", "profile": profile},
         )
 
-    # Profile-dependent cloud blend weight; fallback providers get half weight
+    # Profile-dependent cloud blend weight. Both signals are normalized to
+    # [0, 1] before blending so the RRF base (~0.01-0.05) and the cloud
+    # score share one scale; the blend is a convex combination.
     blend_weight = _BLEND_WEIGHTS.get(profile, 0.20)
-    if outcome.provider_id not in ("cohere", "cohere_fast"):
-        blend_weight *= 0.5
 
     # 1. Update candidate hits with normalized cloud rerank scores
     cloud_scores = [float(r.score) for r in outcome.ranked if hasattr(r, "score")]
     max_cloud = max(cloud_scores, default=1.0)
     min_cloud = min(cloud_scores, default=0.0)
     score_range = max(max_cloud - min_cloud, 1e-6)
+    base_scores = [float(hit.score or 0.0) for hit in candidate_pool]
+    max_base = max(base_scores, default=1.0)
+    min_base = min(base_scores, default=0.0)
+    base_range = max(max_base - min_base, 1e-6)
 
     updated_pool: list[CodeSearchHit] = []
     seen: set[int] = set()
@@ -192,9 +196,10 @@ async def rerank_code_hits(
         raw_cloud_score = float(ranked.score)
         norm_cloud_score = max(0.0, min(1.0, (raw_cloud_score - min_cloud) / score_range))
 
-        # Blend cloud score into deterministic RRF score
+        # Blend cloud score into deterministic RRF score on a shared scale
         base_score = float(hit.score or 0.0)
-        blended_score = base_score + blend_weight * norm_cloud_score
+        norm_base_score = max(0.0, min(1.0, (base_score - min_base) / base_range))
+        blended_score = (1.0 - blend_weight) * norm_base_score + blend_weight * norm_cloud_score
         hit.score = blended_score
 
         hit.score_components.update(
@@ -217,8 +222,7 @@ async def rerank_code_hits(
 
     # Sort coherently by blended score descending
     updated_pool.sort(key=lambda item: (-(item.score or 0.0), item.search_rank or 10_000, item.url))
-    ordered = updated_pool[:max_results]
-    ordered.extend(hits[max_candidates:])
+    ordered = (updated_pool + hits[max_candidates:])[:max_results]
     return CodeRerankOutcome(
         hits=ordered,
         provider=outcome.provider_id,

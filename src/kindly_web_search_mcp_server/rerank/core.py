@@ -90,6 +90,8 @@ async def rerank_results(
             error_type=bi_outcome.status if bi_status == "failed_open" else None,
             max_score=None,
             avg_score=None,
+            instruction_present=bool(reranking_instructions),
+            instruction_length=len(reranking_instructions) if reranking_instructions else None,
             query_type_hint=query_type_hint,
             entity_overlap_enabled=False,
             payload_json={"status": bi_outcome.status},
@@ -214,12 +216,18 @@ async def rerank_results(
             final_provider = cross_outcome.provider
             final_model = cross_outcome.model
 
-        # Assert monotone funnel count invariant
-        assert (
+        # Monotone funnel count invariant: log drift instead of crashing the
+        # search when a provider returns an unexpected partial list.
+        if not (
             original_count >= len(bi_candidates) >= len(cross_candidates) >= len(llm_candidates)
-        ), (
-            f"Funnel cardinalities drift: {original_count} >= {len(bi_candidates)} >= {len(cross_candidates)} >= {len(llm_candidates)}"
-        )
+        ):
+            logger.warning(
+                "Funnel cardinalities drift: %d >= %d >= %d >= %d",
+                original_count,
+                len(bi_candidates),
+                len(cross_candidates),
+                len(llm_candidates),
+            )
 
         main_span.set_attribute("rerank.final_count", len(llm_candidates))
         duration_seconds = time.monotonic() - pipeline_started
@@ -249,14 +257,46 @@ async def rerank_results(
             query_type_hint=query_type_hint,
         )
         final_results = list(llm_candidates)
+        # Conditional MMR diversity over the final slate, reusing the
+        # bi-encoder embeddings already computed upstream. Skipped when no
+        # embedding context exists (bi-encoder stage did not run).
+        embedding_ctx = bi_outcome.embedding_context
+        if embedding_ctx is not None and len(final_results) > 1:
+            from .diversity import select_diverse_slate
+
+            by_url = {candidate.url: candidate for candidate in embedding_ctx.candidates}
+            slate_embeddings = []
+            slate_urls = []
+            for candidate in final_results:
+                embedded = by_url.get(candidate.link)
+                if embedded is None:
+                    continue
+                slate_embeddings.append(embedded.dense)
+                slate_urls.append(candidate.link)
+            if len(slate_embeddings) == len(final_results):
+                slate = select_diverse_slate(
+                    slate_embeddings,
+                    slate_urls,
+                    output_size=len(final_results),
+                )
+                if slate.triggered:
+                    final_results = [final_results[index] for index in slate.selected_indices]
+                    logger.debug(
+                        "MMR diversity reordered final slate: max_pairwise=%.3f host_overflow=%d",
+                        slate.max_pairwise_similarity,
+                        slate.host_overflow_count,
+                    )
         if top_k is not None and top_k > len(final_results):
             seen_urls = {c.link for c in final_results}
-            for c in candidates:
-                if c.link not in seen_urls:
-                    final_results.append(c)
-                    seen_urls.add(c.link)
-                    if len(final_results) >= top_k:
-                        break
+            for pool in (bi_candidates, candidates):
+                for c in pool:
+                    if c.link not in seen_urls:
+                        final_results.append(c)
+                        seen_urls.add(c.link)
+                        if len(final_results) >= top_k:
+                            break
+                if len(final_results) >= top_k:
+                    break
 
         return RerankOutput(
             results=final_results,

@@ -20,7 +20,6 @@ from ..models import (
     BatchGetContentResponse,
     DiscoverLinksResponse,
     GetContentResponse,
-    GetContentResultType,
 )
 from ..utils.url_canonicalize import canonicalize_url
 from ..utils.observability import emit_tool_observability_event
@@ -40,7 +39,7 @@ async def get_content(
     max_links: int = 25,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
-) -> GetContentResultType:
+) -> GetContentResponse:
     """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
 
     When to use this tool:
@@ -567,7 +566,7 @@ async def discover_links(
     same_domain_only: bool = False,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> DiscoverLinksResponse:
     """Extract outbound links from a webpage or sitemap without returning page body text.
 
     When to use this tool:

@@ -20,25 +20,92 @@ from ...utils.url_canonicalize import canonicalize_url
 
 LOGGER = logging.getLogger(__name__)
 
-RAW_TEXT_EXTENSIONS: set[str] = {".md", ".markdown", ".txt", ".text"}
+RAW_TEXT_EXTENSIONS: set[str] = {
+    ".md",
+    ".markdown",
+    ".mdown",
+    ".mkdn",
+    ".txt",
+    ".text",
+    ".rst",
+    ".org",
+    ".log",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".csv",
+    ".tsv",
+    ".py",
+    ".ts",
+    ".js",
+    ".rs",
+    ".go",
+    ".c",
+    ".cpp",
+    ".h",
+    ".java",
+    ".sh",
+}
 RAW_TEXT_HOSTS: set[str] = {"raw.githubusercontent.com", "gist.githubusercontent.com"}
+NON_RAW_TEXT_EXTENSIONS: set[str] = {
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".doc",
+    ".ppt",
+    ".xls",
+    ".epub",
+    ".ipynb",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".ico",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".bz2",
+    ".xz",
+    ".exe",
+    ".bin",
+    ".dylib",
+    ".so",
+    ".dll",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".mov",
+    ".avi",
+}
 
 
 def is_raw_text_url(url: str) -> bool:
     """Recognize if a URL points to a raw markdown/text file or raw text host.
 
-    Matches URLs whose path extension is .md, .markdown, .txt, or .text,
-    or whose host is raw.githubusercontent.com / gist.githubusercontent.com.
+    Matches URLs whose path extension is a recognized raw text extension,
+    whose host is raw.githubusercontent.com / gist.githubusercontent.com,
+    or whose path contains /raw/ on GitHub / GitLab, excluding binary
+    and document formats like .pdf, .docx, .ipynb, etc.
     """
     try:
         parsed = urllib.parse.urlparse(url)
         host = (parsed.hostname or "").lower()
-        if host in RAW_TEXT_HOSTS:
-            return True
         path = parsed.path.lower()
+        for non_ext in NON_RAW_TEXT_EXTENSIONS:
+            if path.endswith(non_ext):
+                return False
         for ext in RAW_TEXT_EXTENSIONS:
             if path.endswith(ext):
                 return True
+        if host in RAW_TEXT_HOSTS:
+            return True
+        if ("github.com" in host or "gitlab.com" in host) and "/raw/" in path:
+            return True
         return False
     except Exception:
         return False
@@ -49,9 +116,9 @@ def get_raw_text_type(url: str) -> tuple[Literal["text/markdown", "text/plain"],
     try:
         parsed = urllib.parse.urlparse(url)
         path = parsed.path.lower()
-        if path.endswith((".md", ".markdown")):
+        if path.endswith((".md", ".markdown", ".mdown", ".mkdn")):
             return "text/markdown", "markdown_file"
-        if path.endswith((".txt", ".text")):
+        if path.endswith((".txt", ".text", ".rst", ".org", ".log")):
             return "text/plain", "text_file"
     except Exception:
         pass

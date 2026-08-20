@@ -440,10 +440,6 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             name: dict(bundle) if isinstance(bundle, dict) else {}
             for name, bundle in (policy.provider_arguments or {}).items()
         }
-        provider_arguments["serpapi"] = {
-            **provider_arguments.get("serpapi", {}),
-            "engine": "baidu",
-        }
         provider_arguments["gemma"] = {
             **provider_arguments.get("gemma", {}),
             "queries": list(request.queries) if request.queries else [normalized_query],

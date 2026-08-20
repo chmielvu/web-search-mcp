@@ -1,15 +1,15 @@
 """SerpApi multi-engine search provider.
 
-Supports any SerpApi engine (google, baidu, naver, bing, etc.) via the
-``engine`` query parameter.  When ``SERPAPI_ENGINES`` is a comma-separated
-list, all listed engines are queried in parallel and their raw results are
-concatenated — the pipeline's global RRF merge handles dedup and scoring.
+Supports SerpApi engines (yahoo, naver, bing, etc.) via the
+``engine`` query parameter. Google and Baidu engines are disabled.
+When ``SERPAPI_ENGINES`` is a comma-separated list, all allowed listed engines
+are queried in parallel and their raw results are concatenated — the pipeline's
+global RRF merge handles dedup and scoring.
 
 Docs:
   - Yahoo:  https://serpapi.com/yahoo-search-api   (engine=yahoo)
-  - Baidu:  https://serpapi.com/baidu-search-api   (engine=baidu)
   - Naver:  https://serpapi.com/naver-search-api   (engine=naver)
-  - Google: https://serpapi.com/search-api         (engine=google)
+  - Bing:   https://serpapi.com/bing-search-api    (engine=bing)
 """
 
 from __future__ import annotations
@@ -31,6 +31,25 @@ class SerpApiError(ProviderRequestError):
 class SerpApiConfigError(SerpApiError):
     pass
 
+DISABLED_ENGINES: frozenset[str] = frozenset({"google", "baidu"})
+
+
+def _is_engine_disabled(engine: str) -> bool:
+    """Return True if the specified SerpApi engine is disabled."""
+    if not settings.serpapi_enabled:
+        return True
+    engine_lower = engine.strip().lower()
+    disabled_engines = {e.strip().lower() for e in settings.serpapi_disabled_engines}
+    disabled_providers = {p.strip().lower() for p in settings.disabled_providers}
+    if "*" in disabled_engines or "all" in disabled_engines or "serpapi" in disabled_providers:
+        return True
+    return (
+        engine_lower in DISABLED_ENGINES
+        or engine_lower in disabled_engines
+        or f"serpapi_{engine_lower}" in disabled_providers
+        or engine_lower in disabled_providers
+    )
+
 
 def _get_serpapi_api_key() -> str:
     api_key = get_env_value("SERPAPI_API_KEY", settings.serpapi_api_key).strip()
@@ -45,16 +64,24 @@ def _get_engines() -> list[str]:
     """Return the list of engines to query.
 
     Priority: SERPAPI_ENGINES (comma-separated) > SERPAPI_DEFAULT_ENGINE (single).
+    Returns an empty list if all engines are disabled.
     """
+    if not settings.serpapi_enabled:
+        return []
     engines_str = get_env_value("SERPAPI_ENGINES", settings.serpapi_engines).strip()
     if engines_str:
-        engines = [e.strip() for e in engines_str.split(",") if e.strip()]
+        engines = [
+            e.strip()
+            for e in engines_str.split(",")
+            if e.strip() and not _is_engine_disabled(e)
+        ]
         if engines:
             return engines
-    # Fall back to single default engine
+    # Fall back to single default engine if not disabled
     default = settings.serpapi_default_engine.strip()
-    return [default] if default else ["baidu"]
-
+    if default and not _is_engine_disabled(default):
+        return [default]
+    return []
 
 def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
     """Parse organic results from a SerpApi response.
@@ -146,10 +173,14 @@ async def search_serpapi(
     if not query.strip() or num_results < 1:
         return []
 
-    api_key = _get_serpapi_api_key()
-    engines = [engine] if engine else _get_engines()
+    if not settings.serpapi_enabled or (engine and _is_engine_disabled(engine)):
+        raise SerpApiConfigError(f"SerpApi engine '{engine or 'all'}' is disabled.")
 
-    # Single engine: direct pass-through
+    engines = [engine] if engine else _get_engines()
+    if not engines:
+        raise SerpApiConfigError("All SerpApi engines are currently disabled.")
+
+    api_key = _get_serpapi_api_key()
     if len(engines) == 1:
         return await _search_one_engine(query, engines[0], api_key, num_results, http_client)
 

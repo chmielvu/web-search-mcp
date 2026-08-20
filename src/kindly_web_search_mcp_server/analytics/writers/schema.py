@@ -178,6 +178,9 @@ def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
         http_status           INTEGER,
         result_class          VARCHAR,
         response_meta_json    JSON,
+        retry_after_seconds   DOUBLE,
+        retryable             BOOLEAN,
+        provider_call_id      VARCHAR,
         payload_json          JSON
         """,
     )
@@ -279,6 +282,7 @@ def _ensure_search_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key        VARCHAR NOT NULL,
         link           VARCHAR NOT NULL,
+        canonical_result_id VARCHAR,
         title          VARCHAR,
         snippet        VARCHAR,
         domain         VARCHAR,

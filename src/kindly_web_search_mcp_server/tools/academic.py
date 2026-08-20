@@ -7,9 +7,9 @@ from typing import Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
-from ..errors import format_tool_error
+from ..errors import raise_tool_error
 from ..cache import get_query_cache, provider_cache_key
-from ..models import AcademicSearchResultType
+from ..models import AcademicSearchResponse
 from ..search.normalize import normalize_query
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _academic_search_flight, _record_tool_failure, _record_tool_success
@@ -29,7 +29,7 @@ async def academic_search(
     open_access_only: bool = False,
     sort: Literal["relevance", "citations", "date"] = "relevance",
     ctx: Context = CurrentContext(),
-) -> AcademicSearchResultType:
+) -> AcademicSearchResponse:
     """Search scholarly sources with cross-source deduplication.
 
     When to use this tool:
@@ -42,11 +42,9 @@ async def academic_search(
 
     Args:
         query: Academic search query. Use technical terminology for best results.
-        limit: Maximum papers to return (1-20, default 5).
-        sources: Specific sources to query (e.g., ["arxiv", "semanticscholar"]).
-            Available: arxiv, semanticscholar, openalex, crossref, pubmed, core,
-            radon, bn, pbn, polona, dlibra, rds, europeana.
-            Default: arxiv + semanticscholar.
+            Available: arxiv, semanticscholar, researchgate, openalex, crossref,
+            pubmed, core, radon, bn, pbn, polona, dlibra, rds, europeana.
+            Default: arxiv + semanticscholar + researchgate.
         source_type: Source group to query — "general" (default; international
             scholarly indexes), "polish" (Polish scholarly sources: RAD-on,
             Biblioteka Nauki, PBN), or "archive" (historical/digital archives:
@@ -203,4 +201,4 @@ async def academic_search(
             error=str(e)[:200],
         )
 
-        return format_tool_error(e, provider="academic_search")  # type: ignore[return-value]
+        raise_tool_error(e, provider="academic_search")

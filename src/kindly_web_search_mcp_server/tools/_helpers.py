@@ -51,18 +51,32 @@ def _record_tool_failure(tool_name: str) -> None:
 
 
 def _resolve_session_id(ctx: Context | None) -> str | None:
-    if ctx is None:
-        return None
-    fastmcp_context = getattr(ctx, "fastmcp_context", None)
-    if fastmcp_context is not None:
-        session_id = getattr(fastmcp_context, "session_id", None)
+    """Resolve a stable per-session identifier from the FastMCP context.
+
+    Prefers the context's own ``session_id``/``client_id`` properties
+    (available on FastMCP 3.x ``Context``); falls back to the request-scoped
+    ``get_context()`` when the injected context is unavailable.
+    """
+    if ctx is not None:
+        session_id = getattr(ctx, "session_id", None)
         if session_id:
             return str(session_id)
-        client_id = getattr(fastmcp_context, "client_id", None)
+        client_id = getattr(ctx, "client_id", None)
         if client_id:
             return str(client_id)
-    return None
+    try:
+        from fastmcp.server.dependencies import get_context
 
+        request_ctx = get_context()
+    except Exception:  # noqa: BLE001  # outside a request context
+        return None
+    session_id = getattr(request_ctx, "session_id", None)
+    if session_id:
+        return str(session_id)
+    client_id = getattr(request_ctx, "client_id", None)
+    if client_id:
+        return str(client_id)
+    return None
 
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""

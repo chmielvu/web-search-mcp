@@ -80,6 +80,21 @@ class PageSQLiteCache:
         except Exception as exc:  # noqa: BLE001
             logger.warning("page_cache: skipped schema initialization/migration: %s", exc)
 
+    def entry_count(self) -> int:
+        """Return the number of cached page entries (including expired)."""
+        with self._lock:
+            try:
+                con = self._get_connection()
+                try:
+                    self._ensure_schema(con)
+                    row = con.execute("SELECT COUNT(*) FROM page_cache").fetchone()
+                    return int(row[0]) if row else 0
+                finally:
+                    con.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("page_cache: entry_count failed: %s", exc)
+                return 0
+
     def _compute_url_hash(self, canonical_url: str) -> str:
         """Compute a deterministic hash for a canonical URL."""
         return hashlib.sha256(canonical_url.strip().lower().encode()).hexdigest()[:32]

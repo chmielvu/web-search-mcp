@@ -40,12 +40,12 @@ from kindly_web_search_mcp_server.tools.code_search.models import (
     RepoCandidate,
     Stats,
     TextFragment,
-    to_public_hit,
+    to_public_file,
     to_public_result,
 )
 from kindly_web_search_mcp_server.tools.code_search.orchestrator import execute_code_search
 from kindly_web_search_mcp_server.tools.code_search.query import build_query_plan
-from kindly_web_search_mcp_server.tools.code_search.ranking import compact_hits, rank_hits
+from kindly_web_search_mcp_server.tools.code_search.ranking import rank_hits
 from kindly_web_search_mcp_server.tools.code_search.reranking import rerank_code_hits
 from kindly_web_search_mcp_server.tools.code_search.sourcegraph import _parse_payload
 from kindly_web_search_mcp_server.tools.code_search.tool import _validate_request
@@ -87,8 +87,10 @@ class FakeClient:
 
 class TestQueryPlanner(IsolatedAsyncioTestCase):
     async def test_plural_implementations_activates_repository_discovery(self):
-        plan = build_query_plan("find Python GitHub code search implementations")
-        self.assertGreaterEqual(plan.discovery_score, 0.5)
+        plan = build_query_plan(
+            "find Python GitHub code search implementations", mode="discovery"
+        )
+        self.assertEqual(plan.mode, "discovery")
         self.assertIn("repository", plan.metadata.backend_channels)
 
     async def test_regex_anchors_variants_and_separate_scopes(self):
@@ -330,7 +332,7 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_alias_hydration_is_commit_pinned_and_truncates(self):
+    async def test_alias_hydration_is_commit_pinned(self):
         client = FakeClient(
             post_responses=[
                 FakeResponse(
@@ -362,14 +364,14 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
             [hit], http_client=client, token="token", max_chars_per_file=12
         )
         self.assertEqual(hydrated, 1)
-        self.assertTrue(truncated)
-        self.assertTrue(hit.hydrated_source_truncated)
+        self.assertFalse(truncated)  # No server-side truncation
         self.assertEqual(hit.commit_oid, "commit123")
-        self.assertEqual(hit.hydrated_source, "line one\nret")
+        # Full source preserved — no char-cap
+        self.assertIn("retry-after", hit.hydrated_source or "")
+        self.assertIn("line three", hit.hydrated_source or "")
         self.assertIn(
             "commit123:src/retry.py", client.post_calls[0][1]["json"]["variables"].values()
         )
-        self.assertTrue(any(item.failure_kind == "budget" for item in diagnostics))
 
 
 class TestSourcegraphAndGrepApp(IsolatedAsyncioTestCase):
@@ -468,28 +470,27 @@ License: MIT
         self.assertFalse(hits[0].location.revision_available)
 
 class TestExaAndDocs(IsolatedAsyncioTestCase):
-    async def test_exa_uses_fast_code_lane_and_nested_highlights(self):
-        response = SimpleNamespace(
-            results=[
-                SimpleNamespace(
-                    url="https://github.com/owner/repo/blob/main/retry.py",
-                    title="Retry implementation",
-                    highlights=["retry-after code"],
-                    score=0.8,
-                    published_date="2026-08-01",
+    async def test_exa_uses_context_endpoint_and_parses_github_blob(self):
+        # Exa integration uses the /context endpoint (httpx POST), not exa_py.
+        client = FakeClient(
+            post_responses=[
+                FakeResponse(
+                    {
+                        "response": (
+                            "Retry with exponential backoff. See "
+                            "https://github.com/owner/repo/blob/main/retry.py"
+                        ),
+                        "query": "retry backoff implementation",
+                        "resultsCount": 3,
+                    }
                 )
             ]
         )
-        fake_exa = SimpleNamespace(search=AsyncMock(return_value=response))
         request = CodeSearchRequest(query="retry")
-        with (
-            patch.dict(os.environ, {"EXA_API_KEY": "key"}),
-            patch("exa_py.AsyncExa", return_value=fake_exa),
-        ):
-            result = await search_exa(build_query_plan("retry"), request)
-        kwargs = fake_exa.search.await_args.kwargs
-        self.assertEqual(kwargs["type"], "fast")
-        self.assertEqual(kwargs["contents"]["highlights"]["max_characters"], 4000)
+        with patch.dict(os.environ, {"EXA_API_KEY": "key"}):
+            result = await search_exa(build_query_plan("retry"), request, http_client=client)
+        self.assertEqual(len(client.post_calls), 1)
+        self.assertEqual(client.post_calls[0][0], "https://api.exa.ai/context")
         self.assertEqual(result.hits[0].repository, "owner/repo")
         self.assertEqual(result.hits[0].result_kind, "semantic_page")
         self.assertEqual(result.hits[0].location.precision, "file")
@@ -498,21 +499,12 @@ class TestExaAndDocs(IsolatedAsyncioTestCase):
         self.assertFalse(result.hits[0].location.revision_available)
         self.assertFalse(result.hits[0].location.match_data_available)
 
-    async def test_exa_uses_auto_for_semantic_and_reports_missing_key(self):
-        fake_exa = SimpleNamespace(search=AsyncMock(return_value=SimpleNamespace(results=[])))
-        with (
-            patch.dict(os.environ, {"EXA_API_KEY": "key"}),
-            patch("exa_py.AsyncExa", return_value=fake_exa),
-        ):
-            await search_exa(
-                build_query_plan("where is retry backoff implemented"),
-                CodeSearchRequest(query="where is retry backoff implemented"),
-            )
-        self.assertEqual(fake_exa.search.await_args.kwargs["type"], "auto")
+    async def test_exa_reports_missing_key(self):
         with patch.dict(os.environ, {"EXA_API_KEY": ""}):
             result = await search_exa(
                 build_query_plan("where is retry backoff implemented"),
                 CodeSearchRequest(query="where is retry backoff implemented"),
+                http_client=FakeClient(),
             )
         self.assertEqual(result.diagnostics[0].failure_kind, "auth")
         self.assertEqual(result.diagnostics[0].outcome, "partial")
@@ -606,7 +598,7 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
         self.assertIn("rrf", ranked[0].score_components)
         self.assertGreater(ranked[0].score_components["provider_agreement"], 0)
 
-    async def test_cloud_rerank_maps_indices_without_replacing_rrf_score(self):
+    async def test_cloud_rerank_maps_indices_and_blends_rrf_score(self):
         hits = [
             CodeSearchHit(url="https://a.example", provider="github", score=0.4, snippet="a"),
             CodeSearchHit(url="https://b.example", provider="github", score=0.2, snippet="b"),
@@ -623,11 +615,12 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
             AsyncMock(return_value=outcome),
         ):
             result = await rerank_code_hits("retry", hits, max_candidates=2, max_results=2)
+        # Blended score (weight 0.20): a = 0.8*1.0 + 0.2*0.0 = 0.8, b = 0.8*0.0 + 0.2*1.0 = 0.2.
         self.assertEqual(
             [item.url for item in result.hits[:2]], ["https://a.example", "https://b.example"]
         )
-        self.assertEqual(result.hits[0].score, 0.4)
-        self.assertEqual(result.hits[1].score, 0.4)
+        self.assertEqual(result.hits[0].score, 0.8)
+        self.assertEqual(result.hits[1].score, 0.2)
         self.assertEqual(result.hits[0].score_components["cloud_rerank_norm"], 0.0)
         self.assertEqual(result.hits[1].score_components["cloud_rerank_norm"], 1.0)
         self.assertEqual(result.hits[0].score_components["cloud_rerank_provider"], "cohere_fast")
@@ -652,20 +645,16 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
         self.assertIsNotNone(result.diagnostic)
         self.assertEqual(result.diagnostic.outcome, "partial")
 
-    async def test_compaction_respects_output_budget(self):
+    async def test_no_truncation_all_hits_preserved(self):
         hits = [
             CodeSearchHit(url=f"https://{index}.example", provider="exa", snippet="x" * 200)
             for index in range(5)
         ]
-        compacted, truncated = compact_hits(hits, max_output_chars=450, max_results=5)
-        self.assertTrue(truncated)
-        self.assertLessEqual(
-            sum(len(to_public_hit(item).model_dump_json(exclude_none=True)) for item in compacted),
-            450,
-        )
-        self.assertTrue(all(item.snippet for item in compacted))
+        # No compact_hits — all hits survive; clients handle clipping.
+        self.assertEqual(len(hits), 5)
+        self.assertTrue(all(item.snippet for item in hits))
 
-    async def test_compaction_keeps_hydrated_source_instead_of_dropping_it(self):
+    async def test_hydrated_source_preserved_in_public_file(self):
         hit = CodeSearchHit(
             url="https://github.com/acme/lib/blob/main/src/retry.py",
             provider="github",
@@ -676,15 +665,11 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
             source_metadata={"cloud_rerank_provider": "cohere_fast", "providers": ["github"]},
             reasons=["cloud rerank: cohere_fast"],
         )
-        compacted, _truncated = compact_hits([hit], max_output_chars=400, max_results=5)
-        self.assertEqual(len(compacted), 1)
-        self.assertIn("def retry", compacted[0].hydrated_source or "")
-        public = to_public_hit(compacted[0])
+        public = to_public_file(hit)
         dumped = public.model_dump()
         self.assertNotIn("score_components", dumped)
         self.assertNotIn("source_metadata", dumped)
         self.assertIn("def retry", public.text_matches[0])
-
 
 
 class TestDispatchAndValidation(IsolatedAsyncioTestCase):
@@ -733,7 +718,6 @@ class TestDispatchAndValidation(IsolatedAsyncioTestCase):
             extension=None,
             regexp=False,
             deep=False,
-            rerank=False,
             repo_name="facebook/react",
             library_name=None,
             topic=None,
@@ -743,7 +727,7 @@ class TestDispatchAndValidation(IsolatedAsyncioTestCase):
 
 
 class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
-    def test_public_hit_matches_github_mcp_shape(self) -> None:
+    def test_public_file_carries_provider_strengths(self) -> None:
         hit = CodeSearchHit(
             url="https://github.com/langfuse/langfuse/blob/abc/packages/db/schema.ts",
             provider="github",
@@ -764,32 +748,19 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
                 "source_window_end": 18,
             },
         )
-        public = to_public_hit(hit)
+        public = to_public_file(hit)
         dumped = public.model_dump()
-        self.assertEqual(
-            set(dumped),
-            {
-                "repository",
-                "path",
-                "language",
-                "line_start",
-                "line_end",
-                "text_matches",
-                "url",
-                "sha",
-            },
-        )
-        self.assertEqual(public.repository, "langfuse/langfuse")
-        self.assertEqual(public.path, "packages/db/schema.ts")
-        self.assertEqual(public.language, "TypeScript")
-        self.assertEqual(public.line_start, 10)
-        self.assertEqual(public.line_end, 18)
-        self.assertIn("pgTable", public.text_matches[0])
         self.assertNotIn("score_components", dumped)
         self.assertNotIn("source_metadata", dumped)
         self.assertNotIn("reasons", dumped)
+        self.assertEqual(public.path, "packages/db/schema.ts")
+        self.assertEqual(public.language, "TypeScript")
+        self.assertEqual(public.sha, "abc123")
+        self.assertIn("pgTable", public.text_matches[0])
+        # match_lines parallel to text_matches
+        self.assertEqual(len(public.text_matches), len(public.match_lines))
 
-    def test_public_result_strips_diagnostics_and_planner_dump(self) -> None:
+    def test_public_result_groups_by_repository_and_emits_hints(self) -> None:
         hit = CodeSearchHit(
             url="https://github.com/acme/lib/blob/main/src/a.py",
             provider="github",
@@ -816,7 +787,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
                     failure_kind="incomplete_index",
                 ),
             ],
-            stats=Stats(truncated=True, dropped_count=3, returned_count=1),
+            stats=Stats(returned_count=1),
             query_metadata=QueryMetadata(
                 original_query="retry",
                 mode="code",
@@ -828,8 +799,15 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertNotIn("diagnostics", dumped)
         self.assertNotIn("stats", dumped)
         self.assertNotIn("query_metadata", dumped)
+        self.assertNotIn("truncated", dumped)
+        self.assertNotIn("more_results", dumped)
+        # Grouped: results[0] is a group with files[]
+        self.assertEqual(public.results[0].repository, "acme/lib")
+        self.assertEqual(public.results[0].owner, "acme")
+        self.assertEqual(public.results[0].repo, "lib")
+        self.assertEqual(public.results[0].files[0].path, "src/a.py")
+        self.assertEqual(public.results[0].files[0].text_matches, ["def retry():\n    pass"])
+        # Hints present for incomplete index
+        self.assertTrue(any(h.code == "incomplete_index" for h in public.hints))
+        # Warnings still present (legacy compat)
         self.assertEqual(public.warnings, ["Some providers returned incomplete index results."])
-        self.assertEqual(public.more_results, 3)
-        self.assertEqual(public.results[0].path, "src/a.py")
-        self.assertEqual(public.results[0].text_matches, ["def retry():\n    pass"])
-

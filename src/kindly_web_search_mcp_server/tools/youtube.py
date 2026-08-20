@@ -9,12 +9,10 @@ from uuid import uuid4
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
-from ..errors import format_tool_error
+from ..errors import raise_tool_error
 from ..models import (
     YouTubeSearchResponse,
-    YouTubeSearchResultType,
     YouTubeTranscriptResponse,
-    YouTubeTranscriptResultType,
 )
 from ..telemetry import record_youtube_search, record_youtube_transcript
 from ..youtube import (
@@ -42,7 +40,7 @@ async def youtube_transcript(
     output_format: Literal["text", "timestamped", "json"] = "text",
     backend: str | None = None,
     ctx: Context = CurrentContext(),
-) -> YouTubeTranscriptResultType:
+) -> YouTubeTranscriptResponse:
     """Extract captions from a YouTube video.
 
     When to use this tool:
@@ -181,16 +179,10 @@ async def youtube_transcript(
             error_message=error_msg,
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        return {  # type: ignore[return-value]
-            "video_id": "",
-            "video_url": video_id_or_url,
-            "transcript_text": "",
-            "language": language or "en",
-            "error": error_msg,
-            "isError": True,
-            "error_type": "network",
-            "action": "The request took too long. Try again or check network connectivity.",
-        }
+        raise_tool_error(
+            asyncio.TimeoutError(error_msg),
+            provider="youtube",
+        )
 
     except YouTubeError as e:
         record_youtube_transcript(
@@ -211,16 +203,7 @@ async def youtube_transcript(
             error_message=str(e),
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        return {  # type: ignore[return-value]
-            "video_id": "",
-            "video_url": video_id_or_url,
-            "transcript_text": "",
-            "language": language or "en",
-            "error": str(e),
-            "isError": True,
-            "error_type": "content",
-            "action": "Transcripts may be disabled or unavailable for this video.",
-        }
+        raise_tool_error(e, provider="youtube")
 
     except Exception as e:
         record_youtube_transcript(
@@ -231,7 +214,6 @@ async def youtube_transcript(
             backend_used=effective_backend,
         )
         LOGGER.warning("YouTube transcript unexpected error: %s", e)
-        structured = format_tool_error(e, provider="youtube")
         emit_tool_observability_event(
             LOGGER,
             "youtube_transcript",
@@ -239,27 +221,18 @@ async def youtube_transcript(
             tool_call_id=tool_call_id,
             video_id_or_url=video_id_or_url,
             backend=effective_backend,
-            error_type=structured["error_type"],
-            error_message=str(structured["error"]),
+            error_type=type(e).__name__,
+            error_message=str(e),
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        return {  # type: ignore[return-value]
-            "video_id": "",
-            "video_url": video_id_or_url,
-            "transcript_text": "",
-            "language": language or "en",
-            "error": structured["error"],
-            "isError": True,
-            "error_type": structured["error_type"],
-            "action": structured.get("action"),
-        }
+        raise_tool_error(e, provider="youtube")
 
 
 async def youtube_search(
     query: str,
     num_results: int = 5,
     ctx: Context = CurrentContext(),
-) -> YouTubeSearchResultType:
+) -> YouTubeSearchResponse:
     """Find YouTube videos by search query via SearXNG.
 
     When to use this tool:
@@ -363,4 +336,4 @@ async def youtube_search(
             error_message=str(e),
             duration_ms=duration_seconds * 1000,
         )
-        return format_tool_error(e, provider="youtube")  # type: ignore[return-value]
+        raise_tool_error(e, provider="youtube")

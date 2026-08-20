@@ -18,9 +18,25 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
     def test_core_tools_expose_structured_output_schemas(self) -> None:
         os.environ.pop("TOOL_PROFILE", None)
         os.environ.pop("TOOL_SEARCH_ENABLED", None)
-        sys.modules.pop("kindly_web_search_mcp_server.server", None)
-        sys.modules.pop("kindly_web_search_mcp_server.settings", None)
-        from kindly_web_search_mcp_server.server import mcp
+        # Reload server fresh to read the default profile, then restore ALL
+        # evicted package modules so later tests keep single class identities.
+        # Re-importing server pulls the whole package tree (youtube, search,
+        # content, ...) into fresh module objects; without a full restore,
+        # tests that imported those modules earlier keep old references while
+        # sys.modules serves new ones — patch() then silently misses and later
+        # tests hit real network/identity bugs (dataclass_exact_type etc.).
+        package = "kindly_web_search_mcp_server"
+        saved = {
+            name: module
+            for name, module in sys.modules.items()
+            if name == package or name.startswith(package + ".")
+        }
+        sys.modules.pop(package + ".server", None)
+        sys.modules.pop(package + ".settings", None)
+        try:
+            from kindly_web_search_mcp_server.server import mcp
+        finally:
+            sys.modules.update(saved)
 
         tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
 
@@ -35,8 +51,11 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         code_search_schema = str(tools["code_search"].output_schema)
         self.assertIn("query", code_search_schema)
-        self.assertNotIn("mode", code_search_schema)
         self.assertIn("results", code_search_schema)
+        # No public `mode` field on the output payload (mode appears only in
+        # description prose, e.g. "Discovery-mode repository candidates only.").
+        code_search_properties = tools["code_search"].output_schema["properties"]
+        self.assertNotIn("mode", code_search_properties)
         web_schema = str(tools["web_search"].output_schema)
         self.assertIn("query", web_schema)
         self.assertIn("results", web_schema)

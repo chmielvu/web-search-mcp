@@ -49,8 +49,17 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `schema` | Emit the planned CLI command tree as JSON. |
 | `doctor` | Validate scaffold readiness without provider calls. |
 | `getskill` | Print the bundled CLI skill markdown verbatim. |
+| `feedback create` | Record a feedback entry (bug, requirement, suggestion, bad-output). |
+| `feedback list` | List recorded feedback entries. |
+| `feedback show` | Show details for a specific feedback entry by ID. |
+| `feedback close` | Mark a feedback entry as closed. |
+| `feedback transition` | Transition feedback status (`open`, `investigating`, `resolved`, `wontfix`). |
+| `skills` | List registered skills or print one verbatim by name. |
+| `inference describe` | Describe registered models, providers, and chains without secrets. |
+| `inference validate` | Validate that chain references resolve to registered models/adapters. |
+| `inference chain` | Inspect a single inference chain's configuration and provider details. |
 | `search web` | Run the full multi-provider web search pipeline. |
-| `search quick` | Run the Composio/Exa-backed quick web search path. |
+| `search quick` | Run the Parallel AI-backed quick web search path. |
 | `search academic` | Search scholarly sources and return deduplicated papers. |
 | `search code` | Search public code, documentation, and GitHub repositories. |
 | `content get` | Fetch one known URL with bounded windowing. |
@@ -58,12 +67,12 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `links discover` | Discover links on a page or sitemap. |
 | `links similar` | Find similar links to a known good URL (Composio). |
 | `ai gemini` | Run a Gemini-grounded search with citations. |
-| `ai grok` | Run a Grok (OpenRouter) live search with citations. |
+| `ai grok` | Run a native xAI Grok live search with citations. |
 | `youtube search` | Search YouTube videos via the SearXNG YouTube engine. |
 | `youtube transcript` | Fetch a YouTube transcript with optional translation/formatting. |
 | `analytics query` | Run a natural-language analytics question against DuckDB. |
 | `analytics report` | Run a deterministic analytics report. |
-| `sitemap generate` | Generate a sitemap with Tavily Map and legacy Crawl4AI fallback. |
+| `sitemap generate` | Generate a sitemap with Tavily Map. |
 | `experiments list` | List all experiments from the A/B config YAML. |
 | `experiments enable` | Set an experiment status to `running`. |
 | `experiments disable` | Set an experiment status to `paused`. |
@@ -73,7 +82,6 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `reference tools` | Emit MCP-tool to CLI-command coverage. |
 | `reference external-tools` | Emit companion CLI tools to invoke directly. |
 | `server start` | Start the MCP server with the chosen transport. |
-
 ## Command reference
 
 ### `schema`
@@ -118,11 +126,10 @@ search → RRF merge → rerank).
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--query` | string (required) | — | Search query text. |
+| `--query` / `-q` | list[str] (required) | — | Search query text (repeat up to 4 times for multi-query search). |
 | `--research-goal` | string (required) | — | Required search objective that drives the query policy layer. |
-| `--num-results` | int | `15` | Number of results to return (clamped `15`–`50`). |
 | `--rewrite` / `--no-rewrite` | bool | `True` | Run query rewrite/expansion before searching. |
-| `--result-offset` | int | `0` | Skip the first N merged results. |
+| `--reranking-instructions` | string | — | Instructions for cross-encoder & LLM rerankers specifying what sites to prioritize/demote. |
 | `--searxng-category` | list[str] | — | SearXNG categories; repeatable. |
 | `--searxng-engine` | list[str] | — | SearXNG engines; repeatable. |
 | `--searxng-language` | string | — | SearXNG language code (e.g. `en`). |
@@ -143,14 +150,15 @@ web-search-cli search web --query "async python patterns" --research-goal "surve
 
 ### `search quick`
 
-Run the Composio/Exa-backed quick web search path.
+Run the Parallel AI-backed quick web search path.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
-| `--query` | string (required) | — | Search query text. |
+| `--search-query` / `--query` | list[str] (required) | — | Keyword search query (3-6 words; repeat for 2-3 queries). |
+| `--objective` / `--research-goal` | string (required) | — | Research goal — what you are trying to accomplish with this search. |
 
 ```powershell
-web-search-cli search quick --query "latest openai announcements"
+web-search-cli search quick --query "latest openai announcements" --objective "track recent product releases"
 ```
 
 ### `search academic`
@@ -160,8 +168,9 @@ Search scholarly sources and return deduplicated papers.
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--query` | string (required) | — | Search query text. |
-| `--limit` | int | `5` | Max papers to return. |
+| `--limit` | int | `5` | Max papers to return (clamped 1–20). |
 | `--source` | list[str] | — | Scholarly source(s); repeatable. |
+| `--source-type` | string | — | Source type filter (`general`, `polish`, `archive`). |
 | `--year-from` | int | — | Lower bound on publication year. |
 | `--year-to` | int | — | Upper bound on publication year. |
 | `--field-of-study` | list[str] | — | Field-of-study filter(s); repeatable. |
@@ -208,7 +217,7 @@ Fetch one known URL with bounded windowing.
 | `--url` | string (required) | — | URL to fetch. |
 | `--char-offset` | int | `0` | Start offset in the extracted markdown. |
 | `--char-length` | int | `20000` | Max characters to return from `--char-offset`. |
-| `--summary-mode` | `none` \| `brief` \| `detailed` | `none` | Optional summary level. |
+| `--ai-summary` / `--no-ai-summary` | bool | `False` | Include a detailed source-grounded Gemini summary. |
 | `--focus-query` | string | — | Optional focus query for the summary. |
 | `--include-metadata` / `--no-include-metadata` | bool | `True` | Include page metadata in the response. |
 | `--include-links` / `--no-include-links` | bool | `False` | Include extracted links. |
@@ -217,7 +226,7 @@ Fetch one known URL with bounded windowing.
 
 ```powershell
 web-search-cli content get --url "https://example.com/post" --char-length 8000
-web-search-cli content get --url "https://example.com/post" --summary-mode brief --focus-query "deployment steps"
+web-search-cli content get --url "https://example.com/post" --ai-summary --focus-query "deployment steps"
 ```
 
 ### `content batch`
@@ -232,7 +241,7 @@ Fetch multiple URLs with a total content budget and bounded concurrency.
 | `--per-item-char-length` | int | `12000` | Max characters per URL. |
 | `--total-char-budget` | int | `120000` | Max total characters across the batch. |
 | `--per-url-timeout-seconds` | float | `120.0` | Per-URL fetch timeout. |
-| `--summary-mode` | `none` \| `brief` \| `detailed` | `none` | Optional summary level for each fetched URL. |
+| `--ai-summary` / `--no-ai-summary` | bool | `False` | Include a detailed source-grounded Gemini summary for each item. |
 | `--focus-query` | string | — | Optional focus query for the summaries. |
 | `--include-metadata` / `--no-include-metadata` | bool | `True` | Include page metadata. |
 | `--include-links` / `--no-include-links` | bool | `False` | Include extracted links. |
@@ -241,7 +250,7 @@ Fetch multiple URLs with a total content budget and bounded concurrency.
 
 ```powershell
 web-search-cli content batch --url "https://a.example/post" --url "https://b.example/post" --total-char-budget 60000
-web-search-cli content batch --url "https://a.example/post" --url "https://b.example/post" --summary-mode brief --focus-query "API changes"
+web-search-cli content batch --url "https://a.example/post" --url "https://b.example/post" --ai-summary --focus-query "API changes"
 ```
 
 ### `links discover`
@@ -294,13 +303,13 @@ web-search-cli ai gemini --query "what changed in python 3.13 asyncio"
 
 ### `ai grok`
 
-Run a Grok (OpenRouter) live search with citations.
+Run a native xAI Grok live search with citations via the direct Responses API.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--query` | string (required) | — | Search query text. |
 | `--research-goal` | string | `""` | Research goal forwarded to the model. |
-| `--model` | string | — | Override the OpenRouter model id. |
+| `--model` | string | `grok-4.5` | Override the xAI Grok model id (e.g. `grok-4.5`). |
 | `--num-results` | int | `5` | Number of search results to surface. |
 | `--allowed-domain` | list[str] | — | Domains the model may cite; repeatable. |
 | `--excluded-domain` | list[str] | — | Domains the model must not cite; repeatable. |
@@ -373,9 +382,8 @@ web-search-cli analytics report --report-name "provider-performance" --days 14
 
 ### `sitemap generate`
 
-Generate a sitemap using Tavily Map as the primary backend, with legacy
-Crawl4AI as fallback. Tavily Map supports natural-language mapping
-instructions and regex path/domain filters.
+Generate a sitemap using Tavily Map. Tavily Map supports natural-language
+mapping instructions and regex path/domain filters.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -393,6 +401,127 @@ instructions and regex path/domain filters.
 ```powershell
 web-search-cli sitemap generate --url "https://docs.python.org/3/" --max-depth 2
 web-search-cli sitemap generate --url "https://example.com/docs" --instructions "only API reference pages" --select-paths "/api/" --exclude-paths "/draft/"
+```
+
+### `feedback`
+
+Record and manage project feedback entries stored in `feedback/{id}.json`.
+
+#### `feedback create`
+
+Create a new feedback entry.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--message` | string (required) | — | Feedback description message. |
+| `--feedback-type` | string | `bug` | Feedback type (`bug`, `requirement`, `suggestion`, `bad-output`). |
+| `--command-context` | string | — | Command or context where the issue occurred. |
+| `--exit-code` | int | `0` | Exit code associated with the event. |
+
+```powershell
+web-search-cli feedback create --message "Search timed out on SearXNG" --feedback-type bug --command-context "search web"
+```
+
+#### `feedback list`
+
+List recorded feedback entries with optional filtering.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--feedback-type` | string | — | Filter by feedback type. |
+| `--status` | string | — | Filter by status (`open`, `investigating`, `resolved`, `wontfix`). |
+
+```powershell
+web-search-cli feedback list --status open
+```
+
+#### `feedback show`
+
+Show full details for a feedback entry by ID.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `FEEDBACK_ID` | string (required) | Feedback ID to inspect (e.g. `001`). |
+
+```powershell
+web-search-cli feedback show 001
+```
+
+#### `feedback close`
+
+Mark a feedback entry as closed.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `FEEDBACK_ID` | string (required) | Feedback ID to close (e.g. `001`). |
+
+```powershell
+web-search-cli feedback close 001
+```
+
+#### `feedback transition`
+
+Transition feedback status.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `FEEDBACK_ID` | string (required) | Feedback ID to transition. |
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--status` | string (required) | — | Target status (`open`, `investigating`, `resolved`, `wontfix`). |
+
+```powershell
+web-search-cli feedback transition 001 --status resolved
+```
+
+### `skills`
+
+List registered agent skills or output a skill's full markdown verbatim by name.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `NAME` | string (optional) | Skill name to display verbatim (e.g. `web-search-cli`, `getting-started`). |
+
+```powershell
+web-search-cli skills
+web-search-cli skills getting-started
+```
+
+### `inference`
+
+Inspect and validate the inference subsystem (models, adapters, chains).
+
+#### `inference describe`
+
+Describe registered models, providers, and chains without secrets.
+
+```powershell
+web-search-cli inference describe
+```
+
+#### `inference validate`
+
+Validate that all chain references resolve to registered models and adapters.
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--strict` / `--no-strict` | bool | `False` | Exit with non-zero status on validation errors. |
+
+```powershell
+web-search-cli inference validate --strict
+```
+
+#### `inference chain`
+
+Inspect a single chain's configuration and provider details.
+
+| Arg | Type | Description |
+| --- | --- | --- |
+| `NAME` | string (required) | Chain name to inspect (e.g. `fast_rewrite`). |
+
+```powershell
+web-search-cli inference chain fast_rewrite
 ```
 
 ### `experiments`
@@ -597,7 +726,7 @@ MCP surfaces stay in sync.
 | Expand a known URL into outgoing links | `links discover` | `discover_links` | Page/sitemap link discovery without body extraction. |
 | Find videos | `youtube search` | `youtube_search` | SearXNG YouTube engine. |
 | Extract video speech | `youtube transcript` | `youtube_transcript` | Timestamped or plain text, optional translation. |
-| Quick synthesized answer (Exa) | `search quick` | `quick_web_search` | Exa-backed, lighter than Gemini/Grok. |
+| Quick synthesized answer (Parallel AI) | `search quick` | `quick_web_search` | Parallel AI-backed, fast keyword discovery. |
 | Expand from a known good URL | `links similar` | `composio_similarlinks` | Neural similarity, include/exclude domain filters. |
 | Local analytics question | `analytics query` | — | Native CLI analytics command (Guarded DuckDB query). |
 | Deterministic analytics report | `analytics report` | — | Native CLI analytics report command (Fixed report catalog). |
@@ -616,9 +745,7 @@ from the `web_search` docstring:
   objective. This drives the query policy layer (intent classification,
   provider selection, branch planning). Make it specific: "find current
   best practices for LLM function calling in 2026", not "function calling".
-- **`--num-results`**: default `15`, clamped to `15`–`50`. Results are
-  diversity-pruned, so 15 already gives good breadth. Use 30+ for deep
-  research, 15 for standard discovery.
+- **`--reranking-instructions`**: optional cross-encoder / LLM reranking guidance to boost or demote specific source types.
 - **`--domain-boost`** moves matches to the front of results
   (`stackoverflow.com`, `github.com`). **`--domain-block`** removes them
   (`pinterest.com`, `quora.com`). Both support subdomain and path-aware
@@ -634,9 +761,9 @@ Mirror of the server's `_SEARCH_TOOL_ROUTING` depth block:
 
 - **quick**: `ai gemini` or `search quick`. Skip content extraction
   unless really needed.
-- **medium**: `search web` (`--num-results 15`) → `content batch` on the
+- **medium**: `search web` → `content batch` on the
   best 2–3 → `ai gemini` for synthesis.
-- **deep**: `search web` (`--num-results 30`, default rewrite) →
+- **deep**: `search web` (default rewrite) →
   `content batch` on the top 5 → `ai grok` on the refined query →
   `search academic` if scholarly sources are required.
 
@@ -727,8 +854,8 @@ Termination criteria — stop when **all** apply:
 
 Breadth decay (each iteration narrower than the last):
 
-- Round 1: broad discovery (`search web --num-results 15`, rewrite on).
-- Round 2: targeted follow-up (2–3 refined queries, `--num-results 15`).
+- Round 1: broad discovery (`search web`, rewrite on).
+- Round 2: targeted follow-up (2–3 refined `search web` queries).
 - Round 3: pinpoint verification (1–2 precise queries, `--no-rewrite`).
 - `links similar` on the best URL from round 1 to discover adjacent
   pages.
@@ -803,9 +930,8 @@ From `_SOURCE_TRIAGE_RULES`:
 Some commands are explicitly marked as expensive or non-idempotent in
 `tools/catalog.py`:
 
-- `ai grok` is **expensive** and **not idempotent** (live web + X data).
-  Default cost: Grok 4.3 tokens ($1.25/$2.50 per 1M) + search tool
-  usage. Requires `OPENROUTER_API_KEY`.
+  Default cost: Grok 4.5 tokens + native xAI search tool
+  usage. Requires `XAI_API_KEY`.
 - `content batch` is bounded by `BATCH_GET_CONTENT_MAX_URLS`
   (default 30) and `BATCH_TOTAL_CHAR_BUDGET_MAX` (default
   300 000) server-side.
@@ -865,7 +991,7 @@ docstring's `When to use` and `When not to use` blocks.
 - **`search web`**: default for discovery. Use `--no-rewrite` for exact
   literals only. Don't use when you already have a specific URL — go
   to `content get`.
-- **`search quick`**: for an Exa-backed synthesised answer with
+- **`search quick`**: for a Parallel AI-backed synthesised answer with
   citations. Don't use for paywalled or private content (not indexed).
 - **`search academic`**: scholarly sources only. Don't use for general
   web questions; don't fetch full PDFs before selecting papers.
@@ -899,7 +1025,7 @@ the top result:
 
 ```powershell
 web-search-cli schema
-web-search-cli search web --query "function calling best practices 2026" --research-goal "find current best practices for LLM function calling" --num-results 15
+web-search-cli search web --query "function calling best practices 2026" --research-goal "find current best practices for LLM function calling"
 web-search-cli content get --url "<top-result-url>" --char-length 8000
 ```
 
@@ -933,8 +1059,9 @@ Optional for advanced features:
 ```powershell
 $env:MISTRAL_API_KEY = "..."                       # query rewrite
 $env:GEMINI_API_KEY = "..."                        # ai gemini
-$env:OPENROUTER_API_KEY = "..."                    # ai grok
-$env:YOUTUBE_TRANSCRIPT_PROXY_URL = "..."          # youtube transcript from cloud IPs
+$env:XAI_API_KEY = "..."                           # ai grok (native xAI Responses API)
+$env:PARALLEL_API_KEY = "..."                      # search quick (Parallel AI)
+$env:OPENROUTER_API_KEY = "..."                    # OpenRouter rerank / rankllm
 ```
 
 ## Implementation pointers

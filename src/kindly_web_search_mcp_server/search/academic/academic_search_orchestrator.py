@@ -43,6 +43,7 @@ PROVIDER_SOURCE_TYPES: dict[str, str] = {
     "crossref": "general",
     "pubmed": "general",
     "core": "general",
+    "researchgate": "general",
     "radon": "polish",
     "bn": "polish",
     "pbn": "polish",
@@ -60,6 +61,7 @@ PROVIDER_ALIASES: dict[str, set[str]] = {
     "crossref": {"crossref", "cr", "doi"},
     "pubmed": {"pubmed", "pm", "medline"},
     "core": {"core"},
+    "researchgate": {"researchgate", "rg"},
     "radon": {"radon", "rad-on", "polon"},
     "bn": {"bn", "bibliotekanauki", "biblioteka-nauki", "biblioteka_nauki"},
     "pbn": {"pbn"},
@@ -71,9 +73,14 @@ PROVIDER_ALIASES: dict[str, set[str]] = {
 
 # source_type → default providers when the caller asks for a group.
 SOURCE_TYPE_DEFAULTS: dict[str, list[str]] = {
-    "general": ["arxiv", "semanticscholar"],
-    "polish": ["radon", "bn"],
-    "archive": ["polona", "rds"],
+    # general: cheap, always-on, broad-coverage indexes (S2 rate-limits fast;
+    # ResearchGate is OpenAlex-aliased and benefits from S2_API_KEY being unset
+    # to fall through to arxiv-only when rate-limited).
+    "general": ["arxiv", "semanticscholar", "researchgate"],
+    # polish: nationwide registry (RAD-on) + BN (no key); PBN needs PBN_APP_*.
+    "polish": ["radon", "bn", "pbn"],
+    # archive: Polona (fulltext) + RDS Dataverse (datasets) + Europeana (key).
+    "archive": ["polona", "rds", "europeana"],
 }
 
 # Per-run resilience state (single event loop; module-level is fine for the
@@ -403,6 +410,16 @@ async def run_academic_search(
 
         return await search_europeana(query, limit=overfetch)
 
+    async def _search_researchgate_fn() -> list[AcademicPaper]:
+        from .academic_researchgate import search_researchgate
+
+        return await search_researchgate(
+            query,
+            limit=overfetch,
+            year_from=year_from,
+            year_to=year_to,
+        )
+
     _PROVIDER_FNS = {
         "semanticscholar": _search_s2,
         "arxiv": _search_arxiv_fn,
@@ -417,6 +434,7 @@ async def run_academic_search(
         "dlibra": _search_dlibra_fn,
         "rds": _search_rds_fn,
         "europeana": _search_europeana_fn,
+        "researchgate": _search_researchgate_fn,
     }
 
     tasks = [_run_provider(name, _PROVIDER_FNS[name]) for name in active_sources]

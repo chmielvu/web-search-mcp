@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import asyncio
+
 import httpx
 
 from .utils.observability import emit_observability_event
@@ -132,6 +134,15 @@ def classify_error(
                 action="Set YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
                 provider="youtube",
             )
+
+    # asyncio timeouts (asyncio.wait_for / asyncio.timeout)
+    if isinstance(error, asyncio.TimeoutError):
+        return StructuredToolError(
+            error=f"Request timed out: {str(error)[:80]}",
+            error_type="network",
+            action="The request took too long. Try again with a simpler query or check network connectivity.",
+            provider=provider,
+        )
 
     # Generic fallback
     return StructuredToolError(
@@ -303,6 +314,47 @@ def format_tool_error(
         action=structured.action,
     )
     return structured.to_dict()
+
+
+def raise_tool_error(
+    error: Exception,
+    provider: str | None = None,
+) -> None:
+    """Classify an exception and raise it as a FastMCP ``ToolError``.
+
+    P0 pattern: tools must raise ``ToolError`` instead of returning error
+    dicts so the MCP SDK marks the call result ``isError: True`` at the
+    protocol level (error dicts look like successful results to clients).
+
+    The classified ``StructuredToolError`` is attached to the raised
+    exception as ``.structured`` so middleware (e.g. query guidance) can
+    enrich the error with recovery guidance without re-classifying.
+
+    Args:
+        error: The exception to classify and raise.
+        provider: Optional provider name (e.g. "searxng", "tavily").
+
+    Raises:
+        ToolError: Always (never returns).
+    """
+    from fastmcp.exceptions import ToolError
+
+    structured = classify_error(error, provider=provider)
+    emit_observability_event(
+        logger,
+        "tool.error.classified",
+        provider=provider,
+        error_type=structured.error_type,
+        status_code=structured.status_code,
+        retry_after=structured.retry_after,
+        action=structured.action,
+    )
+    message = structured.error
+    if structured.action:
+        message = f"{message} {structured.action}"
+    tool_error = ToolError(message)
+    tool_error.structured = structured  # type: ignore[attr-defined]
+    raise tool_error
 
 
 def is_error_response(response: dict[str, Any]) -> bool:

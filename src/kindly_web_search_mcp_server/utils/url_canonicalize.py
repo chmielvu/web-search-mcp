@@ -38,10 +38,16 @@ def extract_domain_from_url(url: str) -> str | None:
 
     Returns the hostname in lowercase with 'www.' prefix removed.
     Returns None for invalid or empty URLs.
+    Accepts bare hosts (e.g. "docs.python.org") as well as full URLs.
     """
     try:
         parsed = urlsplit(url)
         host = parsed.hostname
+        if not host and not parsed.scheme and not parsed.netloc:
+            # Bare-domain form (e.g. "docs.python.org"): urlsplit puts it in path.
+            candidate = parsed.path.split("/", 1)[0].strip()
+            if candidate and "." in candidate:
+                return candidate.lower().removeprefix("www.")
         if host:
             return host.lower().removeprefix("www.")
     except Exception:

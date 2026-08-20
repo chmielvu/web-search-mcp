@@ -1,26 +1,27 @@
 # AGENTS.md - Embeddings
 
-HF Inference embedding client used by cache and rerank.
+Embedding subsystem for web-search-mcp.
+Unified ML ONNX service (`http://127.0.0.1:8000`, `intfloat/multilingual-e5-small`, 384d)
+is the primary provider, with Hugging Face Inference API available as an alternate/fallback provider.
 
 ## Key Files
 
 | File | Role |
 |---|---|
-| `hf_inference.py` | HF Inference API embedding client (model: `intfloat/multilingual-e5-large-instruct`, 1024d) |
-| `rate_limiter.py` | Batched / rate-limited embedding wrapper |
+| `unified_ml.py` | Primary embedding client for VPS/local Unified ML service (`intfloat/multilingual-e5-small`, 384d, OpenAI/FastEmbed/TEI endpoints) |
+| `hf_inference.py` | Alternate/fallback HF Inference API client (`intfloat/multilingual-e5-large-instruct` / custom) |
+| `__init__.py` | Unified dispatcher routing to primary provider with error handling and fallback |
 
 ## Rules
 
-- Embeddings served through Hugging Face Inference API.
-- `hf_inference.py` owns the singleton provider client, validation, circuit breaker,
-  and per-call timeouts.
-- Singleton `AsyncInferenceClient` is reused for TCP/TLS connection pooling.
-- No local fallback module in current tree.
-- Public surface: `embed_query`, `embed_texts`, `EMBEDDING_DIM`, `BatchLimitedEmbeddings`.
+- Unified ML ONNX service on port 8000 is the default embedding provider (`settings.embedding_provider = "unifiedml"`).
+- `unified_ml.py` and `hf_inference.py` own singleton clients, connection pooling, validation, circuit breakers, and timeouts.
+- For E5 models, queries are automatically formatted with the appropriate prefix (`query: <query>` for standard E5 or `Instruct: ...\nQuery: <query>` for instruct variants).
+- Public surface: `embed_query`, `embed_texts`, `EMBEDDING_DIM`, `reset_embedding_clients`, `reset_unifiedml_client`, `reset_hf_client`.
 
 ## Testing
 
 ```bash
+uv run pytest tests/test_unified_ml_embeddings.py
 uv run pytest tests/test_hf_inference_embeddings.py
-uv run pytest tests/test_semantic_cache_schema.py
 ```

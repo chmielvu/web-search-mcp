@@ -1,104 +1,164 @@
-"""Test that the quality dashboard JSON is valid and contains the Phase 9 joint panels using real event names (no semantic cache panels)."""
+"""Test that the dashboard JSONs are valid and use the current (v2, 2026-07-29) metric names and panel titles."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
-def test_quality_dashboard_json_parses_and_has_joint_panels():
-    path = Path("grafana/dashboards/kindly-mcp-quality-dashboard.json")
-    assert path.exists(), "dashboard json must exist"
+
+def _load_dashboard(name: str) -> dict:
+    path = _REPO_ROOT / "grafana" / "dashboards" / f"kindly-mcp-{name}-dashboard.json"
+    assert path.exists(), f"dashboard json must exist: {path}"
     data = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
     assert data.get("title"), "title required"
+    return data
 
-    panels = [p.get("title", "") for p in data.get("panels", [])]
-    panel_lower = [t.lower() for t in panels]
 
-    # Must have panels for the new areas (real events from phases 1-8 +9)
-    assert any(
-        "tool profile" in t or "profile usage" in t or "tool_surface" in t for t in panel_lower
-    ), f"missing tool profile usage panel; titles: {panels}"
-    assert any(
-        "result memory" in t or "result-memory" in t or "result_memory" in t for t in panel_lower
-    ), f"missing result-memory panel; titles: {panels}"
-    assert any(
-        ("rerank" in t and ("latency" in t or "quality" in t or "duration" in t))
-        for t in panel_lower
-    ), f"missing rerank latency/quality panel; titles: {panels}"
-    assert any("eval" in t and ("pass" in t or "rate" in t) for t in panel_lower), (
-        f"missing eval pass rate panel; titles: {panels}"
-    )
-    assert any("entity" in t and "latency" in t for t in panel_lower), (
-        f"missing entity extraction latency panel; titles: {panels}"
-    )
+def _titles(data: dict) -> list[str]:
+    return [p.get("title", "") for p in data.get("panels", [])]
 
-    # Explicitly no semantic cache panels per joint plan resolution
-    semantic_titles = [t for t in panels if "semantic cache" in t.lower()]
+
+def _exprs(data: dict, title: str) -> list[str]:
+    panel = next(p for p in data["panels"] if p.get("title") == title)
+    out: list[str] = []
+    for target in panel.get("targets", []):
+        expr = target.get("expr", "")
+        if isinstance(expr, list):
+            out.extend(e for e in expr if isinstance(e, str))
+        elif isinstance(expr, str):
+            out.append(expr)
+    return out
+
+
+def test_quality_dashboard_json_parses_and_has_otel_quality_panels():
+    data = _load_dashboard("quality")
+    titles = _titles(data)
+
+    # v2 quality dashboard: OTel-fed NDCG/judge/rerank panels (no semantic cache).
+    for expected in (
+        "Avg NDCG@10",
+        "Avg Judge Score",
+        "Domain Diversity",
+        "Provider Overlap Rate",
+        "Rerank Compression",
+        "Judge Evaluations",
+        "NDCG@10 Over Time",
+        "Judge Score Distribution",
+        "RRF Score Distribution",
+        "Judge Score Histogram",
+        "Quality Grade",
+        "Quality Tier Distribution",
+        "Judge Evaluation Details",
+    ):
+        assert expected in titles, f"missing panel {expected!r}; titles: {titles}"
+
+    # Metric names must be the current OTel ones.
+    all_exprs = " ".join(e for t in titles for e in _exprs(data, t))
+    assert "search_ndcg_at_10" in all_exprs
+    assert "judge_evaluation_overall_score" in all_exprs
+    assert "search_rrf_score_bucket" in all_exprs
+
+    semantic_titles = [t for t in titles if "semantic cache" in t.lower()]
     assert not semantic_titles, f"semantic cache panels must not be present: {semantic_titles}"
 
 
-def test_overview_dashboard_json_parses_and_has_loki_panels():
-    path = Path("grafana/dashboards/kindly-mcp-overview-dashboard.json")
-    assert path.exists(), "dashboard json must exist"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
-    assert data.get("title"), "title required"
+def test_overview_dashboard_json_parses_and_has_golden_signal_panels():
+    data = _load_dashboard("overview")
+    titles = _titles(data)
 
-    panels = data.get("panels", [])
-    titles = [p.get("title", "") for p in panels]
-    assert "Loki Log Lines (15m)" in titles, f"missing Loki log volume panel: {titles}"
-    assert "OTLP Export 404s (1h)" in titles, f"missing OTLP panel: {titles}"
-    assert "Loki ERROR Lines (1h)" in titles, f"missing Loki error panel: {titles}"
+    for expected in (
+        "Request Rate (5m)",
+        "Error Rate (5m)",
+        "p95 Latency",
+        "LLM Cost Rate",
+        "Active Providers",
+        "Cache Hit Rate",
+        "Request & Error Rate",
+        "Latency Percentiles",
+        "Token Usage by Purpose",
+        "Cost by Provider",
+        "Provider Health Status",
+    ):
+        assert expected in titles, f"missing panel {expected!r}; titles: {titles}"
 
-    loki_panels = [p for p in panels if p.get("title") in titles[-3:]]
-    expressions = [
-        target.get("expr", "") for panel in loki_panels for target in panel.get("targets", [])
-    ]
-    assert all('service_name="$service"' in expr for expr in expressions), expressions
-
-
-def test_pipeline_dashboard_json_uses_current_rrf_metric_name():
-    path = Path("grafana/dashboards/kindly-mcp-pipeline-dashboard.json")
-    assert path.exists(), "dashboard json must exist"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
-
-    titles = [p.get("title", "") for p in data.get("panels", [])]
-    assert "Avg Providers per Search" in titles, titles
-
-    panel = next(p for p in data["panels"] if p.get("title") == "Avg Providers per Search")
-    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
-    assert any("web_search_rrf_provider_contribution{" in expr for expr in exprs), exprs
-    assert all("web_search_rrf_provider_contribution_total" not in expr for expr in exprs), exprs
+    # Golden-signal panels must be service-scoped.
+    all_exprs = " ".join(e for t in titles for e in _exprs(data, t))
+    assert 'service="${service}"' in all_exprs
 
 
-def test_content_dashboard_json_uses_crawl4ai_remote_stage():
-    path = Path("grafana/dashboards/kindly-mcp-content-dashboard.json")
-    assert path.exists(), "dashboard json must exist"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
+def test_pipeline_dashboard_json_uses_current_rerank_metric_names():
+    data = _load_dashboard("pipeline")
+    titles = _titles(data)
 
-    titles = [p.get("title", "") for p in data.get("panels", [])]
-    assert "crawl4ai_remote Usage %" in titles, titles
+    for expected in (
+        "Rewrite Rate (5m)",
+        "Rerank Rate (5m)",
+        "Avg Candidates In",
+        "Avg Results Out",
+        "Bi-Encoder p95",
+        "Cross-Encoder p95",
+        "Pipeline Stage Latency (p95)",
+        "Candidates Through Pipeline",
+        "Rewrite Latency",
+        "Score Distribution by Stage",
+        "Stage Compression Ratio",
+        "Entity Overlap Score",
+        "Diversity Filter Rate",
+        "Avg Recency Boost",
+        "Stage Performance Summary",
+    ):
+        assert expected in titles, f"missing panel {expected!r}; titles: {titles}"
 
-    panel = next(p for p in data["panels"] if p.get("title") == "crawl4ai_remote Usage %")
-    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
-    assert any('content_final_stage="crawl4ai_remote"' in expr for expr in exprs), exprs
+    all_exprs = " ".join(e for t in titles for e in _exprs(data, t))
+    assert "rerank_stage_duration_seconds_bucket" in all_exprs
+    # The old RRF provider-contribution counter was removed in the v2 overhaul.
+    assert "web_search_rrf_provider_contribution_total" not in all_exprs
+
+
+def test_content_dashboard_json_uses_crawl4ai_stage_label():
+    data = _load_dashboard("content")
+    titles = _titles(data)
+
+    for expected in (
+        "Content Resolutions (5m)",
+        "Crawl4AI Usage %",
+        "Fallback Rate (5m)",
+        "Avg Word Count",
+        "Avg Size (bytes)",
+        "Success Rate",
+        "Resolutions by Stage",
+        "Extraction Latency (p95)",
+        "Fallbacks Over Time",
+        "Word Count Distribution",
+        "Stage Distribution",
+        "Avg Fallback Count",
+        "Stage Performance",
+    ):
+        assert expected in titles, f"missing panel {expected!r}; titles: {titles}"
+
+    exprs = _exprs(data, "Crawl4AI Usage %")
+    assert any('content_stage="crawl4ai"' in expr for expr in exprs), exprs
     assert all("browser_nodriver" not in expr for expr in exprs), exprs
 
 
 def test_provider_dashboard_json_includes_circuit_state_panels():
-    path = Path("grafana/dashboards/kindly-mcp-providers-dashboard.json")
-    assert path.exists(), "dashboard json must exist"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
+    data = _load_dashboard("providers")
+    titles = _titles(data)
 
-    titles = [p.get("title", "") for p in data.get("panels", [])]
-    assert "Providers in Open/Half-Open State" in titles, titles
-    assert "Current Circuit States" in titles, titles
+    for expected in (
+        "Provider Request Rate",
+        "Provider p95 Latency",
+        "Provider Success Rate",
+        "Provider Error Rate",
+        "Provider Freshness (seconds since last success)",
+        "Circuit Breaker State Changes",
+        "Results Returned per Provider",
+        "Provider Health Summary",
+    ):
+        assert expected in titles, f"missing panel {expected!r}; titles: {titles}"
 
-    panel = next(p for p in data["panels"] if p.get("title") == "Providers in Open/Half-Open State")
-    exprs = [target.get("expr", "") for target in panel.get("targets", [])]
-    assert any("web_search_provider_circuit_state" in expr for expr in exprs), exprs
+    exprs = _exprs(data, "Circuit Breaker State Changes")
+    assert any("circuit_breaker_transitions_total" in expr for expr in exprs), exprs

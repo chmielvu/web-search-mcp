@@ -62,7 +62,6 @@ async def test_rewrite_queries_handles_4_items_resiliently(monkeypatch) -> None:
         research_goal="test goal",
         terms=(),
         suggestions=(),
-        correction=None,
         current_year="2026",
         intent="ai_coding_and_infrastructure",
     )

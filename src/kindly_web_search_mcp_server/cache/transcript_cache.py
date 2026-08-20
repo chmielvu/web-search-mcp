@@ -30,6 +30,14 @@ class TranscriptCache:
     def __init__(self, db_path: str | None = None) -> None:
         self._backend = _TranscriptSQLiteCache(db_path=db_path)
 
+    def entry_count(self) -> int:
+        """Return the number of cached transcript entries."""
+        try:
+            return self._backend.entry_count()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Transcript cache entry_count failed: %s", exc)
+            return 0
+
     def lookup(
         self,
         video_id: str,

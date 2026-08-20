@@ -4,6 +4,7 @@ from collections.abc import Mapping
 import math
 from urllib.parse import urlparse
 
+from ..utils.url_canonicalize import canonicalize_url, extract_domain_from_url
 
 def expected_tool_called(tool_calls: list[dict[str, object]], tool_name: str) -> float:
     return 1.0 if _tool_called(tool_calls, tool_name) else 0.0
@@ -45,6 +46,17 @@ def _dcg(gains: list[float]) -> float:
     return sum(gain / math.log2(index + 1) for index, gain in enumerate(gains, start=1))
 
 
+def _url_matches(ranked_url: str, gold: str) -> bool:
+    """Exact match after canonicalization, with a domain fallback for bare hosts."""
+    ranked_canon = canonicalize_url(ranked_url)
+    gold_canon = canonicalize_url(gold)
+    if ranked_canon == gold_canon:
+        return True
+    ranked_domain = extract_domain_from_url(ranked_url)
+    gold_domain = extract_domain_from_url(gold)
+    return bool(ranked_domain and gold_domain and ranked_domain == gold_domain)
+
+
 def mrr_at_k(
     candidates: list[dict[str, object]] | list[str],
     gold: list[str],
@@ -63,7 +75,7 @@ def mrr_at_k(
             else:
                 ranked.append(str(c))
     for index, url in enumerate(ranked[:k], start=1):
-        if any(g in url or url in g for g in gold):
+        if any(_url_matches(url, g) for g in gold):
             return 1.0 / index
     return 0.0
 
@@ -83,7 +95,7 @@ def ndcg_at_k(
                 ranked.append(str(c.get("link") or c.get("url") or ""))
             else:
                 ranked.append(str(c))
-    gains = [1.0 if any(g in u or u in g for g in gold) else 0.0 for u in ranked[:k]]
+    gains = [1.0 if any(_url_matches(u, g) for g in gold) else 0.0 for u in ranked[:k]]
     ideal = sorted(gains, reverse=True)
     ideal_dcg = _dcg(ideal)
     if ideal_dcg == 0:
@@ -134,7 +146,7 @@ def top_k_domain_hit(
             else:
                 ranked.append(str(c))
     for u in ranked[:k]:
-        if any(g in u or u in g for g in gold):
+        if any(_url_matches(u, g) for g in gold):
             return 1.0
     return 0.0
 

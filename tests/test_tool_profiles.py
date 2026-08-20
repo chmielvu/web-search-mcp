@@ -25,6 +25,7 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
             "generate_sitemap",
             "youtube_search",
             "youtube_transcript",
+            "deep_research",
         }
     )
 
@@ -63,6 +64,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "youtube_search",
             "youtube_transcript",
             "generate_sitemap",
+            "deep_research",
         }
     )
     assert tools_for_profile("full") == frozenset(
@@ -71,6 +73,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "code_search",
             "batch_get_content",
             "composio_similarlinks",
+            "deep_research",
             "discover_links",
             "gemini_search",
             "generate_sitemap",
@@ -146,19 +149,19 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     mcp = FastMCP("profile-test")
 
     @mcp.tool(**tool_kwargs("web_search"))
-    def web_search() -> str:
+    async def web_search() -> str:
         return "ok"
 
     @mcp.tool(**tool_kwargs("quick_web_search"))
-    def quick_web_search() -> str:
+    async def quick_web_search() -> str:
         return "ok"
 
     @mcp.tool(**tool_kwargs("composio_similarlinks"))
-    def composio_similarlinks() -> str:
+    async def composio_similarlinks() -> str:
         return "ok"
 
     @mcp.tool(**tool_kwargs("grok_search"))
-    def grok_search() -> str:
+    async def grok_search() -> str:
         return "ok"
 
     apply_tool_profile(mcp, "regular")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from kindly_web_search_mcp_server.content.resolvers import (
     GitHubPullError,
@@ -204,56 +204,30 @@ def test_parse_reddit_url():
 
 @pytest.mark.asyncio
 async def test_fetch_reddit_thread_markdown():
-    def handler(request: httpx.Request):
-        url_str = str(request.url)
-        if "reddit.com/r/python/comments/1abc23.json" in url_str:
-            return httpx.Response(
-                200,
-                json=[
-                    {
-                        "data": {
-                            "children": [
-                                {
-                                    "data": {
-                                        "title": "Python 3.14 Released",
-                                        "subreddit": "python",
-                                        "author": "pydev",
-                                        "score": 500,
-                                        "upvote_ratio": 0.95,
-                                        "num_comments": 42,
-                                        "selftext": "Python 3.14 is now live!",
-                                        "permalink": "/r/python/comments/1abc23/python_314_released/",
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    {
-                        "data": {
-                            "children": [
-                                {
-                                    "kind": "t1",
-                                    "data": {
-                                        "author": "user1",
-                                        "score": 100,
-                                        "body": "Super excited for deferred evaluation!",
-                                        "replies": "",
-                                    },
-                                }
-                            ]
-                        }
-                    },
-                ],
-            )
-        return httpx.Response(404)
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
+    # The resolver's layers own their HTTP clients (curl_cffi/httpx); an injected
+    # transport would never be used. Assert the cascade contract instead: a
+    # successful layer-1 fetch returns its rendered markdown verbatim.
+    expected_md = (
+        "# Reddit: Python 3.14 Released (r/python)\n"
+        "**Author:** u/pydev | **Score:** 500 | ...\n"
+        "\n"
+        "Python 3.14 is now live!\n"
+        "\n"
+        "## Top Comments\n"
+        "### Comment by u/user1\n"
+        "Super excited for deferred evaluation!\n"
+    )
+    with patch(
+        "kindly_web_search_mcp_server.content.resolvers.reddit._fetch_reddit_direct_json",
+        new=AsyncMock(return_value=expected_md),
+    ) as mock_layer1:
         md = await fetch_reddit_thread_markdown(
-            "https://www.reddit.com/r/python/comments/1abc23/awesome_project/", http_client=client
+            "https://www.reddit.com/r/python/comments/1abc23/awesome_project/"
         )
+        mock_layer1.assert_awaited_once()
+        assert md == expected_md
         assert "# Reddit: Python 3.14 Released (r/python)" in md
-        assert "Score: 500" in md
+        assert "**Score:** 500" in md
         assert "Comment by u/user1" in md
         assert "Super excited for deferred evaluation!" in md
 

@@ -23,6 +23,7 @@ class SafeFetchResult:
     body: bytes
     text: str
     is_pdf: bool
+    doc_type: str | None = None
 
 
 def _host_is_local(host: str) -> bool:
@@ -84,20 +85,108 @@ async def validate_public_url(url: str) -> None:
     await _validate_resolved_ips(host)
 
 
-def _is_pdf(content_type: str | None, fetched_url: str, body: bytes) -> bool:
+_ALLOWED_TEXT_CONTENT_SUBSTRINGS: tuple[str, ...] = (
+    "text/",
+    "application/xhtml+xml",
+    "application/xml",
+    "application/json",
+    "application/rss+xml",
+    "application/atom+xml",
+    "application/x-yaml",
+    "application/yaml",
+    "application/javascript",
+    "application/x-javascript",
+)
+
+_RAW_TEXT_EXTENSIONS: set[str] = {
+    ".md",
+    ".markdown",
+    ".mdown",
+    ".mkdn",
+    ".txt",
+    ".text",
+    ".rst",
+    ".org",
+    ".log",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".xml",
+    ".csv",
+    ".tsv",
+    ".py",
+    ".ts",
+    ".js",
+    ".rs",
+    ".go",
+    ".c",
+    ".cpp",
+    ".h",
+    ".java",
+    ".sh",
+}
+
+
+def _is_raw_or_text_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host in {"raw.githubusercontent.com", "gist.githubusercontent.com"}:
+            return True
+        if ("github.com" in host or "gitlab.com" in host) and "/raw/" in parsed.path.lower():
+            return True
+        path = parsed.path.lower()
+        for ext in _RAW_TEXT_EXTENSIONS:
+            if path.endswith(ext):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _sniff_doc_type(content_type: str | None, fetched_url: str, body: bytes) -> str | None:
+    """Sniff document type from content-type, URL path, or magic bytes."""
     ctype = (content_type or "").lower()
-    if "application/pdf" in ctype:
-        return True
-    if urlparse(fetched_url).path.lower().endswith(".pdf"):
-        return True
-    return body.startswith(b"%PDF-")
+    path = urlparse(fetched_url).path.lower()
+
+    if "application/pdf" in ctype or path.endswith(".pdf") or body.startswith(b"%PDF-"):
+        return "pdf"
+    if (
+        "wordprocessingml" in ctype
+        or path.endswith(".docx")
+        or (path.endswith(".doc") and not path.endswith(".dockerfile"))
+    ):
+        return "docx"
+    if "presentationml" in ctype or path.endswith(".pptx") or path.endswith(".ppt"):
+        return "pptx"
+    if (
+        "spreadsheetml" in ctype
+        or "excel" in ctype
+        or path.endswith(".xlsx")
+        or path.endswith(".xls")
+    ):
+        return "xlsx"
+    if "epub" in ctype or path.endswith(".epub"):
+        return "epub"
+    if path.endswith(".ipynb"):
+        return "ipynb"
+    if "text/csv" in ctype or path.endswith(".csv"):
+        return "csv"
+    if "tab-separated" in ctype or path.endswith(".tsv"):
+        return "tsv"
+    return None
+
+
+def _is_pdf(content_type: str | None, fetched_url: str, body: bytes) -> bool:
+    return _sniff_doc_type(content_type, fetched_url, body) == "pdf"
 
 
 async def safe_fetch_url(
     url: str,
     *,
     timeout_seconds: float = 20.0,
-    max_response_bytes: int = 8_000_000,
+    max_response_bytes: int = 15_000_000,
 ) -> SafeFetchResult:
     await validate_public_url(url)
 
@@ -106,10 +195,71 @@ async def safe_fetch_url(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/markdown,text/plain,application/pdf,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
-    timeout = httpx.Timeout(timeout_seconds)
 
+    # Try curl_cffi with browser impersonation (JA3/JA4 TLS fingerprinting)
+    try:
+        from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found,import-untyped]
+
+        async with AsyncSession(impersonate="chrome124", follow_redirects=True) as session:
+            resp = await session.get(url, headers=headers, timeout=int(timeout_seconds))
+            if resp.status_code >= 400:
+                raise SafeFetchError(
+                    f"http_{resp.status_code}",
+                    f"HTTP {resp.status_code} fetching {url}",
+                )
+            fetched_url = str(resp.url)
+            await validate_public_url(fetched_url)
+
+            body = resp.content
+            if len(body) > max_response_bytes:
+                raise SafeFetchError(
+                    "response_too_large",
+                    f"Response exceeds max allowed size: {len(body)} bytes",
+                )
+
+            content_type = resp.headers.get("content-type")
+            doc_type = _sniff_doc_type(content_type, fetched_url, body)
+            is_pdf = doc_type == "pdf"
+
+            if not doc_type:
+                lowered = (content_type or "").lower()
+                is_allowed_text_type = any(t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS)
+                is_text_target = _is_raw_or_text_url(url) or _is_raw_or_text_url(fetched_url)
+                if lowered and not is_allowed_text_type:
+                    if (
+                        "application/octet-stream" in lowered or "binary/octet-stream" in lowered
+                    ) and (is_text_target or (body and b"\x00" not in body[:1024])):
+                        pass
+                    else:
+                        raise SafeFetchError(
+                            "unsupported_content_type",
+                            f"Expected HTML/XML/markdown/plain/document but got content-type={content_type}",
+                        )
+
+            text = ""
+            if not is_pdf and doc_type not in {"docx", "pptx", "xlsx", "epub"}:
+                encoding = resp.encoding or "utf-8"
+                text = body.decode(encoding, errors="replace")
+
+            return SafeFetchResult(
+                input_url=url,
+                fetched_url=fetched_url,
+                content_type=content_type,
+                body=body,
+                text=text,
+                is_pdf=is_pdf,
+                doc_type=doc_type,
+            )
+    except SafeFetchError:
+        raise
+    except Exception:
+        # Fallback to standard httpx client
+        pass
+
+    timeout = httpx.Timeout(timeout_seconds)
     async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
         async with client.stream("GET", url, headers=headers) as response:
             response.raise_for_status()
@@ -141,29 +291,27 @@ async def safe_fetch_url(
 
             body = b"".join(chunks)
             content_type = response.headers.get("content-type")
-            is_pdf = _is_pdf(content_type, fetched_url, body)
+            doc_type = _sniff_doc_type(content_type, fetched_url, body)
+            is_pdf = doc_type == "pdf"
 
-            if not is_pdf:
+            if not doc_type:
                 lowered = (content_type or "").lower()
-                if lowered and not any(
-                    t in lowered
-                    for t in (
-                        "text/html",
-                        "application/xhtml+xml",
-                        "application/xml",
-                        "text/plain",
-                    )
-                ):
-                    raise SafeFetchError(
-                        "unsupported_content_type",
-                        f"Expected HTML/XML/plain but got content-type={content_type}",
-                    )
-
+                is_allowed_text_type = any(t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS)
+                is_text_target = _is_raw_or_text_url(url) or _is_raw_or_text_url(fetched_url)
+                if lowered and not is_allowed_text_type:
+                    if (
+                        "application/octet-stream" in lowered or "binary/octet-stream" in lowered
+                    ) and (is_text_target or (body and b"\x00" not in body[:1024])):
+                        pass
+                    else:
+                        raise SafeFetchError(
+                            "unsupported_content_type",
+                            f"Expected HTML/XML/markdown/plain/document but got content-type={content_type}",
+                        )
             text = ""
-            if not is_pdf:
+            if not is_pdf and doc_type not in {"docx", "pptx", "xlsx", "epub"}:
                 encoding = response.encoding or "utf-8"
                 text = body.decode(encoding, errors="replace")
-
             return SafeFetchResult(
                 input_url=url,
                 fetched_url=fetched_url,
@@ -171,4 +319,5 @@ async def safe_fetch_url(
                 body=body,
                 text=text,
                 is_pdf=is_pdf,
+                doc_type=doc_type,
             )

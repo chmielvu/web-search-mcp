@@ -92,8 +92,8 @@ async def rank_and_finalize(
                 [_candidate_text(result) for result in all_raw_results],
             )
             bm25_order_indices = sorted(
-                range(len(all_raw_results)),
-                key=lambda idx: (-(bm25_scores[idx] if bm25_scores[idx] > 0 else 0.0), idx),
+                [idx for idx in range(len(all_raw_results)) if bm25_scores[idx] > 0.0],
+                key=lambda idx: (-bm25_scores[idx], idx),
             )
             bm25_order = [all_raw_results[idx] for idx in bm25_order_indices]
 
@@ -102,7 +102,9 @@ async def rank_and_finalize(
             #    lexical relevance; providers contribute semantic/dense
             #    relevance. RRF naturally surfaces documents that perform
             #    well across both modalities.
-            fused_lists = list(provider_result_lists) + [bm25_order]
+            fused_lists = list(provider_result_lists)
+            if bm25_order:
+                fused_lists.append(bm25_order)
             fused_with_scores = reciprocal_rank_fusion(
                 fused_lists,
                 k=rrf_k,

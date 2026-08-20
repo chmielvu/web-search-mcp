@@ -29,6 +29,17 @@ class TestToolCatalog(unittest.TestCase):
         self.assertIn("research", entry.profiles)
         self.assertIn("full", entry.profiles)
 
+    def test_tool_is_background_capable(self) -> None:
+        from fastmcp.server.tasks import TaskConfig
+
+        from kindly_web_search_mcp_server.tools.catalog import TOOL_CATALOG, tool_kwargs
+
+        entry = TOOL_CATALOG["generate_sitemap"]
+        self.assertTrue(entry.task)
+        kwargs = tool_kwargs("generate_sitemap")
+        self.assertIsInstance(kwargs["task"], TaskConfig)
+        self.assertEqual(kwargs["task"].mode, "optional")
+
 
 if __name__ == "__main__":
     unittest.main()

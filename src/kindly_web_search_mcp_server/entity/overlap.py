@@ -49,11 +49,14 @@ def compute_entity_overlap(
 
     c_by_label: dict[str, set[str]] = {}
     for d in candidate_entities or []:
-        lab = str(d.get("label") or d.get("entity_type") or "")
-        txt = _norm(str(d.get("text") or d.get("entity") or ""))
+        if isinstance(d, dict):
+            lab = str(d.get("label") or d.get("entity_type") or "")
+            txt = _norm(str(d.get("text") or d.get("entity") or ""))
+        else:
+            lab = str(getattr(d, "label", "") or getattr(d, "entity_type", "") or "")
+            txt = _norm(str(getattr(d, "text", "") or getattr(d, "entity", "") or ""))
         if lab and txt:
             c_by_label.setdefault(lab, set()).add(txt)
-
     score = 0.0
     for lab, qset in q_by_label.items():
         cset = c_by_label.get(lab, set())

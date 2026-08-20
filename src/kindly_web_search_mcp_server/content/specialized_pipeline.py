@@ -1,7 +1,11 @@
 """Specialized resolver orchestration for Tier 1 of the content pipeline.
 
-Provides ``_resolve_tier1`` which tries all specialized resolvers in order
-(StackExchange, GitHub Issues, GitHub Discussions, Wikipedia, arXiv, Telegram).
+Provides ``_resolve_tier1`` which tries specialized resolvers in priority order:
+- Raw text & source code files
+- Multi-format documents (PDF, DOCX, PPTX, XLSX, EPUB, IPYNB, CSV)
+- Academic DOIs & Open Access papers (Unpaywall / Crossref)
+- Package registries (PyPI, npm, Hugging Face, Crates.io)
+- Developer & Q&A platforms (StackExchange, GitHub, Discourse, HackerNews, Reddit, Wikipedia, arXiv, YouTube, Telegram)
 """
 
 from __future__ import annotations
@@ -15,14 +19,14 @@ from ..telemetry import record_content_error, record_content_resolution
 from .artifact import ContentArtifact, ContentError
 from .options import FetchOptions
 from .resolvers.arxiv import ArxivError, fetch_arxiv_paper_markdown, parse_arxiv_url
+from .resolvers.crates import fetch_crates_markdown, parse_crates_url
+from .resolvers.discourse import fetch_discourse_topic_markdown, parse_discourse_url
+from .resolvers.document import fetch_document_markdown, is_document_url
 from .resolvers.github_discussions import (
     fetch_github_discussion_thread_markdown,
     parse_github_discussion_url,
 )
 from .resolvers.github_issues import fetch_github_issue_thread_markdown, parse_github_issue_url
-from .resolvers.stackexchange import fetch_stackexchange_thread_markdown, parse_stackexchange_url
-from .resolvers.telegram import TelegramContentError, fetch_telegram_markdown, parse_telegram_url
-from .resolvers.wikipedia import fetch_wikipedia_article_markdown, parse_wikipedia_url
 from .resolvers.github_pulls import (
     fetch_github_pull_thread_markdown,
     parse_github_pull_url,
@@ -35,11 +39,18 @@ from .resolvers.hackernews import (
     fetch_hackernews_thread_markdown,
     parse_hackernews_url,
 )
+from .resolvers.huggingface import fetch_huggingface_markdown, parse_huggingface_url
+from .resolvers.npm import fetch_npm_package_markdown, parse_npm_url
+from .resolvers.pypi import fetch_pypi_package_markdown, parse_pypi_url
 from .resolvers.raw_text import fetch_raw_text_markdown, is_raw_text_url
 from .resolvers.reddit import (
     fetch_reddit_thread_markdown,
     parse_reddit_url,
 )
+from .resolvers.stackexchange import fetch_stackexchange_thread_markdown, parse_stackexchange_url
+from .resolvers.telegram import TelegramContentError, fetch_telegram_markdown, parse_telegram_url
+from .resolvers.unpaywall import fetch_doi_paper_markdown, parse_doi_url
+from .resolvers.wikipedia import fetch_wikipedia_article_markdown, parse_wikipedia_url
 from .resolvers.youtube import (
     fetch_youtube_content_markdown,
     parse_youtube_content_url,
@@ -62,8 +73,9 @@ async def _maybe_specialized(
     parser: Callable[[str], Any],
     fetcher: Callable[[str], Awaitable[str]],
     source_type: str,
+    allow_fallback: bool = True,
 ) -> ContentArtifact | None:
-    """Try a specialized resolver. Returns None if the URL doesn't match."""
+    """Try a specialized resolver. Returns None if URL doesn't match or on error when allow_fallback is True."""
     try:
         parsed = parser(url)
     except Exception:
@@ -75,6 +87,9 @@ async def _maybe_specialized(
         markdown = await fetcher(url)
     except Exception as exc:
         record_content_resolution(stage=source_type, url=url, success=False, duration_seconds=None)
+        LOGGER.debug("Specialized resolver %s failed for %s: %s", source_type, url, exc)
+        if allow_fallback:
+            return None
         return ContentArtifact(
             input_url=url,
             normalized_url=canonicalize_url(url),
@@ -90,35 +105,109 @@ async def _maybe_specialized(
         )
 
     cls = classify_markdown(markdown)
+    if cls.status == "error" and allow_fallback:
+        LOGGER.debug(
+            "Specialized resolver %s returned error status for %s, falling back", source_type, url
+        )
+        return None
+
+    word_count = len(markdown.split())
+    is_success = cls.status == "success" or (
+        cls.status == "partial" and cls.reason == "too_short" and word_count >= 25
+    )
+    status = "success" if is_success else cls.status
+
     record_content_resolution(
         stage=source_type,
         url=url,
-        success=cls.status == "success",
+        success=is_success,
         size_bytes=len(markdown.encode("utf-8")),
-        word_count=len(markdown.split()),
+        word_count=word_count,
         extraction_method=f"{source_type}_api",
     )
     return ContentArtifact(
         input_url=url,
         normalized_url=canonicalize_url(url),
         fetched_url=url,
-        status=cls.status,
+        status=status,
         source_type=source_type,
         fetch_backend=f"{source_type}_api",
         content_type="text/markdown",
         markdown=markdown,
-        word_count=len(markdown.split()),
-        quality_score=1.0 if cls.status == "success" else 0.4,
+        word_count=word_count,
+        quality_score=1.0 if is_success else 0.4,
         error=None
-        if cls.status == "success"
+        if is_success
         else ContentError(code=cls.reason or "partial", message=cls.reason or "partial"),
     )
 
 
 async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | None:
     """Try all specialized resolvers in order. Returns an artifact or None if no resolver matches."""
+    # 1. Documents (PDF, DOCX, PPTX, XLSX, EPUB, IPYNB, CSV, Google Docs/Sheets)
+    if is_document_url(url):
+        doc_artifact = await fetch_document_markdown(url, fetch_options=options)
+        if doc_artifact.status in ("success", "partial"):
+            return doc_artifact
+
+    # 2. Raw text & code files
     if is_raw_text_url(url):
-        return await fetch_raw_text_markdown(url, fetch_options=options)
+        raw_artifact = await fetch_raw_text_markdown(url, fetch_options=options)
+        if raw_artifact.status in ("success", "partial"):
+            return raw_artifact
+
+    # 3. Academic DOIs & Open Access papers (Unpaywall)
+    if parse_doi_url(url) is not None:
+        doi_artifact = await fetch_doi_paper_markdown(url, fetch_options=options)
+        if doi_artifact.status in ("success", "partial"):
+            return doi_artifact
+
+    # 4. Package Registries (PyPI, npm, Hugging Face, Crates.io)
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_pypi_url,
+        fetcher=fetch_pypi_package_markdown,
+        source_type="pypi_package",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_npm_url,
+        fetcher=fetch_npm_package_markdown,
+        source_type="npm_package",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_huggingface_url,
+        fetcher=fetch_huggingface_markdown,
+        source_type="huggingface_hub",
+    )
+    if specialized is not None:
+        return specialized
+
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_crates_url,
+        fetcher=fetch_crates_markdown,
+        source_type="crates_io",
+    )
+    if specialized is not None:
+        return specialized
+
+    # 5. Developer & Community Forums (Discourse, StackExchange, GitHub)
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_discourse_url,
+        fetcher=fetch_discourse_topic_markdown,
+        source_type="discourse_topic",
+    )
+    if specialized is not None:
+        return specialized
 
     specialized = await _maybe_specialized(
         url,
@@ -222,22 +311,8 @@ async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | N
                 word_count=len(arxiv_md.split()),
                 quality_score=1.0,
             )
-        except Exception as exc:
+        except Exception:
             record_content_error(stage="arxiv", url=url, error_type="arxiv_fetch_failed")
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonicalize_url(url),
-                fetched_url=url,
-                status="error",
-                source_type="arxiv",
-                fetch_backend="arxiv_api_pdf",
-                content_type=None,
-                markdown="",
-                word_count=0,
-                quality_score=0.0,
-                error=_to_content_error(exc, code="arxiv_fetch_failed", provider="arxiv"),
-            )
-
     # Telegram (t.me URLs)
     try:
         parse_telegram_url(url)
@@ -270,20 +345,8 @@ async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | N
                 if cls.status == "success"
                 else ContentError(code="telegram_partial", message="partial content"),
             )
-        except Exception as exc:
+        except Exception:
             record_content_resolution(
                 stage="telegram", url=url, success=False, extraction_method="telethon_mtproto"
             )
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonicalize_url(url),
-                fetched_url=url,
-                status="error",
-                source_type="telegram",
-                fetch_backend="telethon_mtproto",
-                content_type=None,
-                markdown="",
-                word_count=0,
-                quality_score=0.0,
-                error=_to_content_error(exc, code="telegram_fetch_failed", provider="telegram"),
-            )
+            return None

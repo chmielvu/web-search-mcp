@@ -3,20 +3,22 @@
 from __future__ import annotations
 import asyncio
 import logging
+from typing import Any
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..utils.url_canonicalize import extract_domain_from_url
 
 LOGGER = logging.getLogger(__name__)
-_OUTCOME_TASKS: set[asyncio.Task[None]] = set()
-_EMBEDDING_DIM = 1024
+_OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
 
 
 def _validate_embedding(vec, label):
-    if len(vec) == _EMBEDDING_DIM:
-        return vec
-    LOGGER.warning("Embedding %s dim=%d expected %d", label, len(vec), _EMBEDDING_DIM)
-    return vec
+    from ..settings import settings
 
+    expected = settings.embedding_dim
+    if len(vec) == expected:
+        return vec
+    LOGGER.warning("Embedding %s dim=%d expected %d", label, len(vec), expected)
+    return vec
 
 async def persist_search_outcome(run):
     from ..analytics.async_writes import dispatch_duckdb_write

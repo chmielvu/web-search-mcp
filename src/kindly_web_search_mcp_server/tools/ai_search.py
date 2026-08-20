@@ -10,7 +10,8 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..analytics.judge_runner import run_judge_evaluation
-from ..errors import format_tool_error
+from ..errors import raise_tool_error
+from ..models import GeminiSearchResponse, GrokSearchResponse
 from ..search.gemini_search_tool import gemini_search_with_grounding
 from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
@@ -27,7 +28,7 @@ async def gemini_search(
     structured_output: bool = False,
     research_goal: str | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> GeminiSearchResponse:
     """AI-powered search synthesis grounded with real-time Google Search results.
 
     When to use this tool:
@@ -141,7 +142,7 @@ async def gemini_search(
             error_message=str(exc),
         )
         _record_tool_failure("gemini_search")
-        raise
+        raise_tool_error(exc, provider="gemini")
 
 
 async def grok_search(
@@ -152,7 +153,7 @@ async def grok_search(
     allowed_domains: list[str] | None = None,
     excluded_domains: list[str] | None = None,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> GrokSearchResponse:
     """Search the web and public X posts with native xAI Grok tools.
 
     Returns an AI-synthesized answer with citations from web and X. This uses
@@ -287,7 +288,7 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_xai")
+        raise_tool_error(e, provider="grok_xai")
     except httpx.HTTPError as e:
         LOGGER.warning("Grok search HTTP error: %s", e)
         emit_tool_observability_event(
@@ -300,7 +301,7 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_xai")
+        raise_tool_error(e, provider="grok_xai")
     except Exception as e:
         LOGGER.warning("Grok search unexpected error: %s", e)
         emit_tool_observability_event(
@@ -313,4 +314,4 @@ async def grok_search(
             error_message=str(e),
         )
         _record_tool_failure("grok_search")
-        return format_tool_error(e, provider="grok_xai")
+        raise_tool_error(e, provider="grok_xai")

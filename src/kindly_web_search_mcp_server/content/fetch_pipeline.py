@@ -1,7 +1,8 @@
-"""Content fetch pipeline — two-tier architecture.
+"""Content fetch pipeline — multi-tier architecture with active resilience.
 
-Tier 1: Specialized resolvers (StackExchange, GitHub, Wikipedia, arXiv, Telegram) in content/resolvers/
-Tier 2: Generic extraction stages (Jina -> Crawl4AI /md -> local BS4 -> Camoufox last-resort)
+Tier 1: Specialized resolvers (Documents, Raw Text, DOIs, PyPI, npm, HF, Crates.io, Discourse, StackExchange, GitHub, Reddit, Wikipedia, arXiv, YouTube, Telegram)
+Tier 2: Generic extraction cascade (Jina Reader -> Local curl_cffi+Trafilatura -> Crawl4AI Remote -> Camoufox Stealth Browser)
+Tier 3: Web Archive Fallback (Internet Archive Wayback Machine Availability API)
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 import re
 import time
 from dataclasses import replace
+from urllib.parse import urlparse
 
 from opentelemetry import trace
 
@@ -22,6 +24,8 @@ from .remote_clients import (
     get_camoufox_client,
     get_crawl4ai_client,
 )
+from .resolvers.document import DOC_EXTENSIONS
+from .resolvers.wayback import fetch_wayback_snapshot_markdown
 from .specialized_pipeline import _resolve_tier1
 from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_error
@@ -43,18 +47,22 @@ def _rewrite_github_blob_to_raw(url: str) -> str:
     return url
 
 
+def _is_binary_target(url: str) -> bool:
+    """Return True if URL clearly targets a binary document to prevent browser crashes."""
+    path = urlparse(url).path.lower()
+    return any(path.endswith(ext) for ext in DOC_EXTENSIONS if ext != ".csv")
+
+
 _content_tracer = trace.get_tracer("kindly_web_search_mcp_server.content.fetch_pipeline")
 
-# Stage timeout budgets. Kept tight so later stages (Crawl4AI, local, Camoufox)
-# get a fair shot before the outer tool-level timeout fires.
 _STAGE_TIMEOUTS: dict[str, float] = {
     "jina": 25.0,
-    "crawl4ai": 30.0,
     "local": 20.0,
+    "crawl4ai": 30.0,
     "camoufox": 35.0,
+    "wayback": 15.0,
 }
 
-# Default total pipeline budget. Mirrors the tool-level default in tools._helpers.
 _DEFAULT_TOTAL_TIMEOUT_SECONDS = 120.0
 
 
@@ -64,13 +72,9 @@ def _resolve_stage_timeout(
     start_time: float,
     total_timeout: float = _DEFAULT_TOTAL_TIMEOUT_SECONDS,
 ) -> float:
-    """Return the effective timeout for a pipeline stage.
-
-    Uses the stage's default budget, capped by the remaining total pipeline
-    budget. Always returns at least 1.0 second so a stage can fail fast.
-    """
+    """Return the effective timeout for a pipeline stage."""
     remaining = total_timeout - (time.monotonic() - start_time)
-    return max(1.0, min(_STAGE_TIMEOUTS[stage], remaining))
+    return max(1.0, min(_STAGE_TIMEOUTS.get(stage, 20.0), remaining))
 
 
 async def fetch_content_artifact(
@@ -78,16 +82,8 @@ async def fetch_content_artifact(
     *,
     fetch_options: FetchOptions | None = None,
 ) -> ContentArtifact:
-    """Fetch content for a URL using the two-tier pipeline.
-
-    Tier 1 — Specialized resolvers (domain-specific, high quality):
-      StackExchange, GitHub Issues, GitHub Discussions, Wikipedia, arXiv, Telegram
-
-    Tier 2 — Generic extraction (any URL):
-      Jina Reader -> Crawl4AI remote POST /md -> local BS4 (conditional) -> Camoufox last-resort
-    """
-    # GitHub blob URLs -> raw.githubusercontent.com so Jina/Crawl4AI fetch
-    # raw content, not the GitHub HTML chrome page.
+    """Fetch content for a URL using the resilient multi-tier pipeline."""
+    # GitHub blob URLs -> raw.githubusercontent.com
     url = _rewrite_github_blob_to_raw(url)
 
     with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
@@ -99,15 +95,15 @@ async def fetch_content_artifact(
         # ----------------------------------------------------------
         # Tier 1: Specialized resolvers
         # ----------------------------------------------------------
-
         tier1 = await _resolve_tier1(url, options)
-        if tier1 is not None:
+        if tier1 is not None and tier1.status in ("success", "partial"):
             return tier1
 
         # ----------------------------------------------------------
-        # Tier 2: Generic extraction
+        # Tier 2: Generic extraction cascade
         # ----------------------------------------------------------
         start_time = time.monotonic()
+        is_binary = _is_binary_target(url)
 
         # Stage 1: Jina Reader
         jina_options = replace(
@@ -117,15 +113,21 @@ async def fetch_content_artifact(
         jina_artifact = await _fetch_via_jina(url, options=jina_options)
         if jina_artifact is not None and jina_artifact.status == "success":
             return jina_artifact
-        jina_unavailable = jina_artifact is None
 
-        # Stage 2: Crawl4AI cloud (POST /md, non-browser)
+        # Stage 2: Local extraction (curl_cffi JA3/JA4 TLS impersonation + Trafilatura / BS4 / Doc converters)
+        # Always executed when Jina is not a full success (fixes local stage isolation bug)
+        local_options = replace(
+            options,
+            stage_timeout_seconds=_resolve_stage_timeout("local", start_time=start_time),
+        )
+        local_artifact = await _fetch_via_local(url, options=local_options)
+        if local_artifact.status == "success":
+            return local_artifact
+
+        # Stage 3: Crawl4AI cloud (POST /md) - skipped for binary files to avoid headless crashes
         c4a_artifact: ContentArtifact | None = None
-        c4a_unavailable = False
-        if get_crawl4ai_client() is not None:
+        if not is_binary and get_crawl4ai_client() is not None:
             try:
-                # Crawl4AIClient.fetch_markdown does not accept a per-call timeout;
-                # pass the budget via options for future compatibility.
                 c4a_options = replace(
                     options,
                     stage_timeout_seconds=_resolve_stage_timeout("crawl4ai", start_time=start_time),
@@ -136,36 +138,58 @@ async def fetch_content_artifact(
             except Crawl4AIClientError as exc:
                 LOGGER.warning("Crawl4AI remote failed for %s: %s", url, exc)
                 record_content_error(stage="crawl4ai_remote", url=url, error_type="crawl4ai_failed")
-                c4a_unavailable = exc.retryable
-        else:
-            c4a_unavailable = True
 
-        # Stage 3: local fallback — ONLY if BOTH upstreams unavailable
-        local_artifact: ContentArtifact | None = None
-        if jina_unavailable and c4a_unavailable:
-            local_options = replace(
-                options,
-                stage_timeout_seconds=_resolve_stage_timeout("local", start_time=start_time),
-            )
-            local_artifact = await _fetch_via_local(url, options=local_options)
-            if local_artifact.status == "success":
-                return local_artifact
-
-        # Stage 4: Camoufox (last-resort browser for hard sites)
+        # Stage 4: Camoufox (stealth browser sidecar) - skipped for binary files
         camoufox_artifact: ContentArtifact | None = None
-        if get_camoufox_client() is not None:
+        if not is_binary and get_camoufox_client() is not None:
             try:
-                camoufox_artifact = await _fetch_via_camoufox(url, options)
+                camoufox_options = replace(
+                    options,
+                    stage_timeout_seconds=_resolve_stage_timeout("camoufox", start_time=start_time),
+                )
+                camoufox_artifact = await _fetch_via_camoufox(url, camoufox_options)
                 if camoufox_artifact.status == "success":
                     return camoufox_artifact
             except CamoufoxClientError as exc:
                 LOGGER.warning("Camoufox failed for %s: %s", url, exc)
                 record_content_error(stage="camoufox_remote", url=url, error_type="camoufox_failed")
 
-        artifacts = (jina_artifact, c4a_artifact, local_artifact, camoufox_artifact)
-        artifact = next((item for item in artifacts if item and item.status == "success"), None)
-        if artifact is None:
-            artifact = next((item for item in artifacts if item is not None), None)
+        # ----------------------------------------------------------
+        # Tier 3: Web Archive Resilience Fallback (Wayback Machine)
+        # ----------------------------------------------------------
+        wayback_artifact: ContentArtifact | None = None
+        wb_options = replace(
+            options,
+            stage_timeout_seconds=_resolve_stage_timeout("wayback", start_time=start_time),
+        )
+        wayback_artifact = await fetch_wayback_snapshot_markdown(url, fetch_options=wb_options)
+        if wayback_artifact is not None and wayback_artifact.status in ("success", "partial"):
+            return wayback_artifact
+
+        # Evaluate best candidate from all attempted stages
+        candidates = [
+            item
+            for item in (
+                tier1,
+                jina_artifact,
+                local_artifact,
+                c4a_artifact,
+                camoufox_artifact,
+                wayback_artifact,
+            )
+            if item is not None
+        ]
+        # Prefer artifact with status == 'partial' or highest quality_score or longest markdown
+        artifact = max(
+            candidates,
+            key=lambda a: (
+                1 if a.status in ("success", "partial") else 0,
+                a.quality_score,
+                len(a.markdown),
+            ),
+            default=None,
+        )
+
         artifact = artifact or ContentArtifact(
             input_url=url,
             normalized_url=canonicalize_url(url),
@@ -178,7 +202,7 @@ async def fetch_content_artifact(
             error=ContentError(code="all_stages_failed", message="All extraction stages failed"),
         )
 
-        # Entity extraction hook: after clean markdown, before return to caller.
+        # Entity extraction hook
         if settings.entity_extraction_enabled and artifact.markdown:
             try:
                 from ..search.entity_extractor import extract_entities

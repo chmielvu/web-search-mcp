@@ -64,7 +64,7 @@ class TestQuickWebSearch(unittest.TestCase):
 
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=mock_client,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,
@@ -104,7 +104,7 @@ class TestQuickWebSearch(unittest.TestCase):
 
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=mock_client,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,
@@ -166,7 +166,7 @@ class TestQuickWebSearch(unittest.TestCase):
 
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=mock_client,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,
@@ -190,7 +190,7 @@ class TestQuickWebSearch(unittest.TestCase):
 
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=mock_client,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,
@@ -237,7 +237,7 @@ class TestQuickWebSearch(unittest.TestCase):
 
             with (
                 patch(
-                    "kindly_web_search_mcp_server.quick_web_search.AsyncParallel",
+                    "parallel.AsyncParallel",
                     return_value=mock_client,
                 ),
                 patch("kindly_web_search_mcp_server.quick_web_search.settings") as mock_settings,

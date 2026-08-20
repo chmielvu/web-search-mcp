@@ -11,10 +11,7 @@ from dataclasses import dataclass
 
 from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
 from ..models import WebSearchResult
-from .cohere import cohere_rerank
 from .models import RerankCandidate, RerankResult
-from .openrouter import openrouter_cohere_rerank
-from .voyage import voyage_rerank
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +46,8 @@ def build_rerank_candidates(
             "Providers": list(candidate.providers or []),
             "ProviderCount": candidate.provider_count or 1,
         }
+        if candidate.published_date:
+            doc_dict["PublishedDate"] = candidate.published_date
         yaml_str = yaml.safe_dump(
             doc_dict,
             sort_keys=False,
@@ -83,30 +82,6 @@ async def _parse_rerank_result(spec: ModelSpec, gen) -> list[tuple[int, float]]:
             return [(item["index"], item["relevance_score"]) for item in raw]
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
-    # Fallback: use legacy cohere/openrouter/voyage rerank functions
-    documents = getattr(gen, "_documents", None)
-    query = getattr(gen, "_query", None)
-    if documents and query:
-        if spec.provider == "cohere":
-            return await cohere_rerank(
-                query,
-                documents,
-                api_key=spec.api_key or None,
-                model=spec.model_id,
-                base_url=spec.base_url,
-            )
-        if spec.provider == "openrouter_rerank":
-            return await openrouter_cohere_rerank(
-                query,
-                documents,
-                api_key=spec.api_key or None,
-                model=spec.model_id,
-                base_url=spec.base_url,
-            )
-        if spec.provider == "voyage":
-            return await voyage_rerank(
-                query, documents, api_key=spec.api_key or None, model=spec.model_id
-            )
     raise ValueError(f"Cannot parse rerank result from {spec.provider}: {content[:200]}")
 
 

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 from urllib.parse import urldefrag, urlsplit, urlunsplit
 
-from .models import CodeSearchHit, to_public_hit
+from .models import CodeSearchHit
 from .query import QueryPlan
 
 _RRF_K = 60
@@ -405,76 +405,3 @@ def verify_regex_hits(
     return verified
 
 
-def _trim_to_lines(text: str, limit: int, *, marker: str = "\n[... truncated]") -> str:
-    """Trim text to limit while snapping back to line boundaries when possible."""
-    if len(text) <= limit:
-        return text
-    cut = max(0, limit - len(marker))
-    if cut <= 0:
-        return marker.strip()
-    last_nl = text[:cut].rfind("\n")
-    if last_nl > 0:
-        return text[:last_nl] + marker
-    return text[:cut] + marker
-
-
-def _public_json_cost(hit: CodeSearchHit) -> int:
-    return len(to_public_hit(hit).model_dump_json(exclude_none=True))
-
-
-def _trim_hit_content(hit: CodeSearchHit, limit: int) -> CodeSearchHit:
-    """Shrink oversized windows only. Never delete source to make room for metadata."""
-
-    floor = max(8_000, limit)
-    if hit.hydrated_source and len(hit.hydrated_source) > floor:
-        hit.hydrated_source = _trim_to_lines(hit.hydrated_source, floor)
-        hit.hydrated_source_truncated = True
-    if hit.snippet and len(hit.snippet) > min(50_000, floor):
-        hit.snippet = _trim_to_lines(hit.snippet, min(50_000, floor))
-    if hit.fragments:
-        kept: list = []
-        used = 0
-        for fragment in hit.fragments[:8]:
-            text = fragment.text
-            if used >= floor:
-                break
-            allowed = min(20_000, floor - used)
-            if len(text) > allowed:
-                fragment = fragment.model_copy(
-                    update={"text": _trim_to_lines(text, max(0, allowed))}
-                )
-            kept.append(fragment)
-            used += len(fragment.text)
-        hit.fragments = kept
-    return hit
-
-
-def compact_hits(
-    hits: Iterable[CodeSearchHit], *, max_output_chars: int, max_results: int
-) -> tuple[list[CodeSearchHit], bool]:
-    """Bound the public (path + text_matches) payload. Keep code; drop extra hits."""
-
-    output: list[CodeSearchHit] = []
-    used = 0
-    truncated = False
-    for hit in hits:
-        if len(output) >= max_results:
-            truncated = True
-            break
-        remaining = max_output_chars - used
-        if remaining <= 80:
-            truncated = True
-            break
-        candidate = hit.model_copy(deep=True)
-        cost = _public_json_cost(candidate)
-        if cost > remaining:
-            # Keep whole source unless this single hit cannot fit the leftover budget.
-            candidate = _trim_hit_content(candidate, max(8_000, remaining - 400))
-            cost = _public_json_cost(candidate)
-            if cost > remaining:
-                truncated = True
-                break
-            truncated = True
-        output.append(candidate)
-        used += cost
-    return output, truncated

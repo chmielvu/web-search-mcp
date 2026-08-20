@@ -102,6 +102,38 @@ class TestMiddlewareObservability(unittest.TestCase):
         self.assertEqual(emit_event.call_args.kwargs["provider"], "searxng")
         self.assertEqual(emit_event.call_args.kwargs["error_type"], "rate_limit")
 
+    def test_raise_tool_error_raises_tool_error_with_structured(self) -> None:
+        from kindly_web_search_mcp_server.errors import raise_tool_error
+
+        request = httpx.Request("GET", "https://example.com")
+        response = httpx.Response(429, request=request, headers={"Retry-After": "12"})
+        error = httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+        with patch("kindly_web_search_mcp_server.errors.emit_observability_event") as emit_event:
+            with self.assertRaises(ToolError) as ctx:
+                raise_tool_error(error, provider="searxng")
+
+        raised = ctx.exception
+        self.assertIn("Rate limited", str(raised))
+        structured = getattr(raised, "structured", None)
+        self.assertIsNotNone(structured)
+        self.assertEqual(structured.error_type, "rate_limit")
+        self.assertEqual(structured.provider, "searxng")
+        self.assertEqual(structured.retry_after, 12)
+        self.assertEqual(emit_event.call_args.args[1], "tool.error.classified")
+
+    def test_raise_tool_error_classifies_asyncio_timeout(self) -> None:
+        import asyncio
+
+        from kindly_web_search_mcp_server.errors import raise_tool_error
+
+        with self.assertRaises(ToolError) as ctx:
+            raise_tool_error(asyncio.TimeoutError("timed out"), provider="youtube")
+
+        structured = getattr(ctx.exception, "structured", None)
+        self.assertIsNotNone(structured)
+        self.assertEqual(structured.error_type, "network")
+
     @staticmethod
     def _run_async(coro):
         import asyncio

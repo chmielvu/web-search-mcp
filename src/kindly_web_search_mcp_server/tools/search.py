@@ -8,7 +8,7 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from opentelemetry import trace
 
-from ..models import WebSearchResultType
+from ..models import WebSearchResponse
 from ..search.options import build_search_options
 from ..telemetry import (
     create_chain_span,
@@ -36,7 +36,7 @@ async def web_search(
     domain_block: list[str] | None = None,
     reranking_instructions: str | None = None,
     ctx: Context = CurrentContext(),
-) -> WebSearchResultType:
+) -> WebSearchResponse:
     """Run one validated multi-provider web search across configured backends with RRF ranking.
 
     Multi-query input:
@@ -193,5 +193,10 @@ async def web_search(
         output_count=len(response.get("results", [])),
         duration_ms=(time.monotonic() - started) * 1000,
     )
+    warnings = response.get("warnings") or []
+    for warning in warnings:
+        provider = warning.get("provider") if isinstance(warning, dict) else None
+        message = warning.get("message") if isinstance(warning, dict) else str(warning)
+        await ctx.warning(f"Provider {provider or 'unknown'}: {message}")
     await ctx.report_progress(progress=100, total=100, message="Done")
     return response  # type: ignore[return-value]

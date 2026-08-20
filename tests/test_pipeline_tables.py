@@ -82,13 +82,13 @@ class TestProviderCallsSchema:
 
 
 class TestProviderCandidatesSchema:
-    """Test provider_candidates table."""
+    """Test provider_candidates table (consolidated into search_candidates)."""
 
     def test_create_and_insert_round_trip(self) -> None:
         import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_provider_candidates,
-            insert_provider_candidates,
+            _ensure_search_candidates,
+            insert_search_candidates,
         )
 
         db_path = Path("test_provider_candidates.duckdb")
@@ -96,10 +96,10 @@ class TestProviderCandidatesSchema:
             db_path.unlink()
         try:
             con = duckdb.connect(str(db_path))
-            _ensure_provider_candidates(con)
+            _ensure_search_candidates(con)
             con.close()
 
-            insert_provider_candidates(
+            insert_search_candidates(
                 run_key="run-004",
                 link="https://fastmcp.dev",
                 title="FastMCP",
@@ -130,13 +130,13 @@ class TestProviderCandidatesSchema:
             if db_path.exists():
                 db_path.unlink()
 class TestMergedCandidatesSchema:
-    """Test merged_candidates table."""
+    """Test merged_candidates table (consolidated into search_candidates)."""
 
     def test_create_and_insert_round_trip(self) -> None:
         import duckdb
         from kindly_web_search_mcp_server.analytics.duckdb_store import (
-            _ensure_merged_candidates,
-            insert_merged_candidates,
+            _ensure_search_candidates,
+            insert_search_candidates,
         )
 
         db_path = Path("test_merged_candidates.duckdb")
@@ -144,10 +144,10 @@ class TestMergedCandidatesSchema:
             db_path.unlink()
         try:
             con = duckdb.connect(str(db_path))
-            _ensure_merged_candidates(con)
+            _ensure_search_candidates(con)
             con.close()
 
-            insert_merged_candidates(
+            insert_search_candidates(
                 run_key="run-005",
                 link="https://fastmcp.dev",
                 title="FastMCP",

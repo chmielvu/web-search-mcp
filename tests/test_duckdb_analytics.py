@@ -178,7 +178,7 @@ class TestDuckDBAnalytics(unittest.TestCase):
         self.assertIn("analytics_sync_state", table_sql)
         self.assertNotIn("search_events", view_sql)
 
-    def test_quality_dashboard_includes_motherduck_survival_panels(self) -> None:
+    def test_quality_dashboard_includes_otel_quality_panels(self) -> None:
         dashboard_path = (
             Path(__file__).resolve().parents[1]
             / "grafana"
@@ -190,12 +190,14 @@ class TestDuckDBAnalytics(unittest.TestCase):
         templating_names = {variable["name"] for variable in dashboard["templating"]["list"]}
         panels_by_id = {panel["id"]: panel for panel in dashboard["panels"]}
 
-        self.assertEqual(dashboard["version"], 3)
-        self.assertIn("motherduck", dashboard["tags"])
-        self.assertIn("motherduck_datasource", templating_names)
-        self.assertEqual(panels_by_id[13]["datasource"]["type"], "grafana-postgresql-datasource")
-        self.assertEqual(panels_by_id[14]["datasource"]["type"], "grafana-postgresql-datasource")
-        self.assertEqual(panels_by_id[15]["datasource"]["type"], "grafana-postgresql-datasource")
+        # v2 dashboard overhaul (2026-07): quality panels are Prometheus/OTel-fed.
+        # No postgres/MotherDuck datasource remains in any dashboard.
+        self.assertEqual(dashboard["version"], 1)
+        self.assertIn("quality", dashboard["tags"])
+        self.assertIn("datasource", templating_names)
+        self.assertEqual(panels_by_id[1]["datasource"]["type"], "prometheus")
+        self.assertEqual(panels_by_id[13]["datasource"]["type"], "prometheus")
+        self.assertEqual(panels_by_id[14]["datasource"]["type"], "prometheus")
 
 
 class TestDuckDBAnalyticsAsync(unittest.IsolatedAsyncioTestCase):

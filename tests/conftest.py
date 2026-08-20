@@ -22,6 +22,27 @@ os.environ.setdefault("PYTEST_DEBUG_TEMPROOT", str(_pytest_root))
 
 
 @pytest.fixture(scope="session", autouse=True)
+def sandbox_cwd():
+    """
+    Run the whole session from a throwaway sandbox directory.
+
+    Many analytics tests create cwd-relative DuckDB files (``test_*.duckdb``
+    via ``Path(self._testMethodName)`` or ``Path("test_...")``). Without this,
+    every run leaks those files into the repo root (7+ MB seen 2026-08-20).
+    The sandbox lives under the project-local ``.pytest-tmp`` root already
+    configured above, so it is gitignored and user-owned.
+    """
+    sandbox = _pytest_root / "cwd-sandbox"
+    sandbox.mkdir(parents=True, exist_ok=True)
+    previous = Path.cwd()
+    os.chdir(sandbox)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+@pytest.fixture(scope="session", autouse=True)
 def patch_settings():
     """
     Patch settings for the test session.

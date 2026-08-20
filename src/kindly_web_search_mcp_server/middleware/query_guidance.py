@@ -15,7 +15,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from ..errors import format_tool_error
+from ..errors import classify_error
 from .session_tracking import SessionTracker, get_session_id
 
 from ..heuristics.guidance_messages import (
@@ -298,7 +298,13 @@ class DynamicGuidanceMiddleware(Middleware):
             result = await call_next(context)
         except Exception as exc:
             logger.exception("Error executing tool '%s': %s", tool_name, exc)
-            err_dict = format_tool_error(exc, provider=tool_name)
+            # Prefer the classification attached by raise_tool_error; fall back
+            # to re-classifying unexpected exceptions (masking will hide details
+            # from clients, but guidance still benefits from the classification).
+            structured_error = getattr(exc, "structured", None)
+            if structured_error is None:
+                structured_error = classify_error(exc, provider=tool_name)
+            err_dict = structured_error.to_dict()
             msg, next_tools, next_prompts = _guide_error(err_dict)
             structured = dict(err_dict)
             ag = list(structured.get("agent_guidance") or [])

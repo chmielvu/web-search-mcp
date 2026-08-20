@@ -56,6 +56,10 @@ class ExactQueryCache:
             default_ttl_seconds=default_ttl_seconds,
         )
 
+    def entry_count(self) -> int:
+        """Return the number of cached exact-query entries."""
+        return self._cache.entry_count()
+
     def lookup(
         self,
         normalized_query: str,

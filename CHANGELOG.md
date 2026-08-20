@@ -1,6 +1,39 @@
 # Changelog
 
 ## [Unreleased]
+### Changed — FastMCP audit remediation (P0/P1/P2) + deep_research profile move
+- Moved `deep_research` from the `full` profile to `{"regular", "full"}`; it is now visible in the default profile.
+- P0: tools now raise `ToolError` (via new `errors.raise_tool_error`) instead of returning error dicts, so the MCP SDK marks failures `isError: True` at the protocol level. Migrated `academic_search`, `grok_search`, `generate_sitemap`, `youtube_transcript`, `youtube_search`, `quick_web_search`, `composio_similarlinks`, and `gemini_search`.
+- P1: `web_search`, `generate_sitemap`, `code_search`, and `deep_research` are now background-capable via catalog-driven `task=TaskConfig(mode="optional")` (SEP-1686); wire format advertises `execution.taskSupport="optional"`.
+- P1: `mask_error_details=True` and `client_log_level="warning"` on the FastMCP server; added built-in `TimingMiddleware`, `StructuredLoggingMiddleware(include_payloads=False)`, `ResponseLimitingMiddleware(max_size=1MB)`, and `ResponseCachingMiddleware` (read_resource TTL 300s; call_tool and list_tools caching disabled — list_tools caching drops task_config and would break SEP-1686 advertisement).
+- P1: removed `ToolErrorResponse` union return types; tools now declare single-model output schemas (`WebSearchResponse`, `GetContentResponse`, `GeminiSearchResponse`, `GrokSearchResponse`, `SitemapResponse`, etc.), enabling wire-level output validation. Fixed model drift: `GetContentResponse` gains `url`/`cached`/`origin_backend`; `GeminiSearchResponse`/`GrokSearchResponse` match actual payloads; `BatchContentResult` gains `page_char_count`/`word_count`; new `SitemapResponse` for the Tavily Map payload.
+- P2: `cache://stats` resource (+ `cache://stats/{cache_name}` template) reporting query/page/transcript cache entry counts via new `entry_count()` methods on all cache facades.
+- P2: `ctx.warning` for partial provider failures in `web_search`; `_resolve_session_id` now uses `ctx.session_id`/`ctx.client_id` with `get_context()` fallback; query-guidance middleware reuses the `.structured` classification attached by `raise_tool_error`.
+- P2: swapped `RegexSearchTransform` for `BM25SearchTransform` (natural-language `query` param) when `TOOL_SEARCH_ENABLED` is set.
+- P3: pinned `fastmcp>=3.4.3,<4` (v4 is beta); upgraded to FastMCP 3.4.7 (fixes `ResponseCachingMiddleware` keyword-arg bug present in 3.4.0–3.4.2). `RetryMiddleware` and `FileTreeStore` remain v4-only and are deferred.
+### Fixed — MCP startup/runtime compatibility
+- Deferred the `parallel-web` SDK import until `quick_web_search` is invoked, so a stale environment missing the optional provider SDK no longer prevents unrelated MCP tools from registering; the quick-search error now identifies the required dependency.
+- Normalized the FastMCP client log level to the SDK's lowercase contract and returned the typed `QuickWebSearchResponse` model from its MCP wrapper.
+- Disabled `ResponseCachingMiddleware` only when an older FastMCP runtime is detected, preventing its `context=`/`ctx` incompatibility from breaking every `tools/call` while preserving caching on supported runtimes.
+
+### Added — deep_research background-capable MCP tool (SEP-1686)
+- Added `deep_research` tool backed by the self-hosted node-DeepResearch engine, mirroring the OMP `vercel-deep-research` extension contract (quick/standard/deep presets, depth synonym aliases, SSE stream parsing, markdown report).
+- Registered with `task=TaskConfig(mode="optional", poll_interval=5s)`: task-capable clients run it as a background task and poll for results; legacy clients run it synchronously.
+- Added `pydocket>=0.20.0` dependency (the `fastmcp[tasks]` extra) to enable SEP-1686 background tasks on FastMCP 3.4.x.
+- Added `DEEP_RESEARCH_URL` / `DEEP_RESEARCH_SECRET` / `DEEP_RESEARCH_TIMEOUT_SECONDS` settings; catalog entry under the `full` tool profile with `expensive=True`.
+- Added `tests/test_deep_research.py` (13 tests: preset resolution, SSE parsing, report rendering, error paths, registration).
+
+### Fixed — Web Search CLI documentation drift resolution
+- Aligned `skills/web-search-cli/SKILL.md` with the live CLI schema and runtime:
+  - `search web`: removed nonexistent `--num-results` and `--result-offset` flags; marked `--query` as repeatable (up to 4 times); added `--reranking-instructions`.
+  - `search quick`: updated backend description to Parallel AI; documented required `--search-query`/`--query` and `--objective`/`--research-goal` parameters.
+  - `search academic`: documented `--source-type` (`general`, `polish`, `archive`).
+  - `content get` & `content batch`: replaced nonexistent `--summary-mode` with actual boolean `--ai-summary`/`--no-ai-summary` flags.
+  - `ai grok`: aligned description, model (`grok-4.5`), and requirements (`XAI_API_KEY`) to native xAI direct Responses API after confirming `grok.py` is xAI-only.
+  - `sitemap generate`: updated backend description to reflect Tavily Map without legacy Crawl4AI fallback.
+  - Added complete documentation for missing operational commands: `feedback` (`create`, `list`, `show`, `close`, `transition`), `skills`, and `inference` (`describe`, `validate`, `chain`).
+  - Updated agent guidance routing matrix, depth strategy, breadth decay, examples, and environment tables.
+
 ### Added — Full-stack DuckDB analytics schema expansion
 - Added 17 typed fact tables covering quick-web-search runs/citations, Gemini search runs/sources/attempts, code-search runs/providers/diagnostics/hits/hit-variants/query-variants/repositories/rerank, content operations/fetches/summaries/summary-attempts, and tool-call events.
 - Added 22 analytical views covering cross-tool coverage/linkage, quick-search performance/citations, Gemini performance/fallbacks/sources, code-search provider-yield/hit-sources/variant-effectiveness/rerank-execution/diagnostic-patterns/repository-discovery/score-component-distribution, and content fetch-performance/summary-output-signals/attempt-performance/batch-vs-single/fallbacks/focus-comparison/daily-tokens.

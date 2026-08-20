@@ -578,6 +578,7 @@ async def _per_item_summary(
             payload["model"] = model_id
             payload["model_used"] = model_id
             payload["backend"] = "gemini-per-item-fallback"
+            return payload
         except Exception as exc:
             logger.warning(
                 "Per-item batch summary failed for %s on %s: %s",

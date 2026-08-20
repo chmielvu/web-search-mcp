@@ -6,6 +6,7 @@ import asyncio
 import math
 import os
 from typing import Any
+import weakref
 
 import httpx
 
@@ -13,7 +14,9 @@ from ..settings import settings
 
 OPENROUTER_RERANK_ENDPOINT = "https://openrouter.ai/api/v1/rerank"
 
-_OPENROUTER_CLIENTS: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
+_OPENROUTER_CLIENTS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _get_openrouter_client(timeout: float = 30.0) -> httpx.AsyncClient:

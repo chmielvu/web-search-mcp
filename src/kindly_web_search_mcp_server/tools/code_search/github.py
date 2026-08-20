@@ -1150,21 +1150,6 @@ async def hydrate_github_hits(
                     )
                 )
                 continue
-            if len(text) > max_chars_per_file:
-                truncated = True
-                hit.hydrated_source_truncated = True
-                diagnostics.append(
-                    _diagnostic(
-                        f"Truncated hydrated source for {hit.repository}:{hit.path}",
-                        outcome="partial",
-                        failure_kind="budget",
-                        details={"max_chars_per_file": max_chars_per_file},
-                    )
-                )
-                # Do NOT pre-truncate `text` here: the match-location search and
-                # window extraction must run against the full source so windows
-                # past the max_chars_per_file boundary still resolve. The final
-                # hydrated_source is bounded to max_chars_per_file below.
             blob_oid = blob.get("oid") if isinstance(blob.get("oid"), str) else None
             if hit.sha and blob_oid and hit.sha != blob_oid:
                 diagnostics.append(
@@ -1257,9 +1242,6 @@ async def hydrate_github_hits(
                             "full_source_chars": len(normalized_text),
                         }
                     )
-            if len(hit.hydrated_source) > max_chars_per_file:
-                hit.hydrated_source = hit.hydrated_source[:max_chars_per_file]
-                hit.hydrated_source_truncated = True
             hydrated_count += 1
     return diagnostics, hydrated_count, truncated
 

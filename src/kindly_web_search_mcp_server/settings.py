@@ -166,18 +166,25 @@ class Settings:
     )
     vercel_rewrite_model: str = os.environ.get("VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b")
 
-    # Embeddings (Hugging Face Inference Provider)
+    # Embeddings (Unified ML primary, Hugging Face Inference fallback)
+    embedding_provider: str = os.environ.get("EMBEDDING_PROVIDER", "unifiedml")
+    embedding_endpoint_url: str = os.environ.get(
+        "EMBEDDING_ENDPOINT_URL",
+        os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000"),
+    )
+    embedding_model: str = os.environ.get(
+        "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
+    )
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
+    embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
+    embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
+    embedding_retry_delay_seconds: float = float(
+        os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "1.0")
+    )
     hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
     hf_embedding_model: str = os.environ.get(
         "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large-instruct"
     )
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "1024"))
-    embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
-    embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
-    embedding_retry_delay_seconds: float = float(
-        os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "5.0")
-    )
-
     # Reranking (Cohere primary, OpenRouter Cohere 4-fast fallback, Voyage last;
     # listwise LLM reranker stays in the default stack but is tightly bounded)
 
@@ -194,6 +201,9 @@ class Settings:
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
     cohere_api_key: str = os.environ.get("COHERE_API_KEY", "")
+    cohere_rerank_base_url: str = os.environ.get(
+        "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
+    )
     cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "5.0"))
     openrouter_rerank_model: str = os.environ.get("OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast")
     openrouter_rerank_base_url: str = os.environ.get(
@@ -205,7 +215,7 @@ class Settings:
     diversity_similarity_threshold: float = float(
         os.environ.get("DIVERSITY_SIMILARITY_THRESHOLD", "0.85")
     )
-    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.80"))
+    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.70"))
     diversity_max_per_host: int = int(os.environ.get("DIVERSITY_MAX_PER_HOST", "2"))
 
     # RankLLM Settings
@@ -216,6 +226,9 @@ class Settings:
     rankllm_timeout_seconds: float = float(os.environ.get("RANKLLM_TIMEOUT_SECONDS", "20.0"))
     rankllm_max_passage_words: int = int(os.environ.get("RANKLLM_MAX_PASSAGE_WORDS", "300"))
     rankllm_temperature: float = float(os.environ.get("RANKLLM_TEMPERATURE", "0.0"))
+    rankllm_window_size: int = int(os.environ.get("RANKLLM_WINDOW_SIZE", "20"))
+    rankllm_stride: int = int(os.environ.get("RANKLLM_STRIDE", "10"))
+    rankllm_num_passes: int = int(os.environ.get("RANKLLM_NUM_PASSES", "3"))
 
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
     rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
@@ -369,7 +382,7 @@ class Settings:
 
     # Academic search defaults
     academic_default_sources: str = os.environ.get(
-        "ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"
+        "ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"  # noqa: dead setting — orchestrator hardcodes default; kept for backward compat
     )
     academic_max_results: int = int(os.environ.get("ACADEMIC_MAX_RESULTS", "10"))
 
@@ -389,15 +402,21 @@ class Settings:
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
     # to turn off noisy providers like reddit without changing code.
     providers_enabled: bool = os.environ.get("PROVIDERS_ENABLED", "true").lower() == "true"
-    disabled_providers: tuple[str, ...] = _parse_csv_env(os.environ.get("DISABLED_PROVIDERS", ""))
+    disabled_providers: tuple[str, ...] = _parse_csv_env(
+        os.environ.get("DISABLED_PROVIDERS", "serpapi")
+    )
 
     # New SERP providers (Serper, SerpApi, BrightData)
     serper_api_key: str = os.environ.get("SERPER_API_KEY", "")
+    serpapi_enabled: bool = os.environ.get("SERPAPI_ENABLED", "false").lower() == "true"
     serpapi_api_key: str = os.environ.get("SERPAPI_API_KEY", "")
     serpapi_default_engine: str = os.environ.get("SERPAPI_DEFAULT_ENGINE", "yahoo")
     serpapi_engines: str = os.environ.get(
         "SERPAPI_ENGINES", ""
-    )  # comma-separated, e.g. "yahoo,baidu,naver"
+    )  # comma-separated, e.g. "yahoo,naver"
+    serpapi_disabled_engines: tuple[str, ...] = _parse_csv_env(
+        os.environ.get("SERPAPI_DISABLED_ENGINES", "*")
+    )
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
     brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
@@ -458,6 +477,13 @@ class Settings:
     # FastMCP tool search (opt-in; wires RegexSearchTransform after profile selection)
     # No legacy aliases (per joint plan: no backward compat).
     tool_search_enabled: bool = os.environ.get("TOOL_SEARCH_ENABLED", "false").lower() == "true"
+
+    # Deep research (self-hosted node-DeepResearch engine; SEP-1686 background-capable tool)
+    deep_research_url: str = os.environ.get("DEEP_RESEARCH_URL", "http://13.140.176.104:3001")
+    deep_research_secret: str = os.environ.get("DEEP_RESEARCH_SECRET", "")
+    deep_research_timeout_seconds: float = float(
+        os.environ.get("DEEP_RESEARCH_TIMEOUT_SECONDS", "600")
+    )
 
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
@@ -611,6 +637,18 @@ class Settings:
         if self.rrf_k <= 0:
             raise ValueError(
                 f"rrf_k must be > 0, got {self.rrf_k!r}. Set RRF_K env var to a positive integer."
+            )
+        if self.rankllm_window_size <= 0:
+            raise ValueError(
+                f"rankllm_window_size must be > 0, got {self.rankllm_window_size!r}."
+            )
+        if self.rankllm_stride <= 0:
+            raise ValueError(
+                f"rankllm_stride must be > 0, got {self.rankllm_stride!r}."
+            )
+        if self.rankllm_num_passes <= 0:
+            raise ValueError(
+                f"rankllm_num_passes must be > 0, got {self.rankllm_num_passes!r}."
             )
 
         if self.diversity_max_per_host <= 0:

@@ -37,6 +37,14 @@ class PageCache:
         self.db_path = db_path
         self._backend = _PageSQLiteCache(db_path=db_path)
 
+    def entry_count(self) -> int:
+        """Return the number of cached page entries."""
+        try:
+            return self._backend.entry_count()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Page cache entry_count failed: %s", exc)
+            return 0
+
     def lookup(
         self,
         canonical_url: str,

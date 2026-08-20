@@ -28,6 +28,7 @@ from .records_core import *
 from .records_rerank import *
 from .span_enhancements import *
 from .spans import *
+from .usage import *
 
 __all__ = [
     # Initialization

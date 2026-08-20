@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # EntitySpan imported lazily in type hints to keep models light (entity core is pure)
 from .entity.models import EntitySpan  # always available (pure python)
@@ -129,8 +129,19 @@ class WebSearchResponse(BaseModel):
 class GetContentResponse(BaseModel):
     """Response from get_content tool."""
 
-    input_url: str
-    normalized_url: str
+    input_url: str | None = None
+    normalized_url: str | None = None
+    url: str | None = Field(
+        default=None,
+        description="Resolved URL actually returned to the caller (fetched or normalized).",
+    )
+    cached: bool = Field(
+        default=False, description="True when the page was served from the local page cache."
+    )
+    origin_backend: str | None = Field(
+        default=None,
+        description="Backend that originally extracted the content (e.g. cache, jina, browser).",
+    )
     fetched_url: str | None = None
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
@@ -179,6 +190,12 @@ class BatchContentResult(BaseModel):
     content_word_count: int | None = Field(
         default=None, description="Word count of the full fetched page."
     )
+    page_char_count: int | None = Field(
+        default=None, description="Character count of the returned page content."
+    )
+    word_count: int | None = Field(
+        default=None, description="Word count of the returned page content."
+    )
 
 
 class DiscoverLinksResponse(BaseModel):
@@ -212,10 +229,20 @@ class GeminiSearchResponse(BaseModel):
     """Response from gemini_search tool (AI-grounded search)."""
 
     query: str
-    answer: str
-    web_search_queries: list[str] | None = None
-    grounding_chunks: list[dict[str, Any]] | None = None
-    structured_result: dict[str, Any] | None = None
+    mode: str = "single"
+    answer: str = ""
+    structured_data: dict[str, Any] | None = None
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)
+    model_used: str = "gemini-3.1-flash-lite"
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    grounding_chunks_count: int = 0
+    web_search_queries_count: int = 0
+    url_citations: list[dict[str, Any]] = Field(default_factory=list)
+    fallback_chain: list[str] = Field(default_factory=list)
+    fallback_reason: str | None = None
     error: str | None = None
 
 
@@ -234,6 +261,9 @@ class GrokSearchResponse(BaseModel):
     answer: str
     citations: list[GrokCitation] = Field(default_factory=list)
     model: str
+    model_used: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     search_queries_used: int = 0
     backend: str = "xai"
     web_search_calls: int = 0
@@ -266,6 +296,18 @@ class YouTubeSearchResponse(BaseModel):
     results: list[WebSearchResult] = Field(default_factory=list)
     total_results: int = 0
     search_backend: str | None = None  # "api" or "searxng"
+
+
+class SitemapResponse(BaseModel):
+    """Response from generate_sitemap tool (Tavily Map payload)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    base_url: str | None = None
+    results: list[str] = Field(default_factory=list)
+    related_questions: list[str] | None = None
+    images: list[str] | None = None
+    error: str | None = None
 
 
 class SimilarLinkResult(BaseModel):
@@ -304,64 +346,6 @@ class ImageSearchResponse(BaseModel):
 
 
 # ============================================================================
-# Error Response Model
-# ============================================================================
-
-
-class ToolErrorResponse(BaseModel):
-    """MCP-compliant error response.
-
-    MCP spec requires isError: true for tool execution failures.
-    This model ensures consistent error responses across all tools.
-    """
-
-    error: str = Field(description="Human-readable error message.")
-    error_type: str = Field(
-        default="unknown",
-        description="Error classification: rate_limit, auth, network, content, config, unknown.",
-    )
-    isError: bool = Field(default=True, description="MCP protocol: must be True for errors.")
-    action: str | None = Field(
-        default=None,
-        description="Actionable guidance for the agent.",
-    )
-    provider: str | None = Field(
-        default=None,
-        description="Provider that caused the error.",
-    )
-    status_code: int | None = Field(
-        default=None,
-        description="HTTP status code if applicable.",
-    )
-    retry_after: int | None = Field(
-        default=None,
-        description="Seconds to wait before retrying (for rate limits).",
-    )
-
-    @classmethod
-    def from_structured_error(cls, structured: dict[str, Any]) -> "ToolErrorResponse":
-        """Create from StructuredToolError.to_dict()."""
-        return cls(**structured)
-
-
-# ============================================================================
-# Union Types for Tool Signatures
-# ============================================================================
-
-# Type unions for tool return type annotations
-# These provide better schema inference for agents
-
-WebSearchResultType = WebSearchResponse | ToolErrorResponse
-GetContentResultType = GetContentResponse | ToolErrorResponse
-GeminiSearchResultType = GeminiSearchResponse | ToolErrorResponse
-GrokSearchResultType = GrokSearchResponse | ToolErrorResponse
-YouTubeTranscriptResultType = YouTubeTranscriptResponse | ToolErrorResponse
-YouTubeSearchResultType = YouTubeSearchResponse | ToolErrorResponse
-SimilarLinksResultType = SimilarLinksResponse | ToolErrorResponse
-ImageSearchResultType = ImageSearchResponse | ToolErrorResponse
-
-
-# ============================================================================
 # Academic Search Result Types
 # ============================================================================
 
@@ -377,7 +361,7 @@ class AcademicPaper(BaseModel):
     citations: int | None = None
     url: str
     pdf_url: str | None = None
-    source: str = Field(description="Provider: semanticscholar or arxiv.")
+    source: str = Field(description="Provider: arxiv, semanticscholar, openalex, crossref, pubmed, core, radon, bn, pbn, polona, dlibra, rds, europeana.")
     source_id: str
     external_ids: dict[str, str] | None = None
     fields_of_study: list[str] | None = None
@@ -398,6 +382,3 @@ class AcademicSearchResponse(BaseModel):
     sources_used: list[str] = Field(default_factory=list)
     source_types_used: list[str] = Field(default_factory=list)
     warnings: list[ProviderWarning] | None = None
-
-
-AcademicSearchResultType = AcademicSearchResponse | ToolErrorResponse

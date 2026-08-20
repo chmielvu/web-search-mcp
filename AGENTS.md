@@ -40,6 +40,7 @@ FastMCP server + Typer CLI for multi-provider web search, content extraction, re
 - `discover_links` & `generate_sitemap`: Outbound link extraction & Tavily-backed sitemap generation
 - `code_search`: Public code, documentation, implementation, and repository discovery with automatic backend selection
 - `youtube_search` & `youtube_transcript`: YouTube video discovery & caption extraction
+- `deep_research`: Autonomous multi-step web research (background task via SEP-1686; regular + full profiles)
 
 ### Typer CLI (`uv run web-search-cli <command>`)
 - **Core Commands**: `doctor`, `schema`, `reference tools`, `skills`, `getskill`, `feedback`
@@ -113,7 +114,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (10440 symbols, 17483 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (11008 symbols, 18405 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

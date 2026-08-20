@@ -19,8 +19,6 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `views.py` | Dashboard, quality-diagnostic, calibration, A/B, and eval views |
 | `summaries.py` | Daily aggregate refresh |
 | `app.py` | Rich-based analytics UI |
-| `_prototype_schema_model.py` | Throwaway in-memory DuckDB schema/view prototype; never writes the persistent analytics database |
-| `_prototype_schema_tui.py` | Interactive adversarial scenario shell for the schema prototype |
 | `motherduck_sync.py` | MotherDuck sync helpers |
 
 ## Data Flow

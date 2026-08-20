@@ -16,7 +16,7 @@ from scripts.rerank_prompt_eval import (
 )
 
 
-FIXTURE = Path("tests/fixtures/web_rerank_quality_cases.jsonl")
+FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/web_rerank_quality_cases.jsonl"
 
 
 def test_quality_fixture_has_six_intents_and_32_candidates() -> None:

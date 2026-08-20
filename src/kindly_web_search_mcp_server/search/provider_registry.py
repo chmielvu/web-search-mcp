@@ -131,6 +131,8 @@ def get_provider_adapter(name: str) -> ProviderAdapter:
 def provider_is_reachable(definition: ProviderDefinition) -> bool:
     if not settings.providers_enabled or definition.name in settings.disabled_providers:
         return False
+    if definition.name == "serpapi" and not settings.serpapi_enabled:
+        return False
     if any(not os.environ.get(key, "").strip() for key in definition.all_of):
         return False
     if definition.any_of and not any(os.environ.get(key, "").strip() for key in definition.any_of):

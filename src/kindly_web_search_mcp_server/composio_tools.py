@@ -16,7 +16,7 @@ from .models import (
     SimilarLinksResponse,
 )
 from .tools.catalog import tool_kwargs
-from .errors import format_tool_error
+from .errors import raise_tool_error
 from .utils.observability import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def register_composio_tools(mcp: Any) -> None:
         include_domains: list[str] | None = None,
         exclude_domains: list[str] | None = None,
         ctx: Context = CurrentContext(),
-    ) -> dict:
+    ) -> SimilarLinksResponse:
         """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
         Use get_content on selected links when page text is needed.
         """
@@ -138,7 +138,7 @@ def register_composio_tools(mcp: Any) -> None:
                 error_message=str(exc),
                 duration_ms=(time.monotonic() - started) * 1000,
             )
-            return format_tool_error(exc, provider="composio")
+            raise_tool_error(exc, provider="composio")
         await ctx.info(f"Found {response.total_results} similar links")
         emit_tool_observability_event(
             LOGGER,

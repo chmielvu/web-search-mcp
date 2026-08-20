@@ -18,6 +18,7 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "generate_sitemap",
         "youtube_search",
         "youtube_transcript",
+        "deep_research",
     }
 )
 
@@ -30,6 +31,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "get_content": 30.0,
     "academic_search": 45.0,
     "code_search": 120.0,
+    "deep_research": None,  # background-capable; no foreground timeout
 }
 
 
@@ -52,6 +54,7 @@ class ToolCatalogEntry:
     annotations: ToolAnnotations | None = None
     version: str = "1.0"
     timeout: float | None = None
+    task: bool = False
 
 
 def _entry(
@@ -66,6 +69,7 @@ def _entry(
     experimental: bool = False,
     idempotent: bool = True,
     version: str = "1.0",
+    task: bool = False,
 ) -> ToolCatalogEntry:
     tags = {"tool:public", f"tool:{name}", *(f"profile:{p}" for p in profiles)}
     if expensive:
@@ -91,12 +95,14 @@ def _entry(
         ),
         version=version,
         timeout=_tool_timeout(name),
+        task=task,
     )
-
 
 TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     "quick_web_search": _entry("quick_web_search", "Quick Web Search", {"regular", "full"}),
-    "web_search": _entry("web_search", "Web Search", {"regular", "full"}),
+    "web_search": _entry(
+        "web_search", "Web Search", {"regular", "full"}, task=True
+    ),
     "get_content": _entry("get_content", "Get Content", {"regular", "full"}),
     "batch_get_content": _entry("batch_get_content", "Batch Get Content", {"regular", "full"}),
     "discover_links": _entry("discover_links", "Discover Links", {"regular", "full"}),
@@ -120,10 +126,13 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             "candidate repositories. Backend selection is automatic across lexical, "
             "symbol, regular-expression, semantic, repository, and documentation search. "
             "Use repositories, language, path, filename, extension, or topic to narrow "
-            "the search. Results include ranked evidence, source windows, match spans, "
-            "symbols, repository metadata, exact revisions, provenance, and diagnostics. "
-            "Use web_search or get_content for general web pages and narrative research."
+            "the search. Results are grouped by repository (Octocode-style): each group "
+            "contains files with text_matches (source windows), match_lines with exact "
+            "spans, symbols, sha, and url. Hints and next continuations guide agents to "
+            "fetch exact line anchors via get_content. Use web_search or get_content for "
+            "general web pages and narrative research."
         ),
+        task=True,
     ),
     "composio_similarlinks": _entry("composio_similarlinks", "Composio Similarlinks", {"full"}),
     "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
@@ -133,6 +142,22 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "Generate Sitemap",
         {"regular", "research", "full"},
         expensive=True,
+        task=True,
+    ),
+    "deep_research": _entry(
+        "deep_research",
+        "Deep Research",
+        {"regular", "full"},
+        description=(
+            "Autonomous multi-step web research via the self-hosted node-DeepResearch "
+            "engine. Runs as a background task (SEP-1686) for long investigations. "
+            "Use for multi-source technical investigations, SDK/library comparisons, "
+            "architectural trade-off analysis, or obscure bug fixes across docs and "
+            "forums. Not for local codebase searches or single-fact questions."
+        ),
+        expensive=True,
+        idempotent=False,
+        task=True,
     ),
 }
 
@@ -154,4 +179,8 @@ def tool_kwargs(tool_name: str) -> dict[str, Any]:
         kwargs["description"] = entry.description
     if entry.timeout is not None:
         kwargs["timeout"] = entry.timeout
+    if entry.task:
+        from fastmcp.server.tasks import TaskConfig
+
+        kwargs["task"] = TaskConfig(mode="optional")
     return kwargs

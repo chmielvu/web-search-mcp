@@ -16,6 +16,11 @@ except Exception:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
 
 try:
+    import trafilatura  # type: ignore[import-not-found,import-untyped]
+except Exception:  # pragma: no cover
+    trafilatura = None  # type: ignore
+
+try:
     from markdownify import markdownify as md  # type: ignore
 except Exception:  # pragma: no cover
     md = None  # type: ignore
@@ -86,6 +91,26 @@ def _simple_html_to_markdown(raw_html: str) -> str:
     return _strip_tags_keep_text(h)
 
 
+def _trafilatura_extract(html: str, *, url: str | None = None) -> str | None:
+    """High-precision article and main text extraction via Trafilatura."""
+    if trafilatura is not None:
+        try:
+            extracted = trafilatura.extract(
+                html,
+                url=url,
+                output_format="markdown",
+                include_links=True,
+                include_images=True,
+                include_tables=True,
+                favor_precision=True,
+            )
+            if extracted and len(extracted.strip()) >= _MIN_OUTPUT_CHARS:
+                return extracted.strip()
+        except Exception as exc:
+            LOGGER.debug("Trafilatura extraction failed: %s", exc)
+    return None
+
+
 def _bs4_markdownify_fallback(html: str) -> str:
     """BS4 + markdownify extraction."""
     if BeautifulSoup is not None and md is not None:
@@ -97,16 +122,23 @@ def _bs4_markdownify_fallback(html: str) -> str:
 
 
 def extract_content_as_markdown(html: str, *, url: str | None = None) -> str:
-    """Extract content from HTML using BS4 + markdownify.
+    """Extract content from HTML using Trafilatura (primary) -> BS4+markdownify -> regex fallback.
 
-    Falls back to regex-based extraction if BS4/markdownify unavailable.
     The returned markdown is stripped of common boilerplate and sanitized.
     """
+    # 1. Primary: Trafilatura (main content extraction)
+    traf_result = _trafilatura_extract(html, url=url)
+    if traf_result:
+        LOGGER.info("Extracted via Trafilatura: %d chars", len(traf_result))
+        return sanitize_markdown(strip_boilerplate(traf_result))
+
+    # 2. Secondary: BS4 + markdownify
     result = _bs4_markdownify_fallback(html)
     if result and len(result) >= _MIN_OUTPUT_CHARS:
         LOGGER.info("Extracted via BS4+markdownify: %d chars", len(result))
         return sanitize_markdown(strip_boilerplate(result))
 
+    # 3. Fallback: simple regex
     LOGGER.info(
         "BS4+markdownify output short (%s chars), using regex fallback",
         len(result) if result else 0,

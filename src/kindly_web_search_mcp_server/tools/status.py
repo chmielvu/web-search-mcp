@@ -46,7 +46,7 @@ def get_features_status() -> str:
         f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
         f"**Result Memory**: {'✓ Enabled' if settings.web_results_index_enabled else '✗ Disabled'}",
         "",
-        f"**Reranking**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
+        "**Reranking**: ✓ Enabled",
         "## Cache Settings",
         "Page cache: DuckDB (separate file)",
         "",

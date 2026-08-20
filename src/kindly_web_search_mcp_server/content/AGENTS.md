@@ -4,12 +4,21 @@ Content acquisition, extraction, and conversion to LLM-ready Markdown.
 
 ## Pipeline Architecture
 
-Two-tier architecture:
+Three-tier architecture with active resilience:
 
-- **Tier 1 — Specialized resolvers** (`resolvers/`): StackExchange, GitHub Issues,
-  GitHub Discussions, Wikipedia, arXiv, Telegram, YouTube
-- **Tier 2 — Generic extraction**: Jina Reader → Crawl4AI `/md` (cloud) → local
-  BS4 (conditional) → Camoufox last-resort
+- **Tier 1 — Specialized Resolvers** (`resolvers/`):
+  - Documents: PDF (PyMuPDF), Office/EPUB (MarkItDown), Jupyter Notebooks (.ipynb AST), CSV/TSV tables, Google Docs/Sheets URL rewriting
+  - Raw Text & Source Code files
+  - Academic DOIs & Open Access papers (Unpaywall / Crossref)
+  - Package Registries (PyPI, npm, Hugging Face Hub, Crates.io)
+  - Developer & Q&A platforms (StackExchange, GitHub Issues/PRs/Discussions/Repos, Discourse, HackerNews, Reddit with 3-layer fallback, Wikipedia, arXiv, YouTube, Telegram)
+- **Tier 2 — Generic Extraction Cascade**:
+  1. Jina Reader (cloud markdown, research preset)
+  2. Local Extraction (`curl_cffi` Chrome 124 JA3/JA4 TLS impersonation + Trafilatura / BS4 / Document converters)
+  3. Crawl4AI `/md` (remote cloud markdown, skipped for binary targets)
+  4. Camoufox Sidecar (stealth Firefox browser on port 3000 for SPAs and hard sites)
+- **Tier 3 — Web Archive Resilience Fallback**:
+  Internet Archive Wayback Machine Availability API (`resolvers/wayback.py`) for 404, 410, or persistent blocked sites.
 
 ## Key Files
 
@@ -27,7 +36,7 @@ Two-tier architecture:
 | `remote_clients.py` | Crawl4AI + Camoufox HTTP clients |
 | `link_discovery.py` | Link extraction from pages |
 | `sitemap.py` | Tavily-only sitemap generation |
-| `resolvers/` | 6 specialized URL resolvers |
+| `resolvers/` | Specialized URL resolvers (Documents, PyPI, npm, HuggingFace, Crates.io, Unpaywall/DOI, Discourse, Reddit, GitHub, StackExchange, Wikipedia, arXiv, YouTube, Telegram, Wayback) |
 
 ## Rules
 

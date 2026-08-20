@@ -6,7 +6,8 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..content.sitemap import generate_sitemap as _generate_sitemap
-from ..errors import format_tool_error
+from ..errors import raise_tool_error
+from ..models import SitemapResponse
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success
 
@@ -25,7 +26,7 @@ async def generate_sitemap(
     exclude_domains: list[str] | None = None,
     allow_external: bool = False,
     ctx: Context = CurrentContext(),
-) -> dict:
+) -> SitemapResponse:
     """Generate a structural sitemap for a website using Tavily Map (with Crawl4AI fallback).
 
     When to use this tool:
@@ -101,7 +102,7 @@ async def generate_sitemap(
             input_url_count=1,
             output_result_count=pages_count,
         )
-        return result
+        return SitemapResponse.model_validate(result).model_dump(exclude_none=True)
     except Exception as e:
         duration_ms = (time.monotonic() - started) * 1000.0
         LOGGER.warning("generate_sitemap error: %s", e, exc_info=True)
@@ -116,4 +117,4 @@ async def generate_sitemap(
             duration_ms=duration_ms,
         )
         _record_tool_failure("generate_sitemap")
-        return format_tool_error(e, provider="tavily_map")
+        raise_tool_error(e, provider="tavily_map")

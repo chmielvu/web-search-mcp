@@ -17,7 +17,7 @@ from kindly_web_search_mcp_server.evals.metrics import (
 
 
 def _load_cases():
-    p = Path("evals/rerank_cases.jsonl")
+    p = Path(__file__).resolve().parents[1] / "evals/rerank_cases.jsonl"
     cases = []
     for line in p.read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -57,7 +57,7 @@ def test_top_k_domain_hit():
 
 
 def test_metrics_on_fixture_candidates():
-    fixture = Path("tests/fixtures/rerank_candidates.json")
+    fixture = Path(__file__).resolve().parents[1] / "tests/fixtures/rerank_candidates.json"
     data = json.loads(fixture.read_text())
     for case in data:
         ranked = [c["link"] for c in sorted(case["candidates"], key=lambda x: -x.get("score", 0))]

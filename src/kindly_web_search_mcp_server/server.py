@@ -25,6 +25,7 @@ os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 import logging
 
 from .composio_tools import register_composio_tools
+from .deep_research import register_deep_research
 from .quick_web_search import register_quick_web_search
 from .settings import settings
 from .tools._helpers import (
@@ -44,8 +45,10 @@ from .tools.prompts import (
     web_search_workflow_prompt,
 )
 from .tools.resources import (
+    get_all_cache_stats_resource,
     get_analytics_report_resource,
     get_analytics_schema_resource,
+    get_cache_stats_resource,
     get_candidate_survival_resource,
     get_features_status_resource,
     get_providers_status_resource,
@@ -111,6 +114,7 @@ import argparse
 import sys
 from typing import Any, Literal
 
+import fastmcp
 from fastmcp import FastMCP
 
 mcp = FastMCP(
@@ -118,6 +122,8 @@ mcp = FastMCP(
     version="0.1.8",
     lifespan=_app_lifespan,
     providers=[analytics_app],
+    mask_error_details=True,
+    client_log_level="warning",
     instructions=(
         "WEB SEARCH METHODOLOGY\n"
         "\n"
@@ -198,8 +204,75 @@ mcp.add_middleware(
 from .middleware import create_dynamic_guidance_middleware
 
 mcp.add_middleware(create_dynamic_guidance_middleware())
+
+# Built-in FastMCP middleware (added AFTER custom middleware so they are
+# outermost in the chain: _run_middleware reverses the list, so the last
+# added middleware wraps everything else). ErrorHandlingMiddleware is
+# intentionally NOT added: it rewrites ToolError messages to
+# "Internal error: ...", degrading the actionable messages our tools raise.
+from fastmcp.server.middleware.caching import ResponseCachingMiddleware
+from fastmcp.server.middleware.logging import StructuredLoggingMiddleware
+from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
+from fastmcp.server.middleware.timing import TimingMiddleware
+
+# FastMCP 3.4.2's caching middleware passes ``context=`` to a wrapper whose
+# parameter is named ``ctx``. That breaks every tools/call on a cache miss.
+# FastMCP 3.4.3 fixed the upstream mismatch; skip only the incompatible
+# optimization when a stale runtime is used so the MCP server remains usable.
+_fastmcp_version_code = 0
+try:
+    _fastmcp_parts = fastmcp.__version__.split(".")
+    _fastmcp_version_code = (
+        int(_fastmcp_parts[0]) * 10_000
+        + int(_fastmcp_parts[1]) * 100
+        + int(_fastmcp_parts[2])
+    )
+except (AttributeError, IndexError, ValueError):
+    pass
+
+if _fastmcp_version_code >= 30403:
+    mcp.add_middleware(
+        ResponseCachingMiddleware(
+            read_resource_settings={"ttl": 300},  # 5-minute TTL for resource reads
+            call_tool_settings={"enabled": False},  # repo has its own query/page caches
+            # list_tools caching is disabled: on_list_tools converts FunctionTool
+            # to plain Tool, dropping task_config and breaking SEP-1686 task
+            # advertisement (execution.taskSupport) on the wire.
+            list_tools_settings={"enabled": False},
+        )
+    )
+else:
+    LOGGER.warning(
+        "ResponseCachingMiddleware disabled for incompatible FastMCP %s; "
+        "upgrade to >=3.4.3",
+        getattr(fastmcp, "__version__", "unknown"),
+    )
+mcp.add_middleware(TimingMiddleware())
+mcp.add_middleware(StructuredLoggingMiddleware(include_payloads=False))
+mcp.add_middleware(
+    ResponseLimitingMiddleware(
+        max_size=1_000_000,
+        tools=[
+            "web_search",
+            "get_content",
+            "batch_get_content",
+            "discover_links",
+            "gemini_search",
+            "grok_search",
+            "youtube_search",
+            "youtube_transcript",
+            "generate_sitemap",
+            "academic_search",
+            "code_search",
+            "quick_web_search",
+            "composio_similarlinks",
+            "deep_research",
+        ],
+    )
+)
 register_quick_web_search(mcp)
 register_composio_tools(mcp)
+register_deep_research(mcp)
 
 # Expose prompts and resources as tools for clients that only support the tools protocol.
 from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
@@ -253,6 +326,16 @@ mcp.resource(
     tags={"search", "diagnostic"},
     annotations={"readOnlyHint": True},
 )(get_search_history_resource)
+mcp.resource(
+    "cache://stats",
+    tags={"cache", "diagnostic"},
+    annotations={"readOnlyHint": True},
+)(get_all_cache_stats_resource)
+mcp.resource(
+    "cache://stats/{cache_name}",
+    tags={"cache", "diagnostic"},
+    annotations={"readOnlyHint": True},
+)(get_cache_stats_resource)
 
 
 # Register prompts
@@ -439,12 +522,12 @@ emit_observability_event(
 # When enabled, clients see only pinned + search_tools + call_tool meta-tools;
 # underlying tools (respecting current profile) are discoverable via search.
 if settings.tool_search_enabled:
-    from fastmcp.server.transforms.search import RegexSearchTransform
+    from fastmcp.server.transforms.search import BM25SearchTransform
 
     # Pin the core safe discovery tools so basic flows don't require a search roundtrip.
     # Search will still surface profile-specific tools (e.g. youtube_*, gemini_search)
     # because transform respects prior visibility gates.
-    mcp.add_transform(RegexSearchTransform(always_visible=["web_search", "get_content"]))
+    mcp.add_transform(BM25SearchTransform(always_visible=["web_search", "get_content"]))
     emit_observability_event(
         LOGGER,
         "tool_surface.search_enabled",

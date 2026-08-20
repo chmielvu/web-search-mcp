@@ -87,16 +87,18 @@ class HFCircuitBreaker:
                 return False
             return True
 
+    def reset(self) -> None:
+        """Explicitly reset circuit breaker to closed state."""
+        with self._lock:
+            self._failure_count = 0
+            self._last_failure_time = 0.0
+            self._state = "closed"
+            self._half_open_success = False
+            self._half_open_probe_claimed = False
+
     def record_success(self) -> None:
         """Record successful call, reset circuit."""
-        with self._lock:
-            if self._state == "half_open":
-                LOGGER.info("Circuit breaker test call succeeded, returning to CLOSED")
-            self._half_open_success = True
-            self._half_open_probe_claimed = False
-            self._failure_count = 0
-            self._state = "closed"
-
+        self.reset()
     def record_failure(self) -> None:
         """Record failed call, potentially open circuit."""
         with self._lock:
@@ -189,14 +191,28 @@ async def _get_hf_client(
         # longer deadlines to still hit the first caller's shorter internal timeout.
         resolved_timeout = settings.embedding_timeout_seconds
 
-        _HF_CLIENT = AsyncInferenceClient(
-            provider=resolved_provider,  # type: ignore[arg-type]
-            api_key=resolved_key,
-            timeout=resolved_timeout,
-        )
+        client_kwargs: dict[str, Any] = {
+            "api_key": resolved_key,
+            "timeout": resolved_timeout,
+        }
+        try:
+            sig = inspect.signature(AsyncInferenceClient.__init__)
+            if "provider" in sig.parameters and resolved_provider is not None:
+                client_kwargs["provider"] = resolved_provider
+        except (ValueError, TypeError):
+            pass
+
+        try:
+            _HF_CLIENT = AsyncInferenceClient(**client_kwargs)
+        except TypeError as exc:
+            if "provider" in client_kwargs and "unexpected keyword argument 'provider'" in str(exc):
+                client_kwargs.pop("provider", None)
+                _HF_CLIENT = AsyncInferenceClient(**client_kwargs)
+            else:
+                raise
         LOGGER.info(
             "Created singleton AsyncInferenceClient (provider=%s, timeout=%.1fs)",
-            resolved_provider,
+            resolved_provider if "provider" in client_kwargs else None,
             resolved_timeout,
         )
         return _HF_CLIENT

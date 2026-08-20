@@ -52,9 +52,9 @@ def _parse_rerank_results(data: dict[str, Any], document_count: int) -> list[tup
     if not isinstance(results, list):
         raise ValueError("Voyage rerank response missing data list")
 
-    if len(results) != document_count:
+    if len(results) > document_count:
         raise ValueError(
-            f"Voyage rerank returned {len(results)} results, expected {document_count}"
+            f"Voyage rerank returned {len(results)} results, expected at most {document_count}"
         )
     ranked: list[tuple[int, float]] = []
     seen_indices: set[int] = set()
