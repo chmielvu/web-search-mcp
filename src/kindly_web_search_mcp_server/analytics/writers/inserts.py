@@ -35,6 +35,7 @@ from .table_names import (
     _QWSR_TABLE_NAME,
     _RC_CAT_TABLE_NAME,
     _RC_TABLE_NAME,
+    _RL_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
     _SB_TABLE_NAME,
@@ -43,7 +44,6 @@ from .table_names import (
     _TC_TABLE_NAME,
     _TOI_TABLE_NAME,
 )
-
 # ---------------------------------------------------------------------------
 # Column lists (must match DDL in schema.py)
 # ---------------------------------------------------------------------------
@@ -1039,6 +1039,25 @@ _TOOL_OUTPUT_ITEM_COLUMNS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Result labels foundation column lists
+# ---------------------------------------------------------------------------
+_RESULT_LABEL_COLUMNS = [
+    "label_id",
+    "recorded_at",
+    "run_key",
+    "position",
+    "stage",
+    "label",
+    "canonical_result_id",
+    "raw_url",
+    "source",
+    "annotator_id",
+    "rubric_version",
+    "discounted_gain",
+    "notes",
+    "payload_json",
+]
+# ---------------------------------------------------------------------------
 # Web search funnel uplift TableWriter instances
 # ---------------------------------------------------------------------------
 _RESULT_CATALOG_WRITER = TableWriter(
@@ -1075,4 +1094,15 @@ _TOOL_OUTPUT_ITEMS_WRITER = TableWriter(
     columns=_TOOL_OUTPUT_ITEM_COLUMNS,
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.tool_output_items",
+)
+
+# ---------------------------------------------------------------------------
+# Result labels foundation TableWriter instances
+# ---------------------------------------------------------------------------
+_RESULT_LABELS_WRITER = TableWriter(
+    table_name=_RL_TABLE_NAME,
+    ensure_name="_ensure_result_labels",
+    columns=_RESULT_LABEL_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.result_labels",
 )

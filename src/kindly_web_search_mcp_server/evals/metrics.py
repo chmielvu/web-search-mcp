@@ -1,10 +1,15 @@
 """Deterministic eval metrics for tool routing and ranked candidates."""
 
-from collections.abc import Mapping
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
 import math
+import re
+from typing import Any
 from urllib.parse import urlparse
 
 from ..utils.url_canonicalize import canonicalize_url, extract_domain_from_url
+
 
 def expected_tool_called(tool_calls: list[dict[str, object]], tool_name: str) -> float:
     return 1.0 if _tool_called(tool_calls, tool_name) else 0.0
@@ -172,3 +177,266 @@ def duplicate_url_rate(candidates: list[dict[str, object]] | list[str]) -> float
 
 def candidate_count_delta(before: int, after: int) -> int:
     return before - after
+
+
+# ============================================================================
+# Code Search Agent-Ready Evidence Rate Metrics
+# ============================================================================
+
+_ALLOWED_RESULT_KINDS = {
+    "code_match",
+    "code",
+    "documentation",
+    "doc",
+    "docs",
+    "implementation",
+    "source",
+}
+
+_DISALLOWED_RESULT_KINDS = {
+    "semantic_page",
+    "semantic",
+    "repository",
+    "repo",
+    "issue",
+    "pr",
+    "commit",
+    "unknown",
+}
+
+_IMMUTABLE_REVISION = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+
+
+def _get_val(cand: Mapping[str, Any] | object, key: str, default: Any = None) -> Any:
+    if isinstance(cand, Mapping):
+        return cand.get(key, default)
+    return getattr(cand, key, default)
+
+
+def assess_candidate_readiness(candidate: Mapping[str, Any] | object) -> tuple[bool, list[str]]:
+    """Assess whether a code-search candidate dictionary is agent-ready.
+
+    A candidate is ready when:
+    1. It is a code or documentation result kind (not semantic-only or repository-only).
+    2. It has a non-empty canonical URL.
+    3. It has sufficient text context (hydrated source, text fragments, or snippet).
+    4. It has exact line coordinates OR an immutable source revision.
+
+    Returns:
+        tuple[bool, list[str]]: (is_ready, fail_reasons)
+    """
+    if candidate is None:
+        return False, ["null_candidate"]
+
+    fail_reasons: list[str] = []
+
+    # 1. Result Kind Check
+    result_kind_raw = _get_val(candidate, "result_kind") or _get_val(candidate, "kind")
+    if result_kind_raw is not None:
+        result_kind = str(result_kind_raw).strip().casefold()
+        if result_kind in _DISALLOWED_RESULT_KINDS or result_kind not in _ALLOWED_RESULT_KINDS:
+            fail_reasons.append("non_evidence_result_kind")
+    else:
+        # If result_kind is omitted, check if it's explicitly repository-only
+        if _get_val(candidate, "repository") and not (
+            _get_val(candidate, "path")
+            or _get_val(candidate, "line_start")
+            or _get_val(candidate, "hydrated_source")
+            or _get_val(candidate, "fragments")
+        ):
+            fail_reasons.append("non_evidence_result_kind")
+
+    # 2. URL Check
+    url = _get_val(candidate, "url") or _get_val(candidate, "link")
+    if not url:
+        location = _get_val(candidate, "location")
+        if location:
+            url = _get_val(location, "url")
+    if not url or not isinstance(url, str) or not url.strip():
+        fail_reasons.append("missing_url")
+
+    # 3. Sufficient Text Context Check
+    has_text_context = False
+    hydrated_source = _get_val(candidate, "hydrated_source")
+    if isinstance(hydrated_source, str) and hydrated_source.strip():
+        has_text_context = True
+    else:
+        fragments = _get_val(candidate, "fragments")
+        if isinstance(fragments, list) and len(fragments) > 0:
+            for frag in fragments:
+                frag_text = _get_val(frag, "text") if not isinstance(frag, str) else frag
+                if isinstance(frag_text, str) and frag_text.strip():
+                    has_text_context = True
+                    break
+        if not has_text_context:
+            snippet = (
+                _get_val(candidate, "snippet")
+                or _get_val(candidate, "text")
+                or _get_val(candidate, "content")
+                or _get_val(candidate, "source")
+                or _get_val(candidate, "body")
+            )
+            if isinstance(snippet, str) and snippet.strip():
+                has_text_context = True
+
+    if not has_text_context:
+        fail_reasons.append("insufficient_text_context")
+
+    # 4. Line Coordinates OR Immutable Revision Check
+    has_lines = False
+    line_start = _get_val(candidate, "line_start")
+    lines_avail = _get_val(candidate, "lines_available")
+    location = _get_val(candidate, "location")
+
+    if location:
+        if line_start is None:
+            line_start = _get_val(location, "line_start")
+        if lines_avail is None:
+            lines_avail = _get_val(location, "lines_available")
+
+    if (isinstance(line_start, int) and line_start >= 1) or bool(lines_avail):
+        has_lines = True
+    elif line_start is None:
+        # Check first fragment line coordinates
+        fragments = _get_val(candidate, "fragments")
+        if isinstance(fragments, list) and fragments:
+            frag_line = _get_val(fragments[0], "line_start")
+            if isinstance(frag_line, int) and frag_line >= 1:
+                has_lines = True
+
+    has_revision = False
+    revision = (
+        _get_val(candidate, "revision")
+        or _get_val(candidate, "commit_oid")
+        or _get_val(candidate, "sha")
+    )
+    rev_avail = _get_val(candidate, "revision_available")
+
+    if location:
+        if not revision:
+            revision = (
+                _get_val(location, "revision")
+                or _get_val(location, "commit_oid")
+                or _get_val(location, "sha")
+            )
+        if rev_avail is None:
+            rev_avail = _get_val(location, "revision_available")
+
+    if bool(rev_avail) or (
+        isinstance(revision, str) and bool(_IMMUTABLE_REVISION.fullmatch(revision.strip()))
+    ):
+        has_revision = True
+
+    if not (has_lines or has_revision):
+        fail_reasons.append("missing_lines_or_revision")
+
+    is_ready = len(fail_reasons) == 0
+    return is_ready, fail_reasons
+
+
+def is_candidate_agent_ready(candidate: Mapping[str, Any] | object) -> bool:
+    """Return True if candidate satisfies all Agent-Ready requirements."""
+    return assess_candidate_readiness(candidate)[0]
+
+
+def candidate_failure_reasons(candidate: Mapping[str, Any] | object) -> list[str]:
+    """Return list of failure reasons explaining why candidate is not agent-ready."""
+    return assess_candidate_readiness(candidate)[1]
+
+
+def agent_ready_evidence_rate(
+    candidates: Sequence[Mapping[str, Any] | object] | None,
+) -> float:
+    """Deterministic Agent-Ready Evidence Rate over code-search candidates.
+
+    Returns the proportion (0.0 to 1.0) of candidates that satisfy all
+    evidence readiness constraints. Returns 0.0 for empty candidate sets.
+    """
+    if not candidates:
+        return 0.0
+    ready_count = sum(1 for c in candidates if assess_candidate_readiness(c)[0])
+    return ready_count / len(candidates)
+
+
+# Canonical alias for agent_ready_evidence_rate
+evidence_rate = agent_ready_evidence_rate
+
+
+def agent_ready_breakdown(
+    candidates: Sequence[Mapping[str, Any] | object] | None,
+) -> dict[str, Any]:
+    """Provide a detailed breakdown of agent-readiness across candidates."""
+    if not candidates:
+        return {
+            "total": 0,
+            "ready_count": 0,
+            "evidence_rate": 0.0,
+            "ready_indices": [],
+            "failures": [],
+        }
+
+    ready_indices: list[int] = []
+    failures: list[dict[str, Any]] = []
+
+    for idx, c in enumerate(candidates):
+        ready, reasons = assess_candidate_readiness(c)
+        if ready:
+            ready_indices.append(idx)
+        else:
+            failures.append({
+                "index": idx,
+                "candidate": c,
+                "reasons": reasons,
+            })
+
+    total = len(candidates)
+    ready_count = len(ready_indices)
+    rate = ready_count / total if total > 0 else 0.0
+
+    return {
+        "total": total,
+        "ready_count": ready_count,
+        "evidence_rate": rate,
+        "ready_indices": ready_indices,
+        "failures": failures,
+    }
+
+
+def line_precision_rate(
+    candidates: Sequence[Mapping[str, Any] | object] | None,
+) -> float:
+    """Fraction of candidates with exact source line coordinates."""
+    if not candidates:
+        return 0.0
+    count = 0
+    for c in candidates:
+        line_start = _get_val(c, "line_start")
+        lines_avail = _get_val(c, "lines_available")
+        location = _get_val(c, "location")
+        if location:
+            if line_start is None:
+                line_start = _get_val(location, "line_start")
+            if not lines_avail:
+                lines_avail = _get_val(location, "lines_available")
+        if (isinstance(line_start, int) and line_start >= 1) or bool(lines_avail):
+            count += 1
+    return count / len(candidates)
+
+
+def match_data_rate(
+    candidates: Sequence[Mapping[str, Any] | object] | None,
+) -> float:
+    """Fraction of candidates with exact match data or bounded fragments."""
+    if not candidates:
+        return 0.0
+    count = 0
+    for c in candidates:
+        match_avail = _get_val(c, "match_data_available")
+        fragments = _get_val(c, "fragments")
+        match_spans = _get_val(c, "match_spans")
+        location = _get_val(c, "location")
+        if location and not match_avail:
+            match_avail = _get_val(location, "match_data_available")
+        if bool(match_avail) or bool(fragments) or bool(match_spans):
+            count += 1
+    return count / len(candidates)

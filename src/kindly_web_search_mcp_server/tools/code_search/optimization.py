@@ -27,6 +27,20 @@ _GENERIC = {
     "search",
     "show",
 }
+_RESOLUTION_MIN_CONFIDENCE = 0.70
+_REPOSITORY_REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+def _valid_repository_ref(value: str) -> str | None:
+    candidate = value.strip().strip("\"'")
+    for prefix in ("https://github.com/", "http://github.com/", "github.com/"):
+        if candidate.casefold().startswith(prefix):
+            candidate = candidate[len(prefix) :]
+            break
+    candidate = candidate.strip("/")
+    return candidate if _REPOSITORY_REF.fullmatch(candidate) else None
+
+
 _OPTIMIZER_SYSTEM = """You optimize natural-language requests for public source-code retrieval.
 Return only the requested typed object. Emit source strings that could occur verbatim in code:
 API endpoint fragments, header values, method calls, qualified symbols, and conservative identifier
@@ -121,6 +135,9 @@ def _merge_enrichment(
     variants.extend(plan.variant_pairs)
     anchors = list(plan.anchor_terms)
     warnings = list(plan.warnings)
+    library_hint = plan.library_hint
+    repository_hint = plan.repository_hint
+    resolution_source = plan.resolution_source
 
     if "code search" in plan.original_query.casefold():
         variants.extend(
@@ -133,6 +150,22 @@ def _merge_enrichment(
                 variants.append((value, "symbol"))
             if entity.label == "language" and not any(key == "language" for key, _ in qualifiers):
                 qualifiers.append(("language", entity.text))
+            entity_confidence = (
+                entity.confidence
+                if entity.confidence is not None
+                else features.confidence
+            )
+            if entity_confidence >= _RESOLUTION_MIN_CONFIDENCE:
+                if entity.label == "package" and value and library_hint is None:
+                    library_hint = value
+                    resolution_source = "gliner2"
+                    warnings.append(f"GLiNER2 package resolution hint: {value}")
+                elif entity.label == "repo_ref":
+                    repository = _valid_repository_ref(entity.text)
+                    if repository and repository_hint is None:
+                        repository_hint = repository
+                        resolution_source = "gliner2"
+                        warnings.append(f"GLiNER2 repository resolution hint: {repository}")
         warnings.append(
             f"GLiNER2 query features: {features.intent or 'unclassified'} "
             f"({features.confidence:.2f})"
@@ -176,6 +209,9 @@ def _merge_enrichment(
             if optimization is not None and optimization.exa_semantic_query.strip()
             else plan.exa_semantic_query
         ),
+        library_hint=library_hint,
+        repository_hint=repository_hint,
+        resolution_source=resolution_source,
     )
 
 

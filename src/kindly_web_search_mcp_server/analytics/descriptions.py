@@ -122,6 +122,10 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     "code_search_rerank": (
         "Cloud rerank execution outcomes and candidate counts for code search."
     ),
+    "result_labels": (
+        "Provenance-aware human, eval, or model relevance annotations for offline replay; "
+        "discounted_gain uses the zero-based log2(position + 2) discount."
+    ),
     "content_operations": (
         "One row per terminal get_content or batch_get_content operation, tracking input/output counts, "
         "duration, and status."

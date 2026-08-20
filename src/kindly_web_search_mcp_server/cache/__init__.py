@@ -16,6 +16,13 @@ from .query_cache import (
 from .exact_lru import ExactLRUCache
 from .page_cache import PageCache, get_page_cache, PAGE_CACHE_DEFAULT_TTL_SECONDS
 from .transcript_cache import TranscriptCache, get_transcript_cache
+from .code_search import (
+    CodeSearchCache,
+    build_search_cache_key,
+    get_code_search_cache,
+    is_immutable_revision,
+    reset_code_search_cache,
+)
 
 __all__ = [
     # Exact query cache (LRU)
@@ -32,4 +39,10 @@ __all__ = [
     # Transcript cache (SQLite)
     "TranscriptCache",
     "get_transcript_cache",
+    # Code-search cache tiers
+    "CodeSearchCache",
+    "build_search_cache_key",
+    "get_code_search_cache",
+    "is_immutable_revision",
+    "reset_code_search_cache",
 ]

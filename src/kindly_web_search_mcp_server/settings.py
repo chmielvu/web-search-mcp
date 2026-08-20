@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 import os
@@ -138,6 +139,19 @@ class Settings:
     search_retrieve_budget_seconds: float = float(
         os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "20")
     )
+    huggingface_semantic_search_url: str = os.environ.get(
+        "HUGGINGFACE_SEMANTIC_SEARCH_URL",
+        "https://davanstrien-hub-search-api.hf.space",
+    )
+    huggingface_semantic_search_timeout_seconds: float = float(
+        os.environ.get(
+            "HUGGINGFACE_SEMANTIC_SEARCH_TIMEOUT_SECONDS",
+            os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "20"),
+        )
+    )
+    huggingface_semantic_search_min_interval_seconds: float = float(
+        os.environ.get("HUGGINGFACE_SEMANTIC_SEARCH_MIN_INTERVAL_SECONDS", "0.25")
+    )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
     )
@@ -172,9 +186,7 @@ class Settings:
         "EMBEDDING_ENDPOINT_URL",
         os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000"),
     )
-    embedding_model: str = os.environ.get(
-        "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
-    )
+    embedding_model: str = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
     embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
     embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
     embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
@@ -277,6 +289,16 @@ class Settings:
     transcript_cache_sqlite_path: str = os.environ.get(
         "TRANSCRIPT_CACHE_SQLITE_PATH",
         DEFAULT_TRANSCRIPT_CACHE_DB,
+    )
+
+    # Code-search cache tiers. Search results are short-lived; immutable
+    # GitHub blob content can safely live much longer.
+    code_search_cache_ttl_seconds: int = int(
+        os.environ.get("CODE_SEARCH_CACHE_TTL_SECONDS", "1800")
+    )
+    code_search_cache_max_entries: int = int(os.environ.get("CODE_SEARCH_CACHE_MAX_ENTRIES", "256"))
+    code_search_hydration_cache_ttl_seconds: int = int(
+        os.environ.get("CODE_SEARCH_HYDRATION_CACHE_TTL_SECONDS", "2592000")
     )
 
     # Telegram search provider (Telethon MTProto)
@@ -382,7 +404,8 @@ class Settings:
 
     # Academic search defaults
     academic_default_sources: str = os.environ.get(
-        "ACADEMIC_DEFAULT_SOURCES", "arxiv,semanticscholar"  # noqa: dead setting — orchestrator hardcodes default; kept for backward compat
+        "ACADEMIC_DEFAULT_SOURCES",
+        "arxiv,semanticscholar",  # Note: dead setting — orchestrator hardcodes default; kept for backward compat
     )
     academic_max_results: int = int(os.environ.get("ACADEMIC_MAX_RESULTS", "10"))
 
@@ -639,17 +662,11 @@ class Settings:
                 f"rrf_k must be > 0, got {self.rrf_k!r}. Set RRF_K env var to a positive integer."
             )
         if self.rankllm_window_size <= 0:
-            raise ValueError(
-                f"rankllm_window_size must be > 0, got {self.rankllm_window_size!r}."
-            )
+            raise ValueError(f"rankllm_window_size must be > 0, got {self.rankllm_window_size!r}.")
         if self.rankllm_stride <= 0:
-            raise ValueError(
-                f"rankllm_stride must be > 0, got {self.rankllm_stride!r}."
-            )
+            raise ValueError(f"rankllm_stride must be > 0, got {self.rankllm_stride!r}.")
         if self.rankllm_num_passes <= 0:
-            raise ValueError(
-                f"rankllm_num_passes must be > 0, got {self.rankllm_num_passes!r}."
-            )
+            raise ValueError(f"rankllm_num_passes must be > 0, got {self.rankllm_num_passes!r}.")
 
         if self.diversity_max_per_host <= 0:
             raise ValueError(

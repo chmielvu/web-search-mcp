@@ -201,6 +201,35 @@ def _text(hit: CodeSearchHit) -> str:
     ).casefold()
 
 
+_AST_ROLE_SIGNALS: dict[str, float] = {
+    "definition": 0.16,
+    "callsite": 0.05,
+    "import": -0.18,
+    "structure": 0.0,
+}
+
+
+def _ast_evidence_role(hit: CodeSearchHit) -> tuple[str, float] | None:
+    payload = hit.source_metadata.get("ast_classification")
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        return None
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, list):
+        return ("code", 0.0)
+    roles = [
+        str(item.get("role"))
+        for item in evidence
+        if isinstance(item, dict) and str(item.get("role")) in _AST_ROLE_SIGNALS
+    ]
+    if not roles:
+        return ("code", 0.0)
+    role = max(
+        dict.fromkeys(roles),
+        key=lambda value: (_AST_ROLE_SIGNALS[value], -roles.index(value)),
+    )
+    return role, _AST_ROLE_SIGNALS[role]
+
+
 def _evidence_role(hit: CodeSearchHit, text: str) -> tuple[str, float]:
     path = (hit.path or "").casefold()
     url = (hit.url or "").casefold()
@@ -242,6 +271,9 @@ def _evidence_role(hit: CodeSearchHit, text: str) -> tuple[str, float]:
         return "data", -0.22
     if re.search(r"(^|/)(tests?|specs?|fixtures?|benchmarks?)(/|$)|[_\.-](test|spec)\.", path):
         return "test", -0.10
+    ast_role = _ast_evidence_role(hit)
+    if ast_role is not None:
+        return ast_role
     if re.search(
         r"\b(class|def|func|function|interface|struct|trait|enum)\s+[A-Za-z_]"
         r"|\bexport\s+(?:async\s+)?(?:function|class|const)\b",

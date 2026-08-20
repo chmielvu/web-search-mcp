@@ -35,8 +35,9 @@ All analytics rows join on `run_key`. Pipeline tables:
 8. `llm_call_log` — unified LLM cost tracking
 9. `search_quality_scores` — computed quality metrics
 10. `llm_judgments` — 6-facet FlockMTL judge verdicts (coverage max 5 rewrites)
-11. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
-12. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
+11. `result_labels` — provenance-aware human/eval/model relevance annotations for offline replay
+12. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
+13. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
 
 ## Branch-Role Model
 
@@ -64,10 +65,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - `llm_call_log` is the unified source for per-call LLM cost attribution.
 - `tool_calls` is the source of truth for MCP tool lifecycle analytics; legacy `search_events` persistence is not used.
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
-- Confidence-only classifier rows are reported as `unlabeled`; calibration and Brier scores require explicit human labels.
-- Quality-miss reports use typed judge payload fields (`intent_match`, `informativeness`) and preserve rank/provider provenance.
-- Judge-evaluation writes retain the legacy `relevance_raw` and `relevance_scale`
-  columns for compatible readers and default missing status values to `success`.
+- `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 - Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.
 

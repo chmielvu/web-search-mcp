@@ -65,7 +65,7 @@ def _content_text(result: Any) -> str:
 
 
 async def search_deepwiki(plan: QueryPlan, request: CodeSearchRequest) -> ProviderResponse:
-    repo_name = (request.repo_name or "").strip()
+    repo_name = (request.repo_name or plan.repository_hint or "").strip()
     if not repo_name:
         return ProviderResponse(
             provider="deepwiki",
@@ -210,8 +210,9 @@ async def search_context7(
     *,
     http_client: httpx.AsyncClient,
 ) -> ProviderResponse:
+    library_hint = (request.library_name or plan.library_hint or "").strip()
     query = " ".join(
-        item for item in (plan.search_text or request.query, request.library_name or "") if item
+        item for item in (plan.search_text or request.query, library_hint) if item
     ).strip()
     if not query:
         return ProviderResponse(provider="context7")
@@ -256,7 +257,7 @@ async def search_context7(
             diagnostics=[_diag("context7", "Context7 search returned invalid JSON", query=query)],
             request_count=1,
         )
-    provider_library_id = _library_id(search_payload, request.library_name)
+    provider_library_id = _library_id(search_payload, library_hint)
     selected_id = provider_library_id.strip().strip("/") if provider_library_id else None
     if not selected_id:
         return ProviderResponse(
@@ -345,7 +346,11 @@ async def search_context7(
                 title=title or f"Context7: {selected_id}",
                 snippet=content[:50_000],
                 fragments=[TextFragment(text=content[:20_000])],
-                source_metadata={"library_id": provider_library_id, "topic": request.topic},
+                source_metadata={
+                    "library_id": provider_library_id,
+                    "topic": request.topic,
+                    "resolution_source": plan.resolution_source,
+                },
             )
         ],
         request_count=2,
@@ -360,11 +365,11 @@ async def search_docs(
     http_client: httpx.AsyncClient,
 ) -> list[ProviderResponse]:
     """Run only documentation adapters for which the request has usable identity."""
-
     operations: list[tuple[str, Any]] = []
-    if request.repo_name:
+
+    if request.repo_name or plan.repository_hint:
         operations.append(("deepwiki", search_deepwiki(plan, request)))
-    if request.library_name:
+    if request.library_name or plan.library_hint:
         operations.append(("context7", search_context7(plan, request, http_client=http_client)))
     if not operations:
         return []

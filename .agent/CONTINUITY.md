@@ -1,4 +1,23 @@
+# 2026-08-20 Hugging Face semantic Hub code_search integration
+- **Scope**: Add the public librarian-bots semantic Hub API as an exclusive `code_search` mode alongside `code`, `docs`, and `discovery`.
+- **Shipped**: Added `tools/code_search/huggingface.py`; typed Hub model/dataset filters and diagnostics; 3–200 query and 1–100 result bounds; client-side request spacing; cache-key isolation; additive public `assets`; CLI mode/options; catalog/agent/changelog documentation.
+- **Behavior**: `mode="huggingface"` queries only the Hub provider and preserves semantic scores separately from code evidence. Existing modes retain their provider fanout/reranking path.
+- **Verification**: `uv run pytest tests/test_code_search.py tests/test_code_search_huggingface.py tests/cli/test_native_cli_scaffold.py -q` → 60 passed. Live CLI smoke for `--mode huggingface --huggingface-type models` returned valid Hub model assets. Changed-file Ruff check passed; Ruff format applied.
+- **Known**: GitNexus index produced ambiguous CRITICAL impact for generic symbol names; exact LSP references and focused tests were used instead. Full project suite remains pending.
+
 # 2026-07-25 Typed analytics, provider diagnostics, and tool lifecycle telemetry
+# 2026-08-20 Tree-sitter code-search adoption, GLiNER2 hints, and result labels
+- **Scope**: Adopt Tree-sitter for complete-source code evidence on Python, JavaScript/TypeScript, Go, Rust, Bash/shell, Java, HTML, and SQL; add hosted GLiNER2 package/repository resolution hints; add offline result-label replay storage.
+- **Shipped**:
+  - Added `tree-sitter-language-pack>=1.14,<2` and `scripts/prefetch_tree_sitter.py`. Runtime classification only uses prefetched grammars and never downloads on the search path.
+  - Added `tools/code_search/tree_sitter_evidence.py`; GitHub hydration records AST definitions, callsites, imports, and HTML/SQL structure in private `source_metadata`. Ranking prefers AST roles while preserving fail-open provider evidence.
+  - Added confidence-gated `library_hint`/`repository_hint` fields to the internal query plan and typed query metadata; Context7/DeepWiki use those hints only after hosted GLiNER2 recognition.
+  - Added `result_labels` schema/writers and positional replay helpers using zero-based `label / log2(position + 2)` weighting; label source remains explicit.
+- **Verification so far**:
+  - Prefetched all nine approved grammars locally; AST, result-label, resolver, cache, golden, evidence-rate, and code-search tests currently pass (76 focused tests).
+- **Unverified / next**:
+  - Full project suite and final flow scan remain pending. Deployment environments must run the parser prefetch command before starting the server.
+
 - **Scope**: Implement the approved analytics-quality/provider-reliability plan without changing reranking behavior.
 - **Shipped**:
   - Added typed `tool_calls` and `query_understanding_events` DuckDB facts plus async writers and migrations.

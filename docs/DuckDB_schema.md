@@ -2,7 +2,7 @@
 
 > Full schema documentation for the web-search-mcp analytics and A/B testing database.
 
-**9 fact/embedding tables + provider_health + quality + judge + 4 summary tables + A/B tables** · **10 dashboard views + A/B views + eval views**
+**9 fact/embedding tables + provider_health + quality + judge + result_labels + 4 summary tables + A/B tables** · **10 dashboard views + A/B views + eval views**
 
 ---
 
@@ -398,9 +398,41 @@ Fire-and-forget via `judge_runner.py`.
 
 ---
 
+### 12. result_labels
+
+**Table name:** `result_labels`
+**DDL location:** `analytics/writers/schema.py` → `_ensure_result_labels()`
+**Write functions:** `insert_result_label()` / `insert_result_labels()`
+**Purpose:** Offline relevance annotations for replay and positional analysis. This
+table does not alter live ranking or treat model judgments as human ground truth.
+
+#### Columns
+
+| Column | Type | Notes |
+|---|---|---|
+| `label_id` | `VARCHAR NOT NULL PRIMARY KEY` | Stable idempotency key |
+| `recorded_at` | `TIMESTAMPTZ NOT NULL` | Annotation timestamp |
+| `run_key` | `VARCHAR NOT NULL` | Search run being labeled |
+| `position` | `INTEGER NOT NULL` | Zero-based result position |
+| `stage` | `VARCHAR NOT NULL` | `final` or a rerank stage |
+| `label` | `DOUBLE NOT NULL` | Nonnegative graded relevance label |
+| `canonical_result_id` | `VARCHAR` | Canonical URL identity when available |
+| `raw_url` | `VARCHAR` | Result URL fallback |
+| `source` | `VARCHAR NOT NULL` | `human`, `eval`, `llm_judge`, or import source |
+| `annotator_id` | `VARCHAR` | Reviewer or model identity |
+| `rubric_version` | `VARCHAR NOT NULL` | Label rubric version |
+| `discounted_gain` | `DOUBLE` | `label / log2(position + 2)` |
+| `notes` | `VARCHAR` | Optional rationale |
+| `payload_json` | `JSON` | Additional bounded provenance |
+
+`discounted_gain` is a descriptive logarithmic position discount. It is not
+inverse-propensity correction for click position bias.
+
+---
+
 ## Provider Health
 
-### 12. provider_health_transitions
+### 13. provider_health_transitions
 
 **Table name:** `provider_health_transitions`
 **DDL location:** `analytics/writers/schema.py` → `_ensure_provider_health_transitions()`
@@ -414,7 +446,7 @@ Materialised daily aggregates refreshed by `summaries.py` →
 `refresh_summary_tables()`. All process only the last 2 days of data.
 Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
 
-### 13. summary_provider_daily
+### 14. summary_provider_daily
 
 **Table name:** `summary_provider_daily`
 **Composite PK:** `(day, provider)`
@@ -433,7 +465,7 @@ Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
 | `error_rate` | `DOUBLE` | Fraction of calls with `error_type IS NOT NULL` |
 | `distinct_queries` | `BIGINT` | Distinct run_keys |
 
-### 14. summary_intent_daily
+### 15. summary_intent_daily
 
 **Table name:** `summary_intent_daily`
 **Composite PK:** `(day, intent)`
@@ -447,7 +479,7 @@ Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
 | `avg_confidence` | `DOUBLE` | Average `understanding_confidence` |
 | `avg_branch_count` | `DOUBLE` | Average `branch_count` (observability invariant, expect 6.0) |
 
-### 15. summary_rerank_daily
+### 16. summary_rerank_daily
 
 **Table name:** `summary_rerank_daily`
 **Composite PK:** `(day, stage, provider)`
@@ -465,7 +497,7 @@ Use `ON CONFLICT ... DO UPDATE` for idempotent refreshes.
 | `p95_latency_ms` | `DOUBLE` | P95 stage latency |
 | `entity_overlap_runs` | `BIGINT` | Runs where entity overlap was enabled |
 
-### 16. summary_quality_daily
+### 17. summary_quality_daily
 
 **Table name:** `summary_quality_daily`
 **PK:** `day` (single-column)

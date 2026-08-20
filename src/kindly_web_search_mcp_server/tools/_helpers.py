@@ -25,6 +25,8 @@ LOGGER = logging.getLogger(__name__)
 
 _academic_search_flight = SingleFlight()
 
+_code_search_flight = SingleFlight()
+
 
 def _record_tool_success(
     tool_name: str,

@@ -52,6 +52,7 @@ from .table_names import (
     _QWSR_TABLE_NAME,
     _RC_CAT_TABLE_NAME,
     _RC_TABLE_NAME,
+    _RL_TABLE_NAME,
     _RS_TABLE_NAME,
     _RUNS_TABLE_NAME,
     _SB_TABLE_NAME,
@@ -1303,6 +1304,42 @@ def _ensure_tool_output_items(connection: duckdb.DuckDBPyConnection) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Result labels foundation — human & model annotations for ranking replay
+# ---------------------------------------------------------------------------
+def _ensure_result_labels(connection: duckdb.DuckDBPyConnection) -> None:
+    """Result labels / annotations for search quality evaluation and replay."""
+    _create_table(
+        connection,
+        _RL_TABLE_NAME,
+        """
+        label_id             VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key              VARCHAR NOT NULL,
+        position             INTEGER NOT NULL,
+        stage                VARCHAR NOT NULL DEFAULT 'final',
+        label                DOUBLE NOT NULL,
+        canonical_result_id  VARCHAR,
+        raw_url              VARCHAR,
+        source               VARCHAR NOT NULL DEFAULT 'human',
+        annotator_id         VARCHAR,
+        rubric_version       VARCHAR NOT NULL DEFAULT 'v1',
+        discounted_gain      DOUBLE,
+        notes                VARCHAR,
+        payload_json         JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rl_run_key ON result_labels(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rl_canonical_result_id ON result_labels(canonical_result_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_rl_source ON result_labels(source)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # vss extension — HNSW vector indexes on embedding tables
 # ---------------------------------------------------------------------------
 _vss_installed = False
@@ -1483,6 +1520,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_query_variants(connection)
             _ensure_candidate_stage_events(connection)
             _ensure_tool_output_items(connection)
+            _ensure_result_labels(connection)
             _ensure_flockmtl_resources_table(connection)
             if settings.vss_enabled:
                 ensure_vss_extension(connection)
@@ -1495,7 +1533,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     """Ensure all tables needed by quality scoring and judge writes exist."""
     ensure_store_schema(db_path=db_path)
-
 
 from .ab_schema import (  # noqa: E402
     _ensure_ab_assignments,  # noqa: F401

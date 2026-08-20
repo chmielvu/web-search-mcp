@@ -1,6 +1,18 @@
 # Changelog
 
 ## [Unreleased]
+### Added — Hugging Face semantic Hub mode for code_search
+- Added exclusive `mode="huggingface"` routing to the public librarian-bots semantic Hub API.
+- Added bounded model/dataset filters, sorting, hybrid ranking, client-side request spacing, typed provider diagnostics, and cache-key isolation.
+- Added additive `assets` output records preserving Hub IDs, URLs, summaries, semantic-score semantics, likes/downloads, model parameter counts, tasks, licenses, languages, and timestamps.
+- Added CLI parity through `search code --mode huggingface` and Hugging Face filter options.
+- Added mocked adapter/orchestration/public-contract coverage in `tests/test_code_search_huggingface.py`.
+### Added — Tree-sitter code-search evidence and replay foundations
+- Added the pinned `tree-sitter-language-pack` runtime for the approved Python, JavaScript/TypeScript, Go, Rust, Bash/shell, Java, HTML, and SQL grammars.
+- Added strict cached-parser classification of definitions, callsites, imports, and structural HTML/SQL nodes during complete GitHub hydration. Snippet-only or uncached grammar results fail open without hidden runtime downloads.
+- Added confidence-gated hosted GLiNER2 package/repository hints for Context7 and DeepWiki documentation resolution; unresolved entities never invent repository identities.
+- Added the additive `result_labels` DuckDB fact table, async writer facade, zero-based `label / log2(position + 2)` replay weighting, and provenance-aware aggregation.
+- Deployment bootstrap: run `uv run python scripts/prefetch_tree_sitter.py` before starting the server; on a locked Windows editable environment use `.venv/Scripts/python.exe scripts/prefetch_tree_sitter.py`.
 ### Changed — FastMCP audit remediation (P0/P1/P2) + deep_research profile move
 - Moved `deep_research` from the `full` profile to `{"regular", "full"}`; it is now visible in the default profile.
 - P0: tools now raise `ToolError` (via new `errors.raise_tool_error`) instead of returning error dicts, so the MCP SDK marks failures `isError: True` at the protocol level. Migrated `academic_search`, `grok_search`, `generate_sitemap`, `youtube_transcript`, `youtube_search`, `quick_web_search`, `composio_similarlinks`, and `gemini_search`.

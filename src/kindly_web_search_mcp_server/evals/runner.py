@@ -17,6 +17,22 @@ from typing import Any
 from ..analytics.evals import ensure_eval_tables
 from ..settings import settings
 
+from .cases import EvalCase
+from .judges import (
+    judge_argument_correctness,
+    judge_ranking_quality,
+    judge_source_usefulness,
+    judge_tool_choice_correct,
+)
+from .metrics import (
+    agent_ready_evidence_rate,
+    expected_tool_called,
+    forbidden_tool_not_called,
+    mrr_at_k,
+    ndcg_at_k,
+    top_k_domain_hit,
+)
+
 LOGGER = logging.getLogger(__name__)
 
 try:
@@ -26,21 +42,6 @@ try:
 except Exception:  # pragma: no cover - optional eval dep
     MCPEVAL_AVAILABLE = False
     Dataset = Case = task = Expect = TestSession = None  # type: ignore
-
-from .cases import EvalCase
-from .judges import (
-    judge_argument_correctness,
-    judge_ranking_quality,
-    judge_source_usefulness,
-    judge_tool_choice_correct,
-)
-from .metrics import (
-    expected_tool_called,
-    forbidden_tool_not_called,
-    mrr_at_k,
-    ndcg_at_k,
-    top_k_domain_hit,
-)
 
 
 def _ensure_db() -> None:
@@ -215,15 +216,24 @@ def run_eval_case(
     for cset in case.candidate_sets:
         try:
             cands = cset.candidates
+            evidence_rate = agent_ready_evidence_rate(cands)
+            metric_key = f"agent_ready_evidence_rate:{cset.name}"
+            _record_metric(
+                run_id,
+                case_id,
+                run_key,
+                "agent_ready_evidence_rate",
+                evidence_rate,
+                {"set": cset.name},
+            )
+            summary["metrics"][metric_key] = evidence_rate
             if cands:
-                # use first gold domain or url from expected
-                gold = []
-                for e in case.expected_tool_calls:
-                    # synthetic gold from case if provided in labels or just use first cand
-                    pass
-                # simple: use domains from candidates if marked relevant
-                golds = [c.get("link") or c.get("url") or "" for c in cands if c.get("relevance")]
-                if not golds and cands:
+                golds = [
+                    c.get("link") or c.get("url") or ""
+                    for c in cands
+                    if c.get("relevance")
+                ]
+                if not golds:
                     golds = [cands[0].get("link") or cands[0].get("url") or ""]
                 mrr = mrr_at_k(cands, golds or [""], 5)
                 nd = ndcg_at_k(cands, golds or [""], 10)
@@ -231,7 +241,9 @@ def run_eval_case(
                 _record_metric(run_id, case_id, run_key, "mrr_at_5", mrr, {"set": cset.name})
                 _record_metric(run_id, case_id, run_key, "ndcg_at_10", nd, {"set": cset.name})
                 _record_metric(run_id, case_id, run_key, "top_k_domain_hit", hit, {"set": cset.name})
-                summary["metrics"].update({"mrr_at_5": mrr, "ndcg_at_10": nd, "top_k_domain_hit": hit})
+                summary["metrics"].update(
+                    {"mrr_at_5": mrr, "ndcg_at_10": nd, "top_k_domain_hit": hit}
+                )
         except Exception as exc:
             _record_failure(run_id, case_id, run_key, "ranking_metric", {"error": str(exc), "set": cset.name})
 

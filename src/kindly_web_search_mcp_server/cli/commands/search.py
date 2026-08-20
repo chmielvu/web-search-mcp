@@ -25,9 +25,7 @@ def quick_cmd(
     ] = None,
     query: Annotated[
         list[str] | None,
-        typer.Option(
-            "--query", help="Alias for --search-query."
-        ),
+        typer.Option("--query", help="Alias for --search-query."),
     ] = None,
     objective: Annotated[
         str | None,
@@ -37,9 +35,7 @@ def quick_cmd(
     ] = None,
     research_goal: Annotated[
         str | None,
-        typer.Option(
-            "--research-goal", help="Alias for --objective."
-        ),
+        typer.Option("--research-goal", help="Alias for --objective."),
     ] = None,
 ) -> None:
     """Run the Parallel AI-backed quick web search path."""
@@ -181,14 +177,20 @@ def web_cmd(
 
 @search_app.command("code")
 def code_cmd(
-    query: Annotated[str, typer.Option("--query", help="Code, documentation, or repository search query.")],
+    query: Annotated[
+        str, typer.Option("--query", help="Code, documentation, or repository search query.")
+    ],
     research_goal: Annotated[
         str | None,
-        typer.Option("--research-goal", help="Optional task context for query rewriting and reranking."),
+        typer.Option(
+            "--research-goal", help="Optional task context for query rewriting and reranking."
+        ),
     ] = None,
     repository: Annotated[
         list[str] | None,
-        typer.Option("--repository", "--repositories", help="GitHub owner/name scope; repeatable (max 25)."),
+        typer.Option(
+            "--repository", "--repositories", help="GitHub owner/name scope; repeatable (max 25)."
+        ),
     ] = None,
     language: Annotated[str | None, typer.Option("--language")] = None,
     path: Annotated[str | None, typer.Option("--path")] = None,
@@ -196,27 +198,58 @@ def code_cmd(
     extension: Annotated[str | None, typer.Option("--extension")] = None,
     regexp: Annotated[
         bool,
-        typer.Option("--regexp/--no-regexp", help="Treat the query as a regular expression where supported."),
+        typer.Option(
+            "--regexp/--no-regexp", help="Treat the query as a regular expression where supported."
+        ),
     ] = False,
     deep: Annotated[
         bool,
-        typer.Option("--deep/--no-deep", help="Fetch bounded source windows and broaden repository discovery."),
+        typer.Option(
+            "--deep/--no-deep",
+            help="Fetch bounded source windows and broaden repository discovery.",
+        ),
     ] = False,
     repo_name: Annotated[str | None, typer.Option("--repo-name")] = None,
     library_name: Annotated[str | None, typer.Option("--library-name")] = None,
     topic: Annotated[str | None, typer.Option("--topic")] = None,
+    huggingface_type: Annotated[
+        str, typer.Option("--huggingface-type", help="Hub asset type: models, datasets, or both.")
+    ] = "both",
+    huggingface_sort_by: Annotated[
+        str,
+        typer.Option(
+            "--huggingface-sort-by",
+            help="Hub sort: similarity, likes, downloads, trending, or updated.",
+        ),
+    ] = "similarity",
+    huggingface_hybrid: Annotated[
+        bool, typer.Option("--huggingface-hybrid/--no-huggingface-hybrid")
+    ] = False,
+    huggingface_min_likes: Annotated[int, typer.Option("--huggingface-min-likes")] = 0,
+    huggingface_min_downloads: Annotated[int, typer.Option("--huggingface-min-downloads")] = 0,
+    huggingface_task: Annotated[str | None, typer.Option("--huggingface-task")] = None,
+    huggingface_license: Annotated[str | None, typer.Option("--huggingface-license")] = None,
+    huggingface_language: Annotated[str | None, typer.Option("--huggingface-language")] = None,
+    huggingface_modified_after: Annotated[
+        str | None, typer.Option("--huggingface-modified-after")
+    ] = None,
+    huggingface_min_param_count: Annotated[int, typer.Option("--huggingface-min-param-count")] = 0,
+    huggingface_max_param_count: Annotated[
+        int | None, typer.Option("--huggingface-max-param-count")
+    ] = None,
     mode: Annotated[
-        Literal["code", "docs", "discovery"],
-        typer.Option("--mode", help="Search mode: code, docs, or discovery."),
+        Literal["code", "docs", "discovery", "huggingface"],
+        typer.Option("--mode", help="Search mode: code, docs, discovery, or huggingface."),
     ] = "code",
 ) -> None:
-    """Search public code, documentation, and GitHub repositories."""
+    """Search public code, documentation, GitHub repositories, or Hub assets."""
     from ..services.search_code import fetch_code_search_payload
+
     if not query.strip():
         raise CliError(
             kind="usage_error",
             message="--query must be a non-blank string.",
-            hint="Provide a code, documentation, or repository search query.",
+            hint="Provide a code, documentation, repository, or Hub asset search query.",
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "search code", "query": query},
         )
@@ -237,6 +270,17 @@ def code_cmd(
                 library_name=library_name,
                 topic=topic,
                 mode=mode,
+                huggingface_type=huggingface_type,
+                huggingface_sort_by=huggingface_sort_by,
+                huggingface_hybrid=huggingface_hybrid,
+                huggingface_min_likes=huggingface_min_likes,
+                huggingface_min_downloads=huggingface_min_downloads,
+                huggingface_task=huggingface_task,
+                huggingface_license=huggingface_license,
+                huggingface_language=huggingface_language,
+                huggingface_modified_after=huggingface_modified_after,
+                huggingface_min_param_count=huggingface_min_param_count,
+                huggingface_max_param_count=huggingface_max_param_count,
             )
         )
     except ValueError as exc:

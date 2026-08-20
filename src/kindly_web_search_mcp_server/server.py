@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 # Load .env file before any other imports that read environment variables
+import contextlib
 from pathlib import Path
 import os
 import threading
@@ -35,6 +36,7 @@ from .tools._helpers import (
 )
 from .tools.academic import academic_search
 from .tools.code_search import code_search
+from .tools.code_search.exploration import code_fetch
 from .tools.ai_search import gemini_search, grok_search
 from .tools.content import batch_get_content, discover_links, get_content
 from .tools.profiles import apply_tool_profile
@@ -106,7 +108,6 @@ def _ensure_telemetry() -> None:
             init_telemetry_background(service_name="web-search-mcp")
         except Exception:
             LOGGER.warning("Telemetry background init failed", exc_info=True)
-
     threading.Thread(target=_run, name="telemetry-init", daemon=True).start()
 
 
@@ -264,6 +265,7 @@ mcp.add_middleware(
             "generate_sitemap",
             "academic_search",
             "code_search",
+            "code_fetch",
             "quick_web_search",
             "composio_similarlinks",
             "deep_research",
@@ -293,6 +295,7 @@ mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 mcp.tool(**tool_kwargs("code_search"))(code_search)
+mcp.tool(**tool_kwargs("code_fetch"))(code_fetch)
 
 
 # Register resources
@@ -452,8 +455,8 @@ def _warm_heavy_imports() -> None:
     """
     import importlib
 
-    importlib.import_module(".inference.router", package=__package__)
-
+    with contextlib.redirect_stdout(sys.stderr):
+        importlib.import_module(".inference.router", package=__package__)
 
 def main(argv: list[str] | None = None) -> None:
     # Prevent native BLAS libraries (OpenBLAS, MKL, Accelerate) from spawning

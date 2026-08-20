@@ -7,6 +7,10 @@ existing ``insert_search_quality_scores`` function.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Iterable
+from typing import Any
+
 import duckdb
 
 from .duckdb_store import (
@@ -15,6 +19,81 @@ from .duckdb_store import (
     insert_search_quality_scores,
 )
 
+
+def compute_positional_discount(label: float, position: int) -> float:
+    """Return a zero-based logarithmically discounted relevance label."""
+    if isinstance(position, bool) or not isinstance(position, int) or position < 0:
+        raise ValueError("position must be a nonnegative zero-based integer")
+    value = float(label)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError("label must be a nonnegative finite number")
+    return value / math.log2(position + 2)
+
+
+def compute_discounted_cumulative_gain(
+    labels: Iterable[float], *, k: int | None = None
+) -> float:
+    """Compute discounted cumulative gain from labels ordered by position."""
+    values = list(labels)
+    if k is not None:
+        if isinstance(k, bool) or not isinstance(k, int) or k < 0:
+            raise ValueError("k must be a nonnegative integer or None")
+        values = values[:k]
+    return sum(compute_positional_discount(value, position) for position, value in enumerate(values))
+
+
+def replay_result_labels_aggregate(
+    *,
+    run_key: str | None = None,
+    rubric_version: str | None = None,
+    source: str | None = None,
+    db_path: str | None = None,
+) -> list[dict[str, Any]]:
+    """Read grouped positional label gains without changing live ranking."""
+    path = _db_path(db_path)
+    ensure_search_quality_tables(db_path=str(path))
+    clauses: list[str] = []
+    params: list[str] = []
+    for column, value in (
+        ("run_key", run_key),
+        ("rubric_version", rubric_version),
+        ("source", source),
+    ):
+        if value:
+            clauses.append(f"{column} = ?")
+            params.append(value)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT
+                run_key,
+                stage,
+                source,
+                rubric_version,
+                COUNT(*) AS label_count,
+                SUM(discounted_gain) AS discounted_gain
+            FROM result_labels
+            {where}
+            GROUP BY run_key, stage, source, rubric_version
+            ORDER BY run_key, stage, source, rubric_version
+            """,
+            params,
+        ).fetchall()
+    finally:
+        connection.close()
+    return [
+        {
+            "run_key": row[0],
+            "stage": row[1],
+            "source": row[2],
+            "rubric_version": row[3],
+            "label_count": int(row[4]),
+            "discounted_gain": float(row[5] or 0.0),
+        }
+        for row in rows
+    ]
 
 def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str, object]:
     """Query DuckDB tables for *run_key* and insert computed quality metrics.

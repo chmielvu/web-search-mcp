@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ...evals.metrics import assess_candidate_readiness
+
 Outcome = Literal["ok", "no_hit", "partial", "error", "skipped"]
 ResultKind = Literal["code_match", "semantic_page", "documentation", "repository"]
 LocationPrecision = Literal["line", "file", "url", "repository", "unknown"]
@@ -379,6 +381,7 @@ class Stats(BaseModel):
         default=0, description="Number of evidence hits returned to the caller."
     )
 
+
 class QueryMetadata(BaseModel):
     """How the deterministic query planner interpreted the request."""
 
@@ -419,13 +422,17 @@ class QueryMetadata(BaseModel):
 
     mode: str = Field(
         default="code",
-        description="Search mode: 'code' (default), 'docs', or 'discovery' (repo discovery).",
+        description="Search mode: 'code' (default), 'docs', 'discovery', or 'huggingface' (semantic Hub assets).",
     )
     backend_channels: list[str] = Field(
         default_factory=list, description="Backend channels selected automatically by the planner."
     )
     compiled_queries: dict[str, list[str]] = Field(
         default_factory=dict, description="Provider-specific query strings sent to each backend."
+    )
+    resolution_hints: dict[str, str] = Field(
+        default_factory=dict,
+        description="High-confidence hosted-entity hints used for documentation/repository resolution.",
     )
 
 
@@ -447,7 +454,6 @@ class CodeSearchResultType(BaseModel):
     query_metadata: QueryMetadata = Field(
         description="Planner interpretation, variants, scopes, and backend compilation details."
     )
-
 
 
 _PATH_LANGUAGE = {
@@ -484,9 +490,15 @@ class CodeSearchPublicSpan(BaseModel):
     line: int | None = Field(default=None, description="Absolute one-based line of the match.")
     column: int | None = Field(default=None, description="Zero-based column offset (Sourcegraph).")
     length: int | None = Field(default=None, description="Match length in characters.")
-    start: int | None = Field(default=None, description="Snippet-relative start offset (GitHub indices).")
-    end: int | None = Field(default=None, description="Snippet-relative end offset (GitHub indices).")
-    line_offset: int | None = Field(default=None, description="Line offset within the snippet (GitHub).")
+    start: int | None = Field(
+        default=None, description="Snippet-relative start offset (GitHub indices)."
+    )
+    end: int | None = Field(
+        default=None, description="Snippet-relative end offset (GitHub indices)."
+    )
+    line_offset: int | None = Field(
+        default=None, description="Line offset within the snippet (GitHub)."
+    )
 
 
 class CodeSearchPublicMatchLines(BaseModel):
@@ -513,96 +525,101 @@ class CodeSearchPublicSymbol(BaseModel):
 
 
 class CodeSearchPublicFile(BaseModel):
-    """One matched file inside a repository group."""
+    """One matched file with full provider evidence and agent-readiness status."""
 
     path: str | None = Field(default=None, description="Repository-relative file path.")
     language: str | None = Field(default=None, description="Detected or requested language.")
     url: str | None = Field(default=None, description="Canonical file URL.")
     sha: str | None = Field(default=None, description="Blob SHA or commit OID when known.")
-    text_matches: list[str] = Field(
-        default_factory=list,
-        description="Source windows / fragments, Octocode-style strings.",
-    )
+    snippet: str | None = Field(default=None, description="Primary provider match context.")
+    text_matches: list[str] = Field(default_factory=list, description="Provider match contexts.")
     match_lines: list[CodeSearchPublicMatchLines] = Field(
         default_factory=list,
-        description="Parallel to text_matches: line coordinates and exact spans when providers report them.",
+        description="Parallel line coordinates and exact spans for text_matches.",
     )
-    symbols: list[CodeSearchPublicSymbol] = Field(
-        default_factory=list,
-        description="Symbol matches when a symbol-aware provider contributed.",
-    )
-    path_only: bool = Field(
-        default=False, description="True when the path matched but no source content was returned.",
-    )
+    line_start: int | None = Field(default=None, description="First primary match line.")
+    line_end: int | None = Field(default=None, description="Last primary match line.")
+    symbols: list[CodeSearchPublicSymbol] = Field(default_factory=list)
+    providers: list[str] = Field(default_factory=list)
+    path_only: bool = Field(default=False)
+    agent_ready: bool = Field(default=False)
+    agent_ready_fail_reasons: list[str] = Field(default_factory=list)
 
 
 class CodeSearchPublicRepo(BaseModel):
-    """Slim repository row for discovery mode (gh search repos / GitHub MCP)."""
+    """Slim repository row for discovery mode."""
 
     repository: str = Field(description="owner/name repository.")
-    url: str | None = Field(default=None, description="Canonical repository URL.")
-    description: str | None = Field(default=None, description="Repository description.")
-    language: str | None = Field(default=None, description="Primary language.")
-    stars: int | None = Field(default=None, description="Stargazer count when known.")
+    url: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    language: str | None = Field(default=None)
+    stars: int | None = Field(default=None)
+
+
+class CodeSearchPublicAsset(BaseModel):
+    """Semantic Hugging Face Hub asset returned by ``mode='huggingface'``."""
+
+    asset_id: str
+    asset_type: str
+    url: str
+    summary: str = ""
+    semantic_score: float | None = None
+    score_semantics: str = "provider_similarity"
+    likes: int = 0
+    downloads: int = 0
+    param_count: int | None = None
+    task: str | None = None
+    license: str | None = None
+    language: str | None = None
+    last_modified: str | None = None
+    api_rank: int | None = None
 
 
 class CodeSearchPublicGroup(BaseModel):
-    """Repository group: all matched files under one owner/name."""
+    """Repository group containing all matched files under one owner/name."""
 
     repository: str = Field(description="owner/name repository.")
-    owner: str | None = Field(default=None, description="Repository owner, split from repository.")
-    repo: str | None = Field(default=None, description="Repository name, split from repository.")
-    files: list[CodeSearchPublicFile] = Field(
-        default_factory=list,
-        description="Matched files with source text, ranked order preserved.",
-    )
+    owner: str | None = Field(default=None)
+    repo: str | None = Field(default=None)
+    files: list[CodeSearchPublicFile] = Field(default_factory=list)
 
 
 class CodeSearchPublicHint(BaseModel):
-    """Semantic, actionable agent guidance (Octocode-inspired)."""
+    """Semantic, actionable agent guidance."""
 
-    code: str = Field(description="Stable hint code, e.g. incomplete_index, scoped_zero_unproven.")
+    code: str = Field(description="Stable hint code.")
     message: str = Field(description="Human-readable explanation with a concrete next step.")
 
 
 class CodeSearchPublicNext(BaseModel):
-    """Machine-ready continuation: a ready-made get_content call to resolve exact lines."""
+    """Machine-ready continuation to resolve exact lines or inspect a file."""
 
-    action: str = Field(description="Continuation action, e.g. get_lines, retry_without_filter.")
-    tool: str = Field(default="get_content", description="Tool to call for this continuation.")
-    query: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Ready-made arguments for the continuation tool call.",
-    )
-    why: str | None = Field(default=None, description="Why this continuation is recommended.")
-    confidence: str | None = Field(
-        default=None, description="Confidence level: exact, high, medium, or low."
-    )
+    action: str = Field(description="Continuation action.")
+    tool: str = Field(description="Tool to call for this continuation.")
+    query: dict[str, Any] = Field(default_factory=dict)
+    why: str | None = Field(default=None)
+    confidence: str | None = Field(default=None)
 
 
 class CodeSearchPublicResult(BaseModel):
-    """Public MCP/CLI payload: grouped source first, ranking telemetry omitted."""
+    """Structured MCP/CLI payload with full evidence and readiness metadata."""
 
     query: str = Field(description="Normalized query submitted to code search.")
     outcome: Outcome = Field(description="ok, no_hit, partial, error, or skipped.")
+    incomplete_results: bool = Field(
+        description="Whether provider or index diagnostics make the result set incomplete."
+    )
+    agent_ready_count: int = Field(description="Number of returned file rows that are agent-ready.")
+    agent_ready_evidence_rate: float = Field(
+        description="agent_ready_count divided by the returned file-row count, or 0 when empty."
+    )
     results: list[CodeSearchPublicGroup] = Field(
-        description="Repositories with matched files and text_matches, Octocode-style grouping."
+        description="Repositories with matched files and provider text contexts."
     )
-    repositories: list[CodeSearchPublicRepo] = Field(
-        default_factory=list,
-        description="Discovery-mode repository candidates only.",
-    )
-    hints: list[CodeSearchPublicHint] = Field(
-        default_factory=list,
-        description="Semantic, actionable agent guidance (Octocode-inspired).",
-    )
-    next: list[CodeSearchPublicNext] = Field(
-        default_factory=list,
-        description="Machine-ready continuations for exact line resolution or retry.",
-    )
-    warnings: list[str] = Field(
-        default_factory=list, description="Short caller-facing caveats, not provider dumps."
-    )
+    repositories: list[CodeSearchPublicRepo] = Field(default_factory=list)
+    hints: list[CodeSearchPublicHint] = Field(default_factory=list)
+    next: list[CodeSearchPublicNext] = Field(default_factory=list)
+    assets: list[CodeSearchPublicAsset] = Field(default_factory=list)
 
 
 def _language_from_path(path: str | None) -> str | None:
@@ -615,7 +632,7 @@ def _language_from_path(path: str | None) -> str | None:
 def _spans_for_range(
     hit: CodeSearchHit, line_start: int | None, line_end: int | None
 ) -> list[CodeSearchPublicSpan]:
-    """Build spans from hit.match_spans (GitHub indices) and fragment offsets (Sourcegraph)."""
+    """Build spans from provider match metadata without altering source text."""
 
     spans: list[CodeSearchPublicSpan] = []
     for span in hit.match_spans:
@@ -623,13 +640,10 @@ def _spans_for_range(
             continue
         line = span.get("line")
         if not isinstance(line, int):
-            # GitHub stores {fragment, start, end, text} without a line key — emit as snippet-relative.
             if isinstance(span.get("start"), int) and isinstance(span.get("end"), int):
                 spans.append(
                     CodeSearchPublicSpan(
-                        start=span["start"],
-                        end=span["end"],
-                        line_offset=span.get("fragment"),
+                        start=span["start"], end=span["end"], line_offset=span.get("fragment")
                     )
                 )
             continue
@@ -650,29 +664,12 @@ def _spans_for_range(
 def _build_text_and_lines(
     hit: CodeSearchHit,
 ) -> list[tuple[str, CodeSearchPublicMatchLines]]:
-    """Single pass: build (text, line_info) pairs, deduping by text content only."""
+    """Project every available provider context without truncation or deduplication."""
 
     pairs: list[tuple[str, CodeSearchPublicMatchLines]] = []
-    seen_texts: set[str] = set()
-
-    window_start = hit.source_metadata.get("source_window_start")
-    window_end = hit.source_metadata.get("source_window_end")
-    ws = window_start if isinstance(window_start, int) and window_start >= 1 else None
-    we = window_end if isinstance(window_end, int) and window_end >= 1 else None
-
-    if hit.hydrated_source and hit.hydrated_source.strip():
-        text = hit.hydrated_source
-        if text not in seen_texts:
-            seen_texts.add(text)
-            pairs.append(
-                (text, CodeSearchPublicMatchLines(line_start=ws, line_end=we, spans=_spans_for_range(hit, ws, we)))
-            )
-
     for fragment in hit.fragments:
-        text = fragment.text.strip()
-        if not text or text in seen_texts:
+        if not isinstance(fragment.text, str) or not fragment.text.strip():
             continue
-        seen_texts.add(text)
         offsets = fragment.match_metadata.get("offsets")
         spans: list[CodeSearchPublicSpan] = []
         if isinstance(offsets, list):
@@ -688,21 +685,44 @@ def _build_text_and_lines(
         if not spans:
             spans = _spans_for_range(hit, fragment.line_start, fragment.line_end)
         pairs.append(
-            (text, CodeSearchPublicMatchLines(line_start=fragment.line_start, line_end=fragment.line_end, spans=spans))
+            (
+                fragment.text,
+                CodeSearchPublicMatchLines(
+                    line_start=fragment.line_start, line_end=fragment.line_end, spans=spans
+                ),
+            )
         )
 
-    snippet = (hit.snippet or "").strip()
-    if snippet and snippet not in seen_texts:
-        seen_texts.add(snippet)
+    if isinstance(hit.snippet, str) and hit.snippet.strip():
         pairs.append(
-            (snippet, CodeSearchPublicMatchLines(line_start=hit.line_start, line_end=hit.line_end, spans=_spans_for_range(hit, hit.line_start, hit.line_end)))
+            (
+                hit.snippet,
+                CodeSearchPublicMatchLines(
+                    line_start=hit.line_start,
+                    line_end=hit.line_end,
+                    spans=_spans_for_range(hit, hit.line_start, hit.line_end),
+                ),
+            )
         )
 
+    if isinstance(hit.hydrated_source, str) and hit.hydrated_source.strip():
+        window_start = hit.source_metadata.get("source_window_start")
+        window_end = hit.source_metadata.get("source_window_end")
+        ws = window_start if isinstance(window_start, int) and window_start >= 1 else hit.line_start
+        we = window_end if isinstance(window_end, int) and window_end >= 1 else hit.line_end
+        pairs.append(
+            (
+                hit.hydrated_source,
+                CodeSearchPublicMatchLines(
+                    line_start=ws, line_end=we, spans=_spans_for_range(hit, ws, we)
+                ),
+            )
+        )
     return pairs
 
 
 def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSearchPublicFile:
-    """Project one internal hit to a grouped file row carrying provider strengths."""
+    """Project one internal hit to a full structured file row with readiness status."""
 
     revision = hit.sha or hit.commit_oid or hit.location.revision
     detected = language or _language_from_path(hit.path)
@@ -716,40 +736,49 @@ def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSe
             container=(
                 symbol.get("container")
                 if isinstance(symbol.get("container"), str)
-                else symbol.get("containerName") if isinstance(symbol.get("containerName"), str) else None
+                else symbol.get("containerName")
+                if isinstance(symbol.get("containerName"), str)
+                else None
             ),
         )
-        for symbol in hit.symbols[:10]
+        for symbol in hit.symbols
         if isinstance(symbol, dict) and symbol.get("name")
     ]
     pairs = _build_text_and_lines(hit)
     text_matches = [text for text, _ in pairs]
     match_lines = [lines for _, lines in pairs]
-    path_only = not text_matches and not match_lines
+    primary_lines = match_lines[0] if match_lines else None
+    line_start = hit.line_start or (primary_lines.line_start if primary_lines else None)
+    line_end = hit.line_end or (primary_lines.line_end if primary_lines else None)
+    providers: list[str] = []
+    for provider in [hit.provider, *(hit.source_metadata.get("providers") or [])]:
+        if isinstance(provider, str) and provider.strip() and provider not in providers:
+            providers.append(provider)
+    agent_ready, fail_reasons = assess_candidate_readiness(hit)
     return CodeSearchPublicFile(
         path=hit.path,
         language=detected,
         url=hit.url or None,
         sha=revision,
+        snippet=text_matches[0] if text_matches else None,
         text_matches=text_matches,
         match_lines=match_lines,
+        line_start=line_start,
+        line_end=line_end,
         symbols=symbols,
-        path_only=path_only,
+        providers=providers,
+        path_only=not text_matches and not match_lines,
+        agent_ready=agent_ready,
+        agent_ready_fail_reasons=[] if agent_ready else fail_reasons,
     )
 
 
-def _build_hints(
-    result: CodeSearchResultType, plan: Any | None
-) -> list[CodeSearchPublicHint]:
+def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSearchPublicHint]:
     """Semantic, actionable hints inspired by Octocode's warning model."""
 
     hints: list[CodeSearchPublicHint] = []
-    has_incomplete = any(
-        diag.failure_kind == "incomplete_index" for diag in result.diagnostics
-    )
-    has_auth_fail = any(
-        diag.failure_kind == "auth" for diag in result.diagnostics
-    )
+    has_incomplete = any(diag.failure_kind == "incomplete_index" for diag in result.diagnostics)
+    has_auth_fail = any(diag.failure_kind == "auth" for diag in result.diagnostics)
     has_results = bool(result.results)
     has_scoped_qualifiers = bool(plan and plan.qualifiers)
     is_regex = bool(plan and plan.regex_source and plan.local_regex is None)
@@ -792,10 +821,8 @@ def _build_hints(
     return hints
 
 
-def _build_next(
-    result: CodeSearchResultType, plan: Any | None
-) -> list[CodeSearchPublicNext]:
-    """One continuation per group's top file — deduped by URL."""
+def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSearchPublicNext]:
+    """Build continuation records for matched files with their exact anchors."""
 
     nexts: list[CodeSearchPublicNext] = []
     if not result.results:
@@ -807,23 +834,36 @@ def _build_next(
         anchor = plan.variants[0]
     if not anchor:
         return nexts
-    seen_urls: set[str] = set()
     for hit in result.results:
         url = hit.url
-        if not url or url in seen_urls:
+        if not url:
             continue
-        seen_urls.add(url)
-        nexts.append(
-            CodeSearchPublicNext(
-                action="get_lines",
-                tool="get_content",
-                query={"url": url, "focus_query": anchor},
-                why="GitHub code search returns no absolute line numbers; fetch the file with focus_query to resolve exact file:line anchors.",
-                confidence="low",
+        if hit.repository and hit.path:
+            nexts.append(
+                CodeSearchPublicNext(
+                    action="file",
+                    tool="code_fetch",
+                    query={
+                        "repository": hit.repository,
+                        "path": hit.path,
+                        "ref": hit.commit_oid,
+                        "start_line": hit.line_start,
+                        "end_line": hit.line_end,
+                    },
+                    why="Read the matched repository file at the indexed revision without re-running code search.",
+                    confidence="high" if hit.commit_oid else "medium",
+                )
             )
-        )
-        if len(nexts) >= 3:
-            break
+        else:
+            nexts.append(
+                CodeSearchPublicNext(
+                    action="get_lines",
+                    tool="get_content",
+                    query={"url": url, "focus_query": anchor},
+                    why="Fetch the file with focus_query to resolve exact file:line anchors.",
+                    confidence="low",
+                )
+            )
     return nexts
 
 
@@ -833,30 +873,11 @@ def to_public_result(
     language: str | None = None,
     plan: Any | None = None,
 ) -> CodeSearchPublicResult:
-    """Group hits by repository, merge duplicate paths, emit hints and next continuations."""
+    """Group hits by repository and path while preserving all structured evidence."""
 
-    # Warnings (legacy, ≤5) — derived from diagnostics for back-compat.
-    warnings: list[str] = []
-    seen: set[str] = set()
-    incomplete_noted = False
-    for diagnostic in result.diagnostics:
-        message = (diagnostic.message or "").strip()
-        if not message or message in seen:
-            continue
-        if diagnostic.failure_kind == "incomplete_index":
-            if incomplete_noted:
-                continue
-            incomplete_noted = True
-            message = "Some providers returned incomplete index results."
-        seen.add(message)
-        warnings.append(message)
-        if len(warnings) >= 5:
-            break
-
-    # Discovery repositories.
     repositories: list[CodeSearchPublicRepo] = []
     if result.query_metadata.mode == "discovery":
-        for repo in result.repositories[:15]:
+        for repo in result.repositories:
             repositories.append(
                 CodeSearchPublicRepo(
                     repository=repo.name_with_owner,
@@ -867,7 +888,6 @@ def to_public_result(
                 )
             )
 
-    # Group by repository, merge by (repository, path) — fixes duplicate file rows.
     groups: list[CodeSearchPublicGroup] = []
     by_repo: dict[str, CodeSearchPublicGroup] = {}
     by_file: dict[str, dict[str, CodeSearchPublicFile]] = {}
@@ -878,9 +898,7 @@ def to_public_result(
         if group is None:
             owner, _, repo_name = repository.partition("/")
             group = CodeSearchPublicGroup(
-                repository=repository,
-                owner=owner if owner else None,
-                repo=repo_name if repo_name else None,
+                repository=repository, owner=owner or None, repo=repo_name or None
             )
             by_repo[repository] = group
             by_file[repository] = {}
@@ -895,34 +913,73 @@ def to_public_result(
         if existing is None:
             by_file[repository][path_key] = file_entry
             group.files.append(file_entry)
-        else:
-            # Merge: union text_matches/match_lines/symbols, prefer strongest sha + url.
-            for text, lines in zip(file_entry.text_matches, file_entry.match_lines):
-                if text not in existing.text_matches:
-                    existing.text_matches.append(text)
-                    existing.match_lines.append(lines)
-            for symbol in file_entry.symbols:
-                if symbol not in existing.symbols:
-                    existing.symbols.append(symbol)
-            existing.sha = existing.sha or file_entry.sha
-            existing.url = existing.url or file_entry.url
-            existing.language = existing.language or file_entry.language
-            existing.path_only = existing.path_only and file_entry.path_only
+            continue
 
-    # Sort groups by best hit score (descending) — fixes group ordering.
-    groups.sort(key=lambda g: -best_score.get(g.repository, 0.0))
+        existing.text_matches.extend(file_entry.text_matches)
+        existing.match_lines.extend(file_entry.match_lines)
+        for symbol in file_entry.symbols:
+            if symbol not in existing.symbols:
+                existing.symbols.append(symbol)
+        for provider in file_entry.providers:
+            if provider not in existing.providers:
+                existing.providers.append(provider)
+        existing.sha = existing.sha or file_entry.sha
+        existing.url = existing.url or file_entry.url
+        existing.language = existing.language or file_entry.language
+        existing.snippet = existing.snippet or file_entry.snippet
+        existing.line_start = existing.line_start or file_entry.line_start
+        existing.line_end = existing.line_end or file_entry.line_end
+        existing.path_only = existing.path_only and file_entry.path_only
+        if file_entry.agent_ready:
+            existing.agent_ready = True
+            existing.agent_ready_fail_reasons = []
+        elif not existing.agent_ready:
+            existing.agent_ready_fail_reasons.extend(file_entry.agent_ready_fail_reasons)
 
-    hints = _build_hints(result, plan)
-    nexts = _build_next(result, plan)
-
+    groups.sort(key=lambda group: -best_score.get(group.repository, 0.0))
+    file_count = sum(len(group.files) for group in groups)
+    agent_ready_count = sum(
+        1 for group in groups for file_entry in group.files if file_entry.agent_ready
+    )
+    incomplete_results = bool(
+        result.outcome == "partial"
+        or result.stats.incomplete_providers
+        or any(d.failure_kind == "incomplete_index" for d in result.diagnostics)
+    )
+    assets = []
+    for hit in result.results:
+        if hit.provider != "huggingface":
+            continue
+        metadata = hit.source_metadata
+        assets.append(
+            CodeSearchPublicAsset(
+                asset_id=str(metadata.get("asset_id") or hit.repository or ""),
+                asset_type=str(metadata.get("asset_type") or "unknown"),
+                url=hit.url,
+                summary=hit.snippet or "",
+                semantic_score=metadata.get("semantic_score"),
+                score_semantics=str(metadata.get("score_semantics") or "provider_similarity"),
+                likes=int(metadata.get("likes") or 0),
+                downloads=int(metadata.get("downloads") or 0),
+                param_count=metadata.get("param_count"),
+                task=metadata.get("task"),
+                license=metadata.get("license"),
+                language=metadata.get("language"),
+                last_modified=metadata.get("last_modified"),
+                api_rank=metadata.get("api_rank"),
+            )
+        )
     return CodeSearchPublicResult(
         query=result.query,
         outcome=result.outcome,
+        incomplete_results=incomplete_results,
+        agent_ready_count=agent_ready_count,
+        agent_ready_evidence_rate=agent_ready_count / file_count if file_count else 0.0,
         results=groups,
         repositories=repositories,
-        hints=hints,
-        next=nexts,
-        warnings=warnings,
+        assets=assets,
+        hints=_build_hints(result, plan),
+        next=_build_next(result, plan),
     )
 
 
@@ -962,6 +1019,17 @@ class CodeSearchRequest:
     library_name: str | None = None
     topic: str | None = None
     mode: str = "code"
+    huggingface_type: str = "both"
+    huggingface_sort_by: str = "similarity"
+    huggingface_hybrid: bool = False
+    huggingface_min_likes: int = 0
+    huggingface_min_downloads: int = 0
+    huggingface_task: str | None = None
+    huggingface_license: str | None = None
+    huggingface_language: str | None = None
+    huggingface_modified_after: str | None = None
+    huggingface_min_param_count: int = 0
+    huggingface_max_param_count: int | None = None
     budget: SearchBudget = field(default_factory=SearchBudget)
 
 

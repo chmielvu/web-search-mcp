@@ -152,6 +152,9 @@ class QueryPlan:
     structural_kind: str | None = None
     exa_semantic_query: str = ""
     mode: str = "code"
+    library_hint: str | None = None
+    repository_hint: str | None = None
+    resolution_source: str | None = None
 
     @property
     def metadata(self) -> QueryMetadata:
@@ -163,6 +166,8 @@ class QueryPlan:
             channels.add("documentation")
         if self.mode == "discovery":
             channels.add("repository")
+        if self.mode == "huggingface":
+            channels.add("huggingface")
         return QueryMetadata(
             original_query=self.original_query,
             variants=list(self.variants),
@@ -178,6 +183,15 @@ class QueryPlan:
             concept_terms=list(self.concept_terms),
             structural_kind=self.structural_kind,
             mode=self.mode,
+            resolution_hints={
+                key: value
+                for key, value in (
+                    ("library", self.library_hint),
+                    ("repository", self.repository_hint),
+                    ("source", self.resolution_source),
+                )
+                if value
+            },
             backend_channels=sorted(channels),
         )
 
@@ -517,9 +531,7 @@ def build_query_plan(
 
     anchors = _literal_anchors(" ".join(terms) + (" " + regex_source if regex_source else ""))
     source_tokens = _source_shaped_tokens(remaining)
-    concept_terms, structural_kind = (
-        _query_signals(remaining, terms, source_tokens, regex_source)
-    )
+    concept_terms, structural_kind = _query_signals(remaining, terms, source_tokens, regex_source)
     variants: list[str] = []
     variant_kinds: list[str] = []
 
@@ -538,7 +550,8 @@ def build_query_plan(
         qualified_source_tokens = [
             (value, leaf, parent, shape)
             for value, leaf, parent, shape in source_tokens
-            if leaf.casefold() not in {"async", "def", "await", "class", "import", "export", "var", "func"}
+            if leaf.casefold()
+            not in {"async", "def", "await", "class", "import", "export", "var", "func"}
         ]
         for value, leaf, _parent, _shape in qualified_source_tokens:
             add_variant(value, "symbol")

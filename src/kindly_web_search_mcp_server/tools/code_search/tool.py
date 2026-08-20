@@ -14,18 +14,20 @@ from pydantic import Field
 
 from ...telemetry import SEARCH_QUERY, create_chain_span
 from ...utils.observability import emit_tool_observability_event
-from .models import CodeSearchPublicResult, CodeSearchRequest, to_public_result
+from .models import (
+    CodeSearchPublicResult,
+    CodeSearchRequest,
+    CodeSearchResultType,
+    to_public_result,
+)
+from ...cache.code_search import build_search_cache_key, get_code_search_cache
+
+from .._helpers import _code_search_flight
 from .optimization import optimize_query_plan
 from .orchestrator import execute_code_search
 from .query import build_query_plan
 
 LOGGER = logging.getLogger(__name__)
-
-# Server-controlled result cap — not exposed to callers. The orchestrator
-# and compact_hits use this to decide how many hits survive into the final
-# response. Inspired by GitHub's own MCP server (search_code) and grep.app
-# MCP, neither of which exposes a max_results parameter.
-_SERVER_MAX_RESULTS = 50
 
 
 def _clean_repositories(repositories: list[str] | None) -> tuple[str, ...]:
@@ -35,6 +37,52 @@ def _clean_repositories(repositories: list[str] | None) -> tuple[str, ...]:
     if len(values) > 25:
         raise ValueError("repositories may contain at most 25 entries.")
     return values
+
+
+_HUGGINGFACE_MODES = {"huggingface"}
+_HUGGINGFACE_TYPES = {"models", "datasets", "both"}
+_HUGGINGFACE_SORTS = {"similarity", "likes", "downloads", "trending", "updated"}
+
+
+def _normalize_mode(mode: str) -> str:
+    normalized = (mode or "code").strip().casefold()
+    aliases = {"hf": "huggingface", "hf_semantic": "huggingface"}
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in {"code", "docs", "discovery", *_HUGGINGFACE_MODES}:
+        raise ValueError("mode must be one of: code, docs, discovery, huggingface.")
+    return normalized
+
+
+def _validate_huggingface_options(
+    *,
+    mode: str,
+    asset_type: str,
+    sort_by: str,
+    min_likes: int,
+    min_downloads: int,
+    min_param_count: int,
+    max_param_count: int | None,
+    modified_after: str | None,
+) -> None:
+    if mode != "huggingface":
+        return
+    if asset_type not in _HUGGINGFACE_TYPES:
+        raise ValueError("huggingface_type must be models, datasets, or both.")
+    if sort_by not in _HUGGINGFACE_SORTS:
+        raise ValueError(
+            "huggingface_sort_by must be similarity, likes, downloads, trending, or updated."
+        )
+    if min_likes < 0 or min_downloads < 0 or min_param_count < 0:
+        raise ValueError("Hugging Face minimum filters must be non-negative.")
+    if max_param_count is not None and max_param_count < min_param_count:
+        raise ValueError("huggingface_max_param_count must be >= huggingface_min_param_count.")
+    if modified_after and (
+        len(modified_after) != 10
+        or modified_after[4] != "-"
+        or modified_after[7] != "-"
+        or not modified_after.replace("-", "").isdigit()
+    ):
+        raise ValueError("huggingface_modified_after must use YYYY-MM-DD format.")
 
 
 def _validate_request(
@@ -52,6 +100,17 @@ def _validate_request(
     library_name: str | None,
     topic: str | None,
     mode: str = "code",
+    huggingface_type: str = "both",
+    huggingface_sort_by: str = "similarity",
+    huggingface_hybrid: bool = False,
+    huggingface_min_likes: int = 0,
+    huggingface_min_downloads: int = 0,
+    huggingface_task: str | None = None,
+    huggingface_license: str | None = None,
+    huggingface_language: str | None = None,
+    huggingface_modified_after: str | None = None,
+    huggingface_min_param_count: int = 0,
+    huggingface_max_param_count: int | None = None,
 ) -> CodeSearchRequest:
     normalized_query = query.strip()
     normalized_research_goal = " ".join((research_goal or "").split()).strip()
@@ -61,6 +120,17 @@ def _validate_request(
     normalized_repo_name = repo_name.strip() if repo_name and repo_name.strip() else None
     normalized_library_name = (
         library_name.strip() if library_name and library_name.strip() else None
+    )
+    normalized_mode = _normalize_mode(mode)
+    _validate_huggingface_options(
+        mode=normalized_mode,
+        asset_type=huggingface_type,
+        sort_by=huggingface_sort_by,
+        min_likes=huggingface_min_likes,
+        min_downloads=huggingface_min_downloads,
+        min_param_count=huggingface_min_param_count,
+        max_param_count=huggingface_max_param_count,
+        modified_after=huggingface_modified_after,
     )
     return CodeSearchRequest(
         query=normalized_query,
@@ -72,11 +142,23 @@ def _validate_request(
         extension=extension.strip() if extension and extension.strip() else None,
         regexp=regexp,
         deep=deep,
-        max_results=_SERVER_MAX_RESULTS,
         repo_name=normalized_repo_name,
         library_name=normalized_library_name,
         topic=topic.strip() if topic and topic.strip() else None,
-        mode=mode,
+        mode=normalized_mode,
+        huggingface_type=huggingface_type,
+        huggingface_sort_by=huggingface_sort_by,
+        huggingface_hybrid=huggingface_hybrid,
+        huggingface_min_likes=huggingface_min_likes,
+        huggingface_min_downloads=huggingface_min_downloads,
+        huggingface_task=huggingface_task.strip() if huggingface_task else None,
+        huggingface_license=huggingface_license.strip() if huggingface_license else None,
+        huggingface_language=huggingface_language.strip() if huggingface_language else None,
+        huggingface_modified_after=(
+            huggingface_modified_after.strip() if huggingface_modified_after else None
+        ),
+        huggingface_min_param_count=huggingface_min_param_count,
+        huggingface_max_param_count=huggingface_max_param_count,
     )
 
 
@@ -184,6 +266,36 @@ async def code_search(
             )
         ),
     ] = "code",
+    huggingface_type: Annotated[
+        str,
+        Field(
+            description="Hugging Face asset type: models, datasets, or both (huggingface mode only)."
+        ),
+    ] = "both",
+    huggingface_sort_by: Annotated[
+        str,
+        Field(description="Hub ranking: similarity, likes, downloads, trending, or updated."),
+    ] = "similarity",
+    huggingface_hybrid: Annotated[
+        bool,
+        Field(description="Use the Hub API's hybrid lexical/semantic ranking."),
+    ] = False,
+    huggingface_min_likes: Annotated[int, Field(description="Minimum Hub likes.")] = 0,
+    huggingface_min_downloads: Annotated[int, Field(description="Minimum Hub downloads.")] = 0,
+    huggingface_task: Annotated[str | None, Field(description="Hub task filter.")] = None,
+    huggingface_license: Annotated[str | None, Field(description="Hub license filter.")] = None,
+    huggingface_language: Annotated[
+        str | None, Field(description="Dataset language filter.")
+    ] = None,
+    huggingface_modified_after: Annotated[
+        str | None, Field(description="Only assets modified after YYYY-MM-DD.")
+    ] = None,
+    huggingface_min_param_count: Annotated[
+        int, Field(description="Minimum model parameter count.")
+    ] = 0,
+    huggingface_max_param_count: Annotated[
+        int | None, Field(description="Maximum model parameter count.")
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> CodeSearchPublicResult:
     """Search public code, implementation examples, documentation, and GitHub repositories.
@@ -197,6 +309,7 @@ async def code_search(
       * `code`: Default mode for concrete implementations and code definitions.
       * `docs`: Focuses on API reference documentation and library tutorials.
       * `discovery`: Finds active repositories, stars, and implementations.
+      * `huggingface`: Searches semantic model and dataset cards through the Hub API.
 
     Returns grouped results (Octocode-style): repository → files → text_matches,
     match_lines with exact spans, symbols, sha, and url. Hints and next
@@ -227,6 +340,17 @@ async def code_search(
             library_name=library_name,
             topic=topic,
             mode=mode,
+            huggingface_type=huggingface_type,
+            huggingface_sort_by=huggingface_sort_by,
+            huggingface_hybrid=huggingface_hybrid,
+            huggingface_min_likes=huggingface_min_likes,
+            huggingface_min_downloads=huggingface_min_downloads,
+            huggingface_task=huggingface_task,
+            huggingface_license=huggingface_license,
+            huggingface_language=huggingface_language,
+            huggingface_modified_after=huggingface_modified_after,
+            huggingface_min_param_count=huggingface_min_param_count,
+            huggingface_max_param_count=huggingface_max_param_count,
         )
     except Exception as exc:
         emit_tool_observability_event(
@@ -256,51 +380,66 @@ async def code_search(
     plan = await optimize_query_plan(plan, request)
     if ctx is not None:
         await ctx.report_progress(progress=5, total=100, message="Planning code search...")
-    with create_chain_span(
-        "code_search",
-        attributes={
-            SEARCH_QUERY: request.query[:500],
-            "code_search.channels": ",".join(plan.metadata.backend_channels),
-        },
-    ) as root_span:
-        from ...inference.engine import bind_run_context, reset_run_context
-        from ...utils.http_client import get_http_client
 
-        ctx_token = bind_run_context(tool_call_id, operation="code_search")
-        try:
-            if ctx is not None:
-                await ctx.report_progress(
-                    progress=15, total=100, message="Running selected code-search providers..."
+    cache = get_code_search_cache()
+    cache_key = build_search_cache_key(request, plan)
+    cached = cache.lookup_search(cache_key)
+    cache_hit = cached is not None
+
+    async def _execute_uncached() -> CodeSearchResultType:
+        if ctx is not None:
+            await ctx.report_progress(
+                progress=15, total=100, message="Running selected code-search providers..."
+            )
+        with create_chain_span(
+            "code_search",
+            attributes={
+                SEARCH_QUERY: request.query[:500],
+                "code_search.channels": ",".join(plan.metadata.backend_channels),
+            },
+        ) as root_span:
+            from ...inference.engine import bind_run_context, reset_run_context
+            from ...utils.http_client import get_http_client
+
+            ctx_token = bind_run_context(tool_call_id, operation="code_search")
+            try:
+                response = await execute_code_search(
+                    request,
+                    plan,
+                    http_client=await get_http_client(),
                 )
-            response = await execute_code_search(
-                request,
-                plan,
-                http_client=await get_http_client(),
+            except Exception as exc:
+                root_span.set_status(trace.StatusCode.ERROR)
+                emit_tool_observability_event(
+                    LOGGER,
+                    "code_search",
+                    "error",
+                    tool_call_id=tool_call_id,
+                    query=request.query,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    duration_ms=(time.monotonic() - started) * 1000,
+                    request=request,
+                    plan=plan,
+                )
+                raise
+            finally:
+                reset_run_context(ctx_token)
+            root_span.set_attribute("code_search.result_count", len(response.results))
+            root_span.set_attribute("code_search.outcome", response.outcome)
+            root_span.set_status(
+                trace.StatusCode.OK
+                if response.outcome in {"ok", "partial", "no_hit"}
+                else trace.StatusCode.ERROR
             )
-        except Exception as exc:
-            root_span.set_status(trace.StatusCode.ERROR)
-            emit_tool_observability_event(
-                LOGGER,
-                "code_search",
-                "error",
-                tool_call_id=tool_call_id,
-                query=request.query,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-                duration_ms=(time.monotonic() - started) * 1000,
-                request=request,
-                plan=plan,
-            )
-            raise
-        finally:
-            reset_run_context(ctx_token)
-        root_span.set_attribute("code_search.result_count", len(response.results))
-        root_span.set_attribute("code_search.outcome", response.outcome)
-        root_span.set_status(
-            trace.StatusCode.OK
-            if response.outcome in {"ok", "partial", "no_hit"}
-            else trace.StatusCode.ERROR
-        )
+            return response
+
+    if cached is not None:
+        response = CodeSearchResultType.model_validate(cached)
+    else:
+        response = await _code_search_flight.do(cache_key, _execute_uncached)
+        if response.outcome in {"ok", "partial", "no_hit"}:
+            cache.store_search(cache_key, response.model_dump(mode="json"))
 
     if ctx is not None:
         await ctx.report_progress(progress=100, total=100, message="Done")
@@ -311,7 +450,7 @@ async def code_search(
         tool_call_id=tool_call_id,
         query=request.query,
         channels=plan.metadata.backend_channels,
-        outcome=response.outcome,
+        cache_hit=cache_hit,
         providers=response.stats.provider_counts,
         output_count=len(response.results),
         duration_ms=(time.monotonic() - started) * 1000,

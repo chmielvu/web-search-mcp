@@ -10,6 +10,7 @@ DEFAULT_PROFILE_TOOLS = frozenset(
     {
         "quick_web_search",
         "code_search",
+        "code_fetch",
         "web_search",
         "get_content",
         "batch_get_content",
@@ -31,6 +32,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "get_content": 30.0,
     "academic_search": 45.0,
     "code_search": 120.0,
+    "code_fetch": 60.0,
     "deep_research": None,  # background-capable; no foreground timeout
 }
 
@@ -124,7 +126,8 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             "and GitHub repositories. Use this for existing implementations, exact "
             "identifiers, API usage patterns, error-message matches, code snippets, or "
             "candidate repositories. Backend selection is automatic across lexical, "
-            "symbol, regular-expression, semantic, repository, and documentation search. "
+            "symbol, regular-expression, semantic, repository, documentation, and Hugging Face "
+            "semantic Hub asset search. Use mode=\"huggingface\" for models/datasets. "
             "Use repositories, language, path, filename, extension, or topic to narrow "
             "the search. Results are grouped by repository (Octocode-style): each group "
             "contains files with text_matches (source windows), match_lines with exact "
@@ -133,6 +136,17 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             "general web pages and narrative research."
         ),
         task=True,
+    ),
+    "code_fetch": _entry(
+        "code_fetch",
+        "Code Fetch",
+        {"regular", "full"},
+        description=(
+            "Continue a code_search result by reading one bounded GitHub file at a "
+            "revision or listing a repository tree. Use action='file' with repository "
+            "and path, or action='tree' with only repository. This does not re-run "
+            "code search and returns blob/revision metadata when available."
+        ),
     ),
     "composio_similarlinks": _entry("composio_similarlinks", "Composio Similarlinks", {"full"}),
     "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),

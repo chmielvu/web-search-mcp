@@ -5,7 +5,9 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
+import time
 from typing import Any
 
 import httpx
@@ -21,6 +23,29 @@ from .models import (
 )
 from .query import QueryPlan
 
+_RETRYABLE_HTTP_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_NETWORK_EXCEPTIONS = (httpx.TransportError, httpx.TimeoutException, TimeoutError, OSError)
+
+
+def _resolve_max_retries() -> int:
+    try:
+        from ...search.providers.base import provider_retry_max_retries
+
+        retries = provider_retry_max_retries("sourcegraph")
+        if isinstance(retries, int) and retries >= 0:
+            return retries
+    except (ImportError, AttributeError):
+        pass
+    return 1
+
+
+def _parse_retry_after_header(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (ValueError, TypeError):
+        return None
 LOGGER = logging.getLogger(__name__)
 _SOURCEGRAPH_URL = "https://sourcegraph.com/.api/graphql"
 _SOURCEGRAPH_STREAM_URL = "https://sourcegraph.com/.api/search/stream"
@@ -130,18 +155,23 @@ def _diag(
     response: httpx.Response | None = None,
     outcome: str = "error",
     failure_kind: str = "provider",
+    retry_after_seconds: float | None = None,
     details: dict[str, Any] | None = None,
 ) -> Diagnostic:
+    if retry_after_seconds is None and response is not None:
+        raw_retry_after = response.headers.get("Retry-After")
+        if raw_retry_after:
+            retry_after_seconds = _parse_retry_after_header(raw_retry_after)
     return Diagnostic(
         provider="sourcegraph",
         outcome=outcome,  # type: ignore[arg-type]
         message=message[:500],
         failure_kind=failure_kind,  # type: ignore[arg-type]
         status_code=response.status_code if response is not None else None,
+        retry_after_seconds=retry_after_seconds,
         query=query,
         details=details or {},
     )
-
 
 def _error_text(payload: dict[str, Any]) -> str:
     errors = payload.get("errors")
@@ -475,60 +505,157 @@ async def _graphql_search_variant(
     var_name: str,
     var_kind: str,
     max_results: int,
+    *,
+    deadline: float | None = None,
 ) -> tuple[str, list[CodeSearchHit], list[Diagnostic], str]:
     """Fallback to Sourcegraph GraphQL when Stream API is unavailable."""
+    if deadline is None:
+        deadline = time.monotonic() + settings.search_retrieve_budget_seconds
+
     pattern_type = "regexp" if var_kind == "regex" else "literal"
-    try:
-        response = await http_client.post(
-            _SOURCEGRAPH_URL,
-            headers=headers,
-            json={
-                "query": _SEARCH_QUERY,
-                "variables": {
-                    "query": f"{query_variant} count:{max_results}",
-                    "patternType": pattern_type,
+    max_retries = _resolve_max_retries()
+    last_response: httpx.Response | None = None
+    last_exc: Exception | None = None
+    attempts_made = 0
+
+    for attempt in range(max_retries + 1):
+        attempts_made = attempt + 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if attempt == 0:
+                return (
+                    query_variant,
+                    [],
+                    [
+                        _diag(
+                            "Sourcegraph GraphQL request timed out before execution",
+                            query=query_variant,
+                            failure_kind="network",
+                        )
+                    ],
+                    "graphql_fallback",
+                )
+            break
+
+        request_timeout = min(remaining, settings.search_retrieve_budget_seconds, 8.0)
+        try:
+            response = await http_client.post(
+                _SOURCEGRAPH_URL,
+                headers=headers,
+                json={
+                    "query": _SEARCH_QUERY,
+                    "variables": {
+                        "query": f"{query_variant} count:{max_results}",
+                        "patternType": pattern_type,
+                    },
                 },
-            },
-            timeout=min(settings.search_retrieve_budget_seconds, 8.0),
-        )
-    except (httpx.HTTPError, TimeoutError, Exception) as exc:
+                timeout=request_timeout,
+            )
+            last_response = response
+            last_exc = None
+        except (httpx.HTTPError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            last_response = None
+            is_transport = isinstance(exc, _NETWORK_EXCEPTIONS)
+            if is_transport and attempt < max_retries:
+                rem_after = deadline - time.monotonic()
+                if rem_after <= 0:
+                    break
+                base = 0.5 * (2 ** min(attempt, 4))
+                delay = min(random.uniform(0.0, base), rem_after)
+                if delay < rem_after and rem_after > 0:
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+            break
+
+        if response.status_code == 200:
+            try:
+                payload = response.json()
+            except (ValueError, json.JSONDecodeError):
+                return (
+                    query_variant,
+                    [],
+                    [_diag("Sourcegraph returned invalid JSON", query=query_variant)],
+                    "graphql_fallback",
+                )
+            if not isinstance(payload, dict):
+                return (
+                    query_variant,
+                    [],
+                    [_diag("Sourcegraph returned an invalid payload", query=query_variant)],
+                    "graphql_fallback",
+                )
+            branch_hits, branch_diagnostics = _parse_payload(
+                payload,
+                query_variant=var_name,
+                max_results=max_results,
+            )
+            return query_variant, branch_hits, branch_diagnostics, "graphql_fallback"
+
+        if response.status_code in _RETRYABLE_HTTP_STATUSES and attempt < max_retries:
+            rem_after = deadline - time.monotonic()
+            if rem_after <= 0:
+                break
+            retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
+            if retry_after is not None:
+                delay = retry_after
+            else:
+                base = 0.5 * (2 ** min(attempt, 4))
+                delay = min(random.uniform(0.0, base), rem_after)
+            if delay < rem_after and rem_after > 0:
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                continue
+
+        break
+    if last_exc is not None:
+        failure_kind = "network"
+        details = {"retries_attempted": attempts_made - 1} if attempts_made > 1 else {}
         return (
             query_variant,
             [],
             [
                 _diag(
-                    f"Sourcegraph GraphQL fallback failed: {type(exc).__name__}: {exc}",
+                    f"Sourcegraph GraphQL fallback failed: {type(last_exc).__name__}: {last_exc}",
                     query=query_variant,
-                    failure_kind="network",
+                    failure_kind=failure_kind,
+                    details=details,
                 )
             ],
             "graphql_fallback",
         )
-    if response.status_code != 200:
+
+    if last_response is not None:
+        retry_after_val = _parse_retry_after_header(last_response.headers.get("Retry-After"))
+        details = {"retries_attempted": attempts_made - 1} if attempts_made > 1 else {}
         return (
             query_variant,
             [],
             [
                 _diag(
-                    f"Sourcegraph GraphQL returned HTTP {response.status_code}",
+                    f"Sourcegraph GraphQL returned HTTP {last_response.status_code}",
                     query=query_variant,
-                    response=response,
+                    response=last_response,
+                    retry_after_seconds=retry_after_val,
+                    details=details,
                 )
             ],
             "graphql_fallback",
         )
-    try:
-        payload = response.json()
-    except ValueError:
-        return query_variant, [], [_diag("Sourcegraph returned invalid JSON", query=query_variant)], "graphql_fallback"
-    if not isinstance(payload, dict):
-        return query_variant, [], [_diag("Sourcegraph returned an invalid payload", query=query_variant)], "graphql_fallback"
-    branch_hits, branch_diagnostics = _parse_payload(
-        payload,
-        query_variant=var_name,
-        max_results=max_results,
+
+    return (
+        query_variant,
+        [],
+        [
+            _diag(
+                "Sourcegraph GraphQL request timed out before execution",
+                query=query_variant,
+                failure_kind="network",
+            )
+        ],
+        "graphql_fallback",
     )
-    return query_variant, branch_hits, branch_diagnostics, "graphql_fallback"
 
 
 async def _stream_search_variant(
@@ -538,9 +665,18 @@ async def _stream_search_variant(
     var_name: str,
     var_kind: str,
     max_results: int,
+    *,
+    deadline: float | None = None,
 ) -> tuple[str, list[CodeSearchHit], list[Diagnostic], str]:
     """Primary Sourcegraph retrieval using the SSE Stream API."""
-    pattern_type = "regexp" if var_kind == "regex" else ("keyword" if var_kind == "symbol" else "standard")
+    if deadline is None:
+        deadline = time.monotonic() + settings.search_retrieve_budget_seconds
+
+    pattern_type = (
+        "regexp"
+        if var_kind == "regex"
+        else ("keyword" if var_kind == "symbol" else "standard")
+    )
     stream_params = {
         "q": f"{query_variant} count:{max_results}",
         "v": "V3",
@@ -553,91 +689,152 @@ async def _stream_search_variant(
     stream_headers = dict(headers)
     stream_headers["Accept"] = "text/event-stream"
 
-    try:
-        response = await http_client.get(
-            _SOURCEGRAPH_STREAM_URL,
-            params=stream_params,
-            headers=stream_headers,
-            timeout=min(settings.search_retrieve_budget_seconds, 10.0),
-        )
-    except (httpx.HTTPError, TimeoutError, Exception) as exc:
-        LOGGER.warning("Sourcegraph Stream API network error (%s), attempting GraphQL fallback", exc)
-        return await _graphql_search_variant(
-            http_client, headers, query_variant, var_name, var_kind, max_results
-        )
+    max_retries = _resolve_max_retries()
+    last_response: httpx.Response | None = None
+    last_exc: Exception | None = None
 
-    if response.status_code != 200:
-        LOGGER.warning("Sourcegraph Stream API returned HTTP %s, attempting GraphQL fallback", response.status_code)
-        return await _graphql_search_variant(
-            http_client, headers, query_variant, var_name, var_kind, max_results
-        )
-
-    hits: list[CodeSearchHit] = []
-    diagnostics: list[Diagnostic] = []
-    raw_text = response.text
-    events = raw_text.split("\n\n")
-
-    for event_str in events:
-        if not event_str.strip():
-            continue
-        event_type = ""
-        data_lines: list[str] = []
-        for line in event_str.split("\n"):
-            if line.startswith("event:"):
-                event_type = line[6:].strip()
-            elif line.startswith("data:"):
-                data_lines.append(line[5:].lstrip())
-        if not event_type or not data_lines:
-            continue
-        data_str = "\n".join(data_lines)
-        try:
-            event_data = json.loads(data_str)
-        except json.JSONDecodeError:
-            continue
-
-        if event_type == "matches" and isinstance(event_data, list):
-            parsed_matches = _parse_stream_matches(
-                event_data, query_variant=var_name, max_results=max_results - len(hits)
+    for attempt in range(max_retries + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            LOGGER.warning(
+                "Sourcegraph Stream API search deadline exceeded before attempt %d",
+                attempt,
             )
-            hits.extend(parsed_matches)
-        elif event_type == "alert" and isinstance(event_data, dict):
-            title = event_data.get("title", "Sourcegraph Alert")
-            desc = event_data.get("description", "")
-            diagnostics.append(
-                _diag(
-                    f"Sourcegraph Alert: {title} {desc}".strip(),
-                    query=query_variant,
-                    outcome="partial",
-                    failure_kind="provider",
-                    details=event_data,
-                )
-            )
-        elif event_type == "progress" and isinstance(event_data, dict):
-            skipped = event_data.get("skipped", [])
-            if isinstance(skipped, list):
-                for item in skipped:
-                    if isinstance(item, dict):
-                        reason = item.get("reason", "")
-                        title = item.get("title", "")
-                        msg = item.get("message", "")
-                        if reason in ("shard-match-limit", "match-limit"):
-                            diagnostics.append(
-                                _diag(
-                                    f"Sourcegraph limit: {title or reason} - {msg}".strip(),
-                                    query=query_variant,
-                                    outcome="partial",
-                                    failure_kind="incomplete_index",
-                                    details=item,
-                                )
-                            )
-        elif event_type == "done":
             break
 
-    if not hits and not diagnostics:
-        # If stream returned cleanly but with zero hits, double-check GraphQL if query syntax was unusual
-        return query_variant, hits, diagnostics, "stream"
+        request_timeout = min(remaining, settings.search_retrieve_budget_seconds, 10.0)
+        try:
+            response = await http_client.get(
+                _SOURCEGRAPH_STREAM_URL,
+                params=stream_params,
+                headers=stream_headers,
+                timeout=request_timeout,
+            )
+            last_response = response
+            last_exc = None
+        except (httpx.HTTPError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            last_response = None
+            is_transport = isinstance(exc, _NETWORK_EXCEPTIONS)
+            if is_transport and attempt < max_retries:
+                rem_after = deadline - time.monotonic()
+                if rem_after <= 0:
+                    break
+                base = 0.5 * (2 ** min(attempt, 4))
+                delay = min(random.uniform(0.0, base), rem_after)
+                if delay < rem_after and rem_after > 0:
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    continue
+            break
 
-    return query_variant, hits, diagnostics, "stream"
+        if response.status_code == 200:
+            hits: list[CodeSearchHit] = []
+            diagnostics: list[Diagnostic] = []
+            raw_text = response.text
+            events = raw_text.split("\n\n")
+
+            for event_str in events:
+                if not event_str.strip():
+                    continue
+                event_type = ""
+                data_lines: list[str] = []
+                for line in event_str.split("\n"):
+                    if line.startswith("event:"):
+                        event_type = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+                if not event_type or not data_lines:
+                    continue
+                data_str = "\n".join(data_lines)
+                try:
+                    event_data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                if event_type == "matches" and isinstance(event_data, list):
+                    parsed_matches = _parse_stream_matches(
+                        event_data, query_variant=var_name, max_results=max_results - len(hits)
+                    )
+                    hits.extend(parsed_matches)
+                elif event_type == "alert" and isinstance(event_data, dict):
+                    title = event_data.get("title", "Sourcegraph Alert")
+                    desc = event_data.get("description", "")
+                    diagnostics.append(
+                        _diag(
+                            f"Sourcegraph Alert: {title} {desc}".strip(),
+                            query=query_variant,
+                            outcome="partial",
+                            failure_kind="provider",
+                            details=event_data,
+                        )
+                    )
+                elif event_type == "progress" and isinstance(event_data, dict):
+                    skipped = event_data.get("skipped", [])
+                    if isinstance(skipped, list):
+                        for item in skipped:
+                            if isinstance(item, dict):
+                                reason = item.get("reason", "")
+                                title = item.get("title", "")
+                                msg = item.get("message", "")
+                                if reason in ("shard-match-limit", "match-limit"):
+                                    diagnostics.append(
+                                        _diag(
+                                            f"Sourcegraph limit: {title or reason} - {msg}".strip(),
+                                            query=query_variant,
+                                            outcome="partial",
+                                            failure_kind="incomplete_index",
+                                            details=item,
+                                        )
+                                    )
+                elif event_type == "done":
+                    break
+
+            if not hits and not diagnostics:
+                return query_variant, hits, diagnostics, "stream"
+
+            return query_variant, hits, diagnostics, "stream"
+
+        if response.status_code in _RETRYABLE_HTTP_STATUSES and attempt < max_retries:
+            rem_after = deadline - time.monotonic()
+            if rem_after <= 0:
+                break
+            retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
+            if retry_after is not None:
+                delay = retry_after
+            else:
+                base = 0.5 * (2 ** min(attempt, 4))
+                delay = min(random.uniform(0.0, base), rem_after)
+            if delay < rem_after and rem_after > 0:
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                continue
+
+        break
+    if last_exc is not None:
+        LOGGER.warning(
+            "Sourcegraph Stream API network error (%s), attempting GraphQL fallback",
+            last_exc,
+        )
+    elif last_response is not None:
+        LOGGER.warning(
+            "Sourcegraph Stream API returned HTTP %s, attempting GraphQL fallback",
+            last_response.status_code,
+        )
+    else:
+        LOGGER.warning(
+            "Sourcegraph Stream API deadline exceeded, attempting GraphQL fallback"
+        )
+
+    return await _graphql_search_variant(
+        http_client,
+        headers,
+        query_variant,
+        var_name,
+        var_kind,
+        max_results,
+        deadline=deadline,
+    )
 
 
 async def search_sourcegraph(
@@ -655,6 +852,7 @@ async def search_sourcegraph(
     variants = plan.variant_pairs[: request.budget.max_query_variants] or (
         (plan.api_query, "lexical"),
     )
+    deadline = time.monotonic() + settings.search_retrieve_budget_seconds
 
     async def _run_single_variant(
         var_name: str, var_kind: str
@@ -663,7 +861,13 @@ async def search_sourcegraph(
         if not query_variant:
             return "", [], [], ""
         return await _stream_search_variant(
-            http_client, headers, query_variant, var_name, var_kind, request.max_results
+            http_client,
+            headers,
+            query_variant,
+            var_name,
+            var_kind,
+            request.max_results,
+            deadline=deadline,
         )
 
     results = await asyncio.gather(

@@ -98,6 +98,17 @@ def test_search_code_forwards_mcp_aligned_options(monkeypatch) -> None:
         library_name=None,
         topic=None,
         mode="docs",
+        huggingface_type="both",
+        huggingface_sort_by="similarity",
+        huggingface_hybrid=False,
+        huggingface_min_likes=0,
+        huggingface_min_downloads=0,
+        huggingface_task=None,
+        huggingface_license=None,
+        huggingface_language=None,
+        huggingface_modified_after=None,
+        huggingface_min_param_count=0,
+        huggingface_max_param_count=None,
     )
     assert payload["meta"]["command"] == "search code"
     assert payload["data"]["outcome"] == "ok"

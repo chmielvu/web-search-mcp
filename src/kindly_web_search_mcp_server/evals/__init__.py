@@ -1,6 +1,14 @@
 """Evaluation case models and deterministic metric helpers."""
 
-from .cases import CandidateSet, EvalCase, ExpectedToolCall
+from .cases import (
+    CandidateSet,
+    EvalCase,
+    ExpectedToolCall,
+    load_eval_cases,
+    load_eval_cases_from_jsonl,
+    save_eval_cases,
+    save_eval_cases_to_jsonl,
+)
 from .judges import (
     judge_argument_correctness,
     judge_ranking_quality,
@@ -8,11 +16,23 @@ from .judges import (
     judge_tool_choice_correct,
 )
 from .metrics import (
+    agent_ready_breakdown,
+    agent_ready_evidence_rate,
+    assess_candidate_readiness,
+    candidate_count_delta,
+    candidate_failure_reasons,
+    duplicate_url_rate,
+    evidence_rate,
     expected_tool_called,
     forbidden_tool_not_called,
+    graded_ndcg_at_k,
+    is_candidate_agent_ready,
     latency_within_budget,
+    line_precision_rate,
+    match_data_rate,
     mrr_at_k,
     ndcg_at_k,
+    provider_survival_rate,
     top_k_domain_hit,
 )
 from .runner import MCPEVAL_AVAILABLE, run_dataset, run_eval_case
@@ -21,12 +41,28 @@ __all__ = [
     "CandidateSet",
     "EvalCase",
     "ExpectedToolCall",
+    "load_eval_cases",
+    "load_eval_cases_from_jsonl",
+    "save_eval_cases",
+    "save_eval_cases_to_jsonl",
     "expected_tool_called",
     "forbidden_tool_not_called",
     "latency_within_budget",
     "mrr_at_k",
     "ndcg_at_k",
+    "graded_ndcg_at_k",
     "top_k_domain_hit",
+    "provider_survival_rate",
+    "duplicate_url_rate",
+    "candidate_count_delta",
+    "assess_candidate_readiness",
+    "is_candidate_agent_ready",
+    "candidate_failure_reasons",
+    "agent_ready_evidence_rate",
+    "evidence_rate",
+    "agent_ready_breakdown",
+    "line_precision_rate",
+    "match_data_rate",
     "judge_tool_choice_correct",
     "judge_argument_correctness",
     "judge_source_usefulness",

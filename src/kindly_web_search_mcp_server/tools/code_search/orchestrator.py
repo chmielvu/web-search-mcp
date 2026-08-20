@@ -12,6 +12,7 @@ from .docs import search_docs
 from .exa import search_exa
 from .github import hydrate_github_hits, search_github
 from .grepapp import search_grepapp
+from .huggingface import search_huggingface
 from .filters import filter_scoped_hits
 from .models import (
     CodeSearchRequest,
@@ -82,7 +83,11 @@ def _stats(responses: list[ProviderResponse], *, elapsed_ms: float) -> Stats:
         request_count += response.request_count
         provider_counts[response.provider] = len(response.hits)
         for diag in response.diagnostics:
-            if diag.outcome == "partial" or diag.failure_kind in ("incomplete_index", "rate_limit", "budget"):
+            if diag.outcome == "partial" or diag.failure_kind in (
+                "incomplete_index",
+                "rate_limit",
+                "budget",
+            ):
                 incomplete_providers.add(response.provider)
     return Stats(
         provider_counts=provider_counts,
@@ -102,6 +107,7 @@ def _select_rerank_profile(
     if request.mode == "discovery":
         return "hybrid"
     return "code"
+
 
 def _repositories(responses: list[ProviderResponse], hits: list[Any]) -> list[RepoCandidate]:
     merged: dict[str, RepoCandidate] = {}
@@ -139,9 +145,45 @@ async def execute_code_search(
     *,
     http_client: httpx.AsyncClient,
 ) -> CodeSearchResultType:
-    """Infer and execute useful retrieval channels without a public mode switch."""
+    """Infer and execute retrieval channels, with exclusive Hugging Face asset mode."""
 
     started = time.monotonic()
+    if request.mode == "huggingface":
+        response = await _run_provider(
+            "huggingface",
+            search_huggingface(plan, request, http_client=http_client),
+        )
+        responses = [response]
+        hits = response.hits[: request.max_results]
+        diagnostics = list(response.diagnostics)
+        if not hits and not diagnostics:
+            diagnostics.append(
+                Diagnostic(
+                    provider="huggingface",
+                    outcome="no_hit",
+                    message="No Hugging Face model or dataset cards matched the query.",
+                    failure_kind="validation",
+                    query=request.query,
+                )
+            )
+        stats = _stats(responses, elapsed_ms=(time.monotonic() - started) * 1000)
+        stats.returned_count = len(hits)
+        stats.estimated_tokens = sum(len(hit.model_dump_json()) for hit in hits) // 4
+        query_metadata = plan.metadata
+        query_metadata.compiled_queries = {
+            "huggingface": list(response.metadata.get("compiled_queries", []))
+        }
+        stats.elapsed_ms = (time.monotonic() - started) * 1000
+        return CodeSearchResultType(
+            query=request.query,
+            outcome=_outcome(responses, len(hits)),  # type: ignore[arg-type]
+            results=hits,
+            repositories=[],
+            diagnostics=diagnostics,
+            stats=stats,
+            query_metadata=query_metadata,
+        )
+
     operations: list[tuple[str, Any]] = [
         ("github", search_github(plan, request, http_client=http_client)),
         ("sourcegraph", search_sourcegraph(plan, request, http_client=http_client)),
@@ -152,7 +194,13 @@ async def execute_code_search(
         *(_run_provider(name, operation) for name, operation in operations),
         return_exceptions=False,
     )
-    if request.mode == "docs" or request.repo_name or request.library_name:
+    if (
+        request.mode == "docs"
+        or request.repo_name
+        or request.library_name
+        or plan.repository_hint
+        or plan.library_hint
+    ):
         responses.extend(await search_docs(plan, request, http_client=http_client))
     for response in responses:
         response.hits, scope_diagnostic = filter_scoped_hits(plan, request, response.hits)
@@ -211,11 +259,17 @@ async def execute_code_search(
         active_qualifiers = [f"{k}:{v}" for k, v in plan.qualifiers]
         guidance_parts = ["No code matches found."]
         if active_qualifiers:
-            guidance_parts.append(f"Consider relaxing scope qualifiers: {', '.join(active_qualifiers)}.")
+            guidance_parts.append(
+                f"Consider relaxing scope qualifiers: {', '.join(active_qualifiers)}."
+            )
         if plan.regex_source:
-            guidance_parts.append("Consider verifying regex syntax or testing with literal/symbol search.")
+            guidance_parts.append(
+                "Consider verifying regex syntax or testing with literal/symbol search."
+            )
         elif plan.mode == "code":
-            guidance_parts.append("Try searching with specific function/class identifier names, or use mode='docs'/'discovery'.")
+            guidance_parts.append(
+                "Try searching with specific function/class identifier names, or use mode='docs'/'discovery'."
+            )
         diagnostics.append(
             Diagnostic(
                 provider="code_search",

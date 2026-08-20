@@ -72,6 +72,10 @@ _QV_TABLE_NAME = "query_variants"
 _CSE_TABLE_NAME = "candidate_stage_events"
 _TOI_TABLE_NAME = "tool_output_items"
 
+# Result labels foundation
+_RL_TABLE_NAME = "result_labels"
+_RESULT_LABELS_TABLE_NAME = "result_labels"
+
 __all__ = [
     "_RUNS_TABLE_NAME",
     "_SB_TABLE_NAME",
@@ -114,4 +118,11 @@ __all__ = [
     "_CF_TABLE_NAME",
     "_CSUM_TABLE_NAME",
     "_CSUMA_TABLE_NAME",
+    "_RC_CAT_TABLE_NAME",
+    "_PR_TABLE_NAME",
+    "_QV_TABLE_NAME",
+    "_CSE_TABLE_NAME",
+    "_TOI_TABLE_NAME",
+    "_RL_TABLE_NAME",
+    "_RESULT_LABELS_TABLE_NAME",
 ]

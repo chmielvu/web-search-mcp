@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
+from typing import cast
 
 import httpx
 
@@ -341,9 +342,9 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
                             "f0": {
                                 "object": {
                                     "oid": "blob123",
-                                    "byteSize": 20,
+                                    "byteSize": 52,
                                     "isBinary": False,
-                                    "text": "line one\nretry-after\nline three",
+                                    "text": "class App:\n    def run(self):\n        return helper()\n",
                                 }
                             }
                         }
@@ -358,17 +359,28 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
             commit_oid="commit123",
             url="https://github.com/owner/repo/blob/commit123/src/retry.py",
             provider="github",
-            fragments=[TextFragment(text="retry-after")],
+            fragments=[TextFragment(text="helper()")],
         )
         diagnostics, hydrated, truncated = await hydrate_github_hits(
-            [hit], http_client=client, token="token", max_chars_per_file=12
+            [hit],
+            http_client=cast(httpx.AsyncClient, client),
+            token="token",
+            max_chars_per_file=12,
         )
         self.assertEqual(hydrated, 1)
         self.assertFalse(truncated)  # No server-side truncation
         self.assertEqual(hit.commit_oid, "commit123")
         # Full source preserved — no char-cap
-        self.assertIn("retry-after", hit.hydrated_source or "")
-        self.assertIn("line three", hit.hydrated_source or "")
+        self.assertIn("return helper()", hit.hydrated_source or "")
+        ast_payload = hit.source_metadata["ast_classification"]
+        if ast_payload["status"] == "ok":
+            self.assertTrue(
+                {item["role"] for item in ast_payload["evidence"]}
+                & {"definition", "callsite"}
+            )
+        else:
+            self.assertIn(ast_payload["status"], ("parser_unavailable", "grammar_not_cached"))
+        self.assertIn("class App:", hit.hydrated_source or "")
         self.assertIn(
             "commit123:src/retry.py", client.post_calls[0][1]["json"]["variables"].values()
         )
@@ -809,5 +821,53 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertEqual(public.results[0].files[0].text_matches, ["def retry():\n    pass"])
         # Hints present for incomplete index
         self.assertTrue(any(h.code == "incomplete_index" for h in public.hints))
-        # Warnings still present (legacy compat)
-        self.assertEqual(public.warnings, ["Some providers returned incomplete index results."])
+        self.assertNotIn("warnings", dumped)
+        self.assertNotIn("returned_count", dumped)
+        self.assertEqual(public.agent_ready_count, 0)
+        self.assertEqual(public.agent_ready_evidence_rate, 0.0)
+        self.assertTrue(public.incomplete_results)
+
+    def test_public_file_exposes_agent_ready_projection(self) -> None:
+        hit = CodeSearchHit(
+            url="https://github.com/org/repo/blob/" + "a" * 40 + "/src/app.py",
+            provider="sourcegraph",
+            repository="org/repo",
+            path="src/app.py",
+            commit_oid="a" * 40,
+            line_start=12,
+            line_end=18,
+            snippet="def run():\n    return True",
+        )
+        public = to_public_file(hit)
+
+        self.assertTrue(public.agent_ready)
+        self.assertEqual(public.agent_ready_fail_reasons, [])
+        self.assertEqual(public.line_start, 12)
+        self.assertEqual(public.line_end, 18)
+        self.assertEqual(public.providers, ["sourcegraph"])
+        self.assertEqual(public.snippet, public.text_matches[0])
+
+    def test_public_projection_does_not_shorten_provider_text(self) -> None:
+        source = "SELECT value FROM result_labels WHERE ranking_position = 1;\n" * 500
+        hit = CodeSearchHit(
+            url="https://github.com/org/repo/blob/main/schema.sql",
+            provider="github",
+            repository="org/repo",
+            path="schema.sql",
+            line_start=1,
+            line_end=500,
+            fragments=[TextFragment(text=source, line_start=1, line_end=500)],
+        )
+        public = to_public_file(hit)
+
+        self.assertEqual(public.text_matches, [source])
+        self.assertEqual(public.snippet, source)
+        self.assertNotIn("truncated", public.model_dump())
+
+    def test_unready_file_exposes_reasons_instead_of_legacy_warning_dump(self) -> None:
+        public = to_public_file(CodeSearchHit(provider="github", path="schema.sql"))
+
+        self.assertFalse(public.agent_ready)
+        self.assertIn("missing_url", public.agent_ready_fail_reasons)
+        self.assertIn("insufficient_text_context", public.agent_ready_fail_reasons)
+        self.assertIn("missing_lines_or_revision", public.agent_ready_fail_reasons)

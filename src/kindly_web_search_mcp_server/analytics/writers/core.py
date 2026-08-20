@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
-from uuid import uuid4
 from collections.abc import Callable
+from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any
+from uuid import uuid4
 
 import duckdb
 
@@ -632,6 +635,173 @@ def insert_funnel_uplift_batches(
         _CANDIDATE_STAGE_EVENTS_WRITER.insert_batch(serialized_cse, db_path=db_path)
     if tool_output_items:
         _TOOL_OUTPUT_ITEMS_WRITER.insert_batch(tool_output_items, db_path=db_path)
+
+
+# ---------------------------------------------------------------------------
+# Result Labels foundation insert helpers
+# ---------------------------------------------------------------------------
+def _generate_result_label_id(
+    run_key: str,
+    position: int,
+    stage: str,
+    source: str,
+    annotator_id: str | None,
+    rubric_version: str,
+    canonical_or_url: str | None,
+) -> str:
+    """Deterministic 16-hex hash for idempotent result_label insertion."""
+    key_dict = {
+        "run_key": str(run_key),
+        "position": int(position),
+        "stage": str(stage),
+        "source": str(source),
+        "annotator_id": str(annotator_id or ""),
+        "rubric_version": str(rubric_version),
+        "target": str(canonical_or_url or ""),
+    }
+    raw = json.dumps(key_dict, ensure_ascii=True, sort_keys=True).encode("utf-8")
+    return sha256(raw).hexdigest()[:16]
+
+
+def _prepare_result_label_row(values: dict[str, Any]) -> dict[str, Any]:
+    """Validate, normalize, and populate stable IDs/discounts for a result_labels row."""
+    from ..quality_metrics import compute_positional_discount
+
+    if not isinstance(values, dict):
+        raise TypeError(f"Expected dict for result label row, got {type(values).__name__}")
+
+    run_key = values.get("run_key")
+    if not run_key or not isinstance(run_key, str) or not run_key.strip():
+        raise ValueError("run_key must be a non-empty string")
+    run_key = run_key.strip()
+
+    position = values.get("position")
+    if position is None or not isinstance(position, int) or isinstance(position, bool):
+        raise TypeError(f"position must be an integer >= 0, got {position!r}")
+    if position < 0:
+        raise ValueError(f"position must be >= 0, got {position}")
+
+    raw_label = values.get("label")
+    if raw_label is None:
+        raise ValueError("label must be provided")
+    try:
+        label = float(raw_label)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(f"label must be a real number, got {raw_label!r}") from exc
+    if math.isnan(label) or math.isinf(label) or label < 0.0:
+        raise ValueError(f"label must be a nonnegative finite number, got {raw_label!r}")
+    stage = str(values.get("stage") or "final").strip()
+    if not stage:
+        raise ValueError("stage must be a non-empty string")
+
+    source = str(values.get("source") or "human").strip()
+    if not source:
+        raise ValueError("source must be a non-empty string")
+    annotator_id = values.get("annotator_id")
+    if annotator_id is not None:
+        annotator_id = str(annotator_id).strip() or None
+    rubric_version = str(values.get("rubric_version") or "v1").strip()
+    if not rubric_version:
+        raise ValueError("rubric_version must be a non-empty string")
+
+    canonical_result_id = values.get("canonical_result_id")
+    if canonical_result_id is not None:
+        canonical_result_id = str(canonical_result_id).strip()
+
+    raw_url = values.get("raw_url") or values.get("link") or values.get("url")
+    if raw_url is not None:
+        raw_url = str(raw_url).strip()
+
+    # Auto-derive canonical_result_id from link/URL if omitted and URL present
+    if not canonical_result_id and raw_url:
+        canonical_result_id = sha256(
+            json.dumps({"link": raw_url.lower()}, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+
+    label_id = values.get("label_id")
+    if not label_id or not isinstance(label_id, str) or not label_id.strip():
+        label_id = _generate_result_label_id(
+            run_key,
+            position,
+            stage,
+            source,
+            annotator_id,
+            rubric_version,
+            canonical_result_id or raw_url,
+        )
+    else:
+        label_id = str(label_id).strip()
+
+    discounted_gain = values.get("discounted_gain")
+    if discounted_gain is None:
+        discounted_gain = compute_positional_discount(label, position)
+    else:
+        discounted_gain = float(discounted_gain)
+        if math.isnan(discounted_gain) or math.isinf(discounted_gain) or discounted_gain < 0.0:
+            raise ValueError(
+                f"discounted_gain must be a nonnegative finite number, got {discounted_gain!r}"
+            )
+
+    notes = values.get("notes")
+    if notes is not None:
+        notes = str(notes)
+
+    payload_json = values.get("payload_json")
+    if isinstance(payload_json, (dict, list)):
+        payload_json = json.dumps(payload_json, ensure_ascii=False, default=str)
+
+    recorded_at = values.get("recorded_at") or datetime.now(timezone.utc)
+
+    return {
+        "label_id": label_id,
+        "recorded_at": recorded_at,
+        "run_key": run_key,
+        "stage": stage,
+        "position": position,
+        "label": label,
+        "canonical_result_id": canonical_result_id,
+        "raw_url": raw_url,
+        "source": source,
+        "annotator_id": annotator_id,
+        "rubric_version": rubric_version,
+        "discounted_gain": discounted_gain,
+        "notes": notes,
+        "payload_json": payload_json,
+    }
+
+
+def insert_result_label(
+    *,
+    db_path: str | None = None,
+    sync: bool = False,
+    **kwargs: Any,
+) -> None:
+    """Persist a single result label / annotation (asynchronously by default)."""
+    from .inserts import _RESULT_LABELS_WRITER
+
+    row = _prepare_result_label_row(kwargs)
+    if sync:
+        _RESULT_LABELS_WRITER.insert(db_path=db_path, **row)
+    else:
+        _RESULT_LABELS_WRITER.dispatch_insert(db_path=db_path, **row)
+
+
+def insert_result_labels(
+    rows: list[dict[str, Any]],
+    *,
+    db_path: str | None = None,
+    sync: bool = False,
+) -> None:
+    """Persist multiple result labels / annotations (asynchronously by default)."""
+    if not rows:
+        return
+    from .inserts import _RESULT_LABELS_WRITER
+
+    prepared = [_prepare_result_label_row(r) for r in rows]
+    if sync:
+        _RESULT_LABELS_WRITER.insert_batch(prepared, db_path=db_path)
+    else:
+        _RESULT_LABELS_WRITER.dispatch_insert_batch(prepared, db_path=db_path)
 
 
 # ---------------------------------------------------------------------------

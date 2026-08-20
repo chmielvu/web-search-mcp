@@ -18,6 +18,7 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
             "quick_web_search",
             "code_search",
             "web_search",
+            "code_fetch",
             "get_content",
             "batch_get_content",
             "discover_links",
@@ -56,6 +57,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
         {
             "code_search",
             "web_search",
+            "code_fetch",
             "quick_web_search",
             "get_content",
             "batch_get_content",
@@ -71,6 +73,7 @@ def test_profile_membership_matches_visibility_requirements() -> None:
         {
             "academic_search",
             "code_search",
+            "code_fetch",
             "batch_get_content",
             "composio_similarlinks",
             "deep_research",

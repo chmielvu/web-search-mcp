@@ -24,6 +24,7 @@ from .models import (
     build_location_metadata,
 )
 from .query import QueryPlan
+from .tree_sitter_evidence import classify_source, language_for_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1242,6 +1243,15 @@ async def hydrate_github_hits(
                             "full_source_chars": len(normalized_text),
                         }
                     )
+            ast_classification = classify_source(
+                normalized_text,
+                language=language_for_path(hit.path),
+                path=hit.path,
+                source_line_start=1,
+                match_line_start=hit.line_start,
+                match_line_end=hit.line_end,
+            )
+            hit.source_metadata["ast_classification"] = ast_classification.as_metadata()
             hydrated_count += 1
     return diagnostics, hydrated_count, truncated
 

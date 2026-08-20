@@ -22,11 +22,11 @@ hangs/"Transport closed"s over the MCP stdio transport while completing
 normally as a bare coroutine call (no JSON-RPC framing involved), and why
 other tools on the same transport (get_content, tools/list) are unaffected.
 
-Redirecting ``sys.stdout`` here is safe: it only reassigns the global
-Python-level name for the duration of the tool call. FastMCP's stdio
-transport already holds its own direct reference to the original stdout
-buffer (captured before any tool call could possibly run), so it is
-unaffected by this reassignment.
+The redirect is deliberately scoped to ``on_call_tool``. Do not move it to
+``on_request``: FastMCP's stdio response writer runs inside the request
+middleware chain and resolves ``sys.stdout`` dynamically. A request-wide
+redirect would send valid JSON-RPC responses to stderr and make clients report
+``Transport closed``.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 
 class StdoutGuardMiddleware(Middleware):
-    """Redirect stdout to stderr for the duration of every tool call."""
+    """Redirect stdout only while a tool implementation is running."""
 
     async def on_call_tool(
         self,
