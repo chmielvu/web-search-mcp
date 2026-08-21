@@ -99,16 +99,19 @@ def compile_sourcegraph_query(
 
     repositories = list(request.repositories) or qualifier_map.get("repo", [])
     for repository in repositories:
-        normalized = repository.removeprefix("https://github.com/").strip("/")
-        escaped = re.escape(f"github.com/{normalized}")
+        clean_repo = repository.removeprefix("https://").removeprefix("http://").strip("/")
+        if not re.match(r"^[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+/", clean_repo):
+            clean_repo = f"github.com/{clean_repo}"
+        escaped = re.escape(clean_repo)
         parts.append(f"repo:^{escaped}$")
 
     # Negative repo exclusions
     for neg_repo in qualifier_map.get("-repo", []):
-        neg_normalized = neg_repo.removeprefix("https://github.com/").strip("/")
-        neg_escaped = re.escape(f"github.com/{neg_normalized}")
+        clean_neg = neg_repo.removeprefix("https://").removeprefix("http://").strip("/")
+        if not re.match(r"^[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+/", clean_neg):
+            clean_neg = f"github.com/{clean_neg}"
+        neg_escaped = re.escape(clean_neg)
         parts.append(f"-repo:^{neg_escaped}$")
-
     language = request.language or next(iter(qualifier_map.get("language", [])), None)
     path = request.path or next(iter(qualifier_map.get("path", [])), None)
     filename = request.filename or next(iter(qualifier_map.get("filename", [])), None)
@@ -389,10 +392,19 @@ def _parse_stream_matches(
                             start_pos = r.get("start", {})
                             end_pos = r.get("end", {})
                             if isinstance(start_pos, dict) and isinstance(end_pos, dict):
+                                start_line_val = start_pos.get("line")
+                                line_no = start_line_val + 1 if isinstance(start_line_val, int) else chunk_line
+                                start_col = start_pos.get("column", 0) if isinstance(start_pos.get("column"), int) else 0
+                                end_col = end_pos.get("column", 0) if isinstance(end_pos.get("column"), int) else 0
+                                end_line_val = end_pos.get("line", start_line_val or 0)
+                                if isinstance(end_line_val, int) and isinstance(start_line_val, int) and end_line_val > start_line_val:
+                                    span_len = max(1, end_col)
+                                else:
+                                    span_len = max(1, end_col - start_col)
                                 match_spans.append({
-                                    "line": start_pos.get("line", chunk_line) + 1,
-                                    "column": start_pos.get("column", 0),
-                                    "length": max(1, end_pos.get("column", 0) - start_pos.get("column", 0)),
+                                    "line": line_no,
+                                    "column": start_col,
+                                    "length": span_len,
                                 })
                 fragments.append(
                     TextFragment(

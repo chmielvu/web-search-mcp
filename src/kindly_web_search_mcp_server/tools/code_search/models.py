@@ -848,17 +848,14 @@ def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSear
         if hit.repository and hit.path:
             nexts.append(
                 CodeSearchPublicNext(
-                    action="file",
+                    action="explore",
                     tool="code_fetch",
                     query={
                         "repository": hit.repository,
                         "path": hit.path,
-                        "ref": hit.commit_oid,
-                        "start_line": hit.line_start,
-                        "end_line": hit.line_end,
                     },
-                    why="Read the matched repository file at the indexed revision without re-running code search.",
-                    confidence="high" if hit.commit_oid else "medium",
+                    why="Explore the matched file on the repository's current main snapshot.",
+                    confidence="high",
                 )
             )
         else:

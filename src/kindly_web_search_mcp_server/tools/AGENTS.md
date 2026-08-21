@@ -1,3 +1,7 @@
+<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
+<!-- Managed by agent: keep sections and order; edit content, not structure -->
+<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+
 # AGENTS.md - Tools
 
 MCP tool metadata, profiles, catalog, and visibility helpers.
@@ -7,7 +11,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | File | Role |
 |---|---|
 | `catalog.py` | Tool catalog with metadata (profile, tags, timeouts, annotations) |
-| `profiles.py` | Tool profile application (`regular` / `full`), visibility gating |
+| `profiles.py` | Tool profile application (`regular`, `research`, `media`, `full`), visibility gating |
 | `search.py` | `web_search` MCP tool implementation |
 | `content.py` | `get_content`, `batch_get_content`, `discover_links` MCP tools |
 | `academic.py` | `academic_search` MCP tool |
@@ -19,6 +23,8 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `recommend.py` | `recommend_command` route recommendation tool |
 | `prompts.py` | Prompt function implementations |
 | `resources.py` | Resource implementations (8 resources) |
+| `status.py` | Server status and provider health tools |
+| `workflow.py` | Multi-tool workflow helpers |
 | `_helpers.py` | Lifespan management, domain filters, timeout resolution |
 
 ## Key Files (Metadata Layer)

@@ -25,6 +25,7 @@ else:
 
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
+    DEFAULT_CODE_FETCH_SNAPSHOT_DB,
     DEFAULT_EXPERIMENTS_YAML,
     DEFAULT_PAGE_CACHE_DB,
     DEFAULT_PROCESS_LOGS_DB,
@@ -300,6 +301,11 @@ class Settings:
     code_search_hydration_cache_ttl_seconds: int = int(
         os.environ.get("CODE_SEARCH_HYDRATION_CACHE_TTL_SECONDS", "2592000")
     )
+    code_fetch_snapshot_ttl_seconds: int = int(os.environ.get("CODE_FETCH_SNAPSHOT_TTL_SECONDS", "300"))
+    code_fetch_snapshot_sqlite_path: str = os.environ.get(
+        "CODE_FETCH_SNAPSHOT_SQLITE_PATH",
+        DEFAULT_CODE_FETCH_SNAPSHOT_DB,
+    )
 
     # Telegram search provider (Telethon MTProto)
     telegram_api_id: str = os.environ.get("TELEGRAM_API_ID", "")
@@ -364,6 +370,12 @@ class Settings:
     whisper_space_timeout_seconds: float = float(
         os.environ.get("WHISPER_SPACE_TIMEOUT_SECONDS", "300")
     )
+    # Whisper VPS Service (Unified ML / VPS ASR service)
+    whisper_vps_url: str = os.environ.get("WHISPER_VPS_URL", "")
+    whisper_vps_timeout_seconds: float = float(
+        os.environ.get("WHISPER_VPS_TIMEOUT_SECONDS", "300")
+    )
+
 
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")

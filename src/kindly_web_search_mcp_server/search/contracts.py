@@ -169,6 +169,7 @@ class SearchRun:
     response: WebSearchResponse | None = None
     error_summary: str | None = None
     diagnostics: DiagnosticsCollector = field(default_factory=DiagnosticsCollector)
+    schedule_judges: bool = True
 
     def _transition(
         self,

@@ -15,12 +15,15 @@ from .commands import (
     doctor,
     experiments,
     getskill,
-    feedback,
+    jobs,
     inference,
+    feedback,
     links,
     recommend,
     reference,
+    research,
     schema,
+    results,
     search,
     server,
     sitemap,
@@ -119,9 +122,12 @@ feedback.register(app)
 skills.register(app)
 schema.register(app)
 doctor.register(app)
+jobs.register(app)
 getskill.register(app)
+results.register(app)
 recommend.register(app)
 reference.register(app)
+research.register(app)
 search.register(app)
 content.register(app)
 links.register(app)

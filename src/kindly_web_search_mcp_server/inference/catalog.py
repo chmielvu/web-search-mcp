@@ -600,9 +600,24 @@ def _register_all() -> None:
     # EMBEDDING
     # ─────────────────────────────────────────────────────────────────────
     define_model(
+        "multilingual-e5-small",
+        display_name="Multilingual E5 Small",
+        description="Unified ML ONNX embedding model (VPS primary).",
+        capabilities={ModelCapability.EMBEDDING},
+    )
+    add_provider(
+        "multilingual-e5-small",
+        "unifiedml",
+        as_embedding(
+            model_id=settings.embedding_model,
+            base_url=settings.embedding_endpoint_url,
+            default_timeout=settings.embedding_timeout_seconds,
+        ),
+    )
+    define_model(
         "multilingual-e5-large-instruct",
         display_name="Multilingual E5 Large Instruct",
-        description="HuggingFace embedding model for bi-encoder reranking.",
+        description="HuggingFace embedding model for bi-encoder reranking fallback.",
         capabilities={ModelCapability.EMBEDDING},
     )
     add_provider(
@@ -617,6 +632,7 @@ def _register_all() -> None:
     register_chain(
         "embedding",
         [
+            "multilingual-e5-small@unifiedml",
             "multilingual-e5-large-instruct@huggingface",
         ],
     )

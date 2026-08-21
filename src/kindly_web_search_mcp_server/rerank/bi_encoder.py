@@ -9,10 +9,10 @@ import time
 
 import numpy as np
 
-from ..embeddings import embed_texts
-from ..embeddings.hf_inference import (
+from ..embeddings import (
     EmbeddingAPIError,
     EmbeddingTimeoutError,
+    embed_texts,
 )
 from ..models import WebSearchResult
 from ..settings import settings

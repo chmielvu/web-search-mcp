@@ -38,7 +38,7 @@ from .tools.academic import academic_search
 from .tools.code_search import code_search
 from .tools.code_search.exploration import code_fetch
 from .tools.ai_search import gemini_search, grok_search
-from .tools.content import batch_get_content, discover_links, get_content
+from .tools.content import batch_get_content, get_content
 from .tools.profiles import apply_tool_profile
 from .tools.catalog import tool_kwargs
 from .tools.prompts import (
@@ -61,7 +61,7 @@ from .tools.resources import (
 from .tools.search import web_search
 from .tools.recommend import recommend_command
 from .tools.sitemap import generate_sitemap
-from .tools.youtube import youtube_search, youtube_transcript
+from .tools.youtube import youtube_channel_transcription, youtube_search, youtube_transcript
 from .utils.logging import configure_logging
 from .utils.observability import emit_observability_event
 
@@ -109,6 +109,7 @@ def _ensure_telemetry() -> None:
             init_telemetry_background(service_name="web-search-mcp")
         except Exception:
             LOGGER.warning("Telemetry background init failed", exc_info=True)
+
     threading.Thread(target=_run, name="telemetry-init", daemon=True).start()
 
 
@@ -206,6 +207,9 @@ mcp.add_middleware(
 from .middleware import create_dynamic_guidance_middleware
 
 mcp.add_middleware(create_dynamic_guidance_middleware())
+from .middleware import create_result_persistence_middleware
+
+mcp.add_middleware(create_result_persistence_middleware())
 
 # Built-in FastMCP middleware (added AFTER custom middleware so they are
 # outermost in the chain: _run_middleware reverses the list, so the last
@@ -225,9 +229,7 @@ _fastmcp_version_code = 0
 try:
     _fastmcp_parts = fastmcp.__version__.split(".")
     _fastmcp_version_code = (
-        int(_fastmcp_parts[0]) * 10_000
-        + int(_fastmcp_parts[1]) * 100
-        + int(_fastmcp_parts[2])
+        int(_fastmcp_parts[0]) * 10_000 + int(_fastmcp_parts[1]) * 100 + int(_fastmcp_parts[2])
     )
 except (AttributeError, IndexError, ValueError):
     pass
@@ -245,8 +247,7 @@ if _fastmcp_version_code >= 30403:
     )
 else:
     LOGGER.warning(
-        "ResponseCachingMiddleware disabled for incompatible FastMCP %s; "
-        "upgrade to >=3.4.3",
+        "ResponseCachingMiddleware disabled for incompatible FastMCP %s; upgrade to >=3.4.3",
         getattr(fastmcp, "__version__", "unknown"),
     )
 mcp.add_middleware(TimingMiddleware())
@@ -263,6 +264,7 @@ mcp.add_middleware(
             "grok_search",
             "youtube_search",
             "youtube_transcript",
+            "youtube_channel_transcription",
             "generate_sitemap",
             "academic_search",
             "code_search",
@@ -288,10 +290,10 @@ mcp.add_transform(ResourcesAsTools(mcp))
 mcp.tool(**tool_kwargs("web_search"))(web_search)
 mcp.tool(**tool_kwargs("get_content"))(get_content)
 mcp.tool(**tool_kwargs("batch_get_content"))(batch_get_content)
-mcp.tool(**tool_kwargs("discover_links"))(discover_links)
 mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
+mcp.tool(**tool_kwargs("youtube_channel_transcription"))(youtube_channel_transcription)
 mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
@@ -459,6 +461,7 @@ def _warm_heavy_imports() -> None:
 
     with contextlib.redirect_stdout(sys.stderr):
         importlib.import_module(".inference.router", package=__package__)
+
 
 def main(argv: list[str] | None = None) -> None:
     # Prevent native BLAS libraries (OpenBLAS, MKL, Accelerate) from spawning

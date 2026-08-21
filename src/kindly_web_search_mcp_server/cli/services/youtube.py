@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from ...youtube import (
-    calculate_total_duration,
-    extract_video_id,
-    fetch_transcript_cascade,
-    format_transcript_text,
-    format_transcript_timestamped,
-    parse_youtube_url,
-    search_youtube,
-)
-from ...settings import settings
+from ...youtube import search_youtube
+
+
+class _CliContext:
+    async def report_progress(self, **_: Any) -> None:
+        return None
 
 
 async def fetch_youtube_search_payload(
@@ -36,44 +31,47 @@ async def fetch_youtube_transcript_payload(
     translate_to: str | None,
     format: str,
     backend: str | None = None,
+    include_summary: bool = False,
+    summary_focus: str | None = None,
 ) -> dict[str, Any]:
-    timeout_seconds = settings.youtube_transcript_timeout_seconds
-    max_chars = settings.youtube_transcript_max_chars
-    effective_backend = backend or settings.youtube_transcript_backend
+    from ...tools.youtube import youtube_transcript
 
-    target = parse_youtube_url(video_id_or_url)
-    video_id = extract_video_id(video_id_or_url)
-
-    segments, backend_used = await asyncio.wait_for(
-        asyncio.to_thread(
-            fetch_transcript_cascade,
-            video_id,
-            language=language,
-            translate_to=translate_to,
-            backend=effective_backend,
-        ),
-        timeout=timeout_seconds,
+    return await youtube_transcript(
+        video_id_or_url,
+        language=language,
+        translate_to=translate_to,
+        output_format=format,  # type: ignore[arg-type]
+        backend=backend,
+        include_summary=include_summary,
+        summary_focus=summary_focus,
+        ctx=_CliContext(),  # type: ignore[arg-type]
     )
 
-    if format == "json":
-        transcript_text = ""
-    elif format == "timestamped":
-        transcript_text = format_transcript_timestamped(segments)
-    else:
-        transcript_text = format_transcript_text(segments)
 
-    if len(transcript_text) > max_chars:
-        transcript_text = transcript_text[:max_chars].rstrip() + "…"
+async def fetch_youtube_channel_transcription_payload(
+    channel: str,
+    *,
+    max_videos: int,
+    language: str | None,
+    translate_to: str | None,
+    format: str,
+    backend: str | None,
+    include_summary: bool,
+    summary_focus: str | None,
+    page_token: str | None,
+) -> dict[str, Any]:
+    from ...tools.youtube import youtube_channel_transcription
 
-    return {
-        "video_id": video_id,
-        "video_url": target.canonical_url,
-        "title": None,
-        "transcript_text": transcript_text,
-        "language": language or "en",
-        "is_translated": bool(translate_to),
-        "duration_seconds": calculate_total_duration(segments),
-        "transcript_segments": segments if format == "json" else None,
-        "backend_used": backend_used,
-        "error": None,
-    }
+    response = await youtube_channel_transcription(
+        channel,
+        max_videos=max_videos,
+        language=language,
+        translate_to=translate_to,
+        output_format=format,  # type: ignore[arg-type]
+        backend=backend,
+        include_summary=include_summary,
+        summary_focus=summary_focus,
+        page_token=page_token,
+        ctx=_CliContext(),  # type: ignore[arg-type]
+    )
+    return response.model_dump(exclude_none=True)

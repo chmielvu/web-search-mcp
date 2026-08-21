@@ -24,6 +24,10 @@ from .stdout_guard import (
     StdoutGuardMiddleware,
     create_stdout_guard_middleware,
 )
+from .result_persistence import (
+    ResultPersistenceMiddleware,
+    create_result_persistence_middleware,
+)
 
 __all__ = [
     "EXPENSIVE_TOOLS",
@@ -40,4 +44,6 @@ __all__ = [
     "create_differentiated_rate_limit_middleware",
     "StdoutGuardMiddleware",
     "create_stdout_guard_middleware",
+    "ResultPersistenceMiddleware",
+    "create_result_persistence_middleware",
 ]

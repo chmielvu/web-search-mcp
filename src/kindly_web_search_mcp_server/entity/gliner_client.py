@@ -294,6 +294,39 @@ class GLiNER2Client:
             warnings=tuple(warnings),
         )
 
+    async def extract_transcript_chunk(
+        self,
+        text: str,
+        *,
+        entities: dict[str, str] | list[str],
+        structures: dict[str, Any],
+        relations: dict[str, str] | None = None,
+        threshold: float | None = None,
+    ) -> tuple[dict[str, Any], float]:
+        """Run always-on transcript extraction for one offset-preserving chunk.
+
+        Unlike general content extraction, this method is intentionally not
+        gated by ``ENTITY_EXTRACTION_ENABLED``. YouTube transcript analysis is
+        a product contract and must use the live VPS GLiNER2 service whenever
+        a transcript is fetched; failures are handled by the caller as partial
+        analysis rather than transcript failure.
+        """
+        if not text.strip():
+            return {}, 0.0
+        payload: dict[str, Any] = {
+            "text": text,
+            "entities": entities,
+            "structures": structures,
+            "threshold": float(
+                threshold if threshold is not None else getattr(settings, "gliner_threshold", 0.5)
+            ),
+            "include_confidence": True,
+            "include_spans": True,
+        }
+        if relations:
+            payload["relations"] = relations
+        return await self._post("/extract", payload, operation="youtube_transcript_extraction")
+
     async def extract_entities(
         self,
         text: str,

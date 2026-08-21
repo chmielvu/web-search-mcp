@@ -128,9 +128,11 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
 
             step_started = time.perf_counter()
             try:
-                # wait=False → cancel_futures=True: drop queued writes after drain window.
-                # Do not wait=True: single-worker queue can serialize for tens of seconds.
-                shutdown_duckdb_write_executor(wait=False)
+                # Final CLI JSON must not be emitted while a DuckDB writer
+                # still owns the analytics file. A bounded drain handles the
+                # normal case; wait=True then closes any writer that was
+                # already running instead of leaving a live lock behind.
+                shutdown_duckdb_write_executor(wait=True)
             except Exception as exc:
                 LOGGER.warning("Failed to shut down DuckDB write executor: %s", exc)
             timings["duckdb_executor"] = time.perf_counter() - step_started
@@ -141,7 +143,7 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
 
                 await asyncio.to_thread(
                     drain_judges,
-                    timeout=settings.analytics_shutdown_drain_timeout_seconds,
+                    timeout_seconds=settings.analytics_shutdown_drain_timeout_seconds,
                 )
                 shutdown_judge_executor(wait=False)
             except Exception as exc:

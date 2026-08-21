@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 import httpx
 
-from ..embeddings.hf_inference import embed_query
+from ..embeddings import embed_query
 from ..models import WebSearchResponse
 from .contracts import SearchRun, WebSearchRequest
 from .outcomes import submit_search_outcome
@@ -46,6 +46,7 @@ async def execute_web_search(
     session_id: str | None = None,
     progress: object | None = None,
     return_diagnostics: bool = False,
+    schedule_judges: bool = True,
 ) -> WebSearchResponse | tuple[WebSearchResponse, "SearchRun"]:
     """Execute a web search. When return_diagnostics=True, returns (response, run)
     so the caller can build SearchDiagnostics from run.diagnostics."""
@@ -56,6 +57,7 @@ async def execute_web_search(
         tool_call_id=tool_call_id,
         session_id=session_id,
         progress=progress,
+        schedule_judges=schedule_judges,
     )
     try:
         response = await run_search_core(run)

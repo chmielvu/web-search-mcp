@@ -21,10 +21,11 @@ from .models import YouTubeError, TranscriptBackendError
 from .transcript import fetch_transcript_data, calculate_total_duration
 from .cf_whisper import CfWhisperError, _transcribe_sync
 from .yt_dlp_backend import ytdlp_extract_subtitles
+from .quality import normalize_transcript_segments
 
 logger = logging.getLogger(__name__)
 
-_VALID_BACKENDS = ("auto", "ytdlp", "cf_whisper", "api")
+_VALID_BACKENDS = ("auto", "ytdlp", "vps_whisper", "cf_whisper", "whisper", "api")
 
 
 def fetch_transcript_cascade(
@@ -73,6 +74,28 @@ def fetch_transcript_cascade(
         except Exception as exc:
             errors.append(f"yt-dlp: {type(exc).__name__}: {exc}")
             logger.debug("yt-dlp unexpected error for %s: %s", video_id, exc)
+
+    # --- Layer 2: Whisper VPS Service (if WHISPER_VPS_URL configured) ---
+    if backend in ("auto", "vps_whisper"):
+        vps_url = settings.whisper_vps_url.strip()
+        if vps_url:
+            try:
+                from .vps_whisper import fetch_vps_whisper_transcript_sync, VpsWhisperError
+
+                segments = fetch_vps_whisper_transcript_sync(
+                    video_id,
+                    language=language,
+                    task="translate" if translate_to else "transcribe",
+                )
+                if segments:
+                    return segments, "vps_whisper"
+                if backend == "vps_whisper":
+                    raise VpsWhisperError(f"VPS Whisper returned empty for {video_id}")
+            except Exception as exc:
+                errors.append(f"vps_whisper: {exc}")
+                logger.debug("VPS Whisper failed for %s: %s", video_id, exc)
+        elif backend == "vps_whisper":
+            raise YouTubeError("WHISPER_VPS_URL must be configured")
 
     # --- Layer 2: Cloudflare Workers AI Whisper ---
     if backend in ("auto", "cf_whisper"):
@@ -163,16 +186,18 @@ def fetch_transcript_with_cache(
     cache = get_transcript_cache()
     cached = cache.lookup(video_id, language=language, translate_to=translate_to)
     if cached:
-        return cached["segments"], "cache"
+        normalized, _ = normalize_transcript_segments(cached["segments"])
+        return normalized, "cache"
 
     segments, backend_used = fetch_transcript_cascade(
         video_id, language=language, translate_to=translate_to, backend=backend
     )
+    normalized, _ = normalize_transcript_segments(segments)
     cache.store(
         video_id,
         language,
         translate_to,
-        segments,
-        calculate_total_duration(segments),
+        normalized,
+        calculate_total_duration(normalized),
     )
-    return segments, backend_used
+    return normalized, backend_used

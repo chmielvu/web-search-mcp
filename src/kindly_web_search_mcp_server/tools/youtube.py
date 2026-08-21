@@ -11,6 +11,8 @@ from fastmcp.server.context import Context
 
 from ..errors import raise_tool_error
 from ..models import (
+    YouTubeChannelTranscriptionItem,
+    YouTubeChannelTranscriptionResponse,
     YouTubeSearchResponse,
     YouTubeTranscriptResponse,
 )
@@ -25,7 +27,9 @@ from ..youtube import (
     format_transcript_timestamped,
     parse_youtube_url,
     search_youtube,
+    list_channel_videos,
 )
+from ..youtube.api_quota import get_youtube_api_quota_tracker
 
 from ..heuristics.text_clean import clean_text_for_llm
 from ..utils.observability import emit_tool_observability_event
@@ -37,28 +41,24 @@ async def youtube_transcript(
     video_id_or_url: str,
     language: str | None = None,
     translate_to: str | None = None,
-    output_format: Literal["text", "timestamped", "json"] = "text",
+    output_format: Literal["text", "timestamped", "json", "markdown"] = "text",
     backend: str | None = None,
+    include_summary: bool = False,
+    summary_focus: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResponse:
-    """Extract captions from a YouTube video.
+    """Extract, analyze, and optionally summarize a YouTube transcript.
 
-    When to use this tool:
-    - To extract full transcript captions, timestamps, or structured segment JSON from a YouTube video.
-    - You SHOULD call youtube_search first to discover valid video_id_or_url targets.
-
-    Args:
-        video_id_or_url: YouTube video ID, full URL, or short URL.
-        language: Language code for captions (e.g., "en", "ja", "de").
-            Auto-detected when not specified.
-        translate_to: Translate captions to this language code.
-        output_format: Output format — "text" (plain paragraph), "timestamped"
-            ([MM:SS] prefixes), or "json" (segments array).
-        backend: "auto" (try yt-dlp then legacy API), "ytdlp" (yt-dlp only),
-            or "api" (legacy youtube-transcript-api only). Default: server setting.
+    GLiNER2 VPS extraction is always executed for every successful transcript.
+    ``include_summary`` adds a source-grounded Gemini summary using the
+    existing summary backend (Gemini 3.5 Flash-Lite with fallbacks).
     """
     format = output_format
+    from ..content.summary import create_summary
     from ..settings import settings
+    from ..youtube.analysis import analyze_transcript
+    from ..youtube.quality import normalize_transcript_segments, truncate_segments
+    from ..youtube.transcript import render_youtube_transcript_markdown
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
@@ -75,17 +75,15 @@ async def youtube_transcript(
         translate_to=translate_to,
         output_format=format,
         backend=effective_backend,
+        include_summary=include_summary,
     )
 
     try:
-        # Parse URL/ID
         target = parse_youtube_url(video_id_or_url)
         video_id = target.video_id
         canonical_url = target.canonical_url
 
-        await ctx.report_progress(progress=20, total=100, message="Fetching transcript...")
-
-        # Fetch transcript (cache-first, then cascade backends)
+        await ctx.report_progress(progress=10, total=100, message="Fetching transcript...")
         segments, backend_used = await asyncio.wait_for(
             asyncio.to_thread(
                 fetch_transcript_with_cache,
@@ -96,30 +94,98 @@ async def youtube_transcript(
             ),
             timeout=timeout_seconds,
         )
+        segments, quality = normalize_transcript_segments(segments)
+        output_segments, truncated = truncate_segments(segments, max_chars)
+        quality = quality.model_copy(update={"truncated": truncated})
 
-        # Determine language and translation status
+        full_text = format_transcript_text(segments)
+        await ctx.report_progress(
+            progress=40, total=100, message="Running GLiNER2 transcript extraction..."
+        )
+        analysis = await analyze_transcript(full_text)
+
+        summary: dict[str, object] | None = None
+        if include_summary:
+            await ctx.report_progress(
+                progress=65, total=100, message="Generating Gemini summary..."
+            )
+            try:
+                summary = await create_summary(
+                    full_text,
+                    ai_summary=True,
+                    focus_query=summary_focus,
+                    source_urls=None,
+                )
+            except Exception as exc:
+                LOGGER.warning("YouTube summary failed for %s: %s", video_id, exc)
+                summary = {
+                    "summary": "",
+                    "key_points": [],
+                    "important_entities": [],
+                    "verbatim_terms": [],
+                    "limitations": [f"Summary unavailable: {type(exc).__name__}"],
+                }
+
+        metadata: dict[str, object] = {}
+        if format == "markdown":
+            try:
+                from ..youtube.yt_dlp_backend import ytdlp_extract_metadata
+
+                metadata = await asyncio.to_thread(ytdlp_extract_metadata, video_id)
+            except Exception:
+                metadata = {}
+
         actual_language = language or "en"
         is_translated = bool(translate_to)
-
-        # Format output
         if format == "json":
             transcript_text = ""
         elif format == "timestamped":
-            transcript_text = format_transcript_timestamped(segments)
+            transcript_text = format_transcript_timestamped(output_segments)
+        elif format == "markdown":
+            timestamped = format_transcript_timestamped(output_segments)
+            transcript_text = render_youtube_transcript_markdown(
+                video_id=video_id,
+                title=str(metadata.get("title") or "") or None,
+                transcript_text=timestamped,
+                language=actual_language,
+                is_translated=is_translated,
+                source_url=canonical_url,
+                duration_seconds=calculate_total_duration(output_segments),
+            )
+            if summary:
+                transcript_text += "\n## Summary\n\n"
+                transcript_text += str(summary.get("summary") or "Summary unavailable.") + "\n"
+                key_points = summary.get("key_points") or []
+                if isinstance(key_points, list) and key_points:
+                    transcript_text += "\n### Key points\n\n"
+                    transcript_text += "".join(f"- {point}\n" for point in key_points)
+            transcript_text += "\n## GLiNER2 Analysis\n\n"
+            transcript_text += f"**Status:** `{analysis.status}`\n\n"
+            if analysis.entities:
+                transcript_text += "### Entities\n\n"
+                transcript_text += "| Text | Label | Confidence |\n|---|---|---:|\n"
+                transcript_text += "".join(
+                    f"| {entity.text.replace('|', '\\\\|')} | {entity.label} | "
+                    f"{entity.confidence if entity.confidence is not None else ''} |\n"
+                    for entity in analysis.entities
+                )
+            if analysis.structured_data:
+                import json
+
+                transcript_text += "\n### Structured data\n\n```json\n"
+                transcript_text += json.dumps(
+                    analysis.structured_data, ensure_ascii=False, indent=2
+                )
+                transcript_text += "\n```\n"
         else:
-            transcript_text = format_transcript_text(segments)
+            transcript_text = format_transcript_text(output_segments)
 
-        if transcript_text:
+        if transcript_text and format != "markdown":
             transcript_text = clean_text_for_llm(transcript_text, role="transcript")
-
-        # Truncate if needed
-        if len(transcript_text) > max_chars:
+        if len(transcript_text) > max_chars and format != "json":
             transcript_text = transcript_text[:max_chars].rstrip() + "…"
-            LOGGER.info("Truncated transcript to %s chars for video %s", max_chars, video_id)
 
         duration_seconds = calculate_total_duration(segments)
-
-        # Record YouTube transcript telemetry
         record_youtube_transcript(
             format=format,
             language=actual_language,
@@ -131,12 +197,17 @@ async def youtube_transcript(
         response = YouTubeTranscriptResponse(
             video_id=video_id,
             video_url=canonical_url,
-            title=None,  # Title requires separate YouTube Data API call (Phase 2)
+            title=str(metadata.get("title") or "") or None,
             transcript_text=transcript_text,
             language=actual_language,
             is_translated=is_translated,
             duration_seconds=duration_seconds,
-            transcript_segments=segments if format == "json" else None,
+            transcript_segments=output_segments if format == "json" else None,
+            backend_used=backend_used,
+            output_format=format,
+            summary=summary,
+            analysis=analysis,
+            quality=quality,
             error=None,
         ).model_dump(exclude_none=True)
 
@@ -151,11 +222,12 @@ async def youtube_transcript(
             output_format=format,
             backend=backend_used,
             transcript_text=transcript_text,
-            transcript_segments=segments if format == "json" else None,
-            output_count=len(segments),
+            transcript_segments=output_segments if format == "json" else None,
+            analysis_status=analysis.status,
+            summary_included=include_summary,
+            output_count=len(output_segments),
             duration_ms=(time.monotonic() - started) * 1000,
         )
-
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response  # type: ignore[return-value]
 
@@ -226,6 +298,82 @@ async def youtube_transcript(
             duration_ms=(time.monotonic() - started) * 1000,
         )
         raise_tool_error(e, provider="youtube")
+
+
+async def youtube_channel_transcription(
+    channel: str,
+    max_videos: int = 20,
+    language: str | None = None,
+    translate_to: str | None = None,
+    output_format: Literal["text", "timestamped", "json", "markdown"] = "markdown",
+    backend: str | None = None,
+    include_summary: bool = False,
+    summary_focus: str | None = None,
+    page_token: str | None = None,
+    ctx: Context = CurrentContext(),
+) -> YouTubeChannelTranscriptionResponse:
+    """Run a background-capable, cache-first transcription over channel uploads.
+
+    Clients supporting FastMCP tasks should call this with task execution
+    requested. GLiNER2 analysis is always performed by youtube_transcript.
+    """
+    max_videos = max(1, min(max_videos, 5000))
+    channel_id, videos, next_page_token = await list_channel_videos(
+        channel,
+        max_results=max_videos,
+        page_token=page_token,
+    )
+    items: list[YouTubeChannelTranscriptionItem] = []
+    for index, video in enumerate(videos, start=1):
+        await ctx.report_progress(
+            progress=index - 1,
+            total=len(videos),
+            message=f"Transcribing {index}/{len(videos)}: {video.title[:80]}",
+        )
+        try:
+            payload = await youtube_transcript(
+                video.video_id,
+                language=language,
+                translate_to=translate_to,
+                output_format=output_format,
+                backend=backend,
+                include_summary=include_summary,
+                summary_focus=summary_focus,
+                ctx=ctx,
+            )
+            transcript = YouTubeTranscriptResponse.model_validate(payload)
+            status = "cached" if transcript.backend_used == "cache" else "success"
+            items.append(
+                YouTubeChannelTranscriptionItem(
+                    video=video,
+                    status=status,
+                    transcript=transcript,
+                )
+            )
+        except Exception as exc:
+            LOGGER.warning("Channel transcript failed for %s: %s", video.video_id, exc)
+            items.append(
+                YouTubeChannelTranscriptionItem(
+                    video=video,
+                    status="failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            )
+
+    completed = sum(item.status in {"success", "cached"} for item in items)
+    failed = sum(item.status == "failed" for item in items)
+    await ctx.report_progress(
+        progress=len(videos), total=len(videos), message="Channel transcription complete"
+    )
+    return YouTubeChannelTranscriptionResponse(
+        channel_id=channel_id,
+        total_videos=len(videos),
+        completed_videos=completed,
+        failed_videos=failed,
+        items=items,
+        next_page_token=next_page_token,
+        quota=get_youtube_api_quota_tracker().snapshot(),
+    )
 
 
 async def youtube_search(

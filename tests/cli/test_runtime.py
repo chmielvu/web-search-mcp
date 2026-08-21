@@ -31,14 +31,14 @@ def _patch_cleanup(monkeypatch, calls: list[str], *, fail_outcomes: bool = False
         calls.append("duckdb_drain")
 
     def shutdown_duckdb_write_executor(*, wait: bool) -> None:
-        assert wait is False
+        assert wait is True
         calls.append("duckdb_executor")
 
     def shutdown_judge_executor(*, wait: bool) -> None:
         assert wait is False
         calls.append("judge_executor")
 
-    def drain_judges(*, timeout: float) -> None:
+    def drain_judges(*, timeout_seconds: float) -> None:
         pass
 
     async def close_http_client() -> None:

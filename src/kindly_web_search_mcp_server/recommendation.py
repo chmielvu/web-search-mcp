@@ -288,7 +288,7 @@ def _route_for_task(task: str) -> CommandRoute:
                     "--repository": github_repo,
                     "--mode": "discovery",
                 },
-                workflow=["search code --mode discovery", "code_fetch when a file is identified"],
+                workflow=["search code --mode discovery", "code_fetch on the discovered repository"],
             )
         mode = "docs" if _contains_any(lowered, ("readme", "documentation", "docs", "api reference", "文档")) else "code"
         arguments = ["search", "code", "--query", task, "--repository", github_repo, "--mode", mode]
@@ -307,7 +307,7 @@ def _route_for_task(task: str) -> CommandRoute:
                 "--mode": mode,
                 "--deep": mode == "code",
             },
-            workflow=["search code", "code_fetch or content get on selected evidence"],
+            workflow=["search code", "code_fetch on selected repository evidence"],
         )
 
     if _contains_any(lowered, ("paper", "papers", "arxiv", "scholarly", "academic", "benchmark", "论文", "学术")):
@@ -317,7 +317,7 @@ def _route_for_task(task: str) -> CommandRoute:
             confidence="high",
             reason="Paper, benchmark, and scholarly language maps to the dedicated academic search command.",
             mcp_tool="academic_search",
-            required_profile="full",
+            required_profile="regular",
             structured_arguments={"--query": task},
             workflow=["search academic", "content get on selected papers", "cross-check independent sources"],
         )
@@ -358,7 +358,7 @@ def _route_for_task(task: str) -> CommandRoute:
             mcp_tool="code_search",
             required_profile="regular",
             structured_arguments={"--query": task, "--deep": True},
-            workflow=["search code", "code_fetch or content get on selected evidence"],
+            workflow=["search code", "code_fetch on selected repository evidence"],
         )
 
     if _contains_any(lowered, ("quick", "fast", "reconnaissance", "map the landscape", "快速", "速览")):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import typer
 
@@ -37,6 +37,20 @@ def quick_cmd(
         str | None,
         typer.Option("--research-goal", help="Alias for --objective."),
     ] = None,
+    max_results: Annotated[int | None, typer.Option("--max-results")] = None,
+    max_chars_total: Annotated[int | None, typer.Option("--max-chars-total")] = None,
+    max_chars_per_result: Annotated[int | None, typer.Option("--max-chars-per-result")] = None,
+    client_model: Annotated[str | None, typer.Option("--client-model")] = None,
+    session_id: Annotated[str | None, typer.Option("--session-id")] = None,
+    include_domain: Annotated[list[str] | None, typer.Option("--include-domain")] = None,
+    exclude_domain: Annotated[list[str] | None, typer.Option("--exclude-domain")] = None,
+    after_date: Annotated[str | None, typer.Option("--after-date")] = None,
+    location: Annotated[str | None, typer.Option("--location")] = None,
+    max_age_seconds: Annotated[int | None, typer.Option("--max-age-seconds")] = None,
+    timeout_seconds: Annotated[float | None, typer.Option("--timeout-seconds")] = None,
+    disable_cache_fallback: Annotated[
+        bool, typer.Option("--disable-cache-fallback")
+    ] = False,
 ) -> None:
     """Run the Parallel AI-backed quick web search path."""
     from ..services.quick_search import fetch_quick_web_search_payload
@@ -59,8 +73,29 @@ def quick_cmd(
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "search quick"},
         )
+    advanced: dict[str, Any] = {}
+    for name, value in (
+        ("max_results", max_results),
+        ("max_chars_total", max_chars_total),
+        ("max_chars_per_result", max_chars_per_result),
+        ("client_model", client_model),
+        ("session_id", session_id),
+        ("include_domains", include_domain),
+        ("exclude_domains", exclude_domain),
+        ("after_date", after_date),
+        ("location", location),
+        ("max_age_seconds", max_age_seconds),
+        ("timeout_seconds", timeout_seconds),
+    ):
+        if value is not None:
+            advanced[name] = value
+    if disable_cache_fallback:
+        advanced["disable_cache_fallback"] = True
+
     try:
-        payload = run_cli_async(fetch_quick_web_search_payload(queries, goal))
+        payload = run_cli_async(
+            fetch_quick_web_search_payload(queries, goal, **advanced)
+        )
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -173,6 +208,65 @@ def web_cmd(
             context={"command": "search web", "exception_type": type(exc).__name__},
         ) from exc
     emit_json(payload, command="search web")
+
+
+@search_app.command("inspect")
+def inspect_cmd(
+    run_key: Annotated[str, typer.Option("--run-key", help="Search run identifier.")],
+    db_path: Annotated[str | None, typer.Option("--db-path")] = None,
+) -> None:
+    """Inspect one search run from the read-only analytics database."""
+    from ..services.search_runs import inspect_search_run
+
+    try:
+        payload = inspect_search_run(run_key, db_path=db_path)
+    except (FileNotFoundError, LookupError) as exc:
+        raise CliError(
+            kind="not_found",
+            message=str(exc),
+            hint="Use a run key returned by `search web`.",
+            exit_code=ExitCode.NOT_FOUND,
+            context={"command": "search inspect", "run_key": run_key},
+        ) from exc
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=str(exc),
+            hint="Check the analytics database and retry in read-only mode.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "search inspect", "run_key": run_key},
+        ) from exc
+    emit_json(payload, command="search inspect")
+
+
+@search_app.command("postmortem")
+def postmortem_cmd(
+    run_key: Annotated[str, typer.Option("--run-key", help="Search run identifier.")],
+    db_path: Annotated[str | None, typer.Option("--db-path")] = None,
+) -> None:
+    """Summarize provider and reranker failures for one search run."""
+    from ..services.search_runs import postmortem_search_run
+
+    try:
+        payload = postmortem_search_run(run_key, db_path=db_path)
+    except (FileNotFoundError, LookupError) as exc:
+        raise CliError(
+            kind="not_found",
+            message=str(exc),
+            hint="Provide a run key returned by `search web`.",
+            exit_code=ExitCode.NOT_FOUND,
+            context={"command": "search postmortem", "run_key": run_key},
+        ) from exc
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=str(exc),
+            hint="Check the analytics database and retry in read-only mode.",
+            exit_code=ExitCode.INTERNAL_ERROR,
+            context={"command": "search postmortem", "run_key": run_key},
+        ) from exc
+    emit_json(payload, command="search postmortem")
+
 
 
 @search_app.command("code")
@@ -300,6 +394,61 @@ def code_cmd(
             context={"command": "search code", "exception_type": type(exc).__name__},
         ) from exc
     emit_json(payload, command="search code")
+
+
+@search_app.command("fetch")
+def fetch_cmd(
+    repository: Annotated[
+        str,
+        typer.Option("--repository", help="GitHub owner/name repository."),
+    ],
+    query: Annotated[str | None, typer.Option("--query")] = None,
+    path: Annotated[str | None, typer.Option("--path")] = None,
+    symbol: Annotated[str | None, typer.Option("--symbol")] = None,
+    regexp: Annotated[
+        bool,
+        typer.Option("--regexp/--no-regexp", help="Treat --query as a regular expression."),
+    ] = False,
+    max_matches: Annotated[int, typer.Option("--max-matches")] = 25,
+    context_lines: Annotated[int, typer.Option("--context-lines")] = 3,
+    start_line: Annotated[int | None, typer.Option("--start-line", help="Optional 1-based start line.")] = None,
+    end_line: Annotated[int | None, typer.Option("--end-line", help="Optional 1-based end line.")] = None,
+) -> None:
+    """Explore a cached current-main GitHub repository snapshot."""
+    from ..services.code_fetch import fetch_code_fetch_payload
+
+    try:
+        payload = run_cli_async(
+            fetch_code_fetch_payload(
+                repository,
+                query=query,
+                path=path,
+                symbol=symbol,
+                regexp=regexp,
+                max_matches=max_matches,
+                context_lines=context_lines,
+                start_line=start_line,
+                end_line=end_line,
+            )
+        )
+    except ValueError as exc:
+        raise CliError(
+            kind="usage_error",
+            message=str(exc),
+            hint="Use a GitHub owner/name repository and valid fetch options.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search fetch", "repository": repository},
+        ) from exc
+    except Exception as exc:
+        raise CliError(
+            kind="tool_error",
+            message=str(exc),
+            hint="Check GITHUB_TOKEN/GH_TOKEN and retry.",
+            exit_code=ExitCode.PROVIDER_ERROR,
+            context={"command": "search fetch", "repository": repository},
+        ) from exc
+    emit_json(payload, command="search fetch")
+
 
 
 @search_app.command("academic")

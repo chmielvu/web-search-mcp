@@ -1,3 +1,7 @@
+<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
+<!-- Managed by agent: keep sections and order; edit content, not structure -->
+<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+
 # AGENTS.md - CLI (web-search-cli)
 
 Typer CLI for the MCP server. ALL CLI invocations MUST use `uv run web-search-cli`.

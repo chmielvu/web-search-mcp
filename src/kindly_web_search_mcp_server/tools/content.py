@@ -12,13 +12,11 @@ from fastmcp.server.context import Context
 
 from ..cache import get_page_cache
 from ..content.fetch_pipeline import fetch_content_artifact
-from ..content.link_discovery import discover_links as discover_page_links
 from ..content.options import build_fetch_options
 from ..content.summary import create_batch_summaries, create_summary
 from ..content.windowing import slice_content
 from ..models import (
     BatchGetContentResponse,
-    DiscoverLinksResponse,
     GetContentResponse,
 )
 from ..utils.url_canonicalize import canonicalize_url
@@ -35,8 +33,8 @@ async def get_content(
     ai_summary: bool = False,
     focus_query: str | None = None,
     include_metadata: bool = True,
-    include_links: bool = False,
-    max_links: int = 25,
+    include_links: bool = True,
+    max_links: int = 100,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> GetContentResponse:
@@ -51,9 +49,6 @@ async def get_content(
     - You MUST inspect the 'window.has_more' field in the response.
     - If 'has_more' is true, you MUST call this tool again, setting 'char_offset' to the value of 'window.next_offset'.
 
-    Parameters explained:
-    - ai_summary: Set to true to include a detailed source-grounded Gemini summary.
-
     Args:
         url: The URL to fetch content from.
         char_offset: Starting character position for windowed content (0-based).
@@ -62,8 +57,8 @@ async def get_content(
             summary (default false).
         focus_query: Topic, term, or comparison to bias the summary toward.
         include_metadata: Include page metadata (title, author, date) in response.
-        include_links: Include outbound links discovered on the page.
-        max_links: Maximum links to return when include_links is True.
+        include_links: Include outbound links discovered on the page (default True).
+        max_links: Maximum links to return when include_links is True (default 100).
         strip_selectors: CSS selectors to remove from content before extraction
             (e.g., "nav, footer, .sidebar").
     """
@@ -84,6 +79,7 @@ async def get_content(
         max_links=max_links,
         strip_selectors=strip_selectors,
     )
+
 
     max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
     safe_length = max(1, min(char_length, max_length))
@@ -559,97 +555,3 @@ async def batch_get_content(
     return response  # type: ignore[return-value]
 
 
-async def discover_links(
-    url: str,
-    max_links: int = 100,
-    include_external: bool = True,
-    same_domain_only: bool = False,
-    strip_selectors: str | None = None,
-    ctx: Context = CurrentContext(),
-) -> DiscoverLinksResponse:
-    """Extract outbound links from a webpage or sitemap without returning page body text.
-
-    When to use this tool:
-    - Before calling get_content, to map available links on a hub, directory, or documentation root page.
-    - To explore link graphs and select relevant URLs for subsequent batch fetching.
-
-    Parameters explained:
-    - same_domain_only: Set to true if you only want internal navigation links.
-    - include_external: Set to false to filter out outbound web links.
-
-    Args:
-        url: The page or sitemap URL to extract links from.
-        max_links: Maximum links to return (default 100).
-        include_external: Include links to external domains (default True).
-        same_domain_only: Only return links from the same domain as the input URL.
-        strip_selectors: CSS selectors to exclude from link discovery
-            (e.g., "nav, footer, .sidebar").
-    """
-
-    started = time.monotonic()
-    response_emitted = False
-    try:
-        await ctx.report_progress(progress=10, total=100, message="Discovering links...")
-        await ctx.info(f"Discovering links from: {url[:80]}...")
-        emit_tool_observability_event(
-            LOGGER,
-            "discover_links",
-            "request",
-            url=url,
-            max_links=max_links,
-            include_external=include_external,
-            same_domain_only=same_domain_only,
-            strip_selectors=strip_selectors,
-        )
-
-        output = await discover_page_links(
-            url,
-            max_links=max_links,
-            include_external=include_external,
-            same_domain_only=same_domain_only,
-            strip_selectors=strip_selectors,
-        )
-
-        response = DiscoverLinksResponse(
-            input_url=output["input_url"],
-            normalized_url=output["normalized_url"],
-            fetched_url=output.get("fetched_url"),
-            source_type=output["source_type"],
-            links=output.get("links", []),
-            returned_links=output.get("returned_links", 0),
-            has_more=output.get("has_more", False),
-            metadata=output.get("metadata"),
-            error=output.get("error"),
-        ).model_dump(exclude_none=True)
-
-        await ctx.report_progress(progress=100, total=100, message="Done")
-        await ctx.info(f"Discovered {response['returned_links']} links from {response['source_type']}")
-        emit_tool_observability_event(
-            LOGGER,
-            "discover_links",
-            "response",
-            duration_ms=(time.monotonic() - started) * 1000.0,
-            url=url,
-            returned_links=response["returned_links"],
-            has_more=response["has_more"],
-            links=response.get("links", []),
-            metadata=response.get("metadata"),
-            error=response.get("error"),
-        )
-        response_emitted = True
-        _record_tool_success(
-            "discover_links",
-            input_url_count=1,
-            output_result_count=len(response.get("links", [])),
-        )
-        return response
-    finally:
-        if not response_emitted:
-            emit_tool_observability_event(
-                LOGGER,
-                "discover_links",
-                "response",
-                status="error",
-                duration_ms=(time.monotonic() - started) * 1000.0,
-                url=url,
-            )

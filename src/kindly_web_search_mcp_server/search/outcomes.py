@@ -346,8 +346,9 @@ async def persist_search_outcome(run):
             LOGGER.debug("persist funnel uplift batches failed: %s", e)
 
     future = dispatch_duckdb_write("search.outcome." + rk, _write)
-    if future is not None:
-        # Judge scheduling runs in a done-callback on the write future,
+    if future is not None and run.schedule_judges:
+        # CLI one-shot runs opt out of asynchronous judges so their process
+        # can release DuckDB before a follow-up inspect/postmortem command.
         # NOT inside _write() on the DuckDB write executor thread.  This
         # avoids a shutdown race: CPython 3.12's _python_exit (atexit)
         # sets a module-level _shutdown flag in concurrent.futures.thread

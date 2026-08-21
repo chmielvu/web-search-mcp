@@ -34,6 +34,10 @@ class _CoordinatorGuardTimeout(TimeoutError):
 def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
     """Lazy-load rank_llm SafeOpenai path to avoid pulling in vllm or litellm."""
     import sys
+    import huggingface_hub
+    if not hasattr(huggingface_hub, "is_offline_mode"):
+        setattr(huggingface_hub, "is_offline_mode", lambda: False)
+
     # NOTE: load-bearing stub. rank_llm's listwise package eagerly imports
     # vllm (rank_llm/rerank/listwise/__init__.py -> rank_listwise_os_llm.py),
     # which is not installed. Removing this breaks the SafeOpenai/SafeGenai
@@ -57,6 +61,9 @@ def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
 def _load_rank_llm_genai() -> Any:
     """Lazy-load SafeGenai from rank_llm without touching the litellm path."""
     import sys
+    import huggingface_hub
+    if not hasattr(huggingface_hub, "is_offline_mode"):
+        setattr(huggingface_hub, "is_offline_mode", lambda: False)
     from unittest.mock import MagicMock
 
     for mod in (

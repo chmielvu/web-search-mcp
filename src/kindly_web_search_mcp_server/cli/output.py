@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from datetime import UTC, datetime
 from typing import Any
-
 from .runtime import get_runtime
+
+
 
 
 SCHEMA_VERSION = "1.0"
@@ -13,6 +15,85 @@ SCHEMA_VERSION = "1.0"
 
 def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _suggested_next(data: Any) -> list[str]:
+    if not isinstance(data, dict):
+        return []
+
+    suggestions: list[str] = []
+    window = data.get("window")
+    if isinstance(window, dict) and window.get("has_more"):
+        url = data.get("input_url") or data.get("url")
+        next_offset = window.get("next_offset")
+        if isinstance(url, str) and next_offset is not None:
+            suggestions.append(
+                shlex.join(
+                    [
+                        "uv",
+                        "run",
+                        "web-search-cli",
+                        "content",
+                        "get",
+                        "--url",
+                        url,
+                        "--char-offset",
+                        str(next_offset),
+                    ]
+                )
+            )
+
+    if data.get("has_more") and data.get("cursor"):
+        suggestions.append(
+            shlex.join(
+                [
+                    "uv",
+                    "run",
+                    "web-search-cli",
+                    "content",
+                    "batch",
+                    "--cursor",
+                    str(data["cursor"]),
+                ]
+            )
+        )
+
+    for continuation in data.get("next", [])[:3]:
+        if not isinstance(continuation, dict):
+            continue
+        tool = continuation.get("tool")
+        query = continuation.get("query")
+        if not isinstance(query, dict):
+            continue
+        if tool == "code_fetch" and isinstance(query.get("repository"), str):
+            args = [
+                "uv",
+                "run",
+                "web-search-cli",
+                "search",
+                "fetch",
+                "--repository",
+                query["repository"],
+            ]
+            for key in ("query", "path", "symbol"):
+                if query.get(key):
+                    args.extend([f"--{key}", str(query[key])])
+            suggestions.append(shlex.join(args))
+        elif tool == "get_content" and isinstance(query.get("url"), str):
+            args = [
+                "uv",
+                "run",
+                "web-search-cli",
+                "content",
+                "get",
+                "--url",
+                query["url"],
+            ]
+            if query.get("focus_query"):
+                args.extend(["--focus-query", str(query["focus_query"])])
+            suggestions.append(shlex.join(args))
+
+    return list(dict.fromkeys(suggestions))
 
 
 def emit_json(
@@ -23,7 +104,10 @@ def emit_json(
 ) -> None:
     runtime = get_runtime()
     from .metadata import feedback_guidance, rules_full, skill_catalog
+    if command != "results search" and not command.endswith(" --help"):
+        from .services.results import persist_cli_result
 
+        persist_cli_result(command, data)
     final_data: Any = data
     if runtime.fields and isinstance(data, dict):
         wanted = {f.strip() for f in runtime.fields.split(",") if f.strip()}
@@ -63,8 +147,10 @@ def emit_json(
             ),
             "generated_at": utc_now(),
         },
-        "suggested_next": [],
+        "suggested_next": _suggested_next(data),
     }
+    if isinstance(data, dict) and data.get("run_key"):
+        payload["meta"]["run_key"] = data["run_key"]
     if not runtime.quiet:
         payload["rules"] = rules_full()
         payload["skills"] = skill_catalog()

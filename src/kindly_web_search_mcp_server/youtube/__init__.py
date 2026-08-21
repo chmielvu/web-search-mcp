@@ -40,7 +40,14 @@ from .cf_whisper import (
     _transcribe_sync,
     transcribe_async,
 )
+from .vps_whisper import (
+    VpsWhisperError,
+    fetch_vps_whisper_transcript,
+    fetch_vps_whisper_transcript_sync,
+)
 from .api_enrichment import enrich_video_metadata, _parse_iso8601_duration
+from .channel_api import list_channel_videos
+from .api_quota import get_youtube_api_quota_tracker
 
 __all__ = [
     # Models
@@ -68,6 +75,12 @@ __all__ = [
     "CfWhisperError",
     "_transcribe_sync",
     "transcribe_async",
+    # VPS Whisper
+    "VpsWhisperError",
+    "fetch_vps_whisper_transcript",
+    "fetch_vps_whisper_transcript_sync",
+    "list_channel_videos",
+    "get_youtube_api_quota_tracker",
     # Search
     "search_youtube",
     "search_youtube_videos",

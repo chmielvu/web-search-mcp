@@ -179,13 +179,15 @@ def _token() -> str | None:
     return value or None
 
 
-def _headers(token: str, *, text_matches: bool = False) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
+def _headers(token: str | None, *, text_matches: bool = False) -> dict[str, str]:
+    headers = {
         "Accept": _GITHUB_TEXT_MATCH_ACCEPT if text_matches else _GITHUB_ACCEPT,
         "X-GitHub-Api-Version": _GITHUB_API_VERSION,
         "User-Agent": "web-search-mcp/code-search",
     }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def _retry_after(response: httpx.Response) -> float | None:

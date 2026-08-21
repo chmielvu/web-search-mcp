@@ -12,8 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# EntitySpan imported lazily in type hints to keep models light (entity core is pure)
-from .entity.models import EntitySpan  # always available (pure python)
+from .entity.models import EntityRelation, EntitySpan  # always available (pure python)
 
 
 # ============================================================================
@@ -275,6 +274,30 @@ class GrokSearchResponse(BaseModel):
     error: str | None = None
 
 
+class YouTubeTranscriptQuality(BaseModel):
+    """Quality diagnostics for a normalized YouTube transcript."""
+
+    segment_count: int = 0
+    word_count: int = 0
+    character_count: int = 0
+    duplicate_segments_removed: int = 0
+    malformed_segments_removed: int = 0
+    truncated: bool = False
+
+
+class YouTubeTranscriptAnalysis(BaseModel):
+    """Always-on GLiNER2 analysis attached to a YouTube transcript."""
+
+    status: Literal["success", "partial", "error"] = "error"
+    entities: list[EntitySpan] = Field(default_factory=list)
+    relations: list[EntityRelation] = Field(default_factory=list)
+    structured_data: dict[str, Any] | None = None
+    model_version: str | None = None
+    chunk_count: int = 0
+    latency_ms: float | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
 
@@ -286,6 +309,46 @@ class YouTubeTranscriptResponse(BaseModel):
     is_translated: bool = False
     duration_seconds: float | None = None
     transcript_segments: list[dict[str, Any]] | None = None
+    backend_used: str | None = None
+    output_format: Literal["text", "timestamped", "json", "markdown"] | None = None
+    summary: dict[str, Any] | None = None
+    analysis: YouTubeTranscriptAnalysis | None = None
+    quality: YouTubeTranscriptQuality | None = None
+    error: str | None = None
+
+
+class YouTubeChannelVideo(BaseModel):
+    """Video discovered from a channel uploads playlist."""
+
+    video_id: str
+    video_url: str
+    title: str = ""
+    description: str = ""
+    channel_id: str | None = None
+    channel_title: str | None = None
+    published_at: str | None = None
+    position: int | None = None
+
+
+class YouTubeChannelTranscriptionItem(BaseModel):
+    """Per-video result in a channel transcription task."""
+
+    video: YouTubeChannelVideo
+    status: Literal["success", "cached", "failed", "skipped"] = "failed"
+    transcript: YouTubeTranscriptResponse | None = None
+    error: str | None = None
+
+
+class YouTubeChannelTranscriptionResponse(BaseModel):
+    """Aggregate result from a channel transcription task."""
+
+    channel_id: str
+    total_videos: int
+    completed_videos: int = 0
+    failed_videos: int = 0
+    items: list[YouTubeChannelTranscriptionItem] = Field(default_factory=list)
+    next_page_token: str | None = None
+    quota: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -361,7 +424,9 @@ class AcademicPaper(BaseModel):
     citations: int | None = None
     url: str
     pdf_url: str | None = None
-    source: str = Field(description="Provider: arxiv, semanticscholar, openalex, crossref, pubmed, core, radon, bn, pbn, polona, dlibra, rds, europeana.")
+    source: str = Field(
+        description="Provider: arxiv, semanticscholar, openalex, crossref, pubmed, core, radon, bn, pbn, polona, dlibra, rds, europeana."
+    )
     source_id: str
     external_ids: dict[str, str] | None = None
     fields_of_study: list[str] | None = None

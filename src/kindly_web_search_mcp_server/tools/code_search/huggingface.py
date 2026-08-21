@@ -1,8 +1,8 @@
 """Semantic Hugging Face Hub search adapter for ``code_search``."""
 
 from __future__ import annotations
-
 import asyncio
+import os
 import threading
 import time
 from typing import Any
@@ -110,7 +110,8 @@ def _params(request: CodeSearchRequest, query: str, asset_type: str, k: int) -> 
         if value:
             params[key] = value
     if asset_type == "models":
-        params["min_param_count"] = request.huggingface_min_param_count
+        if request.huggingface_min_param_count > 0:
+            params["min_param_count"] = request.huggingface_min_param_count
         if request.huggingface_max_param_count is not None:
             params["max_param_count"] = request.huggingface_max_param_count
         if request.huggingface_hybrid:
@@ -192,11 +193,15 @@ async def _search_type(
     await _wait_for_rate_slot()
     endpoint = f"{settings.huggingface_semantic_search_url.rstrip('/')}/search/{asset_type}"
     try:
+        headers = {"Accept": "application/json", "User-Agent": "web-search-mcp/code-search"}
+        hf_token = os.environ.get("HF_TOKEN", "").strip() or os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
+        if hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
         response = await client.get(
             endpoint,
             params=_params(request, query, asset_type, k),
             timeout=settings.huggingface_semantic_search_timeout_seconds,
-            headers={"Accept": "application/json", "User-Agent": "web-search-mcp/code-search"},
+            headers=headers,
         )
     except asyncio.CancelledError:
         raise

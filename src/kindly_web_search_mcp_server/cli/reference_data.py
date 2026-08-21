@@ -26,9 +26,9 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "required": ["url_or_cursor"],
     },
     {
-        "tool": "discover_links",
-        "command": "links discover",
-        "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"],
+        "tool": "generate_sitemap",
+        "command": "sitemap generate",
+        "profiles": ["default", "research", "experimental", "full"],
         "required": ["url"],
     },
     {
@@ -65,12 +65,6 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "tool": "composio_similarlinks",
         "command": "links similar",
         "profiles": ["research", "experimental", "full"],
-        "required": ["url"],
-    },
-    {
-        "tool": "generate_sitemap",
-        "command": "sitemap generate",
-        "profiles": ["default", "research", "experimental", "full"],
         "required": ["url"],
     },
     {
@@ -116,7 +110,6 @@ COMMANDS: tuple[str, ...] = (
     "search code",
     "content get",
     "content batch",
-    "links discover",
     "links similar",
     "ai gemini",
     "ai grok",
@@ -129,3 +122,4 @@ COMMANDS: tuple[str, ...] = (
     "reference external-tools",
     "server start",
 )
+

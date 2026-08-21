@@ -1,213 +1,149 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
 from kindly_web_search_mcp_server.tools.code_search.exploration import code_fetch
+from kindly_web_search_mcp_server.tools.code_search.snapshot import (
+    SnapshotManager,
+    reset_snapshot_manager_for_tests,
+)
 
 
-class FakeResponse:
-    def __init__(self, payload: object, status_code: int = 200, headers: dict[str, str] | None = None):
-        self._payload = payload
-        self.status_code = status_code
-        self.headers = headers or {}
-
-    def json(self) -> object:
-        return self._payload
+@pytest.fixture(autouse=True)
+def _reset_snapshots() -> Iterator[None]:
+    reset_snapshot_manager_for_tests(None)
+    yield
+    reset_snapshot_manager_for_tests(None)
 
 
-class FakeClient:
-    def __init__(self, *, get_responses=None, post_responses=None):
-        self.get_responses = list(get_responses or [])
-        self.post_responses = list(post_responses or [])
-        self.get_calls: list[tuple[str, dict]] = []
-        self.post_calls: list[tuple[str, dict]] = []
-
-    async def get(self, url: str, **kwargs):
-        self.get_calls.append((url, kwargs))
-        return self.get_responses.pop(0)
-
-    async def post(self, url: str, **kwargs):
-        self.post_calls.append((url, kwargs))
-        return self.post_responses.pop(0)
-
-
-@pytest.mark.asyncio
-async def test_code_fetch_file_returns_bounded_lines_and_blob_oid() -> None:
-    client = FakeClient(
-        post_responses=[
-            FakeResponse(
-                {
-                    "data": {
-                        "repository": {
-                            "object": {
-                                "oid": "a" * 40,
-                                "isBinary": False,
-                                "text": "one\ntwo\nthree\nfour",
-                            }
-                        }
-                    }
-                }
-            )
-        ]
+def _seed_snapshot(tmp_path: Path) -> SnapshotManager:
+    source = tmp_path / "repo"
+    (source / "src").mkdir(parents=True)
+    (source / "src" / "auth.py").write_text(
+        "def login():\n    return True\n\ndef authenticate():\n    return login()\n",
+        encoding="utf-8",
     )
-    cache = AsyncMock()
-    cache.lookup_hydration.return_value = None
-
-    with (
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration._token",
-            return_value="token",
-        ),
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration.get_http_client",
-            AsyncMock(return_value=client),
-        ),
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration.get_code_search_cache",
-            return_value=cache,
-        ),
-    ):
-        result = await code_fetch(
-            "owner/repo",
-            path="src/example.py",
-            ref="main",
-            start_line=2,
-            end_line=3,
-            ctx=None,
-        )
-
-    assert result.outcome == "ok"
-    assert result.content == "two\nthree"
-    assert result.line_start == 2
-    assert result.line_end == 3
-    assert result.commit_oid == "a" * 40
-    assert result.source_chars == len("one\ntwo\nthree\nfour")
-    assert result.has_more is True
-    assert result.next_start_line == 4
-    assert "main:src/example.py" in client.post_calls[0][1]["json"]["variables"].values()
-    cache.store_hydration.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_code_fetch_tree_is_bounded() -> None:
-    client = FakeClient(
-        get_responses=[
-            FakeResponse(
-                {
-                    "tree": [
-                        {"path": "README.md", "type": "blob", "sha": "1"},
-                        {"path": "src", "type": "tree", "sha": "2"},
-                        {"path": "src/app.py", "type": "blob", "sha": "3"},
-                    ]
-                }
-            )
-        ]
+    (source / "README.md").write_text("# demo repository\n", encoding="utf-8")
+    manager = SnapshotManager(
+        db_path=str(tmp_path / "snap.sqlite"),
+        worktree_root=tmp_path / "worktrees",
     )
-
-    with (
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration._token",
-            return_value="token",
-        ),
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration.get_http_client",
-            AsyncMock(return_value=client),
-        ),
-    ):
-        result = await code_fetch(
-            "owner/repo",
-            action="tree",
-            max_entries=2,
-            ctx=None,
-        )
-
-    assert result.outcome == "partial"
-    assert result.truncated is True
-    assert [entry.path for entry in result.tree] == ["README.md", "src"]
-    assert client.get_calls[0][1]["params"] == {"recursive": "1"}
+    manager.build_from_directory("owner/repo", "main", "a" * 40, source)
+    reset_snapshot_manager_for_tests(manager)
+    return manager
 
 
 @pytest.mark.asyncio
-async def test_code_fetch_uses_immutable_hydration_cache_without_http() -> None:
-    client = FakeClient()
-    cache = AsyncMock()
-    cache.lookup_hydration.return_value = {
-        "text": "cached one\ncached two\ncached three",
-        "metadata": {"blob_oid": "b" * 40},
-    }
-
-    with (
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration._token",
-            return_value="token",
-        ),
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration.get_http_client",
-            AsyncMock(return_value=client),
-        ),
-        patch(
-            "kindly_web_search_mcp_server.tools.code_search.exploration.get_code_search_cache",
-            return_value=cache,
-        ),
-    ):
-        result = await code_fetch(
-            "owner/repo",
-            path="src/example.py",
-            ref="b" * 40,
-            start_line=2,
-            ctx=None,
-        )
-
-    assert result.content == "cached two\ncached three"
-    assert result.commit_oid == "b" * 40
-    assert client.post_calls == []
-
-
-@pytest.mark.asyncio
-async def test_code_fetch_rejects_invalid_repository_before_auth() -> None:
-    with patch(
-        "kindly_web_search_mcp_server.tools.code_search.exploration._token",
-        return_value=None,
-    ):
-        result = await code_fetch("not-a-repository", path="README.md", ctx=None)
-
+async def test_code_fetch_rejects_invalid_repository() -> None:
+    result = await code_fetch("not-a-repository", ctx=None)
     assert result.outcome == "error"
     assert "owner/name" in (result.error or "")
 
-def test_code_search_next_points_to_code_fetch_for_repository_hits() -> None:
+
+@pytest.mark.asyncio
+async def test_code_fetch_search_returns_snapshot_metadata(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", query="authenticate", ctx=None)
+    assert result.outcome in {"ok", "partial"}
+    assert result.branch == "main"
+    assert result.resolved_commit == "a" * 40
+    assert isinstance(result.cache_age_seconds, int)
+    assert result.intent == "search"
+    assert any(
+        "authenticate" in hit.snippet
+        or (hit.symbol or {}).get("name") == "authenticate"
+        for hit in result.hits
+    )
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_reads_file_from_snapshot(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", path="src/auth.py", ctx=None)
+    assert result.intent == "read"
+    assert result.resolved_commit == "a" * 40
+    assert "def authenticate" in (result.content or "")
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_lists_tree(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", path="src", ctx=None)
+    assert result.intent == "tree"
+    assert "src/auth.py" in result.tree
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_graph_symbol(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", symbol="authenticate", ctx=None)
+    assert result.intent == "graph"
+    assert result.hits
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_regex_search(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", query=r"def authenticate", regexp=True, ctx=None)
+    assert result.intent == "search"
+    assert result.hits
+    assert any("regex" in hit.why for hit in result.hits)
+@pytest.mark.asyncio
+async def test_code_fetch_reads_windowed_lines(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", path="src/auth.py", start_line=4, end_line=5, ctx=None)
+    assert result.outcome == "ok"
+    assert result.intent == "read"
+    assert "def authenticate" in (result.content or "")
+    assert "def login" not in (result.content or "")
+    assert result.hits[0].start_line == 4
+    assert result.hits[0].end_line == 5
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_multi_term_fts_snippet(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", query="authenticate login", ctx=None)
+    assert result.outcome == "ok"
+    assert result.hits
+    # Should identify the file and match on either authenticate or login rather than falling back to line 1
+    assert any(hit.path == "src/auth.py" for hit in result.hits)
+
+
+def test_code_search_next_points_to_code_fetch_without_ref() -> None:
     from kindly_web_search_mcp_server.tools.code_search.models import (
         CodeSearchHit,
         CodeSearchResultType,
         QueryMetadata,
         Stats,
-        to_public_result,
+        _build_next,
     )
-    from kindly_web_search_mcp_server.tools.code_search.query import build_query_plan
 
     hit = CodeSearchHit(
         repository="owner/repo",
-        path="src/example.py",
+        path="src/auth.py",
+        url="https://github.com/owner/repo/blob/main/src/auth.py",
         commit_oid="c" * 40,
-        url="https://github.com/owner/repo/blob/main/src/example.py",
+        line_start=4,
+        line_end=6,
         provider="github",
-        line_start=12,
-        line_end=15,
-        snippet="def example(): pass",
     )
-    result = CodeSearchResultType(
-        query="example",
-        outcome="ok",
-        results=[hit],
-        repositories=[],
-        diagnostics=[],
-        stats=Stats(returned_count=1),
-        query_metadata=QueryMetadata(original_query="example", anchor_terms=["example"]),
+    nexts = _build_next(
+        CodeSearchResultType(
+            query="authenticate",
+            results=[hit],
+            outcome="ok",
+            repositories=[],
+            diagnostics=[],
+            stats=Stats(),
+            query_metadata=QueryMetadata(original_query="authenticate"),
+        ),
+        plan=type("Plan", (), {"anchor_terms": ["authenticate"], "variants": []})(),
     )
-
-    public = to_public_result(result, plan=build_query_plan("example"))
-
-    assert public.next[0].tool == "code_fetch"
-    assert public.next[0].query["repository"] == "owner/repo"
-    assert public.next[0].query["ref"] == "c" * 40
+    assert nexts[0].tool == "code_fetch"
+    assert nexts[0].query["repository"] == "owner/repo"
+    assert nexts[0].query["path"] == "src/auth.py"
+    assert "ref" not in nexts[0].query

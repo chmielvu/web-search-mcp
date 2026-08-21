@@ -9,7 +9,7 @@ from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..runtime import run_cli_async
-
+from ..services.files import write_json_atomic, write_text_atomic
 
 content_app = typer.Typer(no_args_is_help=True)
 
@@ -43,6 +43,7 @@ def get_cmd(
         str | None,
         typer.Option("--strip-selectors"),
     ] = None,
+    output: Annotated[str | None, typer.Option("--output")] = None,
 ) -> None:
     """Fetch one known URL with bounded windowing."""
     from ..services.content import fetch_content_payload
@@ -73,12 +74,27 @@ def get_cmd(
                 "exception_type": type(exc).__name__,
             },
         ) from exc
+    if output:
+        page_content = payload.get("page_content")
+        if not isinstance(page_content, str):
+            raise CliError(
+                kind="schema_error",
+                message="Content response did not contain page_content.",
+                hint="Retry without --output and inspect the structured response.",
+                exit_code=ExitCode.SCHEMA_ERROR,
+                context={"command": "content get", "output": output},
+            )
+        payload["output_path"] = write_text_atomic(output, page_content)
     emit_json(payload, command="content get")
 
 
 @content_app.command("batch")
 def batch_cmd(
     url: Annotated[list[str] | None, typer.Option("--url")] = None,
+    input_file: Annotated[
+        str | None,
+        typer.Option("--input-file", help="URL lines or JSONL records; use '-' for stdin."),
+    ] = None,
     cursor: Annotated[str | None, typer.Option("--cursor")] = None,
     max_concurrency: Annotated[int, typer.Option("--max-concurrency")] = 4,
     per_item_char_length: Annotated[
@@ -117,6 +133,7 @@ def batch_cmd(
         str | None,
         typer.Option("--strip-selectors"),
     ] = None,
+    output: Annotated[str | None, typer.Option("--output")] = None,
 ) -> None:
     """Fetch multiple URLs with a total content budget.
 
@@ -125,11 +142,13 @@ def batch_cmd(
     comparison.
     """
     from ..services.content_batch import fetch_batch_content_payload
+    from ..services.input import read_url_inputs
 
     try:
+        input_urls = read_url_inputs(url, input_file)
         payload = run_cli_async(
             fetch_batch_content_payload(
-                urls=url,
+                urls=input_urls,
                 cursor=cursor,
                 max_concurrency=max_concurrency,
                 per_item_char_length=per_item_char_length,
@@ -159,6 +178,8 @@ def batch_cmd(
             exit_code=ExitCode.INTERNAL_ERROR,
             context={"command": "content batch", "exception_type": type(exc).__name__},
         ) from exc
+    if output:
+        payload["output_path"] = write_json_atomic(output, payload)
     emit_json(payload, command="content batch")
 
 

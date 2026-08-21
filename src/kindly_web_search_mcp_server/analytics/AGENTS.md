@@ -1,3 +1,7 @@
+<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
+<!-- Managed by agent: keep sections and order; edit content, not structure -->
+<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+
 # AGENTS.md - Analytics & Search Quality
 
 DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
@@ -9,8 +13,9 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `duckdb_store.py` | Thin facade re-exporting writers + schema |
 | `writers/schema.py` | DDL for fact tables, provider health, quality, judge, tool-call, and classifier events |
 | `writers/core.py` | `TableWriter` + public insert wrappers |
+| `writers/inserts.py` | Typed SQL insert statements for pipeline entities |
+| `writers/table_names.py` | Canonical DuckDB table name definitions |
 | `writers/connection.py` | `_db_path` + `_LOCK` + FlockMTL resources |
-| `async_writes.py` | Single-worker DuckDB write executor |
 | `judges.py` | FlockMTL LLM-as-Judge orchestrator (6 facets) |
 | `judge_calibration.py` | Cohen's κ calibration harness |
 | `judge_runner.py` | Fire-and-forget judge evaluation |

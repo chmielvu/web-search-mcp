@@ -1,3 +1,7 @@
+<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
+<!-- Managed by agent: keep sections and order; edit content, not structure -->
+<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+
 # AGENTS.md - Content
 
 Content acquisition, extraction, and conversion to LLM-ready Markdown.
@@ -30,8 +34,9 @@ Three-tier architecture with active resilience:
 | `artifact.py` | `ContentArtifact` / `ContentError` models |
 | `options.py` | `FetchOptions` |
 | `windowing.py` | Content slicing with pagination (`has_more`, `next_offset`) |
-| `status_classifier.py` | Content quality classification |
 | `summary.py` | Gemini-backed URL/context summaries |
+| `summary_backend.py` | LLM backend router for summary generation |
+| `safe_fetch.py` | Safe HTTP fetch wrapper with content-type validation |
 | `jina_reader.py` | Jina Reader HTTP client |
 | `remote_clients.py` | Crawl4AI + Camoufox HTTP clients |
 | `link_discovery.py` | Link extraction from pages |

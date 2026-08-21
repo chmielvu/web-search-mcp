@@ -21,12 +21,12 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
             "code_fetch",
             "get_content",
             "batch_get_content",
-            "discover_links",
             "gemini_search",
             "generate_sitemap",
             "youtube_search",
             "youtube_transcript",
             "deep_research",
+            "recommend_command",
         }
     )
 
@@ -55,18 +55,21 @@ def test_profile_membership_matches_visibility_requirements() -> None:
 
     assert tools_for_profile("regular") == frozenset(
         {
+            "academic_search",
             "code_search",
             "web_search",
             "code_fetch",
             "quick_web_search",
             "get_content",
             "batch_get_content",
-            "discover_links",
             "gemini_search",
             "youtube_search",
             "youtube_transcript",
             "generate_sitemap",
             "deep_research",
+            "composio_similarlinks",
+            "recommend_command",
+            "youtube_channel_transcription",
         }
     )
     assert tools_for_profile("full") == frozenset(
@@ -77,7 +80,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "batch_get_content",
             "composio_similarlinks",
             "deep_research",
-            "discover_links",
             "gemini_search",
             "generate_sitemap",
             "get_content",
@@ -86,6 +88,8 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "web_search",
             "youtube_search",
             "youtube_transcript",
+            "recommend_command",
+            "youtube_channel_transcription",
         }
     )
 
@@ -163,6 +167,10 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
     async def composio_similarlinks() -> str:
         return "ok"
 
+    @mcp.tool(**tool_kwargs("academic_search"))
+    async def academic_search() -> str:
+        return "ok"
+
     @mcp.tool(**tool_kwargs("grok_search"))
     async def grok_search() -> str:
         return "ok"
@@ -171,5 +179,5 @@ def test_apply_tool_profile_filters_real_fastmcp_tools_by_tag() -> None:
 
     tool_names = {tool.name for tool in asyncio.run(mcp.list_tools())}
     assert {"web_search", "quick_web_search"}.issubset(tool_names)
-    assert "composio_similarlinks" not in tool_names
+    assert {"academic_search", "composio_similarlinks"}.issubset(tool_names)
     assert "grok_search" not in tool_names

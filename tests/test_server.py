@@ -703,44 +703,11 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("score", out["results"][0])
         self.assertNotIn("diagnostics", out["results"][0])
 
-    async def test_discover_links_returns_links(self) -> None:
-        from kindly_web_search_mcp_server.server import discover_links
-
-        mock_ctx = AsyncMock()
-        mock_ctx.info = AsyncMock()
-
-        with patch(
-            "kindly_web_search_mcp_server.tools.content.discover_page_links",
-            new_callable=AsyncMock,
-        ) as mock_discover:
-            mock_discover.return_value = {
-                "input_url": "https://example.com",
-                "normalized_url": "https://example.com",
-                "fetched_url": "https://example.com/",
-                "source_type": "html",
-                "links": [
-                    {
-                        "url": "https://example.com/next",
-                        "text": "Next",
-                        "domain": "example.com",
-                        "internal": True,
-                    }
-                ],
-                "returned_links": 1,
-                "has_more": False,
-                "metadata": {"title": "Example"},
-            }
-
-            tool_fn = discover_links.fn if hasattr(discover_links, "fn") else discover_links
-            out = await tool_fn("https://example.com", ctx=mock_ctx)
-
-        self.assertEqual(out["source_type"], "html")
-        self.assertEqual(out["links"][0]["url"], "https://example.com/next")
-        self.assertEqual(out["metadata"]["title"], "Example")
-
     def test_public_settings_resource_redacts_secrets(self) -> None:
         import json
         from kindly_web_search_mcp_server.server import get_public_settings_resource
+
+
 
         out = json.loads(get_public_settings_resource().contents[0].content)
 

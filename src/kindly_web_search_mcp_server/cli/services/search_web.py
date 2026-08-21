@@ -53,8 +53,10 @@ async def fetch_web_search_payload(
         run_key=run_key,
         tool_call_id=run_key,
         return_diagnostics=True,
+        schedule_judges=False,
     )  # type: ignore[assignment,misc]
     payload = response.model_dump(exclude_none=True)
+    payload["run_key"] = run_key
     if domain_boost or domain_block:
         from ...tools._helpers import _apply_domain_filters
 

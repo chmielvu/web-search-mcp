@@ -17,6 +17,7 @@ from .models import (
     CodeSearchHit,
     CodeSearchRequest,
     Diagnostic,
+    FailureKind,
     ProviderResponse,
     TextFragment,
     build_location_metadata,
@@ -36,7 +37,7 @@ def _diagnostic(
     query: str | None = None,
     outcome: str = "error",
     details: dict[str, Any] | None = None,
-    failure_kind: str | None = None,
+    failure_kind: FailureKind | None = None,
     status_code: int | None = None,
 ) -> Diagnostic:
     return Diagnostic(
@@ -292,19 +293,22 @@ def _parse_rest_payload(
     return hits
 
 
-async def _search_grepapp_rest(
+async def _search_grepapp_single_repo_rest(
     expression: str,
     kind: str,
-    request: CodeSearchRequest,
+    repository: str | None,
+    language: str | None,
+    path: str | None,
+    max_results: int,
     http_client: httpx.AsyncClient,
 ) -> ProviderResponse:
-    params: dict[str, str] = {"q": expression, "regexp": str(kind == "regex").lower()}
-    if request.language:
-        params["f.lang"] = request.language
-    if len(request.repositories) == 1:
-        params["f.repo"] = request.repositories[0]
-    if request.path:
-        params["f.path"] = request.path
+    params: dict[str, Any] = {"q": expression, "regexp": str(kind == "regex").lower()}
+    if language:
+        params["f.lang"] = language
+    if repository:
+        params["f.repo"] = repository
+    if path:
+        params["f.path"] = path
     last_response: httpx.Response | None = None
     last_exc: BaseException | None = None
     request_count = 0
@@ -369,36 +373,43 @@ async def _search_grepapp_rest(
         )
     return ProviderResponse(
         provider="grep.app",
-        hits=_parse_rest_payload(
-            payload, query_variant=expression, max_results=request.max_results
-        ),
+        hits=_parse_rest_payload(payload, query_variant=expression, max_results=max_results),
         request_count=request_count,
         metadata={"compiled_queries": [expression], "transport": "rest"},
     )
 
 
-async def _search_grepapp_variant(
+async def _search_grepapp_single_repo(
     expression: str,
     kind: str,
+    repository: str | None,
     request: CodeSearchRequest,
     http_client: httpx.AsyncClient,
 ) -> ProviderResponse:
-    """Search one variant over grep.app's REST API first, then its MCP relay."""
-    arguments = {
+    rest_response = await _search_grepapp_single_repo_rest(
+        expression,
+        kind,
+        repository,
+        request.language,
+        request.path,
+        request.max_results,
+        http_client,
+    )
+    if rest_response.hits:
+        return rest_response
+
+    arguments: dict[str, Any] = {
         "query": expression,
         "matchCase": False,
         "matchWholeWords": False,
         "useRegexp": kind == "regex",
     }
-    if len(request.repositories) == 1:
-        arguments["repo"] = request.repositories[0]
+    if repository:
+        arguments["repo"] = repository
     if request.path:
         arguments["path"] = request.path
     if request.language:
         arguments["language"] = [request.language]
-    rest_response = await _search_grepapp_rest(expression, kind, request, http_client)
-    if rest_response.hits:
-        return rest_response
 
     try:
         result = await _call_grepapp_mcp(arguments, http_client)
@@ -460,6 +471,35 @@ async def _search_grepapp_variant(
         },
     )
 
+
+async def _search_grepapp_variant(
+    expression: str,
+    kind: str,
+    request: CodeSearchRequest,
+    http_client: httpx.AsyncClient,
+) -> ProviderResponse:
+    """Search one variant across target repositories over grep.app REST/MCP."""
+    target_repos = list(request.repositories) if request.repositories else [None]
+    if len(target_repos) == 1:
+        return await _search_grepapp_single_repo(
+            expression, kind, target_repos[0], request, http_client
+        )
+    responses = await asyncio.gather(
+        *(
+            _search_grepapp_single_repo(expression, kind, repo, request, http_client)
+            for repo in target_repos
+        )
+    )
+    return ProviderResponse(
+        provider="grep.app",
+        hits=[hit for resp in responses for hit in resp.hits][: request.max_results],
+        diagnostics=[d for resp in responses for d in resp.diagnostics],
+        request_count=sum(resp.request_count for resp in responses),
+        metadata={
+            "compiled_queries": [expression],
+            "transport": "mixed",
+        },
+    )
 
 async def search_grepapp(
     plan: QueryPlan, request: CodeSearchRequest, *, http_client: httpx.AsyncClient

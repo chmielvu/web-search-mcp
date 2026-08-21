@@ -36,7 +36,7 @@ def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    # The MCP catalog currently exposes 13 unique public tools.
+    # The MCP catalog currently exposes 13 unique public tools (discover_links merged into get_content).
     assert len(tools) == 13
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
