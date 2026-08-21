@@ -405,6 +405,7 @@ def fetch_cmd(
     query: Annotated[str | None, typer.Option("--query")] = None,
     path: Annotated[str | None, typer.Option("--path")] = None,
     symbol: Annotated[str | None, typer.Option("--symbol")] = None,
+    ref: Annotated[str | None, typer.Option("--ref", help="Optional git revision (branch, tag, or commit SHA).")] = None,
     regexp: Annotated[
         bool,
         typer.Option("--regexp/--no-regexp", help="Treat --query as a regular expression."),
@@ -413,8 +414,9 @@ def fetch_cmd(
     context_lines: Annotated[int, typer.Option("--context-lines")] = 3,
     start_line: Annotated[int | None, typer.Option("--start-line", help="Optional 1-based start line.")] = None,
     end_line: Annotated[int | None, typer.Option("--end-line", help="Optional 1-based end line.")] = None,
+    depth: Annotated[int | None, typer.Option("--depth", help="Optional max directory tree depth.")] = None,
 ) -> None:
-    """Explore a cached current-main GitHub repository snapshot."""
+    """Explore a cached GitHub repository snapshot."""
     from ..services.code_fetch import fetch_code_fetch_payload
 
     try:
@@ -424,11 +426,13 @@ def fetch_cmd(
                 query=query,
                 path=path,
                 symbol=symbol,
+                ref=ref,
                 regexp=regexp,
                 max_matches=max_matches,
                 context_lines=context_lines,
                 start_line=start_line,
                 end_line=end_line,
+                depth=depth,
             )
         )
     except ValueError as exc:

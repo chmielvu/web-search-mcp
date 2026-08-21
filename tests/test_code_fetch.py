@@ -77,6 +77,24 @@ async def test_code_fetch_lists_tree(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_code_fetch_lists_tree_with_depth(tmp_path: Path) -> None:
+    source = tmp_path / "deep_repo"
+    (source / "level1" / "level2").mkdir(parents=True)
+    (source / "level1" / "file1.py").write_text("# l1\n", encoding="utf-8")
+    (source / "level1" / "level2" / "file2.py").write_text("# l2\n", encoding="utf-8")
+    manager = SnapshotManager(
+        db_path=str(tmp_path / "deep_snap.sqlite"),
+        worktree_root=tmp_path / "deep_worktrees",
+    )
+    manager.build_from_directory("owner/deep", "main", "b" * 40, source)
+    reset_snapshot_manager_for_tests(manager)
+    # Depth 1 should include level1/file1.py but exclude level1/level2/file2.py
+    result = await code_fetch("owner/deep", path="level1", depth=1, ctx=None)
+    assert result.intent == "tree"
+    assert "level1/file1.py" in result.tree
+    assert "level1/level2/file2.py" not in result.tree
+
+@pytest.mark.asyncio
 async def test_code_fetch_graph_symbol(tmp_path: Path) -> None:
     _seed_snapshot(tmp_path)
     result = await code_fetch("owner/repo", symbol="authenticate", ctx=None)

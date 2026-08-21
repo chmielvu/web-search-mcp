@@ -366,29 +366,32 @@ class SnapshotManager:
             finally:
                 con.close()
 
-    def _remember(self, snapshot: Snapshot) -> None:
-        self._live[snapshot.repository] = snapshot
+    def _remember(self, snapshot: Snapshot, key: str | None = None) -> None:
+        self._live[key or snapshot.repository] = snapshot
         if len(self._live) <= MAX_LIVE_SNAPSHOTS:
             return
-        oldest = min(self._live.values(), key=lambda item: item.created_at)
-        if oldest.repository != snapshot.repository:
-            self._live.pop(oldest.repository, None)
+        oldest_key = min(self._live.keys(), key=lambda k: self._live[k].created_at)
+        target_key = key or snapshot.repository
+        if oldest_key != target_key:
+            self._live.pop(oldest_key, None)
 
-    async def ensure(self, repository: str) -> Snapshot:
-        live = self.live_snapshot(repository)
+    async def ensure(self, repository: str, *, ref: str | None = None) -> Snapshot:
+        key = f"{repository}@{ref}" if ref else repository
+        live = self.live_snapshot(key)
         if live is not None:
             return live
-        return await self.refresh(repository)
+        return await self.refresh(repository, ref=ref)
 
-    async def refresh(self, repository: str) -> Snapshot:
-        previous = self._live.get(repository)
+    async def refresh(self, repository: str, *, ref: str | None = None) -> Snapshot:
+        key = f"{repository}@{ref}" if ref else repository
+        previous = self._live.get(key)
         try:
-            branch, sha = await _resolve_main_commit(repository)
+            branch, sha = await _resolve_main_commit(repository, ref=ref)
             if previous is not None and previous.resolved_commit == sha:
                 previous.created_at = time.monotonic()
                 previous.stale = False
                 previous.warning = None
-                self._remember(previous)
+                self._remember(previous, key=key)
                 return previous
             root = await _download_tarball(repository, sha)
             snapshot = await asyncio.to_thread(
@@ -399,6 +402,7 @@ class SnapshotManager:
                 root,
             )
             shutil.rmtree(root, ignore_errors=True)
+            self._remember(snapshot, key=key)
             return snapshot
         except SnapshotError as exc:
             if previous is not None:
@@ -419,6 +423,7 @@ class SnapshotManager:
         context_lines: int,
         start_line: int | None = None,
         end_line: int | None = None,
+        depth: int | None = None,
     ) -> QueryResult:
         normalized_query = (query or "").strip()
         normalized_path = (path or "").strip().strip("/")
@@ -471,7 +476,7 @@ class SnapshotManager:
                         )
                     ],
                 )
-            entries = _list_tree(snapshot.root, normalized_path, limit=2_000)
+            entries = _list_tree(snapshot.root, normalized_path, limit=2_000, depth=depth)
             if not entries and not target.exists():
                 return QueryResult(
                     snapshot=snapshot,
@@ -771,11 +776,29 @@ def reset_snapshot_manager_for_tests(manager: SnapshotManager | None = None) -> 
     _MANAGER = manager
 
 
-async def _resolve_main_commit(repository: str) -> tuple[str, str]:
+async def _resolve_main_commit(repository: str, *, ref: str | None = None) -> tuple[str, str]:
     token = _token()
     client = await get_http_client()
     owner, repo = repository.split("/", 1)
     repo_url = f"{_GITHUB_API_URL}/repos/{quote(owner)}/{quote(repo)}"
+    if ref:
+        try:
+            commit_response = await client.get(
+                f"{repo_url}/commits/{quote(ref)}",
+                headers=_headers(token),
+                timeout=settings.search_retrieve_budget_seconds,
+            )
+        except httpx.HTTPError as exc:
+            raise SnapshotError(f"GitHub commit lookup for ref '{ref}' failed: {exc}") from exc
+        if commit_response.status_code == 200:
+            commit_payload = commit_response.json() if commit_response.content else {}
+            sha = commit_payload.get("sha") if isinstance(commit_payload, dict) else None
+            if isinstance(sha, str) and len(sha) >= 7:
+                return ref, sha
+        raise SnapshotError(
+            f"GitHub commit lookup for ref '{ref}' returned HTTP {commit_response.status_code}",
+            retry_after_seconds=_retry_after(commit_response),
+        )
     try:
         response = await client.get(
             repo_url, headers=_headers(token), timeout=settings.search_retrieve_budget_seconds
@@ -968,7 +991,7 @@ def _read_text(path: Path) -> str:
     return path.read_bytes().decode("utf-8", errors="replace")
 
 
-def _list_tree(root: Path, prefix: str, *, limit: int) -> list[str]:
+def _list_tree(root: Path, prefix: str, *, limit: int, depth: int | None = None) -> list[str]:
     base = root / prefix if prefix else root
     if not base.exists():
         return []
@@ -979,11 +1002,14 @@ def _list_tree(root: Path, prefix: str, *, limit: int) -> list[str]:
         relative = path.relative_to(root)
         if any(part in _SKIP_DIRS for part in relative.parts):
             continue
+        if depth is not None:
+            rel_from_base = path.relative_to(base)
+            if len(rel_from_base.parts) > depth:
+                continue
         entries.append(relative.as_posix())
         if len(entries) >= limit:
             break
     return entries
-
 
 def _scan_literal(
     root: Path,

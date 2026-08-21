@@ -174,6 +174,10 @@ async def code_fetch(
         str | None,
         Field(description="Optional symbol for callers/callees/impact."),
     ] = None,
+    ref: Annotated[
+        str | None,
+        Field(description="Optional git revision (branch, tag, or commit SHA)."),
+    ] = None,
     regexp: Annotated[
         bool,
         Field(description="Treat query as a regular expression."),
@@ -187,6 +191,10 @@ async def code_fetch(
     end_line: Annotated[
         int | None,
         Field(description="Optional 1-based end line when reading a file."),
+    ] = None,
+    depth: Annotated[
+        int | None,
+        Field(description="Optional max directory tree depth (e.g. 1 for top-level only)."),
     ] = None,
     ctx: Context | None = CurrentContext(),
 ) -> CodeFetchResponse:
@@ -205,10 +213,10 @@ async def code_fetch(
         await ctx.report_progress(progress=10, total=100, message="Opening main-branch snapshot...")
 
     manager = get_snapshot_manager()
-    flight_key = _code_fetch_flight.make_key(normalized_repository)
+    flight_key = _code_fetch_flight.make_key(f"{normalized_repository}@{ref}" if ref else normalized_repository)
 
     async def _open_snapshot():
-        return await manager.ensure(normalized_repository)
+        return await manager.ensure(normalized_repository, ref=ref)
 
     try:
         snapshot = await _code_fetch_flight.do(flight_key, _open_snapshot, timeout_seconds=55.0)
@@ -222,6 +230,7 @@ async def code_fetch(
             context_lines=context_lines,
             start_line=start_line,
             end_line=end_line,
+            depth=depth,
         )
     except SnapshotError as exc:
         return _error_response(

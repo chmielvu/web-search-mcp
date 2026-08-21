@@ -11,22 +11,26 @@ async def fetch_code_fetch_payload(
     query: str | None = None,
     path: str | None = None,
     symbol: str | None = None,
+    ref: str | None = None,
     regexp: bool = False,
     max_matches: int = 25,
     context_lines: int = 3,
     start_line: int | None = None,
     end_line: int | None = None,
+    depth: int | None = None,
 ) -> dict[str, Any]:
     response = await code_fetch(
         repository=repository,
         query=query,
         path=path,
         symbol=symbol,
+        ref=ref,
         regexp=regexp,
         max_matches=max_matches,
         context_lines=context_lines,
         start_line=start_line,
         end_line=end_line,
+        depth=depth,
         ctx=None,
     )
     return response.model_dump(exclude_none=True)

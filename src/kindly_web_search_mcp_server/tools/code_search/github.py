@@ -1035,16 +1035,24 @@ def _hydrate_query(group: list[CodeSearchHit]) -> tuple[str, dict[str, str]]:
     for index, hit in enumerate(group):
         repository = hit.repository or ""
         owner, _, repo = repository.partition("/")
-        commit = hit.commit_oid or "HEAD"
-        path = hit.path or ""
         variables[f"owner{index}"] = owner
         variables[f"repo{index}"] = repo
-        variables[f"expr{index}"] = f"{commit}:{path}"
-        fields.append(
-            "  f{0}: repository(owner: $owner{0}, name: $repo{0}) {{\n"
-            "    object(expression: $expr{0}) {{ oid ... on Blob {{ byteSize isBinary text }} }}\n"
-            "  }}".format(index)
-        )
+        if hit.sha and re.match(r"^[0-9a-f]{40}$", hit.sha, re.I):
+            variables[f"oid{index}"] = hit.sha
+            fields.append(
+                "  f{0}: repository(owner: $owner{0}, name: $repo{0}) {{\n"
+                "    object(oid: $oid{0}) {{ oid ... on Blob {{ byteSize isBinary text }} }}\n"
+                "  }}".format(index)
+            )
+        else:
+            commit = hit.commit_oid or "HEAD"
+            path = hit.path or ""
+            variables[f"expr{index}"] = f"{commit}:{path}"
+            fields.append(
+                "  f{0}: repository(owner: $owner{0}, name: $repo{0}) {{\n"
+                "    object(expression: $expr{0}) {{ oid ... on Blob {{ byteSize isBinary text }} }}\n"
+                "  }}".format(index)
+            )
     declarations = " ".join(f"${name}: String!" for name in variables)
     return _HYDRATE_QUERY_TEMPLATE.format(
         variables=declarations, fields="\n".join(fields)

@@ -667,11 +667,16 @@ def _spans_for_range(
 def _build_text_and_lines(
     hit: CodeSearchHit,
 ) -> list[tuple[str, CodeSearchPublicMatchLines]]:
-    """Project every available provider context without truncation or deduplication."""
+    """Project provider contexts into non-redundant match and window entries."""
 
     pairs: list[tuple[str, CodeSearchPublicMatchLines]] = []
+    seen_clean: set[str] = set()
+
     for fragment in hit.fragments:
         if not isinstance(fragment.text, str) or not fragment.text.strip():
+            continue
+        cleaned = fragment.text.strip()
+        if cleaned in seen_clean:
             continue
         offsets = fragment.match_metadata.get("offsets")
         spans: list[CodeSearchPublicSpan] = []
@@ -687,6 +692,7 @@ def _build_text_and_lines(
                     )
         if not spans:
             spans = _spans_for_range(hit, fragment.line_start, fragment.line_end)
+        seen_clean.add(cleaned)
         pairs.append(
             (
                 fragment.text,
@@ -697,30 +703,35 @@ def _build_text_and_lines(
         )
 
     if isinstance(hit.snippet, str) and hit.snippet.strip():
-        pairs.append(
-            (
-                hit.snippet,
-                CodeSearchPublicMatchLines(
-                    line_start=hit.line_start,
-                    line_end=hit.line_end,
-                    spans=_spans_for_range(hit, hit.line_start, hit.line_end),
-                ),
+        cleaned_snippet = hit.snippet.strip()
+        if cleaned_snippet not in seen_clean and not any(cleaned_snippet in c for c in seen_clean):
+            seen_clean.add(cleaned_snippet)
+            pairs.append(
+                (
+                    hit.snippet,
+                    CodeSearchPublicMatchLines(
+                        line_start=hit.line_start,
+                        line_end=hit.line_end,
+                        spans=_spans_for_range(hit, hit.line_start, hit.line_end),
+                    ),
+                )
             )
-        )
 
     if isinstance(hit.hydrated_source, str) and hit.hydrated_source.strip():
+        cleaned_hydrated = hit.hydrated_source.strip()
         window_start = hit.source_metadata.get("source_window_start")
         window_end = hit.source_metadata.get("source_window_end")
         ws = window_start if isinstance(window_start, int) and window_start >= 1 else hit.line_start
         we = window_end if isinstance(window_end, int) and window_end >= 1 else hit.line_end
-        pairs.append(
-            (
-                hit.hydrated_source,
-                CodeSearchPublicMatchLines(
-                    line_start=ws, line_end=we, spans=_spans_for_range(hit, ws, we)
-                ),
+        if cleaned_hydrated not in seen_clean:
+            pairs.append(
+                (
+                    hit.hydrated_source,
+                    CodeSearchPublicMatchLines(
+                        line_start=ws, line_end=we, spans=_spans_for_range(hit, ws, we)
+                    ),
+                )
             )
-        )
     return pairs
 
 
