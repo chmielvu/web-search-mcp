@@ -1,0 +1,31 @@
+rewrite,in_degree
+"""python 3.13 release highlights"" site:docs.python.org 2026",2
+"""api.greptile.com"" search query code endpoint docs",1
+"""api.greptile.com"" site:api.greptile.com +endpoint +docs 2026",1
+"find detailed information about greptile api endpoints, required headers, and request schemas for performing semantic code search using json format in 2026.",1
+"greptile api +""json format"" -deprecated intitle:""request schema"" 2026",1
+greptile api endpoints headers +semantic +code +search filetype:json 2026,1
+"""arize"" phoenix otlp ""project"" resource attributes header ""openinference.project.name""",1
+"""arize"" phoenix otlp ""project"" 2026 site:arize.com",1
+"""arize"" phoenix otlp ""resource attributes"" header filetype:pdf 2026",1
+"+""arize"" +phoenix +otlp +""openinference.project.name"" -demo intitle:routing 2026",1
+describe how arize phoenix routes otlp traces to a specific project name using the resource attribute or the openinference.project.name header in 2026.,1
+"site:arize.com inurl:docs ""openinference.project.name"" ""otlp"" routing documentation",1
+"""coding-harness-tracing"" ""arize-ai""",1
+"""coding-harness-tracing"" ""arize-ai"" (ext:md or ext:py) 2026",1
+"""coding-harness-tracing"" ""arize-ai"" site:github.com 2026",1
++arize-ai +coding-harness-tracing -example -tutorial intitle:harness 2026,1
+"find the arize ai coding harness tracing repository and any extensions for ai coding agents, including recent 2026 updates and documentation.",1
+"site:arize.com intitle:""coding harness tracing"" 2026",1
+"""create global model"" flockmtl duckdb site:github.com",1
+"""create global model"" flockmtl duckdb site:github.com 2026",1
+create model or create prompt duckdb filetype:sql 2026,1
+"find canonical sql examples for creating models and prompts using duckdb and the flockmtl extension, including the create global model syntax, in 2026.",1
+"intitle:""create model"" +""create prompt"" +duckdb -example 2026",1
+"""docker-desktop-user-distro"" ""/mnt/wsl/docker-desktop"" missing mount 9p init fix wsl",1
+"""docker-desktop-user-distro"" ""/mnt/wsl/docker-desktop"" 2026 site:github.com",1
+"""docker-desktop-user-distro"" +9p +init -site:stackoverflow.com 2026",1
+"intitle:""docker-desktop"" and ""mount disappears"" +wsl +fix 2026",1
+why does the /mnt/wsl/docker-desktop mount disappear in a user wsl distro and what is the recommended fix for this issue in 2026.,1
+"""docker-desktop-user-distro"" ""dial unix"" ""backend.sock"" ""no such file or directory"" wsl ubuntu",1
+"+docker-desktop-user-distro +wsl +ubuntu +\""dial unix\"" +backend.sock -windows -mac 2026",1

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 TOOL_COVERAGE: tuple[dict[str, object], ...] = (
     {
+        "tool": "recommend_command",
+        "command": "recommend",
+        "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"],
+        "required": ["task"],
+    },
+    {
         "tool": "web_search",
         "command": "search web",
         "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"],
@@ -103,6 +109,7 @@ COMMANDS: tuple[str, ...] = (
     "schema",
     "doctor",
     "getskill",
+    "recommend",
     "search web",
     "search quick",
     "search academic",

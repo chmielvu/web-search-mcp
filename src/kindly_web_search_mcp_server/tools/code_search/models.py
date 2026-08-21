@@ -542,9 +542,12 @@ class CodeSearchPublicFile(BaseModel):
     symbols: list[CodeSearchPublicSymbol] = Field(default_factory=list)
     providers: list[str] = Field(default_factory=list)
     path_only: bool = Field(default=False)
+    source_window_start: int | None = Field(default=None, description="First line of hydrated source window.")
+    source_window_end: int | None = Field(default=None, description="Last line of hydrated source window.")
+    full_source_chars: int | None = Field(default=None, description="Total chars of the full source file.")
+    omitted_fragments: int = Field(default=0, description="Number of provider match fragments dropped by per-file caps.")
     agent_ready: bool = Field(default=False)
     agent_ready_fail_reasons: list[str] = Field(default_factory=list)
-
 
 class CodeSearchPublicRepo(BaseModel):
     """Slim repository row for discovery mode."""
@@ -768,6 +771,10 @@ def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSe
         symbols=symbols,
         providers=providers,
         path_only=not text_matches and not match_lines,
+        source_window_start=hit.source_metadata.get("source_window_start"),
+        source_window_end=hit.source_metadata.get("source_window_end"),
+        full_source_chars=hit.source_metadata.get("full_source_chars"),
+        omitted_fragments=max(0, int(hit.source_metadata.get("omitted_fragments") or 0)),
         agent_ready=agent_ready,
         agent_ready_fail_reasons=[] if agent_ready else fail_reasons,
     )
@@ -935,6 +942,13 @@ def to_public_result(
             existing.agent_ready_fail_reasons = []
         elif not existing.agent_ready:
             existing.agent_ready_fail_reasons.extend(file_entry.agent_ready_fail_reasons)
+        existing.omitted_fragments += file_entry.omitted_fragments
+        if file_entry.source_window_start is not None and existing.source_window_start is None:
+            existing.source_window_start = file_entry.source_window_start
+        if file_entry.source_window_end is not None and existing.source_window_end is None:
+            existing.source_window_end = file_entry.source_window_end
+        if file_entry.full_source_chars is not None and existing.full_source_chars is None:
+            existing.full_source_chars = file_entry.full_source_chars
 
     groups.sort(key=lambda group: -best_score.get(group.repository, 0.0))
     file_count = sum(len(group.files) for group in groups)

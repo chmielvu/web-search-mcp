@@ -606,6 +606,7 @@ def insert_funnel_uplift_batches(
     result_catalog: list[dict[str, Any]] | None = None,
     provider_results: list[dict[str, Any]] | None = None,
     query_variants: list[dict[str, Any]] | None = None,
+    query_transforms: list[dict[str, Any]] | None = None,
     candidate_stage_events: list[dict[str, Any]] | None = None,
     tool_output_items: list[dict[str, Any]] | None = None,
     db_path: str | None = None,
@@ -615,19 +616,36 @@ def insert_funnel_uplift_batches(
         _CANDIDATE_STAGE_EVENTS_WRITER,
         _PROVIDER_RESULTS_WRITER,
         _QUERY_VARIANTS_WRITER,
+        _QUERY_TRANSFORMS_WRITER,
         _RESULT_CATALOG_WRITER,
         _TOOL_OUTPUT_ITEMS_WRITER,
     )
 
+    recorded_at = datetime.now(timezone.utc)
+
+    def _with_recorded_at(row: dict[str, Any]) -> dict[str, Any]:
+        return {**row, "recorded_at": row.get("recorded_at") or recorded_at}
+
     if result_catalog:
-        _RESULT_CATALOG_WRITER.insert_batch(result_catalog, db_path=db_path)
+        _RESULT_CATALOG_WRITER.insert_batch(
+            [_with_recorded_at(row) for row in result_catalog], db_path=db_path
+        )
     if provider_results:
         serialized_pr = [
-            _serialize_json_fields(r, ("payload_json",)) for r in provider_results
+            _with_recorded_at(_serialize_json_fields(row, ("payload_json",)))
+            for row in provider_results
         ]
         _PROVIDER_RESULTS_WRITER.insert_batch(serialized_pr, db_path=db_path)
     if query_variants:
-        _QUERY_VARIANTS_WRITER.insert_batch(query_variants, db_path=db_path)
+        _QUERY_VARIANTS_WRITER.insert_batch(
+            [_with_recorded_at(row) for row in query_variants], db_path=db_path
+        )
+    if query_transforms:
+        serialized_qt = [
+            _with_recorded_at(_serialize_json_fields(row, ("metadata_json",)))
+            for row in query_transforms
+        ]
+        _QUERY_TRANSFORMS_WRITER.insert_batch(serialized_qt, db_path=db_path)
     if candidate_stage_events:
         serialized_cse = [
             _serialize_json_fields(r, ("payload_json",)) for r in candidate_stage_events

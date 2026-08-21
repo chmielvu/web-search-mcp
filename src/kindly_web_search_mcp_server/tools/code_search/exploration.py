@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Annotated, Literal
 from urllib.parse import quote
 
@@ -14,13 +13,13 @@ from pydantic import BaseModel, Field
 
 from ...settings import settings
 from ...utils.http_client import get_http_client
+from ...utils.github import normalize_github_repository
 from ...cache.code_search import get_code_search_cache, is_immutable_revision
 from .github import _headers, _retry_after, _token
 
 LOGGER = logging.getLogger(__name__)
 _GITHUB_API_URL = "https://api.github.com"
 _GITHUB_GRAPHQL_URL = f"{_GITHUB_API_URL}/graphql"
-_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 _FETCH_FILE_QUERY = """
 query FetchCode($owner: String!, $repo: String!, $expression: String!) {
@@ -54,17 +53,17 @@ class CodeFetchResponse(BaseModel):
     line_start: int | None = None
     line_end: int | None = None
     total_lines: int | None = None
+    source_chars: int | None = None
     truncated: bool = False
+    has_more: bool = False
+    next_start_line: int | None = None
     tree: list[CodeFetchTreeEntry] = Field(default_factory=list)
     error: str | None = None
     retry_after_seconds: float | None = None
 
 
 def _normalize_repository(repository: str) -> str:
-    normalized = repository.strip().removeprefix("https://github.com/").strip("/")
-    if not _REPOSITORY.fullmatch(normalized):
-        raise ValueError("repository must use the owner/name form")
-    return normalized
+    return normalize_github_repository(repository)
 
 
 def _slice_lines(
@@ -125,7 +124,7 @@ async def code_fetch(
     ] = "file",
     start_line: Annotated[int | None, Field(description="One-based first line to return.")] = None,
     end_line: Annotated[int | None, Field(description="One-based last line to return.")] = None,
-    max_chars: Annotated[int, Field(description="Maximum returned file characters.")] = 50_000,
+    max_chars: Annotated[int, Field(description="Maximum returned file characters.")] = 200_000,
     max_entries: Annotated[int, Field(description="Maximum tree entries.")] = 2_000,
     ctx: Context | None = CurrentContext(),
 ) -> CodeFetchResponse:
@@ -211,6 +210,7 @@ async def code_fetch(
             ref=ref,
             tree=entries,
             truncated=len(raw_entries) > len(entries),
+            has_more=len(raw_entries) > len(entries),
         )
 
     normalized_path = (path or "").strip().strip("/")
@@ -241,7 +241,10 @@ async def code_fetch(
             line_start=returned_start,
             line_end=returned_end,
             total_lines=len(text.splitlines()),
+            source_chars=len(text),
             truncated=truncated,
+            has_more=truncated,
+            next_start_line=returned_end + 1 if truncated else None,
         )
 
     owner, repo = normalized_repository.split("/", 1)
@@ -319,7 +322,10 @@ async def code_fetch(
         line_start=returned_start,
         line_end=returned_end,
         total_lines=len(text.splitlines()),
+        source_chars=len(text),
         truncated=truncated,
+        has_more=truncated,
+        next_start_line=returned_end + 1 if truncated else None,
     )
 
 

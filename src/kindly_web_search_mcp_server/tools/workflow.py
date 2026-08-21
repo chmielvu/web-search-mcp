@@ -8,6 +8,7 @@ def get_workflow_doc() -> str:
 ## Tool Selection
 | Task | Tool | Key Parameters |
 |---|---|---|
+| Route a natural-language task | recommend_command | task |
 | Fast recon | quick_web_search | objective, search_queries |
 | Grounded synthesis | gemini_search | query, structured_output |
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost, domain_block, num_results |

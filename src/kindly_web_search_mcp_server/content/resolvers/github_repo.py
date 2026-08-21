@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..sanitize import sanitize_markdown
+from ...utils.github import normalize_github_repository
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
@@ -42,8 +43,17 @@ _EXCLUDED_SUBPATHS = {
 
 
 def parse_github_repo_url(url: str) -> GitHubRepoTarget:
-    """Parse a GitHub repository URL: https://github.com/<owner>/<repo>[/tree/<ref>/<path>]"""
-    parsed = urlparse(url)
+    """Parse a GitHub repository URL or SSH repository specification."""
+    value = url.strip()
+    if value.casefold().startswith("git@github.com:"):
+        try:
+            normalized = normalize_github_repository(value)
+        except ValueError as exc:
+            raise GitHubRepoError("URL is not a recognized GitHub repository URL.") from exc
+        owner, repo = normalized.split("/", 1)
+        return GitHubRepoTarget(owner=owner, repo=repo)
+
+    parsed = urlparse(value)
     host = (parsed.hostname or "").lower()
     if host not in {"github.com", "www.github.com"}:
         raise GitHubRepoError(f"Unsupported GitHub host: {host or '(missing)'}")
@@ -52,9 +62,11 @@ def parse_github_repo_url(url: str) -> GitHubRepoTarget:
     if len(path_parts) < 2:
         raise GitHubRepoError("URL is not a recognized GitHub repository URL.")
 
-    owner, repo = path_parts[0], path_parts[1]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
+    try:
+        normalized = normalize_github_repository("/".join(path_parts[:2]))
+    except ValueError as exc:
+        raise GitHubRepoError("URL is not a recognized GitHub repository URL.") from exc
+    owner, repo = normalized.split("/", 1)
 
     if len(path_parts) > 2:
         first_sub = path_parts[2].lower()

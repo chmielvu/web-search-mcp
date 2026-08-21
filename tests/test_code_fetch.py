@@ -83,6 +83,9 @@ async def test_code_fetch_file_returns_bounded_lines_and_blob_oid() -> None:
     assert result.line_start == 2
     assert result.line_end == 3
     assert result.commit_oid == "a" * 40
+    assert result.source_chars == len("one\ntwo\nthree\nfour")
+    assert result.has_more is True
+    assert result.next_start_line == 4
     assert "main:src/example.py" in client.post_calls[0][1]["json"]["variables"].values()
     cache.store_hydration.assert_awaited_once()
 

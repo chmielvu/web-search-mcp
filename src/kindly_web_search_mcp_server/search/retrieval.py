@@ -118,6 +118,8 @@ async def _call_provider(
             branch.query,
         )
     query = branch.query
+    rules_applied: tuple[str, ...] = ()
+    transform_metadata: dict[str, Any] = {}
     understanding = run.plan.understanding if run.plan else None
     features = build_query_features(
         query,
@@ -131,6 +133,8 @@ async def _call_provider(
             run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
         )
         aug_metadata = dict(aug.metadata)
+        rules_applied = aug.rules_applied
+        transform_metadata = aug_metadata
         if aug_metadata.get("pattern_type"):
             provider_arguments["pattern_type"] = aug_metadata["pattern_type"]
         if aug.changed or aug.rules_applied:
@@ -150,6 +154,8 @@ async def _call_provider(
         )
         query_for_call = clean_query(query) or query
         if query_for_call != query:
+            rules_applied = ("clean.query",)
+        if query_for_call != query:
             run.diagnostics.query_shaping.append(
                 {
                     "provider": provider_name,
@@ -159,6 +165,18 @@ async def _call_provider(
                     "rules": ["clean.query"],
                 }
             )
+    run.diagnostics.query_transform_rows.append(
+        {
+            "run_key": run.run_key,
+            "branch_role": branch.role.value,
+            "provider": provider_name,
+            "original_query": query,
+            "shaped_query": query_for_call,
+            "changed": query_for_call != query,
+            "rules_applied": list(rules_applied),
+            "metadata_json": transform_metadata,
+        }
+    )
     try:
         result = await asyncio.wait_for(
             adapter(
@@ -461,7 +479,11 @@ async def retrieve_branches(
                     call_started = time.monotonic()
                     started_at[n] = call_started
                     provider_name, value, metadata, request_query = await _call_provider(
-                        run, b, n, embedding_task, retrieve_deadline=retrieve_deadline
+                        run,
+                        b,
+                        n,
+                        embedding_task,
+                        retrieve_deadline=retrieve_deadline,
                     )
                     return (
                         provider_name,

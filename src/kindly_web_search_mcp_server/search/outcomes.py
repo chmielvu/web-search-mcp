@@ -297,15 +297,51 @@ async def persist_search_outcome(run):
             compute_search_quality(rk)
         except Exception as e:
             LOGGER.debug("persist search quality failed: %s", e)
-        # Persist funnel uplift facts (provider_results, query_variants, tool_output_items)
+        # Persist planned variants, provider discoveries, and actual query shaping.
         try:
             from ..analytics.duckdb_store import insert_funnel_uplift_batches
             pr_rows = dc.provider_result_rows or []
-            if pr_rows:
-                insert_funnel_uplift_batches(provider_results=pr_rows)
             qv_rows = dc.query_variant_rows or []
-            if qv_rows:
-                insert_funnel_uplift_batches(query_variants=qv_rows)
+            qt_rows = []
+            branch_index_by_role = {
+                branch_outcome.branch.role.value: index
+                for index, branch_outcome in enumerate(outcome.outcomes)
+            }
+            for row in dc.query_transform_rows:
+                branch_index = branch_index_by_role.get(row["branch_role"])
+                if branch_index is None:
+                    LOGGER.warning(
+                        "Skipping query transform with unknown branch role: %s",
+                        row["branch_role"],
+                    )
+                    continue
+                provider = row["provider"]
+                qt_rows.append(
+                    {
+                        "transform_id": _canonical_result_id(
+                            f"{rk}|{branch_index}|{provider}|transform"
+                        ),
+                        "run_key": rk,
+                        "branch_id": _canonical_result_id(f"{rk}|{branch_index}"),
+                        "branch_index": branch_index,
+                        "branch_role": row["branch_role"],
+                        "provider": provider,
+                        "provider_call_id": _canonical_result_id(
+                            f"{rk}|{branch_index}|{provider}"
+                        ),
+                        "original_query": row["original_query"],
+                        "shaped_query": row["shaped_query"],
+                        "changed": row["changed"],
+                        "rules_applied": row["rules_applied"],
+                        "metadata_json": row["metadata_json"],
+                    }
+                )
+            if pr_rows or qv_rows or qt_rows:
+                insert_funnel_uplift_batches(
+                    provider_results=pr_rows,
+                    query_variants=qv_rows,
+                    query_transforms=qt_rows,
+                )
         except Exception as e:
             LOGGER.debug("persist funnel uplift batches failed: %s", e)
 

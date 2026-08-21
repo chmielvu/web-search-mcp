@@ -1,0 +1,16 @@
+role_a,role_b,jaccard_median,overlap_median,n_common_runs
+neural,original_free,0.02040816326530612,0.04,613
+neural,paid_brave,0.0,0.0,581
+neural,paid_google,0.0,0.0,345
+neural,paid_other,0.0,0.0,242
+neural,specialized,,,0
+original_free,paid_brave,0.02702702702702703,0.03333333333333333,583
+original_free,paid_google,0.0,0.0,345
+original_free,paid_other,0.0,0.0,242
+original_free,specialized,,,0
+paid_brave,paid_google,0.0,0.0,329
+paid_brave,paid_other,0.0,0.0,238
+paid_brave,specialized,,,0
+paid_google,paid_other,0.0,0.0,144
+paid_google,specialized,,,0
+paid_other,specialized,,,0

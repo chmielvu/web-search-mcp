@@ -69,6 +69,7 @@ _CSUMA_TABLE_NAME = "content_summary_attempts"
 _RC_CAT_TABLE_NAME = "result_catalog"
 _PR_TABLE_NAME = "provider_results"
 _QV_TABLE_NAME = "query_variants"
+_QT_TABLE_NAME = "query_transforms"
 _CSE_TABLE_NAME = "candidate_stage_events"
 _TOI_TABLE_NAME = "tool_output_items"
 
@@ -121,6 +122,7 @@ __all__ = [
     "_RC_CAT_TABLE_NAME",
     "_PR_TABLE_NAME",
     "_QV_TABLE_NAME",
+    "_QT_TABLE_NAME",
     "_CSE_TABLE_NAME",
     "_TOI_TABLE_NAME",
     "_RL_TABLE_NAME",

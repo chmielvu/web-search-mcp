@@ -6,7 +6,7 @@ Typer CLI for the MCP server. ALL CLI invocations MUST use `uv run web-search-cl
 
 ```
 cli/
-├── app.py                   # Typer app with 15 command groups
+├── app.py                   # Typer app with 16 command groups
 ├── commands/                # Command registration modules
 │   ├── schema.py            # schema command
 │   ├── doctor.py            # doctor command
@@ -22,7 +22,8 @@ cli/
 │   ├── analytics.py         # analytics query/report commands
 │   ├── experiments.py       # A/B experiment management
 │   ├── server.py            # server/launch helpers
-│   └── sitemap.py           # sitemap generate
+│   ├── sitemap.py           # sitemap generate
+│   └── recommend.py         # intent-to-command recommendation
 └── services/                # Shared service adapters
     ├── search_web.py        # Web search
     ├── search_code.py       # Public code/documentation/repository search
@@ -54,6 +55,7 @@ cli/
 ```bash
 uv run web-search-cli schema
 uv run web-search-cli doctor
+uv run web-search-cli recommend "Find current official docs for FastMCP middleware"
 uv run web-search-cli getskill
 uv run web-search-cli skills [name]
 uv run web-search-cli feedback create --message "..." --type bug

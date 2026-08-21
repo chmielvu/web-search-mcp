@@ -59,6 +59,7 @@ from .tools.resources import (
     get_workflow_doc_resource,
 )
 from .tools.search import web_search
+from .tools.recommend import recommend_command
 from .tools.sitemap import generate_sitemap
 from .tools.youtube import youtube_search, youtube_transcript
 from .utils.logging import configure_logging
@@ -296,6 +297,7 @@ mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 mcp.tool(**tool_kwargs("code_search"))(code_search)
 mcp.tool(**tool_kwargs("code_fetch"))(code_fetch)
+mcp.tool(**tool_kwargs("recommend_command"))(recommend_command)
 
 
 # Register resources

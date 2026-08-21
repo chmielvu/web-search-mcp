@@ -573,7 +573,7 @@ def _fragment_from_match(match: dict[str, Any]) -> TextFragment | None:
     }
     if isinstance(matches, list):
         metadata["matches"] = matches
-    return TextFragment(text=fragment[:1000], match_metadata=metadata)
+    return TextFragment(text=fragment[:10_000], match_metadata=metadata)
 
 
 def _parse_code_items(
@@ -605,7 +605,7 @@ def _parse_code_items(
         match_spans: list[dict[str, Any]] = []
         text_matches = item.get("text_matches")
         if isinstance(text_matches, list):
-            for fragment_index, match in enumerate(text_matches[:3]):
+            for fragment_index, match in enumerate(text_matches[:10]):
                 if isinstance(match, dict) and (fragment := _fragment_from_match(match)):
                     fragments.append(fragment)
                     for matched in match.get("matches", []):
@@ -645,7 +645,7 @@ def _parse_code_items(
                 ),
                 fragments=fragments,
                 match_spans=match_spans,
-                snippet="\n".join(fragment.text for fragment in fragments)[:50_000] or None,
+                snippet="\n".join(fragment.text for fragment in fragments)[:200_000] or None,
                 score_components={"provider_score": float(item.get("score") or 0.0)},
                 source_metadata={
                     "repository_url": repository_data.get("html_url")
@@ -661,6 +661,9 @@ def _parse_code_items(
                     else 0,
                     "forks": int(repository_data.get("forks_count") or 0)
                     if isinstance(repository_data, dict)
+                    else 0,
+                    "omitted_fragments": max(0, len(text_matches) - 10)
+                    if isinstance(text_matches, list)
                     else 0,
                 },
             )
@@ -1052,7 +1055,7 @@ async def hydrate_github_hits(
     http_client: httpx.AsyncClient,
     token: str | None = None,
     max_files: int = 25,
-    max_chars_per_file: int = 50_000,
+    max_chars_per_file: int = 200_000,
     deep: bool = False,
 ) -> tuple[list[Diagnostic], int, bool]:
     """Hydrate selected GitHub hits with commit-pinned GraphQL aliases."""
@@ -1070,6 +1073,7 @@ async def hydrate_github_hits(
             0,
             False,
         )
+    safe_max_chars_per_file = max(1, max_chars_per_file)
     selected: list[CodeSearchHit] = []
     seen: set[tuple[str, str, str]] = set()
     for hit in hits:
@@ -1191,58 +1195,70 @@ async def hydrate_github_hits(
                             break
                     if location >= 0:
                         break
-
             lines = normalized_text.splitlines()
-            if location >= 0:
-                match_line = normalized_text[:location].count("\n") + 1
-                hit.line_start = hit.line_start or match_line
-                hit.line_end = hit.line_end or match_line
-                before_lines = 80 if deep else 40
-                after_lines = 160 if deep else 80
-                window_start = max(0, match_line - 1 - before_lines)
-                window_end = min(len(lines), match_line + after_lines)
-                hit.hydrated_source = "\n".join(lines[window_start:window_end])
+            full_source_chars = len(normalized_text)
+            if full_source_chars <= safe_max_chars_per_file:
+                hit.hydrated_source = normalized_text
+                hit.hydrated_source_truncated = False
                 hit.source_metadata.update(
                     {
-                        "source_window_start": window_start + 1,
-                        "source_window_end": window_end,
-                        "full_source_chars": len(normalized_text),
+                        "source_window_start": 1,
+                        "source_window_end": len(lines),
+                        "full_source_chars": full_source_chars,
                     }
                 )
             else:
-                fragment_location = -1
-                for fragment in hit.fragments:
-                    if not fragment.text:
-                        continue
-                    fragment_text = fragment.text[:50]
-                    position = normalized_text.find(fragment_text)
-                    if position >= 0:
-                        fragment_location = position
-                        break
-                if fragment_location >= 0:
-                    match_line = normalized_text[:fragment_location].count("\n") + 1
+                truncated = True
+                hit.hydrated_source_truncated = True
+                if location >= 0:
+                    match_line = normalized_text[:location].count("\n") + 1
                     hit.line_start = hit.line_start or match_line
                     hit.line_end = hit.line_end or match_line
-                    window_start = max(0, match_line - 1 - 40)
-                    window_end = min(len(lines), match_line + 80)
+                    before_lines = 160 if deep else 80
+                    after_lines = 320 if deep else 160
+                    window_start = max(0, match_line - 1 - before_lines)
+                    window_end = min(len(lines), match_line + after_lines)
                     hit.hydrated_source = "\n".join(lines[window_start:window_end])
                     hit.source_metadata.update(
                         {
                             "source_window_start": window_start + 1,
                             "source_window_end": window_end,
-                            "full_source_chars": len(normalized_text),
+                            "full_source_chars": full_source_chars,
                         }
                     )
                 else:
-                    hit.hydrated_source = "\n".join(lines[:400])
-                    hit.hydrated_source_truncated = hit.hydrated_source_truncated or len(lines) > 400
-                    hit.source_metadata.update(
-                        {
-                            "source_window_start": 1,
-                            "source_window_end": min(len(lines), 400),
-                            "full_source_chars": len(normalized_text),
-                        }
-                    )
+                    fragment_location = -1
+                    for fragment in hit.fragments:
+                        if not fragment.text:
+                            continue
+                        fragment_text = fragment.text[:50]
+                        position = normalized_text.find(fragment_text)
+                        if position >= 0:
+                            fragment_location = position
+                            break
+                    if fragment_location >= 0:
+                        match_line = normalized_text[:fragment_location].count("\n") + 1
+                        hit.line_start = hit.line_start or match_line
+                        hit.line_end = hit.line_end or match_line
+                        window_start = max(0, match_line - 1 - 80)
+                        window_end = min(len(lines), match_line + 160)
+                        hit.hydrated_source = "\n".join(lines[window_start:window_end])
+                        hit.source_metadata.update(
+                            {
+                                "source_window_start": window_start + 1,
+                                "source_window_end": window_end,
+                                "full_source_chars": full_source_chars,
+                            }
+                        )
+                    else:
+                        hit.hydrated_source = "\n".join(lines[:800])
+                        hit.source_metadata.update(
+                            {
+                                "source_window_start": 1,
+                                "source_window_end": min(len(lines), 800),
+                                "full_source_chars": full_source_chars,
+                            }
+                        )
             ast_classification = classify_source(
                 normalized_text,
                 language=language_for_path(hit.path),

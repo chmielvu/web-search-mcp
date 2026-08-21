@@ -48,6 +48,7 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | --- | --- |
 | `schema` | Emit the planned CLI command tree as JSON. |
 | `doctor` | Validate scaffold readiness without provider calls. |
+| `recommend` | Recommend an existing CLI/MCP route from a natural-language task without executing it. |
 | `getskill` | Print the bundled CLI skill markdown verbatim. |
 | `feedback create` | Record a feedback entry (bug, requirement, suggestion, bad-output). |
 | `feedback list` | List recorded feedback entries. |
@@ -83,6 +84,16 @@ The full command tree (as returned by `web-search-cli schema`) is:
 | `reference external-tools` | Emit companion CLI tools to invoke directly. |
 | `server start` | Start the MCP server with the chosen transport. |
 ## Command reference
+### `recommend`
+
+Recommend an existing CLI/MCP route from a natural-language task. The command
+returns structured route metadata, fallbacks, and decomposition guidance; it
+never executes a command or calls a provider.
+
+```powershell
+web-search-cli recommend "Find current official docs for FastMCP middleware"
+```
+
 
 ### `schema`
 
@@ -960,18 +971,15 @@ coverage.
 
 ### MCP prompts (for MCP clients)
 
-The server also exposes seven reusable prompts. CLI consumers can mirror
+The server exposes three reusable prompts. CLI consumers can mirror
 their intent by chaining the commands listed below.
 
 | Prompt | Description | Suggested CLI chain |
 | --- | --- | --- |
-| `plan_web_research` | Plan research approach: choose tool, formulate queries, set depth. Use **before** any search. | `reference tools` → `search web` |
-| `evaluate_web_results` | Assess result quality and decide next action. Use **after** `search web` or `search academic`. | `content get` (or `content batch`) on best URLs |
-| `research_gap_analysis` | Identify what's missing, decompose remaining questions, plan next iteration. | Round 2 `search web` with refined terms |
-| `research_workflow` | Full discovery → extraction → synthesis workflow. | `search web` → `content batch` → `ai gemini` |
-| `academic_deep_dive` | Scholarly research pass with `search academic` first. | `search academic` → `content get` on selected papers |
-| `video_research` | YouTube-first research. | `youtube search` → `youtube transcript` |
-| `source_triage` | Decide which sources are authoritative enough to fetch or cite. | `links similar` + `content get` |
+| `web_search_workflow` | Route quick, medium, or deep web research with focus-aware guidance. | `search quick` or `search web` → `content get` / `content batch` |
+| `query_refinement` | Generate broaden, pinpoint, and decompose variants after sparse or off-topic results. | refine one query → `search web` |
+| `research_methodology` | Reference the full decomposition, source evaluation, iteration, and termination workflow. | `search web` → `content batch` → `ai gemini` or `search academic` |
+
 
 ### MCP resources (read-only context)
 

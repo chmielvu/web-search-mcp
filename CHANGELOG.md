@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed — Code-search and code-fetch output completeness
+- Raised `code_fetch`'s default file response budget to 200,000 characters and added `source_chars`, `has_more`, and `next_start_line` metadata so truncated responses can be continued.
+- Expanded GitHub code-search match/snippet limits, widened hydration windows, and exposed `source_window_start`, `source_window_end`, `full_source_chars`, and `omitted_fragments` on public file results.
+### Changed — Shared GitHub repository normalization
+- Centralized repository identity parsing for `code_fetch` and the GitHub content resolver.
+- Accepted `http://` and `https://` GitHub URLs, `git@github.com:owner/repo` SSH specs, and optional `.git` suffixes while preserving existing path/ref handling and structured errors.
 ### Added — Hugging Face semantic Hub mode for code_search
 - Added exclusive `mode="huggingface"` routing to the public librarian-bots semantic Hub API.
 - Added bounded model/dataset filters, sorting, hybrid ranking, client-side request spacing, typed provider diagnostics, and cache-key isolation.

@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 DEFAULT_PROFILE_TOOLS = frozenset(
     {
         "quick_web_search",
+        "recommend_command",
         "code_search",
         "code_fetch",
         "web_search",
@@ -101,6 +102,17 @@ def _entry(
     )
 
 TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
+    "recommend_command": _entry(
+        "recommend_command",
+        "Recommend Command",
+        {"regular", "full"},
+        description=(
+            "Recommend an existing CLI/MCP route from a natural-language task. "
+            "Returns structured route, fallback, decomposition, and optional prompt metadata; "
+            "it is recommendation-only and never executes commands or provider calls."
+        ),
+        open_world=False,
+    ),
     "quick_web_search": _entry("quick_web_search", "Quick Web Search", {"regular", "full"}),
     "web_search": _entry(
         "web_search", "Web Search", {"regular", "full"}, task=True

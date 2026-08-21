@@ -31,6 +31,7 @@ from .table_names import (
     _QE_TABLE_NAME,
     _QUE_TABLE_NAME,
     _QV_TABLE_NAME,
+    _QT_TABLE_NAME,
     _QWSC_TABLE_NAME,
     _QWSR_TABLE_NAME,
     _RC_CAT_TABLE_NAME,
@@ -1001,11 +1002,36 @@ _QUERY_VARIANT_COLUMNS = [
     "variant_order",
     "variant_role",
     "query_text",
+    "branch_id",
     "selected",
     "executed",
     "skip_reason",
     "recorded_at",
 ]
+
+_QUERY_TRANSFORM_COLUMNS = [
+    "transform_id",
+    "recorded_at",
+    "run_key",
+    "branch_id",
+    "branch_index",
+    "branch_role",
+    "provider",
+    "provider_call_id",
+    "original_query",
+    "shaped_query",
+    "changed",
+    "rules_applied",
+    "metadata_json",
+]
+
+_QUERY_TRANSFORMS_WRITER = TableWriter(
+    table_name=_QT_TABLE_NAME,
+    ensure_name="_ensure_query_transforms",
+    columns=_QUERY_TRANSFORM_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.query_transforms",
+)
 
 _CANDIDATE_STAGE_EVENT_COLUMNS = [
     "stage_execution_id",

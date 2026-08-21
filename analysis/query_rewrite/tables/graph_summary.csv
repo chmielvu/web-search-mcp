@@ -1,0 +1,17 @@
+metric,value
+G_qr nodes,2504.0
+G_qr edges,2505.0
+G_qr self-loops,484.0
+G_qr unique inputs (out>0),484.0
+G_qr unique rewrites (in>0),2504.0
+G_qr density (directed),0.00039968012825503964
+G_ql nodes,7277.0
+G_ql edges,7771.0
+G_ql unique inputs,470.0
+G_ql unique links,6807.0
+G_ql density (directed),0.00014676815798425957
+G_flow nodes,9312.0
+G_flow edges,10276.0
+Connected components (Gu),483.0
+Largest CC size (Gu),45.0
+Q-Q rewrite Jaccard (top-10 mean),0.0

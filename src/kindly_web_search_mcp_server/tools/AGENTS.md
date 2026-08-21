@@ -16,6 +16,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `ai_search.py` | `gemini_search`, `grok_search` |
 | `youtube.py` | `youtube_search`, `youtube_transcript` |
 | `sitemap.py` | `generate_sitemap` |
+| `recommend.py` | `recommend_command` route recommendation tool |
 | `prompts.py` | Prompt function implementations |
 | `resources.py` | Resource implementations (8 resources) |
 | `_helpers.py` | Lifespan management, domain filters, timeout resolution |
@@ -31,6 +32,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 
 | Tool | Returns | Notes |
 |---|---|---|
+| `recommend_command` | Structured route, command, fallbacks, decomposition rules, and optional prompt metadata | Deterministic recommendation only; never executes commands |
 | `web_search` | Title, link, snippet (no page content) | Lightweight search results |
 | `get_content` | LLM-ready markdown for single URL | Content extraction |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |

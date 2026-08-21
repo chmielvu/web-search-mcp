@@ -18,6 +18,7 @@ from .commands import (
     feedback,
     inference,
     links,
+    recommend,
     reference,
     schema,
     search,
@@ -119,6 +120,7 @@ skills.register(app)
 schema.register(app)
 doctor.register(app)
 getskill.register(app)
+recommend.register(app)
 reference.register(app)
 search.register(app)
 content.register(app)

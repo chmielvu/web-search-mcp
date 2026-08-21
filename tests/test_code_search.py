@@ -365,13 +365,20 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
             [hit],
             http_client=cast(httpx.AsyncClient, client),
             token="token",
-            max_chars_per_file=12,
+            max_chars_per_file=200_000,
         )
         self.assertEqual(hydrated, 1)
         self.assertFalse(truncated)  # No server-side truncation
         self.assertEqual(hit.commit_oid, "commit123")
         # Full source preserved — no char-cap
         self.assertIn("return helper()", hit.hydrated_source or "")
+        self.assertEqual(
+            hit.hydrated_source,
+            "class App:\n    def run(self):\n        return helper()\n",
+        )
+        self.assertEqual(hit.source_metadata["source_window_start"], 1)
+        self.assertEqual(hit.source_metadata["source_window_end"], 3)
+        self.assertEqual(hit.source_metadata["full_source_chars"], 54)
         ast_payload = hit.source_metadata["ast_classification"]
         if ast_payload["status"] == "ok":
             self.assertTrue(

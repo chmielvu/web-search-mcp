@@ -1347,9 +1347,10 @@ def _build_funnel_uplift_view_sql(target: str) -> list[str]:
             coalesce(sum(bc.merged_candidates), 0) AS merged_candidates,
             coalesce(sum(bc.final_candidates), 0) AS final_candidates
         FROM query_variants v
-        LEFT JOIN search_branches b ON b.run_key = v.run_key
+        LEFT JOIN search_branches b
+            ON b.run_key = v.run_key AND b.branch_id = v.branch_id
         LEFT JOIN {t}.vw_branch_contribution bc
-            ON bc.run_key = v.run_key AND bc.branch_id = b.branch_id
+            ON bc.run_key = v.run_key AND bc.branch_id = v.branch_id
         GROUP BY ALL
         """,
         # 52. Followup attribution — search→content linkage

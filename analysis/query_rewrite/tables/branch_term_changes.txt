@@ -1,0 +1,174 @@
+### original_free
+Top added tokens (branch \ input):
+Top removed tokens (input \ branch):
+
+### paid_brave
+Top added tokens (branch \ input):
+                  2026  +389
+                  site  +355
+            github.com  +143
+                  find  +39
+       docs.python.org  +35
+                  test  +33
+             arxiv.org  +32
+              official  +29
+             2024-2026  +26
+              concrete  +23
+                  goal  +23
+                   and  +22
+                   for  +21
+             libraries  +20
+              discover  +19
+Top removed tokens (input \ branch):
+                 query  -32
+                  2025  -31
+                search  -26
+                github  -19
+                  2024  -17
+                     a  -17
+              official  -16
+                python  -15
+         documentation  -15
+                  code  -14
+                  best  -12
+            production  -12
+                   web  -11
+                  text  -10
+                    or  -10
+
+### paid_google
+Top added tokens (branch \ input):
+                  2026  +339
+               intitle  +216
+                  site  +76
+               example  +53
+              filetype  +50
+                   and  +46
+              tutorial  +46
+                  test  +44
+                   pdf  +44
+                  find  +39
+            github.com  +34
+                  beta  +34
+            deprecated  +34
+                   mcp  +29
+              official  +27
+Top removed tokens (input \ branch):
+                search  -37
+                  2025  -32
+                 query  -28
+                python  -24
+                  best  -23
+               library  -23
+                github  -22
+                   api  -19
+                   for  -18
+                  2024  -17
+                  code  -16
+                   web  -14
+                  text  -14
+         documentation  -13
+                 model  -13
+
+### paid_other
+Top added tokens (branch \ input):
+                  2026  +365
+              filetype  +305
+                   pdf  +202
+               intitle  +163
+                  lang  +68
+                    en  +65
+                    or  +65
+                    md  +59
+                inbody  +40
+                   and  +39
+                  find  +39
+                  test  +37
+              official  +28
+                  goal  +26
+                  site  +25
+Top removed tokens (input \ branch):
+                python  -39
+                search  -38
+                  2025  -29
+                github  -24
+         documentation  -22
+                   api  -22
+                  best  -22
+                 query  -20
+                  2024  -18
+                  site  -18
+               library  -18
+                   for  -17
+                  code  -16
+              official  -16
+                 graph  -15
+
+### neural
+Top added tokens (branch \ input):
+                   and  +360
+                   the  +297
+                    in  +287
+                 2026.  +270
+                   for  +243
+                    of  +170
+                    to  +146
+                  find  +131
+                    as  +124
+                  that  +119
+             including  +102
+                   how  +101
+                     i  +99
+                    on  +96
+                     a  +88
+Top removed tokens (input \ branch):
+                  2025  -30
+                  site  -26
+               library  -24
+                  best  -18
+                 graph  -18
+                  2026  -18
+            github.com  -14
+                  docs  -14
+                  2024  -13
+                   api  -13
+                    or  -11
+                 query  -10
+        implementation  -9
+                search  -9
+                    vs  -8
+
+### specialized
+Top added tokens (branch \ input):
+                   and  +176
+                    in  +144
+                  site  +140
+                   the  +133
+                 2026.  +122
+                   for  +120
+                  2026  +112
+                  find  +83
+                    of  +77
+         documentation  +73
+                    to  +73
+                  that  +70
+                  repo  +67
+             including  +63
+                    as  +62
+Top removed tokens (input \ branch):
+                  2025  -33
+                python  -25
+                  best  -23
+               library  -20
+                  2024  -19
+                search  -18
+                  site  -18
+                 graph  -18
+                github  -17
+              official  -16
+            github.com  -14
+                 query  -14
+                  3.13  -14
+                  2026  -13
+         documentation  -12
+

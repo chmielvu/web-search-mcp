@@ -1,0 +1,486 @@
+node,community_id,node_type
+python 3.13 release highlights,0,input
+python 3.13 release highlights official documentation,0,input
+"""python 3.13 release highlights"" site:docs.python.org 2026",0,rewrite
+flockmtl duckdb in-sql llm judge evaluation ragas metrics vs single score,1,input
+bielik llm polish language 2024 2025 production status,2,input
+openrouter api rerank endpoint request response schema,3,input
+"""https://api.bitbucket.org/2.0/repositories"" q parameter search example docs",4,input
+site:developer.atlassian.com/cloud/bitbucket/rest code search api bitbucket cloud repository source search,5,input
+exemplary duckdb analytics warehouse event telemetry raw staging marts incremental idempotency quality design,6,input
+github graphql query repository metadata readme defaultbranchref stargazers licenseinfo,7,input
+python asyncio tutorial,8,input
+graph based rag snippet library small text retrieval 2026 python,9,input
+exa api code search type=code endpoint docs,10,input
+arq monitoring dashboard prometheus observability 2025,11,input
+query intent classifier routing to specific search backends production,12,input
+fastmcp python v3 features,13,input
+most useful duckdb extensions,14,input
+"""github code search"" api best practices llm agent ""blackbird"" regex ranking",15,input
+small text feature extraction library python tfidf gensim sklearn web search 2026,16,input
+firecrawl scrape jsonoptions schema prompt structured extraction code blocks latex markdown handling,17,input
+bitbucket cloud rest source code search api gitea codeberg code search endpoint official documentation,18,input
+phrase graph centrality over search snippets ranking signal 2025,19,input
+github graphql search type code not supported discussion 2024 2025,20,input
+modern ml techniques used in search engines 2026,21,input
+llama-index query transformations query rewriting decomposition retrieval 2025,22,input
+today news,23,input
+graph neural network reranker libraries python pynegrank pyg 2025 2026,24,input
+agentic deep research tool chaining,25,input
+best laptop for coding in 2026 with long battery life and 32gb ram under 000,26,input
+zero shot text classifier setfit sentence transformer query intent 2025,27,input
+media frames corpus computational social science framework,28,input
+networkx co-occurrence graph keyword search example sliding window node2vec,29,input
+test,30,input
+ai model routing,31,input
+gpt-oss prompting structured output json mode reasoning effort,32,input
+voyage ai rerank api top_k response data official docs,33,input
+"""pi agent"" ""oh-my-pi"" extension plugin mcp",34,input
+jina reader api math latex rendering table code block markdown handling turndown,35,input
+site:ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite gemini-3.5-flash-lite google search grounding structured output url context,36,input
+graph reranker between rrf merge and cross encoder pseudo-relevance feedback,37,input
+best practices for microservices testing 2026,38,input
+cjldm/github-code-research-agent code search,39,input
+multilingual political nlp evaluation best practices polish,40,input
+opensearch user behavior insights ubi event schema query result impression click,41,input
+site:docs.python.org/3/whatsnew/3.13.html,42,input
+textnets python library text network analysis cooccurrence 2026,43,input
+@langchain/community document_loaders typescript pdf text code or mammoth.js docx typescript npm,44,input
+flockmtl create model create prompt example syntax parameters,45,input
+bm25 dense retrieval hybrid search reranking 2026 best practices,46,input
+npm graphology all-paths simple-paths multi-hop traversal betweenness package,47,input
+"""hermes-agent"" ""hindsight"" ""config.json"" or ""recall_types"" or ""recall_budget"" community recommended",48,input
+python asyncio documentation,49,input
+doordash llm as judge binary facet search relevance evaluation rubric versioning,50,input
+python nlp libraries for query understanding entity extraction,51,input
+gemini 2.5 flash-lite prompt design web search grounding structured output query decomposition,52,input
+hedwig-ai/hedwig-code-graph code graph search implementation,53,input
+github rest code search api search/code result sha contents hydration rate limit 2026,54,input
+site:github.com aniket-mittal github_search,55,input
+site:docs.openwebui.com open webui native function calling built-in tools skills sub-agents kb_exec,56,input
+synthetic dataset generation llm query intent training web search 2026,57,input
+mozilla readability algorithm content extraction html to markdown architectural design,58,input
+python async patterns 2026,59,input
+elasticsearch hybrid search rrf implementation guide,60,input
+trafilatura newspaper3k beautifulsoup extract clean article python 2026 web search,61,input
+"""oh-my-pi"" ""pi-coding-agent"" extensions skills advisors configuration",62,input
+github code search rest api vs new code search syntax symbol: regex slash sourcegraph type:symbol select:file count:all,63,input
+kotaemon vs onyx vs open webui comparison review reddit hacker news 2025,64,input
+site:tree-sitter.github.io/py-tree-sitter parser query language grammar python,65,input
+sourcegraph search api graphql v3 docs,66,input
+"""coding-harness-tracing"" ""arize-ai""",67,input
+ragas deepeval phoenix evaluation framework faithfulness context precision context recall answer relevancy ndcg mrr computation 2024 2025,68,input
+vector search minimum score threshold vs top-k filtering retrieval quality,69,input
+graph algorithms to surface central concepts rather than documents,70,input
+mcp server observability telemetry data model tool calls sessions request response error events,71,input
+dais-polymtl flock commit response_format model_parameters pr 165 structured output,72,input
+"""oh-my-pi"" (""watchdog.yml"" or ""advisor"" or ""snapcompact"" or ""hindsight"")",73,input
+sourcegraph graphql api code search query syntax search endpoint official docs public instance api 2026,74,input
+site:duckdb.org/docs/current/sql/constraints duckdb constraint performance art index,75,input
+@langchain/community document_loaders pdf text csv typescript npm import pdfloader textloader csvloader,76,input
+"""flock"" duckdb ""create model"" ""response_format"" json_schema example github",77,input
+weaviate hybrid search rrf implementation alpha parameter weight,78,input
+site:duckdb.org/docs/current connect concurrency append never conflict bulk operations,79,input
+open source media monitoring nlp pipeline entity resolution story clustering,80,input
+bielik speakleash huggingface models 2025,81,input
+site:opensearch.org search relevance workbench judgment lists ndcg mrr,82,input
+graph of words pagerank phrase extraction python library 2026 textrank positionrank,83,input
+keybert yake rake keyword extraction python comparison 2026,84,input
+site:sourcegraph.com 2026 code search mcp query assist deep search agent token context,85,input
+open webui discord server community members 2025,86,input
+snippet-level text graph feature for document-level near-duplicate in reranking,87,input
+github mcp server search_code fields pagination exact sha read_file agent token efficient,88,input
+aniket-mittal/github_search voyage qdrant ast implementation,89,input
+grafana cloud mcp server oauth 2.1 authentication setup cursor claude desktop,90,input
+networkx co-citation graph web search results relevance ranking 2026,91,input
+"""arize"" phoenix otlp ""project"" resource attributes header ""openinference.project.name""",92,input
+site:sourcegraph.com/docs/api/mcp read_file startline endline truncation,93,input
+cross-encoder reranker sentence-transformers production 2026,94,input
+"site:ai.google.dev/gemini-api/docs/structured-output ""gemini 2.5 flash"" supported models structured output",95,input
+networkx large graph performance library python production 2026,96,input
+epythonlab/github-search-tool github,97,input
+reciprocal rank fusion rrf vs linear score blending hybrid search why preferred,98,input
+how to build a graph of concepts from search result candidates before rerank stage,99,input
+"""github_search"" ""voyage"" ""qdrant"" ast code search",100,input
+algolia hacker news api 1000 hits limit workaround numericfilters,101,input
+gitlab api v4 search blobs docs,102,input
+keyword graph text network analysis inflanodus python library 2026 production,103,input
+site:opentelemetry.io/docs/specs/semconv mcp server tool call gen_ai.tool.call arguments result,104,input
+paablolc mcp-hacker-news rawveg hacker-news-mcp algolia mcp github stars,105,input
+latest developments in vector databases 2026,106,input
+brave search operators examples site:brave.com or search operators guide,107,input
+python asyncio timeout handling,108,input
+github coleam00/mcp-crawl4ai-rag stars forks last updated license,109,input
+clarin-pl infrastructure polish nlp resources 2024 2025 production pipelines,110,input
+how does the field detect when query rewriting or expansion is making the search worse rather than better,111,input
+knowledge graph construction python nlp entity extraction relation extraction networkx graph database,112,input
+latest langgraph release version 2026,113,input
+hn algolia api story_text comment_text field snippet construction truncate html stripping,114,input
+search analytics star schema fact table dimension table design clickhouse duckdb,115,input
+site:cloud.google.com/vertex-ai xai grok web_search x_search server-side tools,116,input
+chaosrealmsai agent-cli-spec spec.md v0.2.0,117,input
+rust regex crate pcre2 comparison features 2025 hyperscan vectorscan,118,input
+"""sourcegraph"" search syntax regex examples ""patterntype:regexp""",119,input
+python 3.13 asyncio,120,input
+best nlp techniques to augment web search engines,121,input
+site:github.com/zamalali/deepgit tools/cross_encoder_reranking.py tools/dense_retrieval.py,122,input
+rule extraction from examples nlp python 2025 2026 decision tree regex synthesis,123,input
+"duckdb ""cannot bind index"" ""unknown index type"" ""hnsw"" vss extension load install fix",124,input
+qwadratic deepwiki-cli github repo stars implementation json-rpc,125,input
+python rss library async reliability 2024 2025,126,input
+process reward model calibration coding agents execution feedback trajectory ranking,127,input
+sentence-transformers extractive summarization library snippet web result 2026,128,input
+"""duchowieństwo przeciw"" ""gazeta warszawska"" ""komarnicki""",129,input
+heuristic detect layout table vs data table html python bs4 beautifulsoup,130,input
+site:github.com/fastino-ai/gliner2 combined schema classification relations cls_threshold include_confidence include_spans,131,input
+python asyncio best practices 2026,132,input
+docker desktop 4.40 4.41 4.42 wsl integration ubuntu stopped regression known issue,133,input
+reddit api oauth rate limit 100 2026 rules,134,input
+react server components 2026,135,input
+grafana cloud mcp server model context protocol implementation,136,input
+multi-stage retrieval candidate funnel analytics rank survival drop reason schema,137,input
+instruction following reranker ranking criteria query context metadata source recency diversity best practices,138,input
+"site:skills.sh ""schema"" or ""data modeling"" or ""analytics"" or ""views"" database",139,input
+tool search discovery mcp token reduction advanced tool use,140,input
+current public code search api grep.app sourcegraph searchcode 2026,141,input
+how does the field deal with the problem of returning many near-duplicates of the same underlying thing,142,input
+typescript library document chunking splitting markdown code files unstructured langchain.js llamaindex.ts,143,input
+graphology-pagerank deprecated active alternative npm maintained,144,input
+datasketch minhash lsh python library 2026 new feature alternative,145,input
+hyde query expansion library python 2026 search engine,146,input
+site:github.com/can1357/oh-my-pi legacy extensions compatibility pi-mono,147,input
+algolia mcp github.com/algolia/mcp stars forks implementation,148,input
+site:pypi.org/project/tree-sitter-language-pack/ tree-sitter-language-pack current python,149,input
+feed2toot mastodon bot rss feed reliability pattern python,150,input
+foam foam-lang graphology knowledge graph traversal wikilink retrieval,151,input
+ai agents multi-agent orchestration frameworks comparison,152,input
+firebase hn api v0 updates.json endpoint maxitem no rate limit polite usage best practices,153,input
+nlp data augmentation synthetic text generation for rule-based systems 2025 2026 python,154,input
+public code search api alternatives github gitlab sourcegraph grep.app searchcode live api 2026,155,input
+sourcegraph stream api /search/stream docs,156,input
+duckdb array_cosine_distance function vss extension,157,input
+query expansion techniques search engines without raw keyword rewriting 2026,158,input
+detect that two web search providers returned same article under different url cross-provider deduplication,159,input
+suvnshr/developer-search github,160,input
+extract phrases from short documents graph algorithm library networkx community detection,161,input
+sourcegraph.com graphql api code search integration github repo python typescript stars 2024 2025,162,input
+trafilatura readability content extraction quality benchmarks edge cases tables code blocks nav stripping,163,input
+exa ai context api documentation code context endpoint,164,input
+co-occurrence graph directed vs undirected text mining library python 2026,165,input
+best laptop for coding in 2026,166,input
+"{""query"":""tree-sitter python identifier extraction code search""}",167,input
+doordash llm-as-judge binary facet evaluation ndcg golden set continuous monitoring 2024 2025,168,input
+aiogithubapi python async github api library stars last commit,169,input
+polish nlp production pipeline deployment spacy huggingface 2024 2025,170,input
+agentic memory architectures magma multi-graph,171,input
+exa-py python sdk asyncexa context code method parameters,172,input
+how to predict which web search backend will give the best results for a given user query,173,input
+spacy matcher phrasematcher keyword extraction rule-based production code 2026,174,input
+greptile api /v2/search vs /v2/query,175,input
+arq maintenance only mode issue 510 roadmap 2025 2026,176,input
+jina reader api client response format markdown json http api,177,input
+recent advances in llm reranking 2025,178,input
+cloudflare workers ai whisper large v3 turbo model transcription python api,179,input
+kpwr corpus huggingface dataset clarin-pl,180,input
+zero-shot query intent classification python transformer small 2026,181,input
+research agent context window management compression summarization long horizon,182,input
+tavily search api documentation endpoints parameters best practices 2026,183,input
+"site:docs.gitea.com/api ""search code"" or site:docs.codeberg.org ""code search api"" gitea rest",184,input
+janeklb gh-search github repository,185,input
+networkx betweenness_centrality keyword graph ranking seo,186,input
+feedparser python 3.12 conditional get etag last-modified 2024 2025,187,input
+how to improve search result snippets through nlp summarization techniques,188,input
+prf pseudo relevance feedback query drift noise amplification,189,input
+"""oh-my-posh"" ""git"" ""fetch_status"" ""cache"" duration ""node"" ""python""",190,input
+verify phoenix trace fix,191,input
+"mcp-sourcegraph server github stars ""sourcegraph.com"" or sourcegraph.com graphql search implementation",192,input
+exa-py python sdk context method github source 2026,193,input
+textgraph graph-of-words textrank keyword graph networkx,194,input
+flockmtl create global model create prompt context_columns example,195,input
+"openrouter rerank model ""cohere/rerank-4-fast"" or ""cohere/rerank-v4-fast"" valid model id list",196,input
+hn.algolia.com api search_by_date search tags story comment hitsperpage parameters,197,input
+poliner polish ner tool pollinguatec clarin-pl spacy,198,input
+"""api.greptile.com"" search query code endpoint docs",199,input
+text2graphapi bluegraph python library text graph construction 2026,200,input
+site:duckdb.org/docs stable constraints art indexes foreign keys analytics inserts,201,input
+unstructured.io typescript npm client or unstructured-client npm or unstructured-api typescript,202,input
+arq redis connection pool settings pool_max_size conn_retries,203,input
+nousresearch hermes-agent latest release version 2026,204,input
+swe-bench opendevin aider cline continue.dev refact github api usage octokit graphql implementation,205,input
+best laptop for programming,206,input
+python asyncio gather index alignment preserve order error handling batch processing return_exceptions,207,input
+hermes agent hindsight memory_enabled provider semantics tools built-in,208,input
+firecrawl markdown code blocks latex math rendering parse endpoint firecrawl-py async sdk example,209,input
+what are best nlp techniques to augment web search engine deduplication and snippet generation,210,input
+npm pi-agent-plugin extension pi coding agent,211,input
+text preprocessing cleaning library python beautifulsoup html2text boilerpy 2026 production,212,input
+mcp web search search-quality observability query planning provider yield candidate funnel ranking reranking diagnostics,213,input
+herbert polish transformer model maintenance 2024 2025 production,214,input
+github graphql api code search not available type code workaround rest search/code,215,input
+stance detection quote attribution nlp methods survey,216,input
+site:scikit-learn.org ndcg_score log2 rank discount,217,input
+mcp tools structuredcontent outputschema code search tool output snippets token efficient results best practices,218,input
+trafilatura python content extraction boilerplate,219,input
+python library community detection keyword graph 2026 new,220,input
+python 3.14 release date,221,input
+query expansion pseudo-relevance feedback prf python library 2026,222,input
+github rest api vs graphql rate limit unauthenticated repo readme pull request,223,input
+katex mathjax extract latex source from html annotation katex-mathml annotation encoding,224,input
+chriswritescode-dev/codedox code search,225,input
+tree search for language model agents environment state action trajectory value function search budget arxiv 2407.01476,226,input
+"site:developer.atlassian.com/cloud/bitbucket/rest ""code search"" endpoint query repository workspace",227,input
+wr-hamburg/agsearch code search implementation,228,input
+duckdb asof join official documentation event nearest prior timestamp session key,229,input
+rankllm listwise reranking shuffle_candidates positional bias input order rankgpt,230,input
+"""rankllm sliding window"" full-list reranking best practices",231,input
+oh-my-pi plugins extensions custom harness,232,input
+how does the field decide when a rerank stage is actually helping versus just shuffling for shuffling's sake,233,input
+firecrawl api v1 v2 scrape endpoint waitfor mobile location skiptlsverification parameters json options schema,234,input
+learned per-provider strength model query routing multi-search-engine,235,input
+cohere rerank api v2 documentation endpoint payload model,236,input
+site:docs.github.com rest search repositories topics api,237,input
+spacy word2vec similarity query expansion phrasematcher synonym,238,input
+fastapi lifespan context manager shutdown hooks,239,input
+cinnamon kotaemon github stars forks contributors apache license,240,input
+polish spacy models production pipeline 2024 2025 polish nlp,241,input
+site:github.com jina-ai/reader mathml math latex katex markify,242,input
+hermes memory bank recipe cron workflow site:github.com,243,input
+python community detection library leiden louvain networkx 2026 production,244,input
+site:ai.google.dev/gemini-api/docs models gemini 2.5 flash-lite structured output responseschema google search grounding,245,input
+python,246,input
+herdr omp integration oh-my-pi extension,247,input
+build keyword graph over search results to expand vague user queries,248,input
+site:duckdb.org/docs stable guides performance schema indexes concurrency multiple processes views macros,249,input
+why does a given natural language query end up needing very different search backends to satisfy it,250,input
+whoosh query parser python structured query,251,input
+zamalali deepgit github repository,252,input
+implicit click feedback web search position bias joachims result selection relevance,253,input
+query rewriting prompt engineering retrieval augmented generation search query expansion,254,input
+how to set the threshold for zero-shot ner used as a feature in a retrieval pipeline,255,input
+mcp observability implementation tool lifecycle session transport protocol resource access metrics schema,256,input
+duckdb llm extension llm_complete llm_filter llm_rerank flockmtl in-database judging non-determinism 2025,257,input
+fastapi dependency injection tutorial,258,input
+poliner polish ner spacy huggingface integration production 2024,259,input
+cross encoder reranker bge mxbai flashrank python library comparative 2026,260,input
+pyterrier rm3 pseudo-relevance feedback python example pipeline,261,input
+function calling best practices 2026,262,input
+falkordb python client graph query redisgraph current docs vector similarity search,263,input
+hermes hindsight config.json recall_budget high settings best practices,264,input
+langsearch web search api documentation,265,input
+lyonzin/knowledge-rag cross-encoder rerank implementation,266,input
+gdelt eventregistry news event extraction pipeline comparison,267,input
+fasttext library python production text classification web search 2026,268,input
+llm query expansion rag retrieval augmented generation keyword generation techniques,269,input
+networkx keyword co-occurrence graph from search results,270,input
+mcp server observability source implementation prometheus metrics tool calls sessions transport resources,271,input
+llm query rewriting for web search engines optimizing for google brave serp prompt template,272,input
+best gaming laptop under 500 with rtx 4060,273,input
+spacy v4 release 2025 2026 what's new features,274,input
+networkx graph centrality pagerank keyword ranking text mining topic map visualization,275,input
+graphology.js algorithm packages full list graphology-traversal graphology-shortest-path graphology-pagerank,276,input
+mcp server best practices security 2026,277,input
+reader python rss library feedkit python 3.12 2024 2025,278,input
+python knowledge graph keyword co-occurrence network libraries,279,input
+grep.app public code search api endpoint documentation api search json github code search alternative 2026,280,input
+onlyterp hermes-optimization-guide site:github.com,281,input
+original tree of thoughts bfs dfs algorithm 1 algorithm 2 beam width value threshold,282,input
+polish spacy transformer pipeline herbert herbert-base-cased,283,input
+query-query graph document-document graph over search corpus what it enables,284,input
+hyde hypothetical document embeddings query expansion python 2026,285,input
+polemo sentiment topic model polish nlp 2024 2025,286,input
+microsoft graphrag library python 2026 knowledge graph community summary,287,input
+sentence-transformers latest embedding models for semantic search 2026 bge mxbai,288,input
+python 3.14 release,289,input
+fastmcp v3 documentation,290,input
+gidgethub python github graphql library github3py pygithub comparison 2024,291,input
+jgravelle jcodemunch-mcp github code search mcp,292,input
+"docker desktop wsl integration ""ubuntu"" unexpectedly stopped restart it site:github.com or site:forums.docker.com",293,input
+textrank pagerank keyword extraction algorithm pytextrank,294,input
+newsmtsc multilingual news story clustering,295,input
+hermes soul.md personality site:github.com,296,input
+sourcegraph graphql api agent code search public repos,297,input
+atoma rss parser python async rust 2024 2025,298,input
+term co-occurrence graph construction from short document corpus,299,input
+site:exa.ai/docs/reference/verticals/code-for-coding-agents exa code search type contents highlights includedomains,300,input
+codeberg api v1 repos search swagger,301,input
+site:docs.github.com rest search code default branch 384 kb 1000 results text match metadata rate limit,302,input
+python knowledge graph extraction library spacy textacy gliner kg 2026,303,input
+knowledge graph extraction llm entities relationships survey,304,input
+site:docs.openwebui.com open webui sub-agents delegate_task enable_subagents,305,input
+tika readability html extraction library python content fetch 2026 production,306,input
+hacker news mcp server open source cursor continue.dev cline ai coding tool hn context integration github,307,input
+learned model route web query to best search backend multi-provider production code 2026,308,input
+what is the best laptop for coding,309,input
+networkx keyword co-occurrence graph text mining topic modeling python,310,input
+sentence transformers bert query refinement semantic search python 2025,311,input
+exemplary observability warehouse schema opentelemetry traces spans logs metrics events retention,312,input
+comprehensive federated web search observability schema provider candidate ranking rerank quality,313,input
+exemplary web search observability analytics schema provider calls retrieval candidates reranking quality,314,input
+gdelt 2.0 api csv format polish political monitoring,315,input
+github obsidian plugin graphology knowledge graph rag retrieval,316,input
+everypolitician polish politicians wikidata dataset,317,input
+query enrichment concept co-occurrence graph web search reranking signal python,318,input
+sourcegraph type:symbol select:repo file:has.content count:all best practices code search agents,319,input
+keybert mmr maxsum diversity parameter how to avoid redundant keywords,320,input
+llm-as-judge evaluation metrics schema database design quality assessment pairwise comparison,321,input
+cursor ide github graphql api integration how works 2024 2025,322,input
+hermes-agent plugin hook site:github.com,323,input
+q,324,input
+retrieval augmented generation agentic memory survey,325,input
+"tavily search api query examples best practices format structure ""site:tavily.com""",326,input
+codesearch.ai semantic code search engine github,327,input
+conditional model per provider choose backend retrieval ablation 2025 2026,328,input
+site:exa.ai/docs/reference context tokensnum dynamic get_contents highlights livecrawl,329,input
+kpwr corpus polish national corpus access production nlp 2024 2025,330,input
+networkx nltk spacy phrase graph small text python library 2026,331,input
+dspy program synthesis for nlp rule extraction 2025 2026,332,input
+graph retrieval augmented generation graphrag microsoft local search global search,333,input
+bertopic visualize_network topic networkx community pyvis,334,input
+pdf-parse pdfjs-dist unpdf typescript node.js pdf extraction text or llamaindex.ts or @llamaindex ts sdk,335,input
+arq retry backoff exponential jitter scheduling cron 2025,336,input
+minimum score threshold vector search small corpus top-k alternative,337,input
+"""duchowieństwo przeciw"" ""monsignore komarnicki""",338,input
+python libraries near-duplicate web page detection 2026 new emerging,339,input
+"""oh-my-posh"" transient_prompt blocks segments ""schema.json"" performance latency",340,input
+hyde hypothetical document embeddings query enhancement sparse retrieval dense hybrid search,341,input
+site:ai.google.dev/gemini-api/docs system instructions gemini api python generatecontentconfig system_instruction,342,input
+spacy nlp pipeline extension web search query understanding 2026,343,input
+flockmtl duckdb llm_complete structured output json schema response_format,344,input
+python asyncio taskgroup cancellation semantics,345,input
+fastino-ai gliner2 combined schema classification entities relations extract_json api,346,input
+gliner2 relation extraction classification ner schema descriptions threshold,347,input
+crawl4ai /md endpoint api response format markdown json client example,348,input
+what are best nlp techniques to augment web search engine ranking,349,input
+test phoenix trace,350,input
+machine learning classifier decide which web search backend to query,351,input
+clarin-pl kpwr fastpdn political ner,352,input
+hn.algolia.com api response fields objectid url title author points num_comments children comment_text story_id created_at_i,353,input
+snapshots lexical fingerprinting near duplicate detection web crawler python 2026,354,input
+small text few-shot classifier library python setfit lightning textbrewer 2026,355,input
+web search query rewriting llm brave google bing keyword vs semantic rewrite prompt,356,input
+site:opentelemetry.io collector resiliency sending queue retry internal telemetry queue size,357,input
+spacy nltk query expansion synonym extraction python nlp preprocessing pipeline,358,input
+gitlab rest api search code scope blobs project code search api official docs 2026,359,input
+rahulvgmail/codeintelimcp code search,360,input
+github rest api text-match+json accept header,361,input
+"""firecrawl"" api ""batch_scrape"" ""onlymaincontent"" ""excludetags"" ""includetags"" ""formats"" python",362,input
+python fastmcp,363,input
+shallow graph language models over search snippets reranking pruning 2025,364,input
+flockmtl duckdb response_format json_schema llm_complete model_parameters create model,365,input
+poliner polish ner clarin-ipipan tool,366,input
+openrouter rerank api v1 response format results index score field name,367,input
+python keyword extraction libraries 2026 yake keybert spacy textrank,368,input
+networkx keyword graph query expansion information retrieval,369,input
+rust vs go for high concurrency http services,370,input
+networkx best-coverage k-core div-rank graph of words python library 2026,371,input
+deduplicate web search results cross-provider paraphrase detection 2026,372,input
+"""ks. madeja"" ""lud"" tarnów wałęga",373,input
+arxiv 2605.28354 pdf,374,input
+liner2 polish ner clarin-pl poliner,375,input
+build text classification graph node2vec graph sage library python 2026 production,376,input
+best laptop for coding in 2026 with long battery life and 32gb ram under $2000,377,input
+site:github.com/falkordb graphrag sdk python repository,378,input
+site:sourcegraph.com/docs/api stream search api streaming code search endpoint result format,379,input
+flockmtl duckdb community extension llm sql integration,380,input
+best evidence for heat pump efficiency in cold climates,381,input
+fastmcp v3 enable disable only=true components parameter visiblity filtering,382,input
+httpx aiohttp crawl4ai web fetch python library production 2026,383,input
+"""pi-agent-plugin"" ""oh-my-pi"" or ""omp"" extension compatibility",384,input
+techniques for query understanding beyond basic keyword extraction,385,input
+@langchain/textsplitters npm typescript code-aware splitting recursivecharactertextsplitter,386,input
+keybert keyphrase extraction tf-idf rapid automatic keyword extraction python library,387,input
+text rank textrank pytextrank concept graph search relevance 2025,388,input
+paraphrase detection sentence similarity library python web result 2026,389,input
+python sentence transformer bi encoder libraries production search rerank 2026,390,input
+"""query searchcode"" ""$patterntype: searchpatterntype!"" ""filematch"" sourcegraph",391,input
+what are best nlp techniques to augment web search engine query understanding,392,input
+mangopy searchlm code search,393,input
+wordnet synonym expansion nltk python query terms relational knowledge extraction,394,input
+"""rag evaluation"" pipeline ragas phoenix langsmith 2026",395,input
+"""create global model"" flockmtl duckdb site:github.com",396,input
+poliner polish named entity recognition ner model production 2024 2025,397,input
+tavily search api latency benchmarks basic vs advanced search depth milliseconds,398,input
+query expansion hyde rocchio pseudo relevance feedback python 2026,399,input
+herbert encoder-only polish model limitations generation task,400,input
+query a,401,input
+mcp server github search clone repository grep search tool implementation,402,input
+llm as judge evaluation reliability bias best practices,403,input
+web search snippet reranking transformer techniques 2026 zero-shot,404,input
+sbert cross encoder minilm python library production reranking 2026,405,input
+firecrawl batch_scrape python sdk example poll results site:github.com,406,input
+site:gofastmcp.com middleware on_call_tool session_id telemetry tools/call,407,input
+hackernews firebase api v0 item endpoint structure topstories newstories maxitem,408,input
+site:docs.mistral.ai api authentication authorization bearer api key,409,input
+spacy production pipeline custom component entity ruler 2026 new feature,410,input
+site:github.com crawl4airag,411,input
+korpuspolitechnikiwrocławskie kpwr corpus access api download 2024,412,input
+primary sources search ranking evaluation ndcg relevance judgments interleaving implicit click bias provider contribution retrieval pipeline metrics,413,input
+pi-agent plugin extension omp oh-my-pi fork compatibility adapter,414,input
+firecrawl onlycleancontent latex math code blocks table noise removal markdown output,415,input
+jina reader api documentation http headers x-target-selector x-remove-selector x-with-generated-alt json response format,416,input
+networkx python build keyword co-occurrence graph from search results snippets,417,input
+"hermes agent ""verify_on_stop"" or ""pre_verify"" or ""completion contract"" or ""tool_use_enforcement"" force research depth",418,input
+tree of thoughts sequential thinking mcp agent reasoning ledger tool design,419,input
+"github ai-gateway hono mastra or ""openai compatible proxy"" multi-provider load balance",420,input
+sourcegraph graphql search endpoint api example query v3,421,input
+what are best nlp techniques to augment multi-backend web search provider selection,422,input
+sparse dense hybrid retrieval splade bge-m3 colbert python 2026,423,input
+"""duchowieństwo przeciw"" ""lista nr 8"" 1922",424,input
+related-queries graph embedding expansion multi-provider web search,425,input
+repoanalysis/reposnipy code search implementation,426,input
+github sequential thinking mcp server spences10 arben-adm modelcontextprotocol,427,input
+"site:ai.google.dev/gemini-api/docs ""thinking_config"" ""response_schema"" structured output google search gemini 3",428,input
+large language model agents site:arxiv.org,429,input
+position bias click logs inverse propensity scoring ranking evaluation,430,input
+web search analytics query result click events ctr mrr telemetry schema implementation,431,input
+lwybzss8924d deepsearchagents code search,432,input
+"""docker-desktop-user-distro"" ""dial unix"" ""backend.sock"" ""no such file or directory"" wsl ubuntu",433,input
+"""docker-desktop-user-distro"" ""/mnt/wsl/docker-desktop"" missing mount 9p init fix wsl",434,input
+firecrawl mcp server source code get_content extract markdown tool architecture github,435,input
+yake multilingual keyword extraction for search query refinement api parameters deduplim,436,input
+hierarchical multi-agent research delegation sub-agent orchestration deep research,437,input
+taetaetae/github-repo-searcher github,438,input
+computational social science media monitoring framework architecture open source,439,input
+thundergolfer top_hn_blogs.py gist github hacker news python,440,input
+llm observability analytics schema exemplary traces observations generations tool calls sessions costs evaluations,441,input
+hermes agent v0.19.0 problems issues breaking changes migration july 2026,442,input
+cross-encoder reranker latency milliseconds benefit small knowledge base,443,input
+github graphql api code search unavailable workaround rest search/code text_matches official discussion,444,input
+site:docs.openwebui.com/features/extensibility/plugin open webui tools functions arbitrary python code security,445,input
+shortlist reranker candidate quality scoring neural lightweight text graph,446,input
+link entities extracted from different snippets together knowledge graph networkx library,447,input
+listwise cross-encoder reranking colbert late interaction 2026 open source,448,input
+exemplary web search observability event schema query result click quality analytics,449,input
+microsoft markitdown python library document conversion architecture llm markdown,450,input
+rust python text graph library high performance text analysis 2026,451,input
+networkx keyword graph construction nlp techniques,452,input
+grep.app api documentation vercel mcp-handler github repository,453,input
+python async patterns,454,input
+build co-occurrence graph from search snippets detect duplicate facets across rewrites,455,input
+hermes-agent multi-agent profiles context engine lcm site:github.com,456,input
+build keyword co-occurrence network networkx python nlp tutorial step by step,457,input
+opentelemetry python current release,458,input
+site:omp.sh/docs/extension-authoring oh-my-pi model context streamsimple extensionapi,459,input
+hermes-agent skill.md examples site:github.com,460,input
+python near duplicate text detection library datasketch simhash semantic dedup 2025,461,input
+novel web search ranking approaches 2025 2026 academic literature,462,input
+scikit learn text clustering k-means mini-batch library web search 2026 production,463,input
+exemplary duckdb analytics project raw staging facts marts incremental idempotency data quality,464,input
+golang concurrency patterns,465,input
+setfit few-shot text classification sklearn python library production 2026,466,input
+python inflection humps stringcase camelcase snake_case library,467,input
+site:github.com hackernews algolia api python search pagination numericfilters,468,input
+onyx-dot-app onyx github stars forks contributors issues 2025,469,input
+entity linking wikidata political actors polish politicians nlp,470,input
+python async tutorial,471,input
+fastmcp streamable http transport,472,input
+how graph structures improve web search,473,input
+duckdb official docs create view materialized view summary tables incremental aggregation,474,input
+large language model agent architectures,475,input
+rake yake textrank keyword extraction algorithm python implementation comparison benchmark,476,input
+reader python library conditional get etag feed update reliability,477,input
+query reformulation techniques llm 2025 2026 web search,478,input
+sourcegraph search query syntax python builder lang file type symbol patterntype regexp,479,input
+cohere rerank v4 model names rerank-v4.0-fast valid models list 2025 2026,480,input
+news deduplication simhash minhash rss pipeline best practices,481,input
+python programming,482,input

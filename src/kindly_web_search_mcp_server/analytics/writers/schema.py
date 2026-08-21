@@ -48,6 +48,7 @@ from .table_names import (
     _QE_TABLE_NAME,
     _QUE_TABLE_NAME,
     _QV_TABLE_NAME,
+    _QT_TABLE_NAME,
     _QWSC_TABLE_NAME,
     _QWSR_TABLE_NAME,
     _RC_CAT_TABLE_NAME,
@@ -1235,6 +1236,7 @@ def _ensure_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
         variant_order   INTEGER NOT NULL,
         variant_role    VARCHAR NOT NULL,
         query_text      VARCHAR NOT NULL,
+        branch_id       VARCHAR,
         selected        BOOLEAN NOT NULL DEFAULT FALSE,
         executed        BOOLEAN NOT NULL DEFAULT FALSE,
         skip_reason     VARCHAR,
@@ -1242,8 +1244,44 @@ def _ensure_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
         UNIQUE (run_key, variant_order)
         """,
     )
+    _ensure_columns(connection, _QV_TABLE_NAME, {"branch_id": "VARCHAR"})
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_qv_run_key ON query_variants(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qv_branch_id ON query_variants(branch_id)"
+    )
+
+
+def _ensure_query_transforms(connection: duckdb.DuckDBPyConnection) -> None:
+    """Actual provider-specific shaping applied to a planned query variant."""
+    _create_table(
+        connection,
+        _QT_TABLE_NAME,
+        """
+        transform_id      VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key           VARCHAR NOT NULL,
+        branch_id         VARCHAR NOT NULL,
+        branch_index      INTEGER NOT NULL,
+        branch_role       VARCHAR NOT NULL,
+        provider          VARCHAR NOT NULL,
+        provider_call_id  VARCHAR NOT NULL,
+        original_query    VARCHAR NOT NULL,
+        shaped_query      VARCHAR NOT NULL,
+        changed           BOOLEAN NOT NULL,
+        rules_applied     VARCHAR[],
+        metadata_json     JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qt_run_key ON query_transforms(run_key)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qt_branch_id ON query_transforms(branch_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_qt_provider_call_id ON query_transforms(provider_call_id)"
     )
 
 
@@ -1518,6 +1556,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_result_catalog(connection)
             _ensure_provider_results(connection)
             _ensure_query_variants(connection)
+            _ensure_query_transforms(connection)
             _ensure_candidate_stage_events(connection)
             _ensure_tool_output_items(connection)
             _ensure_result_labels(connection)

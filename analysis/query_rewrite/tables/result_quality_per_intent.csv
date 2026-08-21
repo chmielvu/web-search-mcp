@@ -1,0 +1,4 @@
+intent,n,final_median,final_mean,final_p25,final_p75,cand_median,cand_mean
+ai_coding_and_infrastructure,219,15.0,14.657534246575343,15.0,15.0,62.0,59.945205479452056
+comparison,5,15.0,15.0,15.0,15.0,60.0,61.8
+general,392,15.0,14.528061224489797,15.0,15.0,68.0,67.18367346938776

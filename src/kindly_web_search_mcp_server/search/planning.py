@@ -461,29 +461,24 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         from ..analytics.observability_store import _canonical_result_id as _cri
         variant_rows: list[dict[str, Any]] = []
         rewrite_failed = bool(dc.rewrite_metadata and "error" in dc.rewrite_metadata)
-        # Original query
-        variant_rows.append({
-            "variant_id": _cri(f"{run.run_key}|original"),
-            "run_key": run.run_key,
-            "variant_order": 0,
-            "variant_role": "original",
-            "query_text": normalized_query,
-            "selected": True,
-            "executed": True,
-            "skip_reason": None,
-        })
-        # 5 rewrites
-        for i in range(5):
-            q_text = queries[i] if i < len(queries) else ""
+        for index, branch in enumerate(branches):
+            selected = bool(branch.query)
+            executed = selected and bool(branch.provider_names)
+            skip_reason = None
+            if not selected:
+                skip_reason = "rewrite_failed" if rewrite_failed else "empty_query"
+            elif not branch.provider_names:
+                skip_reason = "no_assigned_providers"
             variant_rows.append({
-                "variant_id": _cri(f"{run.run_key}|rewrite|{i}"),
+                "variant_id": _cri(f"{run.run_key}|variant|{index}"),
                 "run_key": run.run_key,
-                "variant_order": i + 1,
-                "variant_role": "rewrite",
-                "query_text": q_text,
-                "selected": bool(q_text),
-                "executed": bool(q_text),
-                "skip_reason": "rewrite_failed" if rewrite_failed and not q_text else None,
+                "variant_order": index,
+                "variant_role": branch.role.value,
+                "query_text": branch.query,
+                "branch_id": _cri(f"{run.run_key}|{index}"),
+                "selected": selected,
+                "executed": executed,
+                "skip_reason": skip_reason,
             })
         dc.query_variant_rows = variant_rows
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0
