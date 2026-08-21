@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-14 | Last verified: 2026-08-14 -->
+<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
 
 # AGENTS.md — Kindly Web Search MCP Server
 
@@ -80,9 +80,10 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 | `src/kindly_web_search_mcp_server/prompts/AGENTS.md` | Prompt templates and registry |
 | `src/kindly_web_search_mcp_server/embeddings/AGENTS.md` | HF Inference embedding client |
 | `src/kindly_web_search_mcp_server/index/AGENTS.md` | Write-only Qdrant web-results index |
-|`src/kindly_web_search_mcp_server/entity/AGENTS.md`|Entity extraction (GLiNER2, chunking, overlap)|
-|`src/kindly_web_search_mcp_server/heuristics/AGENTS.md`|Query clean/augment, provider dialect shaping, guidance messages|
-|`src/kindly_web_search_mcp_server/ab_testing/AGENTS.md`|A/B testing framework|
+| `src/kindly_web_search_mcp_server/entity/AGENTS.md` | Entity extraction (GLiNER2, chunking, overlap) |
+| `src/kindly_web_search_mcp_server/heuristics/AGENTS.md` | Query clean/augment, provider dialect shaping, guidance messages |
+| `src/kindly_web_search_mcp_server/ab_testing/AGENTS.md` | A/B testing framework |
+| `src/kindly_web_search_mcp_server/evals/AGENTS.md` | Evaluation test cases, LLM judges, regression metrics |
 | `src/kindly_web_search_mcp_server/observability/AGENTS.md` | Observability event helpers |
 | `src/kindly_web_search_mcp_server/telemetry/AGENTS.md` | OpenTelemetry instrumentation |
 | `src/kindly_web_search_mcp_server/training/AGENTS.md` | Write-only JSONL training data sink |
@@ -90,7 +91,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 | `tests/AGENTS.md` | Test organization and conventions |
 | `docs/AGENTS.md` | Human-readable documentation |
 | `duckdb_data/AGENTS.md` | DuckDB database inventory and read-only access |
-| `prototypes/public_code_search/` | Agent-oriented public GitHub code search, hybrid GraphQL/REST discovery, ranking, and exact-revision fetch |
+| `prototypes/public_code_search/AGENTS.md` | Agent-oriented public GitHub code search prototype |
 
 ## Boundaries
 

@@ -21,11 +21,12 @@ on stderr) and use the exit codes defined in
 web-search-cli [GLOBAL-OPTIONS] COMMAND [ARGS] [COMMAND-OPTIONS]
 ```
 
-### Global options (defined on `@app.callback()`)
+### Global and runtime options
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--brief` | bool | `False` | Emit one-paragraph tool identity and exit. |
+| `--version` / `-V` | flag | — | Print the CLI version and exit. |
 | `--quiet` / `-q` | bool | `False` | Suppress rules, skills, and feedback from JSON response payload. |
 | `--raw` | bool | `False` | Emit bare value lines (one per line) for clean pipe processing. |
 | `--fields` | string | — | Comma-separated field projection to reduce response payload size. |
@@ -36,9 +37,14 @@ web-search-cli [GLOBAL-OPTIONS] COMMAND [ARGS] [COMMAND-OPTIONS]
 | `--log-level` | string | `error` | Log level for stderr diagnostics. |
 | `--debug` | bool | `False` | Set log level to `DEBUG` and emit application logs on stderr. Structured command output remains on stdout. |
 | `--non-interactive` | bool | `True` | Disallow interactive prompts. |
+| `--install-completion` | bool | — | Install a Typer-generated shell completion script. |
+| `--show-completion` | bool | — | Show a Typer-generated shell completion script. |
 
-All global flags also accept the corresponding `WEB_SEARCH_CLI_*` envvar
-(e.g. `WEB_SEARCH_CLI_DEBUG=true`, `WEB_SEARCH_CLI_PROFILE=research`).
+`--help` / `-h` is also supported and emits the command help payload before
+dispatch.
+
+Callback-backed global flags also accept the corresponding `WEB_SEARCH_CLI_*`
+envvar (e.g. `WEB_SEARCH_CLI_DEBUG=true`, `WEB_SEARCH_CLI_PROFILE=research`).
 
 ## Command tree
 
@@ -215,11 +221,20 @@ Search public source code, implementation examples, documentation, GitHub reposi
 | `--huggingface-type` | `models`, `datasets`, `both` | `both` | Hub asset type for Hugging Face mode. |
 | `--huggingface-sort-by` | string | `similarity` | Hub ranking: similarity, likes, downloads, trending, or updated. |
 | `--huggingface-hybrid` | bool | `False` | Enable Hub hybrid lexical/semantic ranking. |
+| `--huggingface-min-likes` | int | `0` | Minimum Hub likes filter. |
+| `--huggingface-min-downloads` | int | `0` | Minimum Hub downloads filter. |
+| `--huggingface-task` | string | — | Hub task filter. |
+| `--huggingface-license` | string | — | Hub license filter. |
+| `--huggingface-language` | string | — | Hub dataset language filter. |
+| `--huggingface-modified-after` | string | — | Only include assets modified after `YYYY-MM-DD`. |
+| `--huggingface-min-param-count` | int | `0` | Minimum model parameter count. |
+| `--huggingface-max-param-count` | int | — | Maximum model parameter count. |
 
 ```powershell
 web-search-cli search code --query "FastMCP tool registration" --repository "prefecthq/fastmcp"
 web-search-cli search code --query "retry backoff" --language Python --path "src/" --deep
 web-search-cli search code --query "MCP API reference" --library-name fastmcp --mode docs
+web-search-cli search code --query "text generation models" --mode huggingface --huggingface-task text-generation --huggingface-min-downloads 1000
 ```
 
 ### `content get`
@@ -323,7 +338,7 @@ Run a native xAI Grok live search with citations via the direct Responses API.
 | --- | --- | --- | --- |
 | `--query` | string (required) | — | Search query text. |
 | `--research-goal` | string | `""` | Research goal forwarded to the model. |
-| `--model` | string | `grok-4.5` | Override the xAI Grok model id (e.g. `grok-4.5`). |
+| `--model` | string | — (provider default: `grok-4.5`) | Override the xAI Grok model id (e.g. `grok-4.5`). |
 | `--num-results` | int | `5` | Number of search results to surface. |
 | `--allowed-domain` | list[str] | — | Domains the model may cite; repeatable. |
 | `--excluded-domain` | list[str] | — | Domains the model must not cite; repeatable. |
@@ -348,15 +363,18 @@ web-search-cli youtube search --query "rust async tokio tutorial" --num-results 
 
 ### `youtube transcript`
 
-Fetch a YouTube transcript with optional language/translation/formatting.
+Fetch a YouTube transcript with optional language/translation/formatting and
+an optional Gemini summary.
 
 | Flag | Type | Default | Description |
 | --- | --- | --- | --- |
 | `--video-id-or-url` | string (required) | — | YouTube URL or video id. |
 | `--language` | string | — | Preferred transcript language code (e.g. `en`). |
 | `--translate-to` | string | — | Translate the transcript into this language code. |
-| `--format` | `text` \| `timestamped` \| `json` | `text` | Transcript output format. |
+| `--format` | `text` \| `timestamped` \| `json` \| `markdown` | `text` | Transcript output format. |
 | `--backend` | string | — | Transcript backend: `auto` (cascade), `ytdlp`, `api`. |
+| `--include-summary` | bool | `False` | Generate a Gemini transcript summary. |
+| `--summary-focus` | string | — | Focus the Gemini summary. |
 
 ```powershell
 web-search-cli youtube transcript --video-id-or-url "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --format timestamped

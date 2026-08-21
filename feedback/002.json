@@ -1,0 +1,13 @@
+{
+  "id": "002",
+  "type": "bug",
+  "status": "open",
+  "message": "Native CLI external search fails before provider execution with ModuleNotFoundError: No module named 'google.protobuf'. Reproduced while running search web for FastMCP SEP-1686 background-task documentation; command should either include/provide the protobuf dependency or fail with a dependency-specific readiness diagnostic.",
+  "context": {
+    "version": "0.1.8",
+    "command": "search web --no-rewrite --site-filter gofastmcp.com",
+    "exit_code": 1
+  },
+  "created_at": "2026-08-21T15:30:07Z",
+  "updated_at": "2026-08-21T15:30:07Z"
+}
