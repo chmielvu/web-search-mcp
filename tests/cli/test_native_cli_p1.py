@@ -93,9 +93,13 @@ def test_search_fetch_forwards_snapshot_query(monkeypatch) -> None:
         query=None,
         path="src/run.py",
         symbol=None,
+        ref=None,
         regexp=False,
         max_matches=25,
         context_lines=3,
+        start_line=None,
+        end_line=None,
+        depth=None,
     )
     assert payload["data"]["resolved_commit"] == "a" * 40
 
