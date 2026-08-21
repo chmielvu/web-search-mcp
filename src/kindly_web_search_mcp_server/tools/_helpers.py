@@ -81,6 +81,7 @@ def _resolve_session_id(ctx: Context | None) -> str | None:
         return str(client_id)
     return None
 
+
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""
     return {
@@ -170,9 +171,17 @@ def _search_history_snapshot(limit: int = 20) -> dict[str, object]:
             [limit],
         ).fetchall()
         columns = [
-            "recorded_at", "run_key", "query", "normalized_query",
-            "intent", "status", "duration_ms", "final_result_count",
-            "selected_providers", "branch_count", "provider_count",
+            "recorded_at",
+            "run_key",
+            "query",
+            "normalized_query",
+            "intent",
+            "status",
+            "duration_ms",
+            "final_result_count",
+            "selected_providers",
+            "branch_count",
+            "provider_count",
         ]
         rows = [dict(zip(columns, row)) for row in table]
     finally:
@@ -294,18 +303,20 @@ def _apply_domain_filters(
     results: list[dict],
     domain_boost: list[str] | None = None,
     domain_block: list[str] | None = None,
+    site_filters: list[str] | None = None,
 ) -> list[dict]:
-    """Apply domain boost and block filters to search results.
+    """Apply domain boost, block, and site-restriction filters to search results.
 
     Args:
         results: List of search result dicts (each must have a ``link`` key).
         domain_boost: Domains to boost (move to front, preserving relative order).
         domain_block: Domains to exclude (remove entirely).
+        site_filters: Restrict results to only these domains (include-only).
 
     Returns:
         Filtered and boosted results list.
     """
-    if not domain_boost and not domain_block:
+    if not domain_boost and not domain_block and not site_filters:
         return results
 
     from urllib.parse import urlparse
@@ -335,6 +346,13 @@ def _apply_domain_filters(
             r
             for r in results
             if not any(_url_matches_domain(r.get("link", ""), p) for p in domain_block)
+        ]
+
+    if site_filters:
+        results = [
+            r
+            for r in results
+            if any(_url_matches_domain(r.get("link", ""), p) for p in site_filters)
         ]
 
     if domain_boost:

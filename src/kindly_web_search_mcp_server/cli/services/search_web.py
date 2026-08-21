@@ -36,7 +36,8 @@ async def fetch_web_search_payload(
         raise ValueError("query must be non-blank.")
 
     search_options = build_search_options(
-        site_filters=[*(site_filters or []), *(domain_filters or [])],
+        site_filters=site_filters or None,
+        domain_filters=domain_filters or None,
     )
     request = WebSearchRequest(
         query=primary_query,
@@ -57,11 +58,17 @@ async def fetch_web_search_payload(
     )  # type: ignore[assignment,misc]
     payload = response.model_dump(exclude_none=True)
     payload["run_key"] = run_key
-    if domain_boost or domain_block:
+    if domain_boost or domain_block or domain_filters or site_filters:
         from ...tools._helpers import _apply_domain_filters
 
+        combined_block = (
+            [*domain_block, *(domain_filters or [])] if domain_block else domain_filters
+        )
         payload["results"] = _apply_domain_filters(
-            payload.get("results", []), domain_boost, domain_block
+            payload.get("results", []),
+            domain_boost,
+            combined_block,
+            site_filters=site_filters or None,
         )
     if diagnostics:
         diag = build_diagnostics(run, run.diagnostics.total_latency_ms or 0.0)

@@ -99,6 +99,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("settings://public", uris)
         self.assertIn("analytics://schema", uris)
         self.assertIn("analytics://candidate-survival", uris)
+
     def test_public_read_resource_reads_native_resources(self) -> None:
         from kindly_web_search_mcp_server.server import mcp
 
@@ -166,7 +167,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         import json
         from kindly_web_search_mcp_server.tools.resources import get_search_history_resource
 
-        with patch("kindly_web_search_mcp_server.tools._helpers.os.path.exists", return_value=False):
+        with patch(
+            "kindly_web_search_mcp_server.tools._helpers.os.path.exists", return_value=False
+        ):
             result = get_search_history_resource(limit=10)
             data = json.loads(result.contents[0].content)
 
@@ -423,7 +426,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         forwarded_request = mock_search.call_args[0][0]
         forwarded_options = forwarded_request.options
         self.assertIsInstance(forwarded_options, SearchOptions)
-        self.assertEqual(forwarded_options.site_filters, ("docs.example.com", "example.com"))
+        self.assertEqual(forwarded_options.site_filters, ("docs.example.com",))
+        self.assertEqual(forwarded_options.domain_filters, ("example.com",))
         self.assertNotIn("result_window", out)
 
     async def test_get_content_returns_markdown(self) -> None:
@@ -706,8 +710,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
     def test_public_settings_resource_redacts_secrets(self) -> None:
         import json
         from kindly_web_search_mcp_server.server import get_public_settings_resource
-
-
 
         out = json.loads(get_public_settings_resource().contents[0].content)
 

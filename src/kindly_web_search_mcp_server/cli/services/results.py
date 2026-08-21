@@ -14,6 +14,7 @@ from .jobs import jobs_db_path
 LOGGER = logging.getLogger(__name__)
 
 RESULT_KINDS = frozenset({"mcp", "cli", "deep_research"})
+DEEP_RESEARCH_COMMAND = "research deep"
 TTL_SECONDS = 24 * 60 * 60
 _DEFAULT_LIMIT = 50
 _MAX_LIMIT = 200
@@ -24,18 +25,8 @@ def result_db_path(db_path: str | Path | None = None) -> Path:
     return Path(db_path).expanduser() if db_path is not None else jobs_db_path()
 
 
-def _connect(db_path: str | Path | None = None) -> sqlite3.Connection:
-    path = result_db_path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(path), timeout=10.0)
-    connection.row_factory = sqlite3.Row
-    # Keep these settings identical on every connection to the shared store.
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    connection.execute("PRAGMA busy_timeout=5000")
-    connection.execute("PRAGMA cache_size=-64000")
-    connection.execute("PRAGMA mmap_size=268435456")
-    connection.execute("PRAGMA temp_store=MEMORY")
+def _init_schema(connection: sqlite3.Connection) -> None:
+    """Create tables, indexes, and FTS virtual table (runs once per database)."""
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS results (
@@ -84,6 +75,25 @@ def _connect(db_path: str | Path | None = None) -> sqlite3.Connection:
     except sqlite3.OperationalError as exc:
         # FTS5 is optional in some Python builds. Search falls back to LIKE.
         LOGGER.debug("SQLite FTS5 unavailable for result store: %s", exc)
+    connection.execute("PRAGMA user_version = 1")
+
+
+def _connect(db_path: str | Path | None = None) -> sqlite3.Connection:
+    path = result_db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(path), timeout=10.0)
+    connection.row_factory = sqlite3.Row
+    # Keep these settings identical on every connection to the shared store.
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA busy_timeout=5000")
+    connection.execute("PRAGMA cache_size=-64000")
+    connection.execute("PRAGMA mmap_size=268435456")
+    connection.execute("PRAGMA temp_store=MEMORY")
+    # Schema DDL runs once per database file, guarded by user_version.
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        _init_schema(connection)
     return connection
 
 
@@ -119,9 +129,7 @@ def _validate_kind(result_kind: str) -> None:
         raise ValueError(f"Unsupported result kind {result_kind!r}; expected one of: {allowed}.")
 
 
-def cleanup_expired_results(
-    *, db_path: str | Path | None = None, now: int | None = None
-) -> int:
+def cleanup_expired_results(*, db_path: str | Path | None = None, now: int | None = None) -> int:
     """Delete expired MCP/CLI rows and return the number removed."""
     connection = _connect(db_path)
     try:
@@ -196,7 +204,7 @@ def persist_result_best_effort(
 def persist_cli_result(
     command: str, payload: Any, *, db_path: str | Path | None = None
 ) -> dict[str, Any] | None:
-    result_kind = "deep_research" if command == "research deep" else "cli"
+    result_kind = "deep_research" if command == DEEP_RESEARCH_COMMAND else "cli"
     return persist_result_best_effort(result_kind, command, payload, db_path=db_path)
 
 
@@ -300,6 +308,7 @@ def search_results(
 
 
 __all__ = [
+    "DEEP_RESEARCH_COMMAND",
     "RESULT_KINDS",
     "TTL_SECONDS",
     "cleanup_expired_results",

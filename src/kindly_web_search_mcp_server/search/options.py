@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from hashlib import sha256
-from urllib.parse import urlparse
 
 from ..search.normalize import normalize_query
 
@@ -23,22 +22,6 @@ def _normalize_items(values: tuple[str, ...] | list[str] | None) -> tuple[str, .
         seen.add(text)
         items.append(text)
     return tuple(items)
-
-
-def _normalize_site_filter(value: str) -> str:
-    text = normalize_query(value)
-    if not text:
-        raise ValueError("site/domain filters cannot be empty.")
-    if text.startswith(("site:", "domain:")):
-        return text
-    parsed = urlparse(text)
-    if parsed.scheme and parsed.netloc:
-        return f"site:{parsed.netloc.lower()}"
-    if "/" in text:
-        host = text.split("/", 1)[0].strip().lower()
-        if host:
-            return f"site:{host}"
-    return f"site:{text.lower()}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,11 +65,6 @@ class SearchOptions:
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
-    def query_suffix(self) -> str:
-        terms = [_normalize_site_filter(value) for value in self.site_filters]
-        terms.extend(_normalize_site_filter(value) for value in self.domain_filters)
-        return " ".join(terms)
-
 
 def build_search_options(
     *,
@@ -124,13 +102,3 @@ def build_search_identity_key(
         return provider_key
     fingerprint = search_options.cache_fingerprint()
     return f"{provider_key}|{fingerprint}"
-
-
-def build_search_query(query: str, search_options: SearchOptions | None) -> str:
-    normalized = normalize_query(query)
-    if search_options is None:
-        return normalized
-    suffix = search_options.query_suffix()
-    if not suffix:
-        return normalized
-    return normalize_query(f"{normalized} {suffix}")

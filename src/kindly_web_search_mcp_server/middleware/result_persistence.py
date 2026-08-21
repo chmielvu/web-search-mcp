@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import ToolResult
 
 from ..cli.services.results import persist_mcp_result
+from ..utils.background_tasks import fire_and_forget
 
 
 def _jsonable(value: Any) -> Any:
@@ -41,7 +43,11 @@ class ResultPersistenceMiddleware(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
         tool_name = context.message.name
         result = await call_next(context)
-        persist_mcp_result(tool_name, _result_payload(result))
+        payload = _result_payload(result)
+        fire_and_forget(
+            asyncio.to_thread(persist_mcp_result, tool_name, payload),
+            name=f"result-persist.{tool_name}",
+        )
         return result
 
 

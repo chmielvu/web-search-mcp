@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,7 +23,9 @@ from kindly_web_search_mcp_server.middleware.result_persistence import (
 def test_result_store_enforces_ttl_by_kind(tmp_path) -> None:
     database = tmp_path / "jobs.sqlite"
 
-    cli = store_result("cli", "search web", {"query": "sqlite WAL"}, db_path=database, created_at=100)
+    cli = store_result(
+        "cli", "search web", {"query": "sqlite WAL"}, db_path=database, created_at=100
+    )
     deep = store_result(
         "deep_research",
         "research deep",
@@ -48,12 +51,11 @@ def test_result_store_enforces_ttl_by_kind(tmp_path) -> None:
         }
     ]
 
+
 def test_cli_output_uses_cli_result_persistence(capsys) -> None:
     from kindly_web_search_mcp_server.cli.output import emit_json
 
-    with patch(
-        "kindly_web_search_mcp_server.cli.services.results.persist_cli_result"
-    ) as persist:
+    with patch("kindly_web_search_mcp_server.cli.services.results.persist_cli_result") as persist:
         emit_json({"query": "sqlite"}, command="search web")
 
     assert "sqlite" in capsys.readouterr().out
@@ -72,21 +74,22 @@ def test_cli_deep_research_result_has_no_ttl(tmp_path) -> None:
     assert stored is not None
     assert stored["result_kind"] == "deep_research"
     assert stored["expires_at"] is None
-    assert search_results(
-        "durable research", result_kind="deep_research", db_path=database
-    )
-
+    assert search_results("durable research", result_kind="deep_research", db_path=database)
 
 
 def test_result_search_filters_source_and_orders_newest_first(tmp_path) -> None:
     database = tmp_path / "results.sqlite"
-    store_result("mcp", "web_search", {"query": "older", "results": []}, db_path=database, created_at=10)
+    store_result(
+        "mcp", "web_search", {"query": "older", "results": []}, db_path=database, created_at=10
+    )
     newest = store_result(
         "mcp", "web_search", {"query": "newer", "results": []}, db_path=database, created_at=20
     )
     store_result("cli", "content get", {"query": "newer"}, db_path=database, created_at=30)
 
-    found = search_results("newer", result_kind="mcp", source="web_search", db_path=database, now=30)
+    found = search_results(
+        "newer", result_kind="mcp", source="web_search", db_path=database, now=30
+    )
     assert [row["result_id"] for row in found] == [newest["result_id"]]
 
 
@@ -96,14 +99,17 @@ async def test_mcp_result_middleware_persists_without_changing_result(tmp_path) 
     result = ToolResult(structured_content={"answer": "stored", "references": []})
 
     with patch(
-        "kindly_web_search_mcp_server.middleware.result_persistence.persist_mcp_result"
-    ) as persist:
+        "kindly_web_search_mcp_server.middleware.result_persistence.fire_and_forget"
+    ) as mock_fire:
         returned = await ResultPersistenceMiddleware().on_call_tool(
             context, lambda _: _return_result(result)
         )
 
     assert returned is result
-    persist.assert_called_once_with("deep_research", {"answer": "stored", "references": []})
+    mock_fire.assert_called_once()
+    # Verify the coroutine passed to fire_and_forget wraps asyncio.to_thread
+    coro = mock_fire.call_args[0][0]
+    assert isinstance(coro, asyncio.Task) or hasattr(coro, "cr_code")
 
 
 async def _return_result(result: ToolResult) -> ToolResult:

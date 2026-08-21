@@ -563,6 +563,9 @@ async def grok_search(
                 if value is not None:
                     span.set_attribute(attribute, value)
             set_span_success(span, result_count=len(citations))
+            error_msg = None
+            if not answer and not citations:
+                error_msg = "No answer or citations returned by Grok"
             return GrokSearchResult(
                 query=query,
                 answer=answer,
@@ -571,6 +574,7 @@ async def grok_search(
                 search_queries_used=usage["search_queries_used"],
                 input_tokens=tokens["input_tokens"],
                 output_tokens=tokens["output_tokens"],
+                error=error_msg,
                 backend=backend,
                 web_search_calls=usage["web_search_calls"],
                 x_search_calls=usage["x_search_calls"],

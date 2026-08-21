@@ -115,9 +115,12 @@ async def web_search(
         raise
 
     search_options = build_search_options(
-        site_filters=[*(site_filters or []), *(domain_filters or [])],
+        site_filters=site_filters or None,
+        domain_filters=domain_filters or None,
     )
-    effective_research_goal = research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
+    effective_research_goal = (
+        research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
+    )
     request = WebSearchRequest(
         query=primary_query,
         queries=seed_queries,
@@ -170,9 +173,15 @@ async def web_search(
         finally:
             reset_run_context(ctx_token)
 
-        if domain_boost or domain_block:
+        if domain_boost or domain_block or domain_filters or site_filters:
+            combined_block = (
+                [*domain_block, *(domain_filters or [])] if domain_block else domain_filters
+            )
             response["results"] = _apply_domain_filters(
-                response.get("results", []), domain_boost, domain_block
+                response.get("results", []),
+                domain_boost,
+                combined_block,
+                site_filters=site_filters or None,
             )
         root_span.set_attribute("search.num_results_returned", len(response.get("results", [])))
         root_span.set_status(trace.StatusCode.OK)
