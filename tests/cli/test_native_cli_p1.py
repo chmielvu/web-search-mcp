@@ -141,10 +141,10 @@ def test_research_deep_writes_report(monkeypatch, tmp_path: Path) -> None:
     fetch.assert_awaited_once()
 
 
-def test_content_batch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
-    fetch = AsyncMock(return_value={"results": [], "total_requested": 2})
+def test_content_fetch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
+    fetch = AsyncMock(return_value={"mode": "bulk", "results": [], "total_requested": 2})
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.content_batch.fetch_batch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content.fetch_payload",
         fetch,
     )
     source = tmp_path / "urls.jsonl"
@@ -156,7 +156,7 @@ def test_content_batch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
     _payload(
         runner.invoke(
             app,
-            ["--quiet", "content", "batch", "--input-file", str(source)],
+            ["--quiet", "content", "fetch", "--input-file", str(source)],
         )
     )
 
@@ -167,23 +167,27 @@ def test_content_batch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
         "https://two.example",
     ]
 
-
-def test_content_get_suggests_next_window(monkeypatch) -> None:
+def test_content_fetch_suggests_next_window(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.content.fetch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content.fetch_payload",
         AsyncMock(
             return_value={
-                "url": "https://example.com",
-                "page_content": "part",
-                "window": {"has_more": True, "next_offset": 42},
+                "mode": "single",
+                "results": [
+                    {
+                        "url": "https://example.com",
+                        "page_content": "part",
+                        "window": {"has_more": True, "next_offset": 42},
+                    }
+                ],
             }
         ),
     )
 
     payload = _payload(
-        runner.invoke(app, ["--quiet", "content", "get", "--url", "https://example.com"])
+        runner.invoke(app, ["--quiet", "content", "fetch", "--url", "https://example.com"])
     )
 
     assert payload["suggested_next"] == [
-        "uv run web-search-cli content get --url https://example.com --char-offset 42"
+        "uv run web-search-cli content fetch --url https://example.com --offset 42"
     ]

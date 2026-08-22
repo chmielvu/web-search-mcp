@@ -92,7 +92,7 @@ class TestObservabilityEventPrefixes(unittest.TestCase):
         ):
             emit_tool_observability_event(
                 logger,
-                "get_content",
+                "fetch",
                 "response",
                 url="https://example.com",
                 status="success",
@@ -101,7 +101,7 @@ class TestObservabilityEventPrefixes(unittest.TestCase):
 
         insert_tool_call_event.assert_called_once()
         kwargs = insert_tool_call_event.call_args.kwargs
-        self.assertEqual(kwargs["tool_name"], "get_content")
+        self.assertEqual(kwargs["tool_name"], "fetch")
         self.assertEqual(kwargs["phase"], "response")
         self.assertEqual(kwargs["status"], "success")
 

@@ -74,28 +74,24 @@ def test_search_quick_missing_search_query_fails(monkeypatch) -> None:
     mock_payload.assert_not_awaited()
 
 
-def test_content_get_emits_json_payload(monkeypatch) -> None:
+def test_content_fetch_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.content.fetch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content.fetch_payload",
         AsyncMock(
             return_value={
-                "input_url": "https://example.com/docs",
-                "normalized_url": "https://example.com/docs",
-                "fetched_url": "https://example.com/docs",
-                "status": "success",
-                "source_type": "html",
-                "fetch_backend": "safe_http_extract",
-                "page_content": "# Example docs",
-                "window": {
-                    "offset": 0,
-                    "length": 20000,
-                    "returned_chars": 14,
-                    "total_chars": 14,
-                    "has_more": False,
-                    "next_offset": None,
-                    "continuation_notice": None,
-                },
-                "content_type": "text/markdown",
+                "mode": "single",
+                "results": [
+                    {
+                        "input_url": "https://example.com/docs",
+                        "normalized_url": "https://example.com/docs",
+                        "url": "https://example.com/docs",
+                        "status": "success",
+                        "source_type": "html",
+                        "fetch_backend": "safe_http_extract",
+                        "page_content": "# Example docs",
+                        "window": {"has_more": False},
+                    }
+                ],
             }
         ),
     )
@@ -105,17 +101,15 @@ def test_content_get_emits_json_payload(monkeypatch) -> None:
             app,
             [
                 "content",
-                "get",
+                "fetch",
                 "--url",
                 "https://example.com/docs",
-                "--char-length",
-                "20000",
             ],
         )
     )
 
-    assert payload["meta"]["command"] == "content get"
-    assert payload["data"]["input_url"] == "https://example.com/docs"
-    assert payload["data"]["status"] == "success"
-    assert payload["data"]["page_content"] == "# Example docs"
-    assert payload["data"]["window"]["has_more"] is False
+    assert payload["meta"]["command"] == "content fetch"
+    assert payload["data"]["mode"] == "single"
+    assert payload["data"]["results"][0]["status"] == "success"
+    assert payload["data"]["results"][0]["page_content"] == "# Example docs"
+    assert payload["data"]["results"][0]["window"]["has_more"] is False

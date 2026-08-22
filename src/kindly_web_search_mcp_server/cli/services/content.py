@@ -1,123 +1,19 @@
+"""CLI adapter for the unified MCP fetch tool."""
+
 from __future__ import annotations
 
-import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
-from ...cache import get_page_cache
-from ...content.fetch_pipeline import fetch_content_artifact
-from ...content.options import build_fetch_options
-from ...content.summary import create_summary
-from ...content.windowing import slice_content
-from ...models import GetContentResponse
-from ...utils.environment import get_float_env, get_int_env
-from ...utils.url_canonicalize import canonicalize_url
+from ...tools.content import fetch
+from ...models import FetchResponse
 
 
-def _resolve_tool_total_timeout_seconds() -> float:
-    value = get_float_env("TOOL_TOTAL_TIMEOUT_SECONDS", 120.0)
-    max_value = get_float_env("TOOL_TOTAL_TIMEOUT_MAX_SECONDS", 600.0)
-    return max(1.0, min(value, max(1.0, max_value)))
-
-
-async def _cached_artifact(url: str) -> dict[str, Any] | None:
-    try:
-        cached = await get_page_cache().alookup(url)
-    except Exception:
-        return None
-    if not cached:
-        return None
-
-    cached_metadata = cached.get("metadata")
-    cached_page_metadata = (
-        cached_metadata.get("metadata")
-        if isinstance(cached_metadata, dict) and "metadata" in cached_metadata
-        else cached_metadata
-    )
-    cached_links = cached_metadata.get("links") if isinstance(cached_metadata, dict) else None
-    return {
-        "input_url": url,
-        "normalized_url": url,
-        "fetched_url": None,
-        "status": "success",
-        "source_type": "cache",
-        "fetch_backend": "cache",
-        "content_type": "text/markdown",
-        "markdown": cached["page_content"],
-        "metadata": cached_page_metadata,
-        "links": cached_links,
-        "word_count": cached.get("word_count", 0) or len(cached["page_content"].split()),
-        "error": None,
-    }
-
-
-def _artifact_from_fetch_exception(url: str, exc: Exception) -> dict[str, Any]:
-    return {
-        "input_url": url,
-        "normalized_url": canonicalize_url(url),
-        "fetched_url": None,
-        "status": "error",
-        "source_type": "unknown",
-        "fetch_backend": "fetch_pipeline",
-        "content_type": None,
-        "markdown": "",
-        "metadata": None,
-        "links": None,
-        "error": {
-            "code": type(exc).__name__,
-            "message": str(exc),
-            "retryable": True,
-        },
-    }
-
-
-def _artifact_from_timeout(url: str) -> dict[str, Any]:
-    return {
-        "input_url": url,
-        "normalized_url": canonicalize_url(url),
-        "fetched_url": None,
-        "status": "error",
-        "source_type": "unknown",
-        "fetch_backend": "timeout",
-        "content_type": None,
-        "markdown": "",
-        "metadata": None,
-        "links": None,
-        "error": {
-            "code": "timeout",
-            "message": "Content fetch exceeded the configured tool time budget.",
-            "retryable": True,
-        },
-    }
-
-
-def _artifact_from_result(fetched: Any, *, include_links: bool) -> dict[str, Any]:
-    return {
-        "input_url": fetched.input_url,
-        "normalized_url": fetched.normalized_url,
-        "fetched_url": fetched.fetched_url,
-        "status": fetched.status,
-        "source_type": fetched.source_type,
-        "fetch_backend": fetched.fetch_backend,
-        "content_type": fetched.content_type,
-        "markdown": fetched.markdown,
-        "metadata": fetched.metadata,
-        "links": fetched.links if include_links else None,
-        "word_count": fetched.word_count or len(fetched.markdown.split()),
-        "error": None
-        if fetched.error is None
-        else {
-            "code": fetched.error.code,
-            "message": fetched.error.message,
-            "retryable": fetched.error.retryable,
-        },
-    }
-
-
-async def fetch_content_payload(
-    url: str,
+async def fetch_payload(
     *,
-    char_offset: int = 0,
-    char_length: int = 20_000,
+    urls: list[str] | None,
+    cursor: str | None = None,
+    offset: int = 0,
     ai_summary: bool = False,
     focus_query: str | None = None,
     include_metadata: bool = True,
@@ -125,77 +21,25 @@ async def fetch_content_payload(
     max_links: int = 25,
     strip_selectors: str | None = None,
 ) -> dict[str, Any]:
-    max_length = get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
-    safe_length = max(1, min(char_length, max_length))
-    safe_offset = max(0, char_offset)
-    fetch_options = build_fetch_options(
+    """Call the unified fetch tool without exposing resource tuning knobs."""
+    mock_ctx = AsyncMock()
+    mock_ctx.info = AsyncMock()
+    mock_ctx.report_progress = AsyncMock()
+
+    values = [item.strip() for item in (urls or []) if item.strip()]
+    primary = values[0] if values else None
+    additional = values[1:] if len(values) > 1 else None
+    output = await fetch(
+        url=primary,
+        urls=additional,
+        offset=offset,
+        cursor=cursor,
+        ai_summary=ai_summary,
+        focus_query=focus_query,
         include_metadata=include_metadata,
         include_links=include_links,
         max_links=max_links,
         strip_selectors=strip_selectors,
+        ctx=mock_ctx,
     )
-
-    normalized_url = canonicalize_url(url)
-    artifact = await _cached_artifact(normalized_url)
-    if artifact is None:
-        try:
-            fetched = await asyncio.wait_for(
-                fetch_content_artifact(url, fetch_options=fetch_options),
-                timeout=_resolve_tool_total_timeout_seconds(),
-            )
-        except asyncio.TimeoutError:
-            artifact = _artifact_from_timeout(url)
-        except Exception as exc:
-            artifact = _artifact_from_fetch_exception(url, exc)
-        else:
-            artifact = _artifact_from_result(fetched, include_links=include_links)
-            if fetched.status == "success" and fetched.markdown:
-                try:
-                    await get_page_cache().astore(
-                        canonical_url=fetched.normalized_url,
-                        page_content=fetched.markdown,
-                        extraction_method=fetched.fetch_backend,
-                        metadata={
-                            "metadata": fetched.metadata,
-                            "links": fetched.links,
-                        },
-                    )
-                except Exception:
-                    pass
-
-    windowed = slice_content(
-        artifact["markdown"],
-        offset=safe_offset,
-        length=safe_length,
-    )
-    summary = await create_summary(
-        windowed.content,
-        ai_summary=ai_summary,
-        focus_query=focus_query,
-        source_urls=[
-            artifact["fetched_url"] or artifact["normalized_url"],
-        ]
-        if artifact.get("fetched_url") or artifact.get("normalized_url")
-        else None,
-    )
-
-    response = GetContentResponse(
-        input_url=url,
-        normalized_url=artifact["normalized_url"],
-        fetched_url=artifact["fetched_url"],
-        status=artifact["status"],
-        source_type=artifact["source_type"],
-        fetch_backend=artifact["fetch_backend"],
-        page_content=windowed.content,
-        window=windowed.window.__dict__,
-        metadata=artifact.get("metadata") if include_metadata else None,
-        links=artifact.get("links") if include_links else None,
-        continuation_notice=windowed.window.continuation_notice,
-        content_type=artifact["content_type"],
-        error=artifact["error"],
-        summary=summary,
-        content_quality=artifact["status"],
-        content_word_count=artifact.get("word_count", 0) or len(artifact["markdown"].split()),
-    ).model_dump(exclude_none=True)
-    response.setdefault("fetched_url", None)
-    return response
+    return output.model_dump(exclude_none=True) if isinstance(output, FetchResponse) else dict(output)

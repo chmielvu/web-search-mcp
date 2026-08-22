@@ -165,7 +165,7 @@ class CamoufoxClient:
         )
         self._health_cache: tuple[float, bool] | None = None
 
-    async def fetch_html(self, url: str) -> str:
+    async def fetch_html(self, url: str, *, max_bytes: int | None = None) -> str:
         """POST /content -> raw HTML string.
 
         Retries once on HTTP 503 (cold-start browser init) after a 2s backoff.
@@ -197,8 +197,14 @@ class CamoufoxClient:
             body = resp.text
             if not body.strip():
                 raise CamoufoxClientError("Camoufox returned empty body", retryable=True)
-            if len(body.encode("utf-8")) > self._MAX_HTML_BYTES:
-                raise CamoufoxClientError("Camoufox response exceeds 8 MiB cap", retryable=False)
+            max_body_bytes = max_bytes or self._MAX_HTML_BYTES
+            if len(body.encode("utf-8")) > max_body_bytes:
+                message = (
+                    "Camoufox response exceeds 8 MiB cap"
+                    if max_bytes is None
+                    else f"Camoufox response exceeds {max_body_bytes} byte cap"
+                )
+                raise CamoufoxClientError(message, retryable=False)
             return body
         raise CamoufoxClientError("Camoufox request failed after 3 attempts", retryable=True)
 

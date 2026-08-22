@@ -377,6 +377,15 @@ class Stats(BaseModel):
         description="Estimated token count of the returned output payload.",
     )
     elapsed_ms: float = Field(default=0.0, description="Total elapsed search time in milliseconds.")
+    rerank_provider: str | None = Field(default=None, exclude=True)
+    rerank_model: str | None = Field(default=None, exclude=True)
+    rerank_status: str | None = Field(default=None, exclude=True)
+    rerank_duration_ms: float | None = Field(default=None, exclude=True)
+    rerank_input_count: int | None = Field(default=None, exclude=True)
+    rerank_output_count: int | None = Field(default=None, exclude=True)
+    rerank_diagnostic_outcome: str | None = Field(default=None, exclude=True)
+    rerank_diagnostic_message: str | None = Field(default=None, exclude=True)
+    rerank_payload: dict[str, Any] = Field(default_factory=dict, exclude=True)
     returned_count: int = Field(
         default=0, description="Number of evidence hits returned to the caller."
     )
@@ -453,6 +462,11 @@ class CodeSearchResultType(BaseModel):
     stats: Stats = Field(description="Bounded execution statistics for this search.")
     query_metadata: QueryMetadata = Field(
         description="Planner interpretation, variants, scopes, and backend compilation details."
+    )
+    provider_summaries: list[dict[str, Any]] = Field(
+        default_factory=list,
+        exclude=True,
+        description="Internal provider summaries retained for typed analytics only.",
     )
 
 
@@ -873,7 +887,7 @@ def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSear
             nexts.append(
                 CodeSearchPublicNext(
                     action="get_lines",
-                    tool="get_content",
+                    tool="fetch",
                     query={"url": url, "focus_query": anchor},
                     why="Fetch the file with focus_query to resolve exact file:line anchors.",
                     confidence="low",

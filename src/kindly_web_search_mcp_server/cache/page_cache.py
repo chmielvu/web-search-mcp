@@ -28,7 +28,7 @@ class PageCache:
     """SQLite-backed page content cache.
 
     Thin facade over PageSQLiteCache (in page_sqlite.py) that preserves the
-    exact public API + singleton used by server.py / get_content.
+    exact public API + singleton used by server.py / fetch.
 
     Separate SQLite file controlled by PAGE_CACHE_SQLITE_PATH.
     """

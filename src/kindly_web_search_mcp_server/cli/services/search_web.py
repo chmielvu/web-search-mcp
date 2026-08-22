@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
-from ...search.contracts import WebSearchRequest
+from ...models import WebSearchResponse
+from ...search.contracts import SearchRun, WebSearchRequest
 from ...search.diagnostics import build_diagnostics
 from ...search.options import build_search_options
 from ...search.service import execute_web_search
@@ -48,14 +49,15 @@ async def fetch_web_search_payload(
         reranking_instructions=reranking_instructions,
     )
     run_key = str(uuid.uuid4())
-    response, run = await execute_web_search(
+    search_result = await execute_web_search(
         request,
         http_client=await get_http_client(),
         run_key=run_key,
         tool_call_id=run_key,
         return_diagnostics=True,
         schedule_judges=False,
-    )  # type: ignore[assignment,misc]
+    )
+    response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
     payload = response.model_dump(exclude_none=True)
     payload["run_key"] = run_key
     if domain_boost or domain_block or domain_filters or site_filters:

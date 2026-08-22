@@ -1,6 +1,6 @@
 """YouTube content resolver for Tier 1 content pipeline.
 
-When get_content encounters a YouTube URL, this resolver produces rich
+When fetch encounters a YouTube URL, this resolver produces rich
 markdown containing: video title, channel, publish date, duration,
 description, and transcript (from cascade).
 """

@@ -187,7 +187,7 @@ class Settings:
         os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000"),
     )
     embedding_model: str = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "786"))
     embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
     embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
     embedding_retry_delay_seconds: float = float(
@@ -271,6 +271,35 @@ class Settings:
     vss_enabled: bool = os.environ.get("VSS_ENABLED", "true").lower() == "true"
     flockmtl_enabled: bool = os.environ.get("FLOCKMTL_ENABLED", "true").lower() == "true"
 
+    # Judge inference chain (2026-08-22): HF router retired. Stage 1 =
+    # Gemini API hosting Gemma via the native google-genai SDK (Gemma has
+    # no reliable OpenAI-compat access and no responseSchema support, so
+    # stage 1 sends plain text and relies on the prompt footer + tolerant
+    # parser). Stage 2 = NanoGPT (OpenAI-compatible) serving DeepSeek V4
+    # Flash thinking WITH strict json_schema. NanoGPT docs spell the env
+    # var NANOGPT_API_KEY; underscored legacy spelling kept as fallback.
+    judge_gemini_model: str = os.environ.get("JUDGE_GEMINI_MODEL", "gemma-4-26b-a4b-it")
+    nano_gpt_api_key: str = os.environ.get("NANOGPT_API_KEY") or os.environ.get(
+        "NANO_GPT_API_KEY", ""
+    )
+    judge_nanogpt_model: str = os.environ.get(
+        "JUDGE_NANOGPT_MODEL",
+        "deepseek/deepseek-v4-flash-0731:thinking",
+    )
+    judge_nanogpt_base_url: str = os.environ.get(
+        "JUDGE_NANOGPT_BASE_URL",
+        "https://nano-gpt.com/api/subscription/v1",
+    )
+    # Per-stage retry policy: attempts = 1 + max_retries, exponential
+    # backoff initial*2**attempt capped at the ceiling.
+    judge_stage_max_retries: int = int(os.environ.get("JUDGE_STAGE_MAX_RETRIES", "2"))
+    judge_retry_initial_backoff_seconds: float = float(
+        os.environ.get("JUDGE_RETRY_INITIAL_BACKOFF_SECONDS", "1.0")
+    )
+    judge_retry_max_backoff_seconds: float = float(
+        os.environ.get("JUDGE_RETRY_MAX_BACKOFF_SECONDS", "8.0")
+    )
+
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
     process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
     process_logs_sqlite_path: str = os.environ.get(
@@ -348,8 +377,37 @@ class Settings:
     gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
     gemini_second_api_key: str = os.environ.get("GEMINI_SECOND_API_KEY", "")
     # Model selection handled via hardcoded fallback tier in gemini_search_tool.py
+    # Antigravity managed-agent backend for gemini_search (Interactions API; uses GEMINI_API_KEY)
+    gemini_search_backend: str = (
+        os.environ.get("GEMINI_SEARCH_BACKEND", "grounding").strip().lower()
+    )
+    antigravity_model: str = os.environ.get("ANTIGRAVITY_MODEL", "gemini-3.7-flash")
+    antigravity_max_total_tokens: int = int(os.environ.get("ANTIGRAVITY_MAX_TOTAL_TOKENS", "60000"))
+    antigravity_timeout_seconds: float = float(os.environ.get("ANTIGRAVITY_TIMEOUT_SECONDS", "240"))
+    antigravity_poll_interval_seconds: float = float(
+        os.environ.get("ANTIGRAVITY_POLL_INTERVAL_SECONDS", "5")
+    )
 
-    # Gemini summaries (for get_content / batch_get_content optional summaries)
+    # Gemini summaries for the unified fetch tool
+    # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
+    web_fetch_item_max_chars: int = int(
+        os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "60000")
+    )
+    web_fetch_total_char_budget: int = int(
+        os.environ.get("KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET", "120000")
+    )
+    web_fetch_workers: int = int(os.environ.get("KINDLY_WEB_FETCH_WORKERS", "4"))
+    web_fetch_wave_size: int = int(os.environ.get("KINDLY_WEB_FETCH_WAVE_SIZE", "10"))
+    web_fetch_wave_delay_seconds: float = float(
+        os.environ.get("KINDLY_WEB_FETCH_WAVE_DELAY_SECONDS", "0.5")
+    )
+    web_fetch_timeout_seconds: float = float(
+        os.environ.get("KINDLY_WEB_FETCH_TIMEOUT_SECONDS", "20")
+    )
+    web_fetch_max_body_bytes: int = int(
+        os.environ.get("KINDLY_WEB_FETCH_MAX_BODY_BYTES", str(5 * 1024 * 1024))
+    )
+
     summary_gemini_model: str = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-3.5-flash-lite")
     summary_gemma_fallback_model: str = os.environ.get(
         "SUMMARY_GEMMA_FALLBACK_MODEL", "gemma-4-26b-a4b-it"
@@ -594,11 +652,9 @@ class Settings:
     )
 
     # =====================================================================
-    # Firecrawl Cloud (batch scrape primary backend for batch_get_content)
-    # =====================================================================
+    # Firecrawl Cloud (optional provider configuration retained for future fetch routing)
+    # The unified fetch tool currently uses the local pipeline and configured sidecars.
     firecrawl_api_key: str = os.environ.get("FIRECRAWL_API_KEY", "")
-    # When set, batch_get_content tries Firecrawl Cloud first.
-    # When empty, Firecrawl is skipped and the existing per-URL pipeline runs.
 
     firecrawl_api_url: str = os.environ.get("FIRECRAWL_API_URL", "https://api.firecrawl.dev")
     firecrawl_timeout_seconds: float = float(os.environ.get("FIRECRAWL_TIMEOUT_SECONDS", "60.0"))

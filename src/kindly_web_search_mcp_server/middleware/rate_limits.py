@@ -60,8 +60,7 @@ class DifferentiatedRateLimitMiddleware(Middleware):
     CHEAP_TOOLS = frozenset(
         {
             "web_search",
-            "get_content",
-            "batch_get_content",
+            "fetch",
             "discover_links",
             "gemini_search",
             "youtube_search",

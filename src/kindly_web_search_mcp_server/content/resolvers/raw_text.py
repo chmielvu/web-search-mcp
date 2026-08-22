@@ -13,6 +13,7 @@ from typing import Literal
 from ..artifact import ContentArtifact, ContentError
 from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
+from ..typed_content import detect_content_format, render_typed_content
 from ..sanitize import sanitize_markdown
 from ..status_classifier import classify_markdown
 from ...telemetry import record_content_error, record_content_resolution
@@ -33,6 +34,8 @@ RAW_TEXT_EXTENSIONS: set[str] = {
     ".json",
     ".yaml",
     ".yml",
+    ".rss",
+    ".atom",
     ".toml",
     ".xml",
     ".csv",
@@ -140,10 +143,24 @@ async def fetch_raw_text_markdown(
 
     try:
         timeout_sec = options.stage_timeout_seconds or 20.0
-        fetched = await safe_fetch_url(url, timeout_seconds=timeout_sec)
-        raw_text = fetched.body.decode("utf-8", errors="replace")
-        # Strip null characters if any
+        fetched = await safe_fetch_url(
+            url,
+            timeout_seconds=timeout_sec,
+            max_response_bytes=options.max_response_bytes,
+        )
+        raw_text = fetched.text or fetched.body.decode("utf-8", errors="replace")
         raw_text = raw_text.replace("\x00", "")
+        typed_format = detect_content_format(url, fetched.content_type, raw_text)
+        typed_metadata: dict[str, object] | None = None
+        typed_links: list[dict[str, object]] | None = None
+        if typed_format in {"json", "rss", "atom", "xml", "csv", "tsv"}:
+            raw_text, typed_metadata, typed_links = render_typed_content(
+                typed_format,
+                raw_text,
+                fetched.fetched_url or url,
+            )
+            source_type = typed_format
+        fetch_backend = "typed_content" if typed_format else "raw_text_fetch"
         clean_text = sanitize_markdown(raw_text)
 
         cls = classify_markdown(clean_text)
@@ -161,16 +178,17 @@ async def fetch_raw_text_markdown(
             word_count=word_count,
             extraction_method="safe_fetch_raw",
         )
-
         return ContentArtifact(
             input_url=url,
             normalized_url=canonicalize_url(url),
             fetched_url=fetched.fetched_url or url,
             status=status,
             source_type=source_type,
-            fetch_backend="raw_text_fetch",
+            fetch_backend=fetch_backend,
             content_type=fetched.content_type or content_type,
             markdown=clean_text,
+            metadata=typed_metadata,
+            links=typed_links if options.include_links else None,
             word_count=word_count,
             quality_score=1.0 if status == "success" else 0.4,
             error=None

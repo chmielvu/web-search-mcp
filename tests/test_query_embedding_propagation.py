@@ -47,8 +47,8 @@ def _make_run(stub_result: WebSearchResult) -> SearchRun:
 
 
 @pytest.fixture
-def vec_1024():
-    return [0.001 * i for i in range(1024)]
+def vec_786():
+    return [0.001 * i for i in range(786)]
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def stub_result():
 
 @pytest.mark.asyncio
 async def test_rank_and_finalize_propagates_query_embedding_when_context_is_not_none(
-    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_1024: list[float]
+    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_786: list[float]
 ) -> None:
     """Collector receives query_embedding from RerankEmbeddingContext."""
     run, outcome = _make_run(stub_result)
@@ -74,12 +74,12 @@ async def test_rank_and_finalize_propagates_query_embedding_when_context_is_not_
             return_value=RerankOutput(
                 results=[stub_result],
                 embedding_context=RerankEmbeddingContext(
-                    query_embedding=list(vec_1024),
+                    query_embedding=list(vec_786),
                     candidates=[
                         CandidateEmbedding(
                             url=stub_result.link,
                             text="t",
-                            dense=list(vec_1024),
+                            dense=list(vec_786),
                         )
                     ],
                 ),
@@ -88,15 +88,15 @@ async def test_rank_and_finalize_propagates_query_embedding_when_context_is_not_
     )
 
     await rank_and_finalize(run, (outcome,), embedding_task=None)
-    assert run.diagnostics.query_embedding == vec_1024
+    assert run.diagnostics.query_embedding == vec_786
     assert len(run.diagnostics.candidate_embeddings) == 1
 
 
 @pytest.mark.asyncio
 async def test_build_diagnostics_reports_query_embedding_dim_from_rerank_context(
-    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_1024: list[float]
+    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_786: list[float]
 ) -> None:
-    """build_diagnostics projects query_embedding_dim=1024 from the collector."""
+    """build_diagnostics projects query_embedding_dim=786 from the collector."""
     run, outcome = _make_run(stub_result)
 
     monkeypatch.setattr(
@@ -105,12 +105,12 @@ async def test_build_diagnostics_reports_query_embedding_dim_from_rerank_context
             return_value=RerankOutput(
                 results=[stub_result],
                 embedding_context=RerankEmbeddingContext(
-                    query_embedding=list(vec_1024),
+                    query_embedding=list(vec_786),
                     candidates=[
                         CandidateEmbedding(
                             url=stub_result.link,
                             text="t",
-                            dense=list(vec_1024),
+                            dense=list(vec_786),
                         )
                     ],
                 ),
@@ -120,13 +120,13 @@ async def test_build_diagnostics_reports_query_embedding_dim_from_rerank_context
 
     await rank_and_finalize(run, (outcome,), embedding_task=None)
     diag = build_diagnostics(run, total_latency_ms=0.0)
-    assert diag.embeddings.query_embedding_dim == 1024
+    assert diag.embeddings.query_embedding_dim == 786
     assert diag.embeddings.candidate_count == 1
 
 
 @pytest.mark.asyncio
 async def test_persist_search_outcome_writes_query_embedding_row_when_context_is_not_none(
-    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_1024: list[float]
+    monkeypatch: pytest.MonkeyPatch, stub_result: WebSearchResult, vec_786: list[float]
 ) -> None:
     """persist_search_outcome dispatches a query_embeddings DuckDB write with the correct payload."""
     run, outcome = _make_run(stub_result)
@@ -137,12 +137,12 @@ async def test_persist_search_outcome_writes_query_embedding_row_when_context_is
             return_value=RerankOutput(
                 results=[stub_result],
                 embedding_context=RerankEmbeddingContext(
-                    query_embedding=list(vec_1024),
+                    query_embedding=list(vec_786),
                     candidates=[
                         CandidateEmbedding(
                             url=stub_result.link,
                             text="t",
-                            dense=list(vec_1024),
+                            dense=list(vec_786),
                         )
                     ],
                 ),
@@ -207,7 +207,7 @@ async def test_persist_search_outcome_writes_query_embedding_row_when_context_is
     assert len(query_writes) == 1, query_writes
     qw = query_writes[0]
     assert qw["run_key"] == "t-run"
-    assert qw["embedding"] == vec_1024
+    assert qw["embedding"] == vec_786
     assert qw["model_id"] == "intfloat/multilingual-e5-large-instruct"
     assert len(candidate_writes) >= 1, candidate_writes
-    assert candidate_writes[0]["embedding"] == vec_1024
+    assert candidate_writes[0]["embedding"] == vec_786

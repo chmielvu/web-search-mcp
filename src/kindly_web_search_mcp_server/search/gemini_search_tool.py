@@ -452,6 +452,20 @@ async def gemini_search_with_grounding(
     parallel_mode: bool = True,
 ) -> GeminiGroundingResult:
     """Execute Gemini Grounding Search tool operation."""
+    if getattr(settings, "gemini_search_backend", "grounding") == "antigravity":
+        from .antigravity_backend import call_antigravity_grounding
+
+        try:
+            return await call_antigravity_grounding(
+                query,
+                system_prompt=get_system_prompt(research_goal),
+                structured_output=structured_output,
+            )
+        except Exception as exc:  # noqa: BLE001 - fall back to grounding tier
+            logger.warning(
+                "Antigravity backend failed (%s); falling back to grounding tier",
+                exc,
+            )
     if parallel_mode and structured_output:
         overview_system, _ = build_dual_prompt(
             query=query, research_goal=research_goal, mode="overview"

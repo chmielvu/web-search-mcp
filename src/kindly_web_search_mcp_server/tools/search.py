@@ -51,7 +51,7 @@ async def web_search(
     1. Provide a specific search query containing exact terms, error codes, or dates.
     2. Provide a natural-language research_goal used for intent policy and relevance scoring.
     3. Evaluate results based on provider_count (>=2 indicates high consensus).
-    4. You MUST call get_content on the top URLs to read their full context before finalizing your answer.
+    4. You MUST call fetch on the top URLs to read their full context before finalizing your answer.
 
     Do NOT use for:
     - Initial fast scoping (use quick_web_search first).

@@ -313,7 +313,7 @@ async def code_search(
 
     Returns grouped results (Octocode-style): repository → files → text_matches,
     match_lines with exact spans, symbols, sha, and url. Hints and next
-    continuations guide agents to fetch exact line anchors via get_content.
+    continuations guide agents to fetch exact line anchors via fetch.
     Ranking scores and provider telemetry are omitted.
     """
     tool_call_id = str(uuid.uuid4())
@@ -365,19 +365,25 @@ async def code_search(
         )
         raise
 
-    plan = build_query_plan(
-        request.query,
-        regexp=request.regexp,
-        deep=request.deep,
-        repositories=request.repositories,
-        language=request.language,
-        path=request.path,
-        filename=request.filename,
-        extension=request.extension,
-        max_variants=request.budget.max_query_variants,
-        mode=request.mode,
-    )
-    plan = await optimize_query_plan(plan, request)
+    from ...inference.engine import bind_run_context, reset_run_context
+
+    optimization_token = bind_run_context(tool_call_id, operation="code_search")
+    try:
+        plan = build_query_plan(
+            request.query,
+            regexp=request.regexp,
+            deep=request.deep,
+            repositories=request.repositories,
+            language=request.language,
+            path=request.path,
+            filename=request.filename,
+            extension=request.extension,
+            max_variants=request.budget.max_query_variants,
+            mode=request.mode,
+        )
+        plan = await optimize_query_plan(plan, request)
+    finally:
+        reset_run_context(optimization_token)
     if ctx is not None:
         await ctx.report_progress(progress=5, total=100, message="Planning code search...")
 

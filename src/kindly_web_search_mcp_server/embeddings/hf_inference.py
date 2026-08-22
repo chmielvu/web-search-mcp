@@ -14,7 +14,7 @@ from huggingface_hub import AsyncInferenceClient, InferenceTimeoutError
 
 from ..settings import settings
 
-EMBEDDING_DIM = 1024  # intfloat/multilingual-e5-large-instruct dimension
+EMBEDDING_DIM = 786
 LOGGER = logging.getLogger(__name__)
 
 # E5-instruct requires a task instruction prefix for queries, NOT for passages.
@@ -157,6 +157,7 @@ def _validate_dimensions(vectors: list[list[float]], expected_dim: int) -> None:
             raise EmbeddingDimensionError(
                 f"Expected embedding dimension {expected_dim}, got {len(vector)} at index {index}"
             )
+
 
 
 # Singleton AsyncInferenceClient for connection reuse across embedding calls.

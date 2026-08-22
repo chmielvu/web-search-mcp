@@ -33,7 +33,6 @@ cli/
     ├── search_code.py       # Public code/documentation/repository search
     ├── quick_search.py      # Quick search
     ├── content.py           # Content fetch
-    ├── content_batch.py     # Batch content
     ├── link_tools.py        # Link discovery
     ├── ai.py                # AI answers
     ├── academic.py          # Academic search
@@ -66,7 +65,7 @@ uv run web-search-cli feedback create --message "..." --type bug
 uv run web-search-cli feedback list
 uv run web-search-cli reference tools
 uv run web-search-cli search quick --search-query ... --objective ...
-uv run web-search-cli content <url>
+uv run web-search-cli content fetch --url <url>
 uv run web-search-cli links <url>
 uv run web-search-cli ai <query>
 uv run web-search-cli youtube search <query>

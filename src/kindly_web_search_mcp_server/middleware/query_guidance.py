@@ -27,7 +27,7 @@ from ..heuristics.guidance_messages import (
 logger = logging.getLogger(__name__)
 GEMINI_TOOLS = frozenset({"gemini_search"})
 GEMINI_QUERY_ADVISORY = """
-GEMINI SEARCH: Best for quick grounded synthesis. Use a single focused question, include exact API/error/version terms, and add recency hints when freshness matters. Use web_search plus get_content when you need to compare source pages yourself.
+GEMINI SEARCH: Best for quick grounded synthesis. Use a single focused question, include exact API/error/version terms, and add recency hints when freshness matters. Use web_search plus fetch when you need to compare source pages yourself.
 """
 _GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS = 300
 
@@ -68,9 +68,13 @@ def _append_enrichment(
     ag.append({"source": source, "message": message.strip()})
     structured["agent_guidance"] = ag
     if next_tools:
-        structured.setdefault("suggested_next_tools", []).extend(next_tools)
+        existing_tools = list(structured.get("suggested_next_tools") or [])
+        existing_tools.extend(next_tools)
+        structured["suggested_next_tools"] = existing_tools
     if next_prompts:
-        structured.setdefault("suggested_prompts", []).extend(next_prompts)
+        existing_prompts = list(structured.get("suggested_prompts") or [])
+        existing_prompts.extend(next_prompts)
+        structured["suggested_prompts"] = existing_prompts
     return ToolResult(structured_content=structured, meta=result.meta, is_error=result.is_error)
 
 
@@ -172,62 +176,56 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     return (" ".join(parts), next_tools, next_prompts)
 
 
-def _guide_get_content(data: dict) -> tuple[str, list[str], list[str]]:
-    data = _unwrap_fastmcp_result(data)
-    parts: list[str] = []
-    next_tools: list[str] = []
-    next_prompts: list[str] = ["research_methodology"]
-    source_type = data.get("source_type", "")
-    fetch_backend = data.get("fetch_backend", "")
-    window = data.get("window", {})
-    status = data.get("status", "")
-    content_len = len(data.get("page_content", ""))
-
-    if window.get("has_more"):
-        nxt = window.get("next_offset", 0)
-        parts.append(f"Truncated at {nxt} chars. Continue: get_content(char_offset={nxt}).")
-        next_tools.append("get_content")
-
-    if source_type == "github_issue":
-        parts.append("GitHub issue detected. Use composio_similarlinks to find related issues/PRs.")
-        next_tools.append("composio_similarlinks")
-        next_prompts.append("research_methodology")
-    elif source_type == "wikipedia":
-        parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
-        next_tools.append("academic_search")
-
-    if fetch_backend == "browser_fallback":
-        parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
-
-    if content_len < 300 and not window.get("has_more") and status != "error":
-        parts.append("Very short content (possibly behind login/paywall). Try alternative source.")
-
-    return (" ".join(parts) if parts else "", next_tools, next_prompts)
-
-
-def _guide_batch_get_content(data: dict) -> tuple[str, list[str], list[str]]:
+def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
     next_prompts: list[str] = ["research_methodology"]
     results = data.get("results", [])
+    if not isinstance(results, list):
+        results = []
+
+    if data.get("mode") == "single":
+        item = results[0] if results else data
+        source_type = item.get("source_type", "")
+        fetch_backend = item.get("fetch_backend", "")
+        window = item.get("window", {})
+        status = item.get("status", "")
+        content_len = len(item.get("page_content", ""))
+        if window.get("has_more"):
+            nxt = window.get("next_offset", 0)
+            parts.append(f"Truncated at {nxt} chars. Continue: fetch(offset={nxt}).")
+            next_tools.append("fetch")
+        if source_type == "github_issue":
+            parts.append("GitHub issue detected. Use composio_similarlinks to find related issues/PRs.")
+            next_tools.append("composio_similarlinks")
+        elif source_type == "wikipedia":
+            parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
+            next_tools.append("academic_search")
+        if fetch_backend == "browser_fallback":
+            parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
+        if content_len < 300 and not window.get("has_more") and status != "error":
+            parts.append("Very short content (possibly behind login/paywall). Try an alternative source.")
+        wall = item.get("wall")
+        if isinstance(wall, dict) and wall.get("kind") in {"login", "paywall", "bot"}:
+            parts.append(f"Access signal detected: {wall['kind']}. Do not trust the returned wall content.")
+        return (" ".join(parts) if parts else "", next_tools, next_prompts)
+
     has_more = data.get("has_more", False)
     cursor = data.get("cursor")
     total_req = data.get("total_requested", 0)
-
     if has_more and cursor:
-        remaining = total_req - len(results)
+        remaining = max(0, int(total_req or 0) - len(results))
         parts.append(
-            f"has_more=true ({remaining} URLs pending). "
-            f"Continue: batch_get_content(cursor={cursor})."
+            f"has_more=true ({remaining} URLs pending). Continue: fetch(cursor={cursor})."
         )
-        next_tools.append("batch_get_content")
+        next_tools.append("fetch")
 
-    success_count = sum(1 for r in results if r.get("status") == "success")
+    success_count = sum(1 for item in results if item.get("status") == "success")
     if total_req > 0 and success_count < total_req:
-        parts.append(f"{success_count}/{total_req} URLs succeeded.")
+        parts.append(f"{success_count}/{total_req} URLs succeeded in this page.")
 
-    source_types = {r.get("source_type", "") for r in results if r.get("status") == "success"}
+    source_types = {item.get("source_type", "") for item in results if item.get("status") == "success"}
     if len(source_types) == 1 and source_types:
         parts.append(
             f"All fetched from {list(source_types)[0]}. Consider adding different source types."
@@ -244,7 +242,7 @@ def _guide_gemini_search(data: dict) -> tuple[str, list[str], list[str]]:
 
 def _guide_quick_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     del data
-    return ("", ["web_search", "get_content"], [])
+    return ("", ["web_search", "fetch"], [])
 
 
 def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
@@ -272,8 +270,7 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
 
 GUIDANCE_GENERATORS = {
     "web_search": _guide_web_search,
-    "get_content": _guide_get_content,
-    "batch_get_content": _guide_batch_get_content,
+    "fetch": _guide_fetch,
     "gemini_search": _guide_gemini_search,
     "quick_web_search": _guide_quick_web_search,
 }
@@ -311,9 +308,13 @@ class DynamicGuidanceMiddleware(Middleware):
             ag.append({"source": "error_recovery_guidance", "message": msg.strip()})
             structured["agent_guidance"] = ag
             if next_tools:
-                structured.setdefault("suggested_next_tools", []).extend(next_tools)
+                existing_tools = list(structured.get("suggested_next_tools") or [])
+                existing_tools.extend(next_tools)
+                structured["suggested_next_tools"] = existing_tools
             if next_prompts:
-                structured.setdefault("suggested_prompts", []).extend(next_prompts)
+                existing_prompts = list(structured.get("suggested_prompts") or [])
+                existing_prompts.extend(next_prompts)
+                structured["suggested_prompts"] = existing_prompts
             return ToolResult(
                 content=[TextContent(type="text", text=str(exc))],
                 structured_content=structured,

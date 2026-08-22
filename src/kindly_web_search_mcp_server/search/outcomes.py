@@ -302,6 +302,18 @@ async def persist_search_outcome(run):
             from ..analytics.duckdb_store import insert_funnel_uplift_batches
             pr_rows = dc.provider_result_rows or []
             qv_rows = dc.query_variant_rows or []
+            catalog_rows = [
+                {
+                    "canonical_result_id": _canonical_result_id(candidate.link),
+                    "canonical_url": candidate.link,
+                    "domain": candidate.domain or extract_domain_from_url(candidate.link) or "",
+                    "title_first_seen": candidate.title,
+                    "first_seen_run_key": rk,
+                    "total_run_appearances": 1,
+                }
+                for candidate in dc.merged_candidates
+                if getattr(candidate, "link", None)
+            ]
             qt_rows = []
             branch_index_by_role = {
                 branch_outcome.branch.role.value: index
@@ -336,8 +348,9 @@ async def persist_search_outcome(run):
                         "metadata_json": row["metadata_json"],
                     }
                 )
-            if pr_rows or qv_rows or qt_rows:
+            if catalog_rows or pr_rows or qv_rows or qt_rows:
                 insert_funnel_uplift_batches(
+                    result_catalog=catalog_rows,
                     provider_results=pr_rows,
                     query_variants=qv_rows,
                     query_transforms=qt_rows,

@@ -24,7 +24,7 @@ from .unified_ml import embed_texts as _uml_embed_texts
 from .unified_ml import reset_unifiedml_client
 
 LOGGER = logging.getLogger(__name__)
-EMBEDDING_DIM = 384  # Default dimension for multilingual-e5-small
+EMBEDDING_DIM = 786
 
 
 async def embed_texts(

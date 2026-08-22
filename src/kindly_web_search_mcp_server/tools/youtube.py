@@ -458,14 +458,7 @@ async def youtube_search(
             error_message=str(e),
             duration_ms=duration_seconds * 1000,
         )
-        return {  # type: ignore[return-value]
-            "query": query,
-            "results": [],
-            "error": str(e),
-            "isError": True,
-            "error_type": "network",
-            "action": "YouTube search via SearXNG failed. Check SEARXNG_BASE_URL configuration.",
-        }
+        raise_tool_error(e, provider="youtube")
 
     except Exception as e:
         duration_seconds = time.time() - start_time

@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-08-22 | Last verified: 2026-08-22 -->
 
 # AGENTS.md - Tests
 
@@ -14,7 +14,7 @@ Runtime regression suite (130+ test files).
 | Search pipeline | `test_search_service.py`, `test_search_contracts.py`, `test_search_ranking.py`, `test_search_planning_why.py`, `test_search_merge_cache.py` |
 | Content | `test_content_*.py`, `test_page_content_resolver.py`, `test_sitemap.py` |
 | Rerank | `test_rerank_core.py`, `test_rerank_bi_encoder.py`, `test_rerank_llm.py`, `test_bm25_rerank.py` |
-| Analytics | `test_analytics_*.py`, `test_pipeline_tables.py`, `test_search_quality_scores.py`, `test_judges_facets.py` |
+| Analytics | `test_analytics_*.py`, `test_pipeline_tables.py`, `test_search_quality_scores.py`, `test_judges_facets.py`, `test_judge_after_outcome_write.py`, `test_judge_chain.py`, `test_flockmtl_judge_routing.py` |
 | Cache | `test_exact_lru_cache.py`, `test_page_cache_sqlite.py`, `test_transcript_cache.py` |
 | CLI | `tests/cli/` subdirectory |
 | YouTube | `test_youtube*.py`, `test_youtube_api.py` |

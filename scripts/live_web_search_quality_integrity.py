@@ -72,7 +72,7 @@ def analytics_integrity(
     diagnostic_embedding_runs = [
         row["run_key"]
         for row in runs
-        if _find_key(_json_object(row.get("payload_json")), "query_embedding_dim") == 1024
+        if _find_key(_json_object(row.get("payload_json")), "query_embedding_dim") == 786
     ]
     embedding_rows = exported.get("embedding_coverage", [])
     query_embedding_rows = [
@@ -90,7 +90,7 @@ def analytics_integrity(
         "rerank_rows_with_null_status": sum(
             row.get("status") is None for row in exported.get("rerank_stages", [])
         ),
-        "diagnostic_1024d_embedding_runs": len(diagnostic_embedding_runs),
+        "diagnostic_786d_embedding_runs": len(diagnostic_embedding_runs),
         "query_embedding_rows": len(query_embedding_rows),
         "query_embedding_dimensions": dict(
             Counter(str(row.get("vector_dimension")) for row in query_embedding_rows)

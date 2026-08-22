@@ -227,11 +227,11 @@ def analytics_gate(run_dir: Path, batch_calls: list[dict[str, Any]]) -> dict[str
             )
         payload = _json_object(row.get("payload_json"))
         dimension = _find_key(payload, "query_embedding_dim")
-        if dimension == 1024:
+        if dimension == 786:
             matches = [item for item in embeddings if item["run_key"] == run_key]
             dimensions = [len(item.get("embedding") or []) for item in matches]
-            if len(matches) != 1 or dimensions != [1024]:
-                failures.append(f"{run_key}: expected one 1024D query embedding, got {dimensions}")
+            if len(matches) != 1 or dimensions != [786]:
+                failures.append(f"{run_key}: expected one 786D query embedding, got {dimensions}")
     if not logs_path.exists():
         failures.append("process_logs.duckdb missing")
         log_count = debug_count = 0

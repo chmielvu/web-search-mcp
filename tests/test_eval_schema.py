@@ -79,7 +79,7 @@ def test_eval_case_models_validate_minimum_contract() -> None:
         query="https://example.com/docs",
         research_goal="fetch a known URL",
         expected_tool_calls=[
-            ExpectedToolCall(tool_name="get_content", required=True),
+            ExpectedToolCall(tool_name="fetch", required=True),
             ExpectedToolCall(tool_name="web_search", required=False, forbidden=True),
         ],
         candidate_sets=[
@@ -91,7 +91,7 @@ def test_eval_case_models_validate_minimum_contract() -> None:
     )
 
     assert case.eval_case_id == "case-1"
-    assert case.expected_tool_calls[0].tool_name == "get_content"
+    assert case.expected_tool_calls[0].tool_name == "fetch"
     assert case.candidate_sets[0].candidates[0]["domain"] == "example.com"
 
 
@@ -107,7 +107,7 @@ def test_deterministic_eval_metrics() -> None:
 
     tool_calls = [
         {"tool_name": "web_search"},
-        {"tool_name": "get_content"},
+        {"tool_name": "fetch"},
     ]
     ranked_candidates = [
         {"url": "https://noise.example/a", "relevance": 0},
@@ -115,7 +115,7 @@ def test_deterministic_eval_metrics() -> None:
         {"url": "https://docs.python.org/3/library/json.html", "relevance": 2},
     ]
 
-    assert expected_tool_called(tool_calls, "get_content") == 1.0
+    assert expected_tool_called(tool_calls, "fetch") == 1.0
     assert expected_tool_called(tool_calls, "gemini_search") == 0.0
     assert forbidden_tool_not_called(tool_calls, "grok_search") == 1.0
     assert forbidden_tool_not_called(tool_calls, "web_search") == 0.0

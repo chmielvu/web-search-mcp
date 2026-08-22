@@ -31,11 +31,11 @@ def web_search_workflow_prompt(
         )
     elif depth == "medium":
         lines.append(
-            "- MEDIUM: web_search -> triage by provider_count>=2 -> batch_get_content on top 2-3 URLs."
+            "- MEDIUM: web_search -> triage by provider_count>=2 -> fetch on top 2-3 URLs."
         )
     else:
         lines.append(
-            "- DEEP: web_search(num_results=7) -> batch_get_content(5) -> cross-check with academic_search."
+            "- DEEP: web_search(num_results=7) -> fetch with urls -> cross-check with academic_search."
         )
     if focus == "code":
         lines.append(
@@ -53,7 +53,7 @@ def web_search_workflow_prompt(
         "",
         "Execution:",
         "1. Evaluate results: provider_count>=2 is a strong signal; verify domain if 1 or missing.",
-        "2. Read pages: get_content (single) or batch_get_content (multiple); on TimeoutError see docs://workflow.",
+        "2. Read pages: fetch with url or urls; on TimeoutError see docs://workflow.",
         "3. Gap analysis: terminate when 3 independent sources agree, or 2 consecutive rounds add nothing.",
     ]
     return [Message("\n".join(lines), role="user")]
@@ -103,7 +103,7 @@ def research_methodology_prompt() -> list[Message]:
                     "1. DECOMPOSE — break the user's question into independent sub-questions",
                     "2. RECONNAISSANCE — quick_web_search + gemini_search to map the landscape",
                     "3. DISCOVER — web_search with targeted queries informed by recon",
-                    "4. DEEP-READ — get_content/batch_get_content on the most promising results",
+                    "4. DEEP-READ — fetch on the most promising results",
                     "5. EVALUATE — identify gaps, single-source claims, domain concentration",
                     "6. ITERATE — go back to step 3 with better queries, or to step 2 with new angles",
                     "7. TERMINATE — when 3+ independent sources agree, or 2 rounds add nothing new",
@@ -145,8 +145,7 @@ def research_methodology_prompt() -> list[Message]:
                     "## Deep-Reading Phase",
                     "",
                     "Snippets are teasers, not evidence. Always deep-read the best candidates:",
-                    "- get_content for a single URL with ai_summary=true for a detailed summary",
-                    "- batch_get_content for 3+ URLs in parallel with character budget",
+                    "- fetch accepts one URL or urls for a detailed single/bulk read",
                     "- Set focus_query to bias summaries toward what you care about",
                     "- Check window.has_more — content may be truncated; paginate with char_offset",
                     "- Prefer sources with concrete dates, author names, and reproducible examples",

@@ -127,7 +127,7 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "discounted_gain uses the zero-based log2(position + 2) discount."
     ),
     "content_operations": (
-        "One row per terminal get_content or batch_get_content operation, tracking input/output counts, "
+        "One row per terminal fetch operation, tracking input/output counts, "
         "duration, and status."
     ),
     "content_fetches": (

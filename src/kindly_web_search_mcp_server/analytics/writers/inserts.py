@@ -667,6 +667,8 @@ _CONTENT_FETCH_COLUMNS = [
     "normalized_url",
     "fetched_url",
     "source_type",
+    "content_type",
+    "cached",
     "fetch_backend",
     "status",
     "content_length",
@@ -1090,7 +1092,10 @@ _RESULT_CATALOG_WRITER = TableWriter(
     table_name=_RC_CAT_TABLE_NAME,
     ensure_name="_ensure_result_catalog",
     columns=_RESULT_CATALOG_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
+    on_conflict=(
+        "ON CONFLICT (canonical_result_id) DO UPDATE SET "
+        "total_run_appearances = total_run_appearances + excluded.total_run_appearances"
+    ),
     task_name="analytics.result_catalog",
 )
 _PROVIDER_RESULTS_WRITER = TableWriter(

@@ -111,27 +111,32 @@ class TestAgentSteeringMiddleware(unittest.IsolatedAsyncioTestCase):
         self.assertIn("github", guidance["message"])
         self.assertIn("Query shaped", guidance["message"])
 
-    async def test_dynamic_guidance_on_get_content_truncated(self) -> None:
+    async def test_dynamic_guidance_on_fetch_truncated(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:
             return ToolResult(
                 structured_content={
-                    "input_url": "https://example.com",
-                    "status": "success",
-                    "source_type": "html",
-                    "fetch_backend": "safe_http_extract",
-                    "page_content": "x" * 500,
-                    "window": {"has_more": True, "next_offset": 8000},
+                    "mode": "single",
+                    "results": [
+                        {
+                            "input_url": "https://example.com",
+                            "status": "success",
+                            "source_type": "html",
+                            "fetch_backend": "safe_http_extract",
+                            "page_content": "x" * 500,
+                            "window": {"has_more": True, "next_offset": 8000},
+                        }
+                    ],
                 }
             )
 
-        context = MiddlewareContext(message=SimpleNamespace(name="get_content"))
+        context = MiddlewareContext(message=SimpleNamespace(name="fetch"))
         result = await DynamicGuidanceMiddleware().on_call_tool(context, call_next)
 
         structured = result.structured_content
         guidance = structured["agent_guidance"][0]
         self.assertIn("Truncated", guidance["message"])
-        self.assertIn("char_offset=8000", guidance["message"])
-        self.assertIn("get_content", structured["suggested_next_tools"])
+        self.assertIn("offset=8000", guidance["message"])
+        self.assertIn("fetch", structured["suggested_next_tools"])
 
     async def test_dynamic_guidance_skips_unregistered_tools(self) -> None:
         async def call_next(context: MiddlewareContext) -> ToolResult:

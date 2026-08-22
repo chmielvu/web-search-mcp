@@ -200,18 +200,18 @@ def _route_for_task(task: str) -> CommandRoute:
     github_repo = _extract_github_repo(task)
 
     if len(urls) >= 3:
-        arguments: list[str] = ["content", "batch"]
+        arguments: list[str] = ["content", "fetch"]
         for url in urls:
             arguments.extend(("--url", url))
         return _route(
             arguments,
             intent="multi_url_read",
             confidence="high",
-            reason="The task contains three or more known URLs; batch content preserves a shared character budget.",
-            mcp_tool="batch_get_content",
+            reason="The task contains multiple known URLs; fetch preserves ordered per-source results and bounded continuation.",
+            mcp_tool="fetch",
             required_profile="regular",
-            structured_arguments={"--url": urls},
-            workflow=["content batch", "inspect has_more/cursor"],
+            structured_arguments={"urls": urls},
+            workflow=["content fetch", "inspect has_more/cursor"],
         )
 
     if urls:
@@ -255,20 +255,20 @@ def _route_for_task(task: str) -> CommandRoute:
                 workflow=["links discover", "content get on promising URLs"],
             )
         summary = _contains_any(lowered, ("summarize", "summary", "概述", "摘要", "总结"))
-        arguments = ["content", "get", "--url", url]
-        structured: dict[str, Any] = {"--url": url}
+        arguments = ["content", "fetch", "--url", url]
+        structured: dict[str, Any] = {"url": url}
         if summary:
             arguments.append("--ai-summary")
-            structured["--ai-summary"] = True
+            structured["ai_summary"] = True
         return _route(
             arguments,
             intent="known_url_read",
             confidence="high",
             reason="A known URL should be read directly before broader discovery.",
-            mcp_tool="get_content",
+            mcp_tool="fetch",
             required_profile="regular",
             structured_arguments=structured,
-            workflow=["content get", "paginate when window.has_more is true"],
+            workflow=["content fetch", "paginate with offset when the result window has_more"],
         )
 
     if github_repo:

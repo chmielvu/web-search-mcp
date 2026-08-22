@@ -95,8 +95,8 @@ def web_search_specialized_gap_guidance(
     if looks_coding and not has_specialized:
         msg = (
             "No specialized code hosts in top results. "
-            "Call get_content on the best URLs, or narrow query with an explicit owner/repo."
+            "Call fetch on the best URLs, or narrow query with an explicit owner/repo."
         )
-        tools.append("get_content")
+        tools.append("fetch")
         return msg, tools
     return "", tools

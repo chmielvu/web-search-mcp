@@ -180,7 +180,11 @@ async def fetch_doi_paper_markdown(
             # Try to fetch and extract the full-text PDF if OA PDF exists
             if pdf_url:
                 try:
-                    fetched_pdf = await safe_fetch_url(pdf_url, timeout_seconds=timeout_sec)
+                    fetched_pdf = await safe_fetch_url(
+                        pdf_url,
+                        timeout_seconds=timeout_sec,
+                        max_response_bytes=options.max_response_bytes,
+                    )
                     if fetched_pdf.is_pdf:
                         pdf_md = _convert_pdf_to_markdown(fetched_pdf.body, pdf_url)
                         full_content = (

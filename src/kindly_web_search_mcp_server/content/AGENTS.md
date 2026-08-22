@@ -49,13 +49,14 @@ Three-tier architecture with active resilience:
   match, Tier 2 runs stages in order.
 - Specialized parsers either raise for a non-match or return a target; routing
   must treat an explicit `None` return as no match so generic extraction can run.
-- Multi-URL fetching (batch_get_content) composes N parallel get_content calls
-  in `tools/content.py`. Each URL goes through the full pipeline independently.
+- The unified `fetch` tool in `tools/content.py` handles one or many URLs
+  through the same core. Bulk inputs run in fixed ten-item waves with hidden
+  dsh-webfetch-compatible limits; callers use `cursor` for continuation.
 - `sitemap.py` is Tavily-only (no fallback).
 - Per-stage timeouts: Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s.
 - Jina Reader circuit breaker: opens after 3 failures in 60s.
-- Content-type validation rejects non-HTML/XML/plain responses.
-- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; batch summaries retry the two Gemini tiers before per-item fallback. The public `get_content` and `batch_get_content` contract is `ai_summary: bool = false`; `true` selects the detailed summary only.
+- Content-type validation routes HTML, JSON, RSS/Atom, CSV/TSV, XML, plain text, and documents without browser escalation.
+- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`.
 
 ## Adding a New Specialized Resolver
 

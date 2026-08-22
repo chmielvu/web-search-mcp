@@ -24,7 +24,7 @@ Centralized LLM, embedding, and reranking model execution through a catalog-driv
 | `adapters/voyage.py` | Voyage rerank provider adapter |
 | `adapters/openrouter.py` | OpenRouter rerank provider adapter |
 | `bridges/rankllm.py` | RankLLM XML listwise reranker bridge |
-| `bridges/flockmtl.py` | DuckDB FlockMTL secret bridge |
+| `bridges/flockmtl.py` | DuckDB FlockMTL secret bridge (NanoGPT subscription endpoint; HF router retired 2026-08-22) |
 
 ## Architecture
 

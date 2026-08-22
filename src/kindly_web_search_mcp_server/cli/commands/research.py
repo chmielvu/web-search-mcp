@@ -93,9 +93,6 @@ def collect_cmd(
     ],
     top_results: Annotated[int, typer.Option("--top-results")] = 5,
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
-    per_item_char_length: Annotated[int, typer.Option("--per-item-char-length")] = 8_000,
-    total_char_budget: Annotated[int, typer.Option("--total-char-budget")] = 60_000,
-    max_concurrency: Annotated[int, typer.Option("--max-concurrency")] = 4,
     ai_summary: Annotated[bool, typer.Option("--ai-summary/--no-ai-summary")] = False,
     no_wait: Annotated[
         bool, typer.Option("--no-wait", help="Submit a local job and return immediately.")
@@ -121,9 +118,6 @@ def collect_cmd(
                 output_dir=output_dir,
                 top_results=top_results,
                 rewrite=rewrite,
-                per_item_char_length=per_item_char_length,
-                total_char_budget=total_char_budget,
-                max_concurrency=max_concurrency,
                 ai_summary=ai_summary,
                 idempotency_key=idempotency_key,
             )
@@ -148,9 +142,6 @@ def collect_cmd(
                 output_dir=output_dir,
                 top_results=top_results,
                 rewrite=rewrite,
-                per_item_char_length=per_item_char_length,
-                total_char_budget=total_char_budget,
-                max_concurrency=max_concurrency,
                 ai_summary=ai_summary,
             )
         )

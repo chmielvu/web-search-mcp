@@ -24,6 +24,7 @@ class SafeFetchResult:
     text: str
     is_pdf: bool
     doc_type: str | None = None
+    status_code: int = 200
 
 
 def _host_is_local(host: str) -> bool:
@@ -92,6 +93,7 @@ _ALLOWED_TEXT_CONTENT_SUBSTRINGS: tuple[str, ...] = (
     "application/json",
     "application/rss+xml",
     "application/atom+xml",
+    "application/csv",
     "application/x-yaml",
     "application/yaml",
     "application/javascript",
@@ -243,7 +245,6 @@ async def safe_fetch_url(
             if not is_pdf and doc_type not in {"docx", "pptx", "xlsx", "epub"}:
                 encoding = resp.encoding or "utf-8"
                 text = body.decode(encoding, errors="replace")
-
             return SafeFetchResult(
                 input_url=url,
                 fetched_url=fetched_url,
@@ -252,6 +253,7 @@ async def safe_fetch_url(
                 text=text,
                 is_pdf=is_pdf,
                 doc_type=doc_type,
+                status_code=resp.status_code,
             )
     except SafeFetchError:
         raise
@@ -320,4 +322,5 @@ async def safe_fetch_url(
                 text=text,
                 is_pdf=is_pdf,
                 doc_type=doc_type,
+                status_code=response.status_code,
             )

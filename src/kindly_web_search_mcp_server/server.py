@@ -18,11 +18,50 @@ os.environ.setdefault("FASTMCP_BANNER", "false")
 os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
 os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 
-# Initialize OpenTelemetry in a background daemon thread. Importing
-# Phoenix (which transitively imports sklearn/scipy's C extensions) costs
-# ~25-30s even with zero contention (measured in isolation) -- far too
-# slow to run synchronously on the stdio handshake path, and no tool call
-# may ever await it (see _ensure_telemetry's docstring below).
+
+def _docket_backend_reachable(url: str, timeout: float = 0.75) -> bool:
+    """TCP-probe the configured Docket backend host/port.
+
+    FastMCP's Docket client reconnects with backoff; against an unreachable
+    Redis that retry loop previously stalled the stdio handshake past client
+    timeouts (2026-08-21 incident). A sub-second connect probe lets startup
+    degrade to the in-memory backend instead of blocking.
+    """
+    import socket
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(url)
+        if parts.scheme not in ("redis", "rediss"):
+            return True
+        host = parts.hostname or "127.0.0.1"
+        port = parts.port or 6379
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _resolve_docket_backend() -> None:
+    """Downgrade FASTMCP_DOCKET_URL to memory:// when the backend is unreachable."""
+    url = os.environ.get("FASTMCP_DOCKET_URL", "").strip()
+    if url and not _docket_backend_reachable(url):
+        os.environ["FASTMCP_DOCKET_URL"] = "memory://"
+        import sys
+
+        print(
+            f"[web-search-mcp] Docket backend {url} unreachable; "
+            "using memory:// background tasks for this run.",
+            file=sys.stderr,
+        )
+
+
+_resolve_docket_backend()
+
+# Telemetry initialization redirects process stdout while importing third-party
+# modules. It may run in a daemon thread for HTTP transports, but stdio must
+# wait for completion before FastMCP captures stdout; otherwise the redirect
+# can move an initialize response to stderr and make clients time out.
 import logging
 
 from .composio_tools import register_composio_tools
@@ -38,7 +77,7 @@ from .tools.academic import academic_search
 from .tools.code_search import code_search
 from .tools.code_search.exploration import code_fetch
 from .tools.ai_search import gemini_search, grok_search
-from .tools.content import batch_get_content, get_content
+from .tools.content import fetch
 from .tools.profiles import apply_tool_profile
 from .tools.catalog import tool_kwargs
 from .tools.prompts import (
@@ -84,33 +123,41 @@ _tqdm_pkg.tqdm.monitor_interval = 0
 
 _telemetry_init_lock = threading.Lock()
 _telemetry_init_started = False
+_telemetry_init_done = threading.Event()
 
 
-def _ensure_telemetry() -> None:
-    """Start telemetry initialization in a background daemon thread (idempotent).
+def _ensure_telemetry(*, wait_for_completion: bool = False) -> None:
+    """Start telemetry initialization once and optionally wait for completion.
 
-    Fire-and-forget by design. Telemetry is best-effort observability, so no
-    tool call may ever await this -- an earlier revision made
-    ``on_call_tool`` block on it, which just moved the ~25-30s Phoenix
-    import cost onto the first tool call's latency budget instead of
-    removing it. This is called as early as possible in ``main()`` purely
-    to give that import maximum head start before real traffic arrives.
+    Telemetry remains best-effort and runs in a daemon thread so HTTP startup
+    is not coupled to the optional observability dependency. A stdio server
+    must wait before attaching its transport, because the telemetry importer
+    temporarily redirects process stdout while loading third-party modules.
     """
     global _telemetry_init_started
     with _telemetry_init_lock:
-        if _telemetry_init_started:
-            return
-        _telemetry_init_started = True
+        if not _telemetry_init_started:
+            _telemetry_init_started = True
 
-    def _run() -> None:
-        try:
-            from .telemetry import init_telemetry_background
+            def _run() -> None:
+                try:
+                    from .telemetry import init_telemetry_background
 
-            init_telemetry_background(service_name="web-search-mcp")
-        except Exception:
-            LOGGER.warning("Telemetry background init failed", exc_info=True)
+                    init_telemetry_background(service_name="web-search-mcp")
+                except Exception:
+                    LOGGER.warning("Telemetry background init failed", exc_info=True)
+                finally:
+                    _telemetry_init_done.set()
 
-    threading.Thread(target=_run, name="telemetry-init", daemon=True).start()
+            thread = threading.Thread(target=_run, name="telemetry-init", daemon=True)
+            try:
+                thread.start()
+            except BaseException:
+                _telemetry_init_done.set()
+                raise
+
+    if wait_for_completion:
+        _telemetry_init_done.wait()
 
 
 import argparse
@@ -145,10 +192,12 @@ mcp = FastMCP(
         "concentration. Formulate better queries from what you learned and\n"
         "search again. At least two rounds before concluding.\n"
         "\n"
-        "Deep-read the best sources. After discovery, use get_content (single)\n"
-        "or batch_get_content (3+ URLs) on the most promising results. Judge\n"
-        "by provider consensus (provider_count >= 2), domain authority, and\n"
-        "snippet specificity. Do not trust snippets alone — read the page.\n"
+        "Deep-read the best sources. After discovery, use fetch on one or more\n"
+        "promising URLs. The tool accepts url or urls and returns ordered\n"
+        "per-source results with metadata, links, quality, and continuation\n"
+        "signals. Judge by provider consensus (provider_count >= 2), domain\n"
+        "authority, and snippet specificity. Do not trust snippets alone — read\n"
+        "the page.\n"
         "\n"
         "Know when enough is enough. Terminate when 3 independent sources\n"
         "agree on key claims, or when 2 consecutive search rounds add nothing\n"
@@ -156,7 +205,7 @@ mcp = FastMCP(
         "what's unknown.\n"
         "\n"
         "Tool routing: quick_web_search/gemini_search -> web_search ->\n"
-        "composio_similarlinks -> get_content/batch_get_content -> iterate.\n"
+        "composio_similarlinks -> fetch -> iterate.\n"
         "Use discover_links to explore link graphs. Use academic_search for\n"
         "scholarly questions. Use youtube_search + youtube_transcript for\n"
         "video content.\n"
@@ -189,8 +238,8 @@ from .middleware import create_expensive_tool_middleware
 
 mcp.add_middleware(create_expensive_tool_middleware())
 
-# Add differentiated rate limiting:
-# - Higher throughput for lightweight tools (web_search/get_content/gemini_search)
+ # Add differentiated rate limiting:
+ # - Higher throughput for lightweight tools (web_search/fetch/gemini_search)
 # - Stricter quota for expensive tools (grok_search)
 from .middleware import create_differentiated_rate_limit_middleware
 
@@ -257,8 +306,7 @@ mcp.add_middleware(
         max_size=1_000_000,
         tools=[
             "web_search",
-            "get_content",
-            "batch_get_content",
+            "fetch",
             "discover_links",
             "gemini_search",
             "grok_search",
@@ -288,8 +336,7 @@ mcp.add_transform(ResourcesAsTools(mcp))
 
 # Register tools
 mcp.tool(**tool_kwargs("web_search"))(web_search)
-mcp.tool(**tool_kwargs("get_content"))(get_content)
-mcp.tool(**tool_kwargs("batch_get_content"))(batch_get_content)
+mcp.tool(**tool_kwargs("fetch"))(fetch)
 mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
@@ -502,10 +549,10 @@ def main(argv: list[str] | None = None) -> None:
             if hasattr(mcp, "settings") and hasattr(mcp.settings, key):  # type: ignore[attr-defined]
                 setattr(mcp.settings, key, value)  # type: ignore[attr-defined]
 
-    # Start telemetry first (background thread, non-blocking -- see
-    # _ensure_telemetry) so its ~25-30s Phoenix import gets the maximum
-    # possible head start before any tool call can arrive.
-    _ensure_telemetry()
+    # Start telemetry early so its expensive optional imports overlap with
+    # other startup work. Stdio must wait before FastMCP captures stdout:
+    # telemetry's import-time redirect otherwise races the JSON-RPC writer.
+    _ensure_telemetry(wait_for_completion=transport == "stdio")
     _warm_heavy_imports()
     run_kwargs: dict[str, Any] = {"transport": transport, "show_banner": False}
     if transport in ("sse", "streamable-http") and args.mount_path is not None:
@@ -535,7 +582,7 @@ if settings.tool_search_enabled:
     # Pin the core safe discovery tools so basic flows don't require a search roundtrip.
     # Search will still surface profile-specific tools (e.g. youtube_*, gemini_search)
     # because transform respects prior visibility gates.
-    mcp.add_transform(BM25SearchTransform(always_visible=["web_search", "get_content"]))
+    mcp.add_transform(BM25SearchTransform(always_visible=["web_search", "fetch"]))
     emit_observability_event(
         LOGGER,
         "tool_surface.search_enabled",

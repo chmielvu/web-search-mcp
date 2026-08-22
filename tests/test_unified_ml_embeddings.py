@@ -120,6 +120,25 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res[0], [0.1, 0.2, 0.3])
         self.assertEqual(res[1], [0.4, 0.5, 0.6])
 
+    async def test_embed_texts_zero_pads_shorter_vectors_to_requested_dimension(self) -> None:
+        mock_response = httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3]}]},
+            request=httpx.Request("POST", "http://127.0.0.1:8000/v1/embeddings"),
+        )
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.is_closed = False
+
+        vector = await embed_texts(
+            ["hello"],
+            provider="unifiedml",
+            expected_dim=5,
+            http_client=mock_client,
+        )
+
+        self.assertEqual(vector, [[0.1, 0.2, 0.3, 0.0, 0.0]])
+
     async def test_embed_query_mocked_success(self) -> None:
         mock_response = httpx.Response(
             200,
@@ -150,10 +169,10 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await embed_texts(["   "], provider="unifiedml")
 
-    async def test_dimension_mismatch_raises_error(self) -> None:
+    async def test_oversized_vector_raises_dimension_error(self) -> None:
         mock_response = httpx.Response(
             200,
-            json={"data": [{"index": 0, "embedding": [0.1, 0.2]}]},
+            json={"data": [{"index": 0, "embedding": [0.1, 0.2, 0.3, 0.4]}]},
             request=httpx.Request("POST", "http://127.0.0.1:8000/v1/embeddings"),
         )
         mock_client = AsyncMock(spec=httpx.AsyncClient)
@@ -164,7 +183,7 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
             await embed_texts(
                 ["hello"],
                 provider="unifiedml",
-                expected_dim=384,
+                expected_dim=3,
                 http_client=mock_client,
             )
 
@@ -204,7 +223,7 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
                 await embed_texts(
                     ["hello"],
                     provider="unifiedml_only",
-                    expected_dim=384,
+                    expected_dim=786,
                     http_client=mock_client,
                 )
 
@@ -223,14 +242,14 @@ class TestLiveUnifiedMLEmbeddings(unittest.IsolatedAsyncioTestCase):
 
         # Test live embed_query
         q_vec = await embed_query("how to deploy docker containers")
-        self.assertEqual(len(q_vec), 384)
+        self.assertEqual(len(q_vec), 786)
         self.assertTrue(all(isinstance(x, float) for x in q_vec))
 
         # Test live embed_texts
         t_vecs = await embed_texts(["docker in production", "fastembed onnx inference"])
         self.assertEqual(len(t_vecs), 2)
-        self.assertEqual(len(t_vecs[0]), 384)
-        self.assertEqual(len(t_vecs[1]), 384)
+        self.assertEqual(len(t_vecs[0]), 786)
+        self.assertEqual(len(t_vecs[1]), 786)
 
 
 if __name__ == "__main__":

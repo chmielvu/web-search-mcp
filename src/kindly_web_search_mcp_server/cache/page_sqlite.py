@@ -6,7 +6,7 @@ roundtrip in metadata_json column, and thread-safe SQLite WAL mode connection.
 
 This module provides the low-level backend. The public PageCache
 facade + singleton + observability remain in page_cache.py for
-drop-in compatibility with server.py and get_content.
+the unified fetch tool.
 """
 
 from __future__ import annotations

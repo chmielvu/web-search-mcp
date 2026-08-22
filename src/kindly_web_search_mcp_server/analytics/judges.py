@@ -5,8 +5,9 @@ verdicts to the `llm_judgments` table. This is the "judge every search
 automatically" path the user asked for — no per-row LLM calls from
 views, no surprise API costs on dashboard refresh.
 
-Per-search judge pass fires six facet-decomposed judgments (all on
-`judge_quality` / 120B; calibration A/B uses `judge_fast` separately):
+Per-search judge pass fires six facet-decomposed judgments, all through
+the SAME two-stage chain (Gemini/Gemma stage 1 -> NanoGPT/DeepSeek-thinking
+stage 2); the `judge_quality` / `judge_fast` alias is provenance-only.
 
   a. `judge_run_overview`     -- 1 call/run; holistic good/mixed/bad
                                 + analysis + recommendations
@@ -40,11 +41,13 @@ import re
 import threading
 import time
 import weakref
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from concurrent.futures.thread import _worker  # type: ignore[attr-defined]
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 import duckdb
 
@@ -55,7 +58,7 @@ logger = logging.getLogger(__name__)
 # Per-facet JSON Schemas — single source of truth.
 #
 # Each schema is used in THREE places and they MUST stay in sync:
-#   1. As `response_format.json_schema.schema` in the direct HF call
+#   1. As `response_format.json_schema.schema` in the NanoGPT structured call
 #      (`_run_prompt` schema-mode below). The model is forced to
 #      produce JSON that matches this exact shape (strict=true).
 #   2. Inlined into the prompt template's `### Output Format` footer as
@@ -175,7 +178,7 @@ _FACET_SCHEMAS: dict[str, dict[str, object]] = {
 # Exit contract (CLI): workers are daemon and are intentionally NOT
 # registered in concurrent.futures' ``_threads_queues``. CPython's
 # ``_python_exit`` joins every registered worker even when daemon=True;
-# omitting registration lets CLI exit abandon in-flight HF calls after
+# omitting registration lets CLI exit abandon in-flight judge calls after
 # ``shutdown_judge_executor(wait=False)``. Incomplete judgment rows are
 # acceptable on CLI exit (same tradeoff as DuckDB write cancel).
 
@@ -245,7 +248,7 @@ def shutdown_judge_executor(*, wait: bool = False) -> None:
 
     ``wait=False`` cancels pending facet/run jobs (``cancel_futures=True``).
     Workers are daemon and not in concurrent.futures' atexit join map, so CLI
-    process exit is not pinned by in-flight HF calls.
+    process exit is not pinned by in-flight judge calls.
 
     The lifecycle state blocks new submissions only while this shutdown is in
     progress. Completion advances the executor generation and reopens the
@@ -297,12 +300,12 @@ _BANNED_RERANK_SCORES = (
     "hybrid_rrf_score",
 )
 
-# Module-level model selector for `judge_search_run`. Production callers
-# leave this at the default `"judge_quality"` (the 120B Mistral model).
-# The calibration harness (`analytics/judge_calibration.py`) rebinds it
-# to `"judge_fast"` (the 3B model) to produce A/B rows alongside the
-# production 120B rows, then restores it. Defined as a private mutable
-# default — calibration is the only intentional mutator.
+# Module-level model selector for `judge_search_run`. Both aliases run the
+# SAME two-stage inference chain (Gemini/Gemma -> NanoGPT/DeepSeek-thinking);
+# the alias survives as `llm_judgments.model_name` provenance and as the
+# calibration harness's A/B tag (`analytics/judge_calibration.py` rebinds
+# it to `"judge_fast"` for A/B rows, then restores it). Defined as a private
+# mutable default — calibration is the only intentional mutator.
 _JUDGE_MODEL = "judge_quality"
 
 
@@ -358,35 +361,31 @@ def _run_prompt(
     Two execution paths:
 
       (a) Schema-mode (default for the 6 production facets): when a
-          `response_format` is supplied, call the OpenAI-compatible HF
-          router DIRECTLY with `response_format={"type":"json_schema",
-          "json_schema":{"schema": <per-facet schema>, "strict":True}}`.
-          The model is forced to return schema-conformant JSON. This
-          gives us `verdict` / `confidence` / `reasoning` /
-          `recommendations` populated on every row.
+          `response_format` is derived, run the TWO-STAGE INFERENCE CHAIN:
+          Stage 1 — Google Gemini API hosting Gemma (`gemma-4-26b-a4b-it`,
+          native google-genai SDK, plain-text prompt; Gemma has neither
+          reliable OpenAI-compat access nor responseSchema support).
+          Stage 2 — NanoGPT serving `deepseek/deepseek-v4-flash-0731:thinking`
+          WITH strict response_format=json_schema. Each stage retries
+          transient failures (timeouts / 408 / 409 / 425 / 429 / 5xx) with
+          exponential backoff before failing over to the next stage. The
+          Hugging Face router is retired from judge inference (2026-08-22)
+          after monthly-credit depletion caused a silent multi-week outage.
 
-          This is the path the user explicitly requested ("set
-          response_format on the OpenAI client that the model manager
-          uses per request"). The HF router accepts the same wire
-          shape as OpenAI's structured output (verified by direct
-          probe against deepseek-ai/DeepSeek-V4-Flash:deepinfra and
-          Qwen/Qwen3-4B-Instruct-2507:nscale on the `dev` schema).
+          Structured output is guaranteed on stage 2; stage 1 leans on the
+          prompt's `### Output Format` footer plus the 3-tier
+          `_parse_result` salvage (same contract as summary_backend's
+          Gemma calls).
 
-      (b) FlockMTL `llm_complete` fallback: used only when no schema
-          is supplied. Kept for forward compatibility with future
-          facets that may opt out of structured output.
+      (b) FlockMTL `llm_complete` last resort: reached only when BOTH
+          stages exhaust. Its registry/secret point at NanoGPT (see
+          `writers/connection.py`), so no judge code path contacts
+          Hugging Face any more.
 
-    The HF direct call uses `HF_TOKEN` (env) and the canonical router
-    URL `https://router.huggingface.co/v1`. Model routing uses the
-    same `<org>/<model>:<provider>` suffix convention that the
-    FlockMTL OpenAI provider uses internally, so callers pass the
-    same `model_name` they pass to `llm_complete`.
-
-    The `context_columns` payload is rendered into the prompt using
-    FlockMTL's `<name>: <data>` convention. Since the direct HF path
-    has no such template engine, we substitute each `{{name}}`
-    placeholder in the prompt template with the corresponding
-    `context_columns` `data` value before sending.
+    Neither chain stage ships a template engine, so `_render_prompt`
+    substitutes each `{{name}}` placeholder in the prompt template with
+    the corresponding `context_columns` `data` value before sending
+    (byte-equivalent to what FlockMTL would render).
     """
     started = time.perf_counter()
     schema = (
@@ -409,10 +408,10 @@ def _run_prompt(
         else None
     )
 
-    # Path (a) — direct HF router with response_format=json_schema.
+    # Path (a) — two-stage chain: Gemini/Gemma -> NanoGPT/DeepSeek-thinking.
     if effective_rf is not None:
         try:
-            return _hf_direct_call(
+            return _judge_chain_call(
                 model_name=model_name,
                 prompt_name=prompt_name,
                 context_columns=context_columns,
@@ -421,13 +420,13 @@ def _run_prompt(
         except Exception as exc:
             duration = time.perf_counter() - started
             logger.warning(
-                "hf direct call failed for model=%s prompt=%s: %s; "
+                "judge chain failed for model=%s prompt=%s: %s; "
                 "falling back to FlockMTL llm_complete",
                 model_name,
                 prompt_name,
                 exc,
             )
-            # Path (b) fallback — kept short so a transient HF outage
+            # Path (b) fallback — kept short so a total chain outage
             # doesn't poison the row.
 
     # Path (b) — FlockMTL llm_complete.
@@ -455,78 +454,283 @@ def _run_prompt(
         return (None, duration)
 
 
-def _hf_direct_call(
+def _is_retryable_stage_error(exc: BaseException) -> bool:
+    """True for transient failures worth backing off before a retry.
+
+    Recognises typed statuses when the SDK exposes them (google-genai
+    errors carry ``code``, httpx/openai errors carry ``status_code``)
+    and falls back to conservative string markers otherwise. Auth and
+    quota errors (401/402/403/404) are NOT retried — they fail over to
+    the next stage immediately.
+    """
+    status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status in (408, 409, 425, 429) or 500 <= status <= 599
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "timeout",
+            "timed out",
+            "temporarily unavailable",
+            "rate limit",
+            "internal error",
+            "bad gateway",
+            "service unavailable",
+            "connection reset",
+            "connection aborted",
+        )
+    )
+
+
+def _is_rejected_response_format(exc: BaseException) -> bool:
+    """True only when the gateway rejected the response_format payload itself.
+
+    A bare 400 for an unrelated reason (bad model id, malformed prompt)
+    must propagate so the real error surfaces instead of triggering a
+    pointless schema-less retry.
+    """
+    return getattr(exc, "status_code", None) == 400 and "response_format" in str(exc).lower()
+
+
+def _stage_backoff_seconds(attempt: int) -> float:
+    """Exponential backoff for attempt N (0-based), doubling and capped."""
+    initial = max(settings.judge_retry_initial_backoff_seconds, 0.05)
+    ceiling = max(settings.judge_retry_max_backoff_seconds, initial)
+    return min(initial * (2**attempt), ceiling)
+
+
+_GEMINI_CLIENT: Any = None
+_GEMINI_CLIENT_KEY: str | None = None
+
+
+def _get_gemini_client() -> Any:
+    """Lazily build and cache ONE google-genai Client per API key.
+
+    Mirrors content/summary_backend's shared-client pattern: constructing
+    a Client per call wastes setup and churns the underlying HTTP pool.
+    Rebuilt automatically if GEMINI_API_KEY changes at runtime.
+    """
+    global _GEMINI_CLIENT, _GEMINI_CLIENT_KEY
+    if not settings.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY not set")
+    if _GEMINI_CLIENT is None or _GEMINI_CLIENT_KEY != settings.gemini_api_key:
+        from google import genai  # type: ignore[import-untyped]
+
+        _GEMINI_CLIENT = genai.Client(api_key=settings.gemini_api_key)
+        _GEMINI_CLIENT_KEY = settings.gemini_api_key
+    return _GEMINI_CLIENT
+
+
+def _call_gemini_stage(prompt_text: str) -> str:
+    """Stage 1: Gemini API hosting Gemma via the native google-genai SDK.
+
+    Plain text in/out on purpose: the OpenAI-compat endpoint is unreliable
+    for Gemma models and Gemma supports no responseSchema — structured
+    output is recovered downstream by `_parse_result`. Uses the shared
+    cached Client (`_get_gemini_client`).
+    """
+    from google.genai import types as genai_types
+
+    client: Any = _get_gemini_client()
+    response = client.models.generate_content(
+        model=settings.judge_gemini_model,
+        contents=prompt_text,
+        config=genai_types.GenerateContentConfig(
+            temperature=0.0,
+            max_output_tokens=3000,
+        ),
+    )
+    text = (response.text or "").strip()
+    if not text:
+        candidates = getattr(response, "candidates", None) or []
+        finish = (
+            getattr(candidates[0], "finish_reason", "?") if candidates else "no-candidates"
+        )
+        parts = getattr(candidates[0], "content", None) if candidates else None
+        parts_dump = [
+            {
+                "text_len": len(getattr(p, "text", "") or ""),
+                "thought": bool(getattr(p, "thought", False)),
+            }
+            for p in (getattr(parts, "parts", None) or [])
+        ][:5]
+        raise RuntimeError(
+            f"empty gemma completion (finish_reason={finish}, parts={parts_dump}); "
+            "likely safety block, thought-only output, or prompt rejected"
+        )
+    return text
+
+
+_NANOGPT_STAGE_TIMEOUT_S = 120.0
+
+
+def _call_nanogpt_stage(
+    prompt_name: str,
+    prompt_text: str,
+    response_format: dict[str, object] | None,
+) -> str:
+    """Stage 2: NanoGPT (OpenAI-compatible) serving DeepSeek Flash thinking.
+
+    Sends strict response_format=json_schema when provided. If the gateway
+    rejects the response_format itself, one immediate retry WITHOUT it lets
+    the whole stage.
+    """
+    from openai import OpenAI
+
+    if not settings.nano_gpt_api_key:
+        raise RuntimeError("NANOGPT_API_KEY not set")
+    client = OpenAI(
+        base_url=settings.judge_nanogpt_base_url,
+        api_key=settings.nano_gpt_api_key,
+        timeout=_NANOGPT_STAGE_TIMEOUT_S,
+        max_retries=0,  # retry policy owned by the chain, not the SDK
+    )
+    kwargs: dict[str, Any] = {
+        "model": settings.judge_nanogpt_model,
+        "messages": [{"role": "user", "content": prompt_text}],
+        # 8000: :thinking burns completion budget before the JSON verdict.
+        # reasoning.exclude (documented NanoGPT extension): suppress the
+        # separate reasoning stream so `content` carries the full answer —
+        # without it, content can come back as fragments like '","'.
+        "max_tokens": 8000,
+    }
+    try:
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        completion = client.chat.completions.create(
+            **kwargs,
+            extra_body={"reasoning": {"exclude": True}},
+        )
+    except Exception as exc:
+        if response_format is None or not _is_rejected_response_format(exc):
+            logger.warning("nanogpt stage %s attempt failed: %s", prompt_name, exc)
+            raise
+        logger.warning(
+            "nanogpt rejected response_format for %s (%s); retrying without it",
+            prompt_name,
+            exc,
+        )
+        kwargs.pop("response_format", None)
+        completion = client.chat.completions.create(
+            **kwargs,
+            extra_body={"reasoning": {"exclude": True}},
+        )
+    content = completion.choices[0].message.content or "" if completion.choices else ""
+    # :thinking variants sometimes leak snake_case chain-of-thought into
+    # content ahead of the answer (reasoning.exclude is not reliably
+    # honored on the subscription endpoint); cut to the LAST template
+    # anchor so the parser sees 'Feedback: ... [RESULT] {json}' instead
+    # of thought soup.
+    anchor = content.rfind("Feedback:")
+    if anchor > 0:
+        content = content[anchor:]
+    if _parse_result(content) is None:
+        # :thinking output format is nondeterministic on the subscription
+        # route (fragments / leaked CoT / bare prose). One cheap
+        # self-extraction pass: ask the model to emit ONLY the verdict JSON
+        # from its own prior answer; keep raw content as last resort.
+        conform_messages = [
+            {"role": "user", "content": prompt_text},
+            {"role": "assistant", "content": content},
+            {
+                "role": "user",
+                "content": (
+                    "Extract the final judge verdict from your answer above and "
+                    "return it as a single-line JSON object matching the rubric "
+                    "(keys such as verdict/intent_match/informativeness/"
+                    "confidence/reasoning). Output ONLY the JSON object — no "
+                    "prose, no markdown fences, no array."
+                ),
+            },
+        ]
+        try:
+            conform = client.chat.completions.create(
+                model=settings.judge_nanogpt_model,
+                messages=conform_messages,
+                temperature=0.0,
+                max_tokens=4000,
+                extra_body={"reasoning": {"exclude": True}},
+            )
+            c2 = (
+                conform.choices[0].message.content or ""
+                if conform.choices
+                else ""
+            ).strip()
+            if _parse_result(c2) is not None:
+                logger.info("conformance pass recovered a parseable verdict")
+                return c2
+            logger.warning(
+                "conformance pass output still unparseable: %r", c2[:120]
+            )
+        except Exception as exc:
+            logger.warning("conformance pass failed: %s", exc)
+    return content.strip()
+
+
+def _judge_chain_call(
     *,
     model_name: str,
     prompt_name: str,
     context_columns: list[dict[str, object]],
     response_format: dict[str, object],
 ) -> tuple[str | None, float]:
-    """Issue one chat-completions call to the HF router with strict response_format.
+    """Run one judged prompt through the two-stage chain with backoff.
 
-    Uses `openai.OpenAI(base_url="https://router.huggingface.co/v1",
-    api_key=HF_TOKEN).chat.completions.create(...)`. Imported lazily
-    so the import error doesn't poison the module when the openai
-    SDK isn't installed.
+    Stage order is fixed (Gemini/Gemma first, NanoGPT/DeepSeek second);
+    `model_name` (the FlockMTL alias) is carried for logs only — the chain
+    is uniform across aliases. Raises RuntimeError listing every attempt
+    when all stages exhaust, letting `_run_prompt` fall back to the
+    FlockMTL llm_complete last resort.
     """
     started = time.perf_counter()
-    import os
-
-    from openai import OpenAI
-
-    hf_token = os.environ.get("HF_TOKEN", "")
-    if not hf_token:
-        raise RuntimeError("HF_TOKEN not set in environment")
-    client = OpenAI(
-        base_url="https://router.huggingface.co/v1",
-        api_key=hf_token,
-    )
     prompt_text = _render_prompt(prompt_name, context_columns)
-    completion = client.chat.completions.create(
-        model=_resolve_hf_model_id(model_name),
-        messages=[{"role": "user", "content": prompt_text}],
-        response_format=response_format,
-        temperature=0.0,
-        max_tokens=1500,
+    stages: tuple[tuple[str, Callable[[], str]], ...] = (
+        ("gemini/gemma", lambda: _call_gemini_stage(prompt_text)),
+        (
+            f"nanogpt/{settings.judge_nanogpt_model}",
+            lambda: _call_nanogpt_stage(prompt_name, prompt_text, response_format),
+        ),
     )
-    duration = time.perf_counter() - started
-    content = (completion.choices[0].message.content or "") if completion.choices else ""
-    return (content, duration)
-
-
-# Map FlockMTL aliases (`judge_quality`, `judge_fast`) to the actual
-# HF router model IDs. The FlockMTL model alias is a database-side
-# lookup; the HF router needs the literal `<org>/<model>:<provider>`
-# string. The translation lives here (not in `connection.py`) so the
-# two layers' concerns stay decoupled: `connection.py` owns the
-# FlockMTL catalog, `judges.py` owns the HF direct-call dispatch.
-_HF_MODEL_ID_BY_ALIAS: dict[str, str] = {
-    "judge_quality": "deepseek-ai/DeepSeek-V4-Flash:deepinfra",
-    "judge_fast": "Qwen/Qwen3-4B-Instruct-2507:nscale",
-}
-
-
-def _resolve_hf_model_id(alias_or_id: str) -> str:
-    """Resolve a FlockMTL alias to its HF router model ID.
-
-    If `alias_or_id` is already an HF model ID (contains `/` and `:`
-    per the HF router convention), it's returned unchanged. If it's a
-    FlockMTL alias (`judge_quality` or `judge_fast`), it's looked up
-    in `_HF_MODEL_ID_BY_ALIAS`. Unknown strings are passed through —
-    the HF router will 404 and the dispatch falls back to the
-    FlockMTL `llm_complete` path.
-    """
-    if alias_or_id in _HF_MODEL_ID_BY_ALIAS:
-        return _HF_MODEL_ID_BY_ALIAS[alias_or_id]
-    return alias_or_id
+    attempts = 1 + max(settings.judge_stage_max_retries, 0)
+    failures: list[str] = []
+    for stage_label, invoke in stages:
+        for attempt in range(attempts):
+            try:
+                content = str(invoke())
+            except Exception as exc:
+                failures.append(f"{stage_label}#{attempt + 1}: {exc}")
+                if attempt >= attempts - 1 or not _is_retryable_stage_error(exc):
+                    break
+                sleep_for = _stage_backoff_seconds(attempt)
+                logger.warning(
+                    "judge stage %s attempt %d/%d failed (%s); backing off %.1fs",
+                    stage_label,
+                    attempt + 1,
+                    attempts,
+                    exc,
+                    sleep_for,
+                )
+                time.sleep(sleep_for)
+                continue
+            if content:
+                duration = time.perf_counter() - started
+                return (content, duration)
+            # Empty completion = stage-level failure: stop retrying this
+            # stage and fail over immediately (a retry against the same
+            # stage rarely differs; the next provider is the real remedy).
+            failures.append(f"{stage_label}#{attempt + 1}: empty completion")
+            break
+        logger.warning("judge stage %s exhausted; failing over", stage_label)
+    raise RuntimeError("all judge stages failed :: " + " | ".join(failures))
 
 
 def _render_prompt(prompt_name: str, context_columns: list[dict[str, object]]) -> str:
     """Render the FlockMTL prompt template with context_columns values.
 
     FlockMTL's template engine substitutes `{{name}}` placeholders with
-    the matching `data` field of a context_column. The HF direct call
-    has no such engine, so we do the substitution here. This is
+    the matching `data` field of a context_column. The chain stages have
+    no such engine, so we do the substitution here. This is
     byte-equivalent to what FlockMTL would render.
     """
     from .writers.connection import _FLOCKMTL_PROMPTS
@@ -562,6 +766,15 @@ def _parse_result(raw: str | None) -> dict | None:
     if not raw:
         return None
     raw = raw.strip()
+    # Tier 0: JSON array wrapper — some :thinking models emit a list of
+    # feedback objects instead of the bare schema object; judge the first.
+    if raw.startswith("["):
+        try:
+            arr = json.loads(raw)
+            if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+                return arr[0]
+        except Exception:
+            pass
     # Tier 1: pure JSON (schema-strict path).
     if raw.startswith("{") and raw.endswith("}"):
         try:

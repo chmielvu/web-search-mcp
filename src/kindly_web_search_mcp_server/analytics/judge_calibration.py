@@ -207,11 +207,14 @@ def calibrate_judge(
 # A/B κ Harness -- 6-facet calibration against judge_calibration_set
 # ============================================================================
 #
-# The six facet-decomposed judgments in `analytics/judges.py` use the 120B
-# model by default. This harness ADDS A/B rows by re-running the same six
-# facets with the 3B model (judge_fast), then computes Cohen's kappa per
-# facet, comparing each model's verdict against the hand-adjudicated
-# `judge_calibration_set.human_verdict` for the supplied golden run_keys.
+# The six facet-decomposed judgments in `analytics/judges.py` all run the
+# SAME two-stage chain (Gemini/Gemma -> NanoGPT/DeepSeek-thinking). This
+# harness ADDS A/B rows by re-running the six facets under the alternate
+# alias tag (`judge_fast`), then computes Cohen's kappa per facet against
+# the hand-adjudicated `judge_calibration_set.human_verdict` golden rows.
+# NOTE: since the chain became alias-uniform (2026-08-22), this A/B
+# compares run-to-run variance of ONE chain, not two models -- redesign
+# to alias-aware stage selection before treating kappa as model contrast.
 #
 # Use this for the periodic "DoorDash calibrate" loop (see plan). It is
 # NEVER imported by the search path.
@@ -231,8 +234,8 @@ _FACETS: tuple[str, ...] = (
     "failure_cause",
 )
 
-# The two models in the A/B. The 120B (`judge_quality`) is the
-# production default; `judge_fast` (3B) is the calibration side.
+# The two alias tags in the A/B. `judge_quality` is the production tag;
+# `judge_fast` is the calibration tag (identical chain, provenance only).
 _PRODUCTION_MODEL = "judge_quality"
 _CALIBRATION_MODEL = "judge_fast"
 
@@ -343,7 +346,7 @@ def _join_to_human(
     h = [r[0] for r in human_rows if r[0]]
     # Match index-by-index: a run_key with N model verdicts and M human
     # verdicts contributes min(N, M) pairs. (Test data uses 1 verdict
-    # per facet per model per run_key.)
+    # per facet per alias tag per run_key.)
     n_pairs = min(len(h), len(model_verdicts))
     if not n_pairs:
         return [], []
@@ -356,26 +359,27 @@ def run_calibration(
     rubric_version: str = "v1",
     db_path: str | None = None,
 ) -> dict[str, dict[str, float]]:
-    """A/B κ per facet per model against judge_calibration_set.
+    """A/B κ per facet per alias tag against judge_calibration_set.
 
     Steps:
-      1. Open a connection and run the six facets with the production
-         120B model via `judges.judge_search_run` (writes rows tagged
-         with `rubric_version='v1'` and `model_name='judge_quality'`).
+      1. Open a connection and run the six facets under the production
+         tag via `judges.judge_search_run` (writes rows tagged
+         `rubric_version='v1'`, `model_name='judge_quality'`; both tags
+         execute the identical Gemini→NanoGPT chain).
       2. Rebind `judges._JUDGE_MODEL = 'judge_fast'` and re-run the same
-         six facets with the 3B model (writes a second pass of rows
-         with `model_name='judge_fast'`, same `rubric_version`).
+         six facets (second-pass rows carry `model_name='judge_fast'`,
+         same `rubric_version`; provenance-only difference).
       3. Restore the original model setting.
-      4. Read back verdicts for both models, join to
+      4. Read back verdicts for both alias tags, join to
          `judge_calibration_set.human_verdict`, compute kappa per facet
-         per model, and upsert into `judge_rubrics` (the canonical κ
+         per tag, and upsert into `judge_rubrics` (the canonical κ
          catalog).
 
     Returns: `{facet: {model_name: kappa}}`. Facets with no adjudicated
     pairs are omitted from the outer dict.
 
-    Cost: 2 × |golden_run_keys| × |facets_fired_for_each| calls to
-    Mistral (the 120B pass dominates). Use sparingly -- this is the
+    Cost: 2 × |golden_run_keys| × |facets_fired_for_each| LLM chain
+    invocations (identical Gemini→NanoGPT stages on both passes). Use sparingly -- this is the
     periodic DoorDash "calibrate" loop, not a per-search evaluation.
     """
     # Lazy imports to avoid module-load-time circulars between
@@ -484,7 +488,7 @@ def _main(argv: list[str]) -> int:
 
     parser = argparse.ArgumentParser(
         prog="judge_calibration",
-        description="A/B kappa per facet per model against judge_calibration_set.",
+        description="A/B kappa per facet per alias tag against judge_calibration_set.",
     )
     parser.add_argument(
         "--golden",

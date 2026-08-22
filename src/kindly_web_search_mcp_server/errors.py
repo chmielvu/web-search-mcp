@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
 
 import asyncio
 
@@ -319,7 +319,7 @@ def format_tool_error(
 def raise_tool_error(
     error: Exception,
     provider: str | None = None,
-) -> None:
+) -> NoReturn:
     """Classify an exception and raise it as a FastMCP ``ToolError``.
 
     P0 pattern: tools must raise ``ToolError`` instead of returning error

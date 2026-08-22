@@ -49,17 +49,29 @@ All analytics rows join on `run_key`. Pipeline tables:
 Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls`:
 `original_free`, `paid_brave`, `paid_google`, `paid_other`, `neural`, `specialized`.
 
-## FlockMTL Judge Pipeline (6 facets)
+## Judge Pipeline (6 facets, two-stage inference chain)
 
 - **Orchestrator**: `judges.py::judge_search_run(run_key)` + `schedule_judge_search_run(run_key)`
+- **Inference chain** (HF router retired 2026-08-22): Stage 1 Gemini API
+  `gemma-4-26b-a4b-it` via the native google-genai SDK (plain text; JSON
+  recovered by the prompt footer + `_parse_result`) → Stage 2 NanoGPT
+  `deepseek/deepseek-v4-flash-0731:thinking` with strict `json_schema`.
+  Per-stage exponential backoff (3 attempts, 1s→8s cap, no jitter);
+  non-retryable errors and empty completions fail over immediately;
+  total exhaustion falls to the FlockMTL `llm_complete` last resort
+  (its registry/secret point at NanoGPT).
+- **Env keys**: `GEMINI_API_KEY` (stage 1), `NANOGPT_API_KEY` (stage 2 +
+  fallback secret). `HF_TOKEN` is no longer consulted by judge code.
 - **Facets**: `judge_run_overview` (1/run), `judge_intent_coherence` (1/run),
   `judge_rewrite_coverage` (1/run, 5 rewrite variants), `judge_rerank_improvement` (1/rerank_stages),
   `judge_result_quality` (1/final_result, ≤15), `judge_failure_cause` (1/run if failed)
-- **Trigger**: `schedule_judge_search_run` is fire-and-forget on `ThreadPoolExecutor(max_workers=4)`,
+- **Trigger**: fire-and-forget on a daemon `ThreadPoolExecutor(max_workers=4)`,
   wired into `search/outcomes.py::submit_search_outcome`
 - **Cost guard**: `settings.flockmtl_enabled` (default true)
-- **Judge-blindness**: Banned score names (`final_score`, `llm_raw_score`, etc.)
-  are excluded from the SELECT whitelist and enumerated in prompts
+- **Judge-blindness**: banned reranker score names excluded from the SELECT
+  whitelists and enumerated in prompts
+- **Calibration note**: both aliases execute the identical chain; rebinding
+  `_JUDGE_MODEL` changes provenance tagging only (`judge_calibration.py`).
 
 ## Rules
 
@@ -80,4 +92,5 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 uv run pytest tests/test_analytics_*.py
 uv run pytest tests/test_pipeline_tables.py tests/test_search_quality_scores.py
 uv run pytest tests/test_judges_facets.py tests/test_judge_after_outcome_write.py
+uv run pytest tests/test_judge_chain.py tests/test_flockmtl_judge_routing.py
 ```

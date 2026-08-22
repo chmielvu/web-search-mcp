@@ -215,7 +215,7 @@ async def rank_and_finalize(
             warnings=_stable_warnings(outcomes) or None,
             intent=(
                 str(run.plan.understanding.intent)
-                if run.plan is not None
+                if (run.plan is not None and run.plan.understanding is not None)
                 else (run.diagnostics.intent or None)
             ),
             query_shaping=(run.diagnostics.query_shaping or None) or None,

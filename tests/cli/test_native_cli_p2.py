@@ -141,9 +141,10 @@ async def test_research_collect_writes_bundle(monkeypatch, tmp_path: Path) -> No
         ),
     )
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.research_collect.fetch_batch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.research_collect.fetch_payload",
         AsyncMock(
             return_value={
+                "mode": "bulk",
                 "results": [
                     {
                         "input_url": "https://example.com",

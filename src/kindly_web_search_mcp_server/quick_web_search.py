@@ -272,7 +272,7 @@ def register_quick_web_search(mcp: Any) -> None:
         Key features & Sequencing:
         - Generates multiple citations with excerpts, publish dates, and usage metadata.
         - You MUST analyze these citations to identify specific, high-value URLs.
-        - After calling this, you SHOULD call get_content or batch_get_content on the most relevant URLs to read their full text.
+        - After calling this, you SHOULD call fetch on the most relevant URLs to read their full text.
         - Do NOT use this if you need deep cross-provider RRF ranking (use web_search instead).
 
         Args:
@@ -344,8 +344,22 @@ def register_quick_web_search(mcp: Any) -> None:
             "quick_web_search",
             "response",
             tool_call_id=tool_call_id,
+            search_id=getattr(response, "search_id", None),
+            provider_session_id=getattr(response, "provider_session_id", None),
+            session_id=session_id,
             search_queries=search_queries,
             objective=objective,
+            max_results=max_results,
+            max_chars_total=max_chars_total,
+            max_chars_per_result=max_chars_per_result,
+            client_model=client_model,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+            after_date=after_date,
+            location=location,
+            max_age_seconds=max_age_seconds,
+            timeout_seconds=timeout_seconds,
+            disable_cache_fallback=disable_cache_fallback,
             citations=response.citations,
             total_citations=response.total_citations,
             warnings=response.warnings,

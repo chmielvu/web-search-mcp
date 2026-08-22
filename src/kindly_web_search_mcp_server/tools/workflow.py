@@ -14,8 +14,7 @@ def get_workflow_doc() -> str:
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost, domain_block, num_results |
 | Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
 | Scholarly papers | academic_search | query, sources, year_from, year_to, fields_of_study, venue, sort |
-| Read one URL | get_content | url, char_offset, char_length, ai_summary, focus_query, include_links |
-| Read 3+ URLs | batch_get_content | urls, max_concurrency, per_item_char_length, total_char_budget, cursor, ai_summary |
+| Read one or many URLs | fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links |
 | Discover links | discover_links | url, max_links, include_external, same_domain_only |
 | Similar pages | composio_similarlinks | url |
 | Find videos | youtube_search | query, num_results |
@@ -28,8 +27,7 @@ def get_workflow_doc() -> str:
 - num_results: 3=fast, 5=standard, 7=broad (max 10)
 
 ## Pagination
-- get_content: if window.has_more, call again with char_offset=window.next_offset
-- batch_get_content: if has_more, call again with cursor from response
+- fetch: single results use window.next_offset; bulk results use cursor when has_more
 - discover_links: if has_more, call again with offset/limit
 
 ## AI Summaries

@@ -44,11 +44,12 @@ def test_links_discover_emits_json_payload(monkeypatch) -> None:
     assert payload["data"]["source_type"] == "html"
 
 
-def test_content_batch_emits_json_payload(monkeypatch) -> None:
+def test_content_fetch_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
-        "kindly_web_search_mcp_server.cli.services.content_batch.fetch_batch_content_payload",
+        "kindly_web_search_mcp_server.cli.services.content.fetch_payload",
         AsyncMock(
             return_value={
+                "mode": "bulk",
                 "results": [],
                 "total_requested": 1,
                 "total_returned": 0,
@@ -64,16 +65,15 @@ def test_content_batch_emits_json_payload(monkeypatch) -> None:
             app,
             [
                 "content",
-                "batch",
+                "fetch",
                 "--url",
                 "https://example.com",
             ],
         )
     )
 
-    assert payload["meta"]["command"] == "content batch"
+    assert payload["meta"]["command"] == "content fetch"
     assert payload["data"]["total_requested"] == 1
-
 
 def test_ai_gemini_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(

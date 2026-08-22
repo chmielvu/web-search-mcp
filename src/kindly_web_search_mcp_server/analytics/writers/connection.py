@@ -100,13 +100,11 @@ def _install_flockmtl_once() -> bool:
                 pass
 
 
-# Hugging Face router — both judges run via the chat completions
-# endpoint at https://router.huggingface.co/v1 (OpenAI-compatible).
-# HF_TOKEN in env provides auth; the model name in `CREATE MODEL`
-# is the provider-routed ID (e.g. "Qwen/Qwen3-4B-Instruct-2507:nscale"
-# routes through nscale's hosted Qwen4B-Instruct endpoint).
-_HF_QUALITY_MODEL = "deepseek-ai/DeepSeek-V4-Flash:deepinfra"
-_HF_FAST_MODEL = "Qwen/Qwen3-4B-Instruct-2507:nscale"
+# Judge SQL-native fallback registry points at NanoGPT (OpenAI-compatible,
+# https://nano-gpt.com/api/subscription/v1). Production judge inference bypasses DuckDB
+# entirely via the two-stage Gemini->NanoGPT chain in analytics/judges.py;
+# this registry only backs the dormant FlockMTL llm_complete last resort.
+_JUDGE_FALLBACK_MODEL_ID = "deepseek/deepseek-v4-flash-0731:thinking"
 
 # FlockMTL DDL syntax (verified against the installed extension via smoke
 # test):
@@ -116,9 +114,11 @@ _HF_FAST_MODEL = "Qwen/Qwen3-4B-Instruct-2507:nscale"
 # after `MODEL` / `PROMPT`. Idempotency is achieved by catching the
 # `CatalogException` raised when the resource already exists.
 _FLOCKMTL_MODEL_DDL: tuple[tuple[str, str, str], ...] = (
-    # (model_name, underlying_model_id, provider)
-    ("judge_fast", _HF_FAST_MODEL, "openai"),
-    ("judge_quality", _HF_QUALITY_MODEL, "openai"),
+    # (model_name, underlying_model_id, provider) — both aliases resolve to
+    # the same NanoGPT-served fallback model; the quality/fast distinction
+    # lives on in llm_judgments.model_name provenance only.
+    ("judge_fast", _JUDGE_FALLBACK_MODEL_ID, "openai"),
+    ("judge_quality", _JUDGE_FALLBACK_MODEL_ID, "openai"),
 )
 
 _FLOCKMTL_PROMPTS: tuple[tuple[str, str], ...] = (
@@ -375,19 +375,16 @@ def _ensure_flockmtl_secret(connection: duckdb.DuckDBPyConnection) -> None:
     """Create the `__default_openai` FlockMTL secret on this connection.
 
     FlockMTL's `llm_complete` requires a named secret with provider credentials.
-    Uses the Hugging Face chat-completions router:
+    Points at NanoGPT, the OpenAI-compatible fallback provider:
       - name: hardcoded `__default_openai` (matches FlockMTL's lookup)
-      - API_KEY: `HF_TOKEN` env var (HF personal access / read token)
-      - BASE_URL: `https://router.huggingface.co/v1` (HF's OpenAI-compatible
-        router that fronts many providers under the prefix `<org>/<model>:<provider>`,
-        e.g. `Qwen/Qwen3-4B-Instruct-2507:nscale`)
+      - API_KEY: `NANOGPT_API_KEY` (settings/env; legacy NANO_GPT_API_KEY accepted)
+      - BASE_URL: `https://nano-gpt.com/api/subscription/v1` (subscription endpoint)
 
-    HF_TOKEN is REQUIRED; the legacy `MISTRAL_API_KEY` is intentionally NOT
-    accepted as a fallback because it is invalid for `router.huggingface.co`
-    (Mistral credentials receive 401 from that endpoint). A missing HF_TOKEN
-    is logged once via the standard debug handler and the function returns
-    without creating the secret; subsequent `llm_complete` calls will fail
-    loudly, which is the correct behaviour for an HF-routed judge.
+    A missing NANOGPT_API_KEY is logged once and the function returns
+    without creating the secret; subsequent `llm_complete` calls fail
+    loudly, which is correct behaviour for a misconfigured SQL-native
+    fallback. (Production judging only reaches llm_complete when BOTH
+    chain stages have exhausted.)
 
     Idempotent: drops any existing `__default_openai` first, then creates.
     Errors are caught and logged — secrets are optional, and the worst case
@@ -398,18 +395,15 @@ def _ensure_flockmtl_secret(connection: duckdb.DuckDBPyConnection) -> None:
     `CREATE SECRET` before LOAD yields `InvalidInputException:
     Secret type 'openai' not found`.
     """
-    import os
-
-    api_key = os.environ.get("HF_TOKEN", "")
-    base_url = "https://router.huggingface.co/v1"
+    api_key = settings.nano_gpt_api_key
+    base_url = settings.judge_nanogpt_base_url
     if not api_key:
         logger.debug(
-            "HF_TOKEN not set in environment — FlockMTL llm_complete calls "
-            "will fail. Set HF_TOKEN (a Hugging Face personal access token "
-            "with inference permissions) before running a search; the secret "
-            "URL is https://router.huggingface.co/v1 routing both judges "
-            "(deepseek-ai/DeepSeek-V4-Flash:deepinfra and "
-            "Qwen/Qwen3-4B-Instruct-2507:nscale)."
+            "NANOGPT_API_KEY not set — FlockMTL llm_complete calls will "
+            "fail. Set NANOGPT_API_KEY (NanoGPT API key) before running "
+            "SQL-native judge evaluations; the secret URL is %s serving %s.",
+            base_url,
+            _JUDGE_FALLBACK_MODEL_ID,
         )
         return
     try:
@@ -468,8 +462,9 @@ def _upsert_flockmtl_model(
     """UPDATE-first / CREATE-fallback registration of one FlockMTL model.
 
     On a fresh catalog the row does not exist and we fall through to
-    CREATE MODEL. On a catalog that was bootstrapped earlier (possibly
-    with stale Mistral credentials), the row already exists with an
+    CREATE MODEL. On a catalog that was bootstrapped by an earlier
+    provider generation (Mistral or HF-router era), the row already
+    exists with an
     old underlying model ID, and UPDATE rewrites it in place — the alias
     (`judge_quality` / `judge_fast`) stays available the whole time, so
     an in-flight `llm_complete` against `judge_quality` cannot race a

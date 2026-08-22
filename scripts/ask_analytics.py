@@ -31,7 +31,7 @@ Key tables and views:
 - rerank_stages — rerank stage summaries per run.
 - rerank_candidates — candidate survival per stage.
 - final_results — returned results.
-- query_embeddings / candidate_embeddings — FLOAT[1024] vectors.
+- query_embeddings / candidate_embeddings — FLOAT[786] vectors.
 - judge_evaluations — LLM-as-judge 4D scores.
 - llm_call_log — unified cost tracking.
 - Views: vw_run_summary, vw_provider_performance, vw_candidate_funnel, vw_rerank_timeline,

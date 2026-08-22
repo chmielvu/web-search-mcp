@@ -624,7 +624,11 @@ def insert_funnel_uplift_batches(
     recorded_at = datetime.now(timezone.utc)
 
     def _with_recorded_at(row: dict[str, Any]) -> dict[str, Any]:
-        return {**row, "recorded_at": row.get("recorded_at") or recorded_at}
+        return {
+            **row,
+            "recorded_at": row.get("recorded_at") or recorded_at,
+            "first_seen_at": row.get("first_seen_at") or recorded_at,
+        }
 
     if result_catalog:
         _RESULT_CATALOG_WRITER.insert_batch(
@@ -648,11 +652,15 @@ def insert_funnel_uplift_batches(
         _QUERY_TRANSFORMS_WRITER.insert_batch(serialized_qt, db_path=db_path)
     if candidate_stage_events:
         serialized_cse = [
-            _serialize_json_fields(r, ("payload_json",)) for r in candidate_stage_events
+            _with_recorded_at(_serialize_json_fields(r, ("payload_json",)))
+            for r in candidate_stage_events
         ]
         _CANDIDATE_STAGE_EVENTS_WRITER.insert_batch(serialized_cse, db_path=db_path)
     if tool_output_items:
-        _TOOL_OUTPUT_ITEMS_WRITER.insert_batch(tool_output_items, db_path=db_path)
+        _TOOL_OUTPUT_ITEMS_WRITER.insert_batch(
+            [_with_recorded_at(row) for row in tool_output_items],
+            db_path=db_path,
+        )
 
 
 # ---------------------------------------------------------------------------

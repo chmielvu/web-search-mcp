@@ -36,7 +36,7 @@ async def gemini_search(
     - When you need inline grounding citations [N] without manually fetching multiple URLs yourself.
 
     Key constraints:
-    - Do NOT use when you need to inspect raw source pages yourself (use web_search + get_content).
+    - Do NOT use when you need to inspect raw source pages yourself (use web_search + fetch).
     - Do NOT call this tool more than 3 times per question.
 
     Args:
@@ -78,11 +78,26 @@ async def gemini_search(
             "gemini_search",
             "response",
             query=query,
+            session_id=_resolve_session_id(ctx),
             structured_output=structured_output,
             research_goal=research_goal,
+            mode=result.mode,
+            answer=result.answer,
+            structured_data=result.structured_data,
+            sources=result.sources,
+            url_citations=result.url_citations,
+            search_queries=result.search_queries,
+            model=result.model_used,
             model_used=result.model_used,
             prompt_tokens=result.prompt_tokens,
-            web_search_queries=result.search_queries,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+            grounding_chunks_count=result.grounding_chunks_count,
+            web_search_queries_count=result.web_search_queries_count,
+            fallback_chain=result.fallback_chain,
+            fallback_reason=result.fallback_reason,
+            output_count=len(result.sources) + len(result.url_citations),
+            duration_ms=duration_seconds * 1000,
             error=result.error,
         )
         _record_tool_success(
@@ -220,7 +235,11 @@ async def grok_search(
             "grok_search",
             "response",
             query=query,
+            research_goal=research_goal,
+            answer=result.answer,
             answer_preview=result.answer[:200],
+            citations=result.citations,
+            output_count=len(result.citations),
             citations_count=len(result.citations),
             model=result.model,
             model_used=result.model_used,
@@ -232,7 +251,8 @@ async def grok_search(
             output_tokens=result.output_tokens,
             cached_input_tokens=result.cached_input_tokens,
             reasoning_tokens=result.reasoning_tokens,
-            duration_seconds=duration_seconds,
+            total_tokens=result.total_tokens,
+            duration_ms=duration_seconds * 1000,
         )
         _record_tool_success(
             "grok_search",

@@ -20,7 +20,7 @@ rankllm.py, reranker.py, listwise_rankllm.py, rank_gpt.py, rank_gemini.py).
 This is exactly why ``web_search`` (the only tool that reaches rank_llm)
 hangs/"Transport closed"s over the MCP stdio transport while completing
 normally as a bare coroutine call (no JSON-RPC framing involved), and why
-other tools on the same transport (get_content, tools/list) are unaffected.
+other tools on the same transport (fetch, tools/list) are unaffected.
 
 The redirect is deliberately scoped to ``on_call_tool``. Do not move it to
 ``on_request``: FastMCP's stdio response writer runs inside the request

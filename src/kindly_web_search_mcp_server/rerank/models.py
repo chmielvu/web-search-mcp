@@ -87,7 +87,7 @@ class CandidateEmbedding(BaseModel):
 
     url: str = Field(description="Result URL (dedup/identity key)")
     text: str = Field(description="Text that was embedded (f'{title}\\n{snippet}')")
-    dense: list[float] = Field(description="1024-dim dense embedding vector")
+    dense: list[float] = Field(description="786-dimensional dense embedding vector")
 
     model_config = {"frozen": True}
 
@@ -99,7 +99,7 @@ class RerankEmbeddingContext(BaseModel):
     consumers (e.g. Qdrant index) can reuse the already-computed vectors.
     """
 
-    query_embedding: list[float] = Field(description="1024-dim query embedding vector")
+    query_embedding: list[float] = Field(description="786-dimensional query embedding vector")
     candidates: list[CandidateEmbedding] = Field(
         description="Per-candidate dense embeddings, indexed by url"
     )

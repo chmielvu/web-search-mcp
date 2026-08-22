@@ -16,7 +16,7 @@ from .hf_inference import (
     HFCircuitBreaker,
 )
 
-EMBEDDING_DIM = 384  # intfloat/multilingual-e5-small default dimension
+EMBEDDING_DIM = 786
 LOGGER = logging.getLogger(__name__)
 
 # E5-instruct requires task instruction; standard E5 uses "query: " prefix.
@@ -112,6 +112,18 @@ def _validate_dimensions(vectors: list[list[float]], expected_dim: int) -> None:
                 f"Embedding vector at index {index} has dimension {len(vector)}, "
                 f"expected {expected_dim}"
             )
+
+
+def _pad_shorter_vectors(
+    vectors: list[list[float]], expected_dim: int
+) -> list[list[float]]:
+    """Pad Unified ML's short vectors without discarding any dimensions."""
+    return [
+        vector + [0.0] * (expected_dim - len(vector))
+        if 0 < len(vector) < expected_dim
+        else vector
+        for vector in vectors
+    ]
 
 
 async def embed_texts(
@@ -211,7 +223,7 @@ async def embed_texts(
             ) from e
 
     assert raw_data is not None
-    vectors = _coerce_vectors(raw_data, len(texts))
+    vectors = _pad_shorter_vectors(_coerce_vectors(raw_data, len(texts)), resolved_dim)
     _validate_dimensions(vectors, resolved_dim)
     return vectors
 

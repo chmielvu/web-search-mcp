@@ -36,13 +36,13 @@ def test_reference_tools_covers_current_catalog() -> None:
     payload = _payload(runner.invoke(app, ["reference", "tools"]))
     tools = {item["tool"] for item in payload["data"]["tools"]}
 
-    # The MCP catalog currently exposes 13 unique public tools (discover_links merged into get_content).
-    assert len(tools) == 13
+    assert "fetch" in tools
+    assert "get_content" not in tools
+    assert "batch_get_content" not in tools
     assert "quick_web_search" in tools
     assert "composio_similarlinks" in tools
     assert "grok_search" in tools
     assert "code_search" in tools
-
 
 def test_search_code_forwards_mcp_aligned_options(monkeypatch) -> None:
     mock_payload = AsyncMock(

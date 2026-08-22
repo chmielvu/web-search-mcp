@@ -67,7 +67,7 @@ def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monke
 
     emit_tool_observability_event(
         logger,
-        "get_content",
+        "fetch",
         "response",
         page_content="x" * 120,
         metadata={
@@ -90,7 +90,7 @@ def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monke
 
     assert len(handler.records) == 1
     payload = json.loads(handler.records[0].getMessage())
-    assert payload["event"] == "tool.get_content.response"
+    assert payload["event"] == "tool.fetch.response"
     assert payload["page_content"].endswith("…")
     assert payload["metadata"]["title"] == "Example"
     assert payload["links"][0]["url"] == "https://example.com/next"
@@ -98,17 +98,17 @@ def test_emit_tool_observability_event_adds_fingerprint_and_bounds_payload(monke
 
     emit_tool_observability_event(
         logger,
-        "get_content",
+        "fetch",
         "request",
         url="https://example.com",
-        char_length=20,
+        url_count=1,
     )
     assert len(handler.records) == 2
     request_payload = json.loads(handler.records[1].getMessage())
-    assert request_payload["event"] == "tool.get_content.request"
+    assert request_payload["event"] == "tool.fetch.request"
     assert "request_fingerprint" in request_payload
     assert request_payload["request_fingerprint"]
-    assert handler.records[1].obs_event == "tool.get_content.request"
+    assert handler.records[1].obs_event == "tool.fetch.request"
 
 
 def test_preview_text_truncates() -> None:

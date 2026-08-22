@@ -637,8 +637,8 @@ def _persist_code_search_analytics(
             "planner_backend_channels": getattr(plan_meta, "backend_channels", None),
             "planner_variants": getattr(plan, "variants", None),
             "planner_variant_kinds": getattr(plan_meta, "variant_kinds", None),
-            "provider_response_count": (
-                len(getattr(response, "providers", []) or [])
+            "provider_response_count": len(
+                getattr(response, "provider_summaries", []) or []
             ),
             "provider_hit_counts": getattr(stats, "provider_counts", None),
             "request_count": getattr(stats, "request_count", None),
@@ -649,7 +649,7 @@ def _persist_code_search_analytics(
             "diagnostic_count": len(getattr(response, "diagnostics", []) or []),
             "truncated": getattr(stats, "truncated", None),
             "dropped_count": getattr(stats, "dropped_count", None),
-            "estimated_output_tokens": getattr(stats, "estimated_output_tokens", None),
+            "estimated_output_tokens": getattr(stats, "estimated_tokens", None),
             "duration_ms": fields.get("duration_ms"),
             "outcome": getattr(response, "outcome", status),
             "error_type": fields.get("error_type"),
@@ -658,26 +658,21 @@ def _persist_code_search_analytics(
         }
 
         provider_rows = []
-        compiled_map = (
-            getattr(plan_meta, "compiled_queries", {})
-            if plan_meta
-            else {}
-        )
-        for idx, p in enumerate(getattr(response, "providers", []) or []):
+        for idx, provider_summary in enumerate(
+            getattr(response, "provider_summaries", []) or []
+        ):
             provider_rows.append({
                 "terminal_event_id": terminal_event_id,
                 "response_index": idx,
-                "provider": p.provider,
-                "hit_count": len(p.hits) if hasattr(p, "hits") else 0,
-                "request_count": getattr(p, "request_count", 0),
-                "outcome": getattr(p, "outcome", "ok"),
-                "compiled_queries": (
-                    compiled_map.get(p.provider) if isinstance(compiled_map, dict) else None
-                ),
-                "duration_ms": None,
-                "error_type": None,
-                "error_message": None,
-                "payload_json": getattr(p, "metadata", None),
+                "provider": provider_summary.get("provider"),
+                "hit_count": provider_summary.get("hit_count", 0),
+                "request_count": provider_summary.get("request_count", 0),
+                "outcome": provider_summary.get("outcome"),
+                "compiled_queries": provider_summary.get("compiled_queries"),
+                "duration_ms": provider_summary.get("duration_ms"),
+                "error_type": provider_summary.get("error_type"),
+                "error_message": provider_summary.get("error_message"),
+                "payload_json": provider_summary.get("payload_json"),
             })
 
         diagnostic_rows = []
@@ -790,16 +785,16 @@ def _persist_code_search_analytics(
         if stats and getattr(stats, "rerank_count", 0) > 0:
             rerank_rows.append({
                 "terminal_event_id": terminal_event_id,
-                "provider": "cloud_rerank",
-                "model": "cloud_reranker",
-                "input_count": getattr(stats, "hydration_count", None) or getattr(stats, "request_count", None),
-                "output_count": len(getattr(response, "results", []) or []),
+                "provider": getattr(stats, "rerank_provider", None),
+                "model": getattr(stats, "rerank_model", None),
+                "input_count": getattr(stats, "rerank_input_count", None),
+                "output_count": getattr(stats, "rerank_output_count", None),
                 "reranked_count": getattr(stats, "rerank_count", 0),
-                "status": "success",
-                "diagnostic_outcome": None,
-                "diagnostic_message": None,
-                "duration_ms": None,
-                "payload_json": None,
+                "status": getattr(stats, "rerank_status", None),
+                "diagnostic_outcome": getattr(stats, "rerank_diagnostic_outcome", None),
+                "diagnostic_message": getattr(stats, "rerank_diagnostic_message", None),
+                "duration_ms": getattr(stats, "rerank_duration_ms", None),
+                "payload_json": getattr(stats, "rerank_payload", None),
             })
         insert_code_search_batches(
             code_search_runs=[run_row],
@@ -848,170 +843,90 @@ def _persist_content_analytics(
         fetch_rows = []
         summary_rows = []
 
-        if tool_name == "get_content":
-            fetch_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "tool_call_id": tool_call_id,
-                "item_index": 0,
-                "input_url": fields.get("url") or fields.get("input_url"),
-                "normalized_url": fields.get("canonical_url") or fields.get("normalized_url"),
-                "fetched_url": fields.get("fetched_url"),
-                "source_type": fields.get("source_type"),
-                "fetch_backend": fields.get("fetch_backend") or fields.get("origin_backend"),
-                "status": fields.get("fetch_status") or status,
-                "content_length": fields.get("content_length"),
-                "page_char_count": fields.get("page_char_count"),
-                "word_count": fields.get("word_count"),
-                "window_offset": fields.get("char_offset") or fields.get("window_offset"),
-                "window_length": fields.get("char_length") or fields.get("window_length"),
-                "window_returned_chars": fields.get("window_returned_chars"),
-                "window_total_chars": fields.get("window_total_chars"),
-                "window_has_more": fields.get("window_has_more"),
-                "window_next_offset": fields.get("window_next_offset"),
-                "item_duration_ms": fields.get("duration_ms"),
-                "payload_json": payload_json,
-            })
-            summary_data = fields.get("summary") or payload.get("summary")
-            if isinstance(summary_data, dict):
-                summary_rows.append({
-                    "terminal_event_id": terminal_event_id,
-                    "tool_call_id": tool_call_id,
-                    "item_index": 0,
-                    "normalized_url": fields.get("canonical_url") or fields.get("normalized_url"),
-                    "focus_query": fields.get("focus_query"),
-                    "input_chars": fields.get("input_chars") or (
-                        len(str(fields.get("page_content") or ""))
-                        if fields.get("page_content")
-                        else None
-                    ),
-                    "source_url_count": 1,
-                    "is_batch": False,
-                    "batch_size": 1,
-                    "is_stub": bool(summary_data.get("is_stub") or not summary_data.get("summary")),
-                    "backend": summary_data.get("backend") or fields.get("summary_backend"),
-                    "model_requested": summary_data.get("model_requested"),
-                    "model_used": summary_data.get("model_used") or summary_data.get("model"),
-                    "fallback_attempted": summary_data.get("fallback_attempted"),
-                    "fallback_tier": summary_data.get("fallback_tier"),
-                    "input_tokens": summary_data.get("input_tokens"),
-                    "output_tokens": summary_data.get("output_tokens"),
-                    "total_tokens": summary_data.get("total_tokens"),
-                    "summary_length_chars": (
-                        len(summary_data.get("summary") or "")
-                        if summary_data.get("summary")
-                        else 0
-                    ),
-                    "key_points_count": (
-                        len(summary_data.get("key_points", []))
-                        if isinstance(summary_data.get("key_points"), list)
-                        else 0
-                    ),
-                    "important_entities_count": (
-                        len(summary_data.get("important_entities", []))
-                        if isinstance(summary_data.get("important_entities"), list)
-                        else 0
-                    ),
-                    "verbatim_terms_count": (
-                        len(summary_data.get("verbatim_terms", []))
-                        if isinstance(summary_data.get("verbatim_terms"), list)
-                        else 0
-                    ),
-                    "limitations_count": (
-                        len(summary_data.get("limitations", []))
-                        if isinstance(summary_data.get("limitations"), list)
-                        else 0
-                    ),
-                    "source_date": summary_data.get("source_date"),
-                    "status": status,
-                    "error_type": fields.get("error_type"),
-                    "error_message": error_message,
-                    "duration_ms": fields.get("duration_ms"),
-                    "payload_json": summary_data,
-                })
-        elif tool_name == "batch_get_content":
-            items_data = fields.get("items") or fields.get("results") or payload.get("items") or []
-            if isinstance(items_data, list):
-                for idx, item in enumerate(items_data):
-                    if isinstance(item, dict):
-                        fetch_rows.append({
+        if tool_name == "fetch":
+            items_data = fields.get("results") or payload.get("results") or []
+            if not isinstance(items_data, list):
+                items_data = []
+            is_batch = fields.get("mode") == "bulk" or len(items_data) != 1
+
+            for idx, item in enumerate(items_data):
+                if not isinstance(item, dict):
+                    continue
+                raw_window = item.get("window")
+                window: dict[str, Any] = raw_window if isinstance(raw_window, dict) else {}
+                page_content = item.get("page_content") or ""
+                fetch_rows.append(
+                    {
+                        "terminal_event_id": terminal_event_id,
+                        "tool_call_id": tool_call_id,
+                        "item_index": idx,
+                        "input_url": item.get("input_url") or item.get("url"),
+                        "normalized_url": item.get("normalized_url"),
+                        "fetched_url": item.get("fetched_url") or item.get("url"),
+                        "source_type": item.get("source_type"),
+                        "content_type": item.get("content_type"),
+                        "cached": item.get("cached"),
+                        "fetch_backend": item.get("fetch_backend") or item.get("origin_backend"),
+                        "status": item.get("status") or status,
+                        "content_length": len(page_content) if isinstance(page_content, str) else None,
+                        "page_char_count": item.get("page_char_count") or len(page_content),
+                        "word_count": item.get("word_count") or len(str(page_content).split()),
+                        "window_offset": window.get("offset"),
+                        "window_length": window.get("length"),
+                        "window_returned_chars": window.get("returned_chars"),
+                        "window_total_chars": window.get("total_chars"),
+                        "window_has_more": window.get("has_more"),
+                        "window_next_offset": window.get("next_offset"),
+                        "item_duration_ms": item.get("duration_ms") or fields.get("duration_ms"),
+                        "payload_json": item,
+                    }
+                )
+                summary_data = item.get("summary")
+                if isinstance(summary_data, dict):
+                    summary_rows.append(
+                        {
                             "terminal_event_id": terminal_event_id,
                             "tool_call_id": tool_call_id,
                             "item_index": idx,
-                            "input_url": item.get("input_url") or item.get("url"),
                             "normalized_url": item.get("normalized_url"),
-                            "fetched_url": item.get("fetched_url"),
-                            "source_type": item.get("source_type"),
-                            "fetch_backend": item.get("fetch_backend") or item.get("origin_backend"),
-                            "status": item.get("status") or status,
-                            "content_length": item.get("content_length"),
-                            "page_char_count": item.get("page_char_count"),
-                            "word_count": item.get("word_count"),
-                            "window_offset": item.get("window_offset"),
-                            "window_length": item.get("window_length"),
-                            "window_returned_chars": item.get("window_returned_chars"),
-                            "window_total_chars": item.get("window_total_chars"),
-                            "window_has_more": item.get("window_has_more"),
-                            "window_next_offset": item.get("window_next_offset"),
-                            "item_duration_ms": item.get("duration_ms"),
-                            "payload_json": item,
-                        })
-                        summary_data = item.get("summary")
-                        if isinstance(summary_data, dict):
-                            summary_rows.append({
-                                "terminal_event_id": terminal_event_id,
-                                "tool_call_id": tool_call_id,
-                                "item_index": idx,
-                                "normalized_url": item.get("normalized_url"),
-                                "focus_query": fields.get("focus_query"),
-                                "input_chars": item.get("page_char_count") or (
-                                    len(str(item.get("page_content") or ""))
-                                    if item.get("page_content")
-                                    else None
-                                ),
-                                "source_url_count": 1,
-                                "is_batch": True,
-                                "batch_size": len(items_data),
-                                "is_stub": bool(summary_data.get("is_stub") or not summary_data.get("summary")),
-                                "backend": summary_data.get("backend"),
-                                "model_requested": summary_data.get("model_requested"),
-                                "model_used": summary_data.get("model_used") or summary_data.get("model"),
-                                "fallback_attempted": summary_data.get("fallback_attempted"),
-                                "fallback_tier": summary_data.get("fallback_tier"),
-                                "input_tokens": summary_data.get("input_tokens"),
-                                "output_tokens": summary_data.get("output_tokens"),
-                                "total_tokens": summary_data.get("total_tokens"),
-                                "summary_length_chars": (
-                                    len(summary_data.get("summary") or "")
-                                    if summary_data.get("summary")
-                                    else 0
-                                ),
-                                "key_points_count": (
-                                    len(summary_data.get("key_points", []))
-                                    if isinstance(summary_data.get("key_points"), list)
-                                    else 0
-                                ),
-                                "important_entities_count": (
-                                    len(summary_data.get("important_entities", []))
-                                    if isinstance(summary_data.get("important_entities"), list)
-                                    else 0
-                                ),
-                                "verbatim_terms_count": (
-                                    len(summary_data.get("verbatim_terms", []))
-                                    if isinstance(summary_data.get("verbatim_terms"), list)
-                                    else 0
-                                ),
-                                "limitations_count": (
-                                    len(summary_data.get("limitations", []))
-                                    if isinstance(summary_data.get("limitations"), list)
-                                    else 0
-                                ),
-                                "source_date": summary_data.get("source_date"),
-                                "status": status,
-                                "error_type": fields.get("error_type"),
-                                "error_message": error_message,
-                                "duration_ms": None,
-                                "payload_json": summary_data,
-                            })
+                            "focus_query": fields.get("focus_query"),
+                            "input_chars": item.get("page_char_count")
+                            or (len(page_content) if isinstance(page_content, str) else None),
+                            "source_url_count": 1,
+                            "is_batch": is_batch,
+                            "batch_size": len(items_data),
+                            "is_stub": bool(
+                                summary_data.get("is_stub") or not summary_data.get("summary")
+                            ),
+                            "backend": summary_data.get("backend"),
+                            "model_requested": summary_data.get("model_requested"),
+                            "model_used": summary_data.get("model_used") or summary_data.get("model"),
+                            "fallback_attempted": summary_data.get("fallback_attempted"),
+                            "fallback_tier": summary_data.get("fallback_tier"),
+                            "input_tokens": summary_data.get("input_tokens"),
+                            "output_tokens": summary_data.get("output_tokens"),
+                            "total_tokens": summary_data.get("total_tokens"),
+                            "summary_length_chars": len(summary_data.get("summary") or ""),
+                            "key_points_count": len(summary_data.get("key_points", []))
+                            if isinstance(summary_data.get("key_points"), list)
+                            else 0,
+                            "important_entities_count": len(summary_data.get("important_entities", []))
+                            if isinstance(summary_data.get("important_entities"), list)
+                            else 0,
+                            "verbatim_terms_count": len(summary_data.get("verbatim_terms", []))
+                            if isinstance(summary_data.get("verbatim_terms"), list)
+                            else 0,
+                            "limitations_count": len(summary_data.get("limitations", []))
+                            if isinstance(summary_data.get("limitations"), list)
+                            else 0,
+                            "source_date": summary_data.get("source_date"),
+                            "status": status,
+                            "error_type": fields.get("error_type"),
+                            "error_message": error_message,
+                            "duration_ms": item.get("duration_ms"),
+                            "payload_json": summary_data,
+                        }
+                    )
 
         insert_content_operation_batches(
             content_operations=[op_row],
@@ -1038,6 +953,7 @@ def _persist_tool_output_items(
         run_key = get_current_run_key()
         session_id = fields.get("session_id")
 
+        items: list[tuple[int, dict[str, Any]]] = []
         if tool_name == "web_search":
             results = fields.get("results") or []
             for rank, item in enumerate(results, start=1):
@@ -1062,23 +978,34 @@ def _persist_tool_output_items(
                     "title": title,
                     "snippet": snippet,
                 })
-        elif tool_name in ("get_content", "batch_get_content"):
-            url = fields.get("url") or fields.get("input_url") or ""
+        elif tool_name == "fetch":
+            raw_items = fields.get("results") or []
+            items = [
+                (rank, item)
+                for rank, item in enumerate(raw_items, start=1)
+                if isinstance(item, dict)
+            ]
+        for rank, item in items:
+            url = (
+                item.get("url") or item.get("input_url")
+                if isinstance(item, dict)
+                else ""
+            )
             if url:
                 rows.append({
-                    "output_item_id": _cri(f"{tool_call_id}|content|1"),
+                    "output_item_id": _cri(f"{tool_call_id}|content|{rank}"),
                     "tool_call_id": tool_call_id,
                     "session_id": session_id,
                     "run_key": run_key,
                     "tool_name": tool_name,
                     "item_type": "content",
-                    "item_rank": 1,
+                    "item_rank": rank,
                     "canonical_result_id": _cri(url),
                     "raw_url": url,
-                    "title": None,
+                    "title": item.get("title") if isinstance(item, dict) else None,
                     "snippet": None,
                 })
-        elif tool_name == "gemini_search":
+        if tool_name == "gemini_search":
             sources = fields.get("sources") or []
             for rank, src in enumerate(sources, start=1):
                 if isinstance(src, dict):
@@ -1195,7 +1122,7 @@ def _insert_tool_call_analytics(
                 payload_json=payload_with_context,
                 logger=logger,
             )
-        elif tool_name in ("get_content", "batch_get_content"):
+        elif tool_name == "fetch":
             _persist_content_analytics(
                 terminal_event_id=event_id,
                 tool_call_id=tool_call_id,
@@ -1222,7 +1149,7 @@ def _insert_tool_call_analytics(
             )
         # Persist tool output items for cross-tool linkage
         if tool_name in (
-            "web_search", "get_content", "batch_get_content", "gemini_search"
+            "web_search", "fetch", "gemini_search"
         ):
             _persist_tool_output_items(
                 tool_name=tool_name,

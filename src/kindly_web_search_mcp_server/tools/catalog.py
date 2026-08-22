@@ -14,8 +14,7 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "code_search",
         "code_fetch",
         "web_search",
-        "get_content",
-        "batch_get_content",
+        "fetch",
         "gemini_search",
         "generate_sitemap",
         "youtube_search",
@@ -30,8 +29,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "generate_sitemap": 90.0,
     "grok_search": 60.0,
     "web_search": 60.0,
-    "batch_get_content": 60.0,
-    "get_content": 30.0,
+    "fetch": 120.0,
     "academic_search": 45.0,
     "code_search": 120.0,
     "code_fetch": 90.0,
@@ -120,8 +118,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     ),
     "quick_web_search": _entry("quick_web_search", "Quick Web Search", {"regular", "full"}),
     "web_search": _entry("web_search", "Web Search", {"regular", "full"}, task=True),
-    "get_content": _entry("get_content", "Get Content", {"regular", "full"}),
-    "batch_get_content": _entry("batch_get_content", "Batch Get Content", {"regular", "full"}),
+    "fetch": _entry("fetch", "Fetch", {"regular", "full"}),
     "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
     "grok_search": _entry(
         "grok_search",
@@ -146,7 +143,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             "the search. Results are grouped by repository (Octocode-style): each group "
             "contains files with text_matches (source windows), match_lines with exact "
             "spans, symbols, sha, and url. Hints and next continuations guide agents to "
-            "fetch exact line anchors via get_content. Use web_search or get_content for "
+            "fetch exact line anchors via fetch. Use web_search or fetch for "
             "general web pages and narrative research."
         ),
         task=True,

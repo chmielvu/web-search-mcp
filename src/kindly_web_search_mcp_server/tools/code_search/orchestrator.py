@@ -97,6 +97,21 @@ def _stats(responses: list[ProviderResponse], *, elapsed_ms: float) -> Stats:
     )
 
 
+def _provider_summaries(responses: list[ProviderResponse]) -> list[dict[str, Any]]:
+    """Project provider responses into JSON-safe analytics-only summaries."""
+    return [
+        {
+            "provider": response.provider,
+            "hit_count": len(response.hits),
+            "request_count": response.request_count,
+            "outcome": response.outcome,
+            "compiled_queries": response.metadata.get("compiled_queries"),
+            "payload_json": response.metadata,
+        }
+        for response in responses
+    ]
+
+
 def _select_rerank_profile(
     plan: QueryPlan,
     request: CodeSearchRequest,
@@ -182,6 +197,7 @@ async def execute_code_search(
             diagnostics=diagnostics,
             stats=stats,
             query_metadata=query_metadata,
+            provider_summaries=_provider_summaries(responses),
         )
 
     operations: list[tuple[str, Any]] = [
@@ -237,6 +253,8 @@ async def execute_code_search(
 
     if hits:
         rerank_profile = _select_rerank_profile(plan, request)
+        rerank_input_count = len(hits)
+        rerank_started = time.monotonic()
         rerank = await rerank_code_hits(
             request.query,
             hits,
@@ -247,7 +265,16 @@ async def execute_code_search(
         )
         hits = rerank.hits
         stats.rerank_count = rerank.reranked_count
+        stats.rerank_provider = rerank.provider
+        stats.rerank_model = rerank.model
+        stats.rerank_status = rerank.metadata.get("status")
+        stats.rerank_duration_ms = (time.monotonic() - rerank_started) * 1000
+        stats.rerank_input_count = rerank_input_count
+        stats.rerank_output_count = len(hits)
+        stats.rerank_payload = rerank.metadata
         if rerank.diagnostic:
+            stats.rerank_diagnostic_outcome = rerank.diagnostic.outcome
+            stats.rerank_diagnostic_message = rerank.diagnostic.message
             diagnostics.append(rerank.diagnostic)
 
     hits = [normalize_hit_metadata(hit) for hit in hits[: request.max_results]]
@@ -295,4 +322,5 @@ async def execute_code_search(
         diagnostics=diagnostics,
         stats=stats,
         query_metadata=query_metadata,
+        provider_summaries=_provider_summaries(responses),
     )

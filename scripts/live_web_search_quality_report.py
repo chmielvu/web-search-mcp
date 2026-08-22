@@ -204,12 +204,12 @@ def build_outputs(
     expected_embedding_runs = {
         row["run_key"]
         for row in runs
-        if _find_key(_json_object(row.get("payload_json")), "query_embedding_dim") == 1024
+        if _find_key(_json_object(row.get("payload_json")), "query_embedding_dim") == 786
     }
     actual_embedding_runs = {
         row["run_key"]
         for row in embedding_rows
-        if row.get("embedding_table") == "query_embeddings" and row.get("vector_dimension") == 1024
+        if row.get("embedding_table") == "query_embeddings" and row.get("vector_dimension") == 786
     }
     selected = Counter(
         provider for row in runs for provider in (row.get("selected_providers") or [])

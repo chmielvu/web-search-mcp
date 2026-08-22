@@ -700,7 +700,7 @@ class TestDispatchAndValidation(IsolatedAsyncioTestCase):
             patch(
                 "kindly_web_search_mcp_server.tools.code_search.orchestrator.search_exa",
                 AsyncMock(return_value=response),
-            ) as exa,
+            ),
             patch(
                 "kindly_web_search_mcp_server.tools.code_search.orchestrator.search_github",
                 AsyncMock(return_value=ProviderResponse(provider="github")),
@@ -722,7 +722,10 @@ class TestDispatchAndValidation(IsolatedAsyncioTestCase):
         self.assertEqual(result.results[0].provider, "exa")
         self.assertEqual(result.results[0].result_kind, "semantic_page")
         self.assertEqual(result.results[0].location.precision, "url")
-        exa.assert_awaited_once()
+        self.assertEqual(
+            {row["provider"] for row in result.provider_summaries},
+            {"exa", "github", "sourcegraph", "grep.app"},
+        )
         github.assert_awaited_once()
         sourcegraph.assert_awaited_once()
         grepapp.assert_awaited_once()

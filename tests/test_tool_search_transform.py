@@ -17,8 +17,8 @@ def test_tool_search_transform_not_active_by_default():
     async def web_search(query: str = "") -> str:
         return "ok"
 
-    @mcp.tool(**tool_kwargs("get_content"))
-    async def get_content(url: str = "") -> str:
+    @mcp.tool(**tool_kwargs("fetch"))
+    async def fetch(url: str = "") -> str:
         return "ok"
 
     @mcp.tool(**tool_kwargs("youtube_transcript"))
@@ -42,7 +42,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
 ):
     """Enabling TOOL_SEARCH_ENABLED adds BM25SearchTransform after profile.
 
-    Queries for docs/URL fetch surface get_content or web_search; YouTube transcript
+    Queries for docs/URL fetch surface fetch or web_search; YouTube transcript
     surfaces youtube_* tools (respecting profile).
     """
     # Set env before importing server (which reads settings at module load and
@@ -78,7 +78,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
     assert "call_tool" in listed_names, "call meta-tool must be exposed when enabled"
     # Pinned core tools (from default profile + full in catalog) remain visible
     assert "web_search" in listed_names
-    assert "get_content" in listed_names
+    assert "fetch" in listed_names
     # Non-pinned like youtube are hidden from flat list but discoverable via search
     # (they may appear if profile made them, but transform limits to always_visible + metas)
     # The contract is metas are there and search surfaces them.
@@ -87,11 +87,9 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
     async def _run_search_queries():
         async with Client(mcp) as client:
             # Use name-containing patterns guaranteed to match (name part of searchable text).
-            # "get_content|web_search" will hit the pinned tools; transcript hits media ones via search.
-            docs_res = await client.call_tool("search_tools", {"query": "get_content web_search"})
-            res_text = str(docs_res)
-            assert "get_content" in res_text or "web_search" in res_text, (
-                f"search must surface get_content or web_search; got {res_text}"
+            docs_res = await client.call_tool("search_tools", {"query": "fetch web_search"})
+            assert "fetch" in str(docs_res) or "web_search" in str(docs_res), (
+                f"search must surface fetch or web_search; got {docs_res}"
             )
 
             # YouTube transcript query must surface the transcript tool (discoverable via search)

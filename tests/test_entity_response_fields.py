@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from kindly_web_search_mcp_server.entity.models import EntitySpan
 
-from kindly_web_search_mcp_server.models import GetContentResponse, WebSearchResult
+from kindly_web_search_mcp_server.models import FetchResult, WebSearchResult
 
 
 def test_web_search_result_model_accepts_entities() -> None:
@@ -18,9 +18,9 @@ def test_web_search_result_model_accepts_entities() -> None:
     assert r.entities and r.entities[0].label == "package"
 
 
-def test_get_content_response_model_accepts_entities() -> None:
+def test_fetch_result_model_accepts_entities() -> None:
     e = EntitySpan(text="bar", label="api_function", start=10, end=13)
-    c = GetContentResponse(
+    c = FetchResult(
         input_url="u",
         normalized_url="u",
         status="success",

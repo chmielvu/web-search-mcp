@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 _web_results_index: WebResultsIndex | None = None
 
-COLLECTION_NAME = "web_results"
+COLLECTION_NAME = "web_results_786d"
 COLLECTION_VECTORS = {
     "dense": models.VectorParams(
-        size=1024,
+        size=786,
         distance=models.Distance.COSINE,
     ),
 }

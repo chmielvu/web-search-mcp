@@ -54,7 +54,7 @@ class TestAnalyticsQuery(unittest.TestCase):
         )
 
         with self.assertRaises(ValueError) as ctx:
-            build_analytics_query_plan("fetch quality for get_content windows")
+            build_analytics_query_plan("fetch quality for unified fetch windows")
 
         self.assertIn("Supported topics", str(ctx.exception))
 

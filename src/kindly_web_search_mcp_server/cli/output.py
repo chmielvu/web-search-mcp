@@ -22,9 +22,12 @@ def _suggested_next(data: Any) -> list[str]:
         return []
 
     suggestions: list[str] = []
-    window = data.get("window")
+    primary = data
+    if data.get("mode") == "single" and isinstance(data.get("results"), list) and data["results"]:
+        primary = data["results"][0]
+    window = primary.get("window") if isinstance(primary, dict) else None
     if isinstance(window, dict) and window.get("has_more"):
-        url = data.get("input_url") or data.get("url")
+        url = primary.get("input_url") or primary.get("url")
         next_offset = window.get("next_offset")
         if isinstance(url, str) and next_offset is not None:
             suggestions.append(
@@ -34,16 +37,16 @@ def _suggested_next(data: Any) -> list[str]:
                         "run",
                         "web-search-cli",
                         "content",
-                        "get",
+                        "fetch",
                         "--url",
                         url,
-                        "--char-offset",
+                        "--offset",
                         str(next_offset),
                     ]
                 )
             )
 
-    if data.get("has_more") and data.get("cursor"):
+    if data.get("mode") == "bulk" and data.get("has_more") and data.get("cursor"):
         suggestions.append(
             shlex.join(
                 [
@@ -51,7 +54,7 @@ def _suggested_next(data: Any) -> list[str]:
                     "run",
                     "web-search-cli",
                     "content",
-                    "batch",
+                    "fetch",
                     "--cursor",
                     str(data["cursor"]),
                 ]
@@ -79,13 +82,13 @@ def _suggested_next(data: Any) -> list[str]:
                 if query.get(key):
                     args.extend([f"--{key}", str(query[key])])
             suggestions.append(shlex.join(args))
-        elif tool == "get_content" and isinstance(query.get("url"), str):
+        elif tool == "fetch" and isinstance(query.get("url"), str):
             args = [
                 "uv",
                 "run",
                 "web-search-cli",
                 "content",
-                "get",
+                "fetch",
                 "--url",
                 query["url"],
             ]

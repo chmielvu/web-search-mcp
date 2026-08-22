@@ -386,7 +386,7 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         # 11. LLM judgments — read-only view over persisted FlockMTL verdicts.
         # Each row is one already-billed LLM call from
         # `analytics/judges.py::judge_search_run`. Querying this view does
-        # NOT burn Mistral credits — the verdicts are persisted.
+        # NOT burn LLM provider credits — the verdicts are persisted.
         f"""
         CREATE OR REPLACE VIEW {t}.vw_llm_judgments AS
         SELECT

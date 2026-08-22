@@ -505,7 +505,7 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
             "tool_call_id": "co-tool-1",
             "trace_id": "trace-content",
             "session_id": "sess-content",
-            "tool_name": "get_content",
+            "tool_name": "fetch",
             "input_count": 1,
             "output_count": 1,
             "duration_ms": 250.0,
@@ -588,7 +588,7 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         ).fetchone()
         self.assertIsNotNone(fetch_perf)
         assert fetch_perf is not None
-        self.assertEqual(fetch_perf[0], "get_content")
+        self.assertEqual(fetch_perf[0], "fetch")
         self.assertEqual(fetch_perf[1], "trafilatura")
         self.assertEqual(fetch_perf[2], 1)
 
@@ -696,7 +696,7 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
             # Content
             emit_tool_observability_event(
                 logger,
-                "get_content",
+                "fetch",
                 "response",
                 tool_call_id="tool-get-999",
                 url="https://example.com/doc",
@@ -747,8 +747,8 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         co_row = con.execute("SELECT terminal_event_id, tool_call_id FROM content_operations").fetchone()
         self.assertIsNotNone(co_row)
         assert co_row is not None
-        self.assertEqual(co_row[0], event_by_tool["get_content"][0])
-        self.assertEqual(co_row[1], event_by_tool["get_content"][1])
+        self.assertEqual(co_row[0], event_by_tool["fetch"][0])
+        self.assertEqual(co_row[1], event_by_tool["fetch"][1])
 
         # Check code search run terminal_event_id
         csr_row = con.execute("SELECT terminal_event_id, tool_call_id FROM code_search_runs").fetchone()

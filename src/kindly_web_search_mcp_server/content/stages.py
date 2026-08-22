@@ -33,10 +33,14 @@ from .remote_clients import (
     get_crawl4ai_client,
 )
 from .safe_fetch import SafeFetchError, safe_fetch_url
+from .typed_content import detect_content_format, render_typed_content
 from .status_classifier import classify_markdown
 from ..utils.url_canonicalize import canonicalize_url
+from ..settings import settings
 from ..telemetry import record_content_resolution
 
+_CRAWL4AI_SEMAPHORE = asyncio.Semaphore(max(1, settings.web_fetch_workers))
+_CAMOUFOX_SEMAPHORE = asyncio.Semaphore(1)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -200,6 +204,7 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             lambda: safe_fetch_url(
                 url,
                 timeout_seconds=timeout_seconds if timeout_seconds is not None else 20.0,
+                max_response_bytes=options.max_response_bytes,
             ),
         )
     except SafeFetchError as exc:
@@ -230,6 +235,40 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             quality_score=0.0,
             error=ContentError(code="fallback_fetch_failed", message=str(exc), retryable=True),
         )
+    typed_format = detect_content_format(url, fetched.content_type, fetched.text)
+    if typed_format in {"json", "rss", "atom", "xml", "csv", "tsv"}:
+        typed_markdown, typed_metadata, typed_links = render_typed_content(
+            typed_format,
+            fetched.text or fetched.body.decode("utf-8", errors="replace"),
+            fetched.fetched_url or url,
+        )
+        typed_cls = classify_markdown(typed_markdown)
+        typed_status = (
+            "success"
+            if typed_markdown.strip() and typed_cls.status in ("success", "partial")
+            else typed_cls.status
+        )
+        return ContentArtifact(
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=fetched.fetched_url,
+            status=typed_status,
+            source_type=typed_format,
+            fetch_backend="typed_content",
+            content_type=fetched.content_type,
+            markdown=typed_markdown,
+            metadata=typed_metadata if options.include_metadata else None,
+            links=typed_links if options.include_links else None,
+            word_count=len(typed_markdown.split()),
+            quality_score=1.0 if typed_status == "success" else 0.4,
+            error=None
+            if typed_status == "success"
+            else ContentError(
+                code=typed_cls.reason or "typed_content_partial",
+                message=typed_cls.reason or "partial typed content",
+            ),
+        )
+
 
     # Handle Documents & PDFs
     if fetched.doc_type:
@@ -337,11 +376,17 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
     if client is None:
         raise Crawl4AIClientError("Crawl4AI client not configured", retryable=False)
 
-    markdown = await _stage_retry(
-        "crawl4ai_remote",
-        lambda: client.fetch_markdown(url, mode="fit"),
-        retryable_exceptions=(Crawl4AIClientError,),
-    )
+    async with _CRAWL4AI_SEMAPHORE:
+        markdown = await _stage_retry(
+            "crawl4ai_remote",
+            lambda: client.fetch_markdown(url, mode="fit"),
+            retryable_exceptions=(Crawl4AIClientError,),
+        )
+    if len(markdown.encode("utf-8")) > options.max_response_bytes:
+        raise Crawl4AIClientError(
+            f"Crawl4AI response exceeds {options.max_response_bytes} byte cap",
+            retryable=False,
+        )
     cls = classify_markdown(markdown)
     word_count = len(markdown.split())
     record_content_resolution(
@@ -390,8 +435,8 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
     client = get_camoufox_client()
     if client is None:
         raise CamoufoxClientError("Camoufox client not configured", retryable=False)
-
-    html = await client.fetch_html(url)  # retries 503 once internally
+    async with _CAMOUFOX_SEMAPHORE:
+        html = await client.fetch_html(url, max_bytes=options.max_response_bytes)
     if options.strip_selectors:
         html = strip_html_selectors(html, options.strip_selectors)
 

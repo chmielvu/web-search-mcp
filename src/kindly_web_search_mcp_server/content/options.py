@@ -18,12 +18,15 @@ class FetchOptions:
     max_links: int = 25
     strip_selectors: str | None = None
     stage_timeout_seconds: float | None = None
+    max_response_bytes: int = 5 * 1024 * 1024
 
     def validate(self) -> None:
         if self.max_links < 1:
             raise ValueError("max_links must be at least 1")
         if self.stage_timeout_seconds is not None and self.stage_timeout_seconds <= 0:
             raise ValueError("stage_timeout_seconds must be positive")
+        if self.max_response_bytes < 1:
+            raise ValueError("max_response_bytes must be positive")
 
     def selector_list(self) -> list[str]:
         return _normalize_selectors(self.strip_selectors)
@@ -35,6 +38,7 @@ class FetchOptions:
                 str(self.include_links),
                 str(self.max_links),
                 self.strip_selectors or "",
+                str(self.max_response_bytes),
             ]
         )
         return sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -46,6 +50,7 @@ class FetchOptions:
             "max_links": self.max_links,
             "strip_selectors": self.strip_selectors,
             "stage_timeout_seconds": self.stage_timeout_seconds,
+            "max_response_bytes": self.max_response_bytes,
         }
 
 
@@ -55,12 +60,14 @@ def build_fetch_options(
     include_links: bool = False,
     max_links: int = 25,
     strip_selectors: str | None = None,
+    max_response_bytes: int = 5 * 1024 * 1024,
 ) -> FetchOptions:
     options = FetchOptions(
         include_metadata=include_metadata,
         include_links=include_links,
         max_links=max_links,
         strip_selectors=strip_selectors,
+        max_response_bytes=max_response_bytes,
     )
     options.validate()
     return options

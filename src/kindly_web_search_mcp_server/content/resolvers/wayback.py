@@ -49,7 +49,11 @@ async def fetch_wayback_snapshot_markdown(
             timestamp = archived.get("timestamp", "unknown")
 
             # Fetch snapshot content
-            fetched = await safe_fetch_url(snapshot_url, timeout_seconds=timeout_sec)
+            fetched = await safe_fetch_url(
+                snapshot_url,
+                timeout_seconds=timeout_sec,
+                max_response_bytes=options.max_response_bytes,
+            )
             html = fetched.text
             if not html.strip():
                 return None

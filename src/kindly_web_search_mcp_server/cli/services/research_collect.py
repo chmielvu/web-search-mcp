@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .content_batch import fetch_batch_content_payload
+from .content import fetch_payload
 from .files import write_json_atomic, write_text_atomic
 from .search_web import fetch_web_search_payload
 
@@ -61,9 +61,6 @@ async def collect_research_bundle(
     output_dir: str | Path,
     top_results: int = 5,
     rewrite: bool = True,
-    per_item_char_length: int = 8_000,
-    total_char_budget: int = 60_000,
-    max_concurrency: int = 4,
     ai_summary: bool = False,
 ) -> dict[str, Any]:
     if top_results < 1:
@@ -81,13 +78,10 @@ async def collect_research_bundle(
     )
     selected = list(search_payload.get("results") or [])[:top_results]
     urls = _unique_urls(selected, top_results)
-    content_payload = await fetch_batch_content_payload(
+    content_payload = await fetch_payload(
         urls=urls,
         cursor=None,
-        max_concurrency=max_concurrency,
-        per_item_char_length=per_item_char_length,
-        total_char_budget=total_char_budget,
-        per_url_timeout_seconds=120.0,
+        offset=0,
         ai_summary=ai_summary,
         focus_query=research_goal,
         include_metadata=True,

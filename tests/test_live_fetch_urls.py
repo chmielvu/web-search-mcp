@@ -20,13 +20,12 @@ def _can_run_live_tests() -> bool:
     not _can_run_live_tests(),
     reason="Live fetch tests require RUN_LIVE_TESTS=1 and BROWSER_EXECUTABLE_PATH",
 )
-def test_get_content_timeout_urls(monkeypatch: pytest.MonkeyPatch) -> None:
-    from kindly_web_search_mcp_server.server import get_content
+def test_fetch_timeout_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kindly_web_search_mcp_server.server import fetch
 
-    monkeypatch.setenv("TOOL_TOTAL_TIMEOUT_SECONDS", "180")
-    monkeypatch.setenv("HTML_TOTAL_TIMEOUT_SECONDS", "90")
+    monkeypatch.setenv("KINDLY_WEB_FETCH_TIMEOUT_SECONDS", "20")
 
     for url in TIMEOUT_URLS:
-        result = asyncio.run(get_content(url))
-        page_content = result.get("page_content", "")
+        result = asyncio.run(fetch(url=url))
+        page_content = result.results[0].page_content
         assert "TimeoutError" not in page_content

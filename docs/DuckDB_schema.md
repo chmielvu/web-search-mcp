@@ -283,7 +283,7 @@ search.
 |---|---|---|
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `embedding` | `FLOAT[1024]` | Query embedding vector |
+| `embedding` | `FLOAT[786]` | Query embedding vector |
 | `model_id` | `VARCHAR` | Embedding model ID |
 | `payload_json` | `JSON` | Full payload |
 
@@ -312,7 +312,7 @@ for vss similarity search.
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `link` | `VARCHAR NOT NULL` | Result URL |
 | `title` | `VARCHAR` | Result title (first line) |
-| `embedding` | `FLOAT[1024]` | Candidate embedding vector |
+| `embedding` | `FLOAT[786]` | Candidate embedding vector |
 | `model_id` | `VARCHAR` | Embedding model ID |
 | `payload_json` | `JSON` | Full payload |
 

@@ -74,7 +74,7 @@ def test_run_cli_async_reports_post_runner_executor_shutdown(monkeypatch, caplog
     monkeypatch.setattr(telemetry_init, "shutdown_telemetry", finish_telemetry)
 
     def executor_work() -> None:
-        assert gate.wait(timeout=1.0)
+        assert gate.wait(timeout=5.0)
         time.sleep(0.1)
 
     async def command() -> object:

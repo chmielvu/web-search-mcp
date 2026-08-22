@@ -5,6 +5,7 @@ from typing import Any
 
 from ..analytics.rerank_candidate_writes import insert_rerank_candidate_rows_batch
 from ..analytics.async_writes import dispatch_duckdb_write
+from ..analytics.duckdb_store import insert_funnel_uplift_batches
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..models import WebSearchResult
 from ..utils.observability import emit_observability_event, serialize_search_results
@@ -246,7 +247,6 @@ async def record_rerank_candidate_rows_async(
     """Queue one stage's candidate analytics without blocking rerank latency."""
     if not run_key:
         return
-
     def _write():
         try:
             rows = build_rerank_candidate_rows(
@@ -267,7 +267,29 @@ async def record_rerank_candidate_rows_async(
                 entity_overlap_scores=entity_overlap_scores,
             )
             insert_rerank_candidate_rows_batch(rows)
+            stage_execution_id = _canonical_result_id(f"{run_key}|{stage}")
+            stage_event_rows = [
+                {
+                    "stage_execution_id": stage_execution_id,
+                    "run_key": run_key,
+                    "canonical_result_id": row["canonical_result_id"],
+                    "entered": row.get("rank_before") is None
+                    and row.get("rank_after") is not None,
+                    "survived": row.get("rank_after") is not None,
+                    "rank_before": row.get("rank_before"),
+                    "rank_after": row.get("rank_after"),
+                    "score_before": row.get("score_before"),
+                    "score_after": row.get("score_after"),
+                    "score_name": stage,
+                    "removal_reason": (
+                        None if row.get("rank_after") is not None else "rerank_stage_removed"
+                    ),
+                    "payload_json": row.get("payload_json"),
+                }
+                for row in rows
+            ]
+            insert_funnel_uplift_batches(candidate_stage_events=stage_event_rows)
         except Exception as exc:
-            logger.debug("analytics insert_rerank_candidates failed: %s", exc)
+            logger.warning("analytics insert_rerank_candidates failed: %s", exc)
 
     dispatch_duckdb_write(f"analytics.rerank_candidates.{stage}", _write)

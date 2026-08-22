@@ -2,295 +2,449 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..cache import get_page_cache
+from ..content.artifact import ContentArtifact
 from ..content.fetch_pipeline import fetch_content_artifact
-from ..content.options import build_fetch_options
+from ..content.llms_txt import LlmsTxtResult, check_llms_txt
+from ..content.options import FetchOptions, build_fetch_options
+from ..content.status_classifier import classify_markdown
 from ..content.summary import create_batch_summaries, create_summary
 from ..content.windowing import slice_content
-from ..models import (
-    BatchGetContentResponse,
-    GetContentResponse,
-)
-from ..utils.url_canonicalize import canonicalize_url
+from ..models import FetchResponse, FetchResult
+from ..settings import settings
 from ..utils.observability import emit_tool_observability_event
-from ._helpers import _get_int_env, _record_tool_success, _resolve_tool_total_timeout_seconds
+from ..utils.url_canonicalize import canonicalize_url
+from ._helpers import _record_tool_success
 
 LOGGER = logging.getLogger(__name__)
 
+_CURSOR_VERSION = 1
+_CACHE_SCHEMA_VERSION = 1
+_TYPED_FORMATS = {"json", "rss", "atom", "xml", "csv", "tsv"}
 
-async def get_content(
-    url: str,
-    char_offset: int = 0,
-    char_length: int = 20_000,
-    ai_summary: bool = False,
-    focus_query: str | None = None,
-    include_metadata: bool = True,
-    include_links: bool = True,
-    max_links: int = 100,
-    strip_selectors: str | None = None,
-    ctx: Context = CurrentContext(),
-) -> GetContentResponse:
-    """Fetch a single URL as markdown with bounded windowing and 7-stage content resolution.
 
-    When to use this tool:
-    - When you have a specific target URL and need to read its full text, code blocks, or metadata.
-    - After running a search tool to inspect a specific source in detail.
+def _error_dict(exc: Exception, *, retryable: bool = True) -> dict[str, Any]:
+    return {
+        "code": type(exc).__name__,
+        "message": str(exc)[:500],
+        "retryable": retryable,
+    }
 
-    Pagination & Continuation:
-    - This tool returns a windowed chunk of text to save context space.
-    - You MUST inspect the 'window.has_more' field in the response.
-    - If 'has_more' is true, you MUST call this tool again, setting 'char_offset' to the value of 'window.next_offset'.
 
-    Args:
-        url: The URL to fetch content from.
-        char_offset: Starting character position for windowed content (0-based).
-        char_length: Maximum characters to return (default 20k, max 50k).
-        ai_summary: Whether to include a detailed source-grounded Gemini URL-context
-            summary (default false).
-        focus_query: Topic, term, or comparison to bias the summary toward.
-        include_metadata: Include page metadata (title, author, date) in response.
-        include_links: Include outbound links discovered on the page (default True).
-        max_links: Maximum links to return when include_links is True (default 100).
-        strip_selectors: CSS selectors to remove from content before extraction
-            (e.g., "nav, footer, .sidebar").
-    """
-    started = time.monotonic()
-    await ctx.report_progress(progress=5, total=100, message="Checking page cache...")
-    await ctx.info(f"Fetching: {url[:80]}...")
-    emit_tool_observability_event(
-        LOGGER,
-        "get_content",
-        "request",
-        url=url,
-        char_offset=char_offset,
-        char_length=char_length,
-        ai_summary=ai_summary,
-        focus_query=focus_query,
-        include_metadata=include_metadata,
-        include_links=include_links,
-        max_links=max_links,
-        strip_selectors=strip_selectors,
+def _content_format(source_type: str, content_type: str | None) -> str:
+    lowered = (content_type or "").split(";", 1)[0].strip().lower()
+    if source_type in _TYPED_FORMATS or source_type == "llms_txt":
+        return source_type
+    if "json" in lowered:
+        return "json"
+    if "rss" in lowered:
+        return "rss"
+    if "atom" in lowered:
+        return "atom"
+    if "csv" in lowered:
+        return "csv"
+    if "pdf" in lowered or source_type == "pdf":
+        return "pdf"
+    return "markdown"
+
+
+def _wall_for(
+    status: str,
+    error: dict[str, Any] | None,
+    markdown: str,
+) -> dict[str, Any] | None:
+    reason = " ".join(
+        str(value).lower()
+        for value in (
+            (error or {}).get("code", ""),
+            (error or {}).get("message", ""),
+            markdown[:2000],
+        )
     )
+    if "paywall" in reason or "subscriber" in reason or "premium" in reason:
+        return {"kind": "paywall", "confidence": "medium", "retryable": False}
+    if "login_wall" in reason or "auth" in reason or "sign in" in reason or "log in" in reason:
+        return {"kind": "login", "confidence": "medium", "retryable": False}
+    if (
+        "access_blocked" in reason
+        or "cloudflare" in reason
+        or "captcha" in reason
+        or "checking your browser" in reason
+        or "verify you are human" in reason
+    ):
+        return {"kind": "bot", "confidence": "medium", "retryable": status != "success"}
+    if "spa_shell" in reason or "javascript" in reason:
+        return {"kind": "js_shell", "confidence": "medium", "retryable": True}
+    return None
 
 
-    max_length = _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)
-    safe_length = max(1, min(char_length, max_length))
-    safe_offset = max(0, char_offset)
-    fetch_options = build_fetch_options(
-        include_metadata=include_metadata,
-        include_links=include_links,
-        max_links=max_links,
-        strip_selectors=strip_selectors,
-    )
+def _request_fingerprint(
+    *,
+    fetch_options: FetchOptions,
+    focus_query: str | None,
+    ai_summary: bool,
+    item_max_chars: int,
+    total_char_budget: int,
+) -> str:
+    payload = {
+        "fetch_options": fetch_options.cache_fingerprint(),
+        "focus_query": focus_query or "",
+        "ai_summary": ai_summary,
+        "item_max_chars": item_max_chars,
+        "total_char_budget": total_char_budget,
+    }
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
-    artifact: dict[str, Any] | None = None
-    normalized_url = canonicalize_url(url)
+
+def _encode_cursor(urls: list[str], fingerprint: str) -> str:
+    payload = {
+        "version": _CURSOR_VERSION,
+        "mode": "bulk",
+        "urls": urls,
+        "fingerprint": fingerprint,
+    }
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+
+
+def _decode_cursor(cursor: str) -> dict[str, Any]:
     try:
-        cached = await get_page_cache().alookup(normalized_url)
-        if cached:
-            cached_metadata = cached.get("metadata")
-            cached_page_metadata = (
-                cached_metadata.get("metadata")
-                if isinstance(cached_metadata, dict) and "metadata" in cached_metadata
-                else cached_metadata
-            )
-            cached_links = (
-                cached_metadata.get("links") if isinstance(cached_metadata, dict) else None
-            )
-            artifact = {
-                "input_url": url,
-                "normalized_url": normalized_url,
-                "fetched_url": None,
-                "status": "success",
-                "source_type": "cache",
-                "fetch_backend": "cache",
-                "origin_backend": cached.get("extraction_method") or "cache",
-                "cached": True,
-                "content_type": "text/markdown",
-                "markdown": cached["page_content"],
-                "metadata": cached_page_metadata,
-                "links": cached_links,
-                "word_count": cached.get("word_count", 0) or len(cached["page_content"].split()),
-                "error": None,
-            }
+        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
     except Exception as exc:
-        LOGGER.warning("Page cache lookup failed: %s", exc)
+        raise ValueError("Invalid fetch cursor") from exc
+    if not isinstance(decoded, dict) or decoded.get("version") != _CURSOR_VERSION:
+        raise ValueError("Unsupported fetch cursor version")
+    if decoded.get("mode") != "bulk" or not isinstance(decoded.get("urls"), list):
+        raise ValueError("Invalid bulk fetch cursor")
+    urls = [item.strip() for item in decoded["urls"] if isinstance(item, str) and item.strip()]
+    if not urls:
+        raise ValueError("Fetch cursor contains no pending URLs")
+    decoded["urls"] = list(dict.fromkeys(urls))
+    return decoded
 
-    if artifact is None:
-        await ctx.report_progress(progress=30, total=100, message="Resolving content...")
-        fetched = None
+
+def _artifact_dict(
+    *,
+    input_url: str,
+    normalized_url: str,
+    fetched_url: str | None,
+    status: str,
+    source_type: str,
+    fetch_backend: str,
+    origin_backend: str | None,
+    cached: bool,
+    content_type: str | None,
+    markdown: str,
+    metadata: dict[str, Any] | None,
+    links: list[dict[str, Any]] | None,
+    error: dict[str, Any] | None,
+    entities: Any = None,
+    llms_txt: dict[str, Any] | None = None,
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "input_url": input_url,
+        "normalized_url": normalized_url,
+        "fetched_url": fetched_url,
+        "status": status,
+        "source_type": source_type,
+        "fetch_backend": fetch_backend,
+        "origin_backend": origin_backend or fetch_backend,
+        "cached": cached,
+        "content_type": content_type,
+        "markdown": markdown,
+        "metadata": metadata,
+        "links": links,
+        "error": error,
+        "entities": entities,
+        "llms_txt": llms_txt,
+        "diagnostics": diagnostics,
+    }
+
+
+def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, Any]) -> dict[str, Any]:
+    stored = cached.get("metadata")
+    stored = stored if isinstance(stored, dict) else {}
+    envelope = stored.get("__web_fetch__")
+    envelope = envelope if isinstance(envelope, dict) else {}
+    legacy = not envelope or envelope.get("schema_version") != _CACHE_SCHEMA_VERSION
+
+    metadata = envelope.get("metadata") if isinstance(envelope.get("metadata"), dict) else stored.get("metadata")
+    links = envelope.get("links") if isinstance(envelope.get("links"), list) else stored.get("links")
+    origin_backend = envelope.get("origin_backend") or cached.get("extraction_method") or "cache"
+    source_type = envelope.get("source_type") or ("cache_legacy" if legacy else "html")
+    fetched_url = envelope.get("fetched_url") or cached.get("url_canonical") or normalized_url
+    content_type = envelope.get("content_type") or "text/markdown"
+    status = envelope.get("status") or "success"
+    diagnostics = list(envelope.get("diagnostics") or [])
+    if legacy:
+        diagnostics.append({"code": "legacy_cache_entry", "cache_schema_version": 0})
+
+    return _artifact_dict(
+        input_url=input_url,
+        normalized_url=str(envelope.get("normalized_url") or normalized_url),
+        fetched_url=str(fetched_url) if fetched_url else None,
+        status=str(status),
+        source_type=str(source_type),
+        fetch_backend="cache",
+        origin_backend=str(origin_backend),
+        cached=True,
+        content_type=str(content_type) if content_type else None,
+        markdown=str(cached.get("page_content") or ""),
+        metadata=metadata if isinstance(metadata, dict) else None,
+        links=links if isinstance(links, list) else None,
+        error=None,
+        llms_txt=envelope.get("llms_txt") if isinstance(envelope.get("llms_txt"), dict) else None,
+        diagnostics=diagnostics,
+    )
+
+
+def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "__web_fetch__": {
+            "schema_version": _CACHE_SCHEMA_VERSION,
+            "input_url": artifact["input_url"],
+            "normalized_url": artifact["normalized_url"],
+            "fetched_url": artifact.get("fetched_url"),
+            "status": artifact.get("status"),
+            "source_type": artifact.get("source_type"),
+            "content_type": artifact.get("content_type"),
+            "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
+            "metadata": artifact.get("metadata"),
+            "links": artifact.get("links"),
+            "llms_txt": artifact.get("llms_txt"),
+            "diagnostics": artifact.get("diagnostics"),
+        },
+        "metadata": artifact.get("metadata"),
+        "links": artifact.get("links"),
+        "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
+        "status_code": 200,
+    }
+
+
+async def _store_cache(artifact: dict[str, Any]) -> None:
+    if artifact.get("status") not in {"success", "partial"} or not artifact.get("markdown"):
+        return
+    try:
+        await get_page_cache().astore(
+            canonical_url=artifact["normalized_url"],
+            page_content=artifact["markdown"],
+            extraction_method=artifact.get("origin_backend") or artifact.get("fetch_backend") or "unknown",
+            metadata=_cache_metadata(artifact),
+        )
+    except Exception as exc:  # pragma: no cover - cache isolation
+        LOGGER.warning("Page cache store failed: %s", exc)
+
+
+def _artifact_from_llms(input_url: str, probe: LlmsTxtResult) -> dict[str, Any]:
+    content = probe.content or ""
+    classification = classify_markdown(content)
+    status = "success" if classification.status in {"success", "partial"} else classification.status
+    normalized = canonicalize_url(input_url)
+    llms_meta = {"available": True, "used": True, "url": probe.url}
+    return _artifact_dict(
+        input_url=input_url,
+        normalized_url=normalized,
+        fetched_url=probe.url,
+        status=status,
+        source_type="llms_txt",
+        fetch_backend="llms_txt",
+        origin_backend="llms_txt",
+        cached=False,
+        content_type=probe.content_type or "text/plain",
+        markdown=content,
+        metadata={"source": "llms.txt", "url": probe.url},
+        links=[],
+        error=None if status == "success" else {"code": classification.reason or "partial", "message": classification.reason or "partial", "retryable": False},
+        llms_txt=llms_meta,
+    )
+
+
+def _artifact_from_content(input_url: str, fetched: ContentArtifact) -> dict[str, Any]:
+    error = None
+    if fetched.error is not None:
+        error = {
+            "code": fetched.error.code,
+            "message": fetched.error.message,
+            "retryable": fetched.error.retryable,
+        }
+    return _artifact_dict(
+        input_url=input_url,
+        normalized_url=fetched.normalized_url,
+        fetched_url=fetched.fetched_url,
+        status=fetched.status,
+        source_type=fetched.source_type,
+        fetch_backend=fetched.fetch_backend,
+        origin_backend=fetched.origin_backend or fetched.fetch_backend,
+        cached=fetched.cached,
+        content_type=fetched.content_type,
+        markdown=fetched.markdown,
+        metadata=fetched.metadata,
+        links=fetched.links,
+        error=error,
+        entities=fetched.entities,
+        diagnostics=fetched.diagnostics,
+    )
+
+
+def _artifact_from_exception(input_url: str, exc: Exception, *, timeout: bool = False) -> dict[str, Any]:
+    normalized = canonicalize_url(input_url)
+    if timeout:
+        error = {
+            "code": "timeout",
+            "message": "Fetch exceeded the dsh-webfetch 20 second request budget.",
+            "retryable": True,
+        }
+        backend = "timeout"
+    else:
+        error = _error_dict(exc)
+        backend = "exception"
+    return _artifact_dict(
+        input_url=input_url,
+        normalized_url=normalized,
+        fetched_url=None,
+        status="error",
+        source_type="unknown",
+        fetch_backend=backend,
+        origin_backend=backend,
+        cached=False,
+        content_type=None,
+        markdown="",
+        metadata=None,
+        links=None,
+        error=error,
+    )
+
+
+async def _fetch_one_artifact(
+    input_url: str,
+    *,
+    fetch_options: FetchOptions,
+    llms_probe: LlmsTxtResult | None = None,
+) -> dict[str, Any]:
+    normalized = canonicalize_url(input_url)
+    probe = llms_probe
+    if probe is None:
         try:
-            fetched = await asyncio.wait_for(
-                fetch_content_artifact(url, fetch_options=fetch_options),
-                timeout=_resolve_tool_total_timeout_seconds(),
+            probe = await check_llms_txt(
+                input_url,
+                timeout_seconds=5.0,
+                max_response_bytes=fetch_options.max_response_bytes,
             )
-        except asyncio.TimeoutError:
-            artifact = {
-                "input_url": url,
-                "normalized_url": normalized_url,
-                "fetched_url": None,
-                "status": "error",
-                "source_type": "unknown",
-                "fetch_backend": "timeout",
-                "content_type": None,
-                "markdown": "",
-                "metadata": None,
-                "links": None,
-                "word_count": 0,
-                "error": {
-                    "code": "timeout",
-                    "message": "Content fetch exceeded the configured tool time budget.",
-                    "retryable": True,
-                },
-            }
-        except Exception as exc:
-            artifact = {
-                "input_url": url,
-                "normalized_url": normalized_url,
-                "fetched_url": None,
-                "status": "error",
-                "source_type": "unknown",
-                "fetch_backend": "fetch_pipeline",
-                "content_type": None,
-                "markdown": "",
-                "metadata": None,
-                "links": None,
-                "word_count": 0,
-                "error": {
-                    "code": type(exc).__name__,
-                    "message": str(exc),
-                    "retryable": True,
-                },
-            }
-        if fetched is not None:
-            artifact = {
-                "input_url": fetched.input_url,
-                "normalized_url": fetched.normalized_url,
-                "fetched_url": fetched.fetched_url,
-                "status": fetched.status,
-                "source_type": fetched.source_type,
-                "fetch_backend": fetched.fetch_backend,
-                "content_type": fetched.content_type,
-                "markdown": fetched.markdown,
-                "metadata": fetched.metadata,
-                "links": fetched.links if include_links else None,
-                "word_count": fetched.word_count or len(fetched.markdown.split()),
-                "error": None
-                if fetched.error is None
-                else {
-                    "code": fetched.error.code,
-                    "message": fetched.error.message,
-                    "retryable": fetched.error.retryable,
-                },
-            }
-        if fetched is not None and fetched.status == "success" and fetched.markdown:
-            try:
-                await get_page_cache().astore(
-                    canonical_url=fetched.normalized_url,
-                    page_content=fetched.markdown,
-                    extraction_method=fetched.fetch_backend,
-                    metadata={
-                        "metadata": fetched.metadata,
-                        "links": fetched.links,
-                    },
-                )
-            except Exception as exc:
-                LOGGER.warning("Page cache store failed: %s", exc)
+        except Exception:
+            probe = LlmsTxtResult(available=False)
+    if probe.available:
+        artifact = _artifact_from_llms(input_url, probe)
+        await _store_cache(artifact)
+        return artifact
 
-    assert artifact is not None
-    windowed = slice_content(
-        artifact["markdown"],
-        offset=safe_offset,
-        length=safe_length,
-    )
-    summary = await create_summary(
-        windowed.content,
-        ai_summary=ai_summary,
-        focus_query=focus_query,
-        source_urls=[
-            artifact["fetched_url"] or artifact["normalized_url"],
-        ]
-        if artifact.get("fetched_url") or artifact.get("normalized_url")
-        else None,
-    )
+    try:
+        cached = await get_page_cache().alookup(normalized)
+    except Exception as exc:  # pragma: no cover - cache isolation
+        LOGGER.warning("Page cache lookup failed: %s", exc)
+        cached = None
+    if cached:
+        return _artifact_from_cache(input_url, normalized, cached)
 
-    response = GetContentResponse(
-        input_url=url,
-        normalized_url=artifact["normalized_url"],
-        fetched_url=artifact["fetched_url"],
-        status=artifact["status"],
-        source_type=artifact["source_type"],
-        fetch_backend=artifact["fetch_backend"],
-        page_content=windowed.content,
-        window=windowed.window.__dict__,
-        metadata=artifact.get("metadata") if include_metadata else None,
-        links=artifact.get("links") if include_links else None,
-        continuation_notice=windowed.window.continuation_notice,
-        content_type=artifact["content_type"],
-        error=artifact["error"],
-        summary=summary,
-        content_quality=artifact["status"],
-        content_word_count=artifact.get("word_count", 0) or len(artifact["markdown"].split()),
-    ).model_dump(exclude_none=True)
-    fetched_url_val = (
-        response.pop("fetched_url", None) or artifact["fetched_url"] or artifact["normalized_url"]
-    )
-    response.pop("input_url", None)
-    response.pop("normalized_url", None)
-    response["url"] = fetched_url_val
-    response["cached"] = artifact.get("cached", False)
-    response["origin_backend"] = artifact.get("origin_backend") or artifact["fetch_backend"]
+    try:
+        fetched = await asyncio.wait_for(
+            fetch_content_artifact(input_url, fetch_options=fetch_options),
+            timeout=settings.web_fetch_timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        return _artifact_from_exception(input_url, TimeoutError(), timeout=True)
+    except Exception as exc:
+        return _artifact_from_exception(input_url, exc)
 
-    await ctx.report_progress(progress=100, total=100, message="Done")
-    await ctx.info(
-        f"Fetched status={response['status']} chars={len(response['page_content'])} has_more={response['window']['has_more']}"
-    )
-    emit_tool_observability_event(
-        LOGGER,
-        "get_content",
-        "response",
-        duration_ms=(time.monotonic() - started) * 1000.0,
-        input_url=url,
-        normalized_url=artifact["normalized_url"],
-        fetched_url=fetched_url_val,
-        status=response["status"],
-        source_type=response["source_type"],
-        fetch_backend=response["fetch_backend"],
-        content_length=len(response["page_content"]),
-        page_char_count=len(response["page_content"]),
-        word_count=len(response["page_content"].split()),
-        window_offset=response["window"].get("offset"),
-        window_length=response["window"].get("length"),
-        window_returned_chars=response["window"].get("returned_chars"),
-        window_total_chars=response["window"].get("total_chars"),
-        window_has_more=response["window"].get("has_more"),
-        window_next_offset=response["window"].get("next_offset"),
-        page_content=response["page_content"],
-        window=response["window"],
-        metadata=response.get("metadata"),
-        links=response.get("links"),
-        continuation_notice=response.get("continuation_notice"),
-        content_type=response.get("content_type"),
-        error=response.get("error"),
-        summary=response.get("summary"),
-    )
-    _record_tool_success("get_content", output_content=response["page_content"])
-    return response  # type: ignore[return-value]
+    artifact = _artifact_from_content(input_url, fetched)
+    if probe is not None and probe.url:
+        artifact["llms_txt"] = {"available": False, "used": False, "url": probe.url}
+    await _store_cache(artifact)
+    return artifact
 
 
-async def batch_get_content(
+def _result_from_artifact(
+    artifact: dict[str, Any],
+    *,
+    offset: int,
+    max_chars: int,
+    include_metadata: bool,
+    include_links: bool,
+    summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    full_markdown = str(artifact.get("markdown") or "")
+    windowed = slice_content(full_markdown, offset=max(0, offset), length=max_chars)
+    fetched_url = artifact.get("fetched_url") or artifact.get("normalized_url")
+    error = artifact.get("error")
+    return {
+        "input_url": artifact["input_url"],
+        "normalized_url": artifact["normalized_url"],
+        "url": fetched_url,
+        "fetched_url": fetched_url,
+        "status": artifact.get("status", "error"),
+        "source_type": artifact.get("source_type", "unknown"),
+        "fetch_backend": artifact.get("fetch_backend", "unknown"),
+        "origin_backend": artifact.get("origin_backend"),
+        "cached": bool(artifact.get("cached", False)),
+        "page_content": windowed.content,
+        "window": windowed.window.__dict__,
+        "content_format": _content_format(
+            str(artifact.get("source_type", "")), artifact.get("content_type")
+        ),
+        "content_type": artifact.get("content_type"),
+        "metadata": artifact.get("metadata") if include_metadata else None,
+        "links": artifact.get("links") if include_links else None,
+        "continuation_notice": windowed.window.continuation_notice,
+        "error": error,
+        "entities": artifact.get("entities"),
+        "summary": summary,
+        "content_quality": artifact.get("status"),
+        "content_word_count": len(full_markdown.split()),
+        "page_char_count": len(windowed.content),
+        "word_count": len(windowed.content.split()),
+        "wall": _wall_for(str(artifact.get("status", "")), error, full_markdown),
+        "llms_txt": artifact.get("llms_txt"),
+        "diagnostics": artifact.get("diagnostics"),
+    }
+
+
+def _normalize_inputs(
+    url: str | None,
+    urls: list[str] | None,
+    cursor: str | None,
+) -> tuple[Literal["single", "bulk"], list[str], dict[str, Any] | None]:
+    primary = url.strip() if isinstance(url, str) and url.strip() else None
+    supplied_urls = [item.strip() for item in (urls or []) if isinstance(item, str) and item.strip()]
+    if cursor:
+        if primary or supplied_urls:
+            raise ValueError("cursor cannot be combined with url or urls")
+        decoded = _decode_cursor(cursor)
+        return "bulk", decoded["urls"], decoded
+    if primary is None and not supplied_urls:
+        raise ValueError("Provide url or a non-empty urls list")
+    if primary is not None and not supplied_urls:
+        return "single", [primary], None
+    if primary is None:
+        return "bulk", list(dict.fromkeys(supplied_urls)), None
+    combined = list(dict.fromkeys([primary, *supplied_urls]))
+    return ("bulk" if len(combined) > 1 else "single"), combined, None
+
+
+async def fetch(
+    url: str | None = None,
     urls: list[str] | None = None,
-    max_concurrency: int = 4,
-    per_item_char_length: int = 8_000,
-    total_char_budget: int = 120_000,
+    offset: int = 0,
     cursor: str | None = None,
     ai_summary: bool = False,
     focus_query: str | None = None,
@@ -299,75 +453,51 @@ async def batch_get_content(
     max_links: int = 25,
     strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
-) -> BatchGetContentResponse:
-    """Fetch multiple URLs in parallel with total character budget and continuation cursor.
+) -> FetchResponse:
+    """Fetch one URL or multiple URLs through the unified content pipeline.
 
-    When to use this tool:
-    - When you need to fetch content from 3 or more URLs concurrently.
-    - To efficiently gather page context across multiple sources within a strict character budget.
-
-    Pagination & Continuation:
-    - Inspect the 'has_more' and 'cursor' fields in the response.
-    - If 'has_more' is true, re-invoke this tool passing the 'cursor' value to get the next batch.
-
-    Do NOT use for:
-    - Single or 2 URLs (use get_content instead, it has lower overhead).
-
-    Args:
-        urls: List of URLs to fetch (max 30).
-        max_concurrency: Parallel fetch limit (1-8, default 4).
-        per_item_char_length: Maximum characters per URL (default 8k, max 50k).
-        total_char_budget: Maximum total characters across all URLs (default 120k,
-            max 300k). Further URLs are skipped when budget is exhausted.
-        cursor: Continuation cursor from a prior response for pagination.
-        ai_summary: Whether to include a detailed source-grounded Gemini summary
-            for each item (default false).
-        focus_query: Topic, term, or comparison to bias per-item summaries toward.
-        include_metadata: Include page metadata for each result.
-        include_links: Include outbound links for each result.
-        max_links: Maximum links per result when include_links is True.
-        strip_selectors: CSS selectors to remove from content before extraction.
+    The tool uses dsh-webfetch defaults internally: 60k characters per item,
+    20s per-request timeout, and a 5 MiB response-body limit. Bulk calls use
+    fixed ten-item waves and bounded internal concurrency; those resource
+    controls are intentionally not public arguments.
     """
-    # ── Resolve pending URLs from cursor or input ────────────────────
-    max_urls = _get_int_env("BATCH_GET_CONTENT_MAX_URLS", 30)
-    if cursor:
-        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-        pending_urls: list[str] = decoded.get("urls", []) or []
-    else:
-        _urls = urls or []
-        pending_urls = list(dict.fromkeys(_urls))[:max_urls]
+    if offset < 0:
+        raise ValueError("offset must be non-negative")
+    if cursor and offset:
+        raise ValueError("offset cannot be combined with a bulk cursor")
 
-    if not pending_urls:
-        response = BatchGetContentResponse().model_dump(exclude_none=True)
-        _record_tool_success(
-            "batch_get_content",
-            input_url_count=0,
-            output_result_count=0,
-        )
-        return response  # type: ignore[return-value]
+    mode, pending_urls, cursor_payload = _normalize_inputs(url, urls, cursor)
+    if mode == "bulk" and offset:
+        raise ValueError("offset applies only to a single URL fetch")
+
+    item_max_chars = max(1, settings.web_fetch_item_max_chars)
+    total_char_budget = max(item_max_chars, settings.web_fetch_total_char_budget)
+    workers = max(1, settings.web_fetch_workers)
+    wave_size = max(1, settings.web_fetch_wave_size)
+    fetch_options = build_fetch_options(
+        include_metadata=include_metadata,
+        include_links=include_links,
+        max_links=max_links,
+        strip_selectors=strip_selectors,
+        max_response_bytes=max(1, settings.web_fetch_max_body_bytes),
+    )
+    fingerprint = _request_fingerprint(
+        fetch_options=fetch_options,
+        focus_query=focus_query,
+        ai_summary=ai_summary,
+        item_max_chars=item_max_chars,
+        total_char_budget=total_char_budget,
+    )
+    if cursor_payload and cursor_payload.get("fingerprint") != fingerprint:
+        raise ValueError("Fetch cursor options do not match this request")
+
     started = time.monotonic()
-    safe_concurrency = max(1, min(max_concurrency, 8))
-    safe_item_length = max(
-        500,
-        min(per_item_char_length, _get_int_env("GET_CONTENT_MAX_CHARS", 50_000)),
-    )
-    safe_total_budget = max(
-        2_000,
-        min(
-            total_char_budget,
-            _get_int_env("BATCH_TOTAL_CHAR_BUDGET_MAX", 300_000),
-        ),
-    )
-
     emit_tool_observability_event(
         LOGGER,
-        "batch_get_content",
+        "fetch",
         "request",
-        urls=pending_urls,
+        mode=mode,
         url_count=len(pending_urls),
-        max_concurrency=safe_concurrency,
-        per_item_char_length=safe_item_length,
-        total_char_budget=safe_total_budget,
         has_cursor=bool(cursor),
         ai_summary=ai_summary,
         focus_query=focus_query,
@@ -376,182 +506,122 @@ async def batch_get_content(
         max_links=max_links,
         strip_selectors=strip_selectors,
     )
-    response_emitted = False
-    try:
-        await ctx.info(
-            f"Batch fetching {len(pending_urls)} URLs (concurrency={safe_concurrency}, budget={safe_total_budget})..."
+    await ctx.info(f"Fetching {len(pending_urls)} URL(s) with the unified fetch tool...")
+
+    if mode == "single":
+        await ctx.report_progress(progress=20, total=100, message="Fetching URL...")
+        artifact = await _fetch_one_artifact(pending_urls[0], fetch_options=fetch_options)
+        result = _result_from_artifact(
+            artifact,
+            offset=offset,
+            max_chars=item_max_chars,
+            include_metadata=include_metadata,
+            include_links=include_links,
         )
+        if ai_summary:
+            result["summary"] = await create_summary(
+                result["page_content"],
+                ai_summary=True,
+                focus_query=focus_query,
+                source_urls=[result["url"]] if result.get("url") else None,
+            )
+        response = FetchResponse(
+            mode="single",
+            results=[FetchResult.model_validate(result)],
+            total_requested=1,
+            total_returned=1,
+            total_chars_returned=len(result["page_content"]),
+            has_more=bool(result["window"].get("has_more")),
+            cursor=None,
+            wave_size=wave_size,
+            waves_completed=1,
+        )
+        await ctx.report_progress(progress=100, total=100, message="Done")
+    else:
         await ctx.report_progress(
-            progress=10, total=100, message=f"Fetching {len(pending_urls)} URLs..."
+            progress=5,
+            total=100,
+            message=f"Fetching {len(pending_urls)} URLs in waves of {wave_size}...",
         )
+        semaphore = asyncio.Semaphore(workers)
+        admitted: list[dict[str, Any]] = []
+        deferred: list[str] = []
+        remaining_budget = total_char_budget
+        waves_completed = 0
 
-        # ── Core: N parallel get_content calls ───────────────────────────
-        remaining_budget = safe_total_budget
-        results: list[dict] = []
-        processed_urls: set[str] = set()
-
-        async def _fetch_one(url: str) -> tuple[str, dict | None]:
-            try:
-                raw = await get_content(
-                    url=url,
-                    char_offset=0,
-                    char_length=min(safe_item_length, remaining_budget),
-                    ai_summary=False,  # summaries batched below
-                    focus_query=focus_query,
+        async def _one(url_value: str) -> dict[str, Any]:
+            async with semaphore:
+                artifact = await _fetch_one_artifact(url_value, fetch_options=fetch_options)
+                return _result_from_artifact(
+                    artifact,
+                    offset=0,
+                    max_chars=item_max_chars,
                     include_metadata=include_metadata,
                     include_links=include_links,
-                    max_links=max_links,
-                    strip_selectors=strip_selectors,
-                    ctx=ctx,
                 )
-                raw_dict = raw if isinstance(raw, dict) else raw.model_dump(exclude_none=True)
-                return (url, raw_dict)
-            except Exception as exc:
-                LOGGER.warning("get_content failed for %s: %s", url, exc)
-                return (url, {
-                    "input_url": url,
-                    "normalized_url": canonicalize_url(url),
-                    "fetched_url": None,
-                    "status": "error",
-                    "source_type": "unknown",
-                    "fetch_backend": "exception",
-                    "page_content": "",
-                    "window": {},
-                    "metadata": None,
-                    "links": None,
-                    "continuation_notice": None,
-                    "content_type": None,
-                    "error": {
-                        "code": type(exc).__name__,
-                        "message": str(exc)[:500],
-                        "retryable": True,
-                    },
-                    "summary": None,
-                    "content_quality": "error",
-                    "content_word_count": 0,
-                })
 
-        for url in pending_urls:
-            if remaining_budget <= 0:
-                break
-            _, raw = await _fetch_one(url)
-            if raw is None:
-                continue
-
-            page_content = raw.get("page_content", "")
-            chars_used = len(page_content)
-            if chars_used > remaining_budget:
-                break
-            processed_urls.add(url)
-            remaining_budget -= chars_used
-
-            results.append({
-                "input_url": raw.get("input_url") or url,
-                "normalized_url": raw.get("normalized_url") or canonicalize_url(url),
-                "fetched_url": raw.get("url") or raw.get("fetched_url"),
-                "status": raw.get("status", "error"),
-                "source_type": raw.get("source_type", "unknown"),
-                "fetch_backend": raw.get("fetch_backend", "unknown"),
-                "content_type": raw.get("content_type"),
-                "page_content": page_content,
-                "window": raw.get("window", {}),
-                "metadata": raw.get("metadata") if include_metadata else None,
-                "links": raw.get("links") if include_links else None,
-                "continuation_notice": raw.get("continuation_notice"),
-                "error": raw.get("error"),
-                "summary": None,
-                "content_quality": raw.get("content_quality") or raw.get("status"),
-                "content_word_count": raw.get("content_word_count", 0) or len(page_content.split()),
-            })
-            done = len(results)
+        for wave_start in range(0, len(pending_urls), wave_size):
+            wave = pending_urls[wave_start : wave_start + wave_size]
+            wave_results = await asyncio.gather(*(_one(item) for item in wave))
+            waves_completed += 1
+            for index, item in enumerate(wave_results):
+                chars_used = len(item["page_content"])
+                if chars_used > remaining_budget:
+                    deferred = pending_urls[wave_start + index :]
+                    break
+                admitted.append(item)
+                remaining_budget -= chars_used
             await ctx.report_progress(
-                progress=min(90, 10 + int(80 * done / len(pending_urls))),
+                progress=min(95, 10 + int(85 * (wave_start + len(wave)) / len(pending_urls))),
                 total=100,
-                message=f"Fetched {done}/{len(pending_urls)} URLs...",
+                message=f"Fetched {min(wave_start + len(wave), len(pending_urls))}/{len(pending_urls)} URLs...",
             )
+            if deferred:
+                break
+            if wave_start + wave_size < len(pending_urls):
+                await asyncio.sleep(max(0.0, settings.web_fetch_wave_delay_seconds))
 
-        unconsumed = [u for u in pending_urls if u not in processed_urls]
-        has_more = bool(unconsumed)
-        next_cursor: str | None = None
-        if has_more:
-            next_cursor = base64.urlsafe_b64encode(
-                json.dumps({"urls": unconsumed}, separators=(",", ":")).encode()
-            ).decode()
+        if ai_summary and admitted:
+            summaries = await create_batch_summaries(
+                admitted,
+                ai_summary=True,
+                focus_query=focus_query,
+                max_concurrency=workers,
+            )
+            for index, summary in enumerate(summaries):
+                admitted[index]["summary"] = summary
 
-        summaries = await create_batch_summaries(
-            results,
-            ai_summary=ai_summary,
-            focus_query=focus_query,
-            max_concurrency=safe_concurrency,
-        )
-        for idx, s in enumerate(summaries):
-            if idx < len(results):
-                results[idx]["summary"] = s
-
-        total_chars = sum(len(r["page_content"]) for r in results)
-        success_count = sum(1 for r in results if r["status"] == "success")
-
-        response = BatchGetContentResponse(
-            results=results,  # type: ignore[arg-type]
+        next_cursor = _encode_cursor(deferred, fingerprint) if deferred else None
+        response = FetchResponse(
+            mode="bulk",
+            results=[FetchResult.model_validate(item) for item in admitted],
             total_requested=len(pending_urls),
-            total_returned=len(results),
-            total_chars_returned=total_chars,
-            has_more=has_more,
+            total_returned=len(admitted),
+            total_chars_returned=sum(len(item["page_content"]) for item in admitted),
+            has_more=bool(deferred),
             cursor=next_cursor,
-        ).model_dump(exclude_none=True)
-        for result in response["results"]:
-            result.setdefault("fetched_url", None)
-
-        await ctx.report_progress(
-            progress=100,
-            total=100,
-            message=f"Done: {success_count}/{len(response['results'])} fetched",
+            wave_size=wave_size,
+            waves_completed=waves_completed,
         )
-        await ctx.info(
-            f"Fetched {success_count}/{len(response['results'])} in this page; has_more={response['has_more']}"
-        )
+        await ctx.report_progress(progress=100, total=100, message="Done")
 
-        analytics_results = [
-            {
-                **result,
-                "page_char_count": len(result["page_content"]),
-                "word_count": len(result["page_content"].split()),
-            }
-            for result in response["results"]
-        ]
-        emit_tool_observability_event(
-            LOGGER,
-            "batch_get_content",
-            "response",
-            duration_ms=(time.monotonic() - started) * 1000.0,
-            url_count=len(pending_urls),
-            error_count=len(response["results"]) - success_count,
-            results=analytics_results,
-            has_more=response["has_more"],
-            cursor=response.get("cursor"),
-            total_requested=response.get("total_requested"),
-            total_returned=response.get("total_returned"),
-            total_chars_returned=response.get("total_chars_returned"),
-            total_page_char_count=sum(item["page_char_count"] for item in analytics_results),
-            total_word_count=sum(item["word_count"] for item in analytics_results),
-        )
-        response_emitted = True
-        _record_tool_success(
-            "batch_get_content",
-            input_url_count=len(pending_urls),
-            output_result_count=len(response["results"]),
-        )
-        return response  # type: ignore[return-value]
-    finally:
-        if not response_emitted:
-            emit_tool_observability_event(
-                LOGGER,
-                "batch_get_content",
-                "response",
-                status="error",
-                duration_ms=(time.monotonic() - started) * 1000.0,
-                url_count=len(pending_urls),
-            )
-    return response  # type: ignore[return-value]
-
-
+    result_dict = response.model_dump(exclude_none=True)
+    emit_tool_observability_event(
+        LOGGER,
+        "fetch",
+        "response",
+        duration_ms=(time.monotonic() - started) * 1000.0,
+        mode=response.mode,
+        url_count=response.total_requested,
+        result_count=response.total_returned,
+        total_chars_returned=response.total_chars_returned,
+        has_more=response.has_more,
+        cursor=response.cursor,
+        results=result_dict.get("results"),
+    )
+    _record_tool_success(
+        "fetch",
+        input_url_count=response.total_requested,
+        output_result_count=response.total_returned,
+    )
+    return response

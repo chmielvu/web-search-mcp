@@ -1,6 +1,40 @@
 # Changelog
 
 ## [Unreleased]
+### Added — Two-stage judge inference chain (HF router retired)
+- Replaced Hugging Face router judge inference (silently dead since ~2026-08-13 — HTTP 402 monthly-credit depletion produced 572 consecutive `no llm output` rows; last success 2026-07-29) with a two-stage chain in `analytics/judges.py`: **Stage 1** Gemini API hosting `gemma-4-26b-a4b-it` via the native google-genai SDK with a shared cached Client (plain text — Gemma has no reliable OpenAI-compat access and no responseSchema support; the prompt footer plus the 3-tier `_parse_result` salvage recovers JSON). **Stage 2** NanoGPT subscription endpoint (`https://nano-gpt.com/api/subscription/v1`, per user directive) serving `deepseek/deepseek-v4-flash-0731:thinking` with strict `response_format=json_schema`, `max_tokens=8000` for the thinking budget, and an immediate retry-without-response_format salvage when a gateway rejects the schema wrapper.
+- Per-stage exponential backoff retries (`JUDGE_STAGE_MAX_RETRIES=2` default → 3 attempts, 1s doubling to an 8s cap via `JUDGE_RETRY_INITIAL_BACKOFF_SECONDS` / `JUDGE_RETRY_MAX_BACKOFF_SECONDS`) for transient failures (timeouts / 408 / 409 / 425 / 429 / 5xx); non-retryable auth/quota errors and empty completions fail over to the next stage immediately; both stages exhausted falls through to the FlockMTL `llm_complete` last resort.
+- Repointed the SQL-native fallback registry off HF: `_FLOCKMTL_MODEL_DDL` aliases resolve to the NanoGPT-served DeepSeek id, and the `__default_openai` secret now registers `NANO_GPT_API_KEY` + the NanoGPT base URL (`writers/connection.py::_ensure_flockmtl_secret`, `inference/bridges/flockmtl.py`). New settings: `judge_gemini_model`, `nano_gpt_api_key`, `judge_nanogpt_model`, `judge_nanogpt_base_url`.
+- Tests: new `tests/test_judge_chain.py` (backoff shape, failover semantics incl. empty-content, exhaustion, response_format salvage, retry classifier) and `tests/test_flockmtl_judge_routing.py` (NanoGPT registry/secret pinning) replace the deleted `tests/test_flockmtl_hf_routing.py`; 40/40 pass across the four judge suites.
+- Ops: set `NANOGPT_API_KEY` in the environment (NanoGPT's native spelling; legacy `NANO_GPT_API_KEY` still honored); stage 1 reuses existing `GEMINI_API_KEY`. No HF token is consulted by judge code any more.
+### Changed — P2 plan refinement (label grain + rerank contract)
+- Re-grounded `docs/p2-graph-feedback-loop-plan-2026-08-22.md` against the live planner/ranker seams and a 2026-08-22T15:30Z read-only DuckDB snapshot: 668 runs, 517 normalized queries, 9,355 final rows, 1,595 result-quality judgments, and 1,132 successful URL-joinable labels.
+- The BiRank API import alone is insufficient: the 3.6.1 implementation imports SciPy at call time, and the current venv lacks it. Phase 0 now requires a direct compatible SciPy pin and an executing weighted-fixture smoke test.
+- Corrected the feedback grain: judge results are the initial query-document edge source; fetch/dwell remains secondary because current content-fetch rows are not directly attributed to search runs (only one query-document output/fetch intersection was recoverable).
+- Corrected the ranking rollout: graph expansion is replayed and canary-shipped before any graph score blend; a naive pre-rerank `score +=` does not reliably affect the current >100-candidate bi-encoder/cross/LLM funnel.
+- Added exact identity/rank rules: derive NULL historical result IDs from the shared link hash, join judges by `(run_key, final_results.link)`, convert one-based final rank to the existing zero-based label position, and use the existing `result_labels` writer without adding an age column.
+- Targeted sources confirmed NetworkX BiRank/projection semantics, query-click similar-query evidence, QCG-RAG's capped query-neighbor traversal, Meilisearch exact-query precedence, and Docket Cron's Worker-startup scheduling; these are cited as validation/analogy, not effectiveness proof.
+
+### Changed — P2 plan reassessment (BiRank + seed-injection expansion)
+- Revised `docs/p2-graph-feedback-loop-plan-2026-08-22.md` against NetworkX 3.6.1, `search/planning.py`, GitHub `Jose-Velasco/multi-model-recommender` `AddBirank`, He et al. TKDE 2017, and QCG-RAG (arXiv:2509.21237).
+- Primary ranking algorithm is now `nx.bipartite.birank` on an undirected `nx.Graph` (not MultiDiGraph+PageRank): `weighted_projected_graph` is `@not_implemented_for("multigraph")`.
+- Graph query expansion is **seed injection** into the existing 6-branch rewrite/RRF planner — not a 7th retrieval branch. `query_variants`/`query_transforms` stay write-only analytics; `should_decompose` remains unused.
+- Pin `networkx>=3.3` in Phase 0 (currently a yake transitive). Adamic-Adar only on same-partition query–query pairs.
+
+### Added — P2 graph feedback loop implementation plan (plan-only)
+- Published `docs/p2-graph-feedback-loop-plan-2026-08-22.md` regrounding the networkx feedback-loop proposal on the live analytics DB: 65 base tables (SCHEMAS.md documents 22), `result_labels` already exists with 0 rows, `content_fetches` has 1,055 rows / 507 dwell proxies but incomplete query attribution, no entity tables exist, and 1,595 result-quality judgments are the stronger initial label source.
+- The initial proposal's fetch projector and pre-rerank graph blend are superseded by the refinement above: judge-first offline edges, worker-safe/lazy rebuild, capped seed injection through the existing six branches, and a separately gated ranking experiment.
+
+### Added — Durable SEP-1686 background tasks via Redis-backed Docket
+- Enabled `FASTMCP_DOCKET_URL=redis://127.0.0.1:6379/0` (VPS shared Redis 7 over the SSH tunnel) with `FASTMCP_DOCKET_NAME=web-search-mcp` and `FASTMCP_DOCKET_CONCURRENCY=2`, making `web_search`, `code_search`, `generate_sitemap`, and `deep_research` background tasks durable across server restarts.
+- Added a stdio-safe Docket pre-flight guard in `server.py` (`_docket_backend_reachable` / `_resolve_docket_backend`): a sub-second TCP probe runs after `.env` load and before any fastmcp import, downgrading to `memory://` with a stderr warning when the backend is unreachable so startup can never block on Redis reconnection backoff.
+- Added the Redis forward (`-L 6379:127.0.0.1:6379`) to the WSL `vps-tunnels.service` autossh unit — Redis was the only manifest-listed service missing from the persistent tunnel set — and verified `PING`/`+PONG` end-to-end.
+### Changed — Embedding dimension contract
+- Standardized the embedding contract on 786 dimensions across runtime validation, DuckDB vector tables, Qdrant collection creation, analytics scripts, and regression coverage. Existing DuckDB embedding rows are preserved in dimension-suffixed legacy tables during schema bootstrap.
+### Fixed — DuckDB analytics producer coverage
+- Persisted full Gemini response fields and grounding sources, complete quick-search request metadata, and Grok duration/output/citation facts.
+- Preserved code-search provider summaries and actual rerank provider/model/status metadata for typed analytics without exposing internal fields in the public response.
+- Bound the code-search optimization LLM call to its run key before planning, added content type/cache provenance, linked batch content outputs, and activated result-catalog appearance counts and rerank stage survival events.
 ### Fixed — Code-search and code-fetch output completeness
 - Raised `code_fetch`'s default file response budget to 200,000 characters and added `source_chars`, `has_more`, and `next_start_line` metadata so truncated responses can be continued.
 - Expanded GitHub code-search match/snippet limits, widened hydration windows, and exposed `source_window_start`, `source_window_end`, `full_source_chars`, and `omitted_fragments` on public file results.
@@ -33,6 +67,7 @@
 - Deferred the `parallel-web` SDK import until `quick_web_search` is invoked, so a stale environment missing the optional provider SDK no longer prevents unrelated MCP tools from registering; the quick-search error now identifies the required dependency.
 - Normalized the FastMCP client log level to the SDK's lowercase contract and returned the typed `QuickWebSearchResponse` model from its MCP wrapper.
 - Disabled `ResponseCachingMiddleware` only when an older FastMCP runtime is detected, preventing its `context=`/`ctx` incompatibility from breaking every `tools/call` while preserving caching on supported runtimes.
+- Fixed telemetry's process-wide stdout redirection racing FastMCP's stdio writer; stdio startup now waits for telemetry initialization before capturing stdout, preserving initialize responses on the MCP protocol stream.
 
 ### Added — deep_research background-capable MCP tool (SEP-1686)
 - Added `deep_research` tool backed by the self-hosted node-DeepResearch engine, mirroring the OMP `vercel-deep-research` extension contract (quick/standard/deep presets, depth synonym aliases, SSE stream parsing, markdown report).

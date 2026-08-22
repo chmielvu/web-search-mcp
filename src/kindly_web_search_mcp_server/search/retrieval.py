@@ -367,7 +367,7 @@ def _record_provider_result(
             rows[key] = item
         else:
             existing = rows[key]
-            existing.providers = sorted({*existing.providers, *(item.providers or []), name})
+            existing.providers = sorted({*(existing.providers or []), *(item.providers or []), name})
             existing.provider_count = len(existing.providers)
     provider_calls.append(
         {
@@ -454,7 +454,7 @@ async def retrieve_branches(
             ]
         ] = []
         slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
-        started_at: dict[str, float] = {}
+        started_at: dict[tuple[int, str], float] = {}
         for branch_index, branch in enumerate(run.plan.branches):
             assigned_names = branch.provider_names
             branch_assigned.append(assigned_names)
@@ -477,7 +477,7 @@ async def retrieve_branches(
                     float,
                 ]:
                     call_started = time.monotonic()
-                    started_at[n] = call_started
+                    started_at[(branch_index, name)] = call_started
                     provider_name, value, metadata, request_query = await _call_provider(
                         run,
                         b,
@@ -521,7 +521,8 @@ async def retrieve_branches(
 
                 if task in pending:
                     elapsed_ms = (
-                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                        time.monotonic()
+                        - started_at.get((branch_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
@@ -555,7 +556,8 @@ async def retrieve_branches(
                     _returned_name, value, metadata, request_query, latency_ms = task.result()
                 except asyncio.CancelledError as exc:
                     elapsed_ms = (
-                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                        time.monotonic()
+                        - started_at.get((branch_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
@@ -575,7 +577,8 @@ async def retrieve_branches(
                     continue
                 except Exception as exc:
                     elapsed_ms = (
-                        time.monotonic() - started_at.get(provider_name, retrieve_started)
+                        time.monotonic()
+                        - started_at.get((branch_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,

@@ -12,8 +12,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 |---|---|
 | `catalog.py` | Tool catalog with metadata (profile, tags, timeouts, annotations) |
 | `profiles.py` | Tool profile application (`regular`, `research`, `media`, `full`), visibility gating |
-| `search.py` | `web_search` MCP tool implementation |
-| `content.py` | `get_content`, `batch_get_content`, `discover_links` MCP tools |
+| `content.py` | `fetch` MCP tool |
 | `academic.py` | `academic_search` MCP tool |
 | `code_search/` | Agent-oriented public-code search with automatic backend channel selection |
 | `code_search/filters.py` | Provider-neutral validation of repository, path, filename, extension, and language scopes |
@@ -39,15 +38,14 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | Tool | Returns | Notes |
 |---|---|---|
 | `recommend_command` | Structured route, command, fallbacks, decomposition rules, and optional prompt metadata | Deterministic recommendation only; never executes commands |
-| `web_search` | Title, link, snippet (no page content) | Lightweight search results |
-| `get_content` | LLM-ready markdown for single URL | Content extraction |
+| `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video transcripts | Optional translation/formatting |
 | `youtube_search` | YouTube video results | YouTube Data API v3 or SearXNG |
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
 | `code_search` | Typed code/documentation hits, repository candidates, and diagnostics | Backend selects lexical, symbol, regex, semantic, repository, and documentation channels; bounded cloud cross-encoder reranking is always attempted fail-open |
 
-`get_content` and `batch_get_content` accept `ai_summary: bool = false`; when enabled they return only the detailed source-grounded Gemini summary. The former `summary_mode` and brief-summary option are removed.
+`fetch` accepts `ai_summary: bool = false`; when enabled it returns detailed source-grounded Gemini summaries for emitted results.
 
 ## Rules
 

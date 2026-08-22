@@ -77,6 +77,70 @@ def _create_table(
     """Execute a raw CREATE TABLE IF NOT EXISTS statement."""
     connection.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)")
 
+_EMBEDDING_DIM = 786
+
+
+def _rollover_embedding_table(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    index_names: tuple[str, ...],
+) -> None:
+    """Preserve incompatible historical vectors before creating the 786d table."""
+    exists = connection.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'main' AND table_name = ?
+        """,
+        [table_name],
+    ).fetchone()
+    if exists is None:
+        return
+
+    embedding_type = connection.execute(
+        f"SELECT column_type FROM (DESCRIBE {table_name}) WHERE column_name = 'embedding'"
+    ).fetchone()
+    if embedding_type is None or embedding_type[0] == f"FLOAT[{_EMBEDDING_DIM}]":
+        return
+
+    current_type = str(embedding_type[0])
+    if not current_type.startswith("FLOAT[") or not current_type.endswith("]"):
+        raise RuntimeError(
+            f"{table_name}.embedding has unsupported type {current_type!r}; "
+            "cannot preserve it during the 786d rollover"
+        )
+    legacy_table = f"{table_name}_{current_type[6:-1]}d_legacy"
+    legacy_exists = connection.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'main' AND table_name = ?
+        """,
+        [legacy_table],
+    ).fetchone()
+    if legacy_exists is not None:
+        raise RuntimeError(
+            f"Cannot roll over {table_name}: preserved table {legacy_table} already exists"
+        )
+
+    for index_name in index_names:
+        connection.execute(f"DROP INDEX IF EXISTS {index_name}")
+    connection.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
+
+
+def _rollover_embedding_tables(connection: duckdb.DuckDBPyConnection) -> None:
+    _rollover_embedding_table(
+        connection,
+        table_name=_QE_TABLE_NAME,
+        index_names=("idx_qemb_hnsw", "idx_qemb_run_key"),
+    )
+    _rollover_embedding_table(
+        connection,
+        table_name=_CE_TABLE_NAME,
+        index_names=("idx_cemb_hnsw", "idx_cemb_run_key"),
+    )
+
 
 # ---------------------------------------------------------------------------
 # 1. search_runs — one row per search run (Grain 1: per-request)
@@ -401,13 +465,14 @@ def _ensure_final_results(connection: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
     ensure_vss_loaded(connection)
+    _rollover_embedding_tables(connection)
     _create_table(
         connection,
         _QE_TABLE_NAME,
-        """
+        f"""
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key       VARCHAR NOT NULL,
-        embedding     FLOAT[1024],
+        embedding     FLOAT[{_EMBEDDING_DIM}],
         model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
         payload_json  JSON
         """,
@@ -420,15 +485,16 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
     ensure_vss_loaded(connection)
+    _rollover_embedding_tables(connection)
     _create_table(
         connection,
         _CE_TABLE_NAME,
-        """
+        f"""
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key       VARCHAR NOT NULL,
         link          VARCHAR NOT NULL,
         title         VARCHAR,
-        embedding     FLOAT[1024],
+        embedding     FLOAT[{_EMBEDDING_DIM}],
         model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
         payload_json  JSON
         """,
@@ -1077,6 +1143,8 @@ def _ensure_content_fetches(connection: duckdb.DuckDBPyConnection) -> None:
         normalized_url          VARCHAR,
         fetched_url             VARCHAR,
         source_type             VARCHAR,
+        content_type            VARCHAR,
+        cached                  BOOLEAN,
         fetch_backend           VARCHAR,
         status                  VARCHAR,
         content_length          INTEGER,
@@ -1550,6 +1618,14 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_code_search_rerank(connection)
             _ensure_content_operations(connection)
             _ensure_content_fetches(connection)
+            _ensure_columns(
+                connection,
+                "content_fetches",
+                {
+                    "content_type": "VARCHAR",
+                    "cached": "BOOLEAN",
+                },
+            )
             _ensure_content_summaries(connection)
             _ensure_content_summary_attempts(connection)
             # Phase 2: Web search funnel uplift tables

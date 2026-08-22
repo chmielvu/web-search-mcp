@@ -123,7 +123,7 @@ class TestDuckDBAnalytics(unittest.TestCase):
         ):
             emit_tool_observability_event(
                 logger,
-                "get_content",
+                "fetch",
                 "response",
                 page_content="x" * 50000,
                 authorization="Bearer do-not-store",

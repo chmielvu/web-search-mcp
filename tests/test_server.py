@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import unittest
 import asyncio
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pyarrow as pa
 
@@ -42,8 +42,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("web_search", tools)
         self.assertIn("code_search", tools)
-        self.assertIn("get_content", tools)
-        self.assertIn("batch_get_content", tools)
+        self.assertIn("fetch", tools)
+        self.assertNotIn("get_content", tools)
+        self.assertNotIn("batch_get_content", tools)
         self.assertIn("generate_sitemap", tools)
         self.assertNotIn("generate_semantic_sitemap", tools)
         self.assertIn("youtube_transcript", tools)
@@ -52,32 +53,22 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         code_search_schema = str(tools["code_search"].output_schema)
         self.assertIn("query", code_search_schema)
         self.assertIn("results", code_search_schema)
-        # No public `mode` field on the output payload (mode appears only in
-        # description prose, e.g. "Discovery-mode repository candidates only.").
         code_search_properties = tools["code_search"].output_schema["properties"]
         self.assertNotIn("mode", code_search_properties)
         web_schema = str(tools["web_search"].output_schema)
         self.assertIn("query", web_schema)
         self.assertIn("results", web_schema)
 
-        get_content_schema = str(tools["get_content"].output_schema)
-        self.assertIn("input_url", get_content_schema)
-        self.assertIn("page_content", get_content_schema)
-        self.assertIn("window", get_content_schema)
-        get_content_parameters = tools["get_content"].parameters
-        self.assertEqual(get_content_parameters["properties"]["ai_summary"]["type"], "boolean")
-        self.assertFalse(get_content_parameters["properties"]["ai_summary"]["default"])
-        self.assertNotIn("summary_mode", get_content_parameters["properties"])
-
-        batch_schema = str(tools["batch_get_content"].output_schema)
-        self.assertIn("results", batch_schema)
-        self.assertIn("total_requested", batch_schema)
-        self.assertIn("cursor", batch_schema)
-        self.assertIn("summary", batch_schema)
-        batch_parameters = tools["batch_get_content"].parameters
-        self.assertEqual(batch_parameters["properties"]["ai_summary"]["type"], "boolean")
-        self.assertFalse(batch_parameters["properties"]["ai_summary"]["default"])
-        self.assertNotIn("summary_mode", batch_parameters["properties"])
+        fetch_schema = str(tools["fetch"].output_schema)
+        self.assertIn("results", fetch_schema)
+        self.assertIn("mode", fetch_schema)
+        self.assertIn("cursor", fetch_schema)
+        fetch_parameters = tools["fetch"].parameters
+        self.assertEqual(fetch_parameters["properties"]["ai_summary"]["type"], "boolean")
+        self.assertFalse(fetch_parameters["properties"]["ai_summary"]["default"])
+        self.assertNotIn("max_content_chars", fetch_parameters["properties"])
+        self.assertNotIn("total_char_budget", fetch_parameters["properties"])
+        self.assertNotIn("max_concurrency", fetch_parameters["properties"])
 
         transcript_schema = str(tools["youtube_transcript"].output_schema)
         self.assertIn("video_id", transcript_schema)
@@ -430,236 +421,180 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(forwarded_options.domain_filters, ("example.com",))
         self.assertNotIn("result_window", out)
 
-    async def test_get_content_returns_markdown(self) -> None:
+    async def test_fetch_returns_single_result(self) -> None:
         from kindly_web_search_mcp_server.content.artifact import ContentArtifact
-        from kindly_web_search_mcp_server.server import get_content
-
-        mock_ctx = AsyncMock()
-        mock_ctx.info = AsyncMock()
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-                new_callable=AsyncMock,
-            ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.tools.content.get_page_cache"
-            ) as mock_get_page_cache,
-        ):
-            mock_page_cache = AsyncMock()
-            mock_page_cache.lookup.return_value = None
-            mock_page_cache.alookup.return_value = None
-            mock_page_cache.store = MagicMock()
-            mock_get_page_cache.return_value = mock_page_cache
-
-            mock_fetch.return_value = ContentArtifact(
-                input_url="https://example.com",
-                normalized_url="https://example.com",
-                fetched_url="https://example.com/",
-                status="success",
-                source_type="html",
-                fetch_backend="test",
-                content_type="text/markdown",
-                markdown="# Title\n\nHello",
-            )
-            tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
-            out = await tool_fn("https://example.com", ctx=mock_ctx)
-
-        self.assertEqual(out["url"], "https://example.com/")
-        self.assertNotIn("input_url", out)
-        self.assertNotIn("normalized_url", out)
-        self.assertNotIn("fetched_url", out)
-        self.assertEqual(out["source_type"], "html")
-        self.assertEqual(out["fetch_backend"], "test")
-        self.assertIn("page_content", out)
-        self.assertIn("Hello", out["page_content"])
-        self.assertEqual(out["window"]["total_chars"], len("# Title\n\nHello"))
-
-    async def test_get_content_includes_metadata_and_links_when_requested(self) -> None:
-        from kindly_web_search_mcp_server.content.artifact import ContentArtifact
-        from kindly_web_search_mcp_server.server import get_content
-
-        mock_ctx = AsyncMock()
-        mock_ctx.info = AsyncMock()
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-                new_callable=AsyncMock,
-            ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.tools.content.get_page_cache"
-            ) as mock_get_page_cache,
-        ):
-            mock_page_cache = AsyncMock()
-            mock_page_cache.lookup.return_value = None
-            mock_page_cache.alookup.return_value = None
-            mock_page_cache.store = MagicMock()
-            mock_get_page_cache.return_value = mock_page_cache
-
-            mock_fetch.return_value = ContentArtifact(
-                input_url="https://example.com",
-                normalized_url="https://example.com",
-                fetched_url="https://example.com/",
-                status="success",
-                source_type="html",
-                fetch_backend="test",
-                content_type="text/markdown",
-                markdown="First paragraph.\n\nSecond paragraph.",
-                metadata={"title": "Example"},
-                links=[
-                    {
-                        "url": "https://example.com/next",
-                        "text": "Next",
-                        "domain": "example.com",
-                        "internal": True,
-                    }
-                ],
-            )
-            tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
-            out = await tool_fn(
-                "https://example.com",
-                char_length=20,
-                include_links=True,
-                max_links=5,
-                ctx=mock_ctx,
-            )
-
-        self.assertEqual(out["metadata"]["title"], "Example")
-        self.assertEqual(out["links"][0]["url"], "https://example.com/next")
-        self.assertIn("continuation_notice", out)
-        self.assertIn("Continue at offset", out["continuation_notice"])
-
-    async def test_get_content_returns_structured_error_artifact(self) -> None:
-        from kindly_web_search_mcp_server.content.artifact import (
-            ContentArtifact,
-            ContentError,
-        )
-        from kindly_web_search_mcp_server.server import get_content
-
-        mock_ctx = AsyncMock()
-        mock_ctx.info = AsyncMock()
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-                new_callable=AsyncMock,
-            ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.tools.content.get_page_cache"
-            ) as mock_get_page_cache,
-        ):
-            mock_page_cache = AsyncMock()
-            mock_page_cache.lookup.return_value = None
-            mock_page_cache.alookup.return_value = None
-            mock_page_cache.store = MagicMock()
-            mock_get_page_cache.return_value = mock_page_cache
-
-            mock_fetch.return_value = ContentArtifact(
-                input_url="https://example.com/file.pdf",
-                normalized_url="https://example.com/file.pdf",
-                fetched_url=None,
-                status="unsupported",
-                source_type="pdf",
-                fetch_backend="pdf_extract",
-                content_type="application/pdf",
-                markdown="",
-                error=ContentError(code="pdf_extract_failed", message="bad pdf"),
-            )
-            tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
-            out = await tool_fn("https://example.com/file.pdf", ctx=mock_ctx)
-
-        self.assertEqual(out["url"], "https://example.com/file.pdf")
-        self.assertEqual(out["status"], "unsupported")
-        self.assertEqual(out["error"]["code"], "pdf_extract_failed")
-        self.assertEqual(out["window"]["total_chars"], 0)
-
-    async def test_get_content_returns_structured_timeout_error(self) -> None:
-        from kindly_web_search_mcp_server.server import get_content
-
-        mock_ctx = AsyncMock()
-        mock_ctx.info = AsyncMock()
-
-        with (
-            patch(
-                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
-                new_callable=AsyncMock,
-            ) as mock_fetch,
-            patch(
-                "kindly_web_search_mcp_server.tools.content.get_page_cache"
-            ) as mock_get_page_cache,
-            patch(
-                "kindly_web_search_mcp_server.tools.content._resolve_tool_total_timeout_seconds",
-                return_value=0.01,
-            ),
-        ):
-            mock_page_cache = AsyncMock()
-            mock_page_cache.lookup.return_value = None
-            mock_page_cache.alookup.return_value = None
-            mock_page_cache.store = MagicMock()
-            mock_get_page_cache.return_value = mock_page_cache
-
-            mock_fetch.side_effect = asyncio.TimeoutError()
-            tool_fn = get_content.fn if hasattr(get_content, "fn") else get_content
-            out = await tool_fn("https://example.com", ctx=mock_ctx)
-
-        self.assertEqual(out["status"], "error")
-        self.assertEqual(out["url"], "https://example.com")
-        self.assertEqual(out["error"]["code"], "timeout")
-
-    async def test_batch_get_content_composes_get_content_calls(self) -> None:
-        """batch_get_content composes N parallel get_content calls."""
-        from kindly_web_search_mcp_server.server import batch_get_content
+        from kindly_web_search_mcp_server.server import fetch
 
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
         mock_ctx.report_progress = AsyncMock()
-
-        fake_single_url_result = {
-            "input_url": "https://example.com",
-            "normalized_url": "https://example.com",
-            "url": "https://example.com/",
-            "status": "success",
-            "source_type": "html",
-            "fetch_backend": "test",
-            "content_type": "text/markdown",
-            "page_content": "# Title\n\nHello",
-            "window": {"total_chars": 14, "has_more": False},
-            "metadata": None,
-            "links": None,
-            "continuation_notice": None,
-            "content_quality": "success",
-            "content_word_count": 2,
-            "cached": False,
-            "origin_backend": "test",
-            "summary": None,
-        }
-
+        artifact = ContentArtifact(
+            input_url="https://example.com",
+            normalized_url="https://example.com",
+            fetched_url="https://example.com/",
+            status="success",
+            source_type="html",
+            fetch_backend="test",
+            content_type="text/markdown",
+            markdown="# Title\n\nHello",
+        )
         with (
             patch(
-                "kindly_web_search_mcp_server.tools.content.get_content",
+                "kindly_web_search_mcp_server.tools.content.check_llms_txt",
                 new_callable=AsyncMock,
-                return_value=fake_single_url_result,
-            ) as mock_get_content,
+                return_value=type("Probe", (), {"available": False, "url": None})(),
+            ),
             patch(
-                "kindly_web_search_mcp_server.tools.content.create_batch_summaries",
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
-            ) as mock_summaries,
+                return_value=artifact,
+            ),
         ):
-            mock_summaries.return_value = [None]
-            tool_fn = (
-                batch_get_content.fn if hasattr(batch_get_content, "fn") else batch_get_content
-            )
-            out = await tool_fn(["https://example.com"], ctx=mock_ctx)
+            mock_page_cache = AsyncMock()
+            mock_page_cache.alookup.return_value = None
+            mock_get_page_cache.return_value = mock_page_cache
+            tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
+            out = await tool_fn(url="https://example.com", ctx=mock_ctx)
+        out = out.model_dump(exclude_none=True)
 
-        mock_get_content.assert_awaited_once()
-        mock_summaries.assert_awaited_once()
-        self.assertEqual(out["total_requested"], 1)
+        self.assertEqual(out["mode"], "single")
         self.assertEqual(out["total_returned"], 1)
-        self.assertEqual(out["results"][0]["status"], "success")
+        self.assertEqual(out["results"][0]["url"], "https://example.com/")
+        self.assertEqual(out["results"][0]["fetch_backend"], "test")
         self.assertIn("Hello", out["results"][0]["page_content"])
-        self.assertEqual(out["results"][0]["input_url"], "https://example.com")
-        self.assertEqual(out["results"][0]["fetched_url"], "https://example.com/")
+
+    async def test_fetch_includes_metadata_and_links(self) -> None:
+        from kindly_web_search_mcp_server.content.artifact import ContentArtifact
+        from kindly_web_search_mcp_server.server import fetch
+
+        mock_ctx = AsyncMock()
+        mock_ctx.info = AsyncMock()
+        artifact = ContentArtifact(
+            input_url="https://example.com",
+            normalized_url="https://example.com",
+            fetched_url="https://example.com/",
+            status="success",
+            source_type="html",
+            fetch_backend="test",
+            content_type="text/markdown",
+            markdown="First paragraph.\n\nSecond paragraph.",
+            metadata={"title": "Example"},
+            links=[{"url": "https://example.com/next", "text": "Next", "domain": "example.com", "internal": True}],
+        )
+        with (
+            patch(
+                "kindly_web_search_mcp_server.tools.content.check_llms_txt",
+                new_callable=AsyncMock,
+                return_value=type("Probe", (), {"available": False, "url": None})(),
+            ),
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
+                new_callable=AsyncMock,
+                return_value=artifact,
+            ),
+        ):
+            mock_page_cache = AsyncMock()
+            mock_page_cache.alookup.return_value = None
+            mock_get_page_cache.return_value = mock_page_cache
+            tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
+            out = await tool_fn(
+                url="https://example.com",
+                include_links=True,
+                max_links=5,
+                ctx=mock_ctx,
+            )
+        out = out.model_dump(exclude_none=True)
+
+        result = out["results"][0]
+        self.assertEqual(result["metadata"]["title"], "Example")
+        self.assertEqual(result["links"][0]["url"], "https://example.com/next")
+
+    async def test_fetch_returns_structured_timeout_error(self) -> None:
+        from kindly_web_search_mcp_server.server import fetch
+
+        mock_ctx = AsyncMock()
+        mock_ctx.info = AsyncMock()
+        with (
+            patch(
+                "kindly_web_search_mcp_server.tools.content.check_llms_txt",
+                new_callable=AsyncMock,
+                return_value=type("Probe", (), {"available": False, "url": None})(),
+            ),
+            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
+                new_callable=AsyncMock,
+                side_effect=asyncio.TimeoutError(),
+            ),
+        ):
+            mock_page_cache = AsyncMock()
+            mock_page_cache.alookup.return_value = None
+            mock_get_page_cache.return_value = mock_page_cache
+            tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
+            out = await tool_fn(url="https://example.com", ctx=mock_ctx)
+        out = out.model_dump(exclude_none=True)
+
+        self.assertEqual(out["results"][0]["status"], "error")
+        self.assertEqual(out["results"][0]["error"]["code"], "timeout")
+
+    async def test_fetch_bulk_uses_unified_results_and_waves(self) -> None:
+        from kindly_web_search_mcp_server.server import fetch
+
+        mock_ctx = AsyncMock()
+        mock_ctx.info = AsyncMock()
+        artifacts = {
+            f"https://{index}.example.com": {
+                "input_url": f"https://{index}.example.com",
+                "normalized_url": f"https://{index}.example.com",
+                "fetched_url": f"https://{index}.example.com",
+                "status": "success",
+                "source_type": "html",
+                "fetch_backend": "test",
+                "origin_backend": "test",
+                "cached": False,
+                "content_type": "text/markdown",
+                "markdown": f"content-{index}",
+                "metadata": None,
+                "links": None,
+                "error": None,
+                "entities": None,
+                "llms_txt": None,
+                "diagnostics": None,
+            }
+            for index in range(11)
+        }
+        with patch(
+            "kindly_web_search_mcp_server.tools.content._fetch_one_artifact",
+            new_callable=AsyncMock,
+            side_effect=lambda url, **_: artifacts[url],
+        ) as mock_one:
+            tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
+            out = await tool_fn(
+                urls=list(artifacts),
+                ctx=mock_ctx,
+            )
+        out = out.model_dump(exclude_none=True)
+
+        self.assertEqual(out["mode"], "bulk")
+        self.assertEqual(out["total_requested"], 11)
+        self.assertEqual(out["total_returned"], 11)
+        self.assertEqual(out["waves_completed"], 2)
+        self.assertEqual(mock_one.await_count, 11)
+
+    async def test_fetch_rejects_empty_input_and_offset_cursor_mix(self) -> None:
+        from kindly_web_search_mcp_server.server import fetch
+
+        mock_ctx = AsyncMock()
+        mock_ctx.info = AsyncMock()
+        tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
+        with self.assertRaises(ValueError):
+            await tool_fn(ctx=mock_ctx)
+        with self.assertRaises(ValueError):
+            await tool_fn(url="https://example.com", cursor="invalid", offset=1, ctx=mock_ctx)
 
     async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -747,13 +682,16 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             calls = [c.args[0] for c in mock_import.call_args_list]
             self.assertIn(".inference.router", calls)
 
-    def test_main_method_calls_warm_heavy_imports_before_run(self) -> None:
+    def test_main_waits_for_telemetry_before_stdio_run(self) -> None:
         from unittest.mock import patch
 
         from kindly_web_search_mcp_server.server import main
 
         events = []
         with (
+            patch(
+                "kindly_web_search_mcp_server.server._ensure_telemetry"
+            ) as ensure_telemetry,
             patch(
                 "kindly_web_search_mcp_server.server._warm_heavy_imports",
                 side_effect=lambda: events.append("warm"),
@@ -762,4 +700,6 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         ):
             mock_mcp.run = lambda **kw: events.append("run")
             main(["--transport", "stdio"])
-            self.assertEqual(events, ["warm", "run"])
+
+        ensure_telemetry.assert_called_once_with(wait_for_completion=True)
+        self.assertEqual(events, ["warm", "run"])

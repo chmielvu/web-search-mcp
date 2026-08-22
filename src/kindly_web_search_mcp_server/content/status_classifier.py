@@ -294,8 +294,7 @@ def classify_quality(markdown: str) -> float:
     """Return a quality score from 0.0 (junk) to 1.0 (good content).
 
     This is a lightweight heuristic meant to annotate results
-    without running expensive ML. Use it to sort/filter content
-    in batch_get_content or to warn agents about dubious sources.
+    without running expensive ML. Use it to annotate unified fetch results or warn agents about dubious sources.
     """
     if not markdown or not markdown.strip():
         return 0.0

@@ -1,35 +1,37 @@
-"""FlockMTL DuckDB bridge for SQL-native LLM evaluations."""
+"""FlockMTL DuckDB bridge for SQL-native LLM evaluations.
+
+The SQL-native fallback registry points at NanoGPT (OpenAI-compatible,
+subscription endpoint). The Hugging Face router was retired from judge
+inference on 2026-08-22; see ``analytics/judges.py`` for the two-stage
+production chain that only falls back to FlockMTL ``llm_complete`` when
+both stages exhaust.
+"""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from ..chain import get_chain
+from ...settings import settings
 
 logger = logging.getLogger(__name__)
 
 
 def ensure_flockmtl_secret_from_catalog(connection: Any) -> None:
-    """Synchronize DuckDB FlockMTL secret DDL lifecycle using catalog credentials."""
-    chain = get_chain("worker_llm")
-    hf_spec = None
-    for spec in chain.models:
-        if spec.provider == "huggingface":
-            hf_spec = spec
-            break
+    """Synchronize DuckDB FlockMTL secret DDL lifecycle using judge-chain creds.
 
-    if not hf_spec:
-        logger.warning("No Hugging Face spec found in catalog for FlockMTL secret")
-        return
-
-    api_key = hf_spec.api_key
-    base_url = "https://router.huggingface.co/v1"
+    Registers `__default_openai` against NanoGPT so the dormant FlockMTL
+    ``llm_complete`` last resort stays callable when both production chain
+    stages fail. Kept name-compatible for existing callers.
+    """
+    api_key = settings.nano_gpt_api_key
+    base_url = settings.judge_nanogpt_base_url
 
     if not api_key:
         logger.debug(
-            "HF_TOKEN not set in environment — FlockMTL llm_complete calls "
-            "will fail. Set HF_TOKEN before running SQL-native judge evaluations."
+            "NANOGPT_API_KEY not set in environment — FlockMTL llm_complete "
+            "calls will fail. Set NANOGPT_API_KEY before running SQL-native "
+            "judge evaluations."
         )
         return
 

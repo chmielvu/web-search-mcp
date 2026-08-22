@@ -100,7 +100,7 @@ def register_composio_tools(mcp: Any) -> None:
         ctx: Context = CurrentContext(),
     ) -> SimilarLinksResponse:
         """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
-        Use get_content on selected links when page text is needed.
+        Use fetch on selected links when page text is needed.
         """
         started = time.monotonic()
         tool_call_id = str(uuid4())

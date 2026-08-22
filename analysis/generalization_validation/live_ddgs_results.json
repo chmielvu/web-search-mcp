@@ -1,0 +1,452 @@
+[
+  {
+    "label": "typo_fix_rapidfuzz",
+    "technique": "spelling",
+    "original_query": "nikee air max size 10",
+    "refined_query": "nike air max size 10",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "pinterest.com",
+        "tiktok.com",
+        "youtube.com",
+        "flannels.com",
+        "sportsdirect.com",
+        "asos.com",
+        "offerup.com",
+        "ozon.ru",
+        "footasylum.com",
+        "poshmark.com"
+      ],
+      "top_titles": [
+        "Clean Nike Airmax Size 10",
+        "Mens Air Max 97 Run Big or Small | TikTok",
+        "Nike Air Max DN8 Review: Best Air Max Ever? Comfort, Sizing ..."
+      ],
+      "latency_ms": 1033.0
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 5,
+      "domains": [
+        "amazon.com",
+        "nike.com",
+        "ebay.com",
+        "bing.com",
+        "nike.com",
+        "ebay.com",
+        "sportsdirect.com",
+        "amazon.com",
+        "amazon.com",
+        "nike.com"
+      ],
+      "top_titles": [
+        "Amazon.com: Nike Air Max Size 10",
+        "Nike Air Max Shoes. Nike.com",
+        "Mens Nike Air Max Size 10 - eBay"
+      ],
+      "latency_ms": 2551.8
+    }
+  },
+  {
+    "label": "typo_fix_rapidfuzz",
+    "technique": "spelling",
+    "original_query": "resturants near me open now",
+    "refined_query": "restaurants near me open now",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "restaurantsnear-me.com",
+        "restaurantguru.com",
+        "nearbyfinders.com",
+        "tiktok.com",
+        "toxigon.com",
+        "fooddy.in",
+        "m.search.yahoo.com",
+        "1001nearme.com",
+        "soctrangtourism.vn",
+        "opentodaynearme.com"
+      ],
+      "top_titles": [
+        "Restaurants Near Me \u2013 Find Local Food & Practical Dining Guides",
+        "Pizza near me | Restaurant Guru",
+        "Find Nearby Restaurant | Best Food Places & Restaurants Near Me"
+      ],
+      "latency_ms": 1000.2
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "restaurantsnear-me.com",
+        "nearbyfinders.com",
+        "restaurantguru.com",
+        "tiktok.com",
+        "toxigon.com",
+        "fooddy.in",
+        "m.search.yahoo.com",
+        "1001nearme.com",
+        "soctrangtourism.vn",
+        "opentodaynearme.com"
+      ],
+      "top_titles": [
+        "Restaurants Near Me \u2013 Find Local Food & Practical Dining Guides",
+        "Find Nearby Restaurant | Best Food Places & Restaurants Near Me",
+        "Pizza near me | Restaurant Guru"
+      ],
+      "latency_ms": 1031.1
+    }
+  },
+  {
+    "label": "typo_fix_rapidfuzz",
+    "technique": "spelling",
+    "original_query": "flght delay compensation eu rules",
+    "refined_query": "flight delay compensation eu rules",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "forbes.com",
+        "tiktok.com",
+        "thisismoney.co.uk",
+        "airlinefeed.com",
+        "pinterest.com",
+        "earthsattractions.com",
+        "en.azghar.com",
+        "claimflights.com",
+        "lexority.com",
+        "bonaventuretravel.ca"
+      ],
+      "top_titles": [
+        "How Europe \u2019s Flight Compensation Changes Will Affect Your Next Trip",
+        "Rules for Delayed Flights Missing Connections | TikTok",
+        "How to get flight delay compensation | EU rules | This is Money"
+      ],
+      "latency_ms": 919.2
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 7,
+      "domains": [
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "thetraveler.org",
+        "onemileatatime.com",
+        "citizensinformation.ie",
+        "euflightcompensation.com",
+        "thepointsguy.com",
+        "europa.eu",
+        "europa.eu"
+      ],
+      "top_titles": [
+        "Flight Delay Compensation Eu - Claim your Compensation",
+        "Flight Delay Compensation - Flight Compensation Calculator",
+        "EU Flight Delay Compensation - Flight delay compensation \u20ac600"
+      ],
+      "latency_ms": 1165.5
+    }
+  },
+  {
+    "label": "segmentation_wordninja",
+    "technique": "segmentation",
+    "original_query": "toplawyersinnewyork",
+    "refined_query": "top lawyers in new york",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 9,
+      "domains": [
+        "eb.thecloudherald.com",
+        "all-aged-domains.com",
+        "justdropped.com",
+        "domain.webmasterhome.cn",
+        "global-ranks.pages.dev",
+        "jobsapp.info",
+        "sergechel.info",
+        "bestlawyers.com",
+        "bestlawyers.com",
+        "justia.com"
+      ],
+      "top_titles": [
+        "In The Age Of Digital Transformation, Drive Your Website\u2019s Success...",
+        "Where to buy aged domains and backlinks from...",
+        "Justdropped.com Expired and Deleted Domain Names"
+      ],
+      "latency_ms": 2242.5
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 8,
+      "domains": [
+        "justia.com",
+        "bestlawyers.com",
+        "bestlawyers.com",
+        "justia.com",
+        "lawyerlegion.com",
+        "lawzana.com",
+        "goodfirms.co",
+        "avvo.com",
+        "americastop50lawyers.com",
+        "law.ai"
+      ],
+      "top_titles": [
+        "Best Lawyers in New York City, NY | Justia Lawyer Directory",
+        "Best New York Attorneys Near Me - Best Lawyers",
+        "Best New York Lawyers | Best Lawyers"
+      ],
+      "latency_ms": 2040.6
+    }
+  },
+  {
+    "label": "segmentation_wordninja",
+    "technique": "segmentation",
+    "original_query": "buyusedcarnearme",
+    "refined_query": "buy used car near me",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "imgpile.com",
+        "tearshelped.blogspot.com",
+        "seo-tip.com",
+        "sergechel.info",
+        "all-aged-domains.com",
+        "1000.co.in",
+        "socialsocial.social",
+        "buyusedcarnearme.blogspot.com",
+        "bing.com",
+        "autofinder.com"
+      ],
+      "top_titles": [
+        "buy used car near me - ImgPile",
+        "TearsHelped",
+        "High-LevelSEO Practice: A Comprehensive Guide from Technical..."
+      ],
+      "latency_ms": 2202.5
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "cars.com",
+        "iseecars.com",
+        "edmunds.com",
+        "carmax.com",
+        "autolist.com",
+        "enterprisecarsales.com",
+        "cars24.com",
+        "car.com",
+        "cargurus.com",
+        "autotempest.com"
+      ],
+      "top_titles": [
+        "Used Cars for Sale Online Near Me | Cars .com",
+        "Used Cars for Sale: Search 4 million Listings & 512... - iSeeCars.com",
+        "Search Used Cars for Sale \u2014 Prices, Deals & Reviews | Edmunds"
+      ],
+      "latency_ms": 1618.0
+    }
+  },
+  {
+    "label": "segmentation_wordninja",
+    "technique": "segmentation",
+    "original_query": "nearbycoffeeshops",
+    "refined_query": "nearby coffee shops",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 9,
+      "domains": [
+        "nearbycoffeeshops.com",
+        "github.com",
+        "nearbycoffeeshops32073.tinyblogging.com",
+        "global-ranks.pages.dev",
+        "sergechel.info",
+        "justdropped.com",
+        "yelp.com",
+        "yelp.com",
+        "mycoffeeexplorer.com",
+        "dutchcoffeeshops.com"
+      ],
+      "top_titles": [
+        "nearbycoffeeshops .com",
+        "GitHub - Berdanutku/CoffeeHunter",
+        "Blog"
+      ],
+      "latency_ms": 2216.4
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "yelp.com",
+        "tiktok.com",
+        "pinterest.com",
+        "tripadvisor.com",
+        "tripadvisor.co.uk",
+        "hunters-coffeeshop.com",
+        "matthewcassinelli.com",
+        "fein-nine.vercel.app",
+        "tripadvisor.ca",
+        "kitchensurfers.com"
+      ],
+      "top_titles": [
+        "yelp.com/nearme/ coffee - shop",
+        "Nearby Cafe | TikTok",
+        "Find and save ideas about find nearby coffee shops on Pinterest."
+      ],
+      "latency_ms": 743.3
+    }
+  },
+  {
+    "label": "segmentation_wordninja",
+    "technique": "segmentation",
+    "original_query": "cheapflightstoparis",
+    "refined_query": "cheap flights to paris",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 5,
+      "domains": [
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "kayak.com",
+        "cheapflights.com",
+        "kayak.com",
+        "skyscanner.com",
+        "expedia.com"
+      ],
+      "top_titles": [
+        "Low Cost Flights - Cheap Flights - Lowest Prices",
+        "Cheap Flights to Paris - Find the Best Flight Deals Now",
+        "Cheap Paris Flights - Beat Rising Fares! Fly Cheap"
+      ],
+      "latency_ms": 1612.8
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 6,
+      "domains": [
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "skyscanner.com",
+        "expedia.com",
+        "kayak.com",
+        "skyscanner.net",
+        "google.com"
+      ],
+      "top_titles": [
+        "Cheap Flight Tickets - Save Money, Travel More",
+        "Cheap Flights to Paris from \u00a313 in 2026",
+        "Cheapest Flights to Paris - Fly to Paris"
+      ],
+      "latency_ms": 2342.6
+    }
+  },
+  {
+    "label": "symspell_overcorrection_harm",
+    "technique": "spelling_negative_control",
+    "original_query": "iphone 15 vs samsung galaxy s24 comparison",
+    "refined_query": "iphone of is samsung galaxy see comparison",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "d33gy59ovltp76.cloudfront.net",
+        "timesofindia.indiatimes.com",
+        "youtube.com",
+        "zeenews.india.com",
+        "techdigitalminds.com",
+        "tiktok.com",
+        "pinterest.com",
+        "mymobileguru.com",
+        "mobiel.nl",
+        "mobiles360.pk"
+      ],
+      "top_titles": [
+        "Samsung Galaxy S 24 vs iPhone 15 : what are the",
+        "Apple iPhone 15 vs Samsung Galaxy S 24 : How they compare in...",
+        "Samsung S25/ S 24 /S23/A56/A54/A36 vs iPhone ... - YouTube"
+      ],
+      "latency_ms": 1035.7
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 10,
+      "domains": [
+        "phonearena.com",
+        "youtube.com",
+        "newatlas.com",
+        "trustedreviews.com",
+        "androidauthority.com",
+        "nanoreview.net",
+        "tiktok.com",
+        "gottabemobile.com",
+        "91mobiles.com",
+        "extremetech.com"
+      ],
+      "top_titles": [
+        "Phone size comparison - PhoneArena",
+        "Samsung Galaxy S22 vs iPhone 11 - YouTube",
+        "Samsung Galaxy S7 vs. iPhone 6s"
+      ],
+      "latency_ms": 1198.7
+    }
+  },
+  {
+    "label": "wordnet_synonym_expansion",
+    "technique": "synonym_expansion",
+    "original_query": "affordable health insurance",
+    "refined_query": "affordable OR cheap health insurance",
+    "original": {
+      "result_count": 10,
+      "unique_domains": 9,
+      "domains": [
+        "healthcare.gov",
+        "usa.gov",
+        "grokipedia.com",
+        "healthcare.gov",
+        "goodrx.com",
+        "healthinsurance.org",
+        "uhc.com",
+        "howtopoland.com",
+        "bcbs.com",
+        "earebetterliving.com"
+      ],
+      "top_titles": [
+        "Welcome to the Health Insurance Marketplace\u00ae | HealthCare .gov",
+        "How to get insurance through the ACA Health Insurance ...",
+        "Affordable Family Health Insurance Plans (2026)"
+      ],
+      "latency_ms": 1830.2
+    },
+    "refined": {
+      "result_count": 10,
+      "unique_domains": 7,
+      "domains": [
+        "bing.com",
+        "bing.com",
+        "bing.com",
+        "goodrx.com",
+        "forbes.com",
+        "moneygeek.com",
+        "healthcare.gov",
+        "bomayangu.go.ke",
+        "antidotehealth.com",
+        "forbes.com"
+      ],
+      "top_titles": [
+        "Most Affordable Plans -From $0 - Affordable Cheap Health Insurance",
+        "Overseas Health Cover (2026) - 30 Second Quote Calculator",
+        "Latin America Health Insurance - Individual & Family Insurance"
+      ],
+      "latency_ms": 1595.7
+    }
+  }
+]

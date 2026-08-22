@@ -114,7 +114,15 @@ class WebSearchResponse(BaseModel):
 
     query: str
     results: list[WebSearchResult] = Field(default_factory=list)
-    total_results: int = 0
+    total_results: int = Field(
+        default=0,
+        description=(
+            "Ranked-candidate count produced by the search pipeline before "
+            "domain/site post-filtering. When domain_boost/domain_block/"
+            "site_filters are supplied, len(results) is the authoritative "
+            "page size; total_results reflects the pre-filter pool."
+        ),
+    )
     providers_used: list[str] = Field(
         default_factory=list,
         description="Providers that successfully returned results.",
@@ -125,76 +133,59 @@ class WebSearchResponse(BaseModel):
     query_shaping: list[dict[str, Any]] | None = None
 
 
-class GetContentResponse(BaseModel):
-    """Response from get_content tool."""
+class FetchResult(BaseModel):
+    """Single URL result returned by the unified fetch tool."""
 
-    input_url: str | None = None
-    normalized_url: str | None = None
+    input_url: str
+    normalized_url: str
     url: str | None = Field(
         default=None,
-        description="Resolved URL actually returned to the caller (fetched or normalized).",
-    )
-    cached: bool = Field(
-        default=False, description="True when the page was served from the local page cache."
-    )
-    origin_backend: str | None = Field(
-        default=None,
-        description="Backend that originally extracted the content (e.g. cache, jina, browser).",
+        description="Resolved URL actually returned to the caller.",
     )
     fetched_url: str | None = None
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
     )
-    source_type: str = Field(description="Detected source type, e.g. html, pdf, github_issue.")
+    source_type: str = Field(
+        description="Detected source type, e.g. html, json, rss, csv, pdf, github_issue."
+    )
     fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
-    page_content: str
-    window: dict[str, Any]
+    origin_backend: str | None = Field(
+        default=None,
+        description="Backend that originally extracted the content, including on cache hits.",
+    )
+    cached: bool = False
+    page_content: str = ""
+    window: dict[str, Any] = Field(default_factory=dict)
+    content_format: str = "markdown"
+    content_type: str | None = None
     metadata: dict[str, Any] | None = None
     links: list[ContentLink] | None = None
     continuation_notice: str | None = None
-    content_type: str | None = None
     error: dict[str, Any] | None = None
     entities: list[EntitySpan] | None = None
     summary: dict[str, Any] | None = None
-    content_quality: str | None = Field(
-        default=None,
-        description="Content quality classification: success, partial, blocked, error, or unsupported.",
-    )
-    content_word_count: int | None = Field(
-        default=None, description="Word count of the full fetched page."
-    )
+    content_quality: str | None = None
+    content_word_count: int = 0
+    page_char_count: int = 0
+    word_count: int = 0
+    wall: dict[str, Any] | None = None
+    llms_txt: dict[str, Any] | None = None
+    diagnostics: list[dict[str, Any]] | None = None
 
 
-class BatchContentResult(BaseModel):
-    """Single item in batch_get_content output."""
+class FetchResponse(BaseModel):
+    """Response from the unified fetch tool."""
 
-    input_url: str
-    normalized_url: str
-    fetched_url: str | None = None
-    status: str
-    source_type: str
-    fetch_backend: str
-    page_content: str
-    window: dict[str, Any]
-    content_type: str | None = None
-    metadata: dict[str, Any] | None = None
-    links: list[ContentLink] | None = None
-    continuation_notice: str | None = None
-    error: dict[str, Any] | None = None
-    summary: dict[str, Any] | None = None
-    content_quality: str | None = Field(
-        default=None,
-        description="Content quality classification: success, partial, blocked, error, or unsupported.",
-    )
-    content_word_count: int | None = Field(
-        default=None, description="Word count of the full fetched page."
-    )
-    page_char_count: int | None = Field(
-        default=None, description="Character count of the returned page content."
-    )
-    word_count: int | None = Field(
-        default=None, description="Word count of the returned page content."
-    )
+    mode: Literal["single", "bulk"]
+    results: list[FetchResult] = Field(default_factory=list)
+    total_requested: int = 0
+    total_returned: int = 0
+    total_chars_returned: int = 0
+    has_more: bool = False
+    cursor: str | None = None
+    wave_size: int = 10
+    waves_completed: int = 0
 
 
 class DiscoverLinksResponse(BaseModel):
@@ -211,17 +202,6 @@ class DiscoverLinksResponse(BaseModel):
     )
     metadata: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
-
-
-class BatchGetContentResponse(BaseModel):
-    """Response from batch_get_content tool."""
-
-    results: list[BatchContentResult] = Field(default_factory=list)
-    total_requested: int = 0
-    total_returned: int = 0
-    total_chars_returned: int = 0
-    has_more: bool = False
-    cursor: str | None = None
 
 
 class GeminiSearchResponse(BaseModel):

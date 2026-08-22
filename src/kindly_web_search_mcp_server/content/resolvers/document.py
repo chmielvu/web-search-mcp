@@ -262,7 +262,11 @@ async def fetch_document_markdown(
 
     try:
         timeout_sec = options.stage_timeout_seconds or 30.0
-        fetched = await safe_fetch_url(effective_url, timeout_seconds=timeout_sec)
+        fetched = await safe_fetch_url(
+            effective_url,
+            timeout_seconds=timeout_sec,
+            max_response_bytes=options.max_response_bytes,
+        )
         doc_type = fetched.doc_type or get_doc_source_type(effective_url)
         markdown = ""
 

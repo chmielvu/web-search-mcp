@@ -5,15 +5,15 @@
 # AGENTS.md - Embeddings
 
 Embedding subsystem for web-search-mcp.
-Unified ML ONNX service (`http://127.0.0.1:8000`, `intfloat/multilingual-e5-small`, 384d)
-is the primary provider, with Hugging Face Inference API available as an alternate/fallback provider.
+Unified ML ONNX service (`http://127.0.0.1:8000`, 786d) is the primary
+provider, with Hugging Face Inference API available as an alternate/fallback provider.
 
 ## Key Files
 
 | File | Role |
 |---|---|
-| `unified_ml.py` | Primary embedding client for VPS/local Unified ML service (`intfloat/multilingual-e5-small`, 384d, OpenAI/FastEmbed/TEI endpoints) |
-| `hf_inference.py` | Alternate/fallback HF Inference API client (`intfloat/multilingual-e5-large-instruct` / custom) |
+| `unified_ml.py` | Primary embedding client for the Unified ML service (786d OpenAI/FastEmbed/TEI endpoints) |
+| `hf_inference.py` | Alternate/fallback HF Inference API client (786d contract) |
 | `__init__.py` | Unified dispatcher routing to primary provider with error handling and fallback |
 
 ## Rules
