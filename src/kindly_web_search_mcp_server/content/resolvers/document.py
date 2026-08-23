@@ -19,6 +19,7 @@ import re
 import urllib.parse
 
 from ..artifact import ContentArtifact, ContentError
+from ..format_renderers import render_columnar_markdown, render_mhtml_markdown
 from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
 from ..sanitize import sanitize_markdown
@@ -28,6 +29,15 @@ from ...utils.url_canonicalize import canonicalize_url
 
 LOGGER = logging.getLogger(__name__)
 
+
+class DocumentConversionError(RuntimeError):
+    """A recognized document could not be converted safely."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 DOC_EXTENSIONS: set[str] = {
     ".pdf",
     ".docx",
@@ -36,6 +46,11 @@ DOC_EXTENSIONS: set[str] = {
     ".doc",
     ".ppt",
     ".xls",
+    ".mht",
+    ".parquet",
+    ".arrow",
+    ".feather",
+    ".mhtml",
     ".epub",
     ".ipynb",
     ".csv",
@@ -195,7 +210,7 @@ def _convert_ipynb_to_markdown(ipynb_text: str, source_url: str) -> str:
 
 def _convert_csv_to_markdown(csv_text: str, source_url: str, delimiter: str = ",") -> str:
     """Format CSV or TSV text as a clean GitHub-Flavored Markdown table."""
-    reader = csv.reader(io.StringIO(csv_text), delimiter=delimiter)
+    reader = csv.reader(io.StringIO(csv_text, newline=""), delimiter=delimiter)
     rows: list[list[str]] = []
     max_rows = 500
 
@@ -230,20 +245,71 @@ def _convert_csv_to_markdown(csv_text: str, source_url: str, delimiter: str = ",
     return "\n".join(md_lines).strip()
 
 
-def _convert_office_with_markitdown(body: bytes, filename: str) -> str | None:
-    """Convert Office / EPUB files using Microsoft MarkItDown."""
+def _convert_office_with_markitdown(body: bytes, filename: str) -> str:
+    """Convert Office / EPUB files using the explicit MarkItDown extras."""
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix in {".docx", ".pptx", ".xlsx", ".epub"} and not body.startswith(b"PK"):
+        raise DocumentConversionError(
+            "invalid_office_container",
+            f"{filename} is not a valid ZIP-based Office container",
+        )
+    if suffix in {".doc", ".ppt", ".xls"} and not body.startswith(
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    ):
+        raise DocumentConversionError(
+            "invalid_office_container",
+            f"{filename} is not a valid legacy Office container",
+        )
     try:
-        from markitdown import MarkItDown  # type: ignore[import-not-found,import-untyped]
+        from markitdown import MarkItDown
+    except ImportError as exc:  # pragma: no cover - clean-install dependency gate
+        raise DocumentConversionError(
+            "office_dependency_missing",
+            "markitdown[docx,pptx,xlsx,xls] is required for Office conversion",
+        ) from exc
 
+    try:
         md_engine = MarkItDown()
         with io.BytesIO(body) as stream:
-            # MarkItDown supports stream conversion
-            result = md_engine.convert_stream(stream, file_extension=os.path.splitext(filename)[1])
-            if result and result.text_content:
-                return result.text_content.strip()
+            result = md_engine.convert_stream(
+                stream,
+                file_extension=os.path.splitext(filename)[1],
+            )
     except Exception as exc:
         LOGGER.debug("MarkItDown conversion failed for %s: %s", filename, exc)
-    return None
+        raise DocumentConversionError(
+            "office_conversion_failed",
+            f"MarkItDown failed for {filename}: {exc}",
+        ) from exc
+    if not result or not result.text_content or not result.text_content.strip():
+        raise DocumentConversionError(
+            "office_empty_output",
+            f"MarkItDown returned no text for {filename}",
+        )
+    return result.text_content.strip()
+
+
+def _office_error_artifact(
+    input_url: str,
+    fetched_url: str,
+    doc_type: str,
+    content_type: str | None,
+    error: DocumentConversionError,
+) -> ContentArtifact:
+    record_content_error(stage=f"doc_{doc_type}", url=input_url, error_type=error.code)
+    return ContentArtifact(
+        input_url=input_url,
+        normalized_url=canonicalize_url(input_url),
+        fetched_url=fetched_url,
+        status="error",
+        source_type=doc_type,
+        fetch_backend=f"doc_converter_{doc_type}",
+        content_type=content_type,
+        markdown="",
+        word_count=0,
+        quality_score=0.0,
+        error=ContentError(code=error.code, message=str(error), retryable=False),
+    )
 
 
 # ------------------------------------------------------------------
@@ -279,15 +345,34 @@ async def fetch_document_markdown(
             text_content = fetched.text or fetched.body.decode("utf-8", errors="replace")
             delimiter = "\t" if doc_type == "tsv" else ","
             markdown = _convert_csv_to_markdown(text_content, url, delimiter=delimiter)
+        elif doc_type == "mhtml":
+            markdown, _ = render_mhtml_markdown(fetched.body, url)
+        elif doc_type in {"parquet", "arrow", "feather"}:
+            try:
+                markdown, _ = render_columnar_markdown(fetched.body, url, doc_type)
+            except Exception as exc:
+                return _office_error_artifact(
+                    url,
+                    fetched.fetched_url or url,
+                    doc_type,
+                    fetched.content_type,
+                    DocumentConversionError("columnar_conversion_failed", str(exc)),
+                )
         elif doc_type in ("docx", "pptx", "xlsx", "doc", "ppt", "xls", "epub"):
             filename = (
                 os.path.basename(urllib.parse.urlparse(effective_url).path) or f"file.{doc_type}"
             )
-            md_text = _convert_office_with_markitdown(fetched.body, filename)
-            if md_text:
-                markdown = f"# Document ({doc_type.upper()})\nSource: {url}\n\n{md_text}"
-            else:
-                markdown = f"# Document ({doc_type.upper()})\nSource: {url}\n\n_Unable to extract text from {doc_type} format._"
+            try:
+                md_text = _convert_office_with_markitdown(fetched.body, filename)
+            except DocumentConversionError as exc:
+                return _office_error_artifact(
+                    url,
+                    fetched.fetched_url or url,
+                    doc_type,
+                    fetched.content_type,
+                    exc,
+                )
+            markdown = f"# Document ({doc_type.upper()})\nSource: {url}\n\n{md_text}"
         else:
             # General fallback
             markdown = fetched.text or fetched.body.decode("utf-8", errors="replace")

@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+
+### Added — Extended fetch format coverage
+- Declared `markitdown[docx,pptx,xlsx,xls]`, `striprtf`, and `defusedxml` explicitly; Office conversion now rejects invalid containers and reports dependency/conversion failures instead of returning placeholder success.
+- Added bounded structured rendering for JSONL, YAML, and TOML; subtitle rendering for VTT/SRT; safe RTF, SVG, and MHTML extraction; and schema/sample rendering for Parquet, Arrow IPC, and Feather.
+- Added a fetch route-generation cache key so newly recognized formats cannot reuse stale generic results from older routing rules.
+
 ### Added — Two-stage judge inference chain (HF router retired)
 - Replaced Hugging Face router judge inference (silently dead since ~2026-08-13 — HTTP 402 monthly-credit depletion produced 572 consecutive `no llm output` rows; last success 2026-07-29) with a two-stage chain in `analytics/judges.py`: **Stage 1** Gemini API hosting `gemma-4-26b-a4b-it` via the native google-genai SDK with a shared cached Client (plain text — Gemma has no reliable OpenAI-compat access and no responseSchema support; the prompt footer plus the 3-tier `_parse_result` salvage recovers JSON). **Stage 2** NanoGPT subscription endpoint (`https://nano-gpt.com/api/subscription/v1`, per user directive) serving `deepseek/deepseek-v4-flash-0731:thinking` with strict `response_format=json_schema`, `max_tokens=8000` for the thinking budget, and an immediate retry-without-response_format salvage when a gateway rejects the schema wrapper.
 - Per-stage exponential backoff retries (`JUDGE_STAGE_MAX_RETRIES=2` default → 3 attempts, 1s doubling to an 8s cap via `JUDGE_RETRY_INITIAL_BACKOFF_SECONDS` / `JUDGE_RETRY_MAX_BACKOFF_SECONDS`) for transient failures (timeouts / 408 / 409 / 425 / 429 / 5xx); non-retryable auth/quota errors and empty completions fail over to the next stage immediately; both stages exhausted falls through to the FlockMTL `llm_complete` last resort.

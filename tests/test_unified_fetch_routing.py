@@ -31,6 +31,18 @@ def test_renders_json_and_rss_with_links() -> None:
     assert rss_links[0]["url"] == "https://example.com/item"
 
 
+def test_renders_crlf_csv() -> None:
+    rendered, metadata, links = render_typed_content(
+        "csv",
+        "Name,Age\rAlice,30\rBob,25\r",
+        "https://example.com/team.csv",
+    )
+
+    assert "| Alice | 30 |" in rendered
+    assert metadata["row_count"] == 2
+    assert links == []
+
+
 @pytest.mark.asyncio
 async def test_llms_preflight_replaces_only_root_candidates() -> None:
     fetched = SafeFetchResult(

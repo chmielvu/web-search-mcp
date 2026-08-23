@@ -13,7 +13,7 @@ from typing import Literal
 from ..artifact import ContentArtifact, ContentError
 from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
-from ..typed_content import detect_content_format, render_typed_content
+from ..typed_content import SUPPORTED_TYPED_FORMATS, detect_content_format, render_typed_content
 from ..sanitize import sanitize_markdown
 from ..status_classifier import classify_markdown
 from ...telemetry import record_content_error, record_content_resolution
@@ -32,11 +32,17 @@ RAW_TEXT_EXTENSIONS: set[str] = {
     ".org",
     ".log",
     ".json",
+    ".jsonl",
+    ".ndjson",
     ".yaml",
     ".yml",
     ".rss",
     ".atom",
     ".toml",
+    ".rtf",
+    ".vtt",
+    ".srt",
+    ".svg",
     ".xml",
     ".csv",
     ".tsv",
@@ -153,7 +159,7 @@ async def fetch_raw_text_markdown(
         typed_format = detect_content_format(url, fetched.content_type, raw_text)
         typed_metadata: dict[str, object] | None = None
         typed_links: list[dict[str, object]] | None = None
-        if typed_format in {"json", "rss", "atom", "xml", "csv", "tsv"}:
+        if typed_format in SUPPORTED_TYPED_FORMATS:
             raw_text, typed_metadata, typed_links = render_typed_content(
                 typed_format,
                 raw_text,

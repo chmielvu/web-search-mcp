@@ -19,6 +19,9 @@ dependencies = [
     "beautifulsoup4",
     "composio",
     "markdownify",
+    "markitdown[docx,pptx,xlsx,xls]>=0.1.7",
+    "striprtf>=0.0.33",
+    "defusedxml>=0.7.1",
     "PyMuPDF",
     "duckdb>=1.1.0,<1.5.3",
     "firecrawl-py>=4.32.1,<5",
@@ -52,6 +55,8 @@ dependencies = [
     "rank-llm[cloud] @ git+https://github.com/castorini/rank_llm.git@54fb0c055cd1692ac75ae44cd48e1933155f99dd",
     "telethon>=1.44.0",
     "tree-sitter-language-pack>=1.14,<2",
+    "wordninja>=2.0.0",
+    "lingua-language-detector>=2.2.0",
 ]
 
 [project.optional-dependencies]

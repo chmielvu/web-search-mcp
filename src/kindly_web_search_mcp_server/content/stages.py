@@ -33,7 +33,7 @@ from .remote_clients import (
     get_crawl4ai_client,
 )
 from .safe_fetch import SafeFetchError, safe_fetch_url
-from .typed_content import detect_content_format, render_typed_content
+from .typed_content import SUPPORTED_TYPED_FORMATS, detect_content_format, render_typed_content
 from .status_classifier import classify_markdown
 from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
@@ -236,7 +236,7 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             error=ContentError(code="fallback_fetch_failed", message=str(exc), retryable=True),
         )
     typed_format = detect_content_format(url, fetched.content_type, fetched.text)
-    if typed_format in {"json", "rss", "atom", "xml", "csv", "tsv"}:
+    if typed_format is not None and typed_format in SUPPORTED_TYPED_FORMATS:
         typed_markdown, typed_metadata, typed_links = render_typed_content(
             typed_format,
             fetched.text or fetched.body.decode("utf-8", errors="replace"),
@@ -269,14 +269,17 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             ),
         )
 
-
     # Handle Documents & PDFs
     if fetched.doc_type:
         from .resolvers.document import (
-            _convert_pdf_to_markdown,
-            _convert_ipynb_to_markdown,
+            DocumentConversionError,
             _convert_csv_to_markdown,
+            _convert_ipynb_to_markdown,
             _convert_office_with_markitdown,
+            _convert_pdf_to_markdown,
+            render_mhtml_markdown,
+            render_columnar_markdown,
+            _office_error_artifact,
         )
         import urllib.parse
 
@@ -296,16 +299,35 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
                 fetched.fetched_url,
                 delimiter=delimiter,
             )
+        elif doc_type == "mhtml":
+            doc_md, _ = render_mhtml_markdown(fetched.body, fetched.fetched_url)
+        elif doc_type in {"parquet", "arrow", "feather"}:
+            try:
+                doc_md, _ = render_columnar_markdown(fetched.body, fetched.fetched_url, doc_type)
+            except Exception as exc:
+                return _office_error_artifact(
+                    url,
+                    fetched.fetched_url or url,
+                    doc_type,
+                    fetched.content_type,
+                    DocumentConversionError("columnar_conversion_failed", str(exc)),
+                )
         elif doc_type in ("docx", "pptx", "xlsx", "doc", "ppt", "xls", "epub"):
             filename = (
                 os.path.basename(urllib.parse.urlparse(fetched.fetched_url).path)
                 or f"file.{doc_type}"
             )
-            md_text = _convert_office_with_markitdown(fetched.body, filename)
-            if md_text:
-                doc_md = (
-                    f"# Document ({doc_type.upper()})\nSource: {fetched.fetched_url}\n\n{md_text}"
+            try:
+                md_text = _convert_office_with_markitdown(fetched.body, filename)
+            except DocumentConversionError as exc:
+                return _office_error_artifact(
+                    url,
+                    fetched.fetched_url or url,
+                    doc_type,
+                    fetched.content_type,
+                    exc,
                 )
+            doc_md = f"# Document ({doc_type.upper()})\nSource: {fetched.fetched_url}\n\n{md_text}"
 
         if doc_md:
             cls = classify_markdown(doc_md)

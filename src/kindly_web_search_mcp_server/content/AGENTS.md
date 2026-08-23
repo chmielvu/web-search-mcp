@@ -11,7 +11,10 @@ Content acquisition, extraction, and conversion to LLM-ready Markdown.
 Three-tier architecture with active resilience:
 
 - **Tier 1 — Specialized Resolvers** (`resolvers/`):
-  - Documents: PDF (PyMuPDF), Office/EPUB (MarkItDown), Jupyter Notebooks (.ipynb AST), CSV/TSV tables, Google Docs/Sheets URL rewriting
+  - Documents: PDF (PyMuPDF), Office/EPUB (MarkItDown), Jupyter Notebooks (.ipynb AST), CSV/TSV tables, MHTML, Google Docs/Sheets URL rewriting
+  - Structured text: JSON/JSONL, YAML, TOML, XML, RSS/Atom
+  - Rich text and media text: RTF, VTT/SRT subtitles, safe SVG text extraction
+  - Columnar data: bounded Parquet, Arrow IPC, and Feather schema/sample rendering
   - Raw Text & Source Code files
   - Academic DOIs & Open Access papers (Unpaywall / Crossref)
   - Package Registries (PyPI, npm, Hugging Face Hub, Crates.io)
@@ -32,6 +35,7 @@ Three-tier architecture with active resilience:
 | `specialized_pipeline.py` | Tier 1 resolver routing |
 | `stages.py` | 4 generic extraction stage functions |
 | `artifact.py` | `ContentArtifact` / `ContentError` models |
+| `format_renderers.py` | Bounded structured, subtitle, SVG, MHTML, and columnar Markdown renderers |
 | `options.py` | `FetchOptions` |
 | `windowing.py` | Content slicing with pagination (`has_more`, `next_offset`) |
 | `summary.py` | Gemini-backed URL/context summaries |
@@ -55,7 +59,7 @@ Three-tier architecture with active resilience:
 - `sitemap.py` is Tavily-only (no fallback).
 - Per-stage timeouts: Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s.
 - Jina Reader circuit breaker: opens after 3 failures in 60s.
-- Content-type validation routes HTML, JSON, RSS/Atom, CSV/TSV, XML, plain text, and documents without browser escalation.
+- Content-type validation routes HTML, JSON/JSONL, YAML, TOML, RSS/Atom, CSV/TSV, XML, RTF, subtitles, SVG, plain text, Office, MHTML, and columnar documents without browser escalation.
 - Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`.
 
 ## Adding a New Specialized Resolver

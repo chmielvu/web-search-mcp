@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kindly_web_search_mcp_server.content.resolvers.document import (
+    DocumentConversionError,
     _convert_csv_to_markdown,
     _convert_ipynb_to_markdown,
     _convert_pdf_to_markdown,
@@ -127,6 +128,15 @@ def test_convert_csv_to_markdown() -> None:
     assert "| Charlie | 35 | Manager |" in rendered
 
 
+def test_convert_csv_to_markdown_accepts_crlf() -> None:
+    csv_text = "Name,Age\rAlice,30\rBob,25\r"
+    rendered = _convert_csv_to_markdown(csv_text, "https://example.com/team.csv")
+
+    assert "| Name | Age |" in rendered
+    assert "| Alice | 30 |" in rendered
+    assert "| Bob | 25 |" in rendered
+
+
 def test_get_doc_source_type() -> None:
     assert get_doc_source_type("https://example.com/file.pdf") == "pdf"
     assert get_doc_source_type("https://example.com/file.docx") == "docx"
@@ -161,3 +171,75 @@ async def test_fetch_document_markdown_csv() -> None:
         assert artifact.fetch_backend == "doc_converter_csv"
         assert "| Language | Paradigms | Creator |" in artifact.markdown
         assert "| Python | Multi-paradigm | Guido van Rossum |" in artifact.markdown
+
+
+@pytest.mark.asyncio
+async def test_office_conversion_success_is_not_placeholder() -> None:
+    mock_result = SafeFetchResult(
+        input_url="https://example.com/report.docx",
+        fetched_url="https://example.com/report.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        body=b"office-bytes",
+        text="",
+        is_pdf=False,
+        doc_type="docx",
+    )
+    with (
+        patch(
+            "kindly_web_search_mcp_server.content.resolvers.document.safe_fetch_url",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ),
+        patch(
+            "kindly_web_search_mcp_server.content.resolvers.document._convert_office_with_markitdown",
+            return_value="Converted Office text",
+        ),
+    ):
+        artifact = await fetch_document_markdown("https://example.com/report.docx")
+
+    assert artifact.status == "success"
+    assert artifact.source_type == "docx"
+    assert "Converted Office text" in artifact.markdown
+    assert "Unable to extract" not in artifact.markdown
+
+
+@pytest.mark.asyncio
+async def test_office_conversion_failure_is_explicit() -> None:
+    mock_result = SafeFetchResult(
+        input_url="https://example.com/report.docx",
+        fetched_url="https://example.com/report.docx",
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        body=b"office-bytes",
+        text="",
+        is_pdf=False,
+        doc_type="docx",
+    )
+    with (
+        patch(
+            "kindly_web_search_mcp_server.content.resolvers.document.safe_fetch_url",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ),
+        patch(
+            "kindly_web_search_mcp_server.content.resolvers.document._convert_office_with_markitdown",
+            side_effect=DocumentConversionError(
+                "office_dependency_missing",
+                "markitdown is unavailable",
+            ),
+        ),
+    ):
+        artifact = await fetch_document_markdown("https://example.com/report.docx")
+
+    assert artifact.status == "error"
+    assert artifact.source_type == "docx"
+    assert artifact.error is not None
+    assert artifact.error.code == "office_dependency_missing"
+
+
+def test_office_converter_rejects_html_disguised_as_xlsx() -> None:
+    from kindly_web_search_mcp_server.content.resolvers.document import (
+        _convert_office_with_markitdown,
+    )
+
+    with pytest.raises(DocumentConversionError, match="valid ZIP-based"):
+        _convert_office_with_markitdown(b"<html>not a workbook</html>", "report.xlsx")

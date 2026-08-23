@@ -28,8 +28,28 @@ from ._helpers import _record_tool_success
 LOGGER = logging.getLogger(__name__)
 
 _CURSOR_VERSION = 1
-_CACHE_SCHEMA_VERSION = 1
-_TYPED_FORMATS = {"json", "rss", "atom", "xml", "csv", "tsv"}
+_CACHE_SCHEMA_VERSION = 2
+_CACHE_ROUTE_VERSION = 2
+_TYPED_FORMATS = {
+    "json",
+    "jsonl",
+    "yaml",
+    "toml",
+    "rss",
+    "atom",
+    "xml",
+    "csv",
+    "tsv",
+    "rtf",
+    "vtt",
+    "srt",
+    "svg",
+}
+
+
+def _cache_key(normalized_url: str) -> str:
+    """Isolate fetch results from caches created under older route rules."""
+    return f"web-fetch-route-v{_CACHE_ROUTE_VERSION}:{normalized_url}"
 
 
 def _error_dict(exc: Exception, *, retryable: bool = True) -> dict[str, Any]:
@@ -178,7 +198,11 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
     stored = stored if isinstance(stored, dict) else {}
     envelope = stored.get("__web_fetch__")
     envelope = envelope if isinstance(envelope, dict) else {}
-    legacy = not envelope or envelope.get("schema_version") != _CACHE_SCHEMA_VERSION
+    legacy = (
+        not envelope
+        or envelope.get("schema_version") != _CACHE_SCHEMA_VERSION
+        or envelope.get("route_version") != _CACHE_ROUTE_VERSION
+    )
 
     metadata = envelope.get("metadata") if isinstance(envelope.get("metadata"), dict) else stored.get("metadata")
     links = envelope.get("links") if isinstance(envelope.get("links"), list) else stored.get("links")
@@ -189,7 +213,13 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
     status = envelope.get("status") or "success"
     diagnostics = list(envelope.get("diagnostics") or [])
     if legacy:
-        diagnostics.append({"code": "legacy_cache_entry", "cache_schema_version": 0})
+        diagnostics.append(
+            {
+                "code": "legacy_cache_entry",
+                "cache_schema_version": envelope.get("schema_version", 0),
+                "cache_route_version": envelope.get("route_version", 0),
+            }
+        )
 
     return _artifact_dict(
         input_url=input_url,
@@ -214,6 +244,7 @@ def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
     return {
         "__web_fetch__": {
             "schema_version": _CACHE_SCHEMA_VERSION,
+            "route_version": _CACHE_ROUTE_VERSION,
             "input_url": artifact["input_url"],
             "normalized_url": artifact["normalized_url"],
             "fetched_url": artifact.get("fetched_url"),
@@ -238,7 +269,7 @@ async def _store_cache(artifact: dict[str, Any]) -> None:
         return
     try:
         await get_page_cache().astore(
-            canonical_url=artifact["normalized_url"],
+            canonical_url=_cache_key(artifact["normalized_url"]),
             page_content=artifact["markdown"],
             extraction_method=artifact.get("origin_backend") or artifact.get("fetch_backend") or "unknown",
             metadata=_cache_metadata(artifact),
@@ -334,6 +365,7 @@ async def _fetch_one_artifact(
     llms_probe: LlmsTxtResult | None = None,
 ) -> dict[str, Any]:
     normalized = canonicalize_url(input_url)
+    cache_key = _cache_key(normalized)
     probe = llms_probe
     if probe is None:
         try:
@@ -350,7 +382,7 @@ async def _fetch_one_artifact(
         return artifact
 
     try:
-        cached = await get_page_cache().alookup(normalized)
+        cached = await get_page_cache().alookup(cache_key)
     except Exception as exc:  # pragma: no cover - cache isolation
         LOGGER.warning("Page cache lookup failed: %s", exc)
         cached = None

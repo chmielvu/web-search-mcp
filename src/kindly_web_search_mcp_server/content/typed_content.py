@@ -1,4 +1,4 @@
-"""Typed content routing for JSON, XML/RSS/Atom, and CSV/TSV responses."""
+"""Typed routing for structured JSON/YAML/TOML, feeds, subtitles, SVG, and tables."""
 
 from __future__ import annotations
 
@@ -9,12 +9,45 @@ import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
+from .format_renderers import (
+    render_jsonl_markdown,
+    render_rtf_markdown,
+    render_subtitle_markdown,
+    render_svg_markdown,
+    render_toml_markdown,
+    render_yaml_markdown,
+)
+
 
 _JSON_MIMES = {"application/json", "text/json"}
+_JSONL_MIMES = {"application/x-ndjson", "application/ndjson", "application/jsonl"}
+_YAML_MIMES = {"application/yaml", "application/x-yaml", "text/yaml"}
+_TOML_MIMES = {"application/toml", "text/x-toml"}
+_RTF_MIMES = {"application/rtf", "text/rtf"}
+_VTT_MIMES = {"text/vtt", "application/vtt"}
+_SRT_MIMES = {"application/x-subrip", "text/srt", "application/srt"}
+_SVG_MIMES = {"image/svg+xml"}
 _RSS_MIMES = {"application/rss+xml", "application/atom+xml", "application/rdf+xml"}
 _XML_MIMES = {"application/xml", "text/xml"}
 _CSV_MIMES = {"text/csv", "application/csv"}
 _MAX_CSV_ROWS = 500
+SUPPORTED_TYPED_FORMATS = frozenset(
+    {
+        "json",
+        "jsonl",
+        "yaml",
+        "toml",
+        "rss",
+        "atom",
+        "xml",
+        "csv",
+        "tsv",
+        "rtf",
+        "vtt",
+        "srt",
+        "svg",
+    }
+)
 
 
 def _mime(content_type: str | None) -> str:
@@ -30,6 +63,20 @@ def detect_content_format(url: str, content_type: str | None, text: str) -> str 
     mime = _mime(content_type)
     path = urlparse(url).path.lower()
 
+    if mime in _JSONL_MIMES or path.endswith((".jsonl", ".ndjson")):
+        return "jsonl"
+    if mime in _YAML_MIMES or path.endswith((".yaml", ".yml")):
+        return "yaml"
+    if mime in _TOML_MIMES or path.endswith(".toml"):
+        return "toml"
+    if mime in _RTF_MIMES or path.endswith(".rtf"):
+        return "rtf"
+    if mime in _VTT_MIMES or path.endswith(".vtt"):
+        return "vtt"
+    if mime in _SRT_MIMES or path.endswith(".srt"):
+        return "srt"
+    if mime in _SVG_MIMES or path.endswith(".svg"):
+        return "svg"
     if mime in _JSON_MIMES or path.endswith(".json"):
         return "json"
     if mime in _RSS_MIMES:
@@ -150,7 +197,7 @@ def _feed_markdown(
 
 
 def _csv_markdown(text: str, source_url: str, delimiter: str) -> tuple[str, dict[str, object], list[dict[str, object]]]:
-    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     rows: list[list[str]] = []
     for index, row in enumerate(reader):
         if index >= _MAX_CSV_ROWS:
@@ -181,6 +228,18 @@ def render_typed_content(
     source_url: str,
 ) -> tuple[str, dict[str, object], list[dict[str, object]]]:
     """Render a detected typed response to LLM-ready Markdown."""
+    if fmt == "jsonl":
+        return render_jsonl_markdown(text, source_url)
+    if fmt == "yaml":
+        return render_yaml_markdown(text, source_url)
+    if fmt == "toml":
+        return render_toml_markdown(text, source_url)
+    if fmt == "rtf":
+        return render_rtf_markdown(text, source_url)
+    if fmt in {"vtt", "srt"}:
+        return render_subtitle_markdown(text, source_url, fmt)
+    if fmt == "svg":
+        return render_svg_markdown(text, source_url)
     if fmt == "json":
         return _json_markdown(text)
     if fmt in {"rss", "atom", "xml"}:

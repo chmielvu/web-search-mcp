@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from kindly_web_search_mcp_server.settings import settings
-from kindly_web_search_mcp_server.tools.content import fetch
+from kindly_web_search_mcp_server.tools.content import _cache_key, fetch
 
 
 def _artifact(url: str, content: str) -> dict:
@@ -31,6 +31,13 @@ def _artifact(url: str, content: str) -> dict:
         "llms_txt": None,
         "diagnostics": None,
     }
+
+
+def test_fetch_cache_key_includes_route_generation() -> None:
+    key = _cache_key("https://example.com/report.docx")
+
+    assert key.startswith("web-fetch-route-v2:")
+    assert key.endswith("https://example.com/report.docx")
 
 
 class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):

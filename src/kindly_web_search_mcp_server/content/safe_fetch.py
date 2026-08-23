@@ -91,13 +91,33 @@ _ALLOWED_TEXT_CONTENT_SUBSTRINGS: tuple[str, ...] = (
     "application/xhtml+xml",
     "application/xml",
     "application/json",
+    "application/jsonl",
+    "application/ndjson",
+    "application/x-ndjson",
     "application/rss+xml",
     "application/atom+xml",
     "application/csv",
     "application/x-yaml",
     "application/yaml",
+    "text/yaml",
+    "application/toml",
+    "text/x-toml",
     "application/javascript",
     "application/x-javascript",
+    "application/rtf",
+    "text/rtf",
+    "text/vtt",
+    "application/vtt",
+    "application/x-subrip",
+    "text/srt",
+    "application/srt",
+    "image/svg+xml",
+    "application/vnd.apache.parquet",
+    "application/x-parquet",
+    "application/parquet",
+    "application/vnd.apache.arrow.file",
+    "application/vnd.apache.arrow.stream",
+    "application/vnd.apache.feather",
 )
 
 _RAW_TEXT_EXTENSIONS: set[str] = {
@@ -111,6 +131,8 @@ _RAW_TEXT_EXTENSIONS: set[str] = {
     ".org",
     ".log",
     ".json",
+    ".jsonl",
+    ".ndjson",
     ".yaml",
     ".yml",
     ".toml",
@@ -152,6 +174,18 @@ def _sniff_doc_type(content_type: str | None, fetched_url: str, body: bytes) -> 
     ctype = (content_type or "").lower()
     path = urlparse(fetched_url).path.lower()
 
+    if (
+        "multipart/related" in ctype
+        or "message/rfc822" in ctype
+        or path.endswith((".mht", ".mhtml"))
+    ):
+        return "mhtml"
+    if "parquet" in ctype or path.endswith(".parquet"):
+        return "parquet"
+    if "arrow" in ctype or path.endswith(".arrow"):
+        return "arrow"
+    if "feather" in ctype or path.endswith(".feather"):
+        return "feather"
     if "application/pdf" in ctype or path.endswith(".pdf") or body.startswith(b"%PDF-"):
         return "pdf"
     if (
