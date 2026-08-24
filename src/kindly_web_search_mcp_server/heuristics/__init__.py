@@ -5,14 +5,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .lang_detect import detect_lang
     from .query_features import QueryFeatures, build_query_features
     from .shaping import AugmentResult, extract_search_ops, shape_for_branch
     from .text_clean import clean_query, clean_text_for_llm, repair_unicode
-    from .lang_detect import detect_lang
-    from .text_segment import segment_query, is_eligible_token, MAX_TOKEN_LEN, MIN_TOKEN_LEN
+    from .text_segment import (
+        MAX_TOKEN_LEN,
+        MIN_TOKEN_LEN,
+        is_eligible_token,
+        segment_query,
+    )
+    from .understanding_fallback import FallbackUnderstanding, resolve_fallback_understanding
 
 __all__ = [
     "AugmentResult",
+    "FallbackUnderstanding",
     "MAX_TOKEN_LEN",
     "MIN_TOKEN_LEN",
     "QueryFeatures",
@@ -23,6 +30,7 @@ __all__ = [
     "extract_search_ops",
     "is_eligible_token",
     "repair_unicode",
+    "resolve_fallback_understanding",
     "segment_query",
     "shape_for_branch",
 ]
@@ -53,4 +61,8 @@ def __getattr__(name: str):
         from . import text_segment
 
         return getattr(text_segment, name)
+    if name in {"FallbackUnderstanding", "resolve_fallback_understanding"}:
+        from . import understanding_fallback
+
+        return getattr(understanding_fallback, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

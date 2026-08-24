@@ -15,6 +15,11 @@ from ...entity.default_schema import (
 from ...entity.models import EntityRelation, EntitySpan
 from ...entity.postprocess import postprocess_entities
 from ...heuristics.query_features import _langs_from_text
+from ...heuristics.understanding_fallback import (
+    _TIME_CURRENT as _CURRENT_TERMS,
+    _TIME_HISTORICAL as _HISTORICAL_TERMS,
+    _TIME_RECENT as _RECENT_TERMS,
+)
 from ..intents import SearchIntent, normalize_intent
 from .models import QueryUnderstandingResult
 
@@ -52,11 +57,9 @@ _TECHNICAL_LABELS = frozenset(
 _COMPARISON_FALLBACK_LABELS = frozenset(
     {"package", "product", "model_id", "provider", "platform", "repo_ref"}
 )
-_CURRENT_TERMS = re.compile(r"\b(?:current|currently|now|today|latest)\b", re.IGNORECASE)
-_RECENT_TERMS = re.compile(r"\b(?:recent|recently|this\s+week|this\s+month)\b", re.IGNORECASE)
-_HISTORICAL_TERMS = re.compile(
-    r"\b(?:historical|history|formerly|deprecated|past)\b", re.IGNORECASE
-)
+# Time-term regexes are owned by heuristics.understanding_fallback (single
+# source of truth); _COMPARISON_TERMS stays adapter-specific (includes bare
+# vs, which the fallback's precision-first classifier deliberately excludes).
 _COMPARISON_TERMS = re.compile(r"\b(?:compare|versus|vs\.?|compared)\b", re.IGNORECASE)
 
 

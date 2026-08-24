@@ -32,7 +32,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "fetch": 120.0,
     "academic_search": 45.0,
     "code_search": 120.0,
-    "code_fetch": 90.0,
+    "code_fetch": 180.0,
     "deep_research": None,  # background-capable; no foreground timeout
 }
 
@@ -154,9 +154,11 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         {"regular", "full"},
         description=(
             "Explore a GitHub repository's current main/default branch. Materializes a "
-            "five-minute snapshot, then searches, reads, or graphs it. Pass repository plus "
-            "optional query, path, or symbol. Do not pass a commit SHA. Successful responses "
-            "include resolved_commit and cache_age_seconds."
+            "five-minute snapshot (first call can take 30-90s), then searches, reads, or "
+            "graphs it. Pass repository plus optional query, path, or symbol. Do not pass a "
+            "commit SHA. Read a line window with path + start_line/end_line (no query/symbol); "
+            "scope searches with path. Successful responses include resolved_commit and "
+            "cache_age_seconds."
         ),
     ),
     "composio_similarlinks": _entry(

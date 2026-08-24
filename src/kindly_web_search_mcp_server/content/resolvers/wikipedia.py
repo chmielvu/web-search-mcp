@@ -244,11 +244,11 @@ async def fetch_wikipedia_article_markdown(
 
     if max_chars is None:
         try:
-            max_chars = int(os.environ.get("WIKIPEDIA_MAX_CHARS", "50000"))
+            max_chars = int(os.environ.get("WIKIPEDIA_MAX_CHARS", "0"))
         except Exception:
-            max_chars = 50_000
-    if max_chars <= 0:
-        max_chars = 50_000
+            max_chars = 0
+    if max_chars is not None and max_chars < 0:
+        max_chars = 0
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = WikipediaApiClient(http_client=client)
@@ -298,7 +298,7 @@ async def fetch_wikipedia_article_markdown(
         md = sanitize_markdown(md)
 
         truncated = False
-        if len(md) > max_chars:
+        if max_chars > 0 and len(md) > max_chars:
             md = md[:max_chars].rstrip() + "\n\n…(truncated)\n"
             truncated = True
 

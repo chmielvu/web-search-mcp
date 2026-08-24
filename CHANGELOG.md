@@ -7,6 +7,17 @@
 - Extended `search/providers/exa.py`: `freshness` → `startPublishedDate` translation (day/week/month/year), expanded kwargs allowlist (`startPublishedDate`, `endPublishedDate`, and `maxAgeHours`/`livecrawlTimeout` merged into the nested `contents` object), strict rejection of unknown provider arguments, debug logging of `requestId`/`costDollars`, and `moderation: true` by default (override via provider arguments — behavior change).
 - Added adapter contract tests in `tests/test_exa_provider.py` and per-intent policy assertions in `tests/test_intent_policy.py`.
 
+### Fixed — Rewrite cache key includes classified intent
+- `search/planning.py::_rewrite_queries` now hashes normalized `intent` into the rewrite cache key (was: `user_content` only). Prevents two runs with identical query/context/evidence but different classified intents from reusing the first run's role-specific rewrite.
+- Added regression test `test_rewrite_cache_key_includes_intent` in `tests/test_query_rewrite_named_slots.py` (different intents → separate cache entries; identical intent → cache hit).
+
+### Added — Deterministic query-understanding fallback extractor
+- Added `heuristics/understanding_fallback.py` (`resolve_fallback_understanding`) — a precision-first python-re cascade that recovers coarse intent, compared entities, time sensitivity, and decompose facets when the hosted GLiNER2 gateway fails or is disabled. Product exclusion (`vs code`), leading comparison-verb strip, offset-fidelity spans, single-letter-keyword precision rule, bounded scans (`_MAX_SPLIT_SCANS`) and entity cap (`_MAX_COMPARED`).
+- Wired into `entity/gliner_client.py::_fallback_result` (the dominant outage path — every gateway failure now derives intent/facets from the query surface) and `search/understanding/resolver.py::_deterministic_fallback`. Reason-only rationale contract preserved when no rules fire; rule trail appended when they do.
+- Time-term regexes now live in `heuristics/understanding_fallback.py` (single source of truth); `search/understanding/adapter.py` imports them (`_CURRENT_TERMS`/`_RECENT_TERMS`/`_HISTORICAL_TERMS` aliases), `_COMPARISON_TERMS` stays adapter-specific.
+- Design + verification: `docs/deterministic-understanding-fallback-design-2026-08-24.md` (§7.1: 10/10 cases, offset fidelity, determinism, 10k perf 7.73/6.17ms).
+- Tests: `tests/test_understanding_fallback.py`.
+
 ### Added — P2 Graph Feedback Loop (NetworkX + DuckDB)
 - Added direct runtime dependencies `networkx>=3.5,<4` and `scipy>=1.17,<2` to support `nx.bipartite.birank` and `nx.adamic_adar_index`.
 - Added offline label materializer in `src/kindly_web_search_mcp_server/analytics/feedback_labels.py` parsing `llm_judgments` into `result_labels` with exact-link / canonical-URL resolution and zero-based position mapping.

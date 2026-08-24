@@ -122,13 +122,54 @@ async def test_code_fetch_reads_windowed_lines(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_code_fetch_multi_term_fts_snippet(tmp_path: Path) -> None:
+async def test_code_fetch_rejects_window_with_query(tmp_path: Path) -> None:
     _seed_snapshot(tmp_path)
-    result = await code_fetch("owner/repo", query="authenticate login", ctx=None)
+    result = await code_fetch(
+        "owner/repo",
+        query="authenticate",
+        path="src/auth.py",
+        start_line=2,
+        end_line=3,
+        ctx=None,
+    )
+    assert result.outcome == "error"
+    assert "start_line/end_line" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_rejects_window_without_path(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", start_line=2, end_line=3, ctx=None)
+    assert result.outcome == "error"
+    assert "start_line/end_line" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_window_read_has_no_truncation_flags(tmp_path: Path) -> None:
+    _seed_snapshot(tmp_path)
+    result = await code_fetch("owner/repo", path="src/auth.py", start_line=4, end_line=5, ctx=None)
     assert result.outcome == "ok"
-    assert result.hits
-    # Should identify the file and match on either authenticate or login rather than falling back to line 1
-    assert any(hit.path == "src/auth.py" for hit in result.hits)
+    assert result.intent == "read"
+    assert result.snapshot_truncated is False
+    assert result.search_truncated is False
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_reports_snapshot_truncation(tmp_path: Path) -> None:
+    source = tmp_path / "trunc_repo"
+    (source / "src").mkdir(parents=True)
+    (source / "src" / "a.py").write_text("def alpha():\n    pass\n", encoding="utf-8")
+    manager = SnapshotManager(
+        db_path=str(tmp_path / "trunc_snap.sqlite"),
+        worktree_root=tmp_path / "trunc_worktrees",
+    )
+    manager.build_from_directory("owner/trunc", "main", "c" * 40, source, truncated=True)
+    reset_snapshot_manager_for_tests(manager)
+    result = await code_fetch("owner/trunc", query="alpha", ctx=None)
+    assert result.outcome in {"ok", "partial"}
+    assert result.snapshot_truncated is True
+    assert result.truncated is True
+    assert result.search_truncated is False
 
 
 def test_code_search_next_points_to_code_fetch_without_ref() -> None:

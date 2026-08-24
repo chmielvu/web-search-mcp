@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from ...entity.gliner_client import GatewayAnalysis, get_gliner_client
+from ...heuristics.understanding_fallback import resolve_fallback_understanding
 from ...settings import settings
 from ...training.query_understanding_jsonl import append_query_understanding_record
 from ...training.session_state import get_session_state_store
@@ -19,19 +20,21 @@ logger = logging.getLogger(__name__)
 _GLINER_MODEL = "fastino/gliner2-multi-v1"
 
 
-def _deterministic_fallback(reason: str) -> GatewayAnalysis:
+def _deterministic_fallback(reason: str, query: str = "") -> GatewayAnalysis:
+    fb = resolve_fallback_understanding(query)
+    rationale = f"{reason}: {fb.rationale}" if fb.rules else reason
     return GatewayAnalysis(
         understanding=QueryUnderstandingResult(
-            intent="general",
+            intent=fb.intent,
             confidence=0.0,
             entities=[],
             relations=[],
             preserved_terms=[],
-            compared_entities=[],
+            compared_entities=list(fb.compared_entities),
             domain_hints=[],
-            time_sensitivity="none",
-            rationale=reason,
-            should_decompose=False,
+            time_sensitivity=fb.time_sensitivity,
+            rationale=rationale,
+            should_decompose=fb.should_decompose,
         ),
         model_version=_GLINER_MODEL,
         latency_ms=0.0,
@@ -61,7 +64,7 @@ async def resolve_query_understanding(
         analysis = await client.analyze_query(normalized_query)
     except Exception as exc:  # pragma: no cover - gateway owns normal failures
         logger.warning("hosted GLiNER2 resolver failed: %s", exc)
-        analysis = _deterministic_fallback("gliner2-unexpected-error")
+        analysis = _deterministic_fallback("gliner2-unexpected-error", query=normalized_query)
 
     understanding = analysis.understanding
     event_fields = {

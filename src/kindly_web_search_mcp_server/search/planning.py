@@ -23,7 +23,7 @@ from ..telemetry.spans import get_tracer
 from .contracts import BranchRole, QueryBranch, SearchPlan, SearchRun
 from .graph_expansion import GraphExpansionDecision, expand_seed_queries
 from .intent_policy import resolve_intent_policy
-from .intents import SearchIntent
+from .intents import SearchIntent, normalize_intent
 from .keyword_extract import extract_support_terms
 from .normalize import normalize_query
 from .provider_registry import (
@@ -150,9 +150,7 @@ async def _rewrite_queries(
     intent: SearchIntent = "general",
     understanding: Any | None = None,
 ) -> tuple[RewrittenQueries, dict[str, Any]]:
-    compared_entities = _stable_terms(
-        list(getattr(understanding, "compared_entities", None) or [])
-    )
+    compared_entities = _stable_terms(list(getattr(understanding, "compared_entities", None) or []))
     preserved_terms = _stable_terms(list(getattr(understanding, "preserved_terms", None) or []))
     user_content = REWRITE_USER.format(
         current_year=current_year,
@@ -167,7 +165,7 @@ async def _rewrite_queries(
         preserved_terms=list(preserved_terms),
     )
     cache_key = hashlib.sha256(
-        f"v{REWRITE_PROMPT_VERSION}:{user_content}".encode("utf-8")
+        f"v{REWRITE_PROMPT_VERSION}:{normalize_intent(str(intent))}:{user_content}".encode("utf-8")
     ).hexdigest()
     if cache_key in _REWRITE_CACHE:
         cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]

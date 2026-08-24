@@ -273,18 +273,18 @@ async def fetch_stackexchange_thread_markdown(
 
     if max_chars is None:
         try:
-            max_chars = int(os.environ.get("STACKEXCHANGE_MAX_CHARS", "20000"))
+            max_chars = int(os.environ.get("STACKEXCHANGE_MAX_CHARS", "0"))
         except Exception:
-            max_chars = 20_000
-    if max_chars <= 0:
-        max_chars = 20_000
+            max_chars = 0
+    if max_chars is not None and max_chars < 0:
+        max_chars = 0
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = StackExchangeApiClient(http_client=client)
         question = await api.fetch_question(target)
         answers = await api.fetch_all_answers(target)
         md = render_thread_markdown(question=question, answers=answers)
-        if len(md) > max_chars:
+        if max_chars > 0 and len(md) > max_chars:
             md = md[:max_chars].rstrip() + "\n\n…(truncated)\n"
         return md
 

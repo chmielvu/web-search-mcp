@@ -56,6 +56,8 @@ class CodeFetchResponse(BaseModel):
     expires_in_seconds: int | None = None
     stale: bool = False
     truncated: bool = False
+    search_truncated: bool = False
+    snapshot_truncated: bool = False
     intent: str | None = None
     hits: list[CodeFetchHit] = Field(default_factory=list)
     tree: list[str] = Field(default_factory=list)
@@ -130,6 +132,8 @@ def _response_from_query(repository: str, result: QueryResult) -> CodeFetchRespo
         expires_in_seconds=snapshot.expires_in_seconds(),
         stale=snapshot.stale,
         truncated=result.truncated or snapshot.truncated,
+        search_truncated=result.truncated,
+        snapshot_truncated=snapshot.truncated,
         intent=result.intent,
         hits=[_hit_model(hit) for hit in result.hits],
         tree=list(result.tree),
@@ -186,11 +190,11 @@ async def code_fetch(
     context_lines: Annotated[int, Field(description="Context lines around each match.")] = 3,
     start_line: Annotated[
         int | None,
-        Field(description="Optional 1-based start line when reading a file."),
+        Field(description="Optional 1-based start line when reading a file (requires path without query/symbol)."),
     ] = None,
     end_line: Annotated[
         int | None,
-        Field(description="Optional 1-based end line when reading a file."),
+        Field(description="Optional 1-based end line when reading a file (requires path without query/symbol)."),
     ] = None,
     depth: Annotated[
         int | None,
@@ -203,6 +207,13 @@ async def code_fetch(
     Materializes a five-minute snapshot, then searches, reads, or graphs it.
     Callers do not pass a commit SHA. Every successful response includes
     ``resolved_commit`` and ``cache_age_seconds``.
+
+    The first call for a repository downloads and indexes it (can take 30-90s);
+    later calls within five minutes are fast. To read a line window, pass
+    ``path`` plus ``start_line``/``end_line`` and omit ``query``/``symbol``.
+    To search inside one file or directory, pass ``query`` (or ``symbol``)
+    together with ``path``. ``truncated`` may reflect the snapshot index
+    budget (``snapshot_truncated``) rather than this query's results.
     """
     try:
         normalized_repository = _normalize_repository(repository)
@@ -219,19 +230,56 @@ async def code_fetch(
         return await manager.ensure(normalized_repository, ref=ref)
 
     try:
-        snapshot = await _code_fetch_flight.do(flight_key, _open_snapshot, timeout_seconds=55.0)
-        result = manager.query(
-            snapshot,
-            query=query,
-            path=path,
-            symbol=symbol,
-            regexp=regexp,
-            max_matches=max_matches,
-            context_lines=context_lines,
-            start_line=start_line,
-            end_line=end_line,
-            depth=depth,
+        # Initiator (cold clone+index) can take 25-70s+; bound it just under the
+        # catalog timeout (180s) so waiters (55s) get a clear error before the
+        # outer tool timeout. 160s leaves 20s for query.
+        snapshot = await _code_fetch_flight.do(
+            flight_key, _open_snapshot, timeout_seconds=55.0, initiator_timeout_seconds=160.0
         )
+        # Use async query with HF semantic fallback (st-codesearch-distilroberta-base)
+        # when FTS+literal yield 0 hits and HF_TOKEN present. Falls back to
+        # sync query for read/tree/graph and when semantic unavailable.
+        if hasattr(manager, "query_async"):
+            try:
+                result = await manager.query_async(
+                    snapshot,
+                    query=query,
+                    path=path,
+                    symbol=symbol,
+                    regexp=regexp,
+                    max_matches=max_matches,
+                    context_lines=context_lines,
+                    start_line=start_line,
+                    end_line=end_line,
+                    depth=depth,
+                )
+            except Exception as exc:
+                LOGGER.debug("query_async failed, falling back to sync query: %s", exc)
+                result = manager.query(
+                    snapshot,
+                    query=query,
+                    path=path,
+                    symbol=symbol,
+                    regexp=regexp,
+                    max_matches=max_matches,
+                    context_lines=context_lines,
+                    start_line=start_line,
+                    end_line=end_line,
+                    depth=depth,
+                )
+        else:
+            result = manager.query(
+                snapshot,
+                query=query,
+                path=path,
+                symbol=symbol,
+                regexp=regexp,
+                max_matches=max_matches,
+                context_lines=context_lines,
+                start_line=start_line,
+                end_line=end_line,
+                depth=depth,
+            )
     except SnapshotError as exc:
         return _error_response(
             normalized_repository,

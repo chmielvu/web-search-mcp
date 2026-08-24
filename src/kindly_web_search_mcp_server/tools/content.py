@@ -502,8 +502,17 @@ async def fetch(
     if mode == "bulk" and offset:
         raise ValueError("offset applies only to a single URL fetch")
 
-    item_max_chars = max(1, settings.web_fetch_item_max_chars)
-    total_char_budget = max(item_max_chars, settings.web_fetch_total_char_budget)
+    # 0 means unlimited (no truncation) - preserve pagination via offset/cursor when explicitly used
+    item_max_chars = settings.web_fetch_item_max_chars
+    total_char_budget = settings.web_fetch_total_char_budget
+    # Normalize: 0 = unlimited, otherwise clamp to at least 1
+    if item_max_chars > 0:
+        item_max_chars = max(1, item_max_chars)
+    if total_char_budget > 0:
+        total_char_budget = max(1, total_char_budget)
+        # Ensure total budget at least covers one item when both are limited
+        if item_max_chars > 0:
+            total_char_budget = max(item_max_chars, total_char_budget)
     workers = max(1, settings.web_fetch_workers)
     wave_size = max(1, settings.web_fetch_wave_size)
     fetch_options = build_fetch_options(
@@ -578,7 +587,8 @@ async def fetch(
         semaphore = asyncio.Semaphore(workers)
         admitted: list[dict[str, Any]] = []
         deferred: list[str] = []
-        remaining_budget = total_char_budget
+        # 0 total budget means unlimited - no char deferral
+        remaining_budget = total_char_budget if total_char_budget > 0 else None
         waves_completed = 0
 
         async def _one(url_value: str) -> dict[str, Any]:
@@ -597,12 +607,16 @@ async def fetch(
             wave_results = await asyncio.gather(*(_one(item) for item in wave))
             waves_completed += 1
             for index, item in enumerate(wave_results):
-                chars_used = len(item["page_content"])
-                if chars_used > remaining_budget:
-                    deferred = pending_urls[wave_start + index :]
-                    break
-                admitted.append(item)
-                remaining_budget -= chars_used
+                # Only enforce budget when it's limited (>0)
+                if remaining_budget is not None:
+                    chars_used = len(item["page_content"])
+                    if chars_used > remaining_budget:
+                        deferred = pending_urls[wave_start + index :]
+                        break
+                    admitted.append(item)
+                    remaining_budget -= chars_used
+                else:
+                    admitted.append(item)
             await ctx.report_progress(
                 progress=min(95, 10 + int(85 * (wave_start + len(wave)) / len(pending_urls))),
                 total=100,

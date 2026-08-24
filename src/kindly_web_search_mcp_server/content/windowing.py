@@ -36,6 +36,31 @@ def _find_boundary_index(content: str, start: int, end: int) -> tuple[int, str |
 
 def slice_content(content: str, *, offset: int, length: int) -> WindowedContent:
     safe_offset = max(0, offset)
+    # 0 or negative length means unlimited - return full content from offset (no truncation)
+    if length <= 0:
+        total = len(content)
+        if safe_offset >= total:
+            window = ContentWindow(
+                offset=safe_offset,
+                length=length,
+                returned_chars=0,
+                total_chars=total,
+                has_more=False,
+                next_offset=None,
+                continuation_notice=None,
+            )
+            return WindowedContent(content="", window=window)
+        sliced = content[safe_offset:]
+        window = ContentWindow(
+            offset=safe_offset,
+            length=length,
+            returned_chars=len(sliced),
+            total_chars=total,
+            has_more=False,
+            next_offset=None,
+            continuation_notice=None,
+        )
+        return WindowedContent(content=sliced, window=window)
     safe_length = max(1, length)
 
     total = len(content)

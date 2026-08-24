@@ -303,7 +303,7 @@ mcp.add_middleware(TimingMiddleware())
 mcp.add_middleware(StructuredLoggingMiddleware(include_payloads=False))
 mcp.add_middleware(
     ResponseLimitingMiddleware(
-        max_size=1_000_000,
+        max_size=10_000_000,
         tools=[
             "web_search",
             "fetch",

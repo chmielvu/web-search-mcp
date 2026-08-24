@@ -36,6 +36,7 @@ class SingleFlight:
         fn: Callable[..., Coroutine[Any, Any, Any]],
         *args: Any,
         timeout_seconds: float = DEFAULT_WAITER_TIMEOUT_SECONDS,
+        initiator_timeout_seconds: float | None = None,
         **kwargs: Any,
     ) -> Any:
         """Execute *fn* once for a given *key*, sharing the result with waiters.
@@ -47,7 +48,10 @@ class SingleFlight:
             key: Unique identifier for the operation.
             fn: Async function to execute.
             *args: Arguments passed to fn.
-            timeout_seconds: Max time to wait for result (default 30s).
+            timeout_seconds: Max time to wait for result (default 30s). Applies to
+                both waiters and initiator (when initiator_timeout not set).
+            initiator_timeout_seconds: Optional separate timeout for the initiator.
+                If None, falls back to timeout_seconds.
             **kwargs: Keyword arguments passed to fn.
 
         Raises:
@@ -71,11 +75,23 @@ class SingleFlight:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Any] = loop.create_future()
         self._in_flight[key] = future
+        # Bound the initiator as well - previously only waiters were bounded
+        effective_initiator_timeout = (
+            initiator_timeout_seconds if initiator_timeout_seconds is not None else timeout_seconds
+        )
 
         try:
-            result = await fn(*args, **kwargs)
+            result = await asyncio.wait_for(fn(*args, **kwargs), timeout=effective_initiator_timeout)
             future.set_result(result)
             return result
+        except asyncio.TimeoutError:
+            logger.warning(
+                "SingleFlight: initiator timeout for key=%s after %.1fs",
+                key[:16],
+                effective_initiator_timeout,
+            )
+            future.set_exception(asyncio.TimeoutError(f"SingleFlight initiator timeout after {effective_initiator_timeout}s"))
+            raise
         except asyncio.CancelledError:
             future.cancel()
             raise

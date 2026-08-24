@@ -13,6 +13,7 @@ Stdlib-first query repair, provider dialect augmentation, and cause-aware guidan
 | `text_clean.py` | `repair_unicode`, `clean_query`, `clean_text_for_llm` |
 | `query_features.py` | `QueryFeatures`, `build_query_features`, shared repo/lang regexes |
 | `shaping.py` | Role-dialect cascade: `extract_search_ops`, `shape_for_branch`, `AugmentResult` |
+| `understanding_fallback.py` | Deterministic GLiNER-outage fallback: `resolve_fallback_understanding`, `FallbackUnderstanding`; owns the time-term regexes shared with `search/understanding/adapter.py` |
 | `guidance_messages.py` | Empty/gap/shaping guidance strings for middleware |
 
 ## Rules

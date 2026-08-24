@@ -399,9 +399,10 @@ class Settings:
 
     # Gemini summaries for the unified fetch tool
     # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
-    web_fetch_item_max_chars: int = int(os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "60000"))
+    # 0 means unlimited (no truncation) - pagination via offset/cursor remains available
+    web_fetch_item_max_chars: int = int(os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "0"))
     web_fetch_total_char_budget: int = int(
-        os.environ.get("KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET", "120000")
+        os.environ.get("KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET", "0")
     )
     web_fetch_workers: int = int(os.environ.get("KINDLY_WEB_FETCH_WORKERS", "4"))
     web_fetch_wave_size: int = int(os.environ.get("KINDLY_WEB_FETCH_WAVE_SIZE", "10"))

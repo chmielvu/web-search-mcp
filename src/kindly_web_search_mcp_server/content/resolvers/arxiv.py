@@ -273,8 +273,9 @@ def _pdf_bytes_to_markdown_best_effort(
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:
         page_count = int(doc.page_count)
-        pages_rendered = min(max_pages, page_count)
-
+        # 0 means unlimited - render all pages
+        effective_max = page_count if max_pages <= 0 else max_pages
+        pages_rendered = min(effective_max, page_count)
         with _suppress_third_party_output():
             try:
                 import pymupdf4llm  # type: ignore
@@ -389,10 +390,10 @@ async def fetch_arxiv_paper_markdown(
     """Fetch an arXiv paper (metadata + PDF full text) and render Markdown."""
     arxiv_id = parse_arxiv_url(url)
 
-    max_chars = _get_int_env("ARXIV_MAX_CHARS", 50_000)
-    max_pages = _get_int_env("ARXIV_MAX_PAGES", 30)
-    if max_pages < 1:
-        max_pages = 1
+    max_chars = _get_int_env("ARXIV_MAX_CHARS", 0)
+    max_pages = _get_int_env("ARXIV_MAX_PAGES", 0)
+    if max_pages < 0:
+        max_pages = 0
 
     async def _run(client: httpx.AsyncClient) -> str:
         meta = await _fetch_arxiv_metadata(arxiv_id, http_client=client)

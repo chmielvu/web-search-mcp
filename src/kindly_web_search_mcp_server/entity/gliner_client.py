@@ -125,21 +125,28 @@ class GLiNER2Client:
         return data, latency_ms
 
     @staticmethod
-    def _fallback_result(reason: str, *, model: str, latency_ms: float = 0.0) -> GatewayAnalysis:
+    def _fallback_result(
+        reason: str, *, model: str, latency_ms: float = 0.0, query: str = ""
+    ) -> GatewayAnalysis:
+        from ..heuristics.understanding_fallback import resolve_fallback_understanding
         from ..search.understanding.models import QueryUnderstandingResult
 
+        fb = resolve_fallback_understanding(query)
+        # Preserve the existing reason-only contract when no rules fired; with
+        # derived rules the reason stays first for diagnostics, then the trail.
+        rationale = f"{reason}: {fb.rationale}" if fb.rules else reason
         return GatewayAnalysis(
             understanding=QueryUnderstandingResult(
-                intent="general",
+                intent=fb.intent,
                 confidence=0.0,
-                rationale=reason,
+                rationale=rationale,
                 entities=[],
                 relations=[],
                 preserved_terms=[],
-                compared_entities=[],
+                compared_entities=list(fb.compared_entities),
                 domain_hints=[],
-                time_sensitivity="none",
-                should_decompose=False,
+                time_sensitivity=fb.time_sensitivity,
+                should_decompose=fb.should_decompose,
             ),
             model_version=model,
             latency_ms=latency_ms,
@@ -156,7 +163,9 @@ class GLiNER2Client:
 
         normalized_text = text.strip()
         if not normalized_text:
-            return self._fallback_result("gliner2-empty-query", model=self._model_name)
+            return self._fallback_result(
+                "gliner2-empty-query", model=self._model_name, query=normalized_text
+            )
         if not getattr(settings, "intent_classifier_enabled", True):
             emit_observability_event(
                 logger,
@@ -165,7 +174,9 @@ class GLiNER2Client:
                 provider="gliner2",
                 model=self._model_name,
             )
-            return self._fallback_result("gliner2-disabled", model=self._model_name)
+            return self._fallback_result(
+                "gliner2-disabled", model=self._model_name, query=normalized_text
+            )
 
         threshold = float(getattr(settings, "intent_classifier_confidence_threshold", 0.5))
         payload = {
@@ -222,7 +233,9 @@ class GLiNER2Client:
             latency_ms=latency_ms,
             fallback=True,
         )
-        return self._fallback_result(reason, model=self._model_name, latency_ms=latency_ms)
+        return self._fallback_result(
+            reason, model=self._model_name, latency_ms=latency_ms, query=normalized_text
+        )
 
     async def analyze_query_features(self, text: str) -> QueryFeatureAnalysis:
         """Use the deployed classifier and NER endpoints without relation extraction."""
@@ -267,16 +280,14 @@ class GLiNER2Client:
                 intent = raw_intent.strip()
             scores = classify_payload.get("scores")
             if isinstance(scores, list):
-                confidence = max(
-                    (
-                        float(item.get("score"))
-                        for item in scores
-                        if isinstance(item, dict)
-                        and item.get("label") == intent
-                        and isinstance(item.get("score"), (int, float))
-                    ),
-                    default=0.0,
-                )
+                values: list[float] = []
+                for item in scores:
+                    if not isinstance(item, dict) or item.get("label") != intent:
+                        continue
+                    score = item.get("score")
+                    if isinstance(score, (int, float)):
+                        values.append(float(score))
+                confidence = max(values, default=0.0)
         if isinstance(ner_result, BaseException):
             warnings.append(f"ner-{type(ner_result).__name__}")
         else:

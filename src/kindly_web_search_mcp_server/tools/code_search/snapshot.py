@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import re
 import shutil
+import subprocess
 import sqlite3
 import tarfile
 import threading
@@ -31,13 +33,140 @@ from .tree_sitter_evidence import classify_source, language_for_path
 
 LOGGER = logging.getLogger(__name__)
 
+# HF Inference for semantic code search — normal embeddings via Hugging Face InferenceClient
+# Model: flax-sentence-embeddings/st-codesearch-distilroberta-base (768-dim, DistilRoBERTa, CodeSearchNet)
+# Verified via web_search + HF docs: https://huggingface.co/docs/inference-providers/tasks/feature-extraction
+# and https://huggingface.co/docs/huggingface_hub/main/en/guides/inference — use InferenceClient feature_extraction
+# No manual URL, no sentence_transformers local.
+HF_CODESEARCH_MODEL = "flax-sentence-embeddings/st-codesearch-distilroberta-base"
+HF_FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+
+async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float] | None:
+    """Normal HF embeddings via InferenceClient feature_extraction."""
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token or not text:
+        return None
+    snippet = text[:max_chars]
+    try:
+        from huggingface_hub import InferenceClient
+        import asyncio
+        def _call(model: str) -> list[float] | None:
+            try:
+                client = InferenceClient(token=token)
+                # feature_extraction returns np.ndarray or list
+                emb = client.feature_extraction(snippet, model=model)
+                # Normalize to list[float]
+                try:
+                    import numpy as np
+                    if isinstance(emb, np.ndarray):
+                        # single text -> 1D array
+                        return [float(x) for x in emb.tolist()]
+                except Exception:
+                    pass
+                if isinstance(emb, list) and emb and isinstance(emb[0], (int, float)):
+                    return [float(x) for x in emb]
+                if isinstance(emb, list) and emb and isinstance(emb[0], list):
+                    return [float(x) for x in emb[0]]
+                return None
+            except Exception as exc:
+                LOGGER.debug("HF embedding %s failed: %s", model, exc)
+                return None
+        # Try primary code model, then fallback
+        for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
+            result = await asyncio.to_thread(_call, model)
+            if result is not None:
+                return result
+        return None
+    except Exception as exc:
+        LOGGER.debug("HF embedding error: %s", exc)
+        return None
+
+
+async def _hf_batch_code_embeddings(texts: list[str], *, max_chars: int = 2000, batch_size: int = 16) -> list[list[float] | None]:
+    """Batch normal HF embeddings — uses same InferenceClient per batch."""
+    if not texts:
+        return []
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        return [None] * len(texts)
+    truncated = [t[:max_chars] for t in texts]
+    results: list[list[float] | None] = [None] * len(truncated)
+    semaphore = asyncio.Semaphore(3)
+
+    async def _embed_batch(batch: list[str], start_idx: int) -> None:
+        async with semaphore:
+            try:
+                from huggingface_hub import InferenceClient
+                import asyncio
+                def _call_batch(model: str) -> list[list[float]] | None:
+                    try:
+                        client = InferenceClient(token=token)
+                        embs = client.feature_extraction(batch, model=model)
+                        import numpy as np
+                        if isinstance(embs, np.ndarray):
+                            # batch -> 2D array [batch, dim]
+                            if embs.ndim == 2 and embs.shape[0] == len(batch):
+                                return [[float(x) for x in row.tolist()] for row in embs]
+                            if embs.ndim == 1:
+                                return [[float(x) for x in embs.tolist()]]
+                        if isinstance(embs, list):
+                            # list of lists
+                            out: list[list[float]] = []
+                            for e in embs:
+                                if isinstance(e, list) and e and isinstance(e[0], (int, float)):
+                                    out.append([float(x) for x in e])
+                                elif isinstance(e, list) and e and isinstance(e[0], list):
+                                    out.append([float(x) for x in e[0]])
+                            if len(out) == len(batch):
+                                return out
+                        return None
+                    except Exception as exc:
+                        LOGGER.debug("HF batch %s failed: %s", model, exc)
+                        return None
+                for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
+                    batch_result = await asyncio.to_thread(_call_batch, model)
+                    if batch_result is not None and len(batch_result) == len(batch):
+                        for i, vec in enumerate(batch_result):
+                            results[start_idx + i] = vec
+                        return
+                # per-item fallback
+                for i, txt in enumerate(batch):
+                    emb = await _hf_code_embedding(txt, max_chars=max_chars)
+                    results[start_idx + i] = emb
+            except Exception as exc:
+                LOGGER.debug("HF batch error: %s", exc)
+
+    batches = [(truncated[i : i + batch_size], i) for i in range(0, len(truncated), batch_size)]
+    await asyncio.gather(*[_embed_batch(b, s) for b, s in batches])
+    return results
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    try:
+        import math
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(y * y for y in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+    except Exception:
+        return 0.0
 TTL_SECONDS = 300
 MAX_ARCHIVE_BYTES = 80 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 120 * 1024 * 1024
 MAX_FILES = 4_000
 MAX_FILE_BYTES = 1_000_000
 MAX_LIVE_SNAPSHOTS = 4
-MAX_SNIPPET_CHARS = 1_200
+MAX_SNIPPET_CHARS = int(os.environ.get("CODE_FETCH_MAX_SNIPPET_CHARS", "0"))
+if MAX_SNIPPET_CHARS < 0:
+    MAX_SNIPPET_CHARS = 0
+MAX_CONTENT_CHARS = int(os.environ.get("CODE_FETCH_MAX_CONTENT_CHARS", "0"))
+if MAX_CONTENT_CHARS < 0:
+    MAX_CONTENT_CHARS = 0
 
 _SKIP_DIRS = {
     ".git",
@@ -248,6 +377,7 @@ class SnapshotManager:
         source_root: Path,
         *,
         truncated: bool = False,
+        defer_graph: bool = False,
     ) -> Snapshot:
         """Index an already-materialized directory. Used by tests and after extract."""
 
@@ -258,7 +388,10 @@ class SnapshotManager:
         dest.mkdir(parents=True, exist_ok=True)
         file_count, truncated_index, records = _collect_files(source_root, dest)
         truncated = truncated or truncated_index
-        symbols, edges = _extract_graph(records)
+        if defer_graph:
+            symbols, edges = [], []
+        else:
+            symbols, edges = _extract_graph(records)
         now = time.monotonic()
         snapshot = Snapshot(
             repository=repository,
@@ -375,6 +508,75 @@ class SnapshotManager:
         if oldest_key != target_key:
             self._live.pop(oldest_key, None)
 
+    async def _deferred_graph_build(self, snapshot: Snapshot) -> None:
+        """Build TreeSitter graph in background after snapshot is usable."""
+        try:
+            # Re-collect file records from the worktree (already materialized)
+            records: list[tuple[str, str | None, int, str]] = []
+            for path in sorted(snapshot.root.rglob("*")):
+                if not path.is_file():
+                    continue
+                relative = path.relative_to(snapshot.root)
+                if any(part in _SKIP_DIRS for part in relative.parts):
+                    continue
+                if path.suffix.casefold() in _SKIP_SUFFIXES:
+                    continue
+                try:
+                    data = path.read_bytes()
+                    if len(data) > MAX_FILE_BYTES:
+                        continue
+                    if b"\0" in data[:1024]:
+                        continue
+                    text = data.decode("utf-8", errors="replace")
+                    records.append((relative.as_posix(), language_for_path(relative.as_posix()), len(data), text))
+                except Exception:
+                    continue
+            symbols, edges = await asyncio.to_thread(_extract_graph, records)
+            with self._lock:
+                con = self._connect()
+                try:
+                    with con:
+                        con.execute("DELETE FROM symbols WHERE repository = ?", (snapshot.repository,))
+                        con.execute("DELETE FROM edges WHERE repository = ?", (snapshot.repository,))
+                        con.executemany(
+                            "INSERT INTO symbols (repository, path, name, kind, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?)",
+                            [
+                                (snapshot.repository, path, name, kind, start_line, end_line)
+                                for path, name, kind, start_line, end_line in symbols
+                            ],
+                        )
+                        con.executemany(
+                            "INSERT INTO edges (repository, source_name, source_path, source_line, relation, target_name, target_path, target_line, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            [
+                                (
+                                    snapshot.repository,
+                                    source_name,
+                                    source_path,
+                                    source_line,
+                                    relation,
+                                    target_name,
+                                    target_path,
+                                    target_line,
+                                    confidence,
+                                )
+                                for (
+                                    source_name,
+                                    source_path,
+                                    source_line,
+                                    relation,
+                                    target_name,
+                                    target_path,
+                                    target_line,
+                                    confidence,
+                                ) in edges
+                            ],
+                        )
+                finally:
+                    con.close()
+            LOGGER.info("Deferred graph build completed for %s: %d symbols, %d edges", snapshot.repository, len(symbols), len(edges))
+        except Exception as exc:
+            LOGGER.warning("Deferred graph build failed for %s: %s", snapshot.repository, exc)
+
     async def ensure(self, repository: str, *, ref: str | None = None) -> Snapshot:
         key = f"{repository}@{ref}" if ref else repository
         live = self.live_snapshot(key)
@@ -400,9 +602,17 @@ class SnapshotManager:
                 branch,
                 sha,
                 root,
+                defer_graph=True,
             )
             shutil.rmtree(root, ignore_errors=True)
             self._remember(snapshot, key=key)
+            # TreeSitter graph (symbols/edges) is expensive (30-50% of cold time)
+            # and only needed for symbol/callers queries. Defer it so the
+            # snapshot is usable for search/read/tree immediately.
+            try:
+                asyncio.create_task(self._deferred_graph_build(snapshot))
+            except RuntimeError:
+                pass  # No loop (tests) - graph built on demand or not needed
             return snapshot
         except SnapshotError as exc:
             if previous is not None:
@@ -431,6 +641,23 @@ class SnapshotManager:
         limit = max(1, min(max_matches, 100))
         context = max(0, min(context_lines, 8))
 
+        # A line window is only meaningful for a direct file read. When the
+        # caller also passes query/symbol (or omits path), start_line/end_line
+        # were previously silently ignored, producing results the caller did
+        # not ask for. Reject the combination explicitly instead.
+        window_requested = start_line is not None or end_line is not None
+        if window_requested and not (
+            normalized_path and not normalized_query and not normalized_symbol
+        ):
+            return QueryResult(
+                snapshot=snapshot,
+                intent="read",
+                error=(
+                    "start_line/end_line only apply when reading a file: "
+                    "pass path and omit query/symbol"
+                ),
+            )
+
         if normalized_path and not normalized_query and not normalized_symbol:
             target = snapshot.root / normalized_path
             if target.is_file():
@@ -444,33 +671,40 @@ class SnapshotManager:
                     el = max(sl, el)
                     selected_lines = lines[sl - 1 : el]
                     sliced_text = "\n".join(selected_lines)
+                    # 0 MAX_CONTENT_CHARS means unlimited - return full content
+                    content_out = sliced_text if MAX_CONTENT_CHARS <= 0 else sliced_text[:MAX_CONTENT_CHARS]
+                    is_truncated = False if MAX_CONTENT_CHARS <= 0 else len(sliced_text) > MAX_CONTENT_CHARS
+                    snippet_out = sliced_text if MAX_SNIPPET_CHARS <= 0 else sliced_text[:MAX_SNIPPET_CHARS]
                     return QueryResult(
                         snapshot=snapshot,
                         intent="read",
-                        content=sliced_text[:200_000],
-                        truncated=len(sliced_text) > 200_000,
+                        content=content_out,
+                        truncated=is_truncated,
                         hits=[
                             SnapshotHit(
                                 path=normalized_path,
                                 start_line=sl,
                                 end_line=el,
-                                snippet=sliced_text[:MAX_SNIPPET_CHARS],
+                                snippet=snippet_out,
                                 why=["read:window"],
                                 confidence=1.0,
                             )
                         ],
                     )
+                raw_content_out = raw_text if MAX_CONTENT_CHARS <= 0 else raw_text[:MAX_CONTENT_CHARS]
+                raw_truncated = False if MAX_CONTENT_CHARS <= 0 else len(raw_text) > MAX_CONTENT_CHARS
+                raw_snippet = raw_text if MAX_SNIPPET_CHARS <= 0 else raw_text[:MAX_SNIPPET_CHARS]
                 return QueryResult(
                     snapshot=snapshot,
                     intent="read",
-                    content=raw_text[:200_000],
-                    truncated=len(raw_text) > 200_000,
+                    content=raw_content_out,
+                    truncated=raw_truncated,
                     hits=[
                         SnapshotHit(
                             path=normalized_path,
                             start_line=1,
                             end_line=max(1, total_lines),
-                            snippet=raw_text[:MAX_SNIPPET_CHARS],
+                            snippet=raw_snippet,
                             why=["read"],
                             confidence=1.0,
                         )
@@ -555,6 +789,22 @@ class SnapshotManager:
                 self._hit_from_file(snapshot, path, query, context_lines=context_lines, why=["fts"])
                 for path in fts_hits
             ]
+        # Fast path: multi-word literal queries (e.g., "async def upload_doc") will never
+        # match a single line verbatim, and FTS already did token search. Scanning all
+        # files for the full substring is O(files×lines) = 11s warm for 0 hits. Skip it
+        # repo-wide when FTS found nothing; scoped searches (path_prefix set) are cheap.
+        if not regexp and not fts_hits and path_prefix is None and " " in query.strip():
+            terms = [t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(t) > 1]
+            if len(terms) > 1:
+                for hit in hits:
+                    hit.callers, hit.callees = self._neighbors(
+                        snapshot.repository, hit.symbol_name or query, hit.path
+                    )
+                    if hit.symbol_name is None:
+                        symbol = self._symbol_at(snapshot.repository, hit.path, hit.start_line)
+                        if symbol is not None:
+                            hit.symbol_name, hit.symbol_kind, hit.role = symbol
+                return hits[:limit], False
         scanned, scan_truncated = _scan_literal(
             snapshot.root,
             query,
@@ -572,6 +822,215 @@ class SnapshotManager:
                 if symbol is not None:
                     hit.symbol_name, hit.symbol_kind, hit.role = symbol
         return hits[:limit], scan_truncated or len(hits) >= limit
+
+    async def _semantic_search_hits(
+        self,
+        snapshot: Snapshot,
+        query: str,
+        *,
+        path_prefix: str | None,
+        limit: int,
+        context_lines: int,
+    ) -> list[SnapshotHit]:
+        """Semantic fallback via HF st-codesearch-distilroberta-base.
+
+        Only invoked when FTS+literal yield 0 hits and HF_TOKEN present.
+        Batches file snippets (path + first 1k chars) to HF Inference,
+        compares via cosine to query embedding, returns top hits with
+        why=["semantic"] and confidence = cosine similarity.
+        """
+        # Gate: token required
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+        if not token:
+            return []
+        if not query or len(query.strip()) < 3:
+            return []
+        query_emb = await _hf_code_embedding(query, max_chars=2000)
+        if query_emb is None:
+            return []
+        # Gather candidate files — cap to avoid 2000 HF calls
+        try:
+            candidates = list(_iter_files(snapshot.root, path_prefix))
+        except Exception:
+            return []
+        if not candidates:
+            return []
+        # Repo-wide semantic is expensive — cap at 300 files (balanced vs cost)
+        # Path-scoped searches keep all candidates (cheap, already filtered)
+        if path_prefix is None and len(candidates) > 300:
+            # Prioritize smaller files / recently modified could help, but simple slice is deterministic
+            candidates = candidates[:300]
+        candidate_texts: list[str] = []
+        candidate_paths: list[Path] = []
+        for p in candidates:
+            try:
+                txt = _read_text(p)
+                rel = p.relative_to(snapshot.root).as_posix()
+                snippet_for_emb = f"{rel}\n{txt[:1200]}"
+                candidate_texts.append(snippet_for_emb[:2000])
+                candidate_paths.append(p)
+            except Exception:
+                continue
+        if not candidate_texts:
+            return []
+        embeddings = await _hf_batch_code_embeddings(candidate_texts, max_chars=2000, batch_size=16)
+        scored: list[tuple[float, Path]] = []
+        for path, emb in zip(candidate_paths, embeddings):
+            if emb is None:
+                continue
+            sim = _cosine_similarity(query_emb, emb)
+            # Code RAG best practice: Top-K 3-5, calibrated threshold, not universal.
+            # Web search shows typical RAG thresholds 0.6-0.75 for high precision (vs 0.15 permissive
+            # would return noise). Use 0.60 for code (L2-normalized embeddings) with adaptive fallback:
+            # if we have <3 candidates above 0.60, relax to 0.50, but never below 0.45 for code.
+            # This avoids nonsense queries returning noise while keeping real code queries.
+            if sim > 0.60:
+                scored.append((sim, path))
+        # Adaptive relaxation: if strict 0.60 yields <3 hits but we have high-ish scores, relax to 0.50
+        if len(scored) < 3:
+            for path, emb in zip(candidate_paths, embeddings):
+                if emb is None:
+                    continue
+                sim = _cosine_similarity(query_emb, emb)
+                if 0.50 < sim <= 0.60:
+                    # avoid duplicates already in scored
+                    if not any(p == path for _, p in scored):
+                        scored.append((sim, path))
+        if not scored:
+            return []
+        scored.sort(key=lambda x: x[0], reverse=True)
+        hits: list[SnapshotHit] = []
+        for sim, path in scored[:limit]:
+            rel = path.relative_to(snapshot.root).as_posix()
+            # Build snippet around best understanding: use _first_match_snippet fallback
+            try:
+                start, end, snippet = _first_match_snippet(path, query, context_lines)
+            except Exception:
+                snippet = ""
+                start, end = 1, 1
+            hits.append(
+                SnapshotHit(
+                    path=rel,
+                    start_line=start,
+                    end_line=end,
+                    why=["semantic"],
+                    snippet=snippet,
+                    confidence=float(sim),
+                )
+            )
+        # Enrich with neighbors/symbol like _search_hits does
+        for hit in hits:
+            try:
+                hit.callers, hit.callees = self._neighbors(snapshot.repository, hit.symbol_name or query, hit.path)
+                if hit.symbol_name is None:
+                    sym = self._symbol_at(snapshot.repository, hit.path, hit.start_line)
+                    if sym is not None:
+                        hit.symbol_name, hit.symbol_kind, hit.role = sym
+            except Exception:
+                continue
+        return hits
+
+    async def _search_hits_async(
+        self,
+        snapshot: Snapshot,
+        query: str,
+        *,
+        path_prefix: str | None,
+        regexp: bool,
+        limit: int,
+        context_lines: int,
+    ) -> tuple[list[SnapshotHit], bool]:
+        """Async search with semantic fallback when FTS+literal miss and HF_TOKEN present.
+
+        Preserves sync _search_hits semantics for all existing callers; semantic
+        hits are merged via RRF-like _merge_hits (dedup by path+line). If FTS
+        yielded hits, semantic is not invoked (to avoid cost) — fallback only
+        when full sync search returns 0 hits. Caller can extend to RRF fusion
+        of FTS and semantic via _merge_hits ordering (currently semantic after).
+        """
+        if regexp:
+            # Semantic fallback never for regex
+            return self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=True, limit=limit, context_lines=context_lines)
+        hits, truncated = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=False, limit=limit, context_lines=context_lines)
+        if hits or truncated:
+            return hits, truncated
+        # No hits — try semantic if token present
+        sem_hits = await self._semantic_search_hits(snapshot, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines)
+        if sem_hits:
+            # RRF-like merge: keep semantic hits as result; if we later have FTS hits,
+            # merge would be _merge_hits(hits, sem_hits, limit)
+            return sem_hits[:limit], False
+        return hits, truncated
+
+    async def query_async(
+        self,
+        snapshot: Snapshot,
+        *,
+        query: str | None,
+        path: str | None,
+        symbol: str | None,
+        regexp: bool,
+        max_matches: int,
+        context_lines: int,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        depth: int | None = None,
+    ) -> QueryResult:
+        """Async counterpart to query() with HF semantic fallback.
+
+        For read/tree/graph/map intents, delegates to sync query(). For search
+        intent with 0 hits, attempts semantic fallback via st-codesearch-distilroberta-base
+        when HF_TOKEN is set, merging via deduplication (RRF-like). Falls back
+        gracefully if HF unavailable.
+        """
+        # Reuse sync validation for window, read/tree/graph fast paths
+        # Call sync query first to handle non-search intents
+        base = self.query(
+            snapshot,
+            query=query,
+            path=path,
+            symbol=symbol,
+            regexp=regexp,
+            max_matches=max_matches,
+            context_lines=context_lines,
+            start_line=start_line,
+            end_line=end_line,
+            depth=depth,
+        )
+        # If not a search miss, return as-is
+        if base.intent != "search" or base.hits or base.truncated or base.error is not None:
+            return base
+        # Search miss — attempt async semantic
+        normalized_query = (query or "").strip()
+        if not normalized_query or regexp:
+            return base
+        normalized_path = (path or "").strip().strip("/")
+        limit = max(1, min(max_matches, 100))
+        context = max(0, min(context_lines, 8))
+        try:
+            sem_hits, sem_trunc = await self._search_hits_async(
+                snapshot,
+                normalized_query,
+                path_prefix=normalized_path or None,
+                regexp=False,
+                limit=limit,
+                context_lines=context,
+            )
+            if sem_hits:
+                # If symbol also requested, merge graph hits as sync query does
+                hits = sem_hits
+                if (symbol or "").strip():
+                    graph_hits = self._graph_hits(snapshot, (symbol or "").strip(), limit=limit, context_lines=context)
+                    hits = _merge_hits(hits, graph_hits, limit)
+                return QueryResult(
+                    snapshot=snapshot,
+                    intent="search",
+                    hits=hits,
+                    truncated=sem_trunc or len(hits) >= limit,
+                )
+        except Exception as exc:
+            LOGGER.debug("semantic fallback failed: %s", exc)
+        return base
 
     def _fts_hits(
         self,
@@ -1011,6 +1470,95 @@ def _list_tree(root: Path, prefix: str, *, limit: int, depth: int | None = None)
             break
     return entries
 
+
+def _try_ripgrep_scan(
+    root: Path,
+    query: str,
+    *,
+    path_prefix: str | None,
+    limit: int,
+    context_lines: int,
+    is_regex: bool,
+) -> tuple[list[SnapshotHit], bool] | None:
+    """Try ripgrep (rg) for literal/regex scan - 10-50x faster than Python loop."""
+    rg_path = shutil.which("rg")
+    if rg_path is None:
+        # Windows fallback
+        win_path = Path(r"C:\Users\Jan\AppData\Local\Programs\Python\Python312\Scripts\rg.EXE")
+        if win_path.exists():
+            rg_path = str(win_path)
+        else:
+            return None
+    try:
+        search_root = root / path_prefix if path_prefix else root
+        if not search_root.exists():
+            return [], False
+        # Use rg --json for structured output, handle literal vs regex
+        cmd = [
+            rg_path,
+            "--json",
+            "--no-config",
+            "--hidden",
+            "--glob", "!.git/*",
+            "--max-count", str(limit),
+            "--context", str(context_lines),
+        ]
+        if not is_regex:
+            cmd.append("--fixed-strings")
+            cmd.append("--ignore-case")
+        else:
+            cmd.append("--ignore-case")
+        cmd.extend(["--", query, str(search_root)])
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=8, encoding="utf-8", errors="replace")
+        if result.returncode not in (0, 1):
+            return None
+        hits: list[SnapshotHit] = []
+        # Parse rg --json: each line is JSON with type "match" or "context"
+        # We only care about "match" lines; context is handled via snippet window
+        for line in result.stdout.splitlines():
+            try:
+                obj = __import__("json").loads(line)
+            except Exception:
+                continue
+            if obj.get("type") != "match":
+                continue
+            data = obj.get("data", {})
+            path_info = data.get("path", {})
+            abs_path = path_info.get("text", "")
+            line_num = data.get("line_number", 1)
+            try:
+                file_path = Path(abs_path)
+                relative = file_path.relative_to(root).as_posix()
+            except Exception:
+                continue
+            # Build snippet from rg's lines (already includes context if requested)
+            # For simplicity, re-read file and build snippet window as before
+            try:
+                lines = _read_text(file_path).splitlines()
+                start = max(1, line_num - context_lines)
+                end = min(len(lines), line_num + context_lines)
+                snippet_text = "\n".join(lines[start - 1 : end])
+                if MAX_SNIPPET_CHARS > 0:
+                    snippet_text = snippet_text[:MAX_SNIPPET_CHARS]
+                hits.append(
+                    SnapshotHit(
+                        path=relative,
+                        start_line=line_num,
+                        end_line=line_num,
+                        why=["literal" if not is_regex else "regex"],
+                        snippet=snippet_text,
+                        confidence=0.85,
+                    )
+                )
+                if len(hits) >= limit:
+                    return hits, True
+            except Exception:
+                continue
+        return hits, False
+    except Exception:
+        return None
+
+
 def _scan_literal(
     root: Path,
     query: str,
@@ -1019,9 +1567,17 @@ def _scan_literal(
     limit: int,
     context_lines: int,
 ) -> tuple[list[SnapshotHit], bool]:
+    # Try ripgrep first - 10-50x faster
+    rg_result = _try_ripgrep_scan(root, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines, is_regex=False)
+    if rg_result is not None:
+        return rg_result
     needle = query.casefold()
     hits: list[SnapshotHit] = []
+    scanned_files = 0
     for path in _iter_files(root, path_prefix):
+        scanned_files += 1
+        if path_prefix is None and scanned_files > 2000:
+            return hits, True
         lines = _read_text(path).splitlines()
         relative = path.relative_to(root).as_posix()
         for index, line in enumerate(lines, start=1):
@@ -1029,13 +1585,16 @@ def _scan_literal(
                 continue
             start = max(1, index - context_lines)
             end = min(len(lines), index + context_lines)
+            snippet_text = "\n".join(lines[start - 1 : end])
+            if MAX_SNIPPET_CHARS > 0:
+                snippet_text = snippet_text[:MAX_SNIPPET_CHARS]
             hits.append(
                 SnapshotHit(
                     path=relative,
                     start_line=index,
                     end_line=index,
                     why=["literal"],
-                    snippet="\n".join(lines[start - 1 : end])[:MAX_SNIPPET_CHARS],
+                    snippet=snippet_text,
                     confidence=0.85,
                 )
             )
@@ -1052,8 +1611,16 @@ def _scan_regex(
     limit: int,
     context_lines: int,
 ) -> tuple[list[SnapshotHit], bool]:
+    # Try ripgrep first
+    rg_result = _try_ripgrep_scan(root, pattern.pattern, path_prefix=path_prefix, limit=limit, context_lines=context_lines, is_regex=True)
+    if rg_result is not None:
+        return rg_result
     hits: list[SnapshotHit] = []
+    scanned_files = 0
     for path in _iter_files(root, path_prefix):
+        scanned_files += 1
+        if path_prefix is None and scanned_files > 2000:
+            return hits, True
         lines = _read_text(path).splitlines()
         relative = path.relative_to(root).as_posix()
         for index, line in enumerate(lines, start=1):
@@ -1061,13 +1628,16 @@ def _scan_regex(
                 continue
             start = max(1, index - context_lines)
             end = min(len(lines), index + context_lines)
+            snippet_text = "\n".join(lines[start - 1 : end])
+            if MAX_SNIPPET_CHARS > 0:
+                snippet_text = snippet_text[:MAX_SNIPPET_CHARS]
             hits.append(
                 SnapshotHit(
                     path=relative,
                     start_line=index,
                     end_line=index,
                     why=["regex"],
-                    snippet="\n".join(lines[start - 1 : end])[:MAX_SNIPPET_CHARS],
+                    snippet=snippet_text,
                     confidence=0.8,
                 )
             )
@@ -1102,7 +1672,10 @@ def _first_match_snippet(path: Path, query: str, context_lines: int) -> tuple[in
         if needle in line.casefold():
             start = max(1, index - context_lines)
             end = min(len(lines), index + context_lines)
-            return index, index, "\n".join(lines[start - 1 : end])[:MAX_SNIPPET_CHARS]
+            snippet = "\n".join(lines[start - 1 : end])
+            if MAX_SNIPPET_CHARS > 0:
+                snippet = snippet[:MAX_SNIPPET_CHARS]
+            return index, index, snippet
     tokens = [
         t.casefold()
         for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query)
@@ -1114,8 +1687,13 @@ def _first_match_snippet(path: Path, query: str, context_lines: int) -> tuple[in
             if any(token in line_cf for token in tokens):
                 start = max(1, index - context_lines)
                 end = min(len(lines), index + context_lines)
-                return index, index, "\n".join(lines[start - 1 : end])[:MAX_SNIPPET_CHARS]
-    snippet = "\n".join(lines[: max(1, context_lines * 2 + 1)])[:MAX_SNIPPET_CHARS]
+                snippet = "\n".join(lines[start - 1 : end])
+                if MAX_SNIPPET_CHARS > 0:
+                    snippet = snippet[:MAX_SNIPPET_CHARS]
+                return index, index, snippet
+    snippet = "\n".join(lines[: max(1, context_lines * 2 + 1)])
+    if MAX_SNIPPET_CHARS > 0:
+        snippet = snippet[:MAX_SNIPPET_CHARS]
     return 1, min(len(lines) or 1, context_lines * 2 + 1), snippet
 
 
@@ -1125,7 +1703,10 @@ def _snippet(path: Path, start_line: int, end_line: int, context_lines: int) -> 
     lines = _read_text(path).splitlines()
     start = max(1, start_line - context_lines)
     end = min(len(lines), end_line + context_lines)
-    return "\n".join(lines[start - 1 : end])[:MAX_SNIPPET_CHARS]
+    snippet = "\n".join(lines[start - 1 : end])
+    if MAX_SNIPPET_CHARS > 0:
+        snippet = snippet[:MAX_SNIPPET_CHARS]
+    return snippet
 
 
 def _merge_hits(left: list[SnapshotHit], right: list[SnapshotHit], limit: int) -> list[SnapshotHit]:
@@ -1150,6 +1731,8 @@ __all__ = [
     "SnapshotHit",
     "SnapshotManager",
     "TTL_SECONDS",
+    "_hf_code_embedding",
+    "_cosine_similarity",
     "get_snapshot_manager",
     "reset_snapshot_manager_for_tests",
 ]
