@@ -544,9 +544,7 @@ def _call_gemini_stage(prompt_text: str) -> str:
     text = (response.text or "").strip()
     if not text:
         candidates = getattr(response, "candidates", None) or []
-        finish = (
-            getattr(candidates[0], "finish_reason", "?") if candidates else "no-candidates"
-        )
+        finish = getattr(candidates[0], "finish_reason", "?") if candidates else "no-candidates"
         parts = getattr(candidates[0], "content", None) if candidates else None
         parts_dump = [
             {
@@ -652,17 +650,11 @@ def _call_nanogpt_stage(
                 max_tokens=4000,
                 extra_body={"reasoning": {"exclude": True}},
             )
-            c2 = (
-                conform.choices[0].message.content or ""
-                if conform.choices
-                else ""
-            ).strip()
+            c2 = (conform.choices[0].message.content or "" if conform.choices else "").strip()
             if _parse_result(c2) is not None:
                 logger.info("conformance pass recovered a parseable verdict")
                 return c2
-            logger.warning(
-                "conformance pass output still unparseable: %r", c2[:120]
-            )
+            logger.warning("conformance pass output still unparseable: %r", c2[:120])
         except Exception as exc:
             logger.warning("conformance pass failed: %s", exc)
     return content.strip()
@@ -955,11 +947,11 @@ def _store_judgment_row(
 
 
 _REWRITE_STRATEGIES = (
-    "exact-phrase or site-scoped keyword",
-    "keyword with exclusions or required terms",
-    "broad operator-based keyword",
-    "natural-language neural (semantic)",
-    "specialized domain query (intent-targeted)",
+    "augmented free-web query",
+    "SERP1 keyword query",
+    "SERP2 keyword query",
+    "semantic Tavily query",
+    "semantic Exa query",
 )
 
 

@@ -30,7 +30,7 @@ class TestHardBudgetTiming(unittest.IsolatedAsyncioTestCase):
                 run_key="test-key",
             )
             branch = QueryBranch(
-                role=BranchRole.ORIGINAL_FREE,
+                role=BranchRole.ORIGINAL,
                 query="test query",
                 provider_names=("ddg", "gemma"),
                 max_results=5,

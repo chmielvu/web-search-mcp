@@ -13,10 +13,12 @@ import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
+import functools
 
 import httpx
 
 from ..sanitize import sanitize_markdown
+from ..remote_clients import get_apify_client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -283,30 +285,122 @@ async def _fetch_reddit_arctic_shift(target: RedditTarget) -> str:
     raise RedditError("Arctic Shift API fetch failed")
 
 
+def _apify_item_to_post_data(
+    item: dict[str, Any], target: RedditTarget
+) -> dict[str, Any] | None:
+    """Map one Apify Reddit item into the ``render_reddit_markdown`` post shape.
+
+    Returns None when the item clearly is not the thread post (no title and no
+    id/permalink match).
+    """
+    item_id = str(item.get("id") or item.get("postId") or item.get("post_id") or "")
+    permalink = str(item.get("permalink") or "")
+    title = str(item.get("title") or "").strip()
+    tail_id = permalink.rstrip("/").rsplit("/", 1)[-1]
+    if not title and target.post_id not in {item_id, tail_id}:
+        return None
+    return {
+        "title": title or "Reddit Post",
+        "subreddit": str(item.get("subreddit") or target.subreddit),
+        "author": str(item.get("author") or item.get("username") or "anonymous"),
+        "score": item.get("score", item.get("upvotes", 0)),
+        "upvote_ratio": item.get("upvoteRatio", item.get("upvote_ratio")),
+        "num_comments": item.get("numComments", item.get("num_comments", 0)),
+        "selftext": str(item.get("selftext") or item.get("text") or ""),
+        "url": str(item.get("url") or ""),
+        "permalink": permalink if permalink.startswith("/") else "",
+    }
+
+
+def _apify_items_to_comment_children(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Flatten Actor comment items into Reddit-API ``t1`` children for rendering."""
+    children: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        body = str(
+            item.get("body") or item.get("commentText") or item.get("text") or ""
+        ).strip()
+        if not body or body in {"[deleted]", "[removed]"}:
+            continue
+        children.append(
+            {
+                "kind": "t1",
+                "data": {
+                    "body": body,
+                    "author": str(
+                        item.get("author") or item.get("username") or "anonymous"
+                    ),
+                    "score": item.get("score", item.get("upvotes", 0)),
+                    "replies": None,
+                },
+            }
+        )
+    return children
+
+
+async def _fetch_reddit_via_apify(target: RedditTarget, url: str) -> str:
+    """Resolve a Reddit thread through the pinned pay-per-event Apify Actor."""
+    client = get_apify_client()
+    if client is None:
+        raise RedditError("Apify layer unavailable: APIFY_API_TOKEN is not configured")
+
+    from ...settings import settings
+
+    run_input = {"urls": [url], "includeComments": True}
+    items = await client.run_sync_get_dataset_items(settings.apify_reddit_actor, run_input)
+
+    post_data: dict[str, Any] | None = None
+    remaining: list[dict[str, Any]] = []
+    for item in items:
+        candidate = _apify_item_to_post_data(item, target)
+        if post_data is None and candidate is not None:
+            post_data = candidate
+        else:
+            remaining.append(item)
+
+    if post_data is None:
+        raise RedditError(f"Apify actor returned no matching post item for {url}")
+
+    comments_children = _apify_items_to_comment_children(remaining)
+    return render_reddit_markdown(post_data=post_data, comments_data=comments_children)
+
+
 async def fetch_reddit_thread_markdown(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
 ) -> str:
-    """Fetch Reddit thread markdown with multi-layer fallback cascade."""
+    """Fetch Reddit thread markdown with multi-layer fallback cascade.
+
+    Layer order: three free layers first by default; set APIFY_REDDIT_FIRST=1
+    to try the paid Apify actor before them. Every failure logs at debug level
+    and falls through to the next layer.
+    """
+    from ...settings import settings
+
     target = parse_reddit_url(url)
 
-    # Layer 1: Direct Reddit JSON API
-    try:
-        return await _fetch_reddit_direct_json(target)
-    except Exception as exc:
-        LOGGER.debug("Reddit Layer 1 direct JSON failed for %s: %s", url, exc)
+    free_layers = [
+        ("direct JSON", _fetch_reddit_direct_json),
+        ("old.reddit HTML", _fetch_old_reddit_html),
+        ("Arctic Shift archive", _fetch_reddit_arctic_shift),
+    ]
+    apify_layer = (
+        "Apify pay-per-event actor",
+        functools.partial(_fetch_reddit_via_apify, url=url),
+    )
 
-    # Layer 2: old.reddit.com with curl_cffi
-    try:
-        return await _fetch_old_reddit_html(target)
-    except Exception as exc:
-        LOGGER.debug("Reddit Layer 2 old.reddit failed for %s: %s", url, exc)
+    layers = [apify_layer, *free_layers]
+    if not settings.apify_reddit_first:
+        layers = [*free_layers, apify_layer]
 
-    # Layer 3: Arctic Shift public archive
-    try:
-        return await _fetch_reddit_arctic_shift(target)
-    except Exception as exc:
-        LOGGER.debug("Reddit Layer 3 Arctic Shift failed for %s: %s", url, exc)
+    for label, layer in layers:
+        try:
+            return await layer(target)
+        except Exception as exc:
+            LOGGER.debug("Reddit layer %s failed for %s: %s", label, url, exc)
 
     raise RedditError(f"All specialized Reddit resolution layers failed for {url}")

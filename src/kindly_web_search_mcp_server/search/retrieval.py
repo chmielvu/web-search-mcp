@@ -20,9 +20,8 @@ from .diagnostics import branch_outcome_preview
 from .provider_registry import get_provider_adapter, get_provider_definition
 from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
 
-from ..heuristics.augment import SPECIALIZED_AUGMENT_PROVIDERS, augment_query_for_provider
+from ..heuristics.shaping import shape_for_branch
 from ..heuristics.query_features import build_query_features
-from ..heuristics.text_clean import clean_query
 
 
 def _canonical_url(url: str) -> str:
@@ -101,10 +100,8 @@ async def _call_provider(
     timeout = min(provider_cap, remaining)
     # Per-provider timeout cap (catalog) bounds a single call below the
     # global retrieve budget so slow providers cannot hog the fan-out.
-    # getattr keeps stubbed definitions (old catalog shape) working.
-    per_call_cap = getattr(definition, "per_call_timeout_seconds", None)
-    if per_call_cap is not None:
-        timeout = min(timeout, per_call_cap)
+    if definition.per_call_timeout_seconds is not None:
+        timeout = min(timeout, definition.per_call_timeout_seconds)
     if timeout <= 0:
         return (
             provider_name,
@@ -126,45 +123,24 @@ async def _call_provider(
         understanding=understanding,
         support_terms=branch.support_terms or (),
     )
-    if provider_name in SPECIALIZED_AUGMENT_PROVIDERS:
-        aug = augment_query_for_provider(provider_name, query, features)
-        query_for_call = aug.query
-        provider_arguments = dict(
-            run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
+    aug = shape_for_branch(branch.role.value, query, features)
+    query_for_call = aug.query
+    provider_arguments = dict(
+        run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
+    )
+    transform_metadata = dict(aug.metadata)
+    rules_applied = aug.rules_applied
+    if aug.changed or aug.rules_applied:
+        run.diagnostics.query_shaping.append(
+            {
+                "provider": provider_name,
+                "branch_role": branch.role.value,
+                "original": query,
+                "shaped": aug.query,
+                "rules": list(aug.rules_applied),
+                "metadata": transform_metadata,
+            }
         )
-        aug_metadata = dict(aug.metadata)
-        rules_applied = aug.rules_applied
-        transform_metadata = aug_metadata
-        if aug_metadata.get("pattern_type"):
-            provider_arguments["pattern_type"] = aug_metadata["pattern_type"]
-        if aug.changed or aug.rules_applied:
-            run.diagnostics.query_shaping.append(
-                {
-                    "provider": provider_name,
-                    "branch_role": branch.role.value,
-                    "original": query,
-                    "shaped": aug.query,
-                    "rules": list(aug.rules_applied),
-                    "metadata": aug_metadata,
-                }
-            )
-    else:
-        provider_arguments = dict(
-            run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
-        )
-        query_for_call = clean_query(query) or query
-        if query_for_call != query:
-            rules_applied = ("clean.query",)
-        if query_for_call != query:
-            run.diagnostics.query_shaping.append(
-                {
-                    "provider": provider_name,
-                    "branch_role": branch.role.value,
-                    "original": query,
-                    "shaped": query_for_call,
-                    "rules": ["clean.query"],
-                }
-            )
     run.diagnostics.query_transform_rows.append(
         {
             "run_key": run.run_key,

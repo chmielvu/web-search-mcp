@@ -575,7 +575,7 @@ def _fragment_from_match(match: dict[str, Any]) -> TextFragment | None:
     }
     if isinstance(matches, list):
         metadata["matches"] = matches
-    return TextFragment(text=fragment[:10_000], match_metadata=metadata)
+    return TextFragment(text=fragment, match_metadata=metadata)
 
 
 def _parse_code_items(
@@ -607,7 +607,7 @@ def _parse_code_items(
         match_spans: list[dict[str, Any]] = []
         text_matches = item.get("text_matches")
         if isinstance(text_matches, list):
-            for fragment_index, match in enumerate(text_matches[:10]):
+            for fragment_index, match in enumerate(text_matches):
                 if isinstance(match, dict) and (fragment := _fragment_from_match(match)):
                     fragments.append(fragment)
                     for matched in match.get("matches", []):
@@ -647,7 +647,7 @@ def _parse_code_items(
                 ),
                 fragments=fragments,
                 match_spans=match_spans,
-                snippet="\n".join(fragment.text for fragment in fragments)[:200_000] or None,
+                snippet="\n".join(fragment.text for fragment in fragments) or None,
                 score_components={"provider_score": float(item.get("score") or 0.0)},
                 source_metadata={
                     "repository_url": repository_data.get("html_url")

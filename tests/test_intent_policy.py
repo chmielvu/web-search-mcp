@@ -7,8 +7,6 @@ import pytest
 from kindly_web_search_mcp_server.search.intent_policy import (
     resolve_intent_policy,
     _INTENT_POLICIES,
-    get_subscribed_specialized_providers,
-    register_provider_subscription,
 )
 from kindly_web_search_mcp_server.search.intents import normalize_intent
 from kindly_web_search_mcp_server.search.options import SearchOptions
@@ -59,16 +57,19 @@ class TestIntentToCategoryRouting:
         assert not hasattr(digital_humanities, "rrf_k")
 
 
-def test_news_policy_includes_brave_news_specialized_provider() -> None:
-    news = resolve_intent_policy("news")
-    assert news.policy_version == "1.1"
-    assert "brave_news" in news.specialized_providers
-    assert news.provider_arguments["brave_news"]["freshness"] == "week"
 
 
 def test_resolve_intent_policy_merges_configured_goggles(monkeypatch) -> None:
+    import kindly_web_search_mcp_server.search.intent_policy as intent_policy_module
     from kindly_web_search_mcp_server.settings import settings
 
+    # Pin the settings object the policy module actually reads so ambient
+    # settings swapping in other tests cannot leak in.
+    monkeypatch.setattr(
+        intent_policy_module,
+        "settings",
+        settings,
+    )
     monkeypatch.setattr(
         settings,
         "brave_goggles_by_intent",
@@ -83,25 +84,34 @@ def test_resolve_intent_policy_leaves_goggles_empty_by_default() -> None:
     policy = resolve_intent_policy("general")
     assert "goggles" not in policy.provider_arguments.get("brave", {})
 
+@pytest.mark.parametrize(
+    "intent, expected_ddg_args",
+    [
+        ("general", {"backend": "duckduckgo,yahoo,yandex,brave"}),
+        ("ai_coding_and_infrastructure", {"backend": "duckduckgo,yahoo,yandex,brave"}),
+        ("digital_humanities", {"backend": "grokipedia,wikipedia"}),
+        ("comparison", {"backend": "duckduckgo,yahoo,yandex,brave"}),
+        ("social_media", {"backend": "duckduckgo,yahoo,yandex,brave"}),
+        ("news", {"category": "news"}),
+    ],
+)
+def test_ddg_provider_arguments_per_intent(intent, expected_ddg_args):
+    policy = resolve_intent_policy(intent)
+    assert policy.provider_arguments["ddg"] == expected_ddg_args
 
-def test_subscribed_specialized_providers() -> None:
-    social = resolve_intent_policy("social_media")
-    assert social.specialized_providers == ("telegram", "reddit")
+@pytest.mark.parametrize(
+    "intent, expected_exa_args",
+    [
+        ("general", {"type": "auto"}),
+        ("ai_coding_and_infrastructure", {"type": "auto"}),
+        ("digital_humanities", {"type": "auto", "category": "publication"}),
+        ("comparison", {"type": "auto"}),
+        ("social_media", {"type": "auto", "category": "personal site"}),
+        ("news", {"type": "auto", "category": "news", "freshness": "week"}),
+    ],
+)
+def test_exa_provider_arguments_per_intent(intent, expected_exa_args):
+    policy = resolve_intent_policy(intent)
+    assert policy.provider_arguments["exa"] == expected_exa_args
 
-    coding = resolve_intent_policy("ai_coding_and_infrastructure")
-    assert coding.specialized_providers == (
-        "telegram",
-        "hackernews",
-        "github",
-        "sourcegraph",
-        "gitlab",
-        "reddit",
-    )
 
-
-def test_register_provider_subscription() -> None:
-    register_provider_subscription("custom_provider", ["general"])
-    providers = get_subscribed_specialized_providers("general")
-    assert "custom_provider" in providers
-    policy = resolve_intent_policy("general")
-    assert "custom_provider" in policy.specialized_providers

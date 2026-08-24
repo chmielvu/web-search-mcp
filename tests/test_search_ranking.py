@@ -44,7 +44,7 @@ def _make_run(
     results: list[WebSearchResult],
 ) -> tuple[SearchRun, BranchOutcome]:
     branch = QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="q",
         provider_names=("test",),
         max_results=15,

@@ -136,8 +136,8 @@ async def search_deepwiki(plan: QueryPlan, request: CodeSearchRequest) -> Provid
                     match_data_available=False,
                 ),
                 title=f"DeepWiki: {repo_name}",
-                snippet=answer[:50_000],
-                fragments=[TextFragment(text=answer[:20_000])],
+                snippet=answer,
+                fragments=[TextFragment(text=answer)],
                 source_metadata={"repo_name": repo_name},
             )
         ],
@@ -344,8 +344,8 @@ async def search_context7(
                     match_data_available=False,
                 ),
                 title=title or f"Context7: {selected_id}",
-                snippet=content[:50_000],
-                fragments=[TextFragment(text=content[:20_000])],
+                snippet=content,
+                fragments=[TextFragment(text=content)],
                 source_metadata={
                     "library_id": provider_library_id,
                     "topic": request.topic,

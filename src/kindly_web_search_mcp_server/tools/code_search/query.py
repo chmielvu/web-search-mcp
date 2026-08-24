@@ -166,6 +166,8 @@ class QueryPlan:
             channels.add("documentation")
         if self.mode == "discovery":
             channels.add("repository")
+        if self.mode == "issues":
+            channels.add("github_conversations")
         if self.mode == "huggingface":
             channels.add("huggingface")
         return QueryMetadata(

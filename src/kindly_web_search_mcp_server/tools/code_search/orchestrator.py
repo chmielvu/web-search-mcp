@@ -13,6 +13,7 @@ from .exa import search_exa
 from .github import hydrate_github_hits, search_github
 from .grepapp import search_grepapp
 from .huggingface import search_huggingface
+from .issues import search_github_issues
 from .filters import filter_scoped_hits
 from .models import (
     CodeSearchRequest,
@@ -169,7 +170,7 @@ async def execute_code_search(
             search_huggingface(plan, request, http_client=http_client),
         )
         responses = [response]
-        hits = response.hits[: request.max_results]
+        hits = list(response.hits)
         diagnostics = list(response.diagnostics)
         if not hits and not diagnostics:
             diagnostics.append(
@@ -187,6 +188,43 @@ async def execute_code_search(
         query_metadata = plan.metadata
         query_metadata.compiled_queries = {
             "huggingface": list(response.metadata.get("compiled_queries", []))
+        }
+        stats.elapsed_ms = (time.monotonic() - started) * 1000
+        return CodeSearchResultType(
+            query=request.query,
+            outcome=_outcome(responses, len(hits)),  # type: ignore[arg-type]
+            results=hits,
+            repositories=[],
+            diagnostics=diagnostics,
+            stats=stats,
+            query_metadata=query_metadata,
+            provider_summaries=_provider_summaries(responses),
+        )
+
+    if request.mode == "issues":
+        response = await _run_provider(
+            "github",
+            search_github_issues(plan, request, http_client=http_client),
+        )
+        responses = [response]
+        hits = list(response.hits)
+        diagnostics = list(response.diagnostics)
+        if not hits and not diagnostics:
+            diagnostics.append(
+                Diagnostic(
+                    provider="github",
+                    outcome="no_hit",
+                    message="No GitHub Issues or Discussions matched the query.",
+                    failure_kind="validation",
+                    query=request.query,
+                )
+            )
+        stats = _stats(responses, elapsed_ms=(time.monotonic() - started) * 1000)
+        stats.returned_count = len(hits)
+        stats.estimated_tokens = sum(len(hit.model_dump_json()) for hit in hits) // 4
+        query_metadata = plan.metadata
+        query_metadata.compiled_queries = {
+            "github": list(response.metadata.get("compiled_queries", []))
         }
         stats.elapsed_ms = (time.monotonic() - started) * 1000
         return CodeSearchResultType(
@@ -230,7 +268,7 @@ async def execute_code_search(
     preliminary = rank_hits(
         plan,
         hits,
-        max_results=max(request.max_results, request.budget.max_rerank_candidates),
+        max_results=None,
     )
     if any(hit.provider == "github" for hit in preliminary):
         hydration_diagnostics, hydration_count, hydration_truncated = await hydrate_github_hits(
@@ -248,7 +286,7 @@ async def execute_code_search(
     hits = rank_hits(
         plan,
         preliminary,
-        max_results=max(request.max_results, request.budget.max_rerank_candidates),
+        max_results=None,
     )
 
     if hits:
@@ -277,7 +315,7 @@ async def execute_code_search(
             stats.rerank_diagnostic_message = rerank.diagnostic.message
             diagnostics.append(rerank.diagnostic)
 
-    hits = [normalize_hit_metadata(hit) for hit in hits[: request.max_results]]
+    hits = [normalize_hit_metadata(hit) for hit in hits]
     stats.returned_count = len(hits)
     stats.estimated_tokens = sum(len(hit.model_dump_json()) for hit in hits) // 4
     stats.elapsed_ms = (time.monotonic() - started) * 1000

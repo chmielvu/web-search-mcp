@@ -23,6 +23,12 @@ from .reddit import (
     fetch_reddit_thread_markdown,
     parse_reddit_url,
 )
+from .twitter import (
+    TwitterError,
+    TwitterTarget,
+    fetch_twitter_markdown,
+    parse_twitter_url,
+)
 
 __all__ = [
     "is_raw_text_url",
@@ -44,4 +50,8 @@ __all__ = [
     "fetch_reddit_thread_markdown",
     "RedditTarget",
     "RedditError",
+    "parse_twitter_url",
+    "fetch_twitter_markdown",
+    "TwitterTarget",
+    "TwitterError",
 ]

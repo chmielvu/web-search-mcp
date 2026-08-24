@@ -14,8 +14,7 @@ returning an answer that was not grounded by web/X search.
 
 The adapter has two entry points:
 
-* ``search_grok_xai`` is the light provider used by the RRF search pipeline.
-* ``grok_search`` is the synthesized-answer MCP/CLI tool.
+* ``grok_search`` is the synthesized-answer MCP/CLI tool (xAI Responses backend).
 """
 
 from __future__ import annotations
@@ -25,13 +24,12 @@ from typing import Any, Mapping
 
 import httpx
 
-from ...models import WebSearchResult
 from ...prompts.provider_grok import build_provider_grok_prompt
 from ...settings import settings
 from ...telemetry.spans import create_llm_operation_span
 from ...telemetry.span_enhancements import set_span_error, set_span_success
 from ...telemetry.usage import extract_llm_usage
-from .base import ProviderRequestError, run_provider
+from .base import ProviderRequestError
 
 __all__ = [
     "GrokBackendCapabilityError",
@@ -39,7 +37,6 @@ __all__ = [
     "GrokProviderError",
     "GrokSearchResult",
     "grok_search",
-    "search_grok_xai",
 ]
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
@@ -428,72 +425,6 @@ def _token_fields(data: Mapping[str, Any]) -> dict[str, int | None]:
     }
 
 
-def _results_from_response(data: Mapping[str, Any], num_results: int) -> list[WebSearchResult]:
-    return [
-        WebSearchResult(
-            title=citation["title"],
-            link=citation["url"],
-            snippet=citation["snippet"],
-        )
-        for citation in _extract_citations(data)[:num_results]
-    ]
-
-
-async def search_grok_xai(
-    query: str,
-    *,
-    num_results: int,
-    http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
-    """Run native xAI web/X search and return normalized RRF results."""
-    if not query or not query.strip() or num_results < 1:
-        return []
-
-    backend = _check_grok_configured()
-    model = _resolved_model()
-    timeout = float(getattr(settings, "grok_timeout_seconds", REQUEST_TIMEOUT) or REQUEST_TIMEOUT)
-    payload = _build_responses_payload(
-        query=query.strip(),
-        research_goal=None,
-        model=model,
-        num_results=max(1, min(num_results, MAX_RESULTS)),
-        allowed_domains=None,
-        excluded_domains=None,
-    )
-
-    async def request(client: httpx.AsyncClient) -> dict[str, Any]:
-        return await _post_responses(client, payload, timeout=timeout)
-
-    def parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
-        return _results_from_response(data, max(1, min(num_results, MAX_RESULTS)))
-
-    with create_llm_operation_span(
-        "search",
-        system="xai",
-        attributes={
-            "llm.model_name": model,
-            "search.backend": backend,
-            "search.query": query[:500],
-            "search.num_results_requested": num_results,
-            "search.native_tools": "web_search,x_search",
-        },
-    ) as span:
-        try:
-            results = await run_provider(
-                "grok_xai",
-                query,
-                num_results,
-                request=request,
-                parse_response=parse_response,
-                http_client=http_client,
-                timeout_seconds=timeout,
-            )
-        except Exception as exc:
-            set_span_error(span, exc)
-            raise
-        span.set_attribute("search.source_count", len(results))
-        set_span_success(span, result_count=len(results))
-        return results
 
 
 async def grok_search(

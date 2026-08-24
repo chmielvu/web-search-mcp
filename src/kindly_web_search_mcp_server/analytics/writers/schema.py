@@ -37,6 +37,9 @@ from .table_names import (
     _CSUMA_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
+    _GFG_TABLE_NAME,
+    _GQN_TABLE_NAME,
+    _GRF_TABLE_NAME,
     _GSA_TABLE_NAME,
     _GSR_TABLE_NAME,
     _GSS_TABLE_NAME,
@@ -76,6 +79,7 @@ def _create_table(
 ) -> None:
     """Execute a raw CREATE TABLE IF NOT EXISTS statement."""
     connection.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)")
+
 
 _EMBEDDING_DIM = 786
 
@@ -182,7 +186,7 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
         rewrite_output_tokens INTEGER,
         rewrite_latency_ms    DOUBLE,
         rewrite_error         VARCHAR,
-        rewritten_branch_queries VARCHAR[],   -- 5 rewrites from the planner (k1, k2, k3, neural, specialized)
+        rewritten_branch_queries VARCHAR[],   -- 5 rewrites: free, serp1, serp2, semantic_tavily, semantic_exa
         payload_json          JSON
         """,
     )
@@ -710,6 +714,7 @@ def _ensure_judge_evaluations(
         payload_json         JSON
         """,
     )
+
 
 # ---------------------------------------------------------------------------
 # Quick Web Search tables
@@ -1285,12 +1290,8 @@ def _ensure_provider_results(connection: duckdb.DuckDBPyConnection) -> None:
         payload_json          JSON
         """,
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_pr_run_key ON provider_results(run_key)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_pr_provider ON provider_results(provider)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_pr_run_key ON provider_results(run_key)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_pr_provider ON provider_results(provider)")
 
 
 def _ensure_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
@@ -1313,12 +1314,8 @@ def _ensure_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
         """,
     )
     _ensure_columns(connection, _QV_TABLE_NAME, {"branch_id": "VARCHAR"})
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_qv_run_key ON query_variants(run_key)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_qv_branch_id ON query_variants(branch_id)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_qv_run_key ON query_variants(run_key)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_qv_branch_id ON query_variants(branch_id)")
 
 
 def _ensure_query_transforms(connection: duckdb.DuckDBPyConnection) -> None:
@@ -1342,12 +1339,8 @@ def _ensure_query_transforms(connection: duckdb.DuckDBPyConnection) -> None:
         metadata_json     JSON
         """,
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_qt_run_key ON query_transforms(run_key)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_qt_branch_id ON query_transforms(branch_id)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_qt_run_key ON query_transforms(run_key)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_qt_branch_id ON query_transforms(branch_id)")
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_qt_provider_call_id ON query_transforms(provider_call_id)"
     )
@@ -1404,9 +1397,7 @@ def _ensure_tool_output_items(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_toi_tool_call_id ON tool_output_items(tool_call_id)"
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_toi_run_key ON tool_output_items(run_key)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_toi_run_key ON tool_output_items(run_key)")
 
 
 # ---------------------------------------------------------------------------
@@ -1434,14 +1425,79 @@ def _ensure_result_labels(connection: duckdb.DuckDBPyConnection) -> None:
         payload_json         JSON
         """,
     )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_rl_run_key ON result_labels(run_key)"
-    )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_rl_run_key ON result_labels(run_key)")
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_rl_canonical_result_id ON result_labels(canonical_result_id)"
     )
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_rl_source ON result_labels(source)")
+
+
+# ---------------------------------------------------------------------------
+# Graph feedback tables — offline generations, query neighbors, and result features
+# ---------------------------------------------------------------------------
+def _ensure_graph_feedback_generations(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GFG_TABLE_NAME,
+        """
+        generation_id          VARCHAR NOT NULL PRIMARY KEY,
+        built_at               TIMESTAMPTZ NOT NULL,
+        source_cutoff          TIMESTAMPTZ NOT NULL,
+        label_version          VARCHAR NOT NULL,
+        algorithm              VARCHAR NOT NULL,
+        status                 VARCHAR NOT NULL,
+        config_json            JSON,
+        query_node_count       INTEGER NOT NULL,
+        document_node_count    INTEGER NOT NULL,
+        edge_count             INTEGER NOT NULL,
+        shared_document_count  INTEGER NOT NULL,
+        neighbor_row_count     INTEGER NOT NULL,
+        error_type             VARCHAR,
+        error_message          VARCHAR
+        """,
+    )
     connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_rl_source ON result_labels(source)"
+        "CREATE INDEX IF NOT EXISTS idx_gfg_status_built_at ON graph_feedback_generations(status, built_at)"
+    )
+
+
+def _ensure_graph_query_neighbors(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GQN_TABLE_NAME,
+        """
+        generation_id   VARCHAR NOT NULL,
+        query_norm      VARCHAR NOT NULL,
+        related_norm    VARCHAR NOT NULL,
+        rank            INTEGER NOT NULL,
+        score           DOUBLE NOT NULL,
+        method          VARCHAR NOT NULL,
+        support_count   INTEGER NOT NULL,
+        built_at        TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (generation_id, query_norm, related_norm, method)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gqn_lookup ON graph_query_neighbors(generation_id, query_norm, rank)"
+    )
+
+
+def _ensure_graph_result_features(connection: duckdb.DuckDBPyConnection) -> None:
+    _create_table(
+        connection,
+        _GRF_TABLE_NAME,
+        """
+        generation_id       VARCHAR NOT NULL,
+        canonical_result_id VARCHAR NOT NULL,
+        birank_score        DOUBLE NOT NULL,
+        pagerank_score      DOUBLE NOT NULL,
+        weighted_degree     DOUBLE NOT NULL,
+        built_at            TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (generation_id, canonical_result_id)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grf_lookup ON graph_result_features(generation_id, canonical_result_id)"
     )
 
 
@@ -1486,6 +1542,42 @@ def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
             "Error: %s",
             exc,
         )
+
+
+_BRANCH_ROLE_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("original_free", "original"),
+    ("paid_brave", "free"),
+    ("paid_google", "serp1"),
+    ("paid_other", "serp2"),
+    ("neural", "semantic_tavily"),
+    ("specialized", "semantic_exa"),
+)
+
+
+def _migrate_branch_role_values(connection: duckdb.DuckDBPyConnection) -> None:
+    """Cut over historical web-search role values once, idempotently."""
+    tables = (
+        (_SB_TABLE_NAME, "branch_role"),
+        (_PC_TABLE_NAME, "branch_role"),
+        (_QV_TABLE_NAME, "variant_role"),
+        (_QT_TABLE_NAME, "branch_role"),
+    )
+    for table_name, column_name in tables:
+        exists = connection.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            """,
+            [table_name],
+        ).fetchone()
+        if exists is None:
+            continue
+        for old_value, new_value in _BRANCH_ROLE_MIGRATIONS:
+            connection.execute(
+                f"UPDATE {table_name} SET {column_name} = ? WHERE {column_name} = ?",
+                [new_value, old_value],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1633,9 +1725,13 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_provider_results(connection)
             _ensure_query_variants(connection)
             _ensure_query_transforms(connection)
+            _migrate_branch_role_values(connection)
             _ensure_candidate_stage_events(connection)
             _ensure_tool_output_items(connection)
             _ensure_result_labels(connection)
+            _ensure_graph_feedback_generations(connection)
+            _ensure_graph_query_neighbors(connection)
+            _ensure_graph_result_features(connection)
             _ensure_flockmtl_resources_table(connection)
             if settings.vss_enabled:
                 ensure_vss_extension(connection)
@@ -1648,6 +1744,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     """Ensure all tables needed by quality scoring and judge writes exist."""
     ensure_store_schema(db_path=db_path)
+
 
 from .ab_schema import (  # noqa: E402
     _ensure_ab_assignments,  # noqa: F401

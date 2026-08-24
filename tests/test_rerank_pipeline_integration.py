@@ -150,7 +150,7 @@ async def test_provider_consensus_bm25_fusion_keeps_all_score_identities() -> No
     first = [_candidate(index) for index in range(3)]
     second = [first[1].model_copy(), first[2].model_copy(), first[0].model_copy()]
     branch = QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="query",
         provider_names=("a", "b"),
         max_results=10,

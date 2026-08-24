@@ -111,77 +111,9 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_client.calls[0][0], "gemini-3.5-flash-lite")
 
     async def test_grok_paths_trace_request(self) -> None:
-        from kindly_web_search_mcp_server.search.providers.grok import (
-            grok_search,
-            search_grok_xai,
-        )
+        from kindly_web_search_mcp_server.search.providers.grok import grok_search
         from kindly_web_search_mcp_server.search.providers import grok as grok_module
 
-        provider_patcher, provider_span = self._span_patch(
-            "kindly_web_search_mcp_server.search.providers.grok.create_llm_operation_span"
-        )
-        provider_request: dict[str, object] = {}
-
-        class FakeProviderResponse:
-            def raise_for_status(self) -> None:
-                return None
-
-            def json(self) -> dict[str, object]:
-                return {
-                    "citations": [
-                        {
-                            "url": "https://example.com",
-                            "title": "Example",
-                            "snippet": "Snippet",
-                        }
-                    ],
-                    "output": [
-                        {
-                            "type": "message",
-                            "content": [
-                                {
-                                    "type": "output_text",
-                                    "text": "Result",
-                                    "annotations": [
-                                        {
-                                            "type": "url_citation",
-                                            "url": "https://example.com",
-                                            "title": "Example",
-                                        }
-                                    ],
-                                }
-                            ],
-                        }
-                    ],
-                }
-
-        class FakeHttpClient:
-            async def post(self, *args, **kwargs) -> FakeProviderResponse:
-                provider_request.update(kwargs)
-                return FakeProviderResponse()
-
-        with provider_patcher as provider_create:
-            with (
-                patch.object(grok_module.settings, "grok_backend", "xai"),
-                patch.object(grok_module.settings, "grok_xai_api_key", "test-key"),
-            ):
-                results = await search_grok_xai(
-                    "python tracing",
-                    num_results=1,
-                    http_client=FakeHttpClient(),
-                )
-
-        self.assertEqual(results[0].link, "https://example.com")
-        self.assertEqual(provider_span.attributes["search.source_count"], 1)
-        self.assertEqual(provider_create.call_args.kwargs["system"], "xai")
-        self.assertEqual(
-            provider_create.call_args.kwargs["attributes"]["search.num_results_requested"],
-            1,
-        )
-        self.assertEqual(
-            [tool["type"] for tool in provider_request["json"]["tools"]],
-            ["web_search", "x_search"],
-        )
 
         tool_patcher, tool_span = self._span_patch(
             "kindly_web_search_mcp_server.search.providers.grok.create_llm_operation_span"
@@ -270,7 +202,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
     async def test_grok_rejects_vertex_native_search(self) -> None:
         from kindly_web_search_mcp_server.search.providers.grok import (
             GrokBackendCapabilityError,
-            search_grok_xai,
+            grok_search,
         )
         from kindly_web_search_mcp_server.search.providers import grok as grok_module
 
@@ -279,7 +211,7 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
             patch.object(grok_module.settings, "grok_xai_api_key", "test-key"),
         ):
             with self.assertRaises(GrokBackendCapabilityError):
-                await search_grok_xai("python tracing", num_results=1)
+                await grok_search("python tracing", "goal")
 
     def test_grok_tool_usage_reads_current_xai_usage_fields(self) -> None:
         from kindly_web_search_mcp_server.search.providers.grok import _tool_usage

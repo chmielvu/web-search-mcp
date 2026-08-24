@@ -1,4 +1,5 @@
 from __future__ import annotations
+import inspect
 
 import pytest
 from pydantic import ValidationError
@@ -16,18 +17,31 @@ from kindly_web_search_mcp_server.search.provider_registry import (
 
 def test_registry_has_exact_provider_matrix() -> None:
     assert tuple(PROVIDER_DEFINITIONS) == tuple(PROVIDER_ADAPTERS)
-    assert len(PROVIDER_DEFINITIONS) == 24
+    assert len(PROVIDER_DEFINITIONS) == 16
     assert PROVIDER_DEFINITIONS["qdrant"].requires_embedding is True
     assert "brightdata_bing" in PROVIDER_DEFINITIONS
     assert "brightdata_yandex" in PROVIDER_DEFINITIONS
     assert "langsearch" in PROVIDER_DEFINITIONS
-    assert "github" in PROVIDER_DEFINITIONS
-    assert "sourcegraph" in PROVIDER_DEFINITIONS
-    assert "gitlab" in PROVIDER_DEFINITIONS
+    # Public-code providers were removed from web_search; use code_search.
+    assert "github" not in PROVIDER_DEFINITIONS
+    for removed in (
+        "jina",
+        "grok_xai",
+        "hackernews",
+        "reddit",
+        "telegram",
+        "brave_news",
+    ):
+        assert removed not in PROVIDER_DEFINITIONS
+    assert "sourcegraph" not in PROVIDER_DEFINITIONS
+    assert "gitlab" not in PROVIDER_DEFINITIONS
     assert "github_graphql" not in PROVIDER_DEFINITIONS
     assert PROVIDER_DEFINITIONS["langsearch"].adapter_module == "providers.langsearch"
     assert PROVIDER_DEFINITIONS["langsearch"].adapter_function == "search_langsearch"
     assert not hasattr(PROVIDER_DEFINITIONS["ddg"], "targets")
+    assert PROVIDER_DEFINITIONS["exa"].adapter_module == "providers.exa"
+    assert PROVIDER_DEFINITIONS["exa"].adapter_function == "search_exa"
+    assert inspect.iscoroutinefunction(PROVIDER_ADAPTERS["exa"])
 
 
 def test_brightdata_default_timeout_uses_retrieve_budget() -> None:
@@ -58,12 +72,22 @@ def test_request_enforces_goal_and_result_window() -> None:
 
 def test_query_branch_uses_role_and_provider_names() -> None:
     branch = QueryBranch(
-        role=BranchRole.PAID_BRAVE,
+        role=BranchRole.FREE,
         query="alpha",
-        provider_names=("brave",),
+        provider_names=("ddg", "qdrant", "searxng", "degoog"),
         why="test",
         max_results=15,
     )
     dumped = branch.model_dump()
-    assert dumped["role"] == "paid_brave"
-    assert dumped["provider_names"] == ("brave",)
+    assert dumped["role"] == "free"
+    assert dumped["provider_names"] == ("ddg", "qdrant", "searxng", "degoog")
+
+
+def test_semantic_tavily_round_robin(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kindly_web_search_mcp_server.search import provider_registry
+
+    monkeypatch.setattr(provider_registry, "_SEMANTIC_TAVILY_RR_CURSOR", 0)
+    assert provider_registry.select_semantic_tavily_provider(("tavily", "langsearch")) == "tavily"
+    assert (
+        provider_registry.select_semantic_tavily_provider(("tavily", "langsearch")) == "langsearch"
+    )

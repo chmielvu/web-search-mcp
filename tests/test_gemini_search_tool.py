@@ -18,7 +18,6 @@ from kindly_web_search_mcp_server.search.gemini_search_tool import (
     GeminiResearchOutput,
     _classify_gemini_error,
     _is_gemini_model,
-    _is_gemini3_model,
     get_system_prompt,
     gemini_search_with_grounding,
 )
@@ -82,17 +81,14 @@ def _create_mock_error(status_code: int) -> Exception:
 class TestGeminiFallbackTier(unittest.TestCase):
     def test_fallback_tier_order(self) -> None:
         """Verify hardcoded fallback tier order."""
-        self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-3.1-flash-lite")
-        self.assertEqual(GEMINI_GROUNDING_TIER[1], "gemini-2.5-flash")
-        self.assertEqual(GEMINI_GROUNDING_TIER[2], "gemini-2.5-flash-lite")
-        self.assertEqual(len(GEMINI_GROUNDING_TIER), 3)
+        self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-2.5-flash")
+        self.assertEqual(GEMINI_GROUNDING_TIER[1], "gemini-2.5-flash-lite")
+        self.assertEqual(len(GEMINI_GROUNDING_TIER), 2)
 
-    def test_primary_is_gemini_31_flash_lite(self) -> None:
-        """Primary model should be Gemini 3.1 Flash-Lite."""
+    def test_primary_is_gemini_25_flash(self) -> None:
+        """Primary model should be Gemini 2.5 Flash."""
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[0]))
-        self.assertTrue(_is_gemini3_model(GEMINI_GROUNDING_TIER[0]))
-        self.assertIn("flash-lite", GEMINI_GROUNDING_TIER[0])
-
+        self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-2.5-flash")
 
 class TestGeminiStructuredSchema(unittest.TestCase):
     def test_structured_output_schema_has_no_additional_properties(self) -> None:
@@ -197,7 +193,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, GeminiGroundingResult)
         self.assertEqual(result.query, "fastmcp middleware docs")
         self.assertIn("middleware", result.answer.lower())
-        self.assertEqual(result.model_used, "gemini-3.1-flash-lite")
+        self.assertEqual(result.model_used, "gemini-2.5-flash")
         self.assertEqual(result.input_tokens, 15)
         self.assertEqual(result.output_tokens, 7)
         self.assertEqual(len(result.grounding_chunks), 1)
@@ -269,8 +265,8 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
             )
 
         # Should have tried primary (3.1-flash-lite), retry failed, then succeeded on next tier
-        self.assertEqual(result.model_used, "gemini-2.5-flash")
-        self.assertIn("gemini-3.1-flash-lite", result.fallback_chain)
+        self.assertEqual(result.model_used, "gemini-2.5-flash-lite")
+        self.assertIn("gemini-2.5-flash", result.fallback_chain)
 
     async def test_gemini_search_fallback_to_second_key_model(self) -> None:
         """Verify fallback to the second API key and Gemini 3.1 Flash Lite."""
@@ -312,8 +308,8 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.model_used, "gemini-2.5-flash-lite")
-        self.assertEqual(len(result.fallback_chain), 3)
-        self.assertEqual(seen_api_keys, ["primary-key", "primary-key", "secondary-key"])
+        self.assertEqual(len(result.fallback_chain), 2)
+        self.assertEqual(seen_api_keys, ["primary-key", "secondary-key"])
         if result.fallback_reason:
             self.assertIn("service_unavailable", result.fallback_reason)
 
@@ -337,7 +333,7 @@ class TestGeminiSearchWithGrounding(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(result.error)
         self.assertIn("All fallback models failed", result.error or "")
-        self.assertEqual(len(result.fallback_chain), 3)
+        self.assertEqual(len(result.fallback_chain), 2)
 
 
 if __name__ == "__main__":

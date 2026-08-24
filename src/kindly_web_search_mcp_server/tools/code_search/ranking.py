@@ -128,7 +128,6 @@ def _merge_hits(hits: Iterable[CodeSearchHit]) -> list[CodeSearchHit]:
             existing.fragments.extend(
                 fragment for fragment in hit.fragments if fragment.text not in existing_text
             )
-            existing.fragments = existing.fragments[:6]
         if not existing.hydrated_source and hit.hydrated_source:
             existing.hydrated_source = hit.hydrated_source
             existing.hydrated_source_truncated = hit.hydrated_source_truncated
@@ -286,7 +285,7 @@ def _evidence_role(hit: CodeSearchHit, text: str) -> tuple[str, float]:
 
 
 def rank_hits(
-    plan: QueryPlan, hits: Iterable[CodeSearchHit], *, max_results: int
+    plan: QueryPlan, hits: Iterable[CodeSearchHit], *, max_results: int | None = None
 ) -> list[CodeSearchHit]:
     """Merge duplicates and apply the fixed evidence-first RRF formula."""
 
@@ -397,7 +396,7 @@ def rank_hits(
         hit.reasons = list(dict.fromkeys(reasons))
     merged.sort(key=lambda item: (-(item.score or 0.0), item.search_rank or 10_000, item.url))
     if plan.mode == "code":
-        return merged[:max_results]
+        return merged if max_results is None else merged[:max_results]
     diverse: list[CodeSearchHit] = []
     deferred: list[CodeSearchHit] = []
     seen_repositories: set[str] = set()
@@ -408,9 +407,9 @@ def rank_hits(
             continue
         seen_repositories.add(repository)
         diverse.append(hit)
-        if len(diverse) >= max_results:
+        if max_results is not None and len(diverse) >= max_results:
             return diverse
-    diverse.extend(deferred[: max_results - len(diverse)])
+    diverse.extend(deferred if max_results is None else deferred[: max_results - len(diverse)])
     return diverse
 
 

@@ -8,32 +8,43 @@ import logging
 import time
 from typing import Any, Awaitable, Sequence
 
+from ..heuristics.query_features import QueryFeatures, build_query_features
+from ..heuristics.text_segment import segment_query
 from ..inference.router import build_worker_router
+from ..prompts.query_rewrite import (
+    REWRITE_PROMPT_VERSION,
+    REWRITE_SYSTEM,
+    REWRITE_USER,
+    RewrittenQueries,
+)
+from ..prompts.rerank import build_relevance_query
+from ..settings import settings
 from ..telemetry.spans import get_tracer
-from .providers.brave import suggest_brave_queries
-from .contracts import BranchRole, ContractModel, QueryBranch, SearchPlan, SearchRun
+from .contracts import BranchRole, QueryBranch, SearchPlan, SearchRun
+from .graph_expansion import GraphExpansionDecision, expand_seed_queries
 from .intent_policy import resolve_intent_policy
 from .intents import SearchIntent
 from .keyword_extract import extract_support_terms
-from .understanding.resolver import resolve_query_understanding
 from .normalize import normalize_query
-from .provider_registry import select_paid_google_provider, select_provider_names
-from ..heuristics.augment import specialized_fallback_query
-from ..heuristics.query_features import build_query_features
-from ..prompts.rerank import build_relevance_query
+from .provider_registry import (
+    select_paid_google_provider,
+    select_provider_names,
+    select_semantic_tavily_provider,
+)
+from .providers.brave import suggest_brave_queries
+from .understanding.resolver import resolve_query_understanding
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
 
-_ORIGINAL_FREE_CANDIDATES = ("searxng", "ddg", "gemma", "degoog")
-_PAID_BRAVE_CANDIDATES = ("brave",)
-_NEURAL_CANDIDATES = ("gemma", "qdrant", "composio_llm_search", "langsearch")
-_PAID_GOOGLE_CANDIDATES = ("brightdata", "serper", "search_router")
-_PAID_OTHER_CANDIDATES = ("tavily", "serpapi")
+_ORIGINAL_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog")
+_FREE_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog")
+_SERP1_CANDIDATES = ("brave",)
+_SERP2_CANDIDATES = ("brightdata", "serper", "search_router")
+_SEMANTIC_TAVILY_CANDIDATES = ("tavily", "langsearch")
+_SEMANTIC_EXA_CANDIDATES = ("exa",)
 
-
-class _RewriteQueries(ContractModel):
-    queries: list[str]
+SLOT_ORDER = ("free", "serp1", "serp2", "semantic_tavily", "semantic_exa")
 
 
 def _branch_names(candidates: Sequence[str], available: Sequence[str]) -> tuple[str, ...]:
@@ -49,26 +60,24 @@ def _stable_terms(values: list[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     output: list[str] = []
     for value in values:
-        text = normalize_query(value)
-        key = text.casefold()
-        if text and key not in seen:
-            seen.add(key)
-            output.append(text)
+        key = value.strip()
+        folded = key.casefold()
+        if key and folded not in seen:
+            seen.add(folded)
+            output.append(key)
     return tuple(output)
 
 
 def _suggestions(payload: object) -> tuple[str, ...]:
     if not isinstance(payload, dict):
         return ()
-    values = payload.get("queries") or payload.get("results") or payload.get("suggestions") or ()
-    if not isinstance(values, (list, tuple)):
+    raw = payload.get("suggestions")
+    if not isinstance(raw, list):
         return ()
     output: list[str] = []
-    for value in values:
-        if isinstance(value, str):
-            output.append(value)
-        elif isinstance(value, dict) and isinstance(value.get("query"), str):
-            output.append(value["query"])
+    for item in raw[:8]:
+        if isinstance(item, str) and item.strip():
+            output.append(" ".join(item.split()))
     return _stable_terms(output)
 
 
@@ -78,127 +87,55 @@ def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
     return normalize_query(" ".join((base, *additions)))
 
 
-_REWRITE_SYSTEM = (
-    "Rewrite the user query into 5 effective search queries: three keyword "
-    "queries for Brave/Google/Bing/Yandex, one natural-language neural query "
-    "for Exa-style semantic search, and one specialized provider query "
-    "tailored for the target domain."
-)
+def _normalize_branch_query(query: str) -> tuple[str, bool]:
+    """Normalize a rewritten slot; wordninja glue-repair is additive."""
+    segmented = segment_query(query or "")
+    normalized = normalize_query(segmented or query or "")
+    return normalized, segmented is not None
 
-_REWRITE_USER = """You are a search query optimizer that generates strategic search queries for web search engines.
 
-TASK: Given a user query or input seed queries, a research goal, and enrichment evidence, generate 3 keyword search variants (for Brave/Google/Bing/Yandex), 1 natural-language neural query (for Exa-style semantic search), plus 1 specialized provider query tailored for the target domain that explore complementary aspects.
+def _branch_fallback_queries(
+    features: QueryFeatures,
+    *,
+    terms: tuple[str, ...],
+    suggestions: tuple[str, ...],
+    research_goal: str,
+    current_year: str,
+) -> tuple[str, ...]:
+    """Deterministic per-slot fallbacks: free, serp1, serp2, tavily, exa."""
+    base = features.cleaned or normalize_query(features.raw)
+    keyword_query = _keyword_query(base, terms)
 
-<CURRENT_CONTEXT>
-Current Year: {current_year}
-Query: "{query}"
-Input Seed Queries: {seed_queries}
-Research Goal: "{research_goal}"
-</CURRENT_CONTEXT>
+    brave_fallback = keyword_query
+    for sugg in suggestions:
+        if sugg.casefold() not in {base.casefold(), keyword_query.casefold()}:
+            brave_fallback = _keyword_query(sugg, terms)
+            break
 
-<ENRICHMENT_EVIDENCE>
-Support Terms: {support_terms}
-Autosuggest Suggestions: {suggestions}
-</ENRICHMENT_EVIDENCE>
+    fresh = bool(current_year) and features.time_sensitivity in ("recent", "current")
+    suffix = f" {current_year}" if fresh else ""
 
-<QUERY_NORMALIZATION>
-Transform the input into effective search queries by:
-- Converting questions to search terms (e.g., "What is X?" → "X explanation guide")
-- Organizing keyword dumps into coherent searches
-- Removing unnecessary words (how, what, when, etc.) unless essential
-- Preserving technical terms, specific models, brands or products, and quoted phrases exactly
-</QUERY_NORMALIZATION>
+    free_body = features.segmented_variants[0] if features.segmented_variants else keyword_query
+    free_fb = normalize_query(f"{free_body}{suffix}")
 
-<KEYWORD_QUERY_RULES>
-The three keyword queries target Brave/Google/Bing/Yandex. Use search operators to make each query target a DIFFERENT facet:
-- "exact phrase"  → force an exact multi-word match
-- site:domain     → restrict to a specific site/domain
-- intitle: / inbody: / inpage:  → require term in title/body/either
-- filetype: / ext:  → restrict to a file type
-- lang: / loc:     → restrict to language / country (ISO codes)
-- +term           → force inclusion of a term
-- -term           → exclude a term
-- AND / OR / NOT  → combine conditions (uppercase)
-Make the three queries genuinely different in structure and operator use
-(e.g., one exact-phrase + site-scoped, one with -exclusions, one broad with +required terms).
-Preserve any operators or mandatory terms already present in the query.
-</KEYWORD_QUERY_RULES>
+    serp1_fb = normalize_query(f"{brave_fallback}{suffix}") or brave_fallback
 
-<NEURAL_QUERY_RULES>
-The neural query targets Exa-style semantic/vector search. Write it as a single
-full descriptive SENTENCE with NO operators — the engine retrieves by meaning,
-not keyword matching. Include the core intent and key entities from the query
-and research goal. Do NOT use quotes, site:, -, +, or any operator syntax.
+    compared = features.compared_entities
+    if len(compared) >= 2:
+        facet = " vs ".join(compared[:3])
+        serp2_fb = normalize_query(f"{facet} comparison{suffix}") or keyword_query
+    else:
+        serp2_fb = keyword_query
 
-<SPECIALIZED_QUERY_RULES>
-{specialized_guidance}
-</SPECIALIZED_QUERY_RULES>
+    goal = " ".join((research_goal or "").split())
+    tavily_fb = normalize_query(f"{base}? {goal}") if goal else normalize_query(base)
+    exa_cmp = f" comparing {compared[0]} and {compared[1]}" if len(compared) >= 2 else ""
+    exa_fb = normalize_query(f"{base} authoritative sources{exa_cmp}: {goal}") or base
 
-<INSTRUCTIONS>
-1. First, normalize the query for search:
-   - If multiple input seed queries are provided in Input Seed Queries, use them as guidance representing complementary angles of the single focused topic.
-   - If it's a natural language question, extract key search terms
-   - If it's a keyword dump, organize into a coherent phrase
-   - Keep quoted phrases, technical terms and specific brands intact
-2. Generate three DIFFERENT keyword queries using the operator rules above
-3. Generate one natural-language neural query using the neural rules above
-4. Generate one specialized provider query using the specialized rules above
-5. Add temporal markers ({current_year}) to keyword queries where appropriate
+    return (free_fb, serp1_fb, serp2_fb, tavily_fb or base, exa_fb)
 
-IMPORTANT: Always generate EXACTLY 3 keyword queries + 1 neural query + 1 specialized query (5 queries total) - no more, no less.
-</INSTRUCTIONS>
 
-<TEMPORAL_RULES>
-- Technical queries: Add {current_year} for the current year
-- Historical queries: Preserve specific years
-- Quoted phrases: Keep exactly as-is
-</TEMPORAL_RULES>
-
-<EXAMPLES>
-Example 1 - Docker container orchestration:
-Query: "Docker container orchestration"
-Research Goal: "Find production-grade orchestration tooling"
-Output queries: [
-  "Docker container orchestration {current_year}",
-  "container orchestration best practices site:docs.docker.com",
-  "Docker orchestration Kubernetes -swarm +production",
-  "What are the best production-grade tools for orchestrating Docker containers in {current_year}?",
-  "repo:docker/cli container orchestration best practices"
-]
-
-Example 2 - Spelling corrected:
-Query: "pytorch attension mechanism"
-Spell Correction: "pytorch attention mechanism"
-Output queries: [
-  "pytorch attention mechanism tutorial",
-  "attention mechanism implementation site:pytorch.org",
-  "pytorch transformer attention -nlp +code",
-  "How do I implement the attention mechanism in PyTorch with a working code example?",
-  "path:torch/nn attention mechanism implementation"
-]
-</EXAMPLES>
-{{"queries": ["<keyword1>", "<keyword2>", "<keyword3>", "<neural>", "<specialized>"]}}"""
-
-_DEFAULT_SPECIALIZED_GUIDANCE = "Generate a specialized domain reference query targeting authoritative documentation and technical specifications."
-
-_SPECIALIZED_REWRITE_GUIDANCE: dict[SearchIntent, str] = {
-    "ai_coding_and_infrastructure": (
-        "Generate a specialized code search query tailored for repository, code, issue, and discussion searches across GitHub, Sourcegraph, GitLab, and Hacker News. "
-        "Use code search operators or terms (e.g., repo:, path:, filetype:, lang:, patternType:regexp, or exact function/symbol names)."
-    ),
-    "social_media": (
-        "Generate a specialized social and discussion query tailored for Reddit subreddits and Telegram channels. "
-        "Focus on community opinion, thread discussions, and user experiences."
-    ),
-    "news": (
-        "Generate a specialized breaking news and temporal event query for news outlets and channels, incorporating recent date markers and news keywords."
-    ),
-    "general": _DEFAULT_SPECIALIZED_GUIDANCE,
-    "comparison": _DEFAULT_SPECIALIZED_GUIDANCE,
-    "digital_humanities": _DEFAULT_SPECIALIZED_GUIDANCE,
-}
-
-_REWRITE_CACHE: dict[str, tuple[_RewriteQueries, dict[str, Any]]] = {}
+_REWRITE_CACHE: dict[str, tuple[RewrittenQueries, dict[str, Any]]] = {}
 _REWRITE_CACHE_MAX_SIZE = 256
 
 
@@ -211,18 +148,27 @@ async def _rewrite_queries(
     suggestions: tuple[str, ...],
     current_year: str,
     intent: SearchIntent = "general",
-) -> tuple[_RewriteQueries, dict[str, Any]]:
-    specialized_guidance = _SPECIALIZED_REWRITE_GUIDANCE.get(intent, _DEFAULT_SPECIALIZED_GUIDANCE)
-    user_content = _REWRITE_USER.format(
+    understanding: Any | None = None,
+) -> tuple[RewrittenQueries, dict[str, Any]]:
+    compared_entities = _stable_terms(
+        list(getattr(understanding, "compared_entities", None) or [])
+    )
+    preserved_terms = _stable_terms(list(getattr(understanding, "preserved_terms", None) or []))
+    user_content = REWRITE_USER.format(
         current_year=current_year,
+        time_sensitivity=str(getattr(understanding, "time_sensitivity", "none") or "none"),
         query=query,
         seed_queries=list(seed_queries) if seed_queries else [query],
         research_goal=research_goal,
         support_terms=list(terms),
         suggestions=list(suggestions),
-        specialized_guidance=specialized_guidance,
+        compared_entities=list(compared_entities),
+        should_decompose=bool(getattr(understanding, "should_decompose", False) or False),
+        preserved_terms=list(preserved_terms),
     )
-    cache_key = hashlib.sha256(user_content.encode("utf-8")).hexdigest()
+    cache_key = hashlib.sha256(
+        f"v{REWRITE_PROMPT_VERSION}:{user_content}".encode("utf-8")
+    ).hexdigest()
     if cache_key in _REWRITE_CACHE:
         cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]
         hit_meta = dict(cached_meta)
@@ -232,22 +178,21 @@ async def _rewrite_queries(
     started = time.monotonic()
     generation = await build_worker_router().complete_json(
         messages=[
-            {"role": "system", "content": _REWRITE_SYSTEM},
+            {"role": "system", "content": REWRITE_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        response_model=_RewriteQueries,
+        response_model=RewrittenQueries,
         timeout_seconds=20.0,
         reasoning_effort="none",
         operation="rewrite",
     )
-    parsed = _RewriteQueries.model_validate_json(generation.content)
-    if len(parsed.queries) == 4:
-        parsed.queries.append(parsed.queries[-1])
+    parsed = RewrittenQueries.model_validate_json(generation.content)
     metadata = {
         "model": generation.model_used,
         "input_tokens": generation.input_tokens,
         "output_tokens": generation.output_tokens,
         "latency_ms": (time.monotonic() - started) * 1000.0,
+        "prompt_version": REWRITE_PROMPT_VERSION,
         "prompt": f"query={query!r}\nresearch_goal={research_goal!r}\nintent={intent!r}",
     }
     if len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
@@ -278,7 +223,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         )
         terms = _stable_terms(enrichment[0]) if isinstance(enrichment[0], list) else ()
         suggestions = _suggestions(enrichment[1])
-        available = select_provider_names(policy.specialized_providers)
+        available = select_provider_names()
         dc = run.diagnostics
         dc.intent = str(understanding.intent)
         dc.understanding_confidence = understanding.confidence
@@ -287,98 +232,149 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "brave_autosuggest": list(suggestions),
         }
 
-        # --- materialize six independent allowlists ---
-        original_free = _branch_names(_ORIGINAL_FREE_CANDIDATES, available)
-        paid_brave = _branch_names(_PAID_BRAVE_CANDIDATES, available)
-        paid_google_name = select_paid_google_provider(available)
-        paid_google = (paid_google_name,) if paid_google_name else ()
-        paid_other = _branch_names(_PAID_OTHER_CANDIDATES, available)
-        neural = _branch_names(_NEURAL_CANDIDATES, available)
-        specialized = _branch_names(policy.specialized_providers, available)
+        # --- materialize the six requested provider assignments ---
+        original = _branch_names(_ORIGINAL_CANDIDATES, available)
+        free = _branch_names(_FREE_CANDIDATES, available)
+        serp1 = _branch_names(_SERP1_CANDIDATES, available)
+        serp2_name = select_paid_google_provider(available)
+        serp2 = (serp2_name,) if serp2_name else ()
+        semantic_tavily_name = select_semantic_tavily_provider(available)
+        semantic_tavily = (semantic_tavily_name,) if semantic_tavily_name else ()
+        semantic_exa = _branch_names(_SEMANTIC_EXA_CANDIDATES, available)
 
-        # --- compute deterministic fallback queries ---
-        keyword_base = normalized_query
-        keyword_query = _keyword_query(keyword_base, terms)
-        brave_fallback = keyword_query
-        for sugg in suggestions:
-            if sugg.casefold() not in {normalized_query.casefold(), keyword_query.casefold()}:
-                brave_fallback = _keyword_query(sugg, terms)
-                break
-
-        spec_features = build_query_features(
-            keyword_base or normalized_query,
+        # --- compute deterministic per-slot fallback queries ---
+        current_year = time.strftime("%Y")
+        fallback_features = build_query_features(
+            normalized_query,
             understanding=understanding,
             support_terms=terms,
         )
-        specialized_fallback = specialized_fallback_query(understanding.intent, spec_features)
-
-        fallback = (
-            brave_fallback,
-            keyword_query,
-            keyword_query,
-            normalized_query,
-            specialized_fallback,
+        fallback = _branch_fallback_queries(
+            fallback_features,
+            terms=terms,
+            suggestions=suggestions,
+            research_goal=request.research_goal,
+            current_year=current_year,
         )
 
+        base_seed_queries = request.queries if request.queries else (normalized_query,)
+        if request.rewrite and settings.graph_expansion_enabled:
+            try:
+                decision = await _bounded(
+                    asyncio.to_thread(
+                        expand_seed_queries,
+                        normalized_query=normalized_query,
+                        base_seed_queries=base_seed_queries,
+                        enabled=True,
+                        max_related_queries=settings.graph_expansion_max_related_queries,
+                        max_age_seconds=settings.graph_expansion_max_age_seconds,
+                        db_path=None,
+                    )
+                )
+            except Exception as exc:
+                decision = GraphExpansionDecision(
+                    status="error",
+                    generation_id=None,
+                    base_seed_queries=base_seed_queries,
+                    effective_seed_queries=base_seed_queries,
+                    related_queries=(),
+                    error_type=type(exc).__name__,
+                )
+        else:
+            decision = expand_seed_queries(
+                normalized_query=normalized_query,
+                base_seed_queries=base_seed_queries,
+                enabled=False,
+                max_related_queries=settings.graph_expansion_max_related_queries,
+                max_age_seconds=settings.graph_expansion_max_age_seconds,
+            )
+
+        graph_expansion_meta: dict[str, Any] = {
+            "status": decision.status,
+            "generation_id": decision.generation_id,
+            "base_seed_queries": list(decision.base_seed_queries[:4]),
+            "effective_seed_queries": list(decision.effective_seed_queries[:4]),
+            "related_queries": list(decision.related_queries[:2]),
+        }
+        if decision.error_type:
+            graph_expansion_meta["error_type"] = decision.error_type
+
         # --- resolve query texts ---
+        rewritten_slots: tuple[str, ...] = ()
         if request.rewrite:
             try:
                 rewrite, rewrite_meta = await _rewrite_queries(
                     query=normalized_query,
-                    seed_queries=request.queries if request.queries else (normalized_query,),
+                    seed_queries=decision.effective_seed_queries,
                     research_goal=request.research_goal,
                     terms=terms,
                     suggestions=suggestions,
-                    current_year=time.strftime("%Y"),
+                    current_year=current_year,
                     intent=understanding.intent,
+                    understanding=understanding,
                 )
+                raw_slots = {
+                    "free": rewrite.free,
+                    "serp1": rewrite.serp1,
+                    "serp2": rewrite.serp2,
+                    "semantic_tavily": rewrite.semantic_tavily,
+                    "semantic_exa": rewrite.semantic_exa,
+                }
+                normalized_slots: dict[str, str] = {}
+                glued: list[str] = []
+                for name in SLOT_ORDER:
+                    norm, did_glue = _normalize_branch_query(raw_slots[name])
+                    normalized_slots[name] = norm
+                    if did_glue:
+                        glued.append(name)
+                if glued:
+                    rewrite_meta["segment_glued"] = glued
                 rewrite_meta["branch_count"] = 6
+                rewrite_meta["graph_expansion"] = graph_expansion_meta
                 dc.rewrite_metadata = rewrite_meta
-                if len(rewrite.queries) < 5:
-                    raise ValueError(
-                        f"Expected 5 queries, got {len(rewrite.queries)}: {rewrite.queries}"
-                    )
-                q0, q1, q2, q3, q4 = (normalize_query(q) for q in rewrite.queries[:5])
-                queries = (
-                    q0,
-                    q1,
-                    q2,
-                    q3,
-                    q4,
+                # Per-slot degradation: a blank slot falls back alone.
+                queries = tuple(
+                    normalized_slots[name] if normalized_slots[name].strip() else fb
+                    for name, fb in zip(SLOT_ORDER, fallback)
                 )
+                rewritten_slots = tuple(normalized_slots[name] for name in SLOT_ORDER)
             except Exception as exc:
                 LOGGER.warning(
                     "Query rewrite failed; using deterministic fallback: %s", type(exc).__name__
                 )
-                dc.rewrite_metadata = {"error": type(exc).__name__, "branch_count": 6}
+                dc.rewrite_metadata = {
+                    "error": type(exc).__name__,
+                    "branch_count": 6,
+                    "graph_expansion": graph_expansion_meta,
+                }
                 queries = fallback
         else:
-            dc.rewrite_metadata = {"branch_count": 6}
+            dc.rewrite_metadata = {
+                "branch_count": 6,
+                "graph_expansion": graph_expansion_meta,
+            }
             queries = fallback
 
-        # Persist the 5 planner rewrites (k1, k2, k3, neural, specialized) separately from
-        # the 6-branch dispatched topology. Empty tuple when rewrite was
-        # disabled or errored — the judge then writes no rewrite rows.
-        rewrite_queries: tuple[str, ...] = (
-            tuple(rewrite.queries[:5])
-            if request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-            else ()
+        # Persist the 5 planner rewrites separately from the 6-branch
+        # dispatched topology. Empty tuple when rewrite was disabled or
+        # errored — the judge then writes no rewrite rows.
+        rewrite_success = bool(
+            request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
         )
+        rewrite_queries: tuple[str, ...] = rewritten_slots if rewrite_success else ()
 
         # `use_llm_why` is true when the LLM-rewrite path succeeded; in
         # every other case (rewrite disabled, rewrite errored, no
         # metadata) the branches use their deterministic fallback.
-        use_llm_why = bool(
-            request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
-        )
+        use_llm_why = rewrite_success
         # Display name for the deterministic branch `why` string. Keys
         # must match the BranchRole values used below.
         _DETERMINISTIC_WHY = {
-            BranchRole.PAID_BRAVE: "deterministic Brave query",
-            BranchRole.PAID_GOOGLE: "deterministic Google query",
-            BranchRole.PAID_OTHER: "deterministic paid-other query",
-            BranchRole.NEURAL: "deterministic neural query",
-            BranchRole.SPECIALIZED: "deterministic specialized query",
+            BranchRole.FREE: "deterministic free query",
+            BranchRole.SERP1: "deterministic SERP1 query",
+            BranchRole.SERP2: "deterministic SERP2 query",
+            BranchRole.SEMANTIC_TAVILY: "deterministic semantic Tavily query",
+            BranchRole.SEMANTIC_EXA: "deterministic semantic Exa query",
         }
 
         def _why_for(role: BranchRole, llm_label: str) -> str:
@@ -386,50 +382,50 @@ async def plan_search(run: SearchRun) -> SearchPlan:
 
         branches: tuple[QueryBranch, ...] = (
             QueryBranch(
-                role=BranchRole.ORIGINAL_FREE,
+                role=BranchRole.ORIGINAL,
                 query=normalized_query,
-                provider_names=original_free,
+                provider_names=original,
                 why="original normalized query",
                 support_terms=terms,
                 max_results=request.num_results,
             ),
             QueryBranch(
-                role=BranchRole.PAID_BRAVE,
+                role=BranchRole.FREE,
                 query=queries[0],
-                provider_names=paid_brave,
-                why=_why_for(BranchRole.PAID_BRAVE, "LLM paid_brave"),
+                provider_names=free,
+                why=_why_for(BranchRole.FREE, "LLM free"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
             QueryBranch(
-                role=BranchRole.PAID_GOOGLE,
+                role=BranchRole.SERP1,
                 query=queries[1],
-                provider_names=paid_google,
-                why=_why_for(BranchRole.PAID_GOOGLE, "LLM paid_google"),
+                provider_names=serp1,
+                why=_why_for(BranchRole.SERP1, "LLM serp1"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
             QueryBranch(
-                role=BranchRole.PAID_OTHER,
+                role=BranchRole.SERP2,
                 query=queries[2],
-                provider_names=paid_other,
-                why=_why_for(BranchRole.PAID_OTHER, "LLM paid_other"),
+                provider_names=serp2,
+                why=_why_for(BranchRole.SERP2, "LLM serp2"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
             QueryBranch(
-                role=BranchRole.NEURAL,
+                role=BranchRole.SEMANTIC_TAVILY,
                 query=queries[3],
-                provider_names=neural,
-                why=_why_for(BranchRole.NEURAL, "LLM neural"),
+                provider_names=semantic_tavily,
+                why=_why_for(BranchRole.SEMANTIC_TAVILY, "LLM semantic_tavily"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
             QueryBranch(
-                role=BranchRole.SPECIALIZED,
+                role=BranchRole.SEMANTIC_EXA,
                 query=queries[4],
-                provider_names=specialized,
-                why=_why_for(BranchRole.SPECIALIZED, "LLM specialized"),
+                provider_names=semantic_exa,
+                why=_why_for(BranchRole.SEMANTIC_EXA, "LLM semantic_exa"),
                 support_terms=terms,
                 max_results=request.num_results,
             ),
@@ -442,7 +438,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         }
         provider_arguments["gemma"] = {
             **provider_arguments.get("gemma", {}),
-            "queries": list(request.queries) if request.queries else [normalized_query],
+            "queries": list(decision.effective_seed_queries),
             "research_goal": request.research_goal,
         }
         plan = SearchPlan.create(
@@ -454,11 +450,12 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             branches=branches,
             policy_version=policy.policy_version,
             rewrite_queries=rewrite_queries,
-            seed_queries=request.queries if request.queries else (normalized_query,),
+            seed_queries=decision.effective_seed_queries,
         )
         run.plan = plan
         # Collect query variant rows for funnel uplift analytics
         from ..analytics.observability_store import _canonical_result_id as _cri
+
         variant_rows: list[dict[str, Any]] = []
         rewrite_failed = bool(dc.rewrite_metadata and "error" in dc.rewrite_metadata)
         for index, branch in enumerate(branches):
@@ -469,17 +466,19 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 skip_reason = "rewrite_failed" if rewrite_failed else "empty_query"
             elif not branch.provider_names:
                 skip_reason = "no_assigned_providers"
-            variant_rows.append({
-                "variant_id": _cri(f"{run.run_key}|variant|{index}"),
-                "run_key": run.run_key,
-                "variant_order": index,
-                "variant_role": branch.role.value,
-                "query_text": branch.query,
-                "branch_id": _cri(f"{run.run_key}|{index}"),
-                "selected": selected,
-                "executed": executed,
-                "skip_reason": skip_reason,
-            })
+            variant_rows.append(
+                {
+                    "variant_id": _cri(f"{run.run_key}|variant|{index}"),
+                    "run_key": run.run_key,
+                    "variant_order": index,
+                    "variant_role": branch.role.value,
+                    "query_text": branch.query,
+                    "branch_id": _cri(f"{run.run_key}|{index}"),
+                    "selected": selected,
+                    "executed": executed,
+                    "skip_reason": skip_reason,
+                }
+            )
         dc.query_variant_rows = variant_rows
         dc.phase_timings["search.plan"] = (time.monotonic() - started) * 1000.0
         span.set_attribute("search.branch_count", len(branches))

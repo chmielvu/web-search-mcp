@@ -24,7 +24,6 @@ from .query import QueryPlan
 LOGGER = logging.getLogger(__name__)
 _EXA_CONTEXT_URL = "https://api.exa.ai/context"
 _CONTEXT_MAX_QUERY_CHARS = 2_000
-_CONTEXT_MAX_RESPONSE_CHARS = 50_000
 _CONTEXT_TOKENS = 5_000
 _CONTEXT_DEEP_TOKENS = 10_000
 _SOURCE_URL = re.compile(r"https?://[^\s<>()\[\]`]+")
@@ -244,12 +243,12 @@ def _context_hit(
         ),
         fragments=[
             TextFragment(
-                text=context[:_CONTEXT_MAX_RESPONSE_CHARS],
+                text=context,
                 match_metadata={"source_urls": source_urls},
             )
         ],
         title="Exa Code context",
-        snippet=context[:_CONTEXT_MAX_RESPONSE_CHARS],
+        snippet=context,
         evidence_role="code_context_synthesis",
         source_metadata=metadata,
     )

@@ -314,9 +314,7 @@ def insert_gemini_search_run(*, db_path: str | None = None, **kwargs: Any) -> No
     _GEMINI_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
 
 
-def insert_gemini_search_sources(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
+def insert_gemini_search_sources(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _GEMINI_SEARCH_SOURCES_WRITER
 
     serialized = [_serialize_json_fields(r, ("source_json",)) for r in rows]
@@ -345,9 +343,7 @@ def insert_code_search_run(*, db_path: str | None = None, **kwargs: Any) -> None
     _CODE_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
 
 
-def insert_code_search_providers(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
+def insert_code_search_providers(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _CODE_SEARCH_PROVIDERS_WRITER
 
     serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
@@ -363,9 +359,7 @@ def insert_code_search_diagnostics(
     _CODE_SEARCH_DIAGNOSTICS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
 
 
-def insert_code_search_hits(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
+def insert_code_search_hits(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _CODE_SEARCH_HITS_WRITER
 
     serialized = [
@@ -417,18 +411,14 @@ def insert_content_operation(*, db_path: str | None = None, **kwargs: Any) -> No
     _CONTENT_OPERATIONS_WRITER.dispatch_insert(db_path=db_path, **values)
 
 
-def insert_content_fetches(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
+def insert_content_fetches(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _CONTENT_FETCHES_WRITER
 
     serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
     _CONTENT_FETCHES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
 
 
-def insert_content_summaries(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
+def insert_content_summaries(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _CONTENT_SUMMARIES_WRITER
 
     serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
@@ -526,7 +516,12 @@ def insert_code_search_batches(
         serialized_runs = [
             _serialize_json_fields(
                 r,
-                ("planner_source_tokens", "planner_qualifiers", "provider_hit_counts", "payload_json"),
+                (
+                    "planner_source_tokens",
+                    "planner_qualifiers",
+                    "provider_hit_counts",
+                    "payload_json",
+                ),
             )
             for r in code_search_runs
         ]
@@ -580,14 +575,10 @@ def insert_content_operation_batches(
     )
 
     if content_operations:
-        serialized_ops = [
-            _serialize_json_fields(r, ("payload_json",)) for r in content_operations
-        ]
+        serialized_ops = [_serialize_json_fields(r, ("payload_json",)) for r in content_operations]
         _CONTENT_OPERATIONS_WRITER.insert_batch(serialized_ops, db_path=db_path)
     if content_fetches:
-        serialized_fetches = [
-            _serialize_json_fields(r, ("payload_json",)) for r in content_fetches
-        ]
+        serialized_fetches = [_serialize_json_fields(r, ("payload_json",)) for r in content_fetches]
         _CONTENT_FETCHES_WRITER.insert_batch(serialized_fetches, db_path=db_path)
     if content_summaries:
         serialized_summaries = [

@@ -85,6 +85,36 @@ class TestDDGSearch(unittest.TestCase):
                     await search_ddg("test query", num_results=5)
 
         asyncio.run(run())
+    def test_search_ddg_forwards_kwargs(self) -> None:
+        async def run() -> None:
+            mock_results = [
+                WebSearchResult(
+                    title="Test Result 1",
+                    link="https://example.com/1",
+                    snippet="Test snippet 1",
+                    providers=["ddg"],
+                )
+            ]
+            with patch(
+                "kindly_web_search_mcp_server.search.providers.ddg._search_ddg_sync",
+                return_value=mock_results,
+            ) as mock_sync:
+                results = await search_ddg(
+                    "test query",
+                    num_results=5,
+                    category="news",
+                    backend="duckduckgo",
+                )
+
+            mock_sync.assert_called_once_with(
+                "test query",
+                5,
+                category="news",
+                backend="duckduckgo",
+            )
+            self.assertEqual(len(results), 1)
+
+        asyncio.run(run())
 
 
 class TestDDGSyncSearch(unittest.TestCase):
@@ -192,6 +222,78 @@ class TestDDGSyncSearch(unittest.TestCase):
 
         # Should limit to requested count
         self.assertEqual(len(results), 3)
+    def test_search_ddg_sync_text_default_backend(self) -> None:
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.__enter__.return_value = mock_ddgs_instance
+        mock_ddgs_instance.text.return_value = [
+            {"title": "Test", "href": "https://example.com", "body": "Snippet"}
+        ]
+        mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
+
+        with patch(
+            "ddgs.DDGS",
+            mock_ddgs_class,
+        ):
+            results = _search_ddg_sync("test query", num_results=5)
+
+        mock_ddgs_instance.text.assert_called_once_with(
+            "test query", max_results=5, backend="duckduckgo"
+        )
+        self.assertEqual(len(results), 1)
+
+    def test_search_ddg_sync_backend_passthrough(self) -> None:
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.__enter__.return_value = mock_ddgs_instance
+        mock_ddgs_instance.text.return_value = [
+            {"title": "Test", "href": "https://example.com", "body": "Snippet"}
+        ]
+        mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
+
+        with patch(
+            "ddgs.DDGS",
+            mock_ddgs_class,
+        ):
+            results = _search_ddg_sync(
+                "test query",
+                num_results=5,
+                backend="grokipedia,wikipedia",
+            )
+
+        mock_ddgs_instance.text.assert_called_once_with(
+            "test query", max_results=5, backend="grokipedia,wikipedia"
+        )
+        self.assertEqual(len(results), 1)
+
+    def test_search_ddg_sync_news_category(self) -> None:
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.__enter__.return_value = mock_ddgs_instance
+        mock_ddgs_instance.news.return_value = [
+            {
+                "date": "2026-08-10T10:00:00+00:00",
+                "title": "News Headline",
+                "body": "News snippet",
+                "url": "https://example.com/news/1",
+                "source": "Example News",
+            }
+        ]
+        mock_ddgs_class = MagicMock(return_value=mock_ddgs_instance)
+
+        with patch(
+            "ddgs.DDGS",
+            mock_ddgs_class,
+        ):
+            results = _search_ddg_sync("news query", num_results=5, category="news")
+
+        mock_ddgs_instance.news.assert_called_once_with(
+            "news query", max_results=5, backend="auto"
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "News Headline")
+        self.assertEqual(results[0].link, "https://example.com/news/1")
+        self.assertEqual(results[0].snippet, "News snippet")
+        self.assertEqual(results[0].published_date, "2026-08-10T10:00:00+00:00")
+        self.assertEqual(results[0].source_engines, ["Example News"])
+        self.assertEqual(results[0].providers, ["ddg"])
 
     def test_search_ddg_sync_import_error(self) -> None:
         with patch(
@@ -222,4 +324,4 @@ def test_ddg_registered_as_free_peer_provider() -> None:
     )
 
     defn = next(p for p in PROVIDER_DEFINITIONS_LIST if p.name == "ddg")
-    assert not defn.specialized
+    assert defn.name == "ddg"

@@ -13,31 +13,32 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `service.py` | `execute_web_search()` / `run_search_core()` — sole entry point |
 | `contracts.py` | Strict boundary models: `WebSearchRequest`, `SearchRun`, `QueryBranch`, `BranchOutcome` |
 | `planning.py` | Normalize, understand intent, 5-variant rewrite, select providers, emit branches |
+| `graph_expansion.py` | Related query seed injection from DuckDB offline graph index |
 | `retrieval.py` | Structured branch/provider fanout with budget management |
 | `ranking.py` | Blocklist, merge, BM25/rerank, diversity, final response |
 | `merge.py` | Canonical deduplication + RRF merge |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
 | `blocklist.py` | DuckDB-backed URL blocking |
 | `provider_catalog.py` | Provider metadata definitions |
-| `provider_registry.py` | Adapter lookup for 19 providers |
-| `intent_policy.py` | Intent-specific provider subscriptions registry (`get_subscribed_specialized_providers`, `register_provider_subscription`), freshness, options |
+| `provider_registry.py` | Adapter lookup for 16 providers |
+| `intent_policy.py` | Intent-specific provider arguments, goggles, freshness, options |
 | `keyword_extract.py` | Rake/Keybert keyword extraction |
-| `providers/` | 27 files — one per provider adapter + base |
+| `providers/` | 19 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) |
 
 ## Contracts
 
 `research_goal` is required and nonblank.
 `queries` supports up to 4 seed queries for multi-query rewriting; falls back to single `query`.
-Query rewrite generates 5 strategic variants: 3 keyword queries, 1 natural-language neural query, and 1 intent-targeted specialized query assigned to `BranchRole.SPECIALIZED`.
+Query rewrite generates 5 variants: one free query, two SERP queries, one semantic Tavily query, and one semantic Exa query. The six ordered `BranchRole` values are `original`, `free`, `serp1`, `serp2`, `semantic_tavily`, and `semantic_exa`.
 `reranking_instructions` passes caller guidance to cross-encoder & LLM rerankers.
-- Planning emits at most 10 ordered branches, covering every target from selected providers.
-- Provider assignment: only `branch.target in definition.targets`.
+- Planning emits exactly 6 ordered branches with the provider assignments defined in `search/planning.py`.
+- Provider assignment: only `branch.provider_names` are dispatched.
 - Specialized provider queries are dialect-shaped at the retrieve boundary; `provider_calls` stores both planner `branch_query` and adapter `request_query` plus endpoint/status/result-class diagnostics.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
-- Sourcegraph, GitLab, and GitHub adapters publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials.
+- Specialized adapters (Telegram, Hacker News, Reddit, Brave News) publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials. Public-code providers were removed from web_search — use the code_search tool.
 - Each `run_provider` invocation starts with fresh request metadata; provider-specific seed fields are initialized inside the request callback so prior-call endpoint/status/error fields cannot leak.
 
 ## Bright Data SERP adapter

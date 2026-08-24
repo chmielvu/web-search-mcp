@@ -20,6 +20,7 @@ def _validate_embedding(vec, label):
     LOGGER.warning("Embedding %s dim=%d expected %d", label, len(vec), expected)
     return vec
 
+
 async def persist_search_outcome(run):
     from ..analytics.async_writes import dispatch_duckdb_write
     from ..analytics.duckdb_store import (
@@ -130,6 +131,42 @@ async def persist_search_outcome(run):
                 "session_id": outcome.session_id,
                 "phase_timings": dc.phase_timings,
                 "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
+                "seed_queries": (
+                    list(outcome.plan.seed_queries[:4])
+                    if outcome.plan and outcome.plan.seed_queries
+                    else []
+                ),
+                "graph_expansion": {
+                    "status": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("status", "disabled")
+                        if dc.rewrite_metadata
+                        else "disabled"
+                    ),
+                    "generation_id": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("generation_id")
+                        if dc.rewrite_metadata
+                        else None
+                    ),
+                    "related_queries": (
+                        list(
+                            (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                                "related_queries", []
+                            )
+                        )[:2]
+                        if dc.rewrite_metadata
+                        else []
+                    ),
+                    **(
+                        {
+                            "error_type": (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                                "error_type"
+                            )
+                        }
+                        if dc.rewrite_metadata
+                        and (dc.rewrite_metadata.get("graph_expansion") or {}).get("error_type")
+                        else {}
+                    ),
+                },
             },
         }
     )
@@ -300,6 +337,7 @@ async def persist_search_outcome(run):
         # Persist planned variants, provider discoveries, and actual query shaping.
         try:
             from ..analytics.duckdb_store import insert_funnel_uplift_batches
+
             pr_rows = dc.provider_result_rows or []
             qv_rows = dc.query_variant_rows or []
             catalog_rows = [
@@ -338,9 +376,7 @@ async def persist_search_outcome(run):
                         "branch_index": branch_index,
                         "branch_role": row["branch_role"],
                         "provider": provider,
-                        "provider_call_id": _canonical_result_id(
-                            f"{rk}|{branch_index}|{provider}"
-                        ),
+                        "provider_call_id": _canonical_result_id(f"{rk}|{branch_index}|{provider}"),
                         "original_query": row["original_query"],
                         "shaped_query": row["shaped_query"],
                         "changed": row["changed"],

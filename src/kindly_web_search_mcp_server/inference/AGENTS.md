@@ -153,6 +153,8 @@ fallbacks.
 This eliminates the old pattern of defining the same model N times with
 different canonical IDs just to vary the API key or timeout.
 
+> **Gotcha — `google.genai` SDK Precedence:** When both `GOOGLE_API_KEY` and `GEMINI_API_KEY` are present in `os.environ`, the `google.genai` SDK automatically defaults to `GOOGLE_API_KEY`. If `GOOGLE_API_KEY` belongs to a GCP project without the Generative Language API enabled, requests will fail with `403 SERVICE_DISABLED`. Ensure either `GOOGLE_API_KEY` is enabled for Gemini or only `GEMINI_API_KEY` is exported.
+
 ### Provider Adapter Aliasing
 
 Multiple provider names can share one adapter implementation:

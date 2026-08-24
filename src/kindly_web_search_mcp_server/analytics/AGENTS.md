@@ -25,6 +25,8 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `summaries.py` | Daily aggregate refresh |
 | `app.py` | Rich-based analytics UI |
 | `motherduck_sync.py` | MotherDuck sync helpers |
+| `feedback_labels.py` | Offline LLM judge result-quality materialization into `result_labels` |
+| `graph_feedback.py` | Offline NetworkX graph construction, BiRank/PageRank, Adamic-Adar neighbor generation, and DuckDB snapshot publication |
 
 ## Data Flow
 
@@ -44,10 +46,13 @@ All analytics rows join on `run_key`. Pipeline tables:
 12. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
 13. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
 
+14. `graph_feedback_generations` — generation manifests with BiRank and graph metadata
+15. `graph_query_neighbors` — Adamic-Adar related query neighbors
+16. `graph_result_features` — document-side BiRank, PageRank, and weighted degree features
 ## Branch-Role Model
 
 Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls`:
-`original_free`, `paid_brave`, `paid_google`, `paid_other`, `neural`, `specialized`.
+`original`, `free`, `serp1`, `serp2`, `semantic_tavily`, `semantic_exa`.
 
 ## Judge Pipeline (6 facets, two-stage inference chain)
 

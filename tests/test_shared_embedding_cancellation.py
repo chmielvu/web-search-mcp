@@ -17,7 +17,7 @@ from kindly_web_search_mcp_server.search.options import SearchOptions
 
 def _branch(*providers: str) -> QueryBranch:
     return QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="cancellation test",
         provider_names=providers,
         max_results=5,

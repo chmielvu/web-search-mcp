@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-08-23 | Last verified: 2026-08-23 -->
 
 # AGENTS.md - Content
 
@@ -18,7 +18,7 @@ Three-tier architecture with active resilience:
   - Raw Text & Source Code files
   - Academic DOIs & Open Access papers (Unpaywall / Crossref)
   - Package Registries (PyPI, npm, Hugging Face Hub, Crates.io)
-  - Developer & Q&A platforms (StackExchange, GitHub Issues/PRs/Discussions/Repos, Discourse, HackerNews, Reddit with 3-layer fallback, Wikipedia, arXiv, YouTube, Telegram)
+  - Developer & Q&A platforms (StackExchange, GitHub Issues/PRs/Discussions/Repos, Discourse, HackerNews, Reddit with 3 free layers + optional Apify Layer 4, X/Twitter via optional Apify, Wikipedia, arXiv, YouTube, Telegram)
 - **Tier 2 — Generic Extraction Cascade**:
   1. Jina Reader (cloud markdown, research preset)
   2. Local Extraction (`curl_cffi` Chrome 124 JA3/JA4 TLS impersonation + Trafilatura / BS4 / Document converters)
@@ -42,10 +42,10 @@ Three-tier architecture with active resilience:
 | `summary_backend.py` | LLM backend router for summary generation |
 | `safe_fetch.py` | Safe HTTP fetch wrapper with content-type validation |
 | `jina_reader.py` | Jina Reader HTTP client |
-| `remote_clients.py` | Crawl4AI + Camoufox HTTP clients |
+| `remote_clients.py` | Crawl4AI + Camoufox + optional Apify HTTP clients |
 | `link_discovery.py` | Link extraction from pages |
 | `sitemap.py` | Tavily-only sitemap generation |
-| `resolvers/` | Specialized URL resolvers (Documents, PyPI, npm, HuggingFace, Crates.io, Unpaywall/DOI, Discourse, Reddit, GitHub, StackExchange, Wikipedia, arXiv, YouTube, Telegram, Wayback) |
+| `resolvers/` | Specialized URL resolvers (Documents, PyPI, npm, HuggingFace, Crates.io, Unpaywall/DOI, Discourse, Reddit, X/Twitter, GitHub, StackExchange, Wikipedia, arXiv, YouTube, Telegram, Wayback) |
 
 ## Rules
 

@@ -25,12 +25,12 @@ class ContractModel(BaseModel):
 
 
 class BranchRole(str, Enum):
-    ORIGINAL_FREE = "original_free"
-    PAID_BRAVE = "paid_brave"
-    PAID_GOOGLE = "paid_google"
-    PAID_OTHER = "paid_other"
-    NEURAL = "neural"
-    SPECIALIZED = "specialized"
+    ORIGINAL = "original"
+    FREE = "free"
+    SERP1 = "serp1"
+    SERP2 = "serp2"
+    SEMANTIC_TAVILY = "semantic_tavily"
+    SEMANTIC_EXA = "semantic_exa"
 
 
 class QueryBranch(ContractModel):

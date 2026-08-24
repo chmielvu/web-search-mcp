@@ -75,9 +75,6 @@ def web_search_specialized_gap_guidance(
 ) -> tuple[str, list[str]]:
     """Hints when results exist but specialized code hosts are missing."""
     intent_s = (intent or "").strip()
-    providers = {str(p).casefold() for p in providers_used}
-    specialized_code = {"github", "sourcegraph", "gitlab"}
-    has_specialized = bool(providers & specialized_code)
 
     urls = [str(r.get("link") or "") for r in results]
     titles = " ".join(str(r.get("title") or "") for r in results).casefold()
@@ -86,17 +83,19 @@ def web_search_specialized_gap_guidance(
     looks_coding = intent_s == "ai_coding_and_infrastructure" or any(
         tok in queryish for tok in ("github.com", "repo:", ".py", "sourcegraph", "pull request")
     )
-    # Also check result URLs for coding domains already present
+    # Public-code providers were removed from web_search; specialized-host
+    # evidence can now appear only via general-web result URLs.
     url_blob = " ".join(urls).casefold()
-    if "github.com" in url_blob or "gitlab.com" in url_blob:
-        has_specialized = True
+    has_specialized = "github.com" in url_blob or "gitlab.com" in url_blob
 
     tools: list[str] = []
     if looks_coding and not has_specialized:
         msg = (
             "No specialized code hosts in top results. "
-            "Call fetch on the best URLs, or narrow query with an explicit owner/repo."
+            "Call fetch on the best URLs, narrow the query with an explicit owner/repo, "
+            "or use the dedicated code_search tool for public source code."
         )
         tools.append("fetch")
+        tools.append("code_search")
         return msg, tools
     return "", tools

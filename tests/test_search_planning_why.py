@@ -28,20 +28,20 @@ class TestQueryBranchWhyContract(unittest.TestCase):
 
     def _expected_llm(self) -> dict[BranchRole, str]:
         return {
-            BranchRole.PAID_BRAVE: "LLM paid_brave",
-            BranchRole.PAID_GOOGLE: "LLM paid_google",
-            BranchRole.PAID_OTHER: "LLM paid_other",
-            BranchRole.NEURAL: "LLM neural",
-            BranchRole.SPECIALIZED: "LLM specialized",
+            BranchRole.FREE: "LLM free",
+            BranchRole.SERP1: "LLM serp1",
+            BranchRole.SERP2: "LLM serp2",
+            BranchRole.SEMANTIC_TAVILY: "LLM semantic_tavily",
+            BranchRole.SEMANTIC_EXA: "LLM semantic_exa",
         }
 
     def _expected_deterministic(self) -> dict[BranchRole, str]:
         return {
-            BranchRole.PAID_BRAVE: "deterministic Brave query",
-            BranchRole.PAID_GOOGLE: "deterministic Google query",
-            BranchRole.PAID_OTHER: "deterministic paid-other query",
-            BranchRole.NEURAL: "deterministic neural query",
-            BranchRole.SPECIALIZED: "deterministic specialized query",
+            BranchRole.FREE: "deterministic free query",
+            BranchRole.SERP1: "deterministic SERP1 query",
+            BranchRole.SERP2: "deterministic SERP2 query",
+            BranchRole.SEMANTIC_TAVILY: "deterministic semantic Tavily query",
+            BranchRole.SEMANTIC_EXA: "deterministic semantic Exa query",
         }
 
     def test_use_llm_why_is_false_when_rewrite_disabled(self) -> None:

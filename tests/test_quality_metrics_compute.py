@@ -73,7 +73,7 @@ class TestComputeSearchQuality:
             insert_search_branches(
                 run_key=run_key,
                 branch_index=0,
-                branch_role="original_free",
+                branch_role="original",
                 branch_query="test query",
                 branch_why="primary branch",
                 support_terms=[],
@@ -88,7 +88,7 @@ class TestComputeSearchQuality:
             insert_search_branches(
                 run_key=run_key,
                 branch_index=1,
-                branch_role="neural",
+                branch_role="semantic_tavily",
                 branch_query="test query rephrased",
                 branch_why="secondary branch",
                 support_terms=[],

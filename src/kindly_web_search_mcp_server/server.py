@@ -315,7 +315,6 @@ mcp.add_middleware(
             "youtube_channel_transcription",
             "generate_sitemap",
             "academic_search",
-            "code_search",
             "code_fetch",
             "quick_web_search",
             "composio_similarlinks",

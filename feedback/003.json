@@ -1,0 +1,13 @@
+{
+  "id": "003",
+  "type": "bug",
+  "status": "open",
+  "message": "Tool 'web_search' (mcp__web_search_mcp_web_search) consistently errors with generic 'Error: Error calling tool web_search' via MCP, and reproduces as CLI 'uv run web-search-cli search web' with exit_code=12, IndexError: tuple index out of range. quick_web_search and gemini_search paths work. Likely a provider-merging / result-tuple unpacking regression on the multi-provider web_search aggregation path. Env: duckdb analytics locked by PID 3240 (separate issue). Verified on 2026-08-23, 4 attempts, 0% success.",
+  "context": {
+    "version": "0.1.8",
+    "command": "web-search-cli",
+    "exit_code": 0
+  },
+  "created_at": "2026-08-23T06:18:08Z",
+  "updated_at": "2026-08-23T06:18:08Z"
+}

@@ -28,6 +28,7 @@ async def search_ddg(
     *,
     num_results: int,
     http_client: Any = None,  # Not used, ddgs has its own client
+    **kwargs: Any,
 ) -> list[WebSearchResult]:
     """Search DuckDuckGo using ddgs library.
 
@@ -37,6 +38,9 @@ async def search_ddg(
         query: Search query string
         num_results: Maximum results to return
         http_client: Ignored (ddgs uses its own HTTP client)
+        **kwargs: Intent-driven provider arguments (category="news" uses the
+            ddgs news backend; backend selects ddgs engines, e.g.
+            "grokipedia,wikipedia" or "duckduckgo,yahoo,yandex,brave").
 
     Returns:
         List of WebSearchResult objects from DuckDuckGo
@@ -47,6 +51,10 @@ async def search_ddg(
     if num_results < 1:
         return []
 
+    category = str(kwargs.get("category") or "text")
+    backend = kwargs.get("backend")
+    backend_str = str(backend) if backend else None
+
     return await run_clientless_provider(
         "ddg",
         query,
@@ -55,31 +63,55 @@ async def search_ddg(
             _search_ddg_sync,
             query,
             num_results,
+            category=category,
+            backend=backend_str,
         ),
         parse_response=lambda results: results,
     )
 
 
-def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
+def _search_ddg_sync(
+    query: str,
+    num_results: int,
+    *,
+    category: str = "text",
+    backend: str | None = None,
+) -> list[WebSearchResult]:
     """Synchronous DDG search (wrapped in thread pool).
 
     Args:
         query: Search query string
         num_results: Maximum results to return
+        category: ddgs category: "text" (default) or "news".
+        backend: ddgs backend/engine list, e.g. "duckduckgo,yahoo,yandex,brave"
+            or "grokipedia,wikipedia". Defaults: "duckduckgo" for text,
+            "auto" for news (bing/duckduckgo/yahoo).
 
     Returns:
         List of WebSearchResult objects
     """
     from ddgs import DDGS
 
+    is_news = category == "news"
+    if backend is None:
+        backend = "auto" if is_news else "duckduckgo"
+
     results: list[WebSearchResult] = []
 
     with DDGS(timeout=settings.search_retrieve_budget_seconds) as ddgs:
         try:
-            raw_results = ddgs.text(
-                query,
-                max_results=num_results,
-            )
+            if is_news:
+                raw_results = ddgs.news(
+                    query,
+                    max_results=num_results,
+                    backend=backend,
+                )
+            else:
+                raw_results = ddgs.text(
+                    query,
+                    max_results=num_results,
+                    backend=backend,
+                )
         except Exception as exc:
             if "No results found" in str(exc):
                 LOGGER.debug("DDG returned no results for query=%r", query)
@@ -103,12 +135,25 @@ def _search_ddg_sync(query: str, num_results: int) -> list[WebSearchResult]:
 
             link_str = link.strip()
             domain = extract_domain_from_url(link_str)
+
+            published_date = item.get("date") or item.get("published")
+            source = item.get("source") or item.get("source_engines")
+            source_engines = None
+            if isinstance(source, str) and source.strip():
+                source_engines = [source.strip()]
+            elif isinstance(source, list):
+                source_engines = [
+                    str(s) for s in source if isinstance(s, str) and s.strip()
+                ] or None
+
             results.append(
                 WebSearchResult(
                     title=title.strip(),
                     link=link_str,
                     snippet=snippet.strip(),
                     domain=domain,
+                    published_date=str(published_date) if published_date else None,
+                    source_engines=source_engines,
                     providers=["ddg"],
                 )
             )

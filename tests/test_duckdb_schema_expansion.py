@@ -62,10 +62,15 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
             "content_fetches",
             "content_summaries",
             "content_summary_attempts",
+            "graph_feedback_generations",
+            "graph_query_neighbors",
+            "graph_result_features",
         }
 
         for table in expected_new_tables:
-            self.assertIn(table, tables, f"Expected table {table} was not created by ensure_store_schema")
+            self.assertIn(
+                table, tables, f"Expected table {table} was not created by ensure_store_schema"
+            )
 
     def test_quick_web_search_persistence_and_views(self) -> None:
         ensure_store_schema(db_path=str(self.db_path))
@@ -218,10 +223,14 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         self.assertEqual(perf_row[2], 1)
         self.assertEqual(perf_row[3], 4.0)
         self.assertEqual(perf_row[4], 620.0)
-        fallbacks = con.execute("SELECT terminal_event_id, final_model_used, fallback_occurred FROM vw_gemini_search_fallbacks").fetchall()
+        fallbacks = con.execute(
+            "SELECT terminal_event_id, final_model_used, fallback_occurred FROM vw_gemini_search_fallbacks"
+        ).fetchall()
         self.assertEqual(len(fallbacks), 1)
 
-        sources = con.execute("SELECT source_kind, domain, total_sources FROM vw_gemini_search_sources ORDER BY source_kind").fetchall()
+        sources = con.execute(
+            "SELECT source_kind, domain, total_sources FROM vw_gemini_search_sources ORDER BY source_kind"
+        ).fetchall()
         self.assertEqual(len(sources), 2)
         con.close()
 
@@ -337,7 +346,11 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
                 "snippet": "@mcp.tool()\ndef search(): pass",
                 "published_date": "2026-02-01",
                 "final_score": 0.95,
-                "score_components": {"exact_symbol": 0.5, "symbol_match": 0.3, "path_relevance": 0.15},
+                "score_components": {
+                    "exact_symbol": 0.5,
+                    "symbol_match": 0.3,
+                    "path_relevance": 0.15,
+                },
                 "reasons": ["exact symbol match"],
                 "hydrated": True,
                 "hydrated_source_truncated": False,
@@ -370,7 +383,11 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
                 "snippet": "class ToolRegistry: pass",
                 "published_date": "2026-02-01",
                 "final_score": 0.82,
-                "score_components": {"exact_symbol": 0.3, "symbol_match": 0.4, "path_relevance": 0.12},
+                "score_components": {
+                    "exact_symbol": 0.3,
+                    "symbol_match": 0.4,
+                    "path_relevance": 0.12,
+                },
                 "reasons": ["symbol match"],
                 "hydrated": False,
                 "hydrated_source_truncated": False,
@@ -473,27 +490,41 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         ensure_views(db_path=str(self.db_path))
 
         con = duckdb.connect(str(self.db_path), read_only=True)
-        yield_rows = con.execute("SELECT provider, outcome, total_responses, total_hits_returned FROM vw_code_search_provider_yield ORDER BY provider").fetchall()
+        yield_rows = con.execute(
+            "SELECT provider, outcome, total_responses, total_hits_returned FROM vw_code_search_provider_yield ORDER BY provider"
+        ).fetchall()
         self.assertEqual(len(yield_rows), 2)
         self.assertEqual(yield_rows[0][0], "github")
         self.assertEqual(yield_rows[0][3], 5)
 
-        hit_sources = con.execute("SELECT provider, total_hits, hydrated_hits, avg_final_score FROM vw_code_search_hit_sources ORDER BY provider").fetchall()
+        hit_sources = con.execute(
+            "SELECT provider, total_hits, hydrated_hits, avg_final_score FROM vw_code_search_hit_sources ORDER BY provider"
+        ).fetchall()
         self.assertEqual(len(hit_sources), 2)
 
-        variants = con.execute("SELECT query_variant, provider, runs_with_variant_hit, total_associated_hits FROM vw_code_search_variant_effectiveness").fetchall()
+        variants = con.execute(
+            "SELECT query_variant, provider, runs_with_variant_hit, total_associated_hits FROM vw_code_search_variant_effectiveness"
+        ).fetchall()
         self.assertEqual(len(variants), 1)
 
-        rerank = con.execute("SELECT provider, status, total_executions, total_input_hits, total_output_hits FROM vw_code_search_rerank_execution").fetchall()
+        rerank = con.execute(
+            "SELECT provider, status, total_executions, total_input_hits, total_output_hits FROM vw_code_search_rerank_execution"
+        ).fetchall()
         self.assertEqual(len(rerank), 1)
 
-        diags = con.execute("SELECT provider, outcome, failure_kind, diagnostic_count FROM vw_code_search_diagnostic_patterns").fetchall()
+        diags = con.execute(
+            "SELECT provider, outcome, failure_kind, diagnostic_count FROM vw_code_search_diagnostic_patterns"
+        ).fetchall()
         self.assertEqual(len(diags), 1)
 
-        repos = con.execute("SELECT language, verified, discovered_repo_count, avg_stars FROM vw_code_search_repository_discovery").fetchall()
+        repos = con.execute(
+            "SELECT language, verified, discovered_repo_count, avg_stars FROM vw_code_search_repository_discovery"
+        ).fetchall()
         self.assertEqual(len(repos), 1)
 
-        scores = con.execute("SELECT provider, hit_count, avg_final_score, avg_exact_symbol_score FROM vw_code_search_score_component_distribution ORDER BY provider").fetchall()
+        scores = con.execute(
+            "SELECT provider, hit_count, avg_final_score, avg_exact_symbol_score FROM vw_code_search_score_component_distribution ORDER BY provider"
+        ).fetchall()
         self.assertEqual(len(scores), 2)
         con.close()
 
@@ -600,17 +631,25 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         self.assertEqual(summary_signals[0], "gemini-3.5-flash-lite")
         self.assertEqual(summary_signals[2], 1)
         self.assertEqual(summary_signals[4], 5.0)
-        batch_vs_single = con.execute("SELECT tool_name, is_batch, total_operations, total_summary_items FROM vw_content_summary_batch_vs_single").fetchall()
+        batch_vs_single = con.execute(
+            "SELECT tool_name, is_batch, total_operations, total_summary_items FROM vw_content_summary_batch_vs_single"
+        ).fetchall()
         self.assertEqual(len(batch_vs_single), 1)
 
-        fallbacks = con.execute("SELECT terminal_event_id, backend, fallback_attempted FROM vw_content_summary_fallbacks").fetchall()
+        fallbacks = con.execute(
+            "SELECT terminal_event_id, backend, fallback_attempted FROM vw_content_summary_fallbacks"
+        ).fetchall()
         self.assertEqual(len(fallbacks), 1)
 
-        focus = con.execute("SELECT focus_mode, is_batch, total_summaries FROM vw_content_summary_focus_comparison").fetchall()
+        focus = con.execute(
+            "SELECT focus_mode, is_batch, total_summaries FROM vw_content_summary_focus_comparison"
+        ).fetchall()
         self.assertEqual(len(focus), 1)
         self.assertEqual(focus[0][0], "focused")
 
-        tokens = con.execute("SELECT backend, total_summaries, known_input_tokens, known_output_tokens, known_total_tokens FROM vw_content_summary_daily_tokens").fetchone()
+        tokens = con.execute(
+            "SELECT backend, total_summaries, known_input_tokens, known_output_tokens, known_total_tokens FROM vw_content_summary_daily_tokens"
+        ).fetchone()
         self.assertIsNotNone(tokens)
         assert tokens is not None
         self.assertEqual(tokens[2], 3000)
@@ -673,7 +712,15 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
                 tool_call_id="tool-qws-999",
                 search_queries=["parallel ai search"],
                 objective="Quick recon",
-                citations=[{"title": "Parallel", "url": "https://parallel.ai", "snippet": "Parallel AI", "publish_date": "2026-01-01", "excerpts": ["AI"]}],
+                citations=[
+                    {
+                        "title": "Parallel",
+                        "url": "https://parallel.ai",
+                        "snippet": "Parallel AI",
+                        "publish_date": "2026-01-01",
+                        "excerpts": ["AI"],
+                    }
+                ],
                 total_citations=1,
                 duration_ms=210.0,
             )
@@ -730,28 +777,36 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         event_by_tool = {row[1]: (row[0], row[2]) for row in tc_rows}
 
         # Check quick search terminal_event_id
-        qws_row = con.execute("SELECT terminal_event_id, tool_call_id FROM quick_web_search_runs").fetchone()
+        qws_row = con.execute(
+            "SELECT terminal_event_id, tool_call_id FROM quick_web_search_runs"
+        ).fetchone()
         self.assertIsNotNone(qws_row)
         assert qws_row is not None
         self.assertEqual(qws_row[0], event_by_tool["quick_web_search"][0])
         self.assertEqual(qws_row[1], event_by_tool["quick_web_search"][1])
 
         # Check gemini search terminal_event_id
-        gsr_row = con.execute("SELECT terminal_event_id, tool_call_id FROM gemini_search_runs").fetchone()
+        gsr_row = con.execute(
+            "SELECT terminal_event_id, tool_call_id FROM gemini_search_runs"
+        ).fetchone()
         self.assertIsNotNone(gsr_row)
         assert gsr_row is not None
         self.assertEqual(gsr_row[0], event_by_tool["gemini_search"][0])
         self.assertEqual(gsr_row[1], event_by_tool["gemini_search"][1])
 
         # Check content operation terminal_event_id
-        co_row = con.execute("SELECT terminal_event_id, tool_call_id FROM content_operations").fetchone()
+        co_row = con.execute(
+            "SELECT terminal_event_id, tool_call_id FROM content_operations"
+        ).fetchone()
         self.assertIsNotNone(co_row)
         assert co_row is not None
         self.assertEqual(co_row[0], event_by_tool["fetch"][0])
         self.assertEqual(co_row[1], event_by_tool["fetch"][1])
 
         # Check code search run terminal_event_id
-        csr_row = con.execute("SELECT terminal_event_id, tool_call_id FROM code_search_runs").fetchone()
+        csr_row = con.execute(
+            "SELECT terminal_event_id, tool_call_id FROM code_search_runs"
+        ).fetchone()
         self.assertIsNotNone(csr_row)
         assert csr_row is not None
         self.assertEqual(csr_row[0], event_by_tool["code_search"][0])
@@ -769,12 +824,22 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         self.assertIn("content-fetch-performance", reports)
         self.assertIn("content-summary-output-signals", reports)
 
-        for rep in ("tool-call-coverage", "quick-search-performance", "gemini-search-performance", "code-search-provider-yield", "code-search-hit-sources", "content-fetch-performance", "content-summary-output-signals"):
+        for rep in (
+            "tool-call-coverage",
+            "quick-search-performance",
+            "gemini-search-performance",
+            "code-search-provider-yield",
+            "code-search-hit-sources",
+            "content-fetch-performance",
+            "content-summary-output-signals",
+        ):
             table = run_report(rep, days=7, db_path=str(self.db_path))
             self.assertIsNotNone(table)
 
         # Test query plans
-        q_code = build_analytics_query_plan("how is code search performing across grepapp and sourcegraph?")
+        q_code = build_analytics_query_plan(
+            "how is code search performing across grepapp and sourcegraph?"
+        )
         self.assertEqual(q_code.rationale, "code_search")
 
         q_quick = build_analytics_query_plan("show quick search citations and latency")
@@ -783,7 +848,9 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
         q_gemini = build_analytics_query_plan("what are the gemini grounding queries and tokens?")
         self.assertEqual(q_gemini.rationale, "gemini_search")
 
-        q_content = build_analytics_query_plan("what are the summary tokens and content fetch backends?")
+        q_content = build_analytics_query_plan(
+            "what are the summary tokens and content fetch backends?"
+        )
         self.assertEqual(q_content.rationale, "content_summaries")
 
         q_cov = build_analytics_query_plan("show cross tool call coverage and linkage")

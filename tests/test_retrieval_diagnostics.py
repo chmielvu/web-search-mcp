@@ -15,7 +15,7 @@ from kindly_web_search_mcp_server.search.retrieval import _record_provider_resul
 
 def _branch() -> QueryBranch:
     return QueryBranch(
-        role=BranchRole.SPECIALIZED,
+        role=BranchRole.SEMANTIC_EXA,
         query="repo:acme/demo needle",
         provider_names=("gitlab",),
         max_results=5,

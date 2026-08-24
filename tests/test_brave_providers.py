@@ -1,4 +1,4 @@
-"""Contract tests for Brave LLM Context and Brave News providers."""
+"""Contract tests for the Brave LLM Context provider."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ import pytest
 from kindly_web_search_mcp_server.search.providers.brave import search_brave
 from kindly_web_search_mcp_server.search.providers.brave_common import (
     BRAVE_LLM_CONTEXT_URL,
-    BRAVE_NEWS_URL,
     BraveConfigError,
 )
-from kindly_web_search_mcp_server.search.providers.brave_news import search_brave_news
 
 
 def _run(coro):
@@ -94,57 +92,3 @@ def test_search_brave_requires_standard_api_key(monkeypatch) -> None:
     _run(run())
 
 
-def test_search_brave_news_maps_page_age_and_freshness(monkeypatch) -> None:
-    monkeypatch.setenv("BRAVE_API_KEY", "test-brave-key")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path.endswith("/res/v1/news/search")
-        assert request.url.params.get("freshness") == "pw"
-        return httpx.Response(
-            200,
-            json={
-                "results": [
-                    {
-                        "type": "news_result",
-                        "title": "Headline",
-                        "url": "https://news.example.com/1",
-                        "description": "Lead",
-                        "page_age": "2026-07-10T08:00:00Z",
-                    }
-                ]
-            },
-        )
-
-    async def run() -> None:
-        client = _mock_client(handler)
-        results = await search_brave_news(
-            "openai",
-            num_results=3,
-            freshness="week",
-            http_client=client,
-        )
-        await client.aclose()
-        assert len(results) == 1
-        assert results[0].title == "Headline"
-        assert results[0].published_date == "2026-07-10T08:00:00Z"
-        assert results[0].link == "https://news.example.com/1"
-
-    _run(run())
-
-
-def test_search_brave_news_uses_news_endpoint(monkeypatch) -> None:
-    monkeypatch.setenv("BRAVE_API_KEY", "test-brave-key")
-
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(str(request.url))
-        return httpx.Response(200, json={"results": []})
-
-    async def run() -> None:
-        client = _mock_client(handler)
-        await search_brave_news("test", num_results=1, http_client=client)
-        await client.aclose()
-        assert seen[0].startswith(BRAVE_NEWS_URL)
-
-    _run(run())

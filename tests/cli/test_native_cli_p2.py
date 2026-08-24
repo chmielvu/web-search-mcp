@@ -14,7 +14,6 @@ from kindly_web_search_mcp_server.cli.services.search_runs import (
 )
 
 
-
 def test_search_web_service_returns_run_key(monkeypatch) -> None:
     class _Response:
         def model_dump(self, **_: object) -> dict:
@@ -103,7 +102,7 @@ def _seed_run_database(path: Path) -> None:
         connection.execute(
             """
             INSERT INTO provider_calls VALUES
-            ('run-1', 0, 'original_free', 'a', 'error', 0, 5.0, 'timeout', 504, 'timeout', 2.0, true, CURRENT_TIMESTAMP)
+            ('run-1', 0, 'original', 'a', 'error', 0, 5.0, 'timeout', 504, 'timeout', 2.0, true, CURRENT_TIMESTAMP)
             """
         )
         connection.execute(

@@ -33,9 +33,8 @@ _genai_module: Any | None = None
 _genai_types: Any | None = None
 
 GEMINI_GROUNDING_TIER = [
-    "gemini-3.1-flash-lite",  # PRIMARY — Gemini 3.x grounding + structured output
-    "gemini-2.5-flash",  # FAST FALLBACK — best 2.x grounding quality
-    "gemini-2.5-flash-lite",  # LAST-RESORT FALLBACK
+    "gemini-2.5-flash",  # PRIMARY — best 2.5 grounding quality
+    "gemini-2.5-flash-lite",  # FALLBACK — fast 2.5 flash lite
 ]
 
 

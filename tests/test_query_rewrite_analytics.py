@@ -21,8 +21,8 @@ class TestQueryRewriteAnalytics:
 
         run_key = "run-1"
         branches = [
-            (0, "original_free", "original query"),
-            (1, "paid_brave", "expanded query"),
+            (0, "original", "original query"),
+            (1, "free", "expanded query"),
         ]
         for branch_index, branch_role, branch_query in branches:
             insert_search_branches(
@@ -50,7 +50,7 @@ class TestQueryRewriteAnalytics:
                     "variant_id": "variant-0",
                     "run_key": run_key,
                     "variant_order": 0,
-                    "variant_role": "original_free",
+                    "variant_role": "original",
                     "query_text": "original query",
                     "branch_id": "branch-0",
                     "selected": True,
@@ -61,7 +61,7 @@ class TestQueryRewriteAnalytics:
                     "variant_id": "variant-1",
                     "run_key": run_key,
                     "variant_order": 1,
-                    "variant_role": "paid_brave",
+                    "variant_role": "free",
                     "query_text": "expanded query",
                     "branch_id": "branch-1",
                     "selected": True,
@@ -109,7 +109,7 @@ class TestQueryRewriteAnalytics:
                     "run_key": run_key,
                     "branch_id": "branch-1",
                     "branch_index": 1,
-                    "branch_role": "paid_brave",
+                    "branch_role": "free",
                     "provider": "provider-a",
                     "provider_call_id": "call-1",
                     "original_query": "expanded query",
@@ -128,8 +128,8 @@ class TestQueryRewriteAnalytics:
                 "SELECT variant_role, branch_id, executed, skip_reason "
                 "FROM query_variants ORDER BY variant_order"
             ).fetchall() == [
-                ("original_free", "branch-0", True, None),
-                ("paid_brave", "branch-1", True, None),
+                ("original", "branch-0", True, None),
+                ("free", "branch-1", True, None),
             ]
             transform = con.execute(
                 "SELECT original_query, shaped_query, changed, rules_applied, metadata_json "
@@ -146,8 +146,62 @@ class TestQueryRewriteAnalytics:
                 "SELECT variant_role, branches, discovered_unique "
                 "FROM vw_rewrite_value ORDER BY variant_role"
             ).fetchall() == [
-                ("original_free", 1, 1),
-                ("paid_brave", 1, 1),
+                ("free", 1, 1),
+                ("original", 1, 1),
             ]
+        finally:
+            con.close()
+
+    def test_schema_bootstrap_migrates_legacy_branch_role_values(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "legacy-roles.duckdb"
+        ensure_store_schema(db_path=str(db_path))
+        con = duckdb.connect(str(db_path))
+        try:
+            con.execute(
+                """
+                INSERT INTO search_branches (run_key, branch_index, branch_role, branch_query)
+                VALUES ('legacy-run', 0, 'original_free', 'query')
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO provider_calls (run_key, branch_role, provider, status)
+                VALUES ('legacy-run', 'paid_brave', 'brave', 'success')
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO query_variants
+                    (variant_id, run_key, variant_order, variant_role, query_text)
+                VALUES ('legacy-variant', 'legacy-run', 0, 'neural', 'query')
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO query_transforms
+                    (transform_id, run_key, branch_id, branch_index, branch_role,
+                     provider, provider_call_id, original_query, shaped_query, changed)
+                VALUES ('legacy-transform', 'legacy-run', 'legacy-branch', 0,
+                        'specialized', 'exa', 'legacy-call', 'query', 'query', false)
+                """
+            )
+        finally:
+            con.close()
+
+        ensure_store_schema(db_path=str(db_path))
+        con = duckdb.connect(str(db_path), read_only=True)
+        try:
+            assert con.execute(
+                "SELECT branch_role FROM search_branches WHERE run_key = 'legacy-run'"
+            ).fetchone() == ("original",)
+            assert con.execute(
+                "SELECT branch_role FROM provider_calls WHERE run_key = 'legacy-run'"
+            ).fetchone() == ("free",)
+            assert con.execute(
+                "SELECT variant_role FROM query_variants WHERE run_key = 'legacy-run'"
+            ).fetchone() == ("semantic_tavily",)
+            assert con.execute(
+                "SELECT branch_role FROM query_transforms WHERE run_key = 'legacy-run'"
+            ).fetchone() == ("semantic_exa",)
         finally:
             con.close()

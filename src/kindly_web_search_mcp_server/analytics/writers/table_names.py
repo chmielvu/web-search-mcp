@@ -77,6 +77,11 @@ _TOI_TABLE_NAME = "tool_output_items"
 _RL_TABLE_NAME = "result_labels"
 _RESULT_LABELS_TABLE_NAME = "result_labels"
 
+# Graph feedback tables
+_GFG_TABLE_NAME = "graph_feedback_generations"
+_GQN_TABLE_NAME = "graph_query_neighbors"
+_GRF_TABLE_NAME = "graph_result_features"
+
 __all__ = [
     "_RUNS_TABLE_NAME",
     "_SB_TABLE_NAME",
@@ -127,4 +132,7 @@ __all__ = [
     "_TOI_TABLE_NAME",
     "_RL_TABLE_NAME",
     "_RESULT_LABELS_TABLE_NAME",
+    "_GFG_TABLE_NAME",
+    "_GQN_TABLE_NAME",
+    "_GRF_TABLE_NAME",
 ]

@@ -122,7 +122,7 @@ async def search_qdrant(
         return []
 
     async def _request() -> list[WebSearchResult]:
-        dense_embedding = query_embedding
+        dense_embedding = list(query_embedding) if query_embedding is not None else None
         if dense_embedding is None:
             dense_embedding = await _embed_qdrant_query(
                 query,
@@ -150,7 +150,7 @@ async def search_qdrant(
             )
 
             result = await client.query_points(
-                collection_name="web_results",
+                collection_name="web_results_786d",
                 prefetch=[
                     models.Prefetch(
                         query=dense_embedding,

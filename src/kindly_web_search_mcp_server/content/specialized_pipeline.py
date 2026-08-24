@@ -49,6 +49,7 @@ from .resolvers.reddit import (
 )
 from .resolvers.stackexchange import fetch_stackexchange_thread_markdown, parse_stackexchange_url
 from .resolvers.telegram import TelegramContentError, fetch_telegram_markdown, parse_telegram_url
+from .resolvers.twitter import fetch_twitter_markdown, parse_twitter_url
 from .resolvers.unpaywall import fetch_doi_paper_markdown, parse_doi_url
 from .resolvers.wikipedia import fetch_wikipedia_article_markdown, parse_wikipedia_url
 from .resolvers.youtube import (
@@ -268,6 +269,16 @@ async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | N
         parser=parse_reddit_url,
         fetcher=fetch_reddit_thread_markdown,
         source_type="reddit",
+    )
+    if specialized is not None:
+        return specialized
+
+    # X/Twitter (Apify-backed; inert unless APIFY_API_TOKEN is configured)
+    specialized = await _maybe_specialized(
+        url,
+        parser=parse_twitter_url,
+        fetcher=fetch_twitter_markdown,
+        source_type="twitter",
     )
     if specialized is not None:
         return specialized

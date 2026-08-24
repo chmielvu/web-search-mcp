@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added — Exa web_search intent tuning + capability wiring
+- Added per-intent Exa provider arguments in `search/intent_policy.py`: `type: auto` across intents, `category: publication` for `digital_humanities`, `category: personal site` for `social_media`, and `category: news` + `freshness: week` for `news`.
+- Extended `search/providers/exa.py`: `freshness` → `startPublishedDate` translation (day/week/month/year), expanded kwargs allowlist (`startPublishedDate`, `endPublishedDate`, and `maxAgeHours`/`livecrawlTimeout` merged into the nested `contents` object), strict rejection of unknown provider arguments, debug logging of `requestId`/`costDollars`, and `moderation: true` by default (override via provider arguments — behavior change).
+- Added adapter contract tests in `tests/test_exa_provider.py` and per-intent policy assertions in `tests/test_intent_policy.py`.
+
+### Added — P2 Graph Feedback Loop (NetworkX + DuckDB)
+- Added direct runtime dependencies `networkx>=3.5,<4` and `scipy>=1.17,<2` to support `nx.bipartite.birank` and `nx.adamic_adar_index`.
+- Added offline label materializer in `src/kindly_web_search_mcp_server/analytics/feedback_labels.py` parsing `llm_judgments` into `result_labels` with exact-link / canonical-URL resolution and zero-based position mapping.
+- Added immutable DuckDB graph storage: `graph_feedback_generations`, `graph_query_neighbors`, and `graph_result_features` with bootstrap ensure wiring.
+- Implemented offline graph build/publish/loader in `src/kindly_web_search_mcp_server/analytics/graph_feedback.py` computing document-side BiRank, PageRank, weighted degree, and projected query-pair Adamic-Adar scores with minimum shared document thresholds.
+- Added planner related-seed consumer in `src/kindly_web_search_mcp_server/search/graph_expansion.py` and wired into `search/planning.py::plan_search` and `search/outcomes.py` via `GRAPH_EXPANSION_ENABLED` process/env flags with bounded metadata persistence.
+- Added comprehensive unit and integration test coverage across `tests/test_feedback_labels.py`, `tests/test_graph_feedback.py`, and `tests/test_search_graph_expansion.py`.
+
+### Fixed — `web_search` IndexError and Gemini Grounding Tier configuration
+- Fixed `IndexError: tuple index out of range` in `specialized_fallback_query` (`src/kindly_web_search_mcp_server/heuristics/augment.py:259`) by adding an empty check on `features.segmented_variants`.
+- Configured `GEMINI_GROUNDING_TIER` in `src/kindly_web_search_mcp_server/search/gemini_search_tool.py` to use exclusively `gemini-2.5-flash` (primary) and `gemini-2.5-flash-lite` (fallback).
+
 ### Added — Extended fetch format coverage
 - Declared `markitdown[docx,pptx,xlsx,xls]`, `striprtf`, and `defusedxml` explicitly; Office conversion now rejects invalid containers and reports dependency/conversion failures instead of returning placeholder success.
 - Added bounded structured rendering for JSONL, YAML, and TOML; subtitle rendering for VTT/SRT; safe RTF, SVG, and MHTML extraction; and schema/sample rendering for Parquet, Arrow IPC, and Feather.
@@ -636,7 +653,7 @@
 - **Search import path cleaned up** — removed stale `task_scope` references from live provider code and tests, kept the branch executor on direct `asyncio` primitives, and made BrightData Bing cancellation re-raise instead of returning an empty result list.
 - **DuckDB now logs which reranker was actually used** — `search_runs` table has new `reranker_provider` and `reranker_model` columns. `RerankOutput` carries `provider`/`model` through the pipeline so the final chosen reranker (including fallback winners like `voyage` or `groq`) is recorded per run.
 - **Search provider connect timeouts fixed** — `base_provider.py` now uses `httpx.Timeout(connect=5.0, read=25.0)` instead of a single 30s total timeout. Dead/unreachable providers (like `search_router`) fail fast at ~5s instead of hanging for 54s on TCP SYN retransmissions.
-- **DuckDuckGo provider timeout now configurable** — `ddg_timeout_seconds` setting (env: `DDG_TIMEOUT_SECONDS`, default `10`) controls `DDGS(timeout=...)`. Previously hardcoded to 10s.
+- **DuckDuckGo provider timeout follows the retrieve budget** — `DDGS(timeout=...)` now uses `settings.search_retrieve_budget_seconds` (env: `SEARCH_RETRIEVE_BUDGET_SECONDS`, default `20`) like the other clientless providers; the earlier dedicated `ddg_timeout_seconds`/`DDG_TIMEOUT_SECONDS` setting was removed.
 - Disabled the Google CSE provider registration so the search stack no longer routes live traffic through a Google Custom Search path that is blocked for this project.
 - Redacted Google CSE 403s so `API_KEY_SERVICE_BLOCKED` now reports a clear Google Cloud authorization message instead of leaking the raw request URL.
 - Switched both the Composio `web_search` provider path and `quick_web_search` to execute `COMPOSIO_SEARCH_TAVILY`, the live-working Composio Search action, and updated quick-search parsing for Tavily's `answer` plus `results` response shape.

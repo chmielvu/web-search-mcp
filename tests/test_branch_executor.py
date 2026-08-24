@@ -49,7 +49,7 @@ def _result(provider: str, title: str, snippet: str = "snippet") -> WebSearchRes
     )
 
 
-def _branch(*providers: str, role: BranchRole = BranchRole.ORIGINAL_FREE) -> QueryBranch:
+def _branch(*providers: str, role: BranchRole = BranchRole.ORIGINAL) -> QueryBranch:
     return QueryBranch(
         role=role,
         query="legacy branch executor contract",

@@ -49,7 +49,9 @@ async def test_run_provider_retries_429_honoring_retry_after() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(1)
         if len(calls) == 1:
-            response = httpx.Response(429, headers={"Retry-After": "0.05"}, json={"error": "slow down"})
+            response = httpx.Response(
+                429, headers={"Retry-After": "0.05"}, json={"error": "slow down"}
+            )
         else:
             response = httpx.Response(200, json={"ok": True})
         response.request = request
@@ -193,6 +195,7 @@ async def test_run_provider_does_not_retry_auth_failure() -> None:
 async def test_run_provider_merges_provider_raised_metadata() -> None:
     """Provider-raised ProviderRequestError metadata (e.g. SearxngError) is
     merged back into the request context so retrieval sees http_status."""
+
     class _ProbeError(ProviderRequestError):
         pass
 
@@ -273,7 +276,7 @@ async def test_run_clientless_provider_classifies_rate_limit() -> None:
 
 def _branch(*providers: str) -> QueryBranch:
     return QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="probe query",
         provider_names=providers,
         why="",
@@ -395,9 +398,6 @@ def test_catalog_carries_resilience_metadata() -> None:
         definition = PROVIDER_DEFINITIONS[name]
         assert definition.max_retries >= 1, name
         assert definition.cooldown_seconds is not None, name
-
-    # Telegram flood control is adapter-owned; the pipeline never retries it.
-    assert PROVIDER_DEFINITIONS["telegram"].max_retries == 0
 
     # Caps, when set, are positive and do not exceed the global budget by fiat.
     for definition in PROVIDER_DEFINITIONS_LIST:

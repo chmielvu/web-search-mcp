@@ -48,8 +48,8 @@ def _normalize_mode(mode: str) -> str:
     normalized = (mode or "code").strip().casefold()
     aliases = {"hf": "huggingface", "hf_semantic": "huggingface"}
     normalized = aliases.get(normalized, normalized)
-    if normalized not in {"code", "docs", "discovery", *_HUGGINGFACE_MODES}:
-        raise ValueError("mode must be one of: code, docs, discovery, huggingface.")
+    if normalized not in {"code", "docs", "discovery", "issues", *_HUGGINGFACE_MODES}:
+        raise ValueError("mode must be one of: code, docs, discovery, issues, huggingface.")
     return normalized
 
 
@@ -261,8 +261,9 @@ async def code_search(
         Field(
             description=(
                 "Search mode: 'code' (default, find source code and implementations), "
-                "'docs' (documentation and API references), or 'discovery' "
-                "(find repositories and projects implementing the requested idea)."
+                "'docs' (documentation and API references), 'discovery' "
+                "(find repositories and projects implementing the requested idea), or "
+                "'issues' (search GitHub Issues and Discussions; requires GITHUB_TOKEN)."
             )
         ),
     ] = "code",
@@ -309,6 +310,7 @@ async def code_search(
       * `code`: Default mode for concrete implementations and code definitions.
       * `docs`: Focuses on API reference documentation and library tutorials.
       * `discovery`: Finds active repositories, stars, and implementations.
+      * `issues`: Searches GitHub Issues and Discussions (requires GITHUB_TOKEN).
       * `huggingface`: Searches semantic model and dataset cards through the Hub API.
 
     Returns grouped results (Octocode-style): repository → files → text_matches,

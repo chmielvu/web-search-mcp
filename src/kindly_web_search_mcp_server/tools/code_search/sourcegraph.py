@@ -256,7 +256,7 @@ def _parse_payload(
         match_spans: list[dict[str, Any]] = []
         line_matches = match.get("lineMatches")
         if isinstance(line_matches, list):
-            for line_match in line_matches[:20]:
+            for line_match in line_matches:
                 if not isinstance(line_match, dict):
                     continue
                 preview = line_match.get("preview")
@@ -278,7 +278,7 @@ def _parse_payload(
                             )
                 fragments.append(
                     TextFragment(
-                        text=preview.rstrip()[:50_000],
+                        text=preview.rstrip(),
                         line_start=line_number,
                         line_end=line_number,
                         match_metadata={"offsets": line_match.get("offsetAndLengths")},
@@ -320,7 +320,7 @@ def _parse_payload(
                 match_spans=match_spans,
                 symbols=symbols,
                 evidence_role="definition" if symbols else None,
-                snippet="\n".join(fragment.text for fragment in fragments)[:50_000] or None,
+                snippet="\n".join(fragment.text for fragment in fragments) or None,
                 score_components={"match_count": float(match.get("matchCount") or 0.0)},
                 source_metadata={
                     "symbols": symbols,
@@ -370,7 +370,7 @@ def _parse_stream_matches(
         # 1. Primary: chunkMatches (function/block level multi-line contexts)
         chunk_matches = match.get("chunkMatches")
         if isinstance(chunk_matches, list) and chunk_matches:
-            for chunk in chunk_matches[:10]:
+            for chunk in chunk_matches:
                 if not isinstance(chunk, dict):
                     continue
                 content = chunk.get("content", "")
@@ -408,7 +408,7 @@ def _parse_stream_matches(
                                 })
                 fragments.append(
                     TextFragment(
-                        text=content.rstrip()[:50_000],
+                        text=content.rstrip(),
                         line_start=chunk_line,
                         line_end=chunk_end,
                         match_metadata={"chunk": True},
@@ -419,7 +419,7 @@ def _parse_stream_matches(
         if not fragments:
             line_matches = match.get("lineMatches")
             if isinstance(line_matches, list):
-                for line_match in line_matches[:20]:
+                for line_match in line_matches:
                     if not isinstance(line_match, dict):
                         continue
                     preview = line_match.get("preview")
@@ -441,7 +441,7 @@ def _parse_stream_matches(
                                 )
                     fragments.append(
                         TextFragment(
-                            text=preview.rstrip()[:50_000],
+                            text=preview.rstrip(),
                             line_start=line_number,
                             line_end=line_number,
                             match_metadata={"offsets": line_match.get("offsetAndLengths")},
@@ -500,7 +500,7 @@ def _parse_stream_matches(
                 match_spans=match_spans,
                 symbols=symbols,
                 evidence_role="definition" if symbols else None,
-                snippet="\n".join(fragment.text for fragment in fragments)[:50_000] or None,
+                snippet="\n".join(fragment.text for fragment in fragments) or None,
                 score_components={"match_count": float(match.get("matchCount") or len(fragments))},
                 source_metadata=source_meta,
             )

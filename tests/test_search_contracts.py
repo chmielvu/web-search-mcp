@@ -16,21 +16,21 @@ from kindly_web_search_mcp_server.search.understanding.models import QueryUnders
 
 def test_branch_role_has_exact_six_values() -> None:
     assert tuple(BranchRole) == (
-        BranchRole.ORIGINAL_FREE,
-        BranchRole.PAID_BRAVE,
-        BranchRole.PAID_GOOGLE,
-        BranchRole.PAID_OTHER,
-        BranchRole.NEURAL,
-        BranchRole.SPECIALIZED,
+        BranchRole.ORIGINAL,
+        BranchRole.FREE,
+        BranchRole.SERP1,
+        BranchRole.SERP2,
+        BranchRole.SEMANTIC_TAVILY,
+        BranchRole.SEMANTIC_EXA,
     )
 
 
 def test_query_branch_requires_role_and_provider_names() -> None:
     branch = QueryBranch(
-        role=BranchRole.PAID_GOOGLE,
+        role=BranchRole.SERP1,
         query="alpha beta",
         provider_names=("serper",),
-        why="paid google",
+        why="serp1",
         support_terms=("beta",),
         max_results=15,
     )
@@ -41,7 +41,7 @@ def test_query_branch_requires_role_and_provider_names() -> None:
     assert "must_keep_terms" not in branch.model_dump()
 
     empty = QueryBranch(
-        role=BranchRole.SPECIALIZED,
+        role=BranchRole.SEMANTIC_EXA,
         query="alpha",
         provider_names=(),
         max_results=15,
@@ -57,7 +57,7 @@ def test_search_plan_create_preserves_relevance_query_and_options() -> None:
     )
     options = SearchOptions()
     branch = QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="normalized query",
         provider_names=("ddg",),
         max_results=20,
@@ -72,13 +72,13 @@ def test_search_plan_create_preserves_relevance_query_and_options() -> None:
         policy_version="1.0",
     )
     assert plan.relevance_query == "relevance text"
-    assert plan.branches[0].role is BranchRole.ORIGINAL_FREE
+    assert plan.branches[0].role is BranchRole.ORIGINAL
     assert not hasattr(plan, "selected_provider_names")
 
 
 def test_branch_outcome_dropped_quota_flags() -> None:
     branch = QueryBranch(
-        role=BranchRole.NEURAL,
+        role=BranchRole.SEMANTIC_TAVILY,
         query="q",
         provider_names=("gemma",),
         max_results=15,

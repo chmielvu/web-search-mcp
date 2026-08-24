@@ -1,4 +1,4 @@
-"""Deterministic query feature extraction for specialized provider shaping."""
+"""Deterministic query feature extraction for role-dialect query shaping."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .lang_detect import detect_lang
 from .text_clean import clean_query
+from .text_segment import segment_query
 
 if TYPE_CHECKING:
     from ..search.understanding.models import QueryUnderstandingResult
@@ -192,6 +194,11 @@ class QueryFeatures:
     symbolish_terms: tuple[str, ...]
     want_regexp: bool
     notes: tuple[str, ...]
+    lang: str = ""
+    segmented_variants: tuple[str, ...] = ()
+    compared_entities: tuple[str, ...] = ()
+    time_sensitivity: str = "none"
+    should_decompose: bool = False
 
 
 def _uniq(items: Sequence[str]) -> tuple[str, ...]:
@@ -288,6 +295,10 @@ def build_query_features(
     preserved: list[str] = []
     domain_hints: list[str] = []
 
+    compared_entities = _uniq(getattr(understanding, "compared_entities", None) or [])
+    ts_raw = getattr(understanding, "time_sensitivity", None)
+    time_sensitivity = str(ts_raw) if ts_raw else "none"
+    should_decompose = bool(getattr(understanding, "should_decompose", False) or False)
     if understanding is not None:
         intent_val = getattr(understanding, "intent", None)
         if intent_val is not None:
@@ -295,10 +306,26 @@ def build_query_features(
         preserved.extend(getattr(understanding, "preserved_terms", None) or [])
         domain_hints.extend(getattr(understanding, "domain_hints", None) or [])
         notes.append("understanding.merged")
-
     preserved.extend(support_terms or ())
     preserved_terms = _uniq(preserved)
     domain_hints_t = _uniq(domain_hints)
+
+    lang = detect_lang(cleaned)
+    segmented_variants: tuple[str, ...] = ()
+    if lang:
+        notes.append(f"lang.detected:{lang}")
+    else:
+        notes.append("lang.unknown")
+    # Segment English queries and ambiguous ones. With the calibrated
+    # confidence+margin gate in lang_detect, '' reliably means "too short or
+    # ambiguous to trust" (true non-English queries score high-margin), so
+    # attempting segmentation there is safe; wordninja leaves real words
+    # unchanged, so only genuinely glued tokens produce a variant.
+    if lang in ("en", ""):
+        segmented = segment_query(cleaned)
+        if segmented:
+            segmented_variants = (segmented,)
+            notes.append("segmented.glued")
 
     repo_slugs = _uniq(
         [*(REPO_HINT_PATTERN.findall(cleaned) or ()), *(BARE_REPO_PATTERN.findall(cleaned) or ())]
@@ -336,9 +363,14 @@ def build_query_features(
         domain_hints=domain_hints_t,
         languages=languages,
         repo_slugs=repo_slugs,
-        orgs=orgs,
         path_hints=path_hints,
+        orgs=orgs,
+        compared_entities=compared_entities,
+        time_sensitivity=time_sensitivity,
+        should_decompose=should_decompose,
         symbolish_terms=symbols,
         want_regexp=want_re,
         notes=tuple(notes),
+        lang=lang,
+        segmented_variants=segmented_variants,
     )

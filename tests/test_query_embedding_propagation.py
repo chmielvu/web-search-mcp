@@ -28,7 +28,7 @@ from kindly_web_search_mcp_server.search.ranking import rank_and_finalize
 def _make_run(stub_result: WebSearchResult) -> SearchRun:
     """Construct a minimal SearchRun + BranchOutcome for rank_and_finalize."""
     branch = QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="q",
         provider_names=("test",),
         max_results=15,

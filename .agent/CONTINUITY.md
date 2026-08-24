@@ -1,3 +1,21 @@
+# 2026-08-23 P2 graph feedback loop — offline materializer, index builder, planner consumer
+- **Scope**: Implement the production-safe slice of the NetworkX/DuckDB feedback loop per `p2-graph-feedback-implementation-plan.md`.
+- **Shipped**:
+  - `pyproject.toml` / `uv.lock`: added direct runtime dependencies `networkx>=3.5,<4` and `scipy>=1.17,<2`.
+  - `settings.py`: added `graph_expansion_enabled`, `graph_expansion_max_related_queries` (default 2), and `graph_expansion_max_age_seconds` (default 86400.0).
+  - `analytics/feedback_labels.py`: added `parse_result_quality_payload` and `materialize_result_labels` mapping `llm_judgments` into `result_labels` with exact-link / canonical-URL matching and 1-based rank to 0-based position mapping.
+  - `analytics/writers/{table_names,schema}.py`, `duckdb_store.py`: added DDL and bootstrap wiring for `graph_feedback_generations`, `graph_query_neighbors`, and `graph_result_features`.
+  - `analytics/graph_feedback.py`: added `build_graph_snapshot` (bipartite `nx.Graph`, `nx.bipartite.birank`, `nx.pagerank`, `overlap_weighted_projected_graph`, `nx.adamic_adar_index`), `publish_graph_snapshot` (atomic `_LOCK` transaction with failed generation fallback), `load_latest_graph_index` (60s TTL cache), and CLI `rebuild` subcommand.
+  - `search/graph_expansion.py`: added `expand_seed_queries` returning `GraphExpansionDecision` (`disabled`, `applied`, `no_capacity`, `no_match`, `unavailable`, `error`).
+  - `search/planning.py` & `search/outcomes.py`: wired expanded seeds into `_rewrite_queries`, `SearchPlan.seed_queries`, `provider_arguments["gemma"]["queries"]`, diagnostics `rewrite_metadata["graph_expansion"]`, and `search_runs.payload_json`. Preserved 6 fixed branches and deterministic fallback queries.
+- **Verification**:
+  - Focused test suite 43/43 green across `test_feedback_labels.py`, `test_graph_feedback.py`, `test_search_graph_expansion.py`, `test_duckdb_schema_expansion.py`, `test_query_rewrite_5variants.py`, `test_web_search_multi_query.py`, `test_search_contracts.py`, `test_search_planning_why.py`, `test_search_ranking.py`.
+  - End-to-end manual rebuild CLI smoke test passed on temporary DuckDB fixture producing 1 `ready` generation, 2 document features, and 2 bidirectional query neighbors.
+  - `ruff check` and `ruff format --check` clean across all touched files.
+- **Known / Left**:
+  - Rebuild on live production `search_events.duckdb` is manual/operator-triggered (no automatic scheduler in this slice).
+  - `graph_result_features` is populated offline for future evaluation; pre-rerank/cross-encoder ranking remains untouched as planned.
+
 # 2026-08-22c P2 plan reassessment — BiRank + seed-injection, not extra branches
 - **Scope**: Reassess the P2 plan against two external reports, live NetworkX 3.6.1 APIs, GitHub exemplars, and the existing rewrite/RRF path.
 - **Shipped**: Rewrote `docs/p2-graph-feedback-loop-plan-2026-08-22.md`. Accepted: BiRank primary + PageRank ablation, explicit label-weight components, rebuild monitoring, hybrid cold-start, Phase 3.5 related-query materialization. Rejected as default: adding a 7th retrieval branch — `plan_search` already emits 6 QueryBranch rows fused by RRF (`planning.py:387-436`). Expansion injects related queries into `seed_queries` / `support_terms` (cap 4 seeds) behind `GRAPH_EXPANSION_ENABLED`.

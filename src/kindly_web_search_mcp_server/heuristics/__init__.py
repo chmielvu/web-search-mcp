@@ -1,31 +1,30 @@
-"""Stdlib-first heuristics: query clean/augment and guidance messages."""
+"""Stdlib-first heuristics: query shaping, cleaning, and guidance messages."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .augment import AugmentResult, augment_query_for_provider, specialized_fallback_query
-    from .guidance_messages import (
-        format_shaping_guidance,
-        web_search_empty_guidance,
-        web_search_specialized_gap_guidance,
-    )
     from .query_features import QueryFeatures, build_query_features
+    from .shaping import AugmentResult, extract_search_ops, shape_for_branch
     from .text_clean import clean_query, clean_text_for_llm, repair_unicode
+    from .lang_detect import detect_lang
+    from .text_segment import segment_query, is_eligible_token, MAX_TOKEN_LEN, MIN_TOKEN_LEN
 
 __all__ = [
     "AugmentResult",
+    "MAX_TOKEN_LEN",
+    "MIN_TOKEN_LEN",
     "QueryFeatures",
-    "augment_query_for_provider",
     "build_query_features",
     "clean_query",
     "clean_text_for_llm",
-    "format_shaping_guidance",
+    "detect_lang",
+    "extract_search_ops",
+    "is_eligible_token",
     "repair_unicode",
-    "specialized_fallback_query",
-    "web_search_empty_guidance",
-    "web_search_specialized_gap_guidance",
+    "segment_query",
+    "shape_for_branch",
 ]
 
 
@@ -42,20 +41,16 @@ def __getattr__(name: str):
         from . import query_features
 
         return getattr(query_features, name)
-    if name in {
-        "AugmentResult",
-        "augment_query_for_provider",
-        "specialized_fallback_query",
-    }:
-        from . import augment
+    if name in {"AugmentResult", "extract_search_ops", "shape_for_branch"}:
+        from . import shaping
 
-        return getattr(augment, name)
-    if name in {
-        "format_shaping_guidance",
-        "web_search_empty_guidance",
-        "web_search_specialized_gap_guidance",
-    }:
-        from . import guidance_messages
+        return getattr(shaping, name)
+    if name in {"detect_lang"}:
+        from . import lang_detect
 
-        return getattr(guidance_messages, name)
+        return getattr(lang_detect, name)
+    if name in {"segment_query", "MIN_TOKEN_LEN", "MAX_TOKEN_LEN", "is_eligible_token"}:
+        from . import text_segment
+
+        return getattr(text_segment, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

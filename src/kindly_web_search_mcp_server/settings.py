@@ -101,6 +101,15 @@ class Settings:
         os.environ.get("QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
     )
     query_rewrite_max_variants: int = int(os.environ.get("QUERY_REWRITE_MAX_VARIANTS", "2"))
+    graph_expansion_enabled: bool = (
+        os.environ.get("GRAPH_EXPANSION_ENABLED", "false").lower() == "true"
+    )
+    graph_expansion_max_related_queries: int = int(
+        os.environ.get("GRAPH_EXPANSION_MAX_RELATED_QUERIES", "2")
+    )
+    graph_expansion_max_age_seconds: float = float(
+        os.environ.get("GRAPH_EXPANSION_MAX_AGE_SECONDS", "86400")
+    )
     query_classifier_timeout_seconds: float = float(
         os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
     )
@@ -390,9 +399,7 @@ class Settings:
 
     # Gemini summaries for the unified fetch tool
     # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
-    web_fetch_item_max_chars: int = int(
-        os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "60000")
-    )
+    web_fetch_item_max_chars: int = int(os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "60000"))
     web_fetch_total_char_budget: int = int(
         os.environ.get("KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET", "120000")
     )
@@ -479,6 +486,7 @@ class Settings:
 
     search_router_api_key: str = os.environ.get("SEARCH_ROUTER_API_KEY", "")
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
+    exa_api_key: str = os.environ.get("EXA_API_KEY", "")
     brave_api_key: str = os.environ.get("BRAVE_API_KEY", "")
     brave_suggest_api_key: str = os.environ.get("BRAVE_SUGGEST_API_KEY", "")
     brave_goggles_by_intent: dict[str, list[str]] = field(
@@ -672,6 +680,25 @@ class Settings:
     camoufox_timeout_seconds: float = float(os.environ.get("CAMOUFOX_TIMEOUT_SECONDS", "30"))
     camoufox_health_cache_seconds: float = float(
         os.environ.get("CAMOUFOX_HEALTH_CACHE_SECONDS", "30")
+    )
+
+    # =====================================================================
+    # Apify hard-platform scrapers (X/Twitter resolver; Reddit last-resort)
+    # =====================================================================
+    # When APIFY_API_TOKEN is unset, every Apify-backed layer is inert and
+    # the existing free cascades behave exactly as before.
+    apify_api_token: str = os.environ.get("APIFY_API_TOKEN", "")
+    apify_twitter_actor: str = os.environ.get("APIFY_TWITTER_ACTOR", "fastdata~twitter-scraper")
+    apify_reddit_actor: str = os.environ.get("APIFY_REDDIT_ACTOR", "openclawai~reddit-scraper")
+    # Try the paid Apify layer BEFORE the free Reddit cascade instead of after it.
+    apify_reddit_first: bool = os.environ.get("APIFY_REDDIT_FIRST", "false").lower() == "true"
+    apify_timeout_seconds: float = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "90"))
+    # Escape hatch merged last into every Actor run input (JSON object string),
+    # e.g. APIFY_EXTRA_INPUT_JSON='{"maxItems":5}' for actor schema quirks.
+    apify_extra_input_json: dict = field(
+        default_factory=lambda: _parse_json_dict_env(
+            os.environ.get("APIFY_EXTRA_INPUT_JSON", "{}"), {}
+        )
     )
 
     # =====================================================================

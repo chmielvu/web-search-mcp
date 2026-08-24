@@ -291,3 +291,112 @@ async def close_camoufox_client() -> None:
     if _camoufox_client is not None:
         await _camoufox_client.close()
         _camoufox_client = None
+
+
+# ------------------------------------------------------------------
+# Apify client
+# ------------------------------------------------------------------
+
+
+class ApifyClientError(RuntimeError):
+    """Raised when an Apify run-sync call fails."""
+
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+
+
+class ApifyClient:
+    """Thin httpx client for the Apify run-sync-get-dataset-items endpoint.
+
+    A single POST starts the Actor, waits for completion (sync ceiling ~5 min)
+    and returns the default dataset items — no polling machinery required.
+    """
+
+    def __init__(
+        self,
+        token: str,
+        *,
+        timeout: float = 90.0,
+        base_url: str = "https://api.apify.com",
+    ) -> None:
+        self._http = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            timeout=httpx.Timeout(timeout, connect=10.0),
+            follow_redirects=True,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    async def run_sync_get_dataset_items(
+        self, actor: str, run_input: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """POST /v2/actors/{actor}/run-sync-get-dataset-items → dataset items."""
+        from ..settings import settings
+
+        merged = dict(run_input)
+        extra = getattr(settings, "apify_extra_input_json", None)
+        if isinstance(extra, dict):
+            merged.update(extra)
+
+        path = f"/v2/actors/{actor}/run-sync-get-dataset-items"
+        try:
+            resp = await self._http.post(path, json=merged)
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise ApifyClientError(f"Apify {path} timed out: {exc}", retryable=True) from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in (401, 402, 403):
+                raise ApifyClientError(
+                    f"Apify {path} returned HTTP {status}: token/credits issue "
+                    "(check APIFY_API_TOKEN or prepaid usage).",
+                    retryable=False,
+                ) from exc
+            raise ApifyClientError(
+                f"Apify {path} returned HTTP {status}: {exc.response.text[:200]}",
+                retryable=status >= 500 or status == 429,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ApifyClientError(f"Apify {path} connection failed: {exc}", retryable=True) from exc
+
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ApifyClientError("Apify returned a non-JSON body", retryable=True) from exc
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            data = data["items"]
+        if not isinstance(data, list) or not data:
+            raise ApifyClientError(
+                "Apify run finished but returned no dataset items", retryable=False
+            )
+        return [item for item in data if isinstance(item, dict)]
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._http.aclose()
+
+
+_apify_client: ApifyClient | None = None
+
+
+def get_apify_client() -> ApifyClient | None:
+    """Get or create the singleton Apify client. Returns None if APIFY_API_TOKEN is not set."""
+    global _apify_client
+    from ..settings import settings
+
+    if not settings.apify_api_token:
+        return None
+    if _apify_client is None:
+        _apify_client = ApifyClient(
+            settings.apify_api_token, timeout=settings.apify_timeout_seconds
+        )
+        LOGGER.info("Apify client initialized (timeout=%ss)", settings.apify_timeout_seconds)
+    return _apify_client
+
+
+async def close_apify_client() -> None:
+    """Cleanup the singleton Apify client on shutdown."""
+    global _apify_client
+    if _apify_client is not None:
+        await _apify_client.close()
+        _apify_client = None

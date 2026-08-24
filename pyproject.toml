@@ -38,7 +38,7 @@ dependencies = [
     "youtube-transcript-api>=0.6.0",
     "yt-dlp>=2024.0.0",
     "ftfy>=6.2.0",
-    "ddgs>=7.0.0",
+    "ddgs>=9.14,<10",
     "parallel-web>=1.0",
     "arxiv>=3.0.0",
     "pyalex>=0.13",  # OpenAlex SDK (250M+ works)
@@ -57,6 +57,8 @@ dependencies = [
     "tree-sitter-language-pack>=1.14,<2",
     "wordninja>=2.0.0",
     "lingua-language-detector>=2.2.0",
+    "networkx>=3.5,<4",
+    "scipy>=1.17,<2",
 ]
 
 [project.optional-dependencies]

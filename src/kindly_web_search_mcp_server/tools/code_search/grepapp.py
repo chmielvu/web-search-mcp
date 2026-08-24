@@ -200,7 +200,7 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
         url = fields.get("url")
         if not repository or not path or not url:
             continue
-        snippet = "\n".join(snippet_lines).strip()[:4000]
+        snippet = "\n".join(snippet_lines).strip()[:4000][:4000]
         hits.append(
             CodeSearchHit(
                 repository=repository,
@@ -212,7 +212,7 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
                 result_kind="code_match",
                 fragments=[
                     TextFragment(
-                        text=snippet[:50_000],
+                        text=snippet,
                         line_start=first_line,
                         line_end=last_line or first_line,
                     )
@@ -275,8 +275,8 @@ def _parse_rest_payload(
                 query_variant=query_variant,
                 search_rank=len(hits) + 1,
                 result_kind="code_match",
-                snippet=snippet[:3000] or None,
-                fragments=[TextFragment(text=snippet[:1200])] if snippet else [],
+                snippet=snippet or None,
+                fragments=[TextFragment(text=snippet)] if snippet else [],
                 location=build_location_metadata(
                     repository=repository,
                     path=path,

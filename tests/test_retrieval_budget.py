@@ -19,7 +19,7 @@ from kindly_web_search_mcp_server.search.providers.base import ProviderRequestMe
 
 def _branch(*providers: str) -> QueryBranch:
     return QueryBranch(
-        role=BranchRole.ORIGINAL_FREE,
+        role=BranchRole.ORIGINAL,
         query="retrieve budget contract",
         provider_names=providers,
         max_results=5,
@@ -228,6 +228,7 @@ async def test_call_provider_uses_live_budget_not_catalog_snapshot(
         return SimpleNamespace(
             name=name,
             requires_embedding=False,
+            per_call_timeout_seconds=None,
             # Stale catalog snapshot deliberately larger than live budget.
             default_timeout_seconds=snapshot,
         )

@@ -29,12 +29,15 @@ __all__ = [
     "get_provider_definition",
     "provider_is_reachable",
     "select_paid_google_provider",
-    "select_provider_names",
+    "select_semantic_tavily_provider",
 ]
 
 _GOOGLE_PAID_ORDER = ("brightdata", "serper", "search_router")
 _GOOGLE_RR_LOCK = threading.Lock()
 _GOOGLE_RR_CURSOR = 0
+_SEMANTIC_TAVILY_ORDER = ("tavily", "langsearch")
+_SEMANTIC_TAVILY_RR_LOCK = threading.Lock()
+_SEMANTIC_TAVILY_RR_CURSOR = 0
 
 
 class ProviderAdapter(Protocol):
@@ -140,22 +143,11 @@ def provider_is_reachable(definition: ProviderDefinition) -> bool:
     return True
 
 
-def select_provider_names(specialized_names: Sequence[str]) -> tuple[str, ...]:
-    reachable = [item for item in PROVIDER_DEFINITIONS_LIST if provider_is_reachable(item)]
-    selected: list[str] = []
-    seen: set[str] = set()
-    specialized = set(specialized_names)
-    for item in reachable:
-        if not item.specialized:
-            if item.name not in seen:
-                selected.append(item.name)
-                seen.add(item.name)
-    for item in reachable:
-        if item.specialized and item.name in specialized:
-            if item.name not in seen:
-                selected.append(item.name)
-                seen.add(item.name)
-    return tuple(selected)
+def select_provider_names() -> tuple[str, ...]:
+    """All reachable providers; branch candidate tuples decide routing."""
+    return tuple(
+        item.name for item in PROVIDER_DEFINITIONS_LIST if provider_is_reachable(item)
+    )
 
 
 def select_paid_google_provider(available_names: Sequence[str]) -> str | None:
@@ -166,6 +158,17 @@ def select_paid_google_provider(available_names: Sequence[str]) -> str | None:
     with _GOOGLE_RR_LOCK:
         choice = candidates[_GOOGLE_RR_CURSOR % len(candidates)]
         _GOOGLE_RR_CURSOR = (_GOOGLE_RR_CURSOR + 1) % len(candidates)
+    return choice
+
+
+def select_semantic_tavily_provider(available_names: Sequence[str]) -> str | None:
+    candidates = [name for name in _SEMANTIC_TAVILY_ORDER if name in available_names]
+    if not candidates:
+        return None
+    global _SEMANTIC_TAVILY_RR_CURSOR
+    with _SEMANTIC_TAVILY_RR_LOCK:
+        choice = candidates[_SEMANTIC_TAVILY_RR_CURSOR % len(candidates)]
+        _SEMANTIC_TAVILY_RR_CURSOR = (_SEMANTIC_TAVILY_RR_CURSOR + 1) % len(candidates)
     return choice
 
 
