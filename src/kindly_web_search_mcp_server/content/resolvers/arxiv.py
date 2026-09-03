@@ -6,7 +6,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 import contextlib
 import io
-from typing import Iterable
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -126,10 +125,6 @@ def _get_int_env(name: str, default: int) -> int:
 
     return _env_int(name, default)
 
-
-def _iter_page_indices(max_pages: int) -> Iterable[int]:
-    for i in range(max_pages):
-        yield i
 
 
 def _parse_arxiv_atom_xml(xml_text: str, *, arxiv_id: str) -> ArxivMetadata:
@@ -315,7 +310,12 @@ def _pdf_bytes_to_markdown_best_effort(
         parts: list[str] = []
         for i in range(pages_rendered):
             page = doc.load_page(i)
-            text = str(page.get_text("text") or "").strip()
+            try:
+                text = str(page.get_text("markdown") or "").strip()
+            except Exception:
+                text = ""
+            if not text:
+                text = str(page.get_text("text") or "").strip()
             if not text:
                 continue
             parts.append(f"### Page {i + 1}\n\n{text}\n")
@@ -372,14 +372,6 @@ def render_arxiv_paper_markdown(
     return "\n".join(lines).strip() + "\n"
 
 
-def _apply_char_cap(markdown: str, *, max_chars: int, source_url: str) -> tuple[str, bool]:
-    if max_chars <= 0:
-        return markdown, False
-    if len(markdown) <= max_chars:
-        return markdown, False
-    note = f"\n\n_Truncated due to output length limit._\n\nSource: {source_url}\n"
-    keep = max(0, max_chars - len(note))
-    return markdown[:keep].rstrip() + note, True
 
 
 async def fetch_arxiv_paper_markdown(
@@ -390,7 +382,6 @@ async def fetch_arxiv_paper_markdown(
     """Fetch an arXiv paper (metadata + PDF full text) and render Markdown."""
     arxiv_id = parse_arxiv_url(url)
 
-    max_chars = _get_int_env("ARXIV_MAX_CHARS", 0)
     max_pages = _get_int_env("ARXIV_MAX_PAGES", 0)
     if max_pages < 0:
         max_pages = 0
@@ -408,15 +399,13 @@ async def fetch_arxiv_paper_markdown(
         pdf_bytes = b""
         pdf_md = PdfMarkdown(markdown="", page_count=0, pages_rendered=0)
 
-        md = render_arxiv_paper_markdown(
+        return render_arxiv_paper_markdown(
             meta=meta,
             full_text_markdown=full_text,
             source_url=url,
             truncated=truncated,
             truncation_reason=trunc_reason,
         )
-        md2, _ = _apply_char_cap(md, max_chars=max_chars, source_url=url)
-        return md2
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:

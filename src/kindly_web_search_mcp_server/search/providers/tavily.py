@@ -17,6 +17,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ..filters import tavily_time_range
 from ..options import SearchOptions
 from .base import (
     ProviderRequestError,
@@ -56,6 +57,27 @@ _TAVILY_ARG_KEYS = frozenset({
     "safe_search",
     "include_usage",
 })
+
+# Tavily's ``country`` parameter accepts full lowercase country names and is
+# only honored for topic=general. Map the alpha-2 codes we normalize to.
+_COUNTRY_NAMES: dict[str, str] = {
+    "us": "united states",
+    "gb": "united kingdom",
+    "de": "germany",
+    "fr": "france",
+    "es": "spain",
+    "it": "italy",
+    "pl": "poland",
+    "nl": "netherlands",
+    "br": "brazil",
+    "ca": "canada",
+    "au": "australia",
+    "in": "india",
+    "jp": "japan",
+    "mx": "mexico",
+    "se": "sweden",
+    "ch": "switzerland",
+}
 
 
 def _get_tavily_api_key() -> str:
@@ -106,14 +128,30 @@ async def search_tavily(
 
     # --- map SearchOptions → Tavily params ---
     if search_options is not None:
-        if search_options.domain_filters:
-            payload["exclude_domains"] = list(search_options.domain_filters)
-        if search_options.site_filters:
-            payload["include_domains"] = list(search_options.site_filters)
-        # searxng_time_range shares the same semantics as Tavily's time_range
-        if search_options.searxng_time_range:
+        # Temporal: absolute bounds are native (start_date/end_date); the
+        # relative bucket is used only when no explicit window was resolved.
+        if search_options.temporal is not None:
+            temporal = search_options.temporal
+            if not temporal.is_empty:
+                if temporal.bucket is not None:
+                    payload["time_range"] = tavily_time_range(temporal.bucket)
+                else:
+                    if temporal.start is not None:
+                        payload["start_date"] = temporal.start.isoformat()
+                    if temporal.end is not None:
+                        payload["end_date"] = temporal.end.isoformat()
+            elif search_options.searxng_time_range:
+                payload["time_range"] = search_options.searxng_time_range
+        elif search_options.searxng_time_range:
             payload["time_range"] = search_options.searxng_time_range
-
+        # Locale: Tavily boosts by language (ISO 639-1) and, for general topic,
+        # accepts full lowercase country names — map alpha-2 via a small table.
+        if search_options.language:
+            payload["language"] = search_options.language
+        if search_options.region:
+            country_name = _COUNTRY_NAMES.get(search_options.region.lower())
+            if country_name:
+                payload["country"] = country_name
     # --- merge provider_arguments from **kwargs ---
     for key in _TAVILY_ARG_KEYS:
         if key in kwargs:

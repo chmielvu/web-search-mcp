@@ -1,0 +1,13 @@
+{
+  "id": "F-t1-pdf-non-arxiv",
+  "url": "https://example.com/pdf/foo",
+  "notes": "non-arXiv URL path /pdf/foo without .pdf suffix => is_document_url True.",
+  "expect": {
+    "status": null,
+    "source_type": "pdf",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": []
+  }
+}

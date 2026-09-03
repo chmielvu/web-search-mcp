@@ -13,9 +13,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ..filters import langsearch_freshness
+from ..options import SearchOptions
 from .base import ProviderRequestError, run_provider
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def search_langsearch(
     query: str,
     *,
     num_results: int,
+    search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[WebSearchResult]:
     """Search via LangSearch Web Search API.
@@ -56,9 +58,17 @@ async def search_langsearch(
     url = f"{settings.langsearch_base_url}/v1/web-search"
     # LangSearch count range is 1-10 (default 10).
     count = min(max(num_results, 1), 10)
+    # Relative bucket -> LangSearch freshness token; absolute windows have no
+    # native param and are covered by the pipeline post-filter.
+    bucket = (
+        search_options.temporal.bucket
+        if search_options is not None and search_options.temporal is not None
+        else None
+    )
+    freshness = langsearch_freshness(bucket) or "noLimit"
     payload = {
         "query": query,
-        "freshness": "noLimit",
+        "freshness": freshness,
         "summary": False,
         "count": count,
     }

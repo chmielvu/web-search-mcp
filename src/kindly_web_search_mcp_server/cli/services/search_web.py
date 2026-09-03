@@ -16,11 +16,15 @@ async def fetch_web_search_payload(
     *,
     rewrite: bool,
     research_goal: str,
-    site_filters: list[str] | None = None,
-    domain_filters: list[str] | None = None,
     domain_boost: list[str] | None = None,
-    domain_block: list[str] | None = None,
     reranking_instructions: str | None = None,
+    date_range: str | None = None,
+    after_date: str | None = None,
+    before_date: str | None = None,
+    language: str | None = None,
+    region: str | None = None,
+    gl: str | None = None,
+    include_undated: bool | None = None,
     diagnostics: bool = False,
     **_obsolete_options: object,
 ) -> dict[str, Any]:
@@ -36,9 +40,23 @@ async def fetch_web_search_payload(
     else:
         raise ValueError("query must be non-blank.")
 
+    from ...search.filters import FilterValidationError, normalize_locale, resolve_window
+
+    if after_date and date_range:
+        date_range = None
+    try:
+        temporal_window = resolve_window(
+            date_range=date_range,
+            after_date=after_date,
+            before_date=before_date,
+        )
+        locale_spec = normalize_locale(language=language, region=region, gl=gl)
+    except FilterValidationError as exc:
+        raise ValueError(str(exc)) from exc
+
     search_options = build_search_options(
-        site_filters=site_filters or None,
-        domain_filters=domain_filters or None,
+        locale_spec=locale_spec if (locale_spec.language or locale_spec.region) else None,
+        temporal_window=temporal_window if not temporal_window.is_empty else None,
     )
     request = WebSearchRequest(
         query=primary_query,
@@ -47,6 +65,8 @@ async def fetch_web_search_payload(
         rewrite=rewrite,
         options=search_options,
         reranking_instructions=reranking_instructions,
+        include_undated=include_undated,
+        domain_boost=tuple(domain_boost or []),
     )
     run_key = str(uuid.uuid4())
     search_result = await execute_web_search(
@@ -60,18 +80,7 @@ async def fetch_web_search_payload(
     response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
     payload = response.model_dump(exclude_none=True)
     payload["run_key"] = run_key
-    if domain_boost or domain_block or domain_filters or site_filters:
-        from ...tools._helpers import _apply_domain_filters
 
-        combined_block = (
-            [*domain_block, *(domain_filters or [])] if domain_block else domain_filters
-        )
-        payload["results"] = _apply_domain_filters(
-            payload.get("results", []),
-            domain_boost,
-            combined_block,
-            site_filters=site_filters or None,
-        )
     if diagnostics:
         diag = build_diagnostics(run, run.diagnostics.total_latency_ms or 0.0)
         payload["_diagnostics"] = (

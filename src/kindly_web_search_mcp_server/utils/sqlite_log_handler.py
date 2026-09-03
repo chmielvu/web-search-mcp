@@ -8,7 +8,13 @@ Architecture:
     → BatchSQLiteLogHandler (BufferingHandler, capacity=100)
     → SQLite batch INSERT (executemany)
 
-    Every 50 flushes: DELETE old rows (TTL cleanup).
+    Every 50 flushes: DELETE old rows (TTL cleanup) + FTS index backfill.
+    TTL compares with julianday() — SQLite's datetime() returns NULL for the
+    ISO-8601 text stored in recorded_at, which silently disabled cleanup.
+    The external-content FTS5 table is populated at schema creation and fed
+    per-flush via INSERT ... RETURNING rowid (external-content tables never
+    auto-populate). TracebackPreservingQueueHandler keeps exception text
+    across the queue boundary (stdlib QueueHandler strips exc_info/exc_text).
 """
 
 from __future__ import annotations
@@ -110,6 +116,16 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
                     );
                     """
                 )
+                # External-content FTS5 tables never auto-populate: rows written
+                # before this handler runs (or by the legacy DuckDB handler)
+                # would be permanently invisible to MATCH. Backfill on startup.
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO process_logs_fts
+                        (rowid, message, exception, payload_json)
+                    SELECT rowid, message, exception, payload_json FROM process_logs;
+                    """
+                )
         finally:
             con.close()
 
@@ -136,9 +152,13 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
     @staticmethod
     def _extract_record(record: logging.LogRecord) -> dict[str, Any]:
         """Extract a dict suitable for SQLite insertion from a LogRecord."""
-        exc_text: str | None = None
-        if record.exc_info and record.exc_info[0] is not None:
+        # TracebackPreservingQueueHandler stashes the formatted traceback on
+        # _exc_text because QueueHandler.prepare() strips exc_info/exc_text.
+        exc_text = getattr(record, "_exc_text", None)
+        if not exc_text and record.exc_info and record.exc_info[0] is not None:
             exc_text = "".join(traceback.format_exception(*record.exc_info))
+        elif not exc_text and record.exc_text:
+            exc_text = record.exc_text
 
         # Serialize any extra kwargs that aren't part of standard LogRecord
         payload: dict[str, Any] = {}
@@ -187,13 +207,14 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
         con = self._connect(self._db_path)
         try:
             with con:
-                con.executemany(
+                cur = con.executemany(
                     """
                     INSERT OR IGNORE INTO process_logs
                         (log_id, recorded_at, logged_at, pid, logger_name,
                          level, level_num, message, module, func_name, lineno,
                          thread_name, exception, trace_id, span_id, payload_json)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    RETURNING rowid;
                     """,
                     [
                         (
@@ -217,6 +238,19 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
                         for r in records
                     ],
                 )
+                inserted = cur.fetchall()
+                # Keep the external-content FTS index in sync with new rows
+                # (startup backfill covers rows written before this handler).
+                if inserted:
+                    con.executemany(
+                        """
+                        INSERT OR IGNORE INTO process_logs_fts
+                            (rowid, message, exception, payload_json)
+                        SELECT rowid, message, exception, payload_json
+                        FROM process_logs WHERE rowid = ?;
+                        """,
+                        [(row[0],) for row in inserted],
+                    )
             self._total_inserted += len(records)
             self._flush_count += 1
         except Exception as exc:  # noqa: BLE001
@@ -233,15 +267,32 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
             con = self._connect(self._db_path)
             try:
                 with con:
+                    # recorded_at is ISO-8601 text (e.g.
+                    # 2026-07-23T15:56:44.796264+00:00); SQLite's datetime()
+                    # returns NULL for that format and a NULL comparison is
+                    # never true, so the old predicate deleted nothing. Parse
+                    # with julianday(), which understands ISO-8601, and
+                    # compare against the cutoff in days.
                     con.execute(
                         """
                         DELETE FROM process_logs
-                        WHERE datetime(recorded_at) < datetime('now', '-' || ? || ' hours');
+                        WHERE julianday(recorded_at) < julianday('now') - ?;
                         """,
-                        (str(self._ttl_hours),),
+                        (self._ttl_hours / 24.0,),
                     )
-            except Exception:  # noqa: BLE001
-                pass
+                    # Keep the external-content FTS index in sync: stale
+                    # shadow rows would resurrect deleted log entries in
+                    # MATCH results otherwise.
+                    con.execute(
+                        """
+                        DELETE FROM process_logs_fts
+                        WHERE rowid NOT IN (SELECT rowid FROM process_logs);
+                        """
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger(__name__).warning(
+                    "SQLite process log TTL cleanup failed: %s", exc
+                )
             finally:
                 con.close()
 
@@ -287,6 +338,28 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
             super().close()
 
 
+class TracebackPreservingQueueHandler(logging.handlers.QueueHandler):
+    """QueueHandler that keeps formatted tracebacks across the queue boundary.
+
+    stdlib QueueHandler.prepare() zaps ``exc_info`` and ``exc_text`` before
+    enqueueing (they may not be pickleable), so the SQLite handler on the
+    listener side never sees exception text. This subclass formats the
+    record first (which fills ``exc_text``), then stashes that text on the
+    prepared copy as ``_exc_text`` so it survives the queue. Only records
+    that actually carry exception data pay the extra format() call.
+    """
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        exc_text: str | None = getattr(record, "exc_text", None)
+        if exc_text is None and record.exc_info and record.exc_info[0] is not None:
+            self.format(record)
+            exc_text = getattr(record, "exc_text", None)
+        prepared = super().prepare(record)
+        if exc_text:
+            prepared._exc_text = exc_text  # type: ignore[attr-defined]
+        return prepared
+
+
 def install_process_logging(
     db_path: str | None = None,
     ttl_hours: int | None = None,
@@ -319,7 +392,7 @@ def install_process_logging(
     handler.setLevel(configured_root_level)
 
     log_queue: queue.Queue[logging.LogRecord] = queue.Queue(maxsize=10000)
-    queue_handler = logging.handlers.QueueHandler(log_queue)
+    queue_handler = TracebackPreservingQueueHandler(log_queue)
     queue_handler.setLevel(configured_root_level)
 
     listener = logging.handlers.QueueListener(

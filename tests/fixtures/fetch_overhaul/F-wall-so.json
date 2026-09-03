@@ -1,0 +1,16 @@
+{
+  "id": "F-wall-so",
+  "url": "https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do-in-python",
+  "notes": "SO thread with Author: and HTML-entity title; wall must be None. After Q4 title unescapes quotes.",
+  "expect": {
+    "status": "success",
+    "source_type": "stackexchange",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Author:",
+      "yield"
+    ]
+  }
+}

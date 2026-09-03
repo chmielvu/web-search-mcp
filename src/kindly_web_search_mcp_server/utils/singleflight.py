@@ -57,11 +57,12 @@ class SingleFlight:
         Raises:
             asyncio.TimeoutError: If wait exceeds timeout_seconds.
         """
-        if key in self._in_flight:
+        existing_future = self._in_flight.get(key)
+        if existing_future is not None:
             logger.debug("SingleFlight: coalescing request for key=%s", key[:16])
             try:
                 return await asyncio.wait_for(
-                    asyncio.shield(self._in_flight[key]),
+                    asyncio.shield(existing_future),
                     timeout=timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -71,7 +72,6 @@ class SingleFlight:
                     timeout_seconds,
                 )
                 raise
-
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Any] = loop.create_future()
         self._in_flight[key] = future

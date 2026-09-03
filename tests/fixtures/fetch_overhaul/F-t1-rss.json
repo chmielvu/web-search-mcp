@@ -1,0 +1,15 @@
+{
+  "id": "F-t1-rss",
+  "url": "https://example.com/feed.xml",
+  "notes": "RSS XML already typed via typed_content.",
+  "expect": {
+    "status": "success",
+    "source_type": "rss",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "<rss"
+    ]
+  }
+}

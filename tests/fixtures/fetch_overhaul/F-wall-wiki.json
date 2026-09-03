@@ -1,0 +1,16 @@
+{
+  "id": "F-wall-wiki",
+  "url": "https://en.wikipedia.org/wiki/Attention_Is_All_You_Need",
+  "notes": "Wikipedia API markdown containing Author:/authors must not emit a login wall.",
+  "expect": {
+    "status": "success",
+    "source_type": "wikipedia",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Attention Is All You Need",
+      "authors"
+    ]
+  }
+}

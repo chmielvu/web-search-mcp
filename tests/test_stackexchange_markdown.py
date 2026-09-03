@@ -95,6 +95,33 @@ class TestStackExchangeMarkdown(unittest.TestCase):
         self.assertIn("# Answers", md)
         self.assertIn("Answer", md)
 
+    def test_unescapes_title_and_display_names(self) -> None:
+        from kindly_web_search_mcp_server.content.resolvers.stackexchange import (
+            render_thread_markdown,
+        )
+
+        question = {
+            "title": "What does the &quot;yield&quot; keyword do",
+            "link": "https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do-in-python",
+            "score": 1,
+            "creation_date": 1700000000,
+            "owner": {"link": "https://stackoverflow.com/users/1/u", "display_name": "Asker &amp; Co"},
+            "body_markdown": "body",
+        }
+        answers = [
+            {
+                "answer_id": 1,
+                "score": 1,
+                "is_accepted": True,
+                "creation_date": 1700000001,
+                "owner": {"display_name": "Ans &quot;Name&quot;"},
+                "body_markdown": "ok",
+            }
+        ]
+        md = render_thread_markdown(question=question, answers=answers)
+        self.assertIn('Question: What does the "yield" keyword do', md)
+        self.assertIn("Author: Asker & Co", md)
+        self.assertIn('Author: Ans "Name"', md)
 
 if __name__ == "__main__":
     unittest.main()

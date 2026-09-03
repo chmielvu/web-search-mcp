@@ -64,10 +64,18 @@ class TestShapeForBranchFree:
         assert "budget.trim" in out.rules_applied
 
     def test_segment_glued_repair(self) -> None:
+        q = "toplawyersnewyork"
+        out = shape_for_branch("free", q, _feat(q))
+        assert out.query == "top lawyers new york"
+        assert "segment.glued" in out.rules_applied
+
+    def test_segment_glued_repair_skipped_for_short_parts(self) -> None:
+        # wordninja yields "in" (2 chars); the split is rejected and the
+        # glued token survives intact.
         q = "toplawyersinnewyork"
         out = shape_for_branch("free", q, _feat(q))
-        assert out.query == "top lawyers in new york"
-        assert "segment.glued" in out.rules_applied
+        assert out.query == q
+        assert "segment.glued" not in out.rules_applied
 
 
 class TestShapeForBranchSerp:
@@ -120,6 +128,21 @@ class TestLangGate:
             return
         out = shape_for_branch("serp2", q, feats)
         assert out.rules_applied == ("skip.non_english",)
+
+
+class TestExactMode:
+    def test_exact_mode_verbatim(self) -> None:
+        q = "FastMCP Client call_tool timeout error code"
+        out = shape_for_branch("free", q, _feat(q), exact=True)
+        assert out.query == q
+        assert out.rules_applied == ("exact",)
+        assert not out.changed
+
+    def test_exact_mode_skips_operator_surgery(self) -> None:
+        q = 'docker "exact phrase" site:docs.docker.com -bad intitle:x'
+        out = shape_for_branch("serp2", q, _feat(q), exact=True)
+        assert out.query == q
+        assert out.rules_applied == ("exact",)
 
 
 class TestDeterminismAndPerf:

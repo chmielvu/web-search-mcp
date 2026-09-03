@@ -177,9 +177,8 @@ def _parse_json3(subtitle_data: Any) -> list[dict[str, Any]]:
 def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
     """Extract video metadata using yt-dlp (best-effort).
 
-    Uses extract_flat=True for fast metadata-only extraction.
     Returns dict with keys: title, description, channel, channel_url,
-    duration_seconds, view_count, upload_date, tags.
+    duration_seconds, view_count, upload_date, tags, language.
 
     All fields are optional and may be None if unavailable.
     Raises YouTubeError if yt-dlp is not installed.
@@ -193,7 +192,6 @@ def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
 
     ydl_opts = {
         "skip_download": True,
-        "extract_flat": True,
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 10,
@@ -218,4 +216,5 @@ def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
         "view_count": info.get("view_count"),
         "upload_date": info.get("upload_date"),
         "tags": info.get("tags"),
+        "language": info.get("language") or info.get("original_language"),
     }

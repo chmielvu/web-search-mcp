@@ -227,6 +227,15 @@ async def grok_search(
             "reasoning_tokens": result.reasoning_tokens,
             "total_tokens": result.total_tokens,
             "error": result.error,
+            "usage": {
+                "prompt_tokens": result.input_tokens,
+                "completion_tokens": result.output_tokens,
+                "total_tokens": result.total_tokens,
+                "cached_input_tokens": result.cached_input_tokens,
+                "reasoning_tokens": result.reasoning_tokens,
+                "model_used": result.model_used or result.model,
+                "provider": "grok",
+            },
         }
 
         duration_seconds = time.time() - start_time

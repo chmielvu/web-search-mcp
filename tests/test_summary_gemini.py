@@ -91,13 +91,56 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["input_tokens"], 14)
         self.assertEqual(result["output_tokens"], 8)
         self.assertEqual(result["backend"], "gemini-api")
+        self.assertEqual(result["provider"], "google")
 
         model, contents, config = fake_client.models.calls[0]
         self.assertEqual(model, "gemini-3.5-flash-lite")
         self.assertIn("example.com/article", contents)
+        self.assertIn("<source_text>", contents)
+        self.assertIn("Local page text", contents)
+        tools = getattr(config, "tools", None)
+        self.assertFalse(tools)
+        self.assertEqual(getattr(config, "response_mime_type", None), "application/json")
+
+    async def test_create_summary_uses_url_context_when_body_empty(self) -> None:
+        from kindly_web_search_mcp_server.content.summary import create_summary
+
+        fake_client = _FakeClient(
+            [
+                _FakeResponse(
+                    {
+                        "summary": "URL context summary",
+                        "key_points": ["Point"],
+                        "important_entities": [],
+                        "verbatim_terms": [],
+                        "limitations": [],
+                    }
+                )
+            ]
+        )
+
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "token"}, clear=False),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend.genai.Client",
+                return_value=fake_client,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.content.summary_backend._client",
+                None,
+            ),
+        ):
+            result = await create_summary(
+                "",
+                ai_summary=True,
+                source_urls=["https://example.com/article"],
+            )
+
+        self.assertEqual(result["summary"], "URL context summary")
+        _, contents, config = fake_client.models.calls[0]
         self.assertTrue(getattr(config, "tools", None))
         self.assertIsNotNone(getattr(config.tools[0], "url_context", None))
-        self.assertEqual(getattr(config, "response_mime_type", None), "application/json")
+        self.assertNotIn("<source_text>", contents)
 
     async def test_create_summary_falls_back_through_gemini_31_to_gemma(self) -> None:
         from kindly_web_search_mcp_server.content.summary import create_summary
@@ -344,6 +387,58 @@ class TestGeminiSummary(unittest.IsolatedAsyncioTestCase):
             mock_gen.assert_awaited_once()
             _, kwargs = mock_gen.call_args
             self.assertEqual(kwargs["source_text"], "Detailed page markdown content")
+            self.assertFalse(kwargs["use_url_context"])
+
+    def test_drop_inaccessible_claim_on_long_body(self) -> None:
+        from kindly_web_search_mcp_server.content.summary_backend import (
+            _drop_inaccessible_claim,
+        )
+
+        body = "word " * 90
+        dropped = _drop_inaccessible_claim(
+            {
+                "summary": "The page was inaccessible and could not retrieve the article.",
+                "key_points": ["Missing"],
+                "limitations": ["blocked or inaccessible"],
+            },
+            body,
+        )
+        self.assertEqual(
+            dropped["summary"],
+            "Source text was present but the model failed to summarize it.",
+        )
+        self.assertEqual(dropped["key_points"], [])
+        self.assertIn("model_claimed_inaccessible_with_body", dropped["limitations"])
+
+        kept = _drop_inaccessible_claim(
+            {"summary": "A flooding report.", "key_points": ["Rain"], "limitations": []},
+            body,
+        )
+        self.assertEqual(kept["summary"], "A flooding report.")
+
+    def test_batch_prompt_uses_source_text_not_url_context(self) -> None:
+        from kindly_web_search_mcp_server.content.summary_backend import (
+            _build_batch_user_prompt,
+            _make_batch_config,
+        )
+
+        items = [
+            {
+                "fetched_url": "https://example.com/one",
+                "page_content": "Local page text one",
+            },
+            {
+                "fetched_url": "https://example.com/two",
+                "page_content": "Local page text two",
+            },
+        ]
+        prompt = _build_batch_user_prompt(mode="detailed", focus_query=None, items=items)
+        self.assertIn("<source_text>", prompt)
+        self.assertIn("Local page text one", prompt)
+        self.assertIn("Do not fetch URLs", prompt)
+        self.assertNotIn("Use the URL context tool", prompt)
+        config = _make_batch_config(max_output_tokens=1200)
+        self.assertFalse(getattr(config, "tools", None))
 
 
 if __name__ == "__main__":

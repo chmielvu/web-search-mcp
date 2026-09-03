@@ -7,6 +7,7 @@ description, and transcript (from cascade).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -129,12 +130,13 @@ async def fetch_youtube_content_markdown(
     video_id = target.video_id
 
     # Extract metadata (best-effort)
-    metadata = ytdlp_extract_metadata(video_id)
+    metadata = await asyncio.to_thread(ytdlp_extract_metadata, video_id)
 
     # Fetch transcript (best-effort)
     transcript_segments: list[dict[str, Any]] | None = None
     try:
-        segments, _backend = fetch_transcript_cascade(
+        segments, _backend = await asyncio.to_thread(
+            fetch_transcript_cascade,
             video_id,
             backend="auto",
         )

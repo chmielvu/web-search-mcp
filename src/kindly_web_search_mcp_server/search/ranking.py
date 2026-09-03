@@ -87,10 +87,14 @@ async def rank_and_finalize(
                         raw_by_url[url_key] = result
             all_raw_results = list(raw_by_url.values())
 
-            bm25_scores = await score_candidates_async(
-                run.plan.relevance_query if run.plan else run.request.query,
-                [_candidate_text(result) for result in all_raw_results],
-            )
+            try:
+                bm25_scores = await score_candidates_async(
+                    run.plan.relevance_query if run.plan else run.request.query,
+                    [_candidate_text(result) for result in all_raw_results],
+                )
+            except Exception as exc:
+                logger.warning("BM25 scoring failed, continuing without BM25 signal: %s", exc)
+                bm25_scores = [0.0] * len(all_raw_results)
             bm25_order_indices = sorted(
                 [idx for idx in range(len(all_raw_results)) if bm25_scores[idx] > 0.0],
                 key=lambda idx: (-bm25_scores[idx], idx),

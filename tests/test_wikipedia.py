@@ -30,7 +30,7 @@ class TestWikipedia(unittest.TestCase):
         )
         self.assertEqual(target.host, "en.wikipedia.org")
 
-    def test_render_truncation_marker(self) -> None:
+    def test_render_wikipedia_markdown(self) -> None:
         from kindly_web_search_mcp_server.content.resolvers.wikipedia import (
             render_wikipedia_markdown,
         )
@@ -40,9 +40,10 @@ class TestWikipedia(unittest.TestCase):
             canonical_url="https://en.wikipedia.org/wiki/T",
             host="en.wikipedia.org",
             body_markdown="Hello",
-            truncated=True,
         )
-        self.assertIn("_Content truncated.", md)
+        self.assertIn("Title: T", md)
+        self.assertIn("Hello", md)
+        self.assertNotIn("_Content truncated.", md)
 
 
 if __name__ == "__main__":

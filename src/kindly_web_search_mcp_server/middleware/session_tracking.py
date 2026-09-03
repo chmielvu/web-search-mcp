@@ -21,18 +21,23 @@ def get_session_id(context: MiddlewareContext) -> str:
     fastmcp_context = context.fastmcp_context
     if fastmcp_context is not None:
         try:
-            return fastmcp_context.session_id
-        except RuntimeError:
+            session_id = fastmcp_context.session_id
+            if session_id:
+                return str(session_id)
+        except Exception:
+            pass
+        try:
             client_id = fastmcp_context.client_id
             if client_id:
-                return client_id
+                return str(client_id)
+        except Exception:
+            pass
 
     request_id = getattr(context.message, "request_id", None)
     if request_id:
         return str(request_id)
 
     return _FALLBACK_SESSION_ID
-
 
 @dataclass
 class SessionState:

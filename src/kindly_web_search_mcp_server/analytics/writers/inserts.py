@@ -1137,3 +1137,26 @@ _RESULT_LABELS_WRITER = TableWriter(
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.result_labels",
 )
+
+_MATERIALIZED_RESULT_LABELS_WRITER = TableWriter(
+    table_name=_RL_TABLE_NAME,
+    ensure_name="_ensure_result_labels",
+    columns=_RESULT_LABEL_COLUMNS,
+    on_conflict=(
+        "ON CONFLICT (label_id) DO UPDATE SET "
+        "recorded_at = excluded.recorded_at, "
+        "run_key = excluded.run_key, "
+        "stage = excluded.stage, "
+        "position = excluded.position, "
+        "label = excluded.label, "
+        "canonical_result_id = excluded.canonical_result_id, "
+        "raw_url = excluded.raw_url, "
+        "source = excluded.source, "
+        "annotator_id = excluded.annotator_id, "
+        "rubric_version = excluded.rubric_version, "
+        "discounted_gain = excluded.discounted_gain, "
+        "notes = excluded.notes, "
+        "payload_json = excluded.payload_json"
+    ),
+    task_name="analytics.materialized_result_labels",
+)

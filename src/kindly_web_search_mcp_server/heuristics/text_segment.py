@@ -30,6 +30,82 @@ _OPERATOR_PREFIXES = (
     "patternType:",
 )
 
+# Technical compounds wordninja must never split (observed breakages plus
+# common ecosystem terms). Case-insensitive gate in is_eligible_token.
+_PROTECTED_TOKENS = frozenset(
+    {
+        "streamable",
+        "autovacuum",
+        "postgresql",
+        "postgres",
+        "sqlalchemy",
+        "fastmcp",
+        "langgraph",
+        "langchain",
+        "duckdb",
+        "websocket",
+        "websockets",
+        "zstandard",
+        "brotli",
+        "codebase",
+        "codebases",
+        "codefetch",
+        "codesearch",
+        "websearch",
+        "webhook",
+        "webhooks",
+        "middleware",
+        "microservice",
+        "microservices",
+        "kubernetes",
+        "dockerfile",
+        "dockerfiles",
+        "github",
+        "gitlab",
+        "bitbucket",
+        "openai",
+        "anthropic",
+        "gemini",
+        "tensorflow",
+        "pytorch",
+        "numpy",
+        "pandas",
+        "opentelemetry",
+        "telemetry",
+        "observability",
+        "checkpointer",
+        "checkpointers",
+        "semantic",
+        "semantics",
+        "rerank",
+        "reranking",
+        "crossencoder",
+        "biencoder",
+        "vectorstore",
+        "vectorstores",
+        "embeddings",
+        "embedding",
+        "tokenizer",
+        "tokenizers",
+        "autocomplete",
+        "autosuggest",
+        "keyword",
+        "keywords",
+        "research",
+        "researchgoal",
+        "queryplan",
+        "queryplanner",
+        "provider",
+        "providers",
+        "backend",
+        "backends",
+        "frontend",
+        "frontends",
+        "workflow",
+        "workflows",
+    }
+)
+
 
 def is_eligible_token(token: str) -> bool:
     """True when a whitespace token may be run through wordninja.
@@ -44,6 +120,8 @@ def is_eligible_token(token: str) -> bool:
     if not core.isalpha() or core != core.lower():
         return False
     if "_" in core or "." in core:
+        return False
+    if core.casefold() in _PROTECTED_TOKENS:
         return False
     lower = token.lower()
     if lower.startswith(_OPERATOR_PREFIXES):
@@ -60,7 +138,11 @@ def segment_query(text: str) -> str | None:
     for token in text.split():
         if is_eligible_token(token):
             parts = wordninja.split(token.strip("\"'"))
-            if len(parts) > 1 and " ".join(parts) != token.strip("\"'"):
+            if (
+                len(parts) > 1
+                and " ".join(parts) != token.strip("\"'")
+                and all(len(part) >= 3 for part in parts)
+            ):
                 out.append(" ".join(parts))
                 changed = True
                 continue

@@ -5,19 +5,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-import sys
-from unittest.mock import MagicMock
-
-# Stub the broken telemetry→llm→litellm import chain before any stage import
-_fake_telemetry = MagicMock()
-_fake_telemetry.record_content_resolution = MagicMock()
-_fake_telemetry.record_content_error = MagicMock()
-sys.modules["kindly_web_search_mcp_server.telemetry"] = _fake_telemetry
-from kindly_web_search_mcp_server.content.artifact import ContentArtifact  # noqa: E402
-from kindly_web_search_mcp_server.content.options import FetchOptions  # noqa: E402
-from kindly_web_search_mcp_server.content.status_classifier import ClassificationResult  # noqa: E402
-from kindly_web_search_mcp_server.content.jina_reader import JinaReaderError  # noqa: E402
-from kindly_web_search_mcp_server.content import stages  # noqa: E402
+from kindly_web_search_mcp_server.content.artifact import ContentArtifact
+from kindly_web_search_mcp_server.content.options import FetchOptions
+from kindly_web_search_mcp_server.content.status_classifier import ClassificationResult
+from kindly_web_search_mcp_server.content.jina_reader import JinaReaderError
+from kindly_web_search_mcp_server.content import stages
 
 
 class TestJinaStage(unittest.IsolatedAsyncioTestCase):

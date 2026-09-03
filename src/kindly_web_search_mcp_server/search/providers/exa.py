@@ -102,11 +102,6 @@ async def search_exa(
         "contents": {"highlights": True},
     }
 
-    if search_options is not None:
-        if search_options.site_filters:
-            payload["includeDomains"] = list(search_options.site_filters)[:1200]
-        if search_options.domain_filters:
-            payload["excludeDomains"] = list(search_options.domain_filters)[:1200]
 
     unknown = (
         set(kwargs)
@@ -124,9 +119,24 @@ async def search_exa(
         if key in kwargs and kwargs[key] is not None:
             payload["contents"][key] = kwargs[key]
 
-    # Intent freshness -> startPublishedDate unless an explicit date wins.
-    if kwargs.get("freshness") is not None and "startPublishedDate" not in payload:
+    # Resolved temporal window -> absolute ISO published dates (Exa native).
+    # Precedence: explicit provider args > resolved window > intent freshness.
+    temporal = search_options.temporal if search_options is not None else None
+    if temporal is not None and not temporal.is_empty and "startPublishedDate" not in payload:
+        if temporal.start is not None:
+            payload["startPublishedDate"] = (
+                f"{temporal.start.isoformat()}T00:00:00.000Z"
+            )
+        if temporal.end is not None:
+            payload["endPublishedDate"] = f"{temporal.end.isoformat()}T23:59:59.999Z"
+    elif kwargs.get("freshness") is not None and "startPublishedDate" not in payload:
         payload["startPublishedDate"] = translate_exa_freshness(kwargs.get("freshness"))
+
+    # Locale: Exa ``userLocation`` biases locality; country is the alpha-2 code.
+    # Language has no Exa parameter — left for query shaping upstream.
+    region = search_options.region if search_options is not None else None
+    if region and "userLocation" not in payload:
+        payload["userLocation"] = {"country": region.lower()}
 
     # Public server default: filter unsafe content unless overridden.
     if "moderation" not in payload:

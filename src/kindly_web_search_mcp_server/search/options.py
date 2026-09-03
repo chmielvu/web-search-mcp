@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 
 from ..search.normalize import normalize_query
+from .filters import LocaleSpec, TemporalWindow
 
 
 SEARCH_TIME_RANGES = frozenset({"day", "week", "month", "year"})
@@ -17,10 +18,9 @@ def _normalize_items(values: tuple[str, ...] | list[str] | None) -> tuple[str, .
     items: list[str] = []
     for raw in values:
         text = normalize_query(raw)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        items.append(text)
+        if text and text not in seen:
+            seen.add(text)
+            items.append(text)
     return tuple(items)
 
 
@@ -32,8 +32,9 @@ class SearchOptions:
     searxng_pageno: int = 1
     searxng_time_range: str | None = None
     searxng_safesearch: int | None = None
-    site_filters: tuple[str, ...] = ()
-    domain_filters: tuple[str, ...] = ()
+    temporal: TemporalWindow | None = None
+    language: str | None = None
+    region: str | None = None
 
     def validate(self) -> "SearchOptions":
         if self.searxng_pageno < 1:
@@ -46,6 +47,8 @@ class SearchOptions:
             2,
         }:
             raise ValueError("searxng_safesearch must be 0, 1, 2, or None.")
+        if self.temporal is not None and self.temporal.bucket is None and self.temporal.is_empty:
+            raise ValueError("temporal window resolved empty; pass None instead.")
         return self
 
     def cache_fingerprint(self) -> str:
@@ -56,15 +59,23 @@ class SearchOptions:
             "searxng_pageno": self.searxng_pageno,
             "searxng_time_range": self.searxng_time_range,
             "searxng_safesearch": self.searxng_safesearch,
-            "site_filters": self.site_filters,
-            "domain_filters": self.domain_filters,
+            "temporal": (
+                {
+                    "start": self.temporal.start.isoformat() if self.temporal.start else None,
+                    "end": self.temporal.end.isoformat() if self.temporal.end else None,
+                    "bucket": self.temporal.bucket,
+                }
+                if self.temporal is not None
+                else None
+            ),
+            "language": self.language,
+            "region": self.region,
         }
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return sha256(raw).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
-
 
 def build_search_options(
     *,
@@ -74,8 +85,14 @@ def build_search_options(
     searxng_pageno: int = 1,
     searxng_time_range: str | None = None,
     searxng_safesearch: int | None = None,
-    site_filters: list[str] | None = None,
-    domain_filters: list[str] | None = None,
+    date_range: str | None = None,
+    after_date: str | None = None,
+    before_date: str | None = None,
+    language: str | None = None,
+    region: str | None = None,
+    gl: str | None = None,
+    locale_spec: LocaleSpec | None = None,
+    temporal_window: TemporalWindow | None = None,
 ) -> SearchOptions:
     options = SearchOptions(
         searxng_categories=_normalize_items(searxng_categories),
@@ -86,12 +103,11 @@ def build_search_options(
             normalize_query(searxng_time_range).casefold() or None if searxng_time_range else None
         ),
         searxng_safesearch=searxng_safesearch,
-        site_filters=_normalize_items(site_filters),
-        domain_filters=_normalize_items(domain_filters),
+        temporal=temporal_window,
+        language=(locale_spec.language if locale_spec else None),
+        region=(locale_spec.region if locale_spec else None),
     )
     return options.validate()
-
-
 def build_search_identity_key(
     providers: list[str] | None,
     search_options: SearchOptions | None,

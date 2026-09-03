@@ -40,13 +40,18 @@ class TestIsEligibleToken(unittest.TestCase):
 
 class TestSegmentQuery(unittest.TestCase):
     def test_splits_flagship_glued_token(self) -> None:
-        self.assertEqual(segment_query("toplawyersinnewyork"), "top lawyers in new york")
+        self.assertEqual(segment_query("toplawyersnewyork"), "top lawyers new york")
 
     def test_preserves_surrounding_words(self) -> None:
         self.assertEqual(
-            segment_query("find toplawyersinnewyork fast"),
-            "find top lawyers in new york fast",
+            segment_query("find toplawyersnewyork fast"),
+            "find top lawyers new york fast",
         )
+
+    def test_split_with_short_part_rejected(self) -> None:
+        # wordninja yields "in" (2 chars) for this token; the split is
+        # rejected so the glued token survives intact.
+        self.assertIsNone(segment_query("toplawyersinnewyork"))
 
     def test_returns_none_when_nothing_to_split(self) -> None:
         self.assertIsNone(segment_query(""))

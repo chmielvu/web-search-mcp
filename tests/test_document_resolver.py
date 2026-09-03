@@ -33,10 +33,18 @@ def test_is_document_url() -> None:
     assert not is_document_url("https://example.com/page.html")
     assert not is_document_url("https://example.com/script.py")
     assert not is_document_url("https://example.com/readme.md")
+    assert not is_document_url("https://arxiv.org/pdf/1706.03762")
+    assert not is_document_url("https://export.arxiv.org/pdf/1706.03762")
+    assert is_document_url("https://example.com/pdf/foo")
+    assert is_document_url("https://cdn.example.com/pdf/n")
+    assert is_document_url("https://www.example.com/pdf/abc")
 
 
 def test_convert_pdf_to_markdown() -> None:
-    import fitz
+    try:
+        import pymupdf as fitz
+    except (ImportError, OSError):
+        pytest.skip("PyMuPDF unavailable or DLL failed to load")
 
     doc = fitz.open()
     page = doc.new_page()
@@ -47,7 +55,6 @@ def test_convert_pdf_to_markdown() -> None:
     rendered = _convert_pdf_to_markdown(pdf_bytes, "https://example.com/doc.pdf")
     assert "# PDF Document" in rendered
     assert "Hello PyMuPDF Document Extraction" in rendered
-
 
 def test_rewrite_document_url() -> None:
     doc_url = "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"

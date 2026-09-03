@@ -64,15 +64,11 @@ def _build_code_search_rerank_query(
 ) -> str:
     """Compose a private code-search signal in the provider-compatible pipe format."""
     normalized_query = " ".join(query.split()).strip()
-    goal_source = research_goal if research_goal and research_goal.strip() else query
-    goal = " ".join(goal_source.split()).strip()[:500]
-    return " | ".join(
-        (
-            normalized_query,
-            f"Instructions: {instructions}",
-            f"Research goal: {goal}",
-        )
-    )
+    goal = " ".join((research_goal or "").split()).strip()[:500]
+    parts = [normalized_query, f"Instructions: {instructions}"]
+    if goal and goal.casefold() != normalized_query.casefold():
+        parts.append(f"Research goal: {goal}")
+    return " | ".join(parts)
 
 
 @dataclass(slots=True)

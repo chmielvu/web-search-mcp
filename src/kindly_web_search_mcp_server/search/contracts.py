@@ -50,6 +50,11 @@ class WebSearchRequest(ContractModel):
     rewrite: bool = True
     options: SearchOptions = Field(default_factory=SearchOptions)
     reranking_instructions: str | None = None
+    # Internal-only post-processing inputs (not part of the public wire
+    # contract; consumed by run_search_core).
+    include_undated: bool | None = None
+    domain_boost: tuple[str, ...] = ()
+    pre_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

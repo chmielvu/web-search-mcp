@@ -123,7 +123,9 @@ async def _call_provider(
         understanding=understanding,
         support_terms=branch.support_terms or (),
     )
-    aug = shape_for_branch(branch.role.value, query, features)
+    aug = shape_for_branch(
+        branch.role.value, query, features, exact=not run.request.rewrite
+    )
     query_for_call = aug.query
     provider_arguments = dict(
         run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
@@ -135,7 +137,7 @@ async def _call_provider(
             {
                 "provider": provider_name,
                 "branch_role": branch.role.value,
-                "original": query,
+                "original": run.request.query,
                 "shaped": aug.query,
                 "rules": list(aug.rules_applied),
                 "metadata": transform_metadata,

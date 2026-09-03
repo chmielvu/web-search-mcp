@@ -17,7 +17,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `code_search/` | Agent-oriented public-code search with automatic backend channel selection |
 | `code_search/filters.py` | Provider-neutral validation of repository, path, filename, extension, and language scopes |
 | `ai_search.py` | `gemini_search`, `grok_search` |
-| `youtube.py` | `youtube_search`, `youtube_transcript` |
+| `youtube.py` | `youtube_search`, `youtube_transcript` (video URL/ID **or** channel handle/ID/URL, auto-detected; channel mode adds `max_videos`/`page_token`) |
 | `sitemap.py` | `generate_sitemap` |
 | `recommend.py` | `recommend_command` route recommendation tool |
 | `prompts.py` | Prompt function implementations |
@@ -40,7 +40,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `recommend_command` | Structured route, command, fallbacks, decomposition rules, and optional prompt metadata | Deterministic recommendation only; never executes commands |
 | `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
-| `youtube_transcript` | Video transcripts | Optional translation/formatting |
+| `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
 | `youtube_search` | YouTube video results | YouTube Data API v3 or SearXNG |
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
 | `code_search` | Typed code/documentation hits, repository candidates, and diagnostics | Backend selects lexical, symbol, regex, semantic, repository, and documentation channels; bounded cloud cross-encoder reranking is always attempted fail-open |
@@ -83,6 +83,10 @@ uv run pytest tests/test_code_search.py
 ```
 
 ## Recent Changes (2026-07-22 sprint 2)
+- `code_fetch` — repository-scoped queries now fall back from strict FTS AND matching
+  to per-term candidates, restore valid persisted snapshots across manager lifetimes,
+  and return hits/tree/content/map payloads instead of dropping query data. Search
+  continuations target the repository snapshot rather than emitting path-only loops.
 - `content.py` — removed orphan imports `from ..models import PageMetadata` (class deleted from `models.py`) and `from ..utils.stopwatch import Stopwatch` (module + class deleted). The 3 `timer = Stopwatch()` declarations + 6 `timer.elapsed_ms()` callsites replaced with `duration_ms=0` since `record_mcp_tool_call` requires the kwarg. No measurement infrastructure exists; restore Stopwatch + start/stop instrumentation in a future sprint if `record_mcp_tool_call` duration telemetry is needed.
 
 - `code_search/` — Exa now uses the documented Context endpoint; provider-neutral scope filtering, positive one-based location normalization, result-kind-aware ranking, and transient-failure partial outcomes protect the typed search contract. Context request IDs, echoed queries, usage/cost metadata, and documented error tags/status classes remain available for diagnosis; the synthesized response is one bounded semantic hit without fabricated line precision.

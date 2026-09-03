@@ -25,6 +25,29 @@ _YOUTUBE_LIVE_RE = re.compile(r"^/live/([^/?]+)$")
 _VALID_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 
 
+_BARE_CHANNEL_ID_RE = re.compile(r"^UC[\w-]{18,30}$")
+_HANDLE_RE = re.compile(r"^@[\w.-]+$")
+
+
+def looks_like_channel_target(target: str) -> bool:
+    """Return True when ``target`` is a channel handle, ID, or channel URL."""
+    stripped = target.strip()
+    if not stripped:
+        return False
+    if _BARE_CHANNEL_ID_RE.match(stripped) or _HANDLE_RE.match(stripped):
+        return True
+    if not stripped.startswith(("http://", "https://")):
+        if not stripped.startswith(("youtube.com/", "www.youtube.com/", "m.youtube.com/", "youtu.be/")):
+            return False
+        stripped = f"https://{stripped}"
+    parsed = urlparse(stripped)
+    host = (parsed.hostname or "").lower()
+    if host not in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        return False
+    path = parsed.path or ""
+    return path.startswith("/@") or "/channel/" in path
+
+
 def parse_youtube_url(url: str) -> YouTubeTarget:
     """Parse YouTube URL and extract video ID.
 
@@ -38,6 +61,15 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
         return YouTubeTarget(
             video_id=video_id,
             canonical_url=f"https://www.youtube.com/watch?v={video_id}",
+        )
+    if not stripped.startswith(("http", "www.")) and re.fullmatch(r"[\w-]{5,60}", stripped):
+        if looks_like_channel_target(stripped):
+            raise YouTubeError(
+                f"Expected a YouTube video ID or URL, got a channel target: {stripped!r}"
+            )
+        raise YouTubeError(
+            f"Invalid YouTube video ID: {stripped!r} - expected 11 characters, got "
+            f"{len(stripped)}."
         )
 
     parsed = urlparse(url)

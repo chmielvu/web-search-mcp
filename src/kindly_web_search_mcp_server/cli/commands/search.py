@@ -153,15 +153,37 @@ def web_cmd(
         int | None,
         typer.Option("--searxng-safesearch"),
     ] = None,
-    site_filter: Annotated[list[str] | None, typer.Option("--site-filter")] = None,
-    domain_filter: Annotated[list[str] | None, typer.Option("--domain-filter")] = None,
+    date_range: Annotated[
+        str | None,
+        typer.Option("--date-range", help="Relative freshness: day, week, month, or year."),
+    ] = None,
+    after_date: Annotated[
+        str | None,
+        typer.Option("--after-date", help="Only results published on/after YYYY-MM-DD."),
+    ] = None,
+    before_date: Annotated[
+        str | None,
+        typer.Option("--before-date", help="Only results published on/before YYYY-MM-DD."),
+    ] = None,
+    language: Annotated[
+        str | None,
+        typer.Option("--language", help="ISO 639-1 code (e.g. en, pl) or BCP-47 tag."),
+    ] = None,
+    region: Annotated[
+        str | None,
+        typer.Option("--region", help="ISO 3166-1 alpha-2 country bias/filter."),
+    ] = None,
+    include_undated: Annotated[
+        bool | None,
+        typer.Option(
+            "--include-undated/--exclude-undated",
+            help="Undated-result policy under absolute date windows "
+            "(default: drop only from providers without native date support).",
+        ),
+    ] = None,
     domain_boost: Annotated[
         list[str] | None,
         typer.Option("--domain-boost", help="Domains to boost (move to front)."),
-    ] = None,
-    domain_block: Annotated[
-        list[str] | None,
-        typer.Option("--domain-block", help="Domains to exclude (remove entirely)."),
     ] = None,
     diagnostics: Annotated[
         bool,
@@ -184,10 +206,12 @@ def web_cmd(
                 searxng_pageno=searxng_pageno,
                 searxng_time_range=searxng_time_range,
                 searxng_safesearch=searxng_safesearch,
-                site_filters=site_filter,
-                domain_filters=domain_filter,
                 domain_boost=domain_boost,
-                domain_block=domain_block,
+                date_range=date_range,
+                after_date=after_date,
+                before_date=before_date,
+                region=region,
+                include_undated=include_undated,
                 diagnostics=diagnostics,
             )
         )
@@ -415,6 +439,15 @@ def fetch_cmd(
     start_line: Annotated[int | None, typer.Option("--start-line", help="Optional 1-based start line.")] = None,
     end_line: Annotated[int | None, typer.Option("--end-line", help="Optional 1-based end line.")] = None,
     depth: Annotated[int | None, typer.Option("--depth", help="Optional max directory tree depth.")] = None,
+    language: Annotated[str | None, typer.Option("--language", help="Filter hits by language, e.g. python.")] = None,
+    filename: Annotated[str | None, typer.Option("--filename", help="fnmatch filter on file basename.")] = None,
+    path_glob: Annotated[str | None, typer.Option("--path-glob", help="fnmatch include filter on repo-relative path.")] = None,
+    exclude_glob: Annotated[str | None, typer.Option("--exclude-glob", help="fnmatch exclude filter on repo-relative path.")] = None,
+    case_sensitive: Annotated[
+        bool,
+        typer.Option("--case-sensitive/--no-case-sensitive", help="Case-sensitive literal matching."),
+    ] = False,
+    cursor: Annotated[str | None, typer.Option("--cursor", help="Continuation cursor from a previous next_cursor.")] = None,
 ) -> None:
     """Explore a cached GitHub repository snapshot."""
     from ..services.code_fetch import fetch_code_fetch_payload
@@ -433,6 +466,12 @@ def fetch_cmd(
                 start_line=start_line,
                 end_line=end_line,
                 depth=depth,
+                language=language,
+                filename=filename,
+                path_glob=path_glob,
+                exclude_glob=exclude_glob,
+                case_sensitive=case_sensitive,
+                cursor=cursor,
             )
         )
     except ValueError as exc:
@@ -476,6 +515,18 @@ def academic_cmd(
         typer.Option("--open-access-only/--no-open-access-only"),
     ] = False,
     sort: Annotated[str, typer.Option("--sort")] = "relevance",
+    cited_by: Annotated[
+        str | None,
+        typer.Option("--cited-by", help="Papers citing this ID (DOI/arXiv/OpenAlex/S2)."),
+    ] = None,
+    references: Annotated[
+        str | None,
+        typer.Option("--references", help="Bibliography of this ID."),
+    ] = None,
+    author_id: Annotated[
+        str | None,
+        typer.Option("--author-id", help="OpenAlex author ID or ORCID."),
+    ] = None,
 ) -> None:
     """Search scholarly sources and return deduplicated papers."""
     from ..services.academic import fetch_academic_search_payload
@@ -503,6 +554,9 @@ def academic_cmd(
                 venue=venue,
                 open_access_only=open_access_only,
                 sort=sort,
+                cited_by_paper_id=cited_by,
+                references_paper_id=references,
+                author_id=author_id,
             )
         )
     except ValueError as exc:

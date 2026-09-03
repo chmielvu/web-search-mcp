@@ -56,11 +56,11 @@ async def fetch_with_jina_reader(url: str, *, timeout_seconds: float = 25.0) -> 
     # Modern Jina Reader defaults tuned for downstream LLM consumption.
     # - frontmatter: returns YAML frontmatter (title/url) + clean markdown body.
     # - research preset: keeps links/images/media inline and chunks at h3.
-    # - retain-links/images none: drops noisy embedded markup from the body.
+    # - retain-links all: keep markdown hrefs; images stay dropped.
     base_headers = {
         "X-Respond-With": "frontmatter",
         "X-Preset": "research",
-        "X-Retain-Links": "none",
+        "X-Retain-Links": "all",
         "X-Retain-Images": "none",
         "X-No-Cache": "true",
     }

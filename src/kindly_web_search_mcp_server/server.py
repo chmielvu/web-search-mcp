@@ -100,7 +100,7 @@ from .tools.resources import (
 from .tools.search import web_search
 from .tools.recommend import recommend_command
 from .tools.sitemap import generate_sitemap
-from .tools.youtube import youtube_channel_transcription, youtube_search, youtube_transcript
+from .tools.youtube import youtube_search, youtube_transcript
 from .utils.logging import configure_logging
 from .utils.observability import emit_observability_event
 
@@ -209,6 +209,10 @@ mcp = FastMCP(
         "Use discover_links to explore link graphs. Use academic_search for\n"
         "scholarly questions. Use youtube_search + youtube_transcript for\n"
         "video content.\n"
+        "Codebase work: use code_search for public discovery, then code_fetch with\n"
+        "repository + query to search the full snapshot — query returns matching\n"
+        "lines, so follow hits with path to read whole files. Repository alone returns\n"
+        "a map with the file tree. Use path only for focused file reads.\n"
         "\n"
         "For deeper guidance, request the research_methodology prompt.\n"
         "For the tool routing reference card, read docs://workflow."
@@ -312,8 +316,8 @@ mcp.add_middleware(
             "grok_search",
             "youtube_search",
             "youtube_transcript",
-            "youtube_channel_transcription",
-            "generate_sitemap",
+
+             "generate_sitemap",
             "academic_search",
             "code_fetch",
             "quick_web_search",
@@ -339,7 +343,6 @@ mcp.tool(**tool_kwargs("fetch"))(fetch)
 mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
-mcp.tool(**tool_kwargs("youtube_channel_transcription"))(youtube_channel_transcription)
 mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)

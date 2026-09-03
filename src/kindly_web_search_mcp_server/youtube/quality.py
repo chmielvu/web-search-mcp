@@ -62,9 +62,13 @@ def truncate_segments(
     segments: list[dict[str, Any]],
     max_chars: int,
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Truncate at segment boundaries so JSON and rendered output agree."""
+    """Truncate at segment boundaries so JSON and rendered output agree.
+
+    ``max_chars <= 0`` means unlimited: the full segment list is returned
+    untruncated (mirrors the fetch pipeline's 0 = unlimited convention).
+    """
     if max_chars <= 0:
-        return [], bool(segments)
+        return segments, False
     selected: list[dict[str, Any]] = []
     used = 0
     for segment in segments:

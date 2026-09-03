@@ -257,12 +257,21 @@ def _inside_any(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
     return any(rs <= start and end <= rend for rs, rend in ranges)
 
 
-def shape_for_branch(role: str, query: str, features: QueryFeatures) -> AugmentResult:
-    """Shape one branch query for its role dialect. Pure function."""
+def shape_for_branch(
+    role: str, query: str, features: QueryFeatures, *, exact: bool = False
+) -> AugmentResult:
+    """Shape one branch query for its role dialect. Pure function.
+
+    ``exact=True`` returns the query verbatim (no operator surgery, no
+    budget trims, no unquoting, no glue segmentation).
+    """
     dialect = _DIALECTS.get(str(role), _DEFAULT_DIALECT)
     original = query or ""
     meta: dict[str, str] = {"role": str(role)}
     rules: list[str] = []
+
+    if exact:
+        return _result(original, original or "", ["exact"], meta)
 
     # Lang gate first — non-English queries never receive operator surgery.
     if features.lang not in ("", "en"):

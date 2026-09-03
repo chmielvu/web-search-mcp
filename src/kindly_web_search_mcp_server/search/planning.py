@@ -82,9 +82,25 @@ def _suggestions(payload: object) -> tuple[str, ...]:
 
 
 def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
-    folded = base.casefold()
-    additions = [term for term in terms[:4] if term.casefold() not in folded]
+    base_words = set(base.casefold().split())
+    additions = [
+        term for term in terms[:4]
+        if not set(term.casefold().split()) <= base_words
+    ]
     return normalize_query(" ".join((base, *additions)))
+
+
+def _strip_goal(slot: str, goal: str) -> str:
+    """Remove a verbatim (case-insensitive) research-goal echo from a slot."""
+    if not goal or not slot:
+        return slot
+    folded_goal = goal.casefold()
+    folded_slot = slot.casefold()
+    if folded_goal not in folded_slot:
+        return slot
+    start = folded_slot.find(folded_goal)
+    end = start + len(goal)
+    return " ".join((slot[:start] + " " + slot[end:]).split())
 
 
 def _normalize_branch_query(query: str) -> tuple[str, bool]:
@@ -99,11 +115,18 @@ def _branch_fallback_queries(
     *,
     terms: tuple[str, ...],
     suggestions: tuple[str, ...],
-    research_goal: str,
     current_year: str,
+    exact: bool = False,
 ) -> tuple[str, ...]:
-    """Deterministic per-slot fallbacks: free, serp1, serp2, tavily, exa."""
+    """Deterministic per-slot fallbacks: free, serp1, serp2, tavily, exa.
+
+    In exact mode every slot is the normalized base query: no keyword
+    expansion, no year suffix, no goal text.
+    """
     base = features.cleaned or normalize_query(features.raw)
+    if exact:
+        return (base, base, base, base, base)
+
     keyword_query = _keyword_query(base, terms)
 
     brave_fallback = keyword_query
@@ -127,12 +150,10 @@ def _branch_fallback_queries(
     else:
         serp2_fb = keyword_query
 
-    goal = " ".join((research_goal or "").split())
-    tavily_fb = normalize_query(f"{base}? {goal}") if goal else normalize_query(base)
     exa_cmp = f" comparing {compared[0]} and {compared[1]}" if len(compared) >= 2 else ""
-    exa_fb = normalize_query(f"{base} authoritative sources{exa_cmp}: {goal}") or base
+    exa_fb = normalize_query(f"{base} authoritative sources{exa_cmp}") or base
 
-    return (free_fb, serp1_fb, serp2_fb, tavily_fb or base, exa_fb)
+    return (free_fb, serp1_fb, serp2_fb, base, exa_fb)
 
 
 _REWRITE_CACHE: dict[str, tuple[RewrittenQueries, dict[str, Any]]] = {}
@@ -251,11 +272,22 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             fallback_features,
             terms=terms,
             suggestions=suggestions,
-            research_goal=request.research_goal,
             current_year=current_year,
+            exact=not request.rewrite,
         )
+        goal_text = " ".join((request.research_goal or "").split())
+        fallback = tuple(_strip_goal(slot, goal_text) for slot in fallback)
 
-        base_seed_queries = request.queries if request.queries else (normalized_query,)
+        seed_values: list[str] = []
+        seen_seed_values: set[str] = set()
+        for seed in (normalized_query, *request.queries):
+            normalized_seed = normalize_query(seed)
+            if normalized_seed and normalized_seed.casefold() not in seen_seed_values:
+                seed_values.append(normalized_seed)
+                seen_seed_values.add(normalized_seed.casefold())
+            if len(seed_values) == 4:
+                break
+        base_seed_queries = tuple(seed_values)
         if request.rewrite and settings.graph_expansion_enabled:
             try:
                 decision = await _bounded(
@@ -266,7 +298,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                         enabled=True,
                         max_related_queries=settings.graph_expansion_max_related_queries,
                         max_age_seconds=settings.graph_expansion_max_age_seconds,
-                        db_path=None,
+                        artifact_path=None,
                     )
                 )
             except Exception as exc:
@@ -288,11 +320,19 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             )
 
         graph_expansion_meta: dict[str, Any] = {
-            "status": decision.status,
-            "generation_id": decision.generation_id,
+            "artifact_age_seconds": decision.artifact_age_seconds,
             "base_seed_queries": list(decision.base_seed_queries[:4]),
+            "candidate_support_counts": dict(decision.candidate_support_counts),
+            "dropped_candidates": [
+                {"query": query, "reason": reason}
+                for query, reason in decision.dropped_candidates
+            ],
             "effective_seed_queries": list(decision.effective_seed_queries[:4]),
+            "generation_id": decision.generation_id,
+            "matched_query": decision.matched_query,
             "related_queries": list(decision.related_queries[:2]),
+            "source_fingerprint": decision.source_fingerprint,
+            "status": decision.status,
         }
         if decision.error_type:
             graph_expansion_meta["error_type"] = decision.error_type
@@ -322,7 +362,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 glued: list[str] = []
                 for name in SLOT_ORDER:
                     norm, did_glue = _normalize_branch_query(raw_slots[name])
-                    normalized_slots[name] = norm
+                    normalized_slots[name] = _strip_goal(norm, goal_text)
                     if did_glue:
                         glued.append(name)
                 if glued:

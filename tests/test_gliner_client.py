@@ -89,9 +89,7 @@ async def test_content_gateway_normalizes_grouped_entities_and_offsets(monkeypat
     ]
     assert _Client.calls[0]["url"] == "http://127.0.0.1:8000/extract"
     assert set(_Client.calls[0]["json"]["entities"]) >= {"package", "version"}
-    assert _Client.calls[0]["json"]["entities"]["package"] == (
-        "Software package, library, or framework name"
-    )
+    assert all(isinstance(item, str) for item in _Client.calls[0]["json"]["entities"])
     assert _Client.calls[0]["json"]["include_spans"] is True
 
 
@@ -112,3 +110,25 @@ def test_singleton_factory_is_stable(monkeypatch):
     first = get_gliner_client()
     second = get_gliner_client()
     assert first is second
+@pytest.mark.asyncio
+async def test_extract_transcript_chunk_sends_flat_label_lists(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    client = GLiNER2Client(base_url="http://test.local", timeout=1.0)
+    mocked = AsyncMock(return_value=({}, 0.0))
+    monkeypatch.setattr(client, "_post", mocked)
+
+    await client.extract_transcript_chunk(
+        "hello world",
+        entities={"person": "Person name", "organization": "Company"},
+        relations={"works for": "Works for"},
+        threshold=0.6,
+    )
+
+    args = mocked.call_args
+    assert args[0][0] == "/extract"
+    payload = args[0][1]
+    assert payload["entities"] == ["person", "organization"]
+    assert payload["relations"] == ["works for"]
+    assert "structures" not in payload
+    assert payload["threshold"] == 0.6

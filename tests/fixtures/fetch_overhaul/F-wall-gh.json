@@ -1,0 +1,16 @@
+{
+  "id": "F-wall-gh",
+  "url": "https://github.com/login",
+  "notes": "GitHub login form markdown with Sign in to GitHub + password field.",
+  "expect": {
+    "status": "blocked",
+    "source_type": "html",
+    "wall_kind": "login",
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Sign in to GitHub",
+      "type=\"password\""
+    ]
+  }
+}

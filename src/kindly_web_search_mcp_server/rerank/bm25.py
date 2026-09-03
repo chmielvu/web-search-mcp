@@ -8,10 +8,7 @@ import re
 import unicodedata
 from collections.abc import Sequence
 
-import bm25s
-
 logger = logging.getLogger(__name__)
-
 _TOKEN_RE = re.compile(
     r"[\w]+(?:[.+#_-][\w.+#_-]*)*|\.[A-Za-z][\w.#+_-]*|[\u3400-\u4dbf\u4e00-\u9fff]+",
     re.UNICODE,
@@ -59,10 +56,15 @@ def score_candidates(query: str, candidate_texts: Sequence[str]) -> list[float]:
     if not query_tokens:
         logger.debug("BM25: query tokenized to empty token list; returning all zeros")
         return [0.0] * len(candidate_texts)
-    retriever = bm25s.BM25(k1=1.2, b=0.75, method="lucene")
-    retriever.index(corpus, show_progress=False)
-    scores = retriever.get_scores(query_tokens)
-    return [float(value) for value in scores]
+    try:
+        import bm25s
+        retriever = bm25s.BM25(k1=1.2, b=0.75, method="lucene")
+        retriever.index(corpus, show_progress=False)
+        scores = retriever.get_scores(query_tokens)
+        return [float(value) for value in scores]
+    except Exception as exc:
+        logger.warning("BM25 scoring failed: %s", exc)
+        return [0.0] * len(candidate_texts)
 
 
 async def score_candidates_async(query: str, candidate_texts: Sequence[str]) -> list[float]:

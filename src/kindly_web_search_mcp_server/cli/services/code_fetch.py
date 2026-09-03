@@ -18,6 +18,12 @@ async def fetch_code_fetch_payload(
     start_line: int | None = None,
     end_line: int | None = None,
     depth: int | None = None,
+    language: str | None = None,
+    filename: str | None = None,
+    path_glob: str | None = None,
+    exclude_glob: str | None = None,
+    case_sensitive: bool = False,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     response = await code_fetch(
         repository=repository,
@@ -31,6 +37,12 @@ async def fetch_code_fetch_payload(
         start_line=start_line,
         end_line=end_line,
         depth=depth,
+        language=language,
+        filename=filename,
+        path_glob=path_glob,
+        exclude_glob=exclude_glob,
+        case_sensitive=case_sensitive,
+        cursor=cursor,
         ctx=None,
     )
     return response.model_dump(exclude_none=True)

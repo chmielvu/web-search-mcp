@@ -12,6 +12,7 @@ from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..normalize import canonicalize_url
+from ..filters import searxng_time_range
 from ..options import SearchOptions
 from .base import (
     ProviderRequestError,
@@ -184,6 +185,14 @@ async def search_searxng(
     if search_options is not None:
         if search_options.searxng_language:
             params["language"] = search_options.searxng_language
+        elif search_options.language:
+            # Generic locale: SearXNG accepts BCP-47-ish codes ("pl", "pt-BR").
+            if search_options.region:
+                params["language"] = (
+                    f"{search_options.language.lower()}-{search_options.region.upper()}"
+                )
+            else:
+                params["language"] = search_options.language
         else:
             env_language = settings.searxng_language.strip()
             if env_language:
@@ -203,9 +212,17 @@ async def search_searxng(
             if env_engines:
                 params["engines"] = env_engines
 
-        if search_options.searxng_time_range:
-            params["time_range"] = search_options.searxng_time_range
-        else:
+        # Temporal window: SearXNG supports day/month/year only (no week);
+        # unsupported buckets fall through to the pipeline post-filter.
+        temporal_bucket = (
+            search_options.temporal.bucket
+            if search_options.temporal is not None and not search_options.temporal.is_empty
+            else None
+        )
+        native_range = searxng_time_range(temporal_bucket) or search_options.searxng_time_range
+        if native_range:
+            params["time_range"] = native_range
+        elif not (temporal_bucket == "week" and search_options.searxng_time_range):
             env_time_range = (os.environ.get("SEARXNG_TIME_RANGE") or "").strip()
             if env_time_range:
                 params["time_range"] = env_time_range

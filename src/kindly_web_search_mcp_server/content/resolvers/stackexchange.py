@@ -124,19 +124,22 @@ def render_thread_markdown(question: dict[str, Any], answers: list[dict[str, Any
             # As a last resort return HTML; better than empty content.
             return raw_html
 
-    title = question.get("title") or ""
+    title = html.unescape(question.get("title") or "")
     link = question.get("link") or ""
     score = question.get("score")
     _q_owner_raw = question.get("owner")
     owner = _q_owner_raw if isinstance(_q_owner_raw, dict) else {}
     owner_link = owner.get("link") or ""
+    owner_name = html.unescape(str(owner.get("display_name") or ""))
     created = _epoch_to_iso(question.get("creation_date"))
     body_md = post_body_markdown(question)
 
     lines: list[str] = []
     lines.append("# Question")
     lines.append(f"Question: {title}".strip())
-    lines.append(f"Link: {link} Author: ({owner_link}) Date: {created} Score: {score}".strip())
+    lines.append(
+        f"Link: {link} Author: {owner_name} ({owner_link}) Date: {created} Score: {score}".strip()
+    )
     lines.append("")
     lines.append(body_md)
     lines.append("")
@@ -157,7 +160,7 @@ def render_thread_markdown(question: dict[str, Any], answers: list[dict[str, Any
         accepted = bool(ans.get("is_accepted"))
         _a_owner_raw = ans.get("owner")
         ans_owner = _a_owner_raw if isinstance(_a_owner_raw, dict) else {}
-        ans_author = ans_owner.get("display_name") or ""
+        ans_author = html.unescape(str(ans_owner.get("display_name") or ""))
         ans_created = _epoch_to_iso(ans.get("creation_date"))
         ans_score = ans.get("score")
         ans_body = post_body_markdown(ans)
@@ -266,27 +269,15 @@ async def fetch_stackexchange_thread_markdown(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
-    max_chars: int | None = None,
 ) -> str:
     """Fetch a StackExchange thread as Markdown (question + all answers)."""
     target = parse_stackexchange_url(url)
-
-    if max_chars is None:
-        try:
-            max_chars = int(os.environ.get("STACKEXCHANGE_MAX_CHARS", "0"))
-        except Exception:
-            max_chars = 0
-    if max_chars is not None and max_chars < 0:
-        max_chars = 0
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = StackExchangeApiClient(http_client=client)
         question = await api.fetch_question(target)
         answers = await api.fetch_all_answers(target)
-        md = render_thread_markdown(question=question, answers=answers)
-        if max_chars > 0 and len(md) > max_chars:
-            md = md[:max_chars].rstrip() + "\n\n…(truncated)\n"
-        return md
+        return render_thread_markdown(question=question, answers=answers)
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:

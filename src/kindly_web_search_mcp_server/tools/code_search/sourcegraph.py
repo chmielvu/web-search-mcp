@@ -100,7 +100,8 @@ def compile_sourcegraph_query(
     repositories = list(request.repositories) or qualifier_map.get("repo", [])
     for repository in repositories:
         clean_repo = repository.removeprefix("https://").removeprefix("http://").strip("/")
-        if not re.match(r"^[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+/", clean_repo):
+        first_segment = clean_repo.split("/", 1)[0]
+        if "." not in first_segment and not clean_repo.startswith("^"):
             clean_repo = f"github.com/{clean_repo}"
         escaped = re.escape(clean_repo)
         parts.append(f"repo:^{escaped}$")
@@ -108,7 +109,8 @@ def compile_sourcegraph_query(
     # Negative repo exclusions
     for neg_repo in qualifier_map.get("-repo", []):
         clean_neg = neg_repo.removeprefix("https://").removeprefix("http://").strip("/")
-        if not re.match(r"^[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+/", clean_neg):
+        first_segment = clean_neg.split("/", 1)[0]
+        if "." not in first_segment and not clean_neg.startswith("^"):
             clean_neg = f"github.com/{clean_neg}"
         neg_escaped = re.escape(clean_neg)
         parts.append(f"-repo:^{neg_escaped}$")
@@ -716,14 +718,24 @@ async def _stream_search_variant(
 
         request_timeout = min(remaining, settings.search_retrieve_budget_seconds, 10.0)
         try:
-            response = await http_client.get(
-                _SOURCEGRAPH_STREAM_URL,
-                params=stream_params,
-                headers=stream_headers,
+            # httpx read timeout is inter-byte for SSE, not total. Enforce total via wait_for.
+            response = await asyncio.wait_for(
+                http_client.get(
+                    _SOURCEGRAPH_STREAM_URL,
+                    params=stream_params,
+                    headers=stream_headers,
+                    timeout=request_timeout,
+                ),
                 timeout=request_timeout,
             )
             last_response = response
             last_exc = None
+        except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+            last_exc = exc
+            last_response = None
+            # SSE total timeout — fallback to GraphQL immediately, no retry on TimeoutError
+            LOGGER.warning("Sourcegraph Stream total timeout after %.1fs for %r", request_timeout, query_variant[:80])
+            break
         except (httpx.HTTPError, TimeoutError, OSError) as exc:
             last_exc = exc
             last_response = None

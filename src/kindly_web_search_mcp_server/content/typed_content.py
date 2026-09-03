@@ -9,6 +9,7 @@ import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
+from .artifact import ContentArtifact
 from .format_renderers import (
     render_jsonl_markdown,
     render_rtf_markdown,
@@ -49,6 +50,33 @@ SUPPORTED_TYPED_FORMATS = frozenset(
     }
 )
 
+_JINA_FRONTMATTER_RE = re.compile(r"(?s)^---\n(?:[^\n]*\n)*?url:[^\n]*\n(?:[^\n]*\n)*?---(?:\n|$)")
+
+
+def strip_jina_frontmatter(text: str) -> str:
+    """Drop a Jina frontmatter envelope (identified by its ``url:`` field)."""
+    if not text:
+        return text
+    match = _JINA_FRONTMATTER_RE.match(text)
+    if match is None:
+        return text
+    return text[match.end() :]
+
+
+def parse_jina_frontmatter(text: str) -> dict[str, str]:
+    """Return the Jina envelope fields (title/url/warning/...) when present."""
+    if not text:
+        return {}
+    match = _JINA_FRONTMATTER_RE.match(text)
+    if match is None:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group(0)[3:-5].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip().isidentifier():
+            fields[key.strip().lower()] = value.strip().strip('"').strip("'")
+    return fields
+
 
 def _mime(content_type: str | None) -> str:
     return (content_type or "").split(";", 1)[0].strip().lower()
@@ -77,7 +105,7 @@ def detect_content_format(url: str, content_type: str | None, text: str) -> str 
         return "srt"
     if mime in _SVG_MIMES or path.endswith(".svg"):
         return "svg"
-    if mime in _JSON_MIMES or path.endswith(".json"):
+    if mime in _JSON_MIMES or mime.endswith("+json") or path.endswith(".json"):
         return "json"
     if mime in _RSS_MIMES:
         return "rss" if mime != "application/atom+xml" else "atom"
@@ -249,3 +277,49 @@ def render_typed_content(
     if fmt in {"csv", "tsv"}:
         return _csv_markdown(text, source_url, "\t" if fmt == "tsv" else ",")
     raise ValueError(f"Unsupported typed content format: {fmt}")
+
+
+def relabel_typed_artifact(artifact: ContentArtifact) -> ContentArtifact:
+    """Re-detect JSON/XML after Jina frontmatter and rewrite a typed artifact."""
+    markdown = artifact.markdown or ""
+    stripped = strip_jina_frontmatter(markdown)
+    url = artifact.fetched_url or artifact.input_url
+    typed_format = detect_content_format(url, artifact.content_type, stripped)
+    if typed_format is None or typed_format not in SUPPORTED_TYPED_FORMATS:
+        return artifact
+    body = stripped.lstrip()
+    if typed_format == "json":
+        try:
+            json.loads(body)
+        except Exception:
+            return artifact
+    rendered, metadata, links = render_typed_content(typed_format, body, url)
+    if metadata.get("parse_error"):
+        return artifact
+    content_type = artifact.content_type
+    if typed_format == "json":
+        content_type = "application/json"
+    elif typed_format == "rss":
+        content_type = "application/rss+xml"
+    merged_meta = dict(artifact.metadata or {})
+    merged_meta.update(metadata)
+    return ContentArtifact(
+        input_url=artifact.input_url,
+        normalized_url=artifact.normalized_url,
+        fetched_url=artifact.fetched_url,
+        status="success",
+        source_type=typed_format,
+        fetch_backend="typed_content",
+        origin_backend=artifact.origin_backend or artifact.fetch_backend,
+        cached=artifact.cached,
+        content_type=content_type,
+        markdown=rendered,
+        title=artifact.title,
+        metadata=merged_meta or None,
+        links=artifact.links if artifact.links is not None else links,
+        word_count=len(rendered.split()),
+        quality_score=1.0,
+        error=None,
+        diagnostics=list(artifact.diagnostics),
+        entities=artifact.entities,
+    )

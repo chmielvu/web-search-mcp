@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 
 from kindly_web_search_mcp_server.models import YouTubeChannelVideo, YouTubeTranscriptResponse
-from kindly_web_search_mcp_server.tools.youtube import youtube_channel_transcription
+from kindly_web_search_mcp_server.tools.youtube import youtube_transcript
 
 
 class _Context:
@@ -57,7 +57,7 @@ async def test_channel_transcription_returns_partial_per_video_results() -> None
             return_value=tracker,
         ),
     ):
-        response = await youtube_channel_transcription(
+        response = await youtube_transcript(
             "UC12345678901234567890",
             ctx=_Context(),  # type: ignore[arg-type]
         )

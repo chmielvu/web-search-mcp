@@ -1,0 +1,15 @@
+{
+  "id": "F-t1-pdf",
+  "url": "https://arxiv.org/pdf/1706.03762",
+  "notes": "arXiv /pdf/ stays on arXiv resolver; hostname excluded from document gate.",
+  "expect": {
+    "status": "success",
+    "source_type": "arxiv",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Attention Is All You Need"
+    ]
+  }
+}

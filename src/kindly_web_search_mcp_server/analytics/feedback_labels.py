@@ -5,15 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
+import math
 from typing import Any
 
 import duckdb
 
 from ..utils.url_canonicalize import canonicalize_url
 from .observability_ids import _canonical_result_id
+from .quality_metrics import compute_positional_discount
 from .writers.connection import _db_path
-from .writers.core import _generate_result_label_id, insert_result_labels
+from .writers.core import _generate_result_label_id, upsert_materialized_result_labels
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,7 @@ class LabelMaterializationReport:
     rejected_payload: int
     rejected_target: int
     rejected_position: int
+    rejected_timestamp: int
     duplicate_candidates: int
     submitted: int
 
@@ -92,49 +96,100 @@ def parse_result_quality_payload(
     )
 
 
+def _as_utc_timestamp(value: Any) -> datetime | None:
+    """Return a finite epoch timestamp as an aware UTC datetime."""
+    try:
+        epoch_seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(epoch_seconds):
+        return None
+    try:
+        return datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _immutable_judgment_hash(
+    *,
+    run_key: str,
+    target: str,
+    model_name: str | None,
+    rubric_version: str | None,
+    recorded_at_epoch: Any,
+    payload_json: Any,
+) -> str:
+    """Provide a stable same-timestamp tie-breaker without a judgment identifier."""
+    immutable_fields = {
+        "model_name": model_name or "",
+        "payload_json": payload_json,
+        "recorded_at_epoch": recorded_at_epoch,
+        "rubric_version": rubric_version or "",
+        "run_key": run_key,
+        "target": target,
+    }
+    encoded = json.dumps(
+        immutable_fields,
+        ensure_ascii=True,
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def _empty_materialization_report() -> LabelMaterializationReport:
+    return LabelMaterializationReport(
+        inspected=0,
+        accepted=0,
+        rejected_payload=0,
+        rejected_target=0,
+        rejected_position=0,
+        rejected_timestamp=0,
+        duplicate_candidates=0,
+        submitted=0,
+    )
+
+
 def materialize_result_labels(
     *,
     db_path: str | None = None,
     source_cutoff: datetime | None = None,
+    source_start: datetime | None = None,
     rubric_version: str = "v1",
 ) -> LabelMaterializationReport:
-    """Read successful LLM judge results and insert offline result_labels rows."""
+    """Materialize the latest valid LLM-judge label for each result observation."""
     cutoff = source_cutoff or datetime.now(timezone.utc)
     if cutoff.tzinfo is None:
         cutoff = cutoff.replace(tzinfo=timezone.utc)
+    window_start = source_start
+    if window_start is not None and window_start.tzinfo is None:
+        window_start = window_start.replace(tzinfo=timezone.utc)
+    if window_start is not None and window_start > cutoff:
+        raise ValueError("source_start must not be later than source_cutoff")
 
     path = _db_path(db_path)
     if not path.exists():
-        return LabelMaterializationReport(
-            inspected=0,
-            accepted=0,
-            rejected_payload=0,
-            rejected_target=0,
-            rejected_position=0,
-            duplicate_candidates=0,
-            submitted=0,
-        )
+        return _empty_materialization_report()
 
     con = duckdb.connect(str(path), read_only=True)
     try:
-        # Verify required tables exist
-        table_rows = con.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-        ).fetchall()
-        table_names = {row[0] for row in table_rows}
+        table_names = {
+            row[0]
+            for row in con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+        }
         if "llm_judgments" not in table_names or "final_results" not in table_names:
-            return LabelMaterializationReport(
-                inspected=0,
-                accepted=0,
-                rejected_payload=0,
-                rejected_target=0,
-                rejected_position=0,
-                duplicate_candidates=0,
-                submitted=0,
-            )
+            return _empty_materialization_report()
 
+        window_filter = ""
+        parameters: list[Any] = [rubric_version, cutoff.timestamp()]
+        if window_start is not None:
+            window_filter = " AND recorded_at >= to_timestamp(?)"
+            parameters.append(window_start.timestamp())
         judgments = con.execute(
-            """
+            f"""
             SELECT
                 run_key,
                 judgment_target,
@@ -147,62 +202,46 @@ def materialize_result_labels(
               AND status = 'success'
               AND rubric_version = ?
               AND recorded_at <= to_timestamp(?)
+              {window_filter}
             ORDER BY recorded_at ASC
             """,
-            [rubric_version, cutoff.timestamp()],
+            parameters,
         ).fetchall()
-
         if not judgments:
-            return LabelMaterializationReport(
-                inspected=0,
-                accepted=0,
-                rejected_payload=0,
-                rejected_target=0,
-                rejected_position=0,
-                duplicate_candidates=0,
-                submitted=0,
-            )
+            return _empty_materialization_report()
 
-        # Collect unique run_keys to fetch final_results in one query
         run_keys = list({row[0] for row in judgments if row[0]})
         final_results_by_run: dict[str, list[dict[str, Any]]] = {}
         if run_keys:
             placeholders = ", ".join(["?"] * len(run_keys))
-            fr_rows = con.execute(
+            for rk, rank, link, canonical_result_id in con.execute(
                 f"""
-                SELECT
-                    run_key,
-                    rank,
-                    link,
-                    canonical_result_id
+                SELECT run_key, rank, link, canonical_result_id
                 FROM final_results
                 WHERE run_key IN ({placeholders})
                 """,
                 run_keys,
-            ).fetchall()
-            for rk, rank, link, cid in fr_rows:
+            ).fetchall():
                 final_results_by_run.setdefault(rk, []).append(
                     {
                         "rank": rank,
                         "link": link or "",
-                        "canonical_result_id": (cid or "").strip(),
+                        "canonical_result_id": (canonical_result_id or "").strip(),
                     }
                 )
     finally:
         con.close()
 
-    inspected = 0
-    accepted = 0
-    rejected_payload = 0
-    rejected_target = 0
-    rejected_position = 0
+    inspected = rejected_payload = rejected_target = rejected_position = rejected_timestamp = 0
     duplicate_candidates = 0
+    observations: dict[tuple[str, str, str, str, str, str], dict[str, Any]] = {}
 
-    rows_to_insert: list[dict[str, Any]] = []
-    seen_label_ids: set[str] = set()
-
-    for rk, target_raw, model_name, j_rubric_ver, recorded_at_epoch, raw_payload in judgments:
+    for rk, target_raw, model_name, judgment_rubric, recorded_at_epoch, raw_payload in judgments:
         inspected += 1
+        recorded_at = _as_utc_timestamp(recorded_at_epoch)
+        if recorded_at is None:
+            rejected_timestamp += 1
+            continue
 
         quality = parse_result_quality_payload(raw_payload)
         if quality is None:
@@ -213,107 +252,129 @@ def materialize_result_labels(
         if not target:
             rejected_target += 1
             continue
-
-        fr_candidates = final_results_by_run.get(rk, [])
-        if not fr_candidates:
-            rejected_target += 1
-            continue
-
-        # 1. Exact match on link == judgment_target
-        matched_fr: dict[str, Any] | None = None
-        exact_matches = [fr for fr in fr_candidates if fr["link"] == target]
+        final_candidates = final_results_by_run.get(rk, [])
+        exact_matches = [result for result in final_candidates if result["link"] == target]
         if len(exact_matches) == 1:
-            matched_fr = exact_matches[0]
+            matched_result = exact_matches[0]
         elif len(exact_matches) > 1:
             rejected_target += 1
             continue
         else:
-            # 2. Canonicalized URL match only when exactly one matches
-            target_canon = canonicalize_url(target)
-            canon_matches = [
-                fr for fr in fr_candidates if canonicalize_url(fr["link"]) == target_canon
+            canonical_target = canonicalize_url(target)
+            canonical_matches = [
+                result
+                for result in final_candidates
+                if canonicalize_url(result["link"]) == canonical_target
             ]
-            if len(canon_matches) == 1:
-                matched_fr = canon_matches[0]
-            else:
+            if len(canonical_matches) != 1:
                 rejected_target += 1
                 continue
+            matched_result = canonical_matches[0]
 
-        rank = matched_fr.get("rank")
+        rank = matched_result["rank"]
         if rank is None or isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
             rejected_position += 1
             continue
 
         position = rank - 1
-        link = matched_fr.get("link") or target
-        stored_cid = matched_fr.get("canonical_result_id")
-        canonical_result_id = stored_cid if stored_cid else _canonical_result_id(link)
-
+        raw_url = matched_result["link"] or target
+        canonical_result_id = (
+            matched_result["canonical_result_id"] or _canonical_result_id(raw_url)
+        )
         stage = "final"
         source = "llm_judge"
         annotator_id = (model_name or "").strip() or "judge"
-        eff_rubric_ver = (j_rubric_ver or "").strip() or rubric_version
-
-        label_id = _generate_result_label_id(
+        effective_rubric = (judgment_rubric or "").strip() or rubric_version
+        observation_key = (
             rk,
-            position,
+            canonical_result_id,
             stage,
             source,
+            effective_rubric,
             annotator_id,
-            eff_rubric_ver,
-            canonical_result_id or link,
         )
-
-        if label_id in seen_label_ids:
-            duplicate_candidates += 1
-            continue
-
-        seen_label_ids.add(label_id)
-        accepted += 1
-
-        try:
-            recorded_at_dt = datetime.fromtimestamp(float(recorded_at_epoch), tz=timezone.utc)
-        except Exception:
-            recorded_at_dt = datetime.now(timezone.utc)
-
-        payload_dict = {
-            "parsed": {
-                "intent_match": quality.intent_match,
-                "informativeness": quality.informativeness,
-                "confidence": quality.confidence,
-            },
-            "judge_label": quality.label,
+        candidate = {
+            "annotator_id": annotator_id,
+            "canonical_result_id": canonical_result_id,
             "confidence_fraction": quality.confidence / 4.0,
+            "discounted_gain": compute_positional_discount(quality.label, position),
+            "label": quality.label,
             "model_name": model_name or "judge",
-            "source_judgment_recorded_at": (recorded_at_dt.isoformat()),
+            "payload_json": {
+                "parsed": {
+                    "intent_match": quality.intent_match,
+                    "informativeness": quality.informativeness,
+                    "confidence": quality.confidence,
+                },
+                "judge_label": quality.label,
+                "confidence_fraction": quality.confidence / 4.0,
+                "model_name": model_name or "judge",
+                "source_judgment_recorded_at": recorded_at.isoformat(),
+            },
+            "position": position,
+            "raw_url": raw_url,
+            "recorded_at": recorded_at,
+            "rubric_version": effective_rubric,
+            "run_key": rk,
+            "source": source,
+            "stage": stage,
+            "tie_breaker": _immutable_judgment_hash(
+                run_key=rk,
+                target=target,
+                model_name=model_name,
+                rubric_version=judgment_rubric,
+                recorded_at_epoch=recorded_at_epoch,
+                payload_json=raw_payload,
+            ),
         }
+        existing = observations.get(observation_key)
+        if existing is not None:
+            duplicate_candidates += 1
+            if (recorded_at, candidate["tie_breaker"]) <= (
+                existing["recorded_at"],
+                existing["tie_breaker"],
+            ):
+                continue
+        observations[observation_key] = candidate
 
-        rows_to_insert.append(
+    rows_to_upsert: list[dict[str, Any]] = []
+    for key in sorted(observations):
+        observation = observations[key]
+        rows_to_upsert.append(
             {
-                "label_id": label_id,
-                "run_key": rk,
-                "position": position,
-                "stage": stage,
-                "source": source,
-                "annotator_id": annotator_id,
-                "rubric_version": eff_rubric_ver,
-                "recorded_at": recorded_at_dt,
-                "label": quality.label,
-                "canonical_result_id": canonical_result_id,
-                "raw_url": link,
-                "payload_json": payload_dict,
+                "annotator_id": observation["annotator_id"],
+                "canonical_result_id": observation["canonical_result_id"],
+                "discounted_gain": observation["discounted_gain"],
+                "label": observation["label"],
+                "label_id": _generate_result_label_id(
+                    observation["run_key"],
+                    observation["position"],
+                    observation["stage"],
+                    observation["source"],
+                    observation["annotator_id"],
+                    observation["rubric_version"],
+                    observation["canonical_result_id"],
+                ),
+                "payload_json": observation["payload_json"],
+                "position": observation["position"],
+                "raw_url": observation["raw_url"],
+                "recorded_at": observation["recorded_at"],
+                "rubric_version": observation["rubric_version"],
+                "run_key": observation["run_key"],
+                "source": observation["source"],
+                "stage": observation["stage"],
             }
         )
-
-    if rows_to_insert:
-        insert_result_labels(rows_to_insert, db_path=db_path, sync=True)
+    if rows_to_upsert:
+        upsert_materialized_result_labels(rows_to_upsert, db_path=db_path, sync=True)
 
     return LabelMaterializationReport(
         inspected=inspected,
-        accepted=accepted,
+        accepted=len(rows_to_upsert),
         rejected_payload=rejected_payload,
         rejected_target=rejected_target,
         rejected_position=rejected_position,
+        rejected_timestamp=rejected_timestamp,
         duplicate_candidates=duplicate_candidates,
-        submitted=len(rows_to_insert),
+        submitted=len(rows_to_upsert),
     )

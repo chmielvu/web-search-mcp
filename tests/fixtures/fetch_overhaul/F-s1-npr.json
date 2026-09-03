@@ -1,0 +1,19 @@
+{
+  "id": "F-s1-npr",
+  "url": "https://www.npr.org/sections/news/",
+  "notes": "Body present; summarizer must not claim the page is inaccessible.",
+  "expect": {
+    "status": "success",
+    "source_type": null,
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [
+      "inaccessible",
+      "could not retrieve",
+      "blocked or inaccessible"
+    ],
+    "must_contain": [
+      "flooding"
+    ]
+  }
+}

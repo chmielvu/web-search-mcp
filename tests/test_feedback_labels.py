@@ -359,5 +359,103 @@ class TestFeedbackLabels(unittest.TestCase):
         self.assertEqual(res2[0], 1)  # ON CONFLICT DO NOTHING kept row count at 1
 
 
+
+    def test_materializes_latest_valid_observation_per_model_deterministically(self) -> None:
+        con = duckdb.connect(str(self.db_path), read_only=False)
+        run_key = "rk_test_latest_observation"
+        result_url = "https://example.com/target"
+        observed_target = "https://example.com/target?utm_source=judge"
+        initial = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        con.execute(
+            "INSERT INTO search_runs (run_key, query, normalized_query, recorded_at) VALUES (?, ?, ?, ?)",
+            [run_key, "query", "query", initial],
+        )
+        con.execute(
+            """
+            INSERT INTO final_results
+                (run_key, rank, link, title, canonical_result_id, recorded_at)
+            VALUES (?, 1, ?, 'Target', 'target-canonical-id', ?)
+            """,
+            [run_key, result_url, initial],
+        )
+
+        def payload(informativeness: int, confidence: int) -> str:
+            return json.dumps(
+                {
+                    "parsed": {
+                        "intent_match": True,
+                        "informativeness": informativeness,
+                        "confidence": confidence,
+                    }
+                }
+            )
+
+        judgments = [
+            ("same-model", payload(4, 4), initial),
+            ("same-model", payload(2, 4), initial.replace(second=1)),
+            ("invalid-latest", payload(3, 4), initial),
+            ("invalid-latest", payload(4, 5), initial.replace(second=1)),
+            ("other-model", payload(4, 4), initial.replace(second=2)),
+            ("equal-timestamp", payload(2, 4), initial.replace(second=3)),
+            ("equal-timestamp", payload(4, 4), initial.replace(second=3)),
+        ]
+
+        def insert_judgments(rows: list[tuple[str, str, datetime]]) -> None:
+            for model_name, raw_payload, recorded_at in rows:
+                con.execute(
+                    """
+                    INSERT INTO llm_judgments (
+                        run_key, judgment_kind, judgment_target, prompt_name, model_name,
+                        verdict, status, payload_json, rubric_version, recorded_at
+                    )
+                    VALUES (?, 'result_quality', ?, 'p', ?, 'v', 'success', ?, 'v1', ?)
+                    """,
+                    [run_key, observed_target, model_name, raw_payload, recorded_at],
+                )
+
+        insert_judgments(judgments)
+        con.close()
+
+        report = materialize_result_labels(db_path=str(self.db_path))
+        self.assertEqual(report.inspected, len(judgments))
+        self.assertEqual(report.accepted, 4)
+        self.assertEqual(report.rejected_payload, 1)
+        self.assertEqual(report.duplicate_candidates, 2)
+        self.assertEqual(report.submitted, 4)
+
+        def materialized_labels() -> dict[str, tuple[float, str]]:
+            read_con = duckdb.connect(str(self.db_path), read_only=True)
+            try:
+                return {
+                    annotator_id: (label, payload_json)
+                    for annotator_id, label, payload_json in read_con.execute(
+                        """
+                        SELECT annotator_id, label, payload_json
+                        FROM result_labels
+                        WHERE run_key = ?
+                        ORDER BY annotator_id
+                        """,
+                        [run_key],
+                    ).fetchall()
+                }
+            finally:
+                read_con.close()
+
+        first_materialization = materialized_labels()
+        self.assertEqual(first_materialization["same-model"][0], 1.0 / 3.0)
+        self.assertEqual(first_materialization["invalid-latest"][0], 2.0 / 3.0)
+        self.assertEqual(first_materialization["other-model"][0], 1.0)
+        self.assertEqual(len(first_materialization), 4)
+
+        con = duckdb.connect(str(self.db_path), read_only=False)
+        con.execute("DELETE FROM result_labels WHERE run_key = ?", [run_key])
+        con.execute("DELETE FROM llm_judgments WHERE run_key = ?", [run_key])
+        insert_judgments(list(reversed(judgments)))
+        con.close()
+
+        second_report = materialize_result_labels(db_path=str(self.db_path))
+        self.assertEqual(second_report.submitted, 4)
+        self.assertEqual(materialized_labels(), first_materialization)
+
 if __name__ == "__main__":
     unittest.main()

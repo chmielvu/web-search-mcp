@@ -9,6 +9,8 @@ import httpx
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
 from ...utils.url_canonicalize import extract_domain_from_url
+from ..filters import google_tbs_bucket
+from ..options import SearchOptions
 from .base import ProviderRequestError, run_provider
 
 
@@ -31,6 +33,7 @@ async def search_serper(
     query: str,
     *,
     num_results: int,
+    search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> list[WebSearchResult]:
     """Query Serper (Google SERP) API and return parsed results.
@@ -47,7 +50,20 @@ async def search_serper(
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
     bounded_num = max(1, min(num_results, 10))
     clean_query = query.strip()
-    body = {"q": clean_query, "num": bounded_num}
+    body: dict[str, Any] = {"q": clean_query, "num": bounded_num}
+
+    # Temporal/locale mapping (Serper docs: tbs=qdr:{h,d,w,m,y}, gl=alpha-2
+    # country, hl=ISO 639-1 language). Absolute windows have no native param;
+    # the pipeline post-filter covers those.
+    if search_options is not None and search_options.temporal is not None:
+        token = google_tbs_bucket(search_options.temporal.bucket)
+        if token:
+            body["tbs"] = f"qdr:{token}"
+    if search_options is not None:
+        if search_options.region:
+            body["gl"] = search_options.region.lower()
+        if search_options.language:
+            body["hl"] = search_options.language.split("-", 1)[0]
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         response = await client.post(url, json=body, headers=headers)

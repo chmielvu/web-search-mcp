@@ -91,12 +91,12 @@ def _has_domain(urls: list[str], pattern: str) -> bool:
 
 
 def _gemini_is_available() -> bool:
-    """Check whether the gemini provider is configured and reachable."""
+    """Check whether the gemini provider is configured."""
     try:
-        from ..search.provider_registry import PROVIDER_DEFINITIONS, provider_is_reachable  # noqa: PLC0415
+        import os
+        from ..settings import settings
 
-        definition = PROVIDER_DEFINITIONS.get("gemma")
-        return definition is not None and provider_is_reachable(definition)
+        return bool(settings.gemini_api_key or os.environ.get("GEMINI_API_KEY"))
     except Exception:
         return False
 
@@ -204,10 +204,24 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
             next_tools.append("academic_search")
         if fetch_backend == "browser_fallback":
             parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
-        if content_len < 300 and not window.get("has_more") and status != "error":
-            parts.append("Very short content (possibly behind login/paywall). Try an alternative source.")
+        typed = source_type in {"json", "jsonl", "csv", "tsv", "rss", "atom", "xml"}
         wall = item.get("wall")
-        if isinstance(wall, dict) and wall.get("kind") in {"login", "paywall", "bot"}:
+        wall_kind = wall.get("kind") if isinstance(wall, dict) else None
+        if (
+            content_len < 300
+            and not window.get("has_more")
+            and status != "error"
+            and not typed
+            and not (status == "success" and wall_kind is None)
+        ):
+            parts.append("Very short content (possibly behind login/paywall). Try an alternative source.")
+        if (
+            isinstance(wall, dict)
+            and (
+                (wall_kind in {"login", "paywall", "bot"} and status in {"blocked", "error"})
+                or (wall_kind == "js_shell" and status in {"partial", "blocked", "error"})
+            )
+        ):
             parts.append(f"Access signal detected: {wall['kind']}. Do not trust the returned wall content.")
         return (" ".join(parts) if parts else "", next_tools, next_prompts)
 
@@ -225,10 +239,16 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     if total_req > 0 and success_count < total_req:
         parts.append(f"{success_count}/{total_req} URLs succeeded in this page.")
 
-    source_types = {item.get("source_type", "") for item in results if item.get("status") == "success"}
-    if len(source_types) == 1 and source_types:
+    source_types = {
+        str(item.get("source_type") or "")
+        for item in results
+        if item.get("source_type")
+    }
+    if len(source_types) > 1:
+        parts.append("Mixed source_types: " + ", ".join(sorted(source_types)) + ".")
+    elif len(source_types) == 1:
         parts.append(
-            f"All fetched from {list(source_types)[0]}. Consider adding different source types."
+            f"All fetched from {next(iter(source_types))}. Consider adding different source types."
         )
         next_tools.append("web_search")
 

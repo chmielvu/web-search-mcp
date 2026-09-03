@@ -13,7 +13,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `service.py` | `execute_web_search()` / `run_search_core()` — sole entry point |
 | `contracts.py` | Strict boundary models: `WebSearchRequest`, `SearchRun`, `QueryBranch`, `BranchOutcome` |
 | `planning.py` | Normalize, understand intent, 5-variant rewrite, select providers, emit branches |
-| `graph_expansion.py` | Related query seed injection from DuckDB offline graph index |
+| `graph_expansion.py` | Rewrite-only, bounded related-query injection from a SQLite graph artifact; preserves the normalized original seed and six-branch topology |
 | `retrieval.py` | Structured branch/provider fanout with budget management |
 | `ranking.py` | Blocklist, merge, BM25/rerank, diversity, final response |
 | `merge.py` | Canonical deduplication + RRF merge |
@@ -24,7 +24,8 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `intent_policy.py` | Intent-specific provider arguments, goggles, freshness, options |
 | `keyword_extract.py` | Rake/Keybert keyword extraction |
 | `providers/` | 19 files — one per provider adapter + base |
-| `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) |
+| `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
+| `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
 
 ## Contracts
 
@@ -36,10 +37,32 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
 - Provider assignment: only `branch.provider_names` are dispatched.
 - Specialized provider queries are dialect-shaped at the retrieve boundary; `provider_calls` stores both planner `branch_query` and adapter `request_query` plus endpoint/status/result-class diagnostics.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
+- Graph expansion is consumed only when rewrite is enabled and its feature flag is on. Effective seeds are stable-deduplicated, start with the normalized original query, remain capped at four, and carry SQLite generation/fingerprint/age/support/drop-reason metadata. It never adds provider branches or graph ranking features.
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
 - Specialized adapters (Telegram, Hacker News, Reddit, Brave News) publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials. Public-code providers were removed from web_search — use the code_search tool.
 - Each `run_provider` invocation starts with fresh request metadata; provider-specific seed fields are initialized inside the request callback so prior-call endpoint/status/error fields cannot leak.
+
+## Temporal & locale filters (`filters.py`)
+
+Public contract: `date_range` (relative), `after_date`/`before_date` (absolute; wins over relative
+with a parameter warning), `language` (ISO 639-1 / BCP-47), `region` (alpha-2) with deprecated `gl`
+alias. Resolution happens once via `resolve_window`/`normalize_locale`; values ride on
+`SearchOptions.temporal|language|region` and are part of the cache fingerprint. Adapter mappings are
+verified against primary docs (Brave freshness incl. custom ranges; Tavily absolute dates + country
+names for topic=general; Serper qdr buckets + gl/hl; Exa ISO published dates + userLocation;
+ddgs timelimit/region; LangSearch one* buckets; SearXNG day/month/year only — `week` degrades).
+Absolute windows additionally get a lenient post-filter; undated results follow
+`should_drop_undated`: default `capability_default` drops them only from providers without native
+date support, with `--include-undated`/`--exclude-undated` overrides. Counters land on
+`WebSearchResponse.filter_stats` and degradation surfaces as `provider="filters"` warnings.
+
+## Academic citation graph (`academic/citation_graph.py`)
+`cited_by_paper_id` / `references_paper_id` / `author_id` route to Semantic Scholar Graph API and
+OpenAlex only. References are classified by `classify_paper_ref` (DOI/arXiv/PMID/OpenAlex/S2/ORCID);
+S2 paper refs use prefixed forms (`DOI:…`, `ARXIV:…`). OpenAlex outgoing references hydrate the
+work's `referenced_works`. The orchestrator restricts filtered runs to these two providers and emits
+a structured warning listing skipped sources. Lookups fail open (empty list + log) like siblings.
 
 ## Bright Data SERP adapter
 
@@ -57,8 +80,7 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
 
 ## Query Understanding Gateway
 
-- `search/understanding/resolver.py` makes one combined request through `entity/gliner_client.py`; it does not invoke local ONNX, `gliner2`, or an LLM fallback.
-- The hosted contract is `POST /v2/query-understanding`; entity spans must match exact source offsets and relation endpoints require grounded high-confidence entities.
+- The preferred hosted contract is `POST /v2/query-understanding`; when absent (404/405) `GLiNER2Client.analyze_query` composes it from `/classify` + `/ner` with live classifier confidence. Entity spans must match exact source offsets and relation endpoints require grounded high-confidence entities.
 - `search/understanding/adapter.py` is the pure normalization boundary. Keep transport handling in `entity/gliner_client.py` and search policy derivation in the adapter.
 
 ## Cold-Start Import Warm-Up

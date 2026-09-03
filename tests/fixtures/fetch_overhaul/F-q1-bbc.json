@@ -1,0 +1,16 @@
+{
+  "id": "F-q1-bbc",
+  "url": "https://www.bbc.com/",
+  "notes": "Jina BBC homepage chrome: ads, empty bullets, not yet fully loaded => partial chrome_boilerplate.",
+  "expect": {
+    "status": "partial",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Advertisement",
+      "not yet fully loaded"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "F-k1-mismatch",
+  "url": "https://web.archive.org/web/2020/https://example.com/outage",
+  "notes": "Long on-topic body mentioning 404 Not Found must be success with error None.",
+  "expect": {
+    "status": "success",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "404 Not Found"
+    ]
+  }
+}

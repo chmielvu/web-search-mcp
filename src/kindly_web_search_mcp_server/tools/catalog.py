@@ -28,7 +28,7 @@ DEFAULT_PROFILE_TOOLS = frozenset(
 _TOOL_TIMEOUTS: dict[str, float | None] = {
     "generate_sitemap": 90.0,
     "grok_search": 60.0,
-    "web_search": 60.0,
+    "web_search": 120.0,
     "fetch": 120.0,
     "academic_search": 45.0,
     "code_search": 120.0,
@@ -153,29 +153,31 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "Code Fetch",
         {"regular", "full"},
         description=(
-            "Explore a GitHub repository's current main/default branch. Materializes a "
-            "five-minute snapshot (first call can take 30-90s), then searches, reads, or "
-            "graphs it. Pass repository plus optional query, path, or symbol. Do not pass a "
-            "commit SHA. Read a line window with path + start_line/end_line (no query/symbol); "
-            "scope searches with path. Successful responses include resolved_commit and "
-            "cache_age_seconds."
+            "Search and inspect one GitHub repository's current main/default snapshot. "
+            "Pass repository plus query to search all indexed text files — query "
+            "returns match lines; path returns full file content. repository alone "
+            "returns a map with the file tree; path without query reads one file; "
+            "path with query scopes search. Do not pass a commit SHA. Read a line "
+            "window with path + start_line/end_line. Search supports "
+            "language/filename/glob/case filters and cursor pagination. Successful "
+            "responses include resolved_commit and cache_age_seconds."
         ),
     ),
     "composio_similarlinks": _entry(
         "composio_similarlinks", "Composio Similarlinks", {"regular", "full"}
     ),
     "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
-    "youtube_transcript": _entry("youtube_transcript", "YouTube Transcript", {"regular", "full"}),
-    "youtube_channel_transcription": _entry(
-        "youtube_channel_transcription",
-        "YouTube Channel Transcription",
+    "youtube_transcript": _entry(
+        "youtube_transcript",
+        "YouTube Transcript",
         {"regular", "full"},
         description=(
-            "Enumerate a channel uploads playlist and transcribe its videos with "
-            "cache-first processing, always-on GLiNER2 extraction, optional Gemini "
-            "summaries, partial failure reporting, and FastMCP background-task support."
+            "Extract, analyze, and optionally summarize a YouTube transcript. Accepts a "
+            "video URL/ID or a channel handle/ID/URL (auto-detected). Channel mode "
+            "transcribes recent uploads with cache-first processing, always-on GLiNER2 "
+            "extraction, optional Gemini summaries, per-video partial-failure reporting, "
+            "and FastMCP background-task support (max_videos, page_token)."
         ),
-        expensive=True,
         idempotent=False,
         task=True,
         task_poll_interval_seconds=30.0,

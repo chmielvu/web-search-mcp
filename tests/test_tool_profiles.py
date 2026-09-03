@@ -67,7 +67,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "deep_research",
             "composio_similarlinks",
             "recommend_command",
-            "youtube_channel_transcription",
         }
     )
     assert tools_for_profile("full") == frozenset(
@@ -86,7 +85,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "youtube_search",
             "youtube_transcript",
             "recommend_command",
-            "youtube_channel_transcription",
         }
     )
 

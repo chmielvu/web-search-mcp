@@ -10,6 +10,9 @@ import httpx
 from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
+from ..filters import brave_freshness as window_brave_freshness
+from ..normalize import normalize_query
+from ..options import SearchOptions
 from .base import run_provider
 from .brave_common import (
     BraveError,
@@ -19,7 +22,6 @@ from .brave_common import (
     translate_brave_freshness,
     BRAVE_LLM_CONTEXT_URL,
 )
-from ..normalize import normalize_query
 
 
 async def suggest_brave_queries(
@@ -95,6 +97,7 @@ async def search_brave(
     query: str,
     *,
     num_results: int,
+    search_options: SearchOptions | None = None,
     freshness: str | None = None,
     country: str | None = None,
     search_lang: str | None = None,
@@ -108,6 +111,15 @@ async def search_brave(
     ``WebSearchResult`` (title/link/snippet) and never synthesizes an answer.
     """
     api_key = _get_brave_api_key()
+    # Resolved-window/locale fallbacks; explicit provider args keep precedence.
+    # Note: filter support on /llm/context is not publicly specified — params
+    # are sent best-effort and stamped in request diagnostics upstream.
+    if freshness is None and search_options is not None and search_options.temporal is not None:
+        freshness = window_brave_freshness(search_options.temporal)
+    if country is None and search_options is not None:
+        country = search_options.region
+    if search_lang is None and search_options is not None and search_options.language:
+        search_lang = search_options.language.split("-", 1)[0]
     params: dict[str, Any] = {
         "q": _bound_brave_query(query),
         "count": min(num_results, 20),

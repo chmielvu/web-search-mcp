@@ -12,6 +12,7 @@ from qdrant_client import AsyncQdrantClient, models
 
 from ...embeddings import embed_query
 from ...index.bm25_encoder import encode_bm25
+from ...index.web_results_index import COLLECTION_NAME
 from ...models import WebSearchResult
 from ...settings import settings
 from .base import ProviderRequestError, provider_retry_max_retries, run_clientless_provider
@@ -149,24 +150,36 @@ async def search_qdrant(
                 values=sparse["values"],  # type: ignore[arg-type]
             )
 
-            result = await client.query_points(
-                collection_name="web_results_786d",
-                prefetch=[
-                    models.Prefetch(
-                        query=dense_embedding,
-                        using="dense",
-                        limit=50,
-                    ),
-                    models.Prefetch(
-                        query=sparse_vector,
-                        using="sparse",
-                        limit=50,
-                    ),
-                ],
-                query=models.FusionQuery(fusion=models.Fusion.RRF),
-                limit=num_results,
-                with_payload=True,
-            )
+            try:
+                result = await client.query_points(
+                    collection_name=COLLECTION_NAME,
+                    prefetch=[
+                        models.Prefetch(
+                            query=dense_embedding,
+                            using="dense",
+                            limit=50,
+                        ),
+                        models.Prefetch(
+                            query=sparse_vector,
+                            using="sparse",
+                            limit=50,
+                        ),
+                    ],
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=num_results,
+                    with_payload=True,
+                )
+            except Exception as exc:
+                message = str(exc)
+                if "404" in message or "doesn't exist" in message or "Not Found" in message:
+                    LOGGER.warning(
+                        "Qdrant collection '%s' missing at %s; skipping vector recall "
+                        "until the indexer recreates it",
+                        COLLECTION_NAME,
+                        url,
+                    )
+                    return []
+                raise
 
             results: list[WebSearchResult] = []
             for hit in result.points:

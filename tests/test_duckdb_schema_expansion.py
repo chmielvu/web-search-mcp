@@ -32,7 +32,7 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
     def tearDown(self) -> None:
         self.db_path.unlink(missing_ok=True)
 
-    def test_schema_creates_all_17_new_fact_tables(self) -> None:
+    def test_schema_creates_all_14_new_fact_tables(self) -> None:
         ensure_store_schema(db_path=str(self.db_path))
 
         con = duckdb.connect(str(self.db_path), read_only=True)
@@ -62,10 +62,10 @@ class TestDuckDBSchemaExpansion(unittest.TestCase):
             "content_fetches",
             "content_summaries",
             "content_summary_attempts",
-            "graph_feedback_generations",
-            "graph_query_neighbors",
-            "graph_result_features",
         }
+        self.assertNotIn("graph_feedback_generations", tables)
+        self.assertNotIn("graph_query_neighbors", tables)
+        self.assertNotIn("graph_result_features", tables)
 
         for table in expected_new_tables:
             self.assertIn(

@@ -30,7 +30,10 @@ Cross-cutting helpers shared across the codebase.
 - Centralize logging, HTTP client reuse, observability, output shaping.
 - Tool lifecycle events are normalized and routed through `utils/observability.py` into typed analytics `tool_calls`; do not resurrect the removed generic `search_events` sink.
 - Provide small reusable primitives (singleflight, snippet cleanup, URL canonicalization).
-- `BatchSQLiteLogHandler.close()` flushes buffered records before marking the handler closed, preserving the final batch on shutdown.
+-- `BatchSQLiteLogHandler.close()` flushes buffered records before marking the handler closed, preserving the final batch on shutdown.
+- Process-log TTL cleanup compares `julianday(recorded_at)` with the cutoff in days — `datetime()` returns NULL for the stored ISO-8601 text and silently disables the DELETE.
+- The external-content FTS5 index is backfilled at schema creation and fed per flush via `INSERT ... RETURNING rowid`; external-content tables never auto-populate.
+- `install_process_logging()` uses `TracebackPreservingQueueHandler`, which keeps formatted exception text across the queue (stdlib `QueueHandler.prepare()` strips `exc_info`/`exc_text`).
 
 ## Testing
 

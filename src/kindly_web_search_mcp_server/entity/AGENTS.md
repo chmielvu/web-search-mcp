@@ -19,11 +19,11 @@ Entity extraction for query handling and content analysis.
 ## Rules
 
 - The application never imports `gliner2` or `torch`; inference is performed by the configured VPS gateway.
-- Query understanding uses one `/v2/query-understanding` request and fails open to deterministic `general` when unavailable.
+- Query understanding tries one `/v2/query-understanding` request; when the deployed service lacks that route it composes the same contract from `/classify` + `/ner` (real classifier confidence), failing open to deterministic `general` only when both paths fail.
 - Code-search query enrichment uses the deployed lightweight `/classify` and `/ner` endpoints in parallel through `GLiNER2Client.analyze_query_features`; it does not alter the web-search intent contract or run relation extraction.
 - Content extraction is opt-in via `ENTITY_EXTRACTION_ENABLED` and uses the same gateway's `/extract` endpoint.
 - `chunk.py` preserves global offsets for long text.
-- Preserve label descriptions in `/extract` payloads; they are part of GLiNER2's entity schema, not cosmetic metadata.
+- `/extract` (`MultiTaskRequest`) accepts flat label-name strings only — dict vocabularies are coerced to keys before the wire; descriptions never leave the client.
 - Chunk boundaries may honor paragraph/sentence cuts only when doing so does not leave uncovered source gaps.
 - `postprocess.py` is the last stage before returning entity spans and retains exact source surface text.
 - Public surface: `EntitySpan`, `EntityRelation`, default schemas, chunking, post-processing, and `get_gliner_client`.

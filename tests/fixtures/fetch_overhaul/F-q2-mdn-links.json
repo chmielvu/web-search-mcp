@@ -1,0 +1,15 @@
+{
+  "id": "F-q2-mdn-links",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+  "notes": "Markdown links must keep hrefs. 'see the  guide' with empty link text is a fail.",
+  "expect": {
+    "status": "success",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "[guide](https://example.com/http-404)"
+    ]
+  }
+}

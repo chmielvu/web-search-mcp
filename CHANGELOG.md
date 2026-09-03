@@ -1,6 +1,202 @@
-# Changelog
-
 ## [Unreleased]
+
+### Changed — fetch overhaul (breaking)
+- Summaries with non-empty `page_content` no longer use Gemini URL-context; they summarize SOURCE_TEXT only and drop inaccessible claims on long bodies.
+- SPA-shell phrases gated on <150 words; generic `root element`/`app element` phrases removed (live false positive on a 17k-word StackOverflow answer).
+- Access classification uses additive phrase scoring, typed JSON/XML skip, and a long-doc veto so MDN/RFC bodies mentioning 404 are `success`. Login walls no longer fire on `Author:`.
+- Page cache round-trips `error`; `status=="success"` always clears `error`. Blocked/error artifacts with markdown are cacheable.
+- Jina/Crawl4AI/Camoufox artifacts are relabeled to typed JSON/XML after stripping Jina frontmatter. Non-arXiv `/pdf/` URLs route as documents; arXiv stays on the arXiv resolver.
+- Removed fetch markdown char caps (`KINDLY_WEB_FETCH_ITEM_MAX_CHARS`, `KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET`, resolver `*_MAX_CHARS`). Offset pagination remains. Bulk fetch admits one `web_fetch_wave_size` wave per call.
+- `FetchResponse.duration_ms` is first-class. Jina keeps markdown links (`X-Retain-Links: all`). Chrome/ad/caption boilerplate is stripped; chrome-heavy pages classify `partial`/`chrome_boilerplate`.
+
+
+### Changed — web-search-cli agent skill
+- Rewrote `skills/web-search-cli/SKILL.md` against the live CLI schema and runtime:
+  current command routing, JSON envelopes, exit codes, pagination, research collection,
+  operational commands, and environment names are now documented without stale command
+  or option examples.
+
+### Fixed — code_fetch repository search and response payloads
+- Repository-scoped multi-term searches now fall back from strict FTS AND matching
+  to per-term candidates, persisted snapshots restore across manager lifetimes, and
+  hits/tree/content/map fields are preserved in MCP responses.
+- Search continuations now issue one repository-wide `code_fetch` query instead of
+  chaining path-only reads.
+
+### Added — Advanced web-search RAG patterns report (2026 landscape)
+- `reports/web-search-mcp-rag-patterns-advanced-2026-08-30.md`: advanced web-search
+  patterns for MCP servers — tool I/O contracts (evidence spans, freshness signal,
+  score decomposition, honest-failure envelope), noise/spam resistance (URL norms,
+  domain-trust priors, NLI rerank, GEO), provider tiering, caching as a tool, fetch
+  contracts, eval harnesses. Tier-3 servers (wigolo, mcp-web-hound) as reference
+  implementations. 20 adoption priorities + landscape gaps. No vendor lock-in.
+
+### Added — Web-search RAG tooling report (MCP augmentation)
+- `reports/web-search-rag-tooling-mcp-augmentation-2026-08-30.md`: capability-class
+  pipeline stages (URL-shape filters, HTML dates, Gopher/C4 quality scores,
+  Query2Doc/HyDE, passage-level pairwise rerank with fail-open identity, fusion
+  bake-off, evidence packing). No search-API vendors or model checkpoints as
+  recommendations. Recast after the original ask forbade named providers/models.
+  Supersedes `reports/advanced-web-search-rag-agent-patterns-2026-08-30.md`.
+
+
+### Added — Advanced web-search RAG agent-patterns report
+- `reports/advanced-web-search-rag-agent-patterns-2026-08-30.md`: provider-agnostic
+  synthesis of current quality, contract, and spam-resistance patterns for agentic
+  web retrieval (CRAG, GaRAGe, WideSearch, SGR-Bench, AgentSearchBench, GRADA, MCP
+  2026-07-28 tools spec, and public deep-research/RRF implementations). No runtime
+  change.
+
++### Fixed — Process log SQLite handler: TTL, FTS, exception capture
++- `utils/sqlite_log_handler.py` TTL cleanup never deleted rows: the predicate
++  used SQLite `datetime()`, which returns NULL for the stored ISO-8601 text
++  (e.g. `2026-07-23T15:56:44.796264+00:00`), so every comparison was NULL and
++  the DELETE matched nothing — the DB grew unbounded (9,160 rows, 33 days
++  despite a 48h TTL). Cleanup now compares `julianday(recorded_at)` against
++  the cutoff in days; it also deletes stale external-content FTS shadow rows
++  so MATCH cannot resurrect purged entries.
++- The external-content `process_logs_fts` FTS5 table was created but never
++  populated (0 shadow-index rows; every MATCH returned 0 while LIKE found
++  2,496 redis hits). The handler now backfills the index at schema creation
++  and feeds it per flush via `INSERT ... RETURNING rowid`. Live backfill
++  applied to `duckdb_data/logs/process_logs.sqlite`: MATCH now returns the
++  same counts as LIKE for sampled terms.
++- The `exception` column was always NULL: stdlib `QueueHandler.prepare()`
++  strips `exc_info`/`exc_text` before enqueueing, so the listener-side SQLite
++  handler never saw tracebacks. New `TracebackPreservingQueueHandler`
++  formats the record first and stashes the text on the prepared record as
++  `_exc_text`; `install_process_logging()` now uses it.
++- Tests: `tests/test_sqlite_log_handler.py` covers FTS population, startup
++  backfill, TTL purge (stale removed / recent kept / FTS pruned), and
++  exception-text survival across the queue boundary.
++
+### Fixed — web_search tool timeout raised 60s → 120s
+
++### Fixed — web_search tool timeout raised 60s → 120s
++- `tools/catalog.py::_TOOL_TIMEOUTS` bumps `web_search` from 60.0 to 120.0,
++  matching the OMP client's 120s ceiling and the fetch/code_search convention.
++  The 60s budget was routinely exceeded by the multi-provider pipeline (live
++  campaign p95 ≈ 180s), after which FastMCP raised
++  `McpError: Tool 'web_search' execution timed out after 60.0s` and clients
++  received the generic masked envelope (`error_type: "unknown"`, no
++  query/results) instead of a real response. Verified with a raw stdio probe:
++  timed out before the change; returned the full contract (per-result
++  link/snippet/domain/published_date, agent_guidance, suggested_prompts) after.
++
+### Added — Graph expansion offline replay
++
+### Added — Graph expansion offline replay
+- Added `python -m kindly_web_search_mcp_server.analytics.graph_feedback replay`, a read-only
+  replay of persisted graph-expansion decisions. It reuses persisted plan seeds when available,
+  falls back to the normalized query as the current planner does, and makes no provider calls.
+- Replay reports now include eligible/related coverage, no-match/stale/error rate, effective-seed
+  distribution, six-branch cardinality, prompt-size delta, candidate-support distribution, and
+  head/tail query split.
+
+### Added — graph control/treatment metrics
+- Graph replay summarizes persisted control versus applied-treatment runs using DuckDB run-history
+  facts and SQLite graph artifacts: judge quality, NDCG@10, MRR@10, top-10 unique domains,
+  zero-result rate, rewrite-failure rate, provider count, LLM cost, and planner latency.
+
+
+### Changed — deterministic LLM judge label materialization
+- Materialized `llm_judge` labels now select the latest valid retry per run/result/rubric/model,
+  resolve equal timestamps with a stable hash, and upsert only those derived labels. Human and eval
+  label insertion remains conflict-ignore.
+
+### Added — versioned graph-feedback source policy
+- Graph snapshot generation reads the existing DuckDB `result_labels`/`search_runs` facts with an
+  explicit UTC cutoff and inclusive 60-day window, aggregates positive finite judge-gain confidence
+  contributions by distinct run, and persists the deterministic artifact manifest in SQLite.
+
+### Changed — graph artifact persistence
+- Graph generation now reads `result_labels` and `search_runs` directly from DuckDB in read-only mode,
+  computes the NetworkX snapshot in memory, and persists ready generations in a SQLite WAL store.
+  DuckDB schema initialization no longer creates graph artifact tables.
+
+### Added — SQLite graph generation operations
+- Added read-only DuckDB-to-SQLite `generate` and `compare` operations for one or multiple
+  lookback windows. They publish only SQLite artifacts and never create graph tables in DuckDB.
+
+### Changed — exposure topology with judged graph weights
+- Related-query candidate topology now uses all time-windowed `final_results` query/document
+  observations, while BiRank/PageRank document features remain weighted only by validated
+  `result_labels`. This lets the observed result corpus produce candidates without fabricating
+  judgment confidence or lowering the two-document support requirement.
+- Graph-index loading is database-path and policy-aware, rejects incompatible ready generations,
+  and exposes generation provenance, document features, and neighbor support to seed expansion.
+
+### Added — web_search temporal & locale filters (normalized across providers)
+- New public `web_search` parameters: `date_range` (day/week/month/year), `after_date`/`before_date`
+  (ISO YYYY-MM-DD, absolute wins over relative with a parameter warning), `language` (ISO 639-1 or
+  BCP-47), `region` (ISO 3166-1 alpha-2) with `gl` accepted as a deprecated alias. CLI parity via
+  `search web --date-range/--after-date/--before-date/--language/--region`.
+- New `search/filters.py`: single resolution point (`TemporalWindow`, `LocaleSpec`) so every provider
+  receives identical semantics; wire-token mappers verified against primary docs — Brave
+  `freshness` pd/pw/pm/py + custom `YYYY-MM-DDtoYYYY-MM-DD`; Tavily native `start_date`/`end_date`
+  plus relative `time_range` and `country` name-mapping (topic=general only); Serper `tbs=qdr:*`
+  + `gl`/`hl`; Exa absolute ISO published dates + `userLocation.country`; DDG `timelimit` +
+  `xx-yy` region; LangSearch freshness buckets; SearXNG day/month/year only (`week` degrades to
+  the post-filter, matching upstream's documented enum).
+- Post-filter safety net drops results whose parsed `published_date` lies strictly outside an
+  absolute window; undated results follow a three-mode policy — default `capability_default`
+  drops them only when every contributing provider lacked native date support (degraded
+  providers can leak stale pages), `--include-undated` keeps all, `--exclude-undated` drops all.
+  Outcome counters land on `WebSearchResponse.filter_stats`
+  (`dropped_out_of_range` / `dropped_undated` / `undated_policy`) plus `provider="filters"`
+  warnings. Static capability table (`PROVIDER_TEMPORAL_MODE`) encodes the verified matrix.
+  Tests: `tests/test_search_filters.py`.
+
+### Added — Unified TokenUsage telemetry
+- New `models.TokenUsage` (`prompt_tokens`/`completion_tokens`/`total_tokens`/cached/reasoning/
+  cost_usd/model_used/provider) with `from_payload()` consuming the existing summary payload keys.
+- Wired into `FetchResult.usage` (single + bulk `ai_summary=True`), `YouTubeTranscriptResponse.usage`
+  (`include_summary=True`), `DeepResearchResponse.usage` (replaces the minimal `DeepResearchUsage`),
+  and canonical nested views on `GeminiSearchResponse.usage` / `GrokSearchResponse.usage`
+  (Grok's `input_tokens`→`prompt_tokens` mapping) while flat legacy fields remain populated.
+
+### Added — academic_search citation graph & author filters
+- New parameters `cited_by_paper_id`, `references_paper_id`, `author_id` on the MCP tool and
+  `search academic --cited-by/--references/--author-id`. `query` becomes optional when any of these
+  is supplied; cache keys include them.
+- New `search/academic/citation_graph.py`: reference classifier (DOI/arXiv/PMID/OpenAlex/S2/ORCID)
+  plus Semantic Scholar `/paper/{id}/citations|references` + `/author/{id}/papers` and OpenAlex
+  `cites:` filter, `referenced_works` hydration, and `author.id`/ORCID scoping. The orchestrator
+  restricts graph-filtered runs to these two providers and emits a structured warning listing any
+  skipped sources. Tests: `tests/test_citation_graph.py`.
++### Changed — YouTube transcript tool unifies video and channel modes (breaking)
++- `youtube_transcript` now auto-detects a video URL/ID vs a channel handle/ID/URL and accepts
++  `max_videos`/`page_token` for channel mode; the separate `youtube_channel_transcription` MCP
++  tool is removed (registration, catalog, and profile sets updated). CLI `youtube channel`
++  remains available, rerouted through the unified tool; its `format` default stays `markdown`.
++  Channel mode now follows the unified default output format (`text`) unless specified.
++- Live-tested: `youtube_transcript("UC...")` returns the channel aggregate; per-video
++  `failed` items carry the backend error (e.g., upcoming live events).
++
++### Fixed — YouTube transcript analysis, language, truncation, and validation
++- GLiNER2 `/extract` contract: `entities`/`relations` are sent as flat label lists per the
++  deployed `MultiTaskRequest` schema; the unsupported `structures` field is dropped. Relations
++  are parsed from the service's `relation_extraction` key. Fixes the HTTP 422 that made every
++     transcript analysis fail; transcript extraction also gets a dedicated 30s timeout
+   (`_TRANSCRIPT_EXTRACT_TIMEOUT`) since 3.8k-char chunks exceed the generic intent-classifier
+   budget (analysis now returns `success` when the service responds in time).
++- Language reporting: `translate_to` > `language` > yt-dlp metadata language > `"und"`.
++  Previously hardcoded `"en"`, mislabeling non-English transcripts
++  (e.g., a Japanese video reported `language: "en"`); `ytdlp_extract_metadata` now performs
++  full extraction and returns `language`.
++- Truncation: `truncate_segments` treats `max_chars <= 0` as unlimited (it previously
++  returned an empty list plus `truncated: true`). Removed the post-render double cap that
++  could chop the `Summary`/`GLiNER2 Analysis` sections in markdown output for transcripts
++  near the 50k `YOUTUBE_TRANSCRIPT_MAX_CHARS` budget.
++- URL validation: bare non-11-char video IDs now raise
++  `Invalid YouTube video ID: ... expected 11 characters` (or an explicit channel-target
++  message), replacing the misleading `Not a YouTube URL: host=`.
++- Tests: `tests/test_youtube_url_parser.py` (channel detection, validation), updated
++  `tests/test_youtube_channel_tool.py`, `tests/test_youtube_quality.py` (0 = unlimited),
++  `tests/test_gliner_client.py` (flat label payload), `tests/test_youtube_analysis.py`
++  (relation_extraction), `tests/test_tool_profiles.py`.
+ 
+ ### Added — Exa web_search intent tuning + capability wiring
 
 ### Added — Exa web_search intent tuning + capability wiring
 - Added per-intent Exa provider arguments in `search/intent_policy.py`: `type: auto` across intents, `category: publication` for `digital_humanities`, `category: personal site` for `social_media`, and `category: news` + `freshness: week` for `news`.

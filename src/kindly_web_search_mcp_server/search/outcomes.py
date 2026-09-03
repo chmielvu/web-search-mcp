@@ -156,6 +156,46 @@ async def persist_search_outcome(run):
                         if dc.rewrite_metadata
                         else []
                     ),
+                    "source_fingerprint": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("source_fingerprint")
+                        if dc.rewrite_metadata
+                        else None
+                    ),
+                    "artifact_age_seconds": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("artifact_age_seconds")
+                        if dc.rewrite_metadata
+                        else None
+                    ),
+                    "matched_query": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("matched_query")
+                        if dc.rewrite_metadata
+                        else None
+                    ),
+                    "candidate_support_counts": (
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                            "candidate_support_counts", {}
+                        )
+                        if dc.rewrite_metadata
+                        else {}
+                    ),
+                    "effective_seed_queries": (
+                        list(
+                            (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                                "effective_seed_queries", []
+                            )
+                        )[:4]
+                        if dc.rewrite_metadata
+                        else []
+                    ),
+                    "dropped_candidates": (
+                        list(
+                            (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                                "dropped_candidates", []
+                            )
+                        )
+                        if dc.rewrite_metadata
+                        else []
+                    ),
                     **(
                         {
                             "error_type": (dc.rewrite_metadata.get("graph_expansion") or {}).get(

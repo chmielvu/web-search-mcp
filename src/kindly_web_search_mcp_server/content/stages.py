@@ -25,6 +25,7 @@ from .html_tools import (
     strip_html_selectors,
 )
 from .jina_reader import JinaReaderError, fetch_with_jina_reader
+from .sanitize import strip_boilerplate
 from .options import FetchOptions
 from .remote_clients import (
     CamoufoxClientError,
@@ -33,8 +34,14 @@ from .remote_clients import (
     get_crawl4ai_client,
 )
 from .safe_fetch import SafeFetchError, safe_fetch_url
-from .typed_content import SUPPORTED_TYPED_FORMATS, detect_content_format, render_typed_content
-from .status_classifier import classify_markdown
+from .typed_content import (
+    SUPPORTED_TYPED_FORMATS,
+    detect_content_format,
+    relabel_typed_artifact,
+    render_typed_content,
+    strip_jina_frontmatter,
+)
+from .status_classifier import _chrome_ratio, classify_markdown
 from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
 from ..telemetry import record_content_resolution
@@ -137,32 +144,52 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
         LOGGER.debug("Jina Reader failed: %s", exc)
         return None
 
+    from .typed_content import parse_jina_frontmatter
+
+    envelope = parse_jina_frontmatter(jina_markdown)
+    jina_warning = envelope.get("warning", "")
+    pre_chrome = _chrome_ratio(jina_markdown)
+    jina_markdown = strip_boilerplate(jina_markdown)
     cls = classify_markdown(jina_markdown)
     word_count = len(jina_markdown.split())
+    if jina_warning:
+        status = "blocked"
+        error = ContentError(code="access_blocked:jina_warning", message=jina_warning)
+    elif cls.status == "success" and (
+        pre_chrome > 0.5 or word_count < 80
+    ):
+        status = "partial"
+        error = ContentError(code="chrome_boilerplate", message="chrome_boilerplate")
+    else:
+        status = cls.status
+        error = (
+            None
+            if cls.status == "success"
+            else ContentError(
+                code=cls.reason or "jina_low_quality", message=cls.reason or "jina_low_quality"
+            )
+        )
     record_content_resolution(
         stage="jina_reader",
         url=url,
-        success=cls.status == "success",
+        success=status == "success",
         word_count=word_count,
         extraction_method="jina_reader",
     )
-    return ContentArtifact(
+    artifact = ContentArtifact(
         input_url=url,
         normalized_url=canonicalize_url(url),
         fetched_url=url,
-        status=cls.status,
+        status=status,
         source_type="html",
         fetch_backend="jina_reader",
         content_type="text/markdown",
         markdown=jina_markdown,
         word_count=word_count,
-        quality_score=0.9 if cls.status == "success" else 0.5,
-        error=None
-        if cls.status == "success"
-        else ContentError(
-            code=cls.reason or "jina_low_quality", message=cls.reason or "jina_low_quality"
-        ),
+        quality_score=0.9 if status == "success" else 0.5,
+        error=error,
     )
+    return relabel_typed_artifact(artifact)
 
 
 # ------------------------------------------------------------------
@@ -235,11 +262,12 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             quality_score=0.0,
             error=ContentError(code="fallback_fetch_failed", message=str(exc), retryable=True),
         )
-    typed_format = detect_content_format(url, fetched.content_type, fetched.text)
+    typed_text = strip_jina_frontmatter(fetched.text or "")
+    typed_format = detect_content_format(url, fetched.content_type, typed_text)
     if typed_format is not None and typed_format in SUPPORTED_TYPED_FORMATS:
         typed_markdown, typed_metadata, typed_links = render_typed_content(
             typed_format,
-            fetched.text or fetched.body.decode("utf-8", errors="replace"),
+            typed_text or fetched.body.decode("utf-8", errors="replace"),
             fetched.fetched_url or url,
         )
         typed_cls = classify_markdown(typed_markdown)
@@ -362,7 +390,30 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
         )
 
     markdown = extract_content_as_markdown(html, url=fetched.fetched_url)
-    cls = classify_markdown(markdown)
+    cls = classify_markdown(
+        markdown,
+        http_status=fetched.status_code if fetched.status_code != 200 else None,
+        headers=fetched.response_headers,
+    )
+
+    if cls.status in ("blocked", "error"):
+        return ContentArtifact(
+            input_url=url,
+            normalized_url=canonical,
+            fetched_url=fetched.fetched_url,
+            status=cls.status,
+            source_type="html",
+            fetch_backend="local",
+            content_type=fetched.content_type,
+            markdown=markdown,
+            metadata=metadata,
+            links=links,
+            word_count=len(markdown.split()),
+            quality_score=0.2,
+            error=ContentError(
+                code=cls.reason or "blocked", message=cls.reason or "blocked", retryable=False
+            ),
+        )
 
     return ContentArtifact(
         input_url=url,
@@ -419,24 +470,27 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
         word_count=word_count,
         extraction_method="crawl4ai_md",
     )
-    return ContentArtifact(
-        input_url=url,
-        normalized_url=canonicalize_url(url),
-        fetched_url=url,
-        status=cls.status,
-        source_type="html",
-        fetch_backend="crawl4ai_remote",
-        content_type="text/markdown",
-        markdown=markdown,
-        metadata=None,
-        links=None,
-        word_count=word_count,
-        quality_score=1.0 if cls.status == "success" else 0.6,
-        error=None
-        if cls.status == "success"
-        else ContentError(
-            code=cls.reason or "crawl4ai_low_quality", message=cls.reason or "crawl4ai_low_quality"
-        ),
+    return relabel_typed_artifact(
+        ContentArtifact(
+            input_url=url,
+            normalized_url=canonicalize_url(url),
+            fetched_url=url,
+            status=cls.status,
+            source_type="html",
+            fetch_backend="crawl4ai_remote",
+            content_type="text/markdown",
+            markdown=markdown,
+            metadata=None,
+            links=None,
+            word_count=word_count,
+            quality_score=1.0 if cls.status == "success" else 0.6,
+            error=None
+            if cls.status == "success"
+            else ContentError(
+                code=cls.reason or "crawl4ai_low_quality",
+                message=cls.reason or "crawl4ai_low_quality",
+            ),
+        )
     )
 
 
@@ -481,22 +535,25 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
         word_count=word_count,
         extraction_method="camoufox_remote",
     )
-    return ContentArtifact(
-        input_url=url,
-        normalized_url=canonicalize_url(url),
-        fetched_url=url,
-        status=cls.status,
-        source_type="html",
-        fetch_backend="camoufox_remote",
-        content_type="text/markdown",
-        markdown=markdown,
-        metadata=metadata,
-        links=links,
-        word_count=word_count,
-        quality_score=1.0 if cls.status == "success" else 0.4,
-        error=None
-        if cls.status == "success"
-        else ContentError(
-            code=cls.reason or "camoufox_low_quality", message=cls.reason or "camoufox_low_quality"
-        ),
+    return relabel_typed_artifact(
+        ContentArtifact(
+            input_url=url,
+            normalized_url=canonicalize_url(url),
+            fetched_url=url,
+            status=cls.status,
+            source_type="html",
+            fetch_backend="camoufox_remote",
+            content_type="text/markdown",
+            markdown=markdown,
+            metadata=metadata,
+            links=links,
+            word_count=word_count,
+            quality_score=1.0 if cls.status == "success" else 0.4,
+            error=None
+            if cls.status == "success"
+            else ContentError(
+                code=cls.reason or "camoufox_low_quality",
+                message=cls.reason or "camoufox_low_quality",
+            ),
+        )
     )

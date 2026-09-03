@@ -281,7 +281,6 @@ async def fetch_github_issue_thread_markdown(
     *,
     http_client: httpx.AsyncClient | None = None,
     max_comments: int | None = None,
-    max_chars: int | None = None,
 ) -> str:
     target = parse_github_issue_url(url)
 
@@ -297,26 +296,15 @@ async def fetch_github_issue_thread_markdown(
     if max_comments <= 0:
         max_comments = 50
 
-    if max_chars is None:
-        try:
-            max_chars = int(os.environ.get("GITHUB_MAX_CHARS", "0"))
-        except Exception:
-            max_chars = 0
-    if max_chars is not None and max_chars < 0:
-        max_chars = 0
-
     async def _run(client: httpx.AsyncClient) -> str:
         api = GitHubGraphqlClient(http_client=client, token=token)
         issue, comments, total = await api.fetch_issue_with_comments(
             target, max_comments=max_comments
         )
         truncated = total > len(comments)
-        md = render_issue_thread_markdown(
+        return render_issue_thread_markdown(
             issue=issue, comments=comments, total_comments=total, truncated=truncated
         )
-        if max_chars > 0 and len(md) > max_chars:
-            md = md[:max_chars].rstrip() + "\n\n…(truncated)\n"
-        return md
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:

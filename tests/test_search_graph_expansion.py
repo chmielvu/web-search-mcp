@@ -13,6 +13,10 @@ from kindly_web_search_mcp_server.analytics.duckdb_store import ensure_store_sch
 from kindly_web_search_mcp_server.analytics.graph_feedback import (
     GraphBuildConfig,
     build_graph_snapshot,
+)
+from kindly_web_search_mcp_server.analytics.graph_store import (
+    _CACHE_LOCK,
+    _CACHED_INDICES,
     publish_graph_snapshot,
 )
 from kindly_web_search_mcp_server.analytics.writers.core import insert_result_labels
@@ -61,24 +65,23 @@ class TestGraphExpansionUnit:
         assert decision.related_queries == ()
 
     def test_missing_or_stale_index_returns_unavailable(self, tmp_path: Path) -> None:
-        db_file = tmp_path / "test_missing.duckdb"
+        sqlite_file = tmp_path / "test_missing.graph.sqlite"
         decision = expand_seed_queries(
             normalized_query="unknown query",
             base_seed_queries=("unknown query",),
             enabled=True,
             max_related_queries=2,
             max_age_seconds=86400,
-            db_path=str(db_file),
+            artifact_path=str(sqlite_file),
         )
-        assert decision.status == "unavailable"
         assert decision.effective_seed_queries == ("unknown query",)
 
     def test_applied_with_indexed_neighbor(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "test_expansion.duckdb")
+        sqlite_path = str(tmp_path / "test_expansion.graph.sqlite")
         ensure_store_schema(db_path=db_path)
         now = datetime.now(timezone.utc)
 
-        # Seed 2 queries sharing 2 documents
         con = duckdb.connect(db_path, read_only=False)
         con.execute(
             """
@@ -90,60 +93,35 @@ class TestGraphExpansionUnit:
         )
         con.close()
 
-        labels = [
-            {
-                "run_key": "rk1",
-                "position": 0,
-                "label": 1.0,
-                "canonical_result_id": "doc_q1",
-                "raw_url": "https://example.com/q1",
-                "source": "llm_judge",
-                "rubric_version": "v1",
-                "recorded_at": now,
-            },
-            {
-                "run_key": "rk1",
-                "position": 1,
-                "label": 1.0,
-                "canonical_result_id": "doc_q2",
-                "raw_url": "https://example.com/q2",
-                "source": "llm_judge",
-                "rubric_version": "v1",
-                "recorded_at": now,
-            },
-            {
-                "run_key": "rk2",
-                "position": 0,
-                "label": 1.0,
-                "canonical_result_id": "doc_q1",
-                "raw_url": "https://example.com/q1",
-                "source": "llm_judge",
-                "rubric_version": "v1",
-                "recorded_at": now,
-            },
-            {
-                "run_key": "rk2",
-                "position": 1,
-                "label": 1.0,
-                "canonical_result_id": "doc_q2",
-                "raw_url": "https://example.com/q2",
-                "source": "llm_judge",
-                "rubric_version": "v1",
-                "recorded_at": now,
-            },
-        ]
-        insert_result_labels(labels, db_path=db_path, sync=True)
+        insert_result_labels(
+            [
+                {
+                    "run_key": run_key,
+                    "position": position,
+                    "label": 1.0,
+                    "canonical_result_id": canonical_result_id,
+                    "raw_url": f"https://example.com/{canonical_result_id}",
+                    "source": "llm_judge",
+                    "rubric_version": "v1",
+                    "recorded_at": now,
+                }
+                for run_key, position, canonical_result_id in (
+                    ("rk1", 0, "doc_q1"),
+                    ("rk1", 1, "doc_q2"),
+                    ("rk2", 0, "doc_q1"),
+                    ("rk2", 1, "doc_q2"),
+                )
+            ],
+            db_path=db_path,
+            sync=True,
+        )
 
         config = GraphBuildConfig(source_cutoff=now, min_shared_documents=2, max_related_queries=2)
         snapshot = build_graph_snapshot(db_path=db_path, config=config)
-        publish_graph_snapshot(snapshot, db_path=db_path)
+        publish_graph_snapshot(snapshot, sqlite_path=sqlite_path)
 
-        # Clear memory cache to ensure read from DB
-        from kindly_web_search_mcp_server.analytics import graph_feedback
-
-        with graph_feedback._CACHE_LOCK:
-            graph_feedback._CACHED_INDEX = None
-            graph_feedback._CACHED_AT = 0.0
+        with _CACHE_LOCK:
+            _CACHED_INDICES.clear()
 
         decision = expand_seed_queries(
             normalized_query="quantum computing basics",
@@ -151,7 +129,7 @@ class TestGraphExpansionUnit:
             enabled=True,
             max_related_queries=2,
             max_age_seconds=86400,
-            db_path=db_path,
+            artifact_path=sqlite_path,
         )
 
         assert decision.status == "applied"

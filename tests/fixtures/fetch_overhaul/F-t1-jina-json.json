@@ -1,0 +1,15 @@
+{
+  "id": "F-t1-jina-json",
+  "url": "https://api.github.com/repos/octocat/Hello-World",
+  "notes": "Jina markdown envelope around GitHub API JSON; after Phase 4 source_type=json.",
+  "expect": {
+    "status": "success",
+    "source_type": "json",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "full_name"
+    ]
+  }
+}

@@ -45,7 +45,7 @@ class TestQueryCacheProviderKey(unittest.TestCase):
         base = build_search_identity_key(["searxng"], SearchOptions())
         filtered = build_search_identity_key(
             ["searxng"],
-            SearchOptions(site_filters=("docs.example.com",)),
+            SearchOptions(searxng_engines=("google",)),
         )
 
         self.assertNotEqual(base, filtered)

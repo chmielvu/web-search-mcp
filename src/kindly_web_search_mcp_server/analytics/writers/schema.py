@@ -37,9 +37,6 @@ from .table_names import (
     _CSUMA_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
-    _GFG_TABLE_NAME,
-    _GQN_TABLE_NAME,
-    _GRF_TABLE_NAME,
     _GSA_TABLE_NAME,
     _GSR_TABLE_NAME,
     _GSS_TABLE_NAME,
@@ -1434,71 +1431,6 @@ def _ensure_result_labels(connection: duckdb.DuckDBPyConnection) -> None:
 
 # ---------------------------------------------------------------------------
 # Graph feedback tables — offline generations, query neighbors, and result features
-# ---------------------------------------------------------------------------
-def _ensure_graph_feedback_generations(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _GFG_TABLE_NAME,
-        """
-        generation_id          VARCHAR NOT NULL PRIMARY KEY,
-        built_at               TIMESTAMPTZ NOT NULL,
-        source_cutoff          TIMESTAMPTZ NOT NULL,
-        label_version          VARCHAR NOT NULL,
-        algorithm              VARCHAR NOT NULL,
-        status                 VARCHAR NOT NULL,
-        config_json            JSON,
-        query_node_count       INTEGER NOT NULL,
-        document_node_count    INTEGER NOT NULL,
-        edge_count             INTEGER NOT NULL,
-        shared_document_count  INTEGER NOT NULL,
-        neighbor_row_count     INTEGER NOT NULL,
-        error_type             VARCHAR,
-        error_message          VARCHAR
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_gfg_status_built_at ON graph_feedback_generations(status, built_at)"
-    )
-
-
-def _ensure_graph_query_neighbors(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _GQN_TABLE_NAME,
-        """
-        generation_id   VARCHAR NOT NULL,
-        query_norm      VARCHAR NOT NULL,
-        related_norm    VARCHAR NOT NULL,
-        rank            INTEGER NOT NULL,
-        score           DOUBLE NOT NULL,
-        method          VARCHAR NOT NULL,
-        support_count   INTEGER NOT NULL,
-        built_at        TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (generation_id, query_norm, related_norm, method)
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_gqn_lookup ON graph_query_neighbors(generation_id, query_norm, rank)"
-    )
-
-
-def _ensure_graph_result_features(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _GRF_TABLE_NAME,
-        """
-        generation_id       VARCHAR NOT NULL,
-        canonical_result_id VARCHAR NOT NULL,
-        birank_score        DOUBLE NOT NULL,
-        pagerank_score      DOUBLE NOT NULL,
-        weighted_degree     DOUBLE NOT NULL,
-        built_at            TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (generation_id, canonical_result_id)
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_grf_lookup ON graph_result_features(generation_id, canonical_result_id)"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1583,6 +1515,8 @@ def _migrate_branch_role_values(connection: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # Public entrypoints
 # ---------------------------------------------------------------------------
+
+
 def ensure_store_schema(*, db_path: str | None = None) -> None:
     """Create all pipeline + embedding + health tables if absent."""
     from ...settings import settings
@@ -1729,9 +1663,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_candidate_stage_events(connection)
             _ensure_tool_output_items(connection)
             _ensure_result_labels(connection)
-            _ensure_graph_feedback_generations(connection)
-            _ensure_graph_query_neighbors(connection)
-            _ensure_graph_result_features(connection)
             _ensure_flockmtl_resources_table(connection)
             if settings.vss_enabled:
                 ensure_vss_extension(connection)

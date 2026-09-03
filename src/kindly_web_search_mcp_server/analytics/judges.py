@@ -197,7 +197,7 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
             return
 
         def weakref_cb(_, q=self._work_queue):  # noqa: SLF001
-            q.put(None)
+            q.put(None)  # pyright: ignore[reportArgumentType]
 
         num_threads = len(self._threads)  # noqa: SLF001
         if num_threads < self._max_workers:
@@ -214,7 +214,7 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
                 daemon=True,
             )
             t.start()
-            self._threads.add(t)  # noqa: SLF001
+            self._threads.add(t)  # pyright: ignore[reportAttributeAccessIssue]
             # Deliberately skip: _threads_queues[t] = self._work_queue
 
 
@@ -1222,7 +1222,9 @@ def judge_search_run(
             ("intent", intent or "unknown"),
             (
                 "understanding_confidence",
-                "" if understanding_confidence is None else str(understanding_confidence),
+                str(understanding_confidence)
+                if understanding_confidence is not None and understanding_confidence > 0
+                else "unavailable",
             ),
             ("rewrites", "\n".join(rewrites) if rewrites else ""),
         )

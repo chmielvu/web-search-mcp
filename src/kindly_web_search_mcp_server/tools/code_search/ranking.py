@@ -124,9 +124,14 @@ def _merge_hits(hits: Iterable[CodeSearchHit]) -> list[CodeSearchHit]:
         if not existing.fragments and hit.fragments:
             existing.fragments = list(hit.fragments)
         else:
-            existing_text = {fragment.text for fragment in existing.fragments}
+            existing_keys = {
+                (fragment.text, fragment.line_start, fragment.line_end)
+                for fragment in existing.fragments
+            }
             existing.fragments.extend(
-                fragment for fragment in hit.fragments if fragment.text not in existing_text
+                fragment
+                for fragment in hit.fragments
+                if (fragment.text, fragment.line_start, fragment.line_end) not in existing_keys
             )
         if not existing.hydrated_source and hit.hydrated_source:
             existing.hydrated_source = hit.hydrated_source

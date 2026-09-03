@@ -60,9 +60,9 @@ async def fetch_youtube_channel_transcription_payload(
     summary_focus: str | None,
     page_token: str | None,
 ) -> dict[str, Any]:
-    from ...tools.youtube import youtube_channel_transcription
+    from ...tools.youtube import youtube_transcript
 
-    response = await youtube_channel_transcription(
+    response = await youtube_transcript(
         channel,
         max_videos=max_videos,
         language=language,

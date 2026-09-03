@@ -50,5 +50,6 @@ async def create_batch_summaries(
             items=items,
             mode="detailed",
             focus_query=focus_query,
+            max_concurrency=max_concurrency,
         ),
     )

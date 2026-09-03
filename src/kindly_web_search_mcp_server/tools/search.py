@@ -3,12 +3,16 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from typing import Literal
+
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from opentelemetry import trace
 
-from ..models import WebSearchResponse
+from ..errors import raise_tool_error
+from ..models import ProviderWarning, WebSearchResponse
+from ..search.filters import FilterValidationError, normalize_locale, resolve_window
 from ..search.options import build_search_options
 from ..telemetry import (
     create_chain_span,
@@ -16,12 +20,11 @@ from ..telemetry import (
     SEARCH_QUERY,
 )
 from ._helpers import (
-    _apply_domain_filters,
-    _normalize_lightweight_search_response,
+    _record_tool_failure,
+    _record_tool_success,
     _resolve_session_id,
 )
 from ..utils.observability import emit_tool_observability_event
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -30,11 +33,15 @@ async def web_search(
     queries: list[str] | None = None,
     research_goal: str = "",
     rewrite: bool = True,
-    site_filters: list[str] | None = None,
-    domain_filters: list[str] | None = None,
+    date_range: Literal["day", "week", "month", "year"] | None = None,
+    after_date: str | None = None,
+    before_date: str | None = None,
+    language: str | None = None,
+    region: str | None = None,
+    gl: str | None = None,
     domain_boost: list[str] | None = None,
-    domain_block: list[str] | None = None,
     reranking_instructions: str | None = None,
+    include_undated: bool | None = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchResponse:
     """Run one validated multi-provider web search across configured backends with RRF ranking.
@@ -64,13 +71,23 @@ async def web_search(
             Used to validate that results serve your actual objective.
         rewrite: When True (default), LLM rewrites the query for improved
             recall and provider coverage. Set False for exact-match searches.
-        site_filters: Restrict results to these domains (e.g., ["arxiv.org",
-            "github.com"]). Applied after provider-level filtering.
-        domain_filters: Blocklist patterns to exclude results (e.g.,
-            ["*pinterest.*"]). Supports wildcards.
+
         domain_boost: Domains to prioritize in ranking. Boosts relevance
             scores without excluding other results.
-        domain_block: Domains to exclude entirely from results.
+    Temporal & locale filters:
+        date_range: relative freshness bucket (day/week/month/year).
+        after_date/before_date: absolute ISO YYYY-MM-DD bounds; they win over
+            date_range when both are supplied.
+        language: ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").
+        region / gl: ISO 3166-1 alpha-2 country (gl is a deprecated alias).
+
+    Args:
+        date_range: Relative freshness bucket applied across providers.
+        after_date: Only results published on/after this date (YYYY-MM-DD).
+        before_date: Only results published on/before this date (YYYY-MM-DD).
+        language: Result language boost/filter per provider capability.
+        region: Country bias/filter (alpha-2, e.g. "PL").
+        gl: Deprecated alias for region.
     """
     from ..search.contracts import WebSearchRequest
     from ..search.service import execute_web_search
@@ -101,6 +118,7 @@ async def web_search(
         else:
             raise ValueError("Either query or queries must be provided and non-blank.")
     except Exception as exc:
+        _record_tool_failure("web_search")
         emit_tool_observability_event(
             LOGGER,
             "web_search",
@@ -112,11 +130,32 @@ async def web_search(
             error_message=str(exc),
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        raise
+        raise_tool_error(exc, provider="web_search")
+
+    # Resolve temporal/locale filters once; absolute bounds win over bucket.
+    filter_warnings: list[str] = []
+    if after_date and date_range:
+        filter_warnings.append("date_range ignored; absolute after_date/before_date take precedence.")
+    try:
+        temporal_window = resolve_window(
+            date_range=date_range,
+            after_date=after_date,
+            before_date=before_date,
+        )
+        locale_spec = normalize_locale(language=language, region=region, gl=gl)
+    except FilterValidationError as exc:
+        _record_tool_failure("web_search")
+        raise_tool_error(exc, provider="filters")
+    except Exception as exc:
+        _record_tool_failure("web_search")
+        raise_tool_error(exc, provider="filters")
+    if temporal_window.clamped_to_today:
+        filter_warnings.append("before_date clamped to today.")
+    filter_warnings.extend(locale_spec.warnings)
 
     search_options = build_search_options(
-        site_filters=site_filters or None,
-        domain_filters=domain_filters or None,
+        locale_spec=locale_spec if (locale_spec.language or locale_spec.region) else None,
+        temporal_window=temporal_window if not temporal_window.is_empty else None,
     )
     effective_research_goal = (
         research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
@@ -128,8 +167,14 @@ async def web_search(
         rewrite=rewrite,
         options=search_options,
         reranking_instructions=reranking_instructions,
+        include_undated=include_undated,
+        domain_boost=tuple(domain_boost or []),
+        pre_warnings=tuple(filter_warnings),
     )
-    await ctx.report_progress(progress=5, total=100, message="Planning search...")
+    try:
+        await ctx.report_progress(progress=5, total=100, message="Planning search...")
+    except Exception:
+        pass
     with create_chain_span(
         "web_search",
         attributes={
@@ -152,6 +197,7 @@ async def web_search(
                     progress=ctx,
                 )
             except Exception as exc:
+                _record_tool_failure("web_search")
                 emit_tool_observability_event(
                     LOGGER,
                     "web_search",
@@ -163,32 +209,19 @@ async def web_search(
                     error_message=str(exc),
                     duration_ms=(time.monotonic() - started) * 1000,
                 )
-                raise
+                raise_tool_error(exc, provider="web_search")
             if isinstance(response_model, tuple):
                 response_model = response_model[0]
-            response = _normalize_lightweight_search_response(
-                response_model.model_dump(exclude_none=True),
-                query=request.query,
-            )
+            response = response_model
         finally:
             reset_run_context(ctx_token)
 
-        if domain_boost or domain_block or domain_filters or site_filters:
-            combined_block = (
-                [*domain_block, *(domain_filters or [])] if domain_block else domain_filters
-            )
-            response["results"] = _apply_domain_filters(
-                response.get("results", []),
-                domain_boost,
-                combined_block,
-                site_filters=site_filters or None,
-            )
-        root_span.set_attribute("search.num_results_returned", len(response.get("results", [])))
+        root_span.set_attribute("search.num_results_returned", len(response.results))
         root_span.set_status(trace.StatusCode.OK)
     record_search_request(
-        providers_used=response.get("providers_used", []),
+        providers_used=response.providers_used,
         duration_seconds=time.monotonic() - started,
-        result_count=len(response.get("results", [])),
+        result_count=len(response.results),
     )
     emit_tool_observability_event(
         LOGGER,
@@ -197,15 +230,22 @@ async def web_search(
         tool_call_id=tool_call_id,
         query=request.query,
         research_goal=request.research_goal,
-        providers=response.get("providers_used", []),
-        results=response.get("results", []),
-        output_count=len(response.get("results", [])),
+        providers=response.providers_used,
+        results=response.results,
+        output_count=len(response.results),
         duration_ms=(time.monotonic() - started) * 1000,
     )
-    warnings = response.get("warnings") or []
+    warnings = response.warnings or []
     for warning in warnings:
-        provider = warning.get("provider") if isinstance(warning, dict) else None
-        message = warning.get("message") if isinstance(warning, dict) else str(warning)
-        await ctx.warning(f"Provider {provider or 'unknown'}: {message}")
-    await ctx.report_progress(progress=100, total=100, message="Done")
-    return response  # type: ignore[return-value]
+        provider = warning.provider if isinstance(warning, ProviderWarning) else None
+        message = warning.error if isinstance(warning, ProviderWarning) else str(warning)
+        try:
+            await ctx.warning(f"Provider {provider or 'unknown'}: {message}")
+        except Exception:
+            pass
+    try:
+        await ctx.report_progress(progress=100, total=100, message="Done")
+    except Exception:
+        pass
+    _record_tool_success("web_search")
+    return response

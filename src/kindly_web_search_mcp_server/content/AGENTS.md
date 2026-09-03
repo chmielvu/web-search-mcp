@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-23 | Last verified: 2026-08-23 -->
+<!-- Last updated: 2026-09-02 | Last verified: 2026-09-02 -->
 
 # AGENTS.md - Content
 
@@ -54,13 +54,15 @@ Three-tier architecture with active resilience:
 - Specialized parsers either raise for a non-match or return a target; routing
   must treat an explicit `None` return as no match so generic extraction can run.
 - The unified `fetch` tool in `tools/content.py` handles one or many URLs
-  through the same core. Bulk inputs run in fixed ten-item waves with hidden
-  dsh-webfetch-compatible limits; callers use `cursor` for continuation.
+  through the same core. Bulk inputs admit one `web_fetch_wave_size` wave per
+  call; callers use `cursor` for remaining URLs. There is no fetch markdown
+  char cap; `offset` paginates a single URL. `FetchResponse.duration_ms` is
+  first-class.
 - `sitemap.py` is Tavily-only (no fallback).
 - Per-stage timeouts: Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s.
-- Jina Reader circuit breaker: opens after 3 failures in 60s.
-- Content-type validation routes HTML, JSON/JSONL, YAML, TOML, RSS/Atom, CSV/TSV, XML, RTF, subtitles, SVG, plain text, Office, MHTML, and columnar documents without browser escalation.
-- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`.
+- Jina Reader circuit breaker: opens after 3 failures in 60s. Jina markdown is classified on the pre-strip body (chrome ratio) and its frontmatter is parsed for fields (`title/url/warning`); a non-empty `warning` field maps to `blocked` + `access_blocked:jina_warning`. `X-Retain-Links` is `all`.
+- Content-type validation routes HTML, JSON/JSONL, YAML, TOML, RSS/Atom, CSV/TSV, XML, RTF, subtitles, SVG, plain text, Office, MHTML, and columnar documents without browser escalation. Jina JSON/XML envelopes are relabeled via `relabel_typed_artifact`.
+- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`. Non-empty `page_content` disables URL-context; empty body + URLs still uses it.
 
 ## Adding a New Specialized Resolver
 

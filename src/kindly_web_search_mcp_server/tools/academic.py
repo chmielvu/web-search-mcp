@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def academic_search(
-    query: str,
+    query: str = "",
     limit: int = 5,
     sources: list[str] | None = None,
     source_type: Literal["general", "polish", "archive"] | None = None,
@@ -28,6 +28,9 @@ async def academic_search(
     venue: str | None = None,
     open_access_only: bool = False,
     sort: Literal["relevance", "citations", "date"] = "relevance",
+    cited_by_paper_id: str | None = None,
+    references_paper_id: str | None = None,
+    author_id: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResponse:
     """Search scholarly sources with cross-source deduplication.
@@ -56,10 +59,21 @@ async def academic_search(
         venue: Filter by publication venue name (e.g., "Nature", "ICML").
         open_access_only: Only return papers with freely available full text.
         sort: Result ordering — "relevance" (default), "citations", or "date".
+        cited_by_paper_id: Return papers citing this work (OpenAlex/S2 ID, DOI,
+            or arXiv ID). Routes to citation-graph providers.
+        references_paper_id: Return this work's bibliography (OpenAlex/S2).
+        author_id: Restrict to an author (OpenAlex ID/ORCID or S2 author ID).
+            When any citation-graph/author filter is set, only providers that
+            support it are queried unless `sources` overrides them.
     """
     limit = max(1, min(limit, 20))
     if sort not in ("relevance", "citations", "date"):
         sort = "relevance"
+    if not query.strip() and not (cited_by_paper_id or references_paper_id or author_id):
+        raise ValueError(
+            "query is required unless cited_by_paper_id, references_paper_id, "
+            "or author_id is provided."
+        )
 
     await ctx.report_progress(progress=5, total=100, message="Checking cache...")
     await ctx.info(f"Academic search: {query[:80]}...")
@@ -93,6 +107,9 @@ async def academic_search(
         "open_access_only": open_access_only,
         "sort": sort,
         "source_type": source_type,
+        "cited_by": cited_by_paper_id,
+        "references": references_paper_id,
+        "author": author_id,
     }
 
     filter_key = json.dumps(filter_params, sort_keys=True, default=str)
@@ -148,6 +165,9 @@ async def academic_search(
             venue=venue,
             open_access_only=open_access_only,
             sort=sort,
+            cited_by_paper_id=cited_by_paper_id,
+            references_paper_id=references_paper_id,
+            author_id=author_id,
         )
         response = result.model_dump(exclude_none=True)
 
@@ -171,7 +191,12 @@ async def academic_search(
         flight_key = _academic_search_flight.make_key(
             normalized_query, limit, sources_key, filter_digest
         )
-        response = await _academic_search_flight.do(flight_key, _execute_academic_search)
+        response = await _academic_search_flight.do(
+            flight_key,
+            _execute_academic_search,
+            timeout_seconds=60.0,
+            initiator_timeout_seconds=60.0,
+        )
 
         _record_tool_success(
             "academic_search",

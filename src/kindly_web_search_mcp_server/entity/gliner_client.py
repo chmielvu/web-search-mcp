@@ -27,6 +27,11 @@ _gliner_client: GLiNER2Client | None = None
 _SERVICE_MAX_TEXT_CHARS = 4000
 _CONTENT_CHUNK_OVERLAP = 200
 
+# Transcript chunks are large (3.8k chars) and the hosted service can take
+# well over the generic intent-classifier timeout; use a dedicated budget.
+_TRANSCRIPT_EXTRACT_TIMEOUT = 30.0
+_CONTENT_EXTRACT_TIMEOUT = 30.0
+
 
 def is_entity_extraction_enabled() -> bool:
     """Return true only when optional content extraction is explicitly enabled."""
@@ -94,7 +99,12 @@ class GLiNER2Client:
         return self._base_url
 
     async def _post(
-        self, path: str, payload: dict[str, Any], *, operation: str
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        operation: str,
+        timeout: float | None = None,
     ) -> tuple[dict[str, Any], float]:
         endpoint = f"{self._base_url}/{path.lstrip('/')}"
         started = time.perf_counter()
@@ -106,7 +116,9 @@ class GLiNER2Client:
             model=self._model_name,
             text_len=len(str(payload.get("text") or "")),
         )
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout if timeout is not None else self._timeout
+        ) as client:
             response = await client.post(endpoint, json=payload)
             response.raise_for_status()
             data = response.json()
@@ -212,7 +224,16 @@ class GLiNER2Client:
                 warnings=warnings,
             )
         except httpx.HTTPStatusError as exc:
-            reason = f"gliner2-http-{exc.response.status_code}"
+            if exc.response.status_code in (404, 405):
+                try:
+                    return await self._composed_query_understanding(
+                        normalized_text, threshold=threshold, started=started
+                    )
+                except Exception as composed_exc:  # degrade to deterministic fallback
+                    logger.warning("composed query understanding failed: %s", composed_exc)
+                    reason = "gliner2-composed-failed"
+            else:
+                reason = f"gliner2-http-{exc.response.status_code}"
         except httpx.TimeoutException:
             reason = "gliner2-timeout"
         except (httpx.RequestError, OSError):
@@ -235,6 +256,80 @@ class GLiNER2Client:
         )
         return self._fallback_result(
             reason, model=self._model_name, latency_ms=latency_ms, query=normalized_text
+        )
+
+    async def _composed_query_understanding(
+        self, text: str, *, threshold: float, started: float
+    ) -> GatewayAnalysis:
+        """Build query understanding from ``/classify`` + ``/ner`` when the
+        combined ``/v2/query-understanding`` endpoint is not deployed.
+
+        Confidence comes straight from the classifier so downstream analytics
+        and judging see a real signal instead of the 0.0 failure sentinel.
+        """
+        from ..search.understanding.adapter import normalize_query_understanding_response
+        classify_result, ner_result = await asyncio.gather(
+            self._post(
+                "/classify", {"text": text}, operation="query_understanding_classify"
+            ),
+            self._post(
+                "/ner",
+                {"text": text, "labels": list(DEFAULT_QUERY_LABELS)},
+                operation="query_understanding_ner",
+            ),
+            return_exceptions=True,
+        )
+        if isinstance(classify_result, BaseException):
+            raise classify_result
+        classify_payload, _ = classify_result
+        raw_intent = classify_payload.get("intent")
+        intent = (
+            raw_intent.strip()
+            if isinstance(raw_intent, str) and raw_intent.strip()
+            else None
+        )
+        confidence = 0.0
+        scores = classify_payload.get("scores")
+        if isinstance(scores, list):
+            values = [
+                float(item["score"])
+                for item in scores
+                if isinstance(item, dict)
+                and item.get("label") == intent
+                and isinstance(item.get("score"), (int, float))
+            ]
+            confidence = max(values, default=0.0)
+        entities: list[dict[str, Any]] = []
+        if not isinstance(ner_result, BaseException):
+            ner_payload, _ = ner_result
+            raw_entities = ner_payload.get("entities")
+            if isinstance(raw_entities, list):
+                entities = [item for item in raw_entities if isinstance(item, dict)]
+        combined = {
+            "intent": intent or "general",
+            "confidence": max(0.0, min(1.0, confidence)),
+            "entities": entities,
+            "relations": [],
+            "model_version": f"{self._model_name}+unifiedml-composed",
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 3),
+        }
+        normalized = normalize_query_understanding_response(
+            combined, text, confidence_threshold=threshold
+        )
+        emit_observability_event(
+            logger,
+            "search.query_understanding.composed",
+            model=combined["model_version"],
+            intent=normalized.understanding.intent,
+            confidence=normalized.understanding.confidence,
+            entity_count=len(normalized.understanding.entities),
+            latency_ms=combined["latency_ms"],
+        )
+        return GatewayAnalysis(
+            understanding=normalized.understanding,
+            model_version=str(combined["model_version"]),
+            latency_ms=float(combined["latency_ms"]),
+            warnings=("v2-query-understanding-unavailable",),
         )
 
     async def analyze_query_features(self, text: str) -> QueryFeatureAnalysis:
@@ -310,8 +405,7 @@ class GLiNER2Client:
         text: str,
         *,
         entities: dict[str, str] | list[str],
-        structures: dict[str, Any],
-        relations: dict[str, str] | None = None,
+        relations: dict[str, str] | list[str] | None = None,
         threshold: float | None = None,
     ) -> tuple[dict[str, Any], float]:
         """Run always-on transcript extraction for one offset-preserving chunk.
@@ -324,10 +418,11 @@ class GLiNER2Client:
         """
         if not text.strip():
             return {}, 0.0
+        # /extract (MultiTaskRequest) requires flat ``entities``/``relations`` label
+        # lists; the previous dict plus ``structures`` payload was rejected with 422.
         payload: dict[str, Any] = {
             "text": text,
-            "entities": entities,
-            "structures": structures,
+            "entities": list(entities) if isinstance(entities, dict) else list(entities),
             "threshold": float(
                 threshold if threshold is not None else getattr(settings, "gliner_threshold", 0.5)
             ),
@@ -335,8 +430,15 @@ class GLiNER2Client:
             "include_spans": True,
         }
         if relations:
-            payload["relations"] = relations
-        return await self._post("/extract", payload, operation="youtube_transcript_extraction")
+            payload["relations"] = (
+                list(relations) if isinstance(relations, dict) else list(relations)
+            )
+        return await self._post(
+            "/extract",
+            payload,
+            operation="youtube_transcript_extraction",
+            timeout=_TRANSCRIPT_EXTRACT_TIMEOUT,
+        )
 
     async def extract_entities(
         self,
@@ -360,7 +462,11 @@ class GLiNER2Client:
             return []
 
         entity_labels = labels or DEFAULT_CONTENT_LABELS
-        entity_request_labels: dict[str, str] | list[str] = entity_labels
+        # MultiTaskRequest.entities accepts flat label strings only; label
+        # descriptions in dict vocabularies never reach the wire.
+        entity_request_labels: list[str] = (
+            list(entity_labels.keys()) if isinstance(entity_labels, dict) else list(entity_labels)
+        )
         service_threshold = float(
             threshold if threshold is not None else getattr(settings, "gliner_threshold", 0.5)
         )
@@ -383,7 +489,12 @@ class GLiNER2Client:
                     "include_confidence": True,
                     "include_spans": True,
                 }
-                data, _ = await self._post("/extract", payload, operation="content_extraction")
+                data, _ = await self._post(
+                    "/extract",
+                    payload,
+                    operation="content_extraction",
+                    timeout=_CONTENT_EXTRACT_TIMEOUT,
+                )
                 entities = normalize_content_entities(data, chunk)
                 all_entities.extend(
                     entity.model_copy(

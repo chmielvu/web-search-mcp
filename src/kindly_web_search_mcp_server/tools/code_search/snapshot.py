@@ -19,6 +19,7 @@ import tarfile
 import threading
 import time
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import quote
@@ -155,7 +156,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
         return dot / (norm_a * norm_b)
     except Exception:
         return 0.0
-TTL_SECONDS = 300
+TTL_SECONDS = settings.code_fetch_snapshot_ttl_seconds
 MAX_ARCHIVE_BYTES = 80 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 120 * 1024 * 1024
 MAX_FILES = 4_000
@@ -167,6 +168,10 @@ if MAX_SNIPPET_CHARS < 0:
 MAX_CONTENT_CHARS = int(os.environ.get("CODE_FETCH_MAX_CONTENT_CHARS", "0"))
 if MAX_CONTENT_CHARS < 0:
     MAX_CONTENT_CHARS = 0
+GRAPH_WAIT_SECONDS = float(os.environ.get("CODE_FETCH_GRAPH_WAIT_SECONDS", "10.0"))
+if GRAPH_WAIT_SECONDS < 0:
+    GRAPH_WAIT_SECONDS = 0.0
+
 
 _SKIP_DIRS = {
     ".git",
@@ -226,7 +231,7 @@ class SnapshotHit:
     symbol_kind: str | None = None
     role: str | None = None
     why: list[str] = field(default_factory=list)
-    snippet: str = ""
+    snippet: str | None = None
     callers: list[RelatedSymbol] = field(default_factory=list)
     callees: list[RelatedSymbol] = field(default_factory=list)
     confidence: float = 0.5
@@ -243,6 +248,12 @@ class Snapshot:
     truncated: bool = False
     stale: bool = False
     warning: str | None = None
+    requested_ref: str = ""
+    graph_task: Any = None
+    graph_status: str = "pending"
+    graph_error: str | None = None
+    graph_symbol_count: int = 0
+    graph_edge_count: int = 0
 
     def age_seconds(self, now: float | None = None) -> int:
         return max(0, int((now or time.monotonic()) - self.created_at))
@@ -263,6 +274,7 @@ class QueryResult:
     content: str | None = None
     architecture: dict[str, Any] | None = None
     truncated: bool = False
+    has_more: bool = False
     error: str | None = None
 
 
@@ -270,6 +282,12 @@ class SnapshotError(RuntimeError):
     def __init__(self, message: str, *, retry_after_seconds: float | None = None) -> None:
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+
+
+def _repo_key(snapshot: Snapshot) -> str:
+    if not snapshot.requested_ref:
+        return snapshot.repository
+    return f"{snapshot.repository}@{snapshot.requested_ref}"
 
 
 class SnapshotManager:
@@ -369,6 +387,67 @@ class SnapshotManager:
             return None
         return snap
 
+    def _restore_persisted_snapshot(self, repository: str, key: str) -> Snapshot | None:
+        """Restore a recent materialized snapshot whose worktree still exists."""
+        with self._lock:
+            con = self._connect()
+            try:
+                row = con.execute(
+                    "SELECT branch, resolved_commit, root, created_at, file_count, truncated "
+                    "FROM snapshots WHERE repository = ?",
+                    (key,),
+                ).fetchone()
+                symbol_count = int(
+                    con.execute(
+                        "SELECT COUNT(*) FROM symbols WHERE repository = ?",
+                        (key,),
+                    ).fetchone()[0]
+                )
+                edge_count = int(
+                    con.execute(
+                        "SELECT COUNT(*) FROM edges WHERE repository = ?",
+                        (key,),
+                    ).fetchone()[0]
+                )
+            finally:
+                con.close()
+        if row is None:
+            return None
+        root = Path(str(row["root"]))
+        if not root.is_dir():
+            return None
+        created_at = float(row["created_at"])
+        age = time.monotonic() - created_at
+        # A monotonic timestamp from before a reboot is in the future. Do not
+        # resurrect it as a fresh snapshot after the monotonic clock resets.
+        if age < 0 or age >= TTL_SECONDS:
+            return None
+        snapshot = Snapshot(
+            repository=repository,
+            branch=str(row["branch"]),
+            resolved_commit=str(row["resolved_commit"]),
+            root=root,
+            created_at=created_at,
+            file_count=int(row["file_count"]),
+            truncated=bool(row["truncated"]),
+            requested_ref=key[len(repository) + 1 :] if key.startswith(f"{repository}@") else "",
+        )
+        if symbol_count > 0:
+            snapshot.graph_status = "ready"
+            snapshot.graph_symbol_count = symbol_count
+            snapshot.graph_edge_count = edge_count
+        else:
+            # The deferred build re-reads the worktree, so it works on restore.
+            try:
+                snapshot.graph_task = asyncio.create_task(
+                    self._deferred_graph_build(snapshot)
+                )
+            except RuntimeError:
+                pass  # No loop (some test paths) — status stays pending
+        self._remember(snapshot, key=key)
+        return snapshot
+
+
     def build_from_directory(
         self,
         repository: str,
@@ -378,6 +457,7 @@ class SnapshotManager:
         *,
         truncated: bool = False,
         defer_graph: bool = False,
+        requested_ref: str = "",
     ) -> Snapshot:
         """Index an already-materialized directory. Used by tests and after extract."""
 
@@ -386,7 +466,7 @@ class SnapshotManager:
         if dest.exists():
             shutil.rmtree(dest, ignore_errors=True)
         dest.mkdir(parents=True, exist_ok=True)
-        file_count, truncated_index, records = _collect_files(source_root, dest)
+        file_count, truncated_index, skipped_binary, records = _collect_files(source_root, dest)
         truncated = truncated or truncated_index
         if defer_graph:
             symbols, edges = [], []
@@ -401,7 +481,17 @@ class SnapshotManager:
             created_at=now,
             file_count=file_count,
             truncated=truncated,
+            warning=(
+                f"{skipped_binary} binary file(s) skipped from index"
+                if skipped_binary > 0
+                else None
+            ),
+            requested_ref=requested_ref,
         )
+        if not defer_graph:
+            snapshot.graph_status = "ready"
+            snapshot.graph_symbol_count = len(symbols)
+            snapshot.graph_edge_count = len(edges)
         self._persist(snapshot, records, symbols, edges)
         self._remember(snapshot)
         return snapshot
@@ -413,17 +503,18 @@ class SnapshotManager:
         symbols: list[tuple[str, str, str, int, int]],
         edges: list[tuple[str, str, int | None, str, str, str | None, int | None, float]],
     ) -> None:
+        repo_key = _repo_key(snapshot)
         with self._lock:
             con = self._connect()
             try:
                 with con:
-                    con.execute("DELETE FROM files WHERE repository = ?", (snapshot.repository,))
-                    con.execute("DELETE FROM symbols WHERE repository = ?", (snapshot.repository,))
-                    con.execute("DELETE FROM edges WHERE repository = ?", (snapshot.repository,))
+                    con.execute("DELETE FROM files WHERE repository = ?", (repo_key,))
+                    con.execute("DELETE FROM symbols WHERE repository = ?", (repo_key,))
+                    con.execute("DELETE FROM edges WHERE repository = ?", (repo_key,))
                     try:
                         con.execute(
                             "DELETE FROM files_fts WHERE repository = ?",
-                            (snapshot.repository,),
+                            (repo_key,),
                         )
                     except sqlite3.OperationalError:
                         pass
@@ -434,7 +525,7 @@ class SnapshotManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            snapshot.repository,
+                            repo_key,
                             snapshot.branch,
                             snapshot.resolved_commit,
                             str(snapshot.root),
@@ -446,7 +537,7 @@ class SnapshotManager:
                     con.executemany(
                         "INSERT INTO files (repository, path, language, size, content) VALUES (?, ?, ?, ?, ?)",
                         [
-                            (snapshot.repository, path, language, size, content)
+                            (repo_key, path, language, size, content)
                             for path, language, size, content in records
                         ],
                     )
@@ -454,7 +545,7 @@ class SnapshotManager:
                         "INSERT INTO symbols (repository, path, name, kind, start_line, end_line) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
                         [
-                            (snapshot.repository, path, name, kind, start_line, end_line)
+                            (repo_key, path, name, kind, start_line, end_line)
                             for path, name, kind, start_line, end_line in symbols
                         ],
                     )
@@ -464,7 +555,7 @@ class SnapshotManager:
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         [
                             (
-                                snapshot.repository,
+                                repo_key,
                                 source_name,
                                 source_path,
                                 source_line,
@@ -490,7 +581,7 @@ class SnapshotManager:
                         con.executemany(
                             "INSERT INTO files_fts (repository, path, content) VALUES (?, ?, ?)",
                             [
-                                (snapshot.repository, path, content)
+                                (repo_key, path, content)
                                 for path, _language, _size, content in records
                             ],
                         )
@@ -511,6 +602,7 @@ class SnapshotManager:
     async def _deferred_graph_build(self, snapshot: Snapshot) -> None:
         """Build TreeSitter graph in background after snapshot is usable."""
         try:
+            repo_key = _repo_key(snapshot)
             # Re-collect file records from the worktree (already materialized)
             records: list[tuple[str, str | None, int, str]] = []
             for path in sorted(snapshot.root.rglob("*")):
@@ -536,12 +628,12 @@ class SnapshotManager:
                 con = self._connect()
                 try:
                     with con:
-                        con.execute("DELETE FROM symbols WHERE repository = ?", (snapshot.repository,))
-                        con.execute("DELETE FROM edges WHERE repository = ?", (snapshot.repository,))
+                        con.execute("DELETE FROM symbols WHERE repository = ?", (repo_key,))
+                        con.execute("DELETE FROM edges WHERE repository = ?", (repo_key,))
                         con.executemany(
                             "INSERT INTO symbols (repository, path, name, kind, start_line, end_line) VALUES (?, ?, ?, ?, ?, ?)",
                             [
-                                (snapshot.repository, path, name, kind, start_line, end_line)
+                                (repo_key, path, name, kind, start_line, end_line)
                                 for path, name, kind, start_line, end_line in symbols
                             ],
                         )
@@ -549,7 +641,7 @@ class SnapshotManager:
                             "INSERT INTO edges (repository, source_name, source_path, source_line, relation, target_name, target_path, target_line, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [
                                 (
-                                    snapshot.repository,
+                                    repo_key,
                                     source_name,
                                     source_path,
                                     source_line,
@@ -573,16 +665,38 @@ class SnapshotManager:
                         )
                 finally:
                     con.close()
+            snapshot.graph_status = "ready"
+            snapshot.graph_symbol_count = len(symbols)
+            snapshot.graph_edge_count = len(edges)
             LOGGER.info("Deferred graph build completed for %s: %d symbols, %d edges", snapshot.repository, len(symbols), len(edges))
         except Exception as exc:
+            snapshot.graph_status = "failed"
+            snapshot.graph_error = str(exc)[:500]
             LOGGER.warning("Deferred graph build failed for %s: %s", snapshot.repository, exc)
+
+    async def wait_for_graph(self, snapshot: Snapshot, budget: float | None = None) -> None:
+        """Bounded wait for a pending deferred graph build (symbol/map intents)."""
+        if snapshot.graph_status != "pending":
+            return
+        if snapshot.graph_task is None:
+            return
+        try:
+            done, _pending = await asyncio.wait(
+                {snapshot.graph_task}, timeout=budget or GRAPH_WAIT_SECONDS
+            )
+        except Exception:
+            pass  # Task failure is recorded in graph_status by _deferred_graph_build.
 
     async def ensure(self, repository: str, *, ref: str | None = None) -> Snapshot:
         key = f"{repository}@{ref}" if ref else repository
         live = self.live_snapshot(key)
         if live is not None:
             return live
+        persisted = self._restore_persisted_snapshot(repository, key)
+        if persisted is not None:
+            return persisted
         return await self.refresh(repository, ref=ref)
+
 
     async def refresh(self, repository: str, *, ref: str | None = None) -> Snapshot:
         key = f"{repository}@{ref}" if ref else repository
@@ -603,6 +717,7 @@ class SnapshotManager:
                 sha,
                 root,
                 defer_graph=True,
+                requested_ref=ref or "",
             )
             shutil.rmtree(root, ignore_errors=True)
             self._remember(snapshot, key=key)
@@ -610,7 +725,7 @@ class SnapshotManager:
             # and only needed for symbol/callers queries. Defer it so the
             # snapshot is usable for search/read/tree immediately.
             try:
-                asyncio.create_task(self._deferred_graph_build(snapshot))
+                snapshot.graph_task = asyncio.create_task(self._deferred_graph_build(snapshot))
             except RuntimeError:
                 pass  # No loop (tests) - graph built on demand or not needed
             return snapshot
@@ -634,6 +749,12 @@ class SnapshotManager:
         start_line: int | None = None,
         end_line: int | None = None,
         depth: int | None = None,
+        offset: int = 0,
+        language: str | None = None,
+        filename: str | None = None,
+        path_glob: str | None = None,
+        exclude_glob: str | None = None,
+        case_sensitive: bool = False,
     ) -> QueryResult:
         normalized_query = (query or "").strip()
         normalized_path = (path or "").strip().strip("/")
@@ -674,7 +795,6 @@ class SnapshotManager:
                     # 0 MAX_CONTENT_CHARS means unlimited - return full content
                     content_out = sliced_text if MAX_CONTENT_CHARS <= 0 else sliced_text[:MAX_CONTENT_CHARS]
                     is_truncated = False if MAX_CONTENT_CHARS <= 0 else len(sliced_text) > MAX_CONTENT_CHARS
-                    snippet_out = sliced_text if MAX_SNIPPET_CHARS <= 0 else sliced_text[:MAX_SNIPPET_CHARS]
                     return QueryResult(
                         snapshot=snapshot,
                         intent="read",
@@ -685,7 +805,7 @@ class SnapshotManager:
                                 path=normalized_path,
                                 start_line=sl,
                                 end_line=el,
-                                snippet=snippet_out,
+                                snippet=None,
                                 why=["read:window"],
                                 confidence=1.0,
                             )
@@ -693,7 +813,6 @@ class SnapshotManager:
                     )
                 raw_content_out = raw_text if MAX_CONTENT_CHARS <= 0 else raw_text[:MAX_CONTENT_CHARS]
                 raw_truncated = False if MAX_CONTENT_CHARS <= 0 else len(raw_text) > MAX_CONTENT_CHARS
-                raw_snippet = raw_text if MAX_SNIPPET_CHARS <= 0 else raw_text[:MAX_SNIPPET_CHARS]
                 return QueryResult(
                     snapshot=snapshot,
                     intent="read",
@@ -704,7 +823,7 @@ class SnapshotManager:
                             path=normalized_path,
                             start_line=1,
                             end_line=max(1, total_lines),
-                            snippet=raw_snippet,
+                            snippet=None,
                             why=["read"],
                             confidence=1.0,
                         )
@@ -740,13 +859,19 @@ class SnapshotManager:
                 architecture=self._architecture(snapshot),
             )
 
-        hits, truncated = self._search_hits(
+        hits, truncated, has_more = self._search_hits(
             snapshot,
             normalized_query,
             path_prefix=normalized_path or None,
             regexp=regexp,
             limit=limit,
             context_lines=context,
+            offset=offset,
+            language=language,
+            filename=filename,
+            path_glob=path_glob,
+            exclude_glob=exclude_glob,
+            case_sensitive=case_sensitive,
         )
         if normalized_symbol:
             graph_hits = self._graph_hits(
@@ -758,6 +883,7 @@ class SnapshotManager:
             intent="search",
             hits=hits,
             truncated=truncated or len(hits) >= limit,
+            has_more=has_more,
         )
 
     def _search_hits(
@@ -769,59 +895,107 @@ class SnapshotManager:
         regexp: bool,
         limit: int,
         context_lines: int,
-    ) -> tuple[list[SnapshotHit], bool]:
+        offset: int = 0,
+        language: str | None = None,
+        filename: str | None = None,
+        path_glob: str | None = None,
+        exclude_glob: str | None = None,
+        case_sensitive: bool = False,
+    ) -> tuple[list[SnapshotHit], bool, bool]:
+        offset = max(0, offset)
+        # Over-fetch by one so a full page can prove has_more without a re-query.
+        fetch_limit = offset + limit + 1
+        filters = {
+            "language": language,
+            "filename": filename,
+            "path_glob": path_glob,
+            "exclude_glob": exclude_glob,
+        }
         if regexp:
             try:
                 pattern = re.compile(query)
             except re.error as exc:
                 raise SnapshotError(f"invalid regular expression: {exc}") from exc
-            return _scan_regex(
+            scanned, scan_truncated = _scan_regex(
                 snapshot.root,
                 pattern,
                 path_prefix=path_prefix,
-                limit=limit,
+                limit=fetch_limit,
                 context_lines=context_lines,
+                case_sensitive=case_sensitive,
+                **filters,
             )
+            page = scanned[offset : offset + limit]
+            has_more = (len(scanned) > offset + limit or scan_truncated) and bool(page)
+            return page, scan_truncated, has_more
         hits: list[SnapshotHit] = []
-        fts_hits = self._fts_hits(snapshot.repository, query, path_prefix=path_prefix, limit=limit)
+        fts_hits = self._fts_hits(
+            _repo_key(snapshot),
+            query,
+            path_prefix=path_prefix,
+            limit=fetch_limit,
+            case_sensitive=case_sensitive,
+            **filters,
+        )
         if fts_hits:
             hits = [
                 self._hit_from_file(snapshot, path, query, context_lines=context_lines, why=["fts"])
                 for path in fts_hits
             ]
-        # Fast path: multi-word literal queries (e.g., "async def upload_doc") will never
-        # match a single line verbatim, and FTS already did token search. Scanning all
-        # files for the full substring is O(files×lines) = 11s warm for 0 hits. Skip it
-        # repo-wide when FTS found nothing; scoped searches (path_prefix set) are cheap.
-        if not regexp and not fts_hits and path_prefix is None and " " in query.strip():
+        # FTS uses an AND expression first. If no file contains every term,
+        # search each term so natural-language queries still return useful
+        # repository-wide candidates instead of a false empty result.
+        if not fts_hits and " " in query.strip():
             terms = [t for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(t) > 1]
             if len(terms) > 1:
+                scan_truncated = False
+                for term in terms:
+                    scanned, term_truncated = _scan_literal(
+                        snapshot.root,
+                        term,
+                        path_prefix=path_prefix,
+                        limit=fetch_limit,
+                        context_lines=context_lines,
+                        case_sensitive=case_sensitive,
+                        **filters,
+                    )
+                    hits = _merge_hits(hits, scanned, fetch_limit)
+                    scan_truncated = scan_truncated or term_truncated
+                    if len(hits) >= fetch_limit:
+                        break
                 for hit in hits:
                     hit.callers, hit.callees = self._neighbors(
-                        snapshot.repository, hit.symbol_name or query, hit.path
+                        _repo_key(snapshot), hit.symbol_name or query, hit.path
                     )
                     if hit.symbol_name is None:
-                        symbol = self._symbol_at(snapshot.repository, hit.path, hit.start_line)
+                        symbol = self._symbol_at(_repo_key(snapshot), hit.path, hit.start_line)
                         if symbol is not None:
                             hit.symbol_name, hit.symbol_kind, hit.role = symbol
-                return hits[:limit], False
+                page = hits[offset : offset + limit]
+                has_more = (len(hits) > offset + limit or scan_truncated) and bool(page)
+                return page, scan_truncated or len(hits) >= fetch_limit, has_more
         scanned, scan_truncated = _scan_literal(
             snapshot.root,
             query,
             path_prefix=path_prefix,
-            limit=limit,
+            limit=fetch_limit,
             context_lines=context_lines,
+            case_sensitive=case_sensitive,
+            **filters,
         )
-        hits = _merge_hits(hits, scanned, limit)
+
+        hits = _merge_hits(hits, scanned, fetch_limit)
         for hit in hits:
             hit.callers, hit.callees = self._neighbors(
-                snapshot.repository, hit.symbol_name or query, hit.path
+                _repo_key(snapshot), hit.symbol_name or query, hit.path
             )
             if hit.symbol_name is None:
-                symbol = self._symbol_at(snapshot.repository, hit.path, hit.start_line)
+                symbol = self._symbol_at(_repo_key(snapshot), hit.path, hit.start_line)
                 if symbol is not None:
                     hit.symbol_name, hit.symbol_kind, hit.role = symbol
-        return hits[:limit], scan_truncated or len(hits) >= limit
+        page = hits[offset : offset + limit]
+        has_more = (len(hits) > offset + limit or scan_truncated) and bool(page)
+        return page, scan_truncated or len(hits) >= fetch_limit, has_more
 
     async def _semantic_search_hits(
         self,
@@ -921,9 +1095,9 @@ class SnapshotManager:
         # Enrich with neighbors/symbol like _search_hits does
         for hit in hits:
             try:
-                hit.callers, hit.callees = self._neighbors(snapshot.repository, hit.symbol_name or query, hit.path)
+                hit.callers, hit.callees = self._neighbors(_repo_key(snapshot), hit.symbol_name or query, hit.path)
                 if hit.symbol_name is None:
-                    sym = self._symbol_at(snapshot.repository, hit.path, hit.start_line)
+                    sym = self._symbol_at(_repo_key(snapshot), hit.path, hit.start_line)
                     if sym is not None:
                         hit.symbol_name, hit.symbol_kind, hit.role = sym
             except Exception:
@@ -950,8 +1124,9 @@ class SnapshotManager:
         """
         if regexp:
             # Semantic fallback never for regex
-            return self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=True, limit=limit, context_lines=context_lines)
-        hits, truncated = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=False, limit=limit, context_lines=context_lines)
+            hits, _truncated, _has_more = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=True, limit=limit, context_lines=context_lines)
+            return hits, _truncated
+        hits, truncated, _has_more = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=False, limit=limit, context_lines=context_lines)
         if hits or truncated:
             return hits, truncated
         # No hits — try semantic if token present
@@ -975,6 +1150,12 @@ class SnapshotManager:
         start_line: int | None = None,
         end_line: int | None = None,
         depth: int | None = None,
+        offset: int = 0,
+        language: str | None = None,
+        filename: str | None = None,
+        path_glob: str | None = None,
+        exclude_glob: str | None = None,
+        case_sensitive: bool = False,
     ) -> QueryResult:
         """Async counterpart to query() with HF semantic fallback.
 
@@ -996,13 +1177,24 @@ class SnapshotManager:
             start_line=start_line,
             end_line=end_line,
             depth=depth,
+            offset=offset,
+            language=language,
+            filename=filename,
+            path_glob=path_glob,
+            exclude_glob=exclude_glob,
+            case_sensitive=case_sensitive,
         )
         # If not a search miss, return as-is
         if base.intent != "search" or base.hits or base.truncated or base.error is not None:
             return base
-        # Search miss — attempt async semantic
+        # Search miss — attempt async semantic. Semantic candidates are
+        # whole-file embeddings: filters, case, and offsets have no faithful
+        # meaning there, so only plain first-page searches may fall back.
         normalized_query = (query or "").strip()
-        if not normalized_query or regexp:
+        semantic_unsupported = bool(
+            language or filename or path_glob or exclude_glob or case_sensitive or offset
+        )
+        if not normalized_query or regexp or semantic_unsupported:
             return base
         normalized_path = (path or "").strip().strip("/")
         limit = max(1, min(max_matches, 100))
@@ -1034,33 +1226,60 @@ class SnapshotManager:
 
     def _fts_hits(
         self,
-        repository: str,
+        repo_key: str,
         query: str,
         *,
         path_prefix: str | None,
         limit: int,
+        language: str | None = None,
+        filename: str | None = None,
+        path_glob: str | None = None,
+        exclude_glob: str | None = None,
+        case_sensitive: bool = False,
     ) -> list[str]:
+        # FTS5 MATCH is case-insensitive; when case-sensitive matching is
+        # requested the literal scan carries the query instead.
+        if case_sensitive:
+            return []
         terms = [token for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(token) > 1]
         if not terms:
             return []
-        match = " AND ".join(f'"{term}"' for term in terms[:8])
-        sql = "SELECT path FROM files_fts WHERE repository = ? AND files_fts MATCH ? LIMIT ?"
-        args: list[Any] = [repository, match, limit]
-        if path_prefix:
-            sql = (
-                "SELECT path FROM files_fts WHERE repository = ? AND files_fts MATCH ? "
-                "AND path LIKE ? LIMIT ?"
+        terms = terms[:8]
+
+        def _run(match: str) -> list[sqlite3.Row]:
+            base_sql = "SELECT path FROM files_fts WHERE repository = ? AND files_fts MATCH ?"
+            args: list[Any] = [repo_key, match]
+            if path_prefix:
+                base_sql += " AND path LIKE ?"
+                args.append(f"{path_prefix}%")
+            ranked_sql = f"{base_sql} ORDER BY bm25(files_fts) LIMIT ?"
+            ranked_args = [*args, limit]
+            with self._lock:
+                con = self._connect()
+                try:
+                    try:
+                        return con.execute(ranked_sql, ranked_args).fetchall()
+                    except sqlite3.OperationalError:
+                        return con.execute(f"{base_sql} LIMIT ?", [*args, limit]).fetchall()
+                except sqlite3.OperationalError:
+                    return []
+                finally:
+                    con.close()
+
+        rows = _run(" AND ".join(f'"{term}"' for term in terms))
+        if not rows and len(terms) > 1:
+            rows = _run(" OR ".join(f'"{term}"' for term in terms))
+        return [
+            path
+            for path in (str(row["path"]) for row in rows)
+            if _matches_filters(
+                path,
+                language=language,
+                filename=filename,
+                path_glob=path_glob,
+                exclude_glob=exclude_glob,
             )
-            args = [repository, match, f"{path_prefix}%", limit]
-        with self._lock:
-            con = self._connect()
-            try:
-                rows = con.execute(sql, args).fetchall()
-            except sqlite3.OperationalError:
-                return []
-            finally:
-                con.close()
-        return [str(row["path"]) for row in rows]
+        ]
 
     def _graph_hits(
         self,
@@ -1076,7 +1295,7 @@ class SnapshotManager:
                 defs = con.execute(
                     "SELECT path, name, kind, start_line, end_line FROM symbols "
                     "WHERE repository = ? AND name = ? LIMIT ?",
-                    (snapshot.repository, symbol, limit),
+                    (_repo_key(snapshot), symbol, limit),
                 ).fetchall()
             finally:
                 con.close()
@@ -1085,7 +1304,7 @@ class SnapshotManager:
             path = str(row["path"])
             start_line = int(row["start_line"])
             end_line = int(row["end_line"])
-            callers, callees = self._neighbors(snapshot.repository, symbol, path)
+            callers, callees = self._neighbors(_repo_key(snapshot), symbol, path)
             hits.append(
                 SnapshotHit(
                     path=path,
@@ -1111,12 +1330,12 @@ class SnapshotManager:
                 context_lines=context_lines,
                 why=["graph:name"],
             )
-            for path in self._fts_hits(snapshot.repository, symbol, path_prefix=None, limit=limit)
+            for path in self._fts_hits(_repo_key(snapshot), symbol, path_prefix=None, limit=limit)
         ]
 
     def _neighbors(
         self,
-        repository: str,
+        repo_key: str,
         name: str | None,
         path: str,
     ) -> tuple[list[RelatedSymbol], list[RelatedSymbol]]:
@@ -1127,13 +1346,14 @@ class SnapshotManager:
             try:
                 callers = con.execute(
                     "SELECT source_name, source_path, source_line FROM edges "
-                    "WHERE repository = ? AND target_name = ? LIMIT 3",
-                    (repository, name),
+                    "WHERE repository = ? AND target_name = ? AND target_path IS NOT NULL LIMIT 3",
+                    (repo_key, name),
                 ).fetchall()
                 callees = con.execute(
                     "SELECT target_name, target_path, target_line FROM edges "
-                    "WHERE repository = ? AND source_name = ? AND source_path = ? LIMIT 3",
-                    (repository, name, path),
+                    "WHERE repository = ? AND source_name = ? AND source_path = ? "
+                    "AND target_path IS NOT NULL LIMIT 3",
+                    (repo_key, name, path),
                 ).fetchall()
             finally:
                 con.close()
@@ -1153,7 +1373,7 @@ class SnapshotManager:
         )
 
     def _symbol_at(
-        self, repository: str, path: str, line: int
+        self, repo_key: str, path: str, line: int
     ) -> tuple[str, str | None, str] | None:
         with self._lock:
             con = self._connect()
@@ -1161,7 +1381,7 @@ class SnapshotManager:
                 row = con.execute(
                     "SELECT name, kind FROM symbols WHERE repository = ? AND path = ? "
                     "AND start_line <= ? AND end_line >= ? LIMIT 1",
-                    (repository, path, line, line),
+                    (repo_key, path, line, line),
                 ).fetchone()
             finally:
                 con.close()
@@ -1196,15 +1416,16 @@ class SnapshotManager:
                 languages = con.execute(
                     "SELECT language, COUNT(*) AS n FROM files WHERE repository = ? "
                     "GROUP BY language ORDER BY n DESC LIMIT 12",
-                    (snapshot.repository,),
+                    (_repo_key(snapshot),),
                 ).fetchall()
                 top_symbols = con.execute(
                     "SELECT name, kind, path, start_line FROM symbols WHERE repository = ? "
                     "ORDER BY start_line LIMIT 20",
-                    (snapshot.repository,),
+                    (_repo_key(snapshot),),
                 ).fetchall()
             finally:
                 con.close()
+        files_list = _list_tree(snapshot.root, "", limit=200, depth=None)
         return {
             "file_count": snapshot.file_count,
             "languages": {str(row["language"] or "unknown"): int(row["n"]) for row in languages},
@@ -1217,6 +1438,8 @@ class SnapshotManager:
                 }
                 for row in top_symbols
             ],
+            "files": files_list,
+            "files_truncated": len(files_list) >= 200,
         }
 
 
@@ -1248,7 +1471,9 @@ async def _resolve_main_commit(repository: str, *, ref: str | None = None) -> tu
                 timeout=settings.search_retrieve_budget_seconds,
             )
         except httpx.HTTPError as exc:
-            raise SnapshotError(f"GitHub commit lookup for ref '{ref}' failed: {exc}") from exc
+            raise SnapshotError(
+                f"GitHub commit lookup for ref '{ref}' failed: {str(exc) or type(exc).__name__}"
+            ) from exc
         if commit_response.status_code == 200:
             commit_payload = commit_response.json() if commit_response.content else {}
             sha = commit_payload.get("sha") if isinstance(commit_payload, dict) else None
@@ -1263,7 +1488,9 @@ async def _resolve_main_commit(repository: str, *, ref: str | None = None) -> tu
             repo_url, headers=_headers(token), timeout=settings.search_retrieve_budget_seconds
         )
     except httpx.HTTPError as exc:
-        raise SnapshotError(f"GitHub repository lookup failed: {exc}") from exc
+        raise SnapshotError(
+            f"GitHub repository lookup failed: {str(exc) or type(exc).__name__}"
+        ) from exc
     if response.status_code != 200:
         raise SnapshotError(
             f"GitHub repository lookup returned HTTP {response.status_code}",
@@ -1279,7 +1506,9 @@ async def _resolve_main_commit(repository: str, *, ref: str | None = None) -> tu
             timeout=settings.search_retrieve_budget_seconds,
         )
     except httpx.HTTPError as exc:
-        raise SnapshotError(f"GitHub commit lookup failed: {exc}") from exc
+        raise SnapshotError(
+            f"GitHub commit lookup failed: {str(exc) or type(exc).__name__}"
+        ) from exc
     if (
         commit_response.status_code == 404
         and branch != "main"
@@ -1315,7 +1544,9 @@ async def _download_tarball(repository: str, sha: str) -> Path:
             follow_redirects=True,
         )
     except httpx.HTTPError as exc:
-        raise SnapshotError(f"GitHub tarball download failed: {exc}") from exc
+        raise SnapshotError(
+            f"GitHub tarball download failed: {str(exc) or type(exc).__name__}"
+        ) from exc
     if response.status_code != 200:
         raise SnapshotError(
             f"GitHub tarball returned HTTP {response.status_code}",
@@ -1367,10 +1598,11 @@ def _extract_tarball(data: bytes, dest: Path) -> None:
 def _collect_files(
     source_root: Path,
     dest: Path,
-) -> tuple[int, bool, list[tuple[str, str | None, int, str]]]:
+) -> tuple[int, bool, int, list[tuple[str, str | None, int, str]]]:
     records: list[tuple[str, str | None, int, str]] = []
     truncated = False
     copied = 0
+    skipped_binary = 0
     for path in sorted(source_root.rglob("*")):
         if not path.is_file():
             continue
@@ -1387,6 +1619,7 @@ def _collect_files(
             truncated = True
             continue
         if b"\0" in data[:1024]:
+            skipped_binary += 1
             continue
         text = data.decode("utf-8", errors="replace")
         target = dest / relative
@@ -1394,7 +1627,7 @@ def _collect_files(
         target.write_bytes(data)
         records.append((relative.as_posix(), language_for_path(relative.as_posix()), len(data), text))
         copied += 1
-    return copied, truncated, records
+    return copied, truncated, skipped_binary, records
 
 
 def _extract_graph(
@@ -1471,6 +1704,28 @@ def _list_tree(root: Path, prefix: str, *, limit: int, depth: int | None = None)
     return entries
 
 
+def _matches_filters(
+    rel_path: str,
+    *,
+    language: str | None,
+    filename: str | None,
+    path_glob: str | None,
+    exclude_glob: str | None,
+) -> bool:
+    """Empty filters pass everything; each set filter must hold."""
+    if language:
+        inferred = language_for_path(rel_path) or ""
+        if inferred.casefold() != language.strip().casefold():
+            return False
+    if filename and not fnmatch(Path(rel_path).name, filename):
+        return False
+    if path_glob and not fnmatch(rel_path, path_glob):
+        return False
+    if exclude_glob and fnmatch(rel_path, exclude_glob):
+        return False
+    return True
+
+
 def _try_ripgrep_scan(
     root: Path,
     query: str,
@@ -1479,6 +1734,11 @@ def _try_ripgrep_scan(
     limit: int,
     context_lines: int,
     is_regex: bool,
+    case_sensitive: bool = False,
+    language: str | None = None,
+    filename: str | None = None,
+    path_glob: str | None = None,
+    exclude_glob: str | None = None,
 ) -> tuple[list[SnapshotHit], bool] | None:
     """Try ripgrep (rg) for literal/regex scan - 10-50x faster than Python loop."""
     rg_path = shutil.which("rg")
@@ -1505,8 +1765,7 @@ def _try_ripgrep_scan(
         ]
         if not is_regex:
             cmd.append("--fixed-strings")
-            cmd.append("--ignore-case")
-        else:
+        if not case_sensitive:
             cmd.append("--ignore-case")
         cmd.extend(["--", query, str(search_root)])
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=8, encoding="utf-8", errors="replace")
@@ -1531,7 +1790,14 @@ def _try_ripgrep_scan(
                 relative = file_path.relative_to(root).as_posix()
             except Exception:
                 continue
-            # Build snippet from rg's lines (already includes context if requested)
+            if not _matches_filters(
+                relative,
+                language=language,
+                filename=filename,
+                path_glob=path_glob,
+                exclude_glob=exclude_glob,
+            ):
+                continue
             # For simplicity, re-read file and build snippet window as before
             try:
                 lines = _read_text(file_path).splitlines()
@@ -1566,22 +1832,50 @@ def _scan_literal(
     path_prefix: str | None,
     limit: int,
     context_lines: int,
+    case_sensitive: bool = False,
+    language: str | None = None,
+    filename: str | None = None,
+    path_glob: str | None = None,
+    exclude_glob: str | None = None,
 ) -> tuple[list[SnapshotHit], bool]:
     # Try ripgrep first - 10-50x faster
-    rg_result = _try_ripgrep_scan(root, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines, is_regex=False)
+    rg_result = _try_ripgrep_scan(
+        root,
+        query,
+        path_prefix=path_prefix,
+        limit=limit,
+        context_lines=context_lines,
+        is_regex=False,
+        case_sensitive=case_sensitive,
+        language=language,
+        filename=filename,
+        path_glob=path_glob,
+        exclude_glob=exclude_glob,
+    )
     if rg_result is not None:
         return rg_result
-    needle = query.casefold()
+    needle = query if case_sensitive else query.casefold()
     hits: list[SnapshotHit] = []
     scanned_files = 0
     for path in _iter_files(root, path_prefix):
         scanned_files += 1
         if path_prefix is None and scanned_files > 2000:
             return hits, True
-        lines = _read_text(path).splitlines()
         relative = path.relative_to(root).as_posix()
+        if not _matches_filters(
+            relative,
+            language=language,
+            filename=filename,
+            path_glob=path_glob,
+            exclude_glob=exclude_glob,
+        ):
+            continue
+        lines = _read_text(path).splitlines()
         for index, line in enumerate(lines, start=1):
-            if needle not in line.casefold():
+            if case_sensitive:
+                if needle not in line:
+                    continue
+            elif needle not in line.casefold():
                 continue
             start = max(1, index - context_lines)
             end = min(len(lines), index + context_lines)
@@ -1610,9 +1904,26 @@ def _scan_regex(
     path_prefix: str | None,
     limit: int,
     context_lines: int,
+    case_sensitive: bool = False,
+    language: str | None = None,
+    filename: str | None = None,
+    path_glob: str | None = None,
+    exclude_glob: str | None = None,
 ) -> tuple[list[SnapshotHit], bool]:
     # Try ripgrep first
-    rg_result = _try_ripgrep_scan(root, pattern.pattern, path_prefix=path_prefix, limit=limit, context_lines=context_lines, is_regex=True)
+    rg_result = _try_ripgrep_scan(
+        root,
+        pattern.pattern,
+        path_prefix=path_prefix,
+        limit=limit,
+        context_lines=context_lines,
+        is_regex=True,
+        case_sensitive=case_sensitive,
+        language=language,
+        filename=filename,
+        path_glob=path_glob,
+        exclude_glob=exclude_glob,
+    )
     if rg_result is not None:
         return rg_result
     hits: list[SnapshotHit] = []
@@ -1621,8 +1932,16 @@ def _scan_regex(
         scanned_files += 1
         if path_prefix is None and scanned_files > 2000:
             return hits, True
-        lines = _read_text(path).splitlines()
         relative = path.relative_to(root).as_posix()
+        if not _matches_filters(
+            relative,
+            language=language,
+            filename=filename,
+            path_glob=path_glob,
+            exclude_glob=exclude_glob,
+        ):
+            continue
+        lines = _read_text(path).splitlines()
         for index, line in enumerate(lines, start=1):
             if not pattern.search(line):
                 continue

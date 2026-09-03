@@ -1,0 +1,15 @@
+{
+  "id": "F-c1-mdn",
+  "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+  "notes": "MDN HTTP 404 docs body is on-topic documentation, not an error page.",
+  "expect": {
+    "status": "success",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "404 Not Found"
+    ]
+  }
+}

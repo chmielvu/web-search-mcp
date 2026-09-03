@@ -17,6 +17,9 @@ async def fetch_academic_search_payload(
     venue: str | None,
     open_access_only: bool,
     sort: str,
+    cited_by_paper_id: str | None = None,
+    references_paper_id: str | None = None,
+    author_id: str | None = None,
 ) -> dict[str, Any]:
     response = await run_academic_search(
         query,
@@ -29,5 +32,8 @@ async def fetch_academic_search_payload(
         venue=venue,
         open_access_only=open_access_only,
         sort=sort,
+        cited_by_paper_id=cited_by_paper_id,
+        references_paper_id=references_paper_id,
+        author_id=author_id,
     )
     return response.model_dump(exclude_none=True)

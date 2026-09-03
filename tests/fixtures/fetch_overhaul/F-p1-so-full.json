@@ -1,0 +1,15 @@
+{
+  "id": "F-p1-so-full",
+  "url": "https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do-in-python",
+  "notes": "StackExchange renderer with no max_chars; body has no \u2026(truncated).",
+  "expect": {
+    "status": "success",
+    "source_type": "stackexchange",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "What does the \"yield\" keyword do"
+    ]
+  }
+}

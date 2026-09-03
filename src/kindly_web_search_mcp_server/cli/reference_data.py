@@ -50,6 +50,12 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "required": ["query"],
     },
     {
+        "tool": "code_fetch",
+        "command": "search fetch",
+        "profiles": ["default", "research", "experimental", "full"],
+        "required": ["repository"],
+    },
+    {
         "tool": "quick_web_search",
         "command": "search quick",
         "profiles": ["research", "experimental", "full"],

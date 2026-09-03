@@ -12,6 +12,7 @@ from fastmcp.server.context import Context
 from opentelemetry import trace
 from pydantic import Field
 
+from ...errors import raise_tool_error
 from ...telemetry import SEARCH_QUERY, create_chain_span
 from ...utils.observability import emit_tool_observability_event
 from .models import (
@@ -113,8 +114,7 @@ def _validate_request(
     huggingface_max_param_count: int | None = None,
 ) -> CodeSearchRequest:
     normalized_query = query.strip()
-    normalized_research_goal = " ".join((research_goal or "").split()).strip()
-    normalized_research_goal = normalized_research_goal[:500] or normalized_query
+    normalized_research_goal = " ".join((research_goal or "").split()).strip()[:500]
     if not normalized_query:
         raise ValueError("query must be a non-blank string.")
     normalized_repo_name = repo_name.strip() if repo_name and repo_name.strip() else None
@@ -365,8 +365,7 @@ async def code_search(
             error_message=str(exc),
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        raise
-
+        raise_tool_error(exc, provider="code_search")
     from ...inference.engine import bind_run_context, reset_run_context
 
     optimization_token = bind_run_context(tool_call_id, operation="code_search")
@@ -386,8 +385,11 @@ async def code_search(
         plan = await optimize_query_plan(plan, request)
     finally:
         reset_run_context(optimization_token)
-    if ctx is not None:
-        await ctx.report_progress(progress=5, total=100, message="Planning code search...")
+    if ctx is not None and hasattr(ctx, "report_progress"):
+        try:
+            await ctx.report_progress(progress=5, total=100, message="Planning code search...")
+        except Exception:
+            pass
 
     cache = get_code_search_cache()
     cache_key = build_search_cache_key(request, plan)
@@ -395,10 +397,13 @@ async def code_search(
     cache_hit = cached is not None
 
     async def _execute_uncached() -> CodeSearchResultType:
-        if ctx is not None:
-            await ctx.report_progress(
-                progress=15, total=100, message="Running selected code-search providers..."
-            )
+        if ctx is not None and hasattr(ctx, "report_progress"):
+            try:
+                await ctx.report_progress(
+                    progress=15, total=100, message="Running selected code-search providers..."
+                )
+            except Exception:
+                pass
         with create_chain_span(
             "code_search",
             attributes={
@@ -430,7 +435,7 @@ async def code_search(
                     request=request,
                     plan=plan,
                 )
-                raise
+                raise_tool_error(exc, provider="code_search")
             finally:
                 reset_run_context(ctx_token)
             root_span.set_attribute("code_search.result_count", len(response.results))
@@ -445,12 +450,20 @@ async def code_search(
     if cached is not None:
         response = CodeSearchResultType.model_validate(cached)
     else:
-        response = await _code_search_flight.do(cache_key, _execute_uncached)
+        response = await _code_search_flight.do(
+            cache_key,
+            _execute_uncached,
+            timeout_seconds=120.0,
+            initiator_timeout_seconds=120.0,
+        )
         if response.outcome in {"ok", "partial", "no_hit"}:
             cache.store_search(cache_key, response.model_dump(mode="json"))
 
-    if ctx is not None:
-        await ctx.report_progress(progress=100, total=100, message="Done")
+    if ctx is not None and hasattr(ctx, "report_progress"):
+        try:
+            await ctx.report_progress(progress=100, total=100, message="Done")
+        except Exception:
+            pass
     emit_tool_observability_event(
         LOGGER,
         "code_search",

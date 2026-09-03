@@ -609,8 +609,7 @@ class CodeSearchPublicHint(BaseModel):
 
 
 class CodeSearchPublicNext(BaseModel):
-    """Machine-ready continuation to resolve exact lines or inspect a file."""
-
+    """Machine-ready continuation to search a repository snapshot or inspect a file."""
     action: str = Field(description="Continuation action.")
     tool: str = Field(description="Tool to call for this continuation.")
     query: dict[str, Any] = Field(default_factory=dict)
@@ -854,7 +853,7 @@ def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSea
 
 
 def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSearchPublicNext]:
-    """Build continuation records for matched files with their exact anchors."""
+    """Build continuation records for repository searches or exact file fetches."""
 
     nexts: list[CodeSearchPublicNext] = []
     if not result.results:
@@ -866,29 +865,33 @@ def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSear
         anchor = plan.variants[0]
     if not anchor:
         return nexts
+    seen_repositories: set[str] = set()
     for hit in result.results:
-        url = hit.url
-        if not url:
-            continue
-        if hit.repository and hit.path:
+        if hit.repository:
+            if hit.repository in seen_repositories:
+                continue
+            seen_repositories.add(hit.repository)
             nexts.append(
                 CodeSearchPublicNext(
-                    action="explore",
+                    action="search",
                     tool="code_fetch",
                     query={
                         "repository": hit.repository,
-                        "path": hit.path,
+                        "query": anchor,
                     },
-                    why="Explore the matched file on the repository's current main snapshot.",
+                    why=(
+                        "Search all files in the matched repository snapshot for the anchor; "
+                        "use a hit path for a focused read."
+                    ),
                     confidence="high",
                 )
             )
-        else:
+        elif hit.url:
             nexts.append(
                 CodeSearchPublicNext(
                     action="get_lines",
                     tool="fetch",
-                    query={"url": url, "focus_query": anchor},
+                    query={"url": hit.url, "focus_query": anchor},
                     why="Fetch the file with focus_query to resolve exact file:line anchors.",
                     confidence="low",
                 )
@@ -944,8 +947,12 @@ def to_public_result(
             group.files.append(file_entry)
             continue
 
-        existing.text_matches.extend(file_entry.text_matches)
-        existing.match_lines.extend(file_entry.match_lines)
+        existing_texts = {text.strip() for text in existing.text_matches}
+        for text, lines in zip(file_entry.text_matches, file_entry.match_lines):
+            if text.strip() not in existing_texts:
+                existing.text_matches.append(text)
+                existing.match_lines.append(lines)
+                existing_texts.add(text.strip())
         for symbol in file_entry.symbols:
             if symbol not in existing.symbols:
                 existing.symbols.append(symbol)
@@ -959,11 +966,8 @@ def to_public_result(
         existing.line_start = existing.line_start or file_entry.line_start
         existing.line_end = existing.line_end or file_entry.line_end
         existing.path_only = existing.path_only and file_entry.path_only
-        if file_entry.agent_ready:
-            existing.agent_ready = True
-            existing.agent_ready_fail_reasons = []
-        elif not existing.agent_ready:
-            existing.agent_ready_fail_reasons.extend(file_entry.agent_ready_fail_reasons)
+        existing.agent_ready = existing.agent_ready or file_entry.agent_ready
+        existing.agent_ready_fail_reasons.extend(file_entry.agent_ready_fail_reasons)
         existing.omitted_fragments += file_entry.omitted_fragments
         if file_entry.source_window_start is not None and existing.source_window_start is None:
             existing.source_window_start = file_entry.source_window_start
@@ -971,6 +975,15 @@ def to_public_result(
             existing.source_window_end = file_entry.source_window_end
         if file_entry.full_source_chars is not None and existing.full_source_chars is None:
             existing.full_source_chars = file_entry.full_source_chars
+
+    for group in groups:
+        for file_entry in group.files:
+            if file_entry.agent_ready:
+                file_entry.agent_ready_fail_reasons = []
+            else:
+                file_entry.agent_ready_fail_reasons = sorted(
+                    dict.fromkeys(file_entry.agent_ready_fail_reasons)
+                )
 
     groups.sort(key=lambda group: -best_score.get(group.repository, 0.0))
     file_count = sum(len(group.files) for group in groups)
@@ -980,7 +993,10 @@ def to_public_result(
     incomplete_results = bool(
         result.outcome == "partial"
         or result.stats.incomplete_providers
-        or any(d.failure_kind == "incomplete_index" for d in result.diagnostics)
+        or any(
+            d.failure_kind in {"incomplete_index", "rate_limit", "budget"}
+            for d in result.diagnostics
+        )
     )
     assets = []
     for hit in result.results:

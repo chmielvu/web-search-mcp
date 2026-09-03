@@ -399,16 +399,8 @@ class Settings:
 
     # Gemini summaries for the unified fetch tool
     # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
-    # 0 means unlimited (no truncation) - pagination via offset/cursor remains available
-    web_fetch_item_max_chars: int = int(os.environ.get("KINDLY_WEB_FETCH_ITEM_MAX_CHARS", "0"))
-    web_fetch_total_char_budget: int = int(
-        os.environ.get("KINDLY_WEB_FETCH_TOTAL_CHAR_BUDGET", "0")
-    )
     web_fetch_workers: int = int(os.environ.get("KINDLY_WEB_FETCH_WORKERS", "4"))
     web_fetch_wave_size: int = int(os.environ.get("KINDLY_WEB_FETCH_WAVE_SIZE", "10"))
-    web_fetch_wave_delay_seconds: float = float(
-        os.environ.get("KINDLY_WEB_FETCH_WAVE_DELAY_SECONDS", "0.5")
-    )
     web_fetch_timeout_seconds: float = float(
         os.environ.get("KINDLY_WEB_FETCH_TIMEOUT_SECONDS", "20")
     )
@@ -479,10 +471,6 @@ class Settings:
     core_api_key: str = os.environ.get("CORE_API_KEY", "")
 
     # Academic search defaults
-    academic_default_sources: str = os.environ.get(
-        "ACADEMIC_DEFAULT_SOURCES",
-        "arxiv,semanticscholar",  # Note: dead setting — orchestrator hardcodes default; kept for backward compat
-    )
     academic_max_results: int = int(os.environ.get("ACADEMIC_MAX_RESULTS", "10"))
 
     search_router_api_key: str = os.environ.get("SEARCH_ROUTER_API_KEY", "")
@@ -565,7 +553,7 @@ class Settings:
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
     # Master flag; empty URL silently disables indexing.
     web_results_index_enabled: bool = (
-        os.environ.get("WEB_RESULTS_INDEX_ENABLED", "false").lower() == "true"
+        os.environ.get("WEB_RESULTS_INDEX_ENABLED", "true").lower() == "true"
     )
     qdrant_space_url: str = os.environ.get(
         "QDRANT_SPACE_URL", "https://chmielvu-web-index.hf.space"
@@ -802,7 +790,12 @@ class Settings:
 
         if self.observability_max_items < 1:
             raise ValueError("observability_max_items must be >= 1.")
-        from .tools.profiles import normalize_tool_profile
+        _ALLOWED_TOOL_PROFILES = frozenset({"regular", "full"})
+        normalized_profile = self.tool_profile.strip().lower()
+        if normalized_profile not in _ALLOWED_TOOL_PROFILES:
+            allowed = ", ".join(sorted(_ALLOWED_TOOL_PROFILES))
+            raise ValueError(f"tool_profile must be one of: {allowed}. Got {self.tool_profile!r}.")
+        self.tool_profile = normalized_profile
 
         _CANONICAL_SEARCH_INTENTS = frozenset(
             {
@@ -814,7 +807,6 @@ class Settings:
                 "news",
             }
         )
-        self.tool_profile = normalize_tool_profile(self.tool_profile)
         for key in self.brave_goggles_by_intent:
             if key not in _CANONICAL_SEARCH_INTENTS:
                 raise ValueError(

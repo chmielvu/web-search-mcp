@@ -1,0 +1,13 @@
+{
+  "id": "F-k1-err",
+  "url": "https://example.com/failed",
+  "notes": "Cached artifact with status=error and fallback_fetch_failed must restore the same error.",
+  "expect": {
+    "status": "error",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": "fallback_fetch_failed",
+    "summary_must_not_contain": [],
+    "must_contain": []
+  }
+}

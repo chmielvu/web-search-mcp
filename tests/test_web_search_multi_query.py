@@ -43,13 +43,14 @@ class TestMultiQueryAndRerankingInstructions(unittest.IsolatedAsyncioTestCase):
             assert request.reranking_instructions == "Demote listicles"
 
     async def test_tool_web_search_validation_errors(self) -> None:
+        from fastmcp.exceptions import ToolError
+
         ctx = AsyncMock()
-        with pytest.raises(ValueError, match="Either query or queries must be provided"):
+        with pytest.raises((ValueError, ToolError), match="Either query or queries must be provided"):
             await web_search(query="", queries=[], research_goal="goal", ctx=ctx)
 
-        with pytest.raises(ValueError, match="queries must contain at least one non-blank string"):
+        with pytest.raises((ValueError, ToolError), match="queries must contain at least one non-blank string"):
             await web_search(queries=["  ", ""], research_goal="goal", ctx=ctx)
-
     async def test_cli_fetch_web_search_payload_multi_query(self) -> None:
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {"query": "q1", "results": []}

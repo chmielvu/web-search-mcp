@@ -35,6 +35,8 @@ class TestJinaReader(unittest.IsolatedAsyncioTestCase):
         args, kwargs = fake_client.get.await_args
         self.assertEqual(args[0], "https://r.jina.ai/https://example.com")
         self.assertNotIn("Authorization", kwargs["headers"])
+        self.assertEqual(kwargs["headers"]["X-Retain-Links"], "all")
+        self.assertEqual(kwargs["headers"]["X-Retain-Images"], "none")
 
     async def test_retries_with_key_on_429(self) -> None:
         from kindly_web_search_mcp_server.content.jina_reader import fetch_with_jina_reader

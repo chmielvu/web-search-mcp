@@ -12,6 +12,8 @@ from typing import Any
 from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
+from ..filters import ddg_timelimit
+from ..options import SearchOptions
 from .base import ProviderRequestError, run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ async def search_ddg(
     query: str,
     *,
     num_results: int,
+    search_options: SearchOptions | None = None,
     http_client: Any = None,  # Not used, ddgs has its own client
     **kwargs: Any,
 ) -> list[WebSearchResult]:
@@ -55,6 +58,16 @@ async def search_ddg(
     backend = kwargs.get("backend")
     backend_str = str(backend) if backend else None
 
+    # Temporal/locale: relative bucket -> timelimit; locale -> "xx-yy" region.
+    # Absolute windows have no DDG param — the pipeline post-filter covers them.
+    timelimit: str | None = None
+    region: str | None = None
+    if search_options is not None:
+        if search_options.temporal is not None:
+            timelimit = ddg_timelimit(search_options.temporal.bucket)
+        if search_options.region and search_options.language:
+            region = f"{search_options.region.lower()}-{search_options.language.lower()}"
+
     return await run_clientless_provider(
         "ddg",
         query,
@@ -65,6 +78,8 @@ async def search_ddg(
             num_results,
             category=category,
             backend=backend_str,
+            timelimit=timelimit,
+            region=region,
         ),
         parse_response=lambda results: results,
     )
@@ -76,6 +91,8 @@ def _search_ddg_sync(
     *,
     category: str = "text",
     backend: str | None = None,
+    timelimit: str | None = None,
+    region: str | None = None,
 ) -> list[WebSearchResult]:
     """Synchronous DDG search (wrapped in thread pool).
 
@@ -105,12 +122,16 @@ def _search_ddg_sync(
                     query,
                     max_results=num_results,
                     backend=backend,
+                    timelimit=timelimit,
+                    **({"region": region} if region else {}),
                 )
             else:
                 raw_results = ddgs.text(
                     query,
                     max_results=num_results,
                     backend=backend,
+                    timelimit=timelimit,
+                    **({"region": region} if region else {}),
                 )
         except Exception as exc:
             if "No results found" in str(exc):

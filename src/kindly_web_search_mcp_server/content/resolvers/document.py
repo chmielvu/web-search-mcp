@@ -88,6 +88,11 @@ def is_document_url(url: str) -> bool:
         for ext in DOC_EXTENSIONS:
             if path.endswith(ext):
                 return True
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if "/pdf/" in path and host not in {"arxiv.org", "export.arxiv.org"}:
+            return True
         return False
     except Exception:
         return False
@@ -114,8 +119,11 @@ def get_doc_source_type(url: str, detected_type: str | None = None) -> str:
 
 
 def _convert_pdf_to_markdown(pdf_bytes: bytes, source_url: str) -> str:
-    """Extract clean Markdown from PDF bytes using PyMuPDF (fitz)."""
-    import fitz  # PyMuPDF
+    """Extract clean Markdown from PDF bytes using PyMuPDF."""
+    try:
+        import pymupdf as fitz  # PyMuPDF >= 1.24
+    except ImportError:
+        import fitz  # legacy alias on older installs
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page_count = len(doc)

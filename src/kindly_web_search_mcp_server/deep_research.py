@@ -20,6 +20,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
+from .models import TokenUsage
 from .settings import settings
 from .tools._helpers import _record_tool_failure, _record_tool_success
 from .tools.catalog import tool_kwargs
@@ -98,11 +99,6 @@ class DeepResearchReference(BaseModel):
     snippet: str | None = None
 
 
-class DeepResearchUsage(BaseModel):
-    """Token usage reported by the research engine."""
-
-    total_tokens: int | None = None
-
 
 class DeepResearchResponse(BaseModel):
     """Final deep_research tool response."""
@@ -116,7 +112,7 @@ class DeepResearchResponse(BaseModel):
     visited_urls: list[str] = Field(default_factory=list)
     read_urls: list[str] = Field(default_factory=list)
     all_urls: list[str] = Field(default_factory=list)
-    usage: DeepResearchUsage | None = None
+    usage: "TokenUsage | None" = None
     report_markdown: str = ""
 
 
@@ -381,7 +377,11 @@ async def deep_research(
     all_urls = [str(u) for u in (final.get("allURLs") or [])]
     usage_raw = final.get("usage")
     usage = (
-        DeepResearchUsage(total_tokens=usage_raw.get("total_tokens"))
+        TokenUsage(
+            total_tokens=usage_raw.get("total_tokens")
+            if isinstance(usage_raw.get("total_tokens"), int)
+            else None
+        )
         if isinstance(usage_raw, dict)
         else None
     )
@@ -450,7 +450,7 @@ __all__ = [
     "DEPTH_ALIASES",
     "DeepResearchReference",
     "DeepResearchResponse",
-    "DeepResearchUsage",
+    "TokenUsage",
     "RESEARCH_PRESETS",
     "deep_research",
     "register_deep_research",

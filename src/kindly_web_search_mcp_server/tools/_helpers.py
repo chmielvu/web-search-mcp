@@ -18,7 +18,6 @@ from ..utils.background_tasks import cancel_all_background_tasks, drain_backgrou
 from ..analytics.async_writes import shutdown_duckdb_write_executor
 from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
 from ..utils.http_client import close_http_client
-from ..utils.public_output import serialize_public_web_search_response
 from ..utils.singleflight import SingleFlight
 
 LOGGER = logging.getLogger(__name__)
@@ -61,26 +60,38 @@ def _resolve_session_id(ctx: Context | None) -> str | None:
     ``get_context()`` when the injected context is unavailable.
     """
     if ctx is not None:
-        session_id = getattr(ctx, "session_id", None)
-        if session_id:
-            return str(session_id)
-        client_id = getattr(ctx, "client_id", None)
-        if client_id:
-            return str(client_id)
+        try:
+            session_id = ctx.session_id
+            if session_id:
+                return str(session_id)
+        except Exception:
+            pass
+        try:
+            client_id = ctx.client_id
+            if client_id:
+                return str(client_id)
+        except Exception:
+            pass
     try:
         from fastmcp.server.dependencies import get_context
 
         request_ctx = get_context()
+        if request_ctx is not None:
+            try:
+                session_id = request_ctx.session_id
+                if session_id:
+                    return str(session_id)
+            except Exception:
+                pass
+            try:
+                client_id = request_ctx.client_id
+                if client_id:
+                    return str(client_id)
+            except Exception:
+                pass
     except Exception:  # noqa: BLE001  # outside a request context
-        return None
-    session_id = getattr(request_ctx, "session_id", None)
-    if session_id:
-        return str(session_id)
-    client_id = getattr(request_ctx, "client_id", None)
-    if client_id:
-        return str(client_id)
+        pass
     return None
-
 
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""
@@ -291,81 +302,3 @@ def _resolve_web_search_max_concurrency(num_results: int) -> int:
         value = min(value, num_results)
     return value
 
-
-def _normalize_lightweight_search_response(response: dict, *, query: str) -> dict:
-    """Return the public web_search response shape for cache and tool output."""
-    normalized = serialize_public_web_search_response(response)
-    normalized["query"] = query
-    return normalized
-
-
-def _apply_domain_filters(
-    results: list[dict],
-    domain_boost: list[str] | None = None,
-    domain_block: list[str] | None = None,
-    site_filters: list[str] | None = None,
-) -> list[dict]:
-    """Apply domain boost, block, and site-restriction filters to search results.
-
-    Args:
-        results: List of search result dicts (each must have a ``link`` key).
-        domain_boost: Domains to boost (move to front, preserving relative order).
-        domain_block: Domains to exclude (remove entirely).
-        site_filters: Restrict results to only these domains (include-only).
-
-    Returns:
-        Filtered and boosted results list.
-    """
-    if not domain_boost and not domain_block and not site_filters:
-        return results
-
-    from urllib.parse import urlparse
-
-    def _url_matches_domain(url: str, pattern: str) -> bool:
-        """Check if URL matches domain pattern (supports subdomains and paths)."""
-        try:
-            parsed = urlparse(url)
-            hostname = (parsed.hostname or "").lower().replace("www.", "")
-            pathname = parsed.path.lower()
-
-            if "/" in pattern:
-                pat_domain, *pat_parts = pattern.split("/")
-                pat_domain = pat_domain.lower().replace("www.", "")
-                pat_path = "/" + "/".join(pat_parts).lower()
-                return (
-                    hostname == pat_domain or hostname.endswith(f".{pat_domain}")
-                ) and pathname.startswith(pat_path)
-
-            pattern_clean = pattern.lower().replace("www.", "")
-            return hostname == pattern_clean or hostname.endswith(f".{pattern_clean}")
-        except Exception:
-            return False
-
-    if domain_block:
-        results = [
-            r
-            for r in results
-            if not any(_url_matches_domain(r.get("link", ""), p) for p in domain_block)
-        ]
-
-    if site_filters:
-        results = [
-            r
-            for r in results
-            if any(_url_matches_domain(r.get("link", ""), p) for p in site_filters)
-        ]
-
-    if domain_boost:
-        boosted = [
-            r
-            for r in results
-            if any(_url_matches_domain(r.get("link", ""), p) for p in domain_boost)
-        ]
-        normal = [
-            r
-            for r in results
-            if not any(_url_matches_domain(r.get("link", ""), p) for p in domain_boost)
-        ]
-        results = boosted + normal
-
-    return results

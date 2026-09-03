@@ -36,7 +36,7 @@ def _artifact(url: str, content: str) -> dict:
 def test_fetch_cache_key_includes_route_generation() -> None:
     key = _cache_key("https://example.com/report.docx")
 
-    assert key.startswith("web-fetch-route-v2:")
+    assert key.startswith("web-fetch-route-v4:")
     assert key.endswith("https://example.com/report.docx")
 
 
@@ -47,15 +47,12 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         ctx.report_progress = AsyncMock()
         return ctx
 
-    async def test_bulk_defers_tail_when_hidden_budget_is_exhausted(self) -> None:
+    async def test_bulk_defers_tail_after_wave(self) -> None:
         urls = [f"https://{letter}.example.com" for letter in ("a", "b", "c")]
         content = "x" * 60_000
         with (
-            patch.object(settings, "web_fetch_item_max_chars", 60_000),
-            patch.object(settings, "web_fetch_total_char_budget", 120_000),
-            patch.object(settings, "web_fetch_wave_size", 10),
+            patch.object(settings, "web_fetch_wave_size", 2),
             patch.object(settings, "web_fetch_workers", 4),
-            patch.object(settings, "web_fetch_wave_delay_seconds", 0.0),
             patch(
                 "kindly_web_search_mcp_server.tools.content._fetch_one_artifact",
                 new_callable=AsyncMock,
@@ -68,6 +65,7 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first["mode"], "bulk")
         self.assertEqual(first["total_returned"], 2)
         self.assertTrue(first["has_more"])
+        self.assertIsInstance(first["duration_ms"], int)
         self.assertIsNotNone(first["cursor"])
         pending = json.loads(base64.urlsafe_b64decode(first["cursor"].encode()).decode())
         self.assertEqual(pending["version"], 1)
@@ -75,9 +73,7 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pending["urls"], [urls[2]])
 
         with (
-            patch.object(settings, "web_fetch_item_max_chars", 60_000),
-            patch.object(settings, "web_fetch_total_char_budget", 120_000),
-            patch.object(settings, "web_fetch_wave_size", 10),
+            patch.object(settings, "web_fetch_wave_size", 2),
             patch.object(settings, "web_fetch_workers", 4),
             patch(
                 "kindly_web_search_mcp_server.tools.content._fetch_one_artifact",
@@ -103,7 +99,6 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(settings, "web_fetch_wave_size", 10),
             patch.object(settings, "web_fetch_workers", 4),
-            patch.object(settings, "web_fetch_wave_delay_seconds", 0.0),
             patch(
                 "kindly_web_search_mcp_server.tools.content._fetch_one_artifact",
                 new_callable=AsyncMock,
@@ -114,9 +109,10 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
             output = output.model_dump(exclude_none=True)
 
         self.assertEqual(output["total_requested"], 11)
-        self.assertEqual(output["total_returned"], 11)
-        self.assertEqual(output["waves_completed"], 2)
-        self.assertEqual(calls, urls)
+        self.assertEqual(output["total_returned"], 10)
+        self.assertEqual(output["waves_completed"], 1)
+        self.assertTrue(output["has_more"])
+        self.assertEqual(calls, urls[:10])
 
     async def test_internal_workers_are_bounded(self) -> None:
         urls = [f"https://{index}.example.com" for index in range(10)]
@@ -137,7 +133,6 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(settings, "web_fetch_workers", 4),
             patch.object(settings, "web_fetch_wave_size", 10),
-            patch.object(settings, "web_fetch_wave_delay_seconds", 0.0),
             patch(
                 "kindly_web_search_mcp_server.tools.content._fetch_one_artifact",
                 new_callable=AsyncMock,
@@ -149,7 +144,9 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(maximum, 4)
 
     async def test_mode_validation_and_deduplication(self) -> None:
-        with self.assertRaises(ValueError):
+        from fastmcp.exceptions import ToolError
+
+        with self.assertRaises(ToolError):
             await fetch(ctx=self._ctx())
 
         with patch(

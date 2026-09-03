@@ -1,0 +1,16 @@
+{
+  "id": "F-q1-npr-captions",
+  "url": "https://www.npr.org/sections/news/",
+  "notes": "NPR-style hide/toggle caption lines stripped; remaining news sentences kept.",
+  "expect": {
+    "status": "success",
+    "source_type": "html",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "Rescue crews",
+      "Meteorologists"
+    ]
+  }
+}

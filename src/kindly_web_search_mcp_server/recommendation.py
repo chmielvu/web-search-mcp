@@ -288,7 +288,7 @@ def _route_for_task(task: str) -> CommandRoute:
                     "--repository": github_repo,
                     "--mode": "discovery",
                 },
-                workflow=["search code --mode discovery", "code_fetch on the discovered repository"],
+                workflow=["search code --mode discovery", "code_fetch with repository + query to search its snapshot"],
             )
         mode = "docs" if _contains_any(lowered, ("readme", "documentation", "docs", "api reference", "文档")) else "code"
         arguments = ["search", "code", "--query", task, "--repository", github_repo, "--mode", mode]
@@ -307,7 +307,7 @@ def _route_for_task(task: str) -> CommandRoute:
                 "--mode": mode,
                 "--deep": mode == "code",
             },
-            workflow=["search code", "code_fetch on selected repository evidence"],
+            workflow=["search code", "code_fetch with repository + query to search the full snapshot"],
         )
 
     if _contains_any(lowered, ("paper", "papers", "arxiv", "scholarly", "academic", "benchmark", "论文", "学术")):
@@ -358,7 +358,7 @@ def _route_for_task(task: str) -> CommandRoute:
             mcp_tool="code_search",
             required_profile="regular",
             structured_arguments={"--query": task, "--deep": True},
-            workflow=["search code", "code_fetch on selected repository evidence"],
+            workflow=["search code", "code_fetch with repository + query to search the full snapshot"],
         )
 
     if _contains_any(lowered, ("quick", "fast", "reconnaissance", "map the landscape", "快速", "速览")):

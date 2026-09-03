@@ -102,7 +102,14 @@ async def resolve_query_understanding(
                 session_id=session_id,
                 decision_path="gliner2_fallback" if analysis.fallback else "gliner2",
                 classifier_model=analysis.model_version,
-                classifier_endpoint=f"{client.base_url}/v2/query-understanding",
+                classifier_endpoint=(
+                    f"{client.base_url}/classify+/ner"
+                    if any(
+                        warning == "v2-query-understanding-unavailable"
+                        for warning in analysis.warnings
+                    )
+                    else f"{client.base_url}/v2/query-understanding"
+                ),
                 classifier_latency_ms=analysis.latency_ms,
                 confidence_threshold=settings.intent_classifier_confidence_threshold,
                 fallback_reason=analysis.error_reason,

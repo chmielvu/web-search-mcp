@@ -14,15 +14,6 @@ from ..entity.postprocess import postprocess_entities
 from ..models import YouTubeTranscriptAnalysis
 from ..search.understanding.adapter import normalize_content_entities
 
-_TRANSCRIPT_STRUCTURES: dict[str, Any] = {
-    "people": [{"name": "string", "role": "string"}],
-    "organizations": [{"name": "string", "type": "string"}],
-    "events": [{"name": "string", "date": "string", "location": "string"}],
-    "claims": [{"text": "string", "speaker": "string"}],
-    "key_terms": ["string"],
-}
-
-
 def _unwrap_payload(raw: Mapping[str, Any]) -> Mapping[str, Any]:
     result = raw.get("result")
     if isinstance(result, Mapping):
@@ -81,7 +72,7 @@ def _find_entity(entities: list[EntitySpan], raw: Any) -> EntitySpan | None:
 
 def _parse_relations(raw: Mapping[str, Any], entities: list[EntitySpan]) -> list[EntityRelation]:
     payload = _unwrap_payload(raw)
-    grouped = payload.get("relations", [])
+    grouped = payload.get("relation_extraction") or payload.get("relations", [])
     rows: list[tuple[str, Any]] = []
     if isinstance(grouped, Mapping):
         for relation, values in grouped.items():
@@ -136,7 +127,6 @@ async def analyze_transcript(text: str) -> YouTubeTranscriptAnalysis:
             raw, _request_latency = await client.extract_transcript_chunk(
                 chunk,
                 entities=DEFAULT_CONTENT_LABELS,
-                structures=_TRANSCRIPT_STRUCTURES,
                 relations=DEFAULT_CONTENT_RELATIONS,
             )
             model_version = str(raw.get("model_version") or raw.get("model") or client._model_name)

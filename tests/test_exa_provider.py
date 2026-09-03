@@ -38,15 +38,10 @@ class TestExaProvider(unittest.TestCase):
                 body = request.read()
                 self.assertIn(b'"query":"semantic query"', body)
                 self.assertIn(b'"numResults":1', body)
-                self.assertIn(b'"includeDomains":["example.com"]', body)
-                self.assertIn(b'"excludeDomains":["spam.example"]', body)
                 return httpx.Response(200, json=payload)
 
             transport = httpx.MockTransport(handler)
-            options = SearchOptions(
-                site_filters=("example.com",),
-                domain_filters=("spam.example",),
-            )
+            options = SearchOptions()
             async with httpx.AsyncClient(transport=transport) as client:
                 results = await search_exa(
                     "semantic query",

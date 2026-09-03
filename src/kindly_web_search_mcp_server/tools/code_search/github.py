@@ -968,21 +968,28 @@ async def search_github(
     async def _throttled_search(scope_val: str | None, var_val: str) -> tuple[list[CodeSearchHit], list[Diagnostic]]:
         async with sem:
             await asyncio.sleep(0.05)
-            return await _search_scope_variant(http_client, request, plan, token, scope_val, var_val, gate)
+            try:
+                return await _search_scope_variant(
+                    http_client, request, plan, token, scope_val, var_val, gate
+                )
+            except Exception as exc:
+                LOGGER.warning("GitHub code-search branch failed: %s", type(exc).__name__)
+                return (
+                    [],
+                    [
+                        _diagnostic(
+                            f"GitHub code-search branch failed: {str(exc)[:500]}",
+                            query=var_val,
+                        )
+                    ],
+                )
 
     results = await asyncio.gather(
         *(_throttled_search(scope, variant) for scope, variant in work),
-        return_exceptions=True,
     )
     hits: list[CodeSearchHit] = []
     scoped_nonempty: set[str] = set()
     for item in results:
-        if isinstance(item, BaseException):
-            LOGGER.warning("GitHub code-search branch failed: %s", item)
-            diagnostics.append(
-                _diagnostic(f"GitHub code-search branch failed: {type(item).__name__}")
-            )
-            continue
         branch_hits, branch_diagnostics = item
         hits.extend(branch_hits)
         diagnostics.extend(branch_diagnostics)

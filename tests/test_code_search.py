@@ -881,3 +881,44 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertIn("missing_url", public.agent_ready_fail_reasons)
         self.assertIn("insufficient_text_context", public.agent_ready_fail_reasons)
         self.assertIn("missing_lines_or_revision", public.agent_ready_fail_reasons)
+
+    def test_text_matches_alignment_after_merge(self) -> None:
+        """Cross-provider merge dedupes text_matches and keeps match_lines aligned."""
+        shared = TextFragment(text="def retry():\n    pass", line_start=3, line_end=4)
+        extra = TextFragment(text="def backoff():\n    pass", line_start=9, line_end=10)
+        hits = [
+            CodeSearchHit(
+                url="https://github.com/acme/lib/blob/main/src/a.py",
+                provider="github",
+                repository="acme/lib",
+                path="src/a.py",
+                fragments=[shared],
+            ),
+            CodeSearchHit(
+                url="https://github.com/acme/lib/blob/main/src/a.py",
+                provider="sourcegraph",
+                repository="acme/lib",
+                path="src/a.py",
+                fragments=[shared, extra],
+            ),
+        ]
+        internal = CodeSearchResultType(
+            query="retry",
+            outcome="ok",
+            results=hits,
+            repositories=[],
+            diagnostics=[],
+            stats=Stats(returned_count=2),
+            query_metadata=QueryMetadata(
+                original_query="retry",
+                mode="code",
+                compiled_queries={"github": ["retry"]},
+            ),
+        )
+        public = to_public_result(internal)
+        file_entry = public.results[0].files[0]
+        self.assertEqual(len(file_entry.text_matches), len(file_entry.match_lines))
+        cleaned = [text.strip() for text in file_entry.text_matches]
+        self.assertEqual(len(cleaned), len(set(cleaned)))
+        self.assertIn("def retry():\n    pass", file_entry.text_matches)
+        self.assertIn("def backoff():\n    pass", file_entry.text_matches)

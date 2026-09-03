@@ -12,14 +12,15 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..cache import get_page_cache
-from ..content.artifact import ContentArtifact
+from ..content.artifact import ContentArtifact, artifact_to_dict
+from ..errors import raise_tool_error
 from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.llms_txt import LlmsTxtResult, check_llms_txt
 from ..content.options import FetchOptions, build_fetch_options
-from ..content.status_classifier import classify_markdown
+from ..content.status_classifier import classify_markdown, wall_from_classification
 from ..content.summary import create_batch_summaries, create_summary
 from ..content.windowing import slice_content
-from ..models import FetchResponse, FetchResult
+from ..models import FetchResponse, FetchResult, TokenUsage
 from ..settings import settings
 from ..utils.observability import emit_tool_observability_event
 from ..utils.url_canonicalize import canonicalize_url
@@ -28,8 +29,8 @@ from ._helpers import _record_tool_success
 LOGGER = logging.getLogger(__name__)
 
 _CURSOR_VERSION = 1
-_CACHE_SCHEMA_VERSION = 2
-_CACHE_ROUTE_VERSION = 2
+_CACHE_SCHEMA_VERSION = 3
+_CACHE_ROUTE_VERSION = 4
 _TYPED_FORMATS = {
     "json",
     "jsonl",
@@ -52,7 +53,10 @@ def _cache_key(normalized_url: str) -> str:
     return f"web-fetch-route-v{_CACHE_ROUTE_VERSION}:{normalized_url}"
 
 
-def _error_dict(exc: Exception, *, retryable: bool = True) -> dict[str, Any]:
+def _error_dict(exc: Exception) -> dict[str, Any]:
+    retryable = isinstance(
+        exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError)
+    )
     return {
         "code": type(exc).__name__,
         "message": str(exc)[:500],
@@ -77,34 +81,12 @@ def _content_format(source_type: str, content_type: str | None) -> str:
     return "markdown"
 
 
-def _wall_for(
-    status: str,
-    error: dict[str, Any] | None,
-    markdown: str,
-) -> dict[str, Any] | None:
-    reason = " ".join(
-        str(value).lower()
-        for value in (
-            (error or {}).get("code", ""),
-            (error or {}).get("message", ""),
-            markdown[:2000],
-        )
-    )
-    if "paywall" in reason or "subscriber" in reason or "premium" in reason:
-        return {"kind": "paywall", "confidence": "medium", "retryable": False}
-    if "login_wall" in reason or "auth" in reason or "sign in" in reason or "log in" in reason:
-        return {"kind": "login", "confidence": "medium", "retryable": False}
-    if (
-        "access_blocked" in reason
-        or "cloudflare" in reason
-        or "captcha" in reason
-        or "checking your browser" in reason
-        or "verify you are human" in reason
-    ):
-        return {"kind": "bot", "confidence": "medium", "retryable": status != "success"}
-    if "spa_shell" in reason or "javascript" in reason:
-        return {"kind": "js_shell", "confidence": "medium", "retryable": True}
-    return None
+def _apply_status_error_invariant(artifact: dict[str, Any]) -> dict[str, Any]:
+    if artifact.get("status") == "success":
+        artifact["error"] = None
+    return artifact
+
+
 
 
 def _request_fingerprint(
@@ -112,15 +94,11 @@ def _request_fingerprint(
     fetch_options: FetchOptions,
     focus_query: str | None,
     ai_summary: bool,
-    item_max_chars: int,
-    total_char_budget: int,
 ) -> str:
     payload = {
         "fetch_options": fetch_options.cache_fingerprint(),
         "focus_query": focus_query or "",
         "ai_summary": ai_summary,
-        "item_max_chars": item_max_chars,
-        "total_char_budget": total_char_budget,
     }
     encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
@@ -141,56 +119,18 @@ def _encode_cursor(urls: list[str], fingerprint: str) -> str:
 def _decode_cursor(cursor: str) -> dict[str, Any]:
     try:
         decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
-    except Exception as exc:
-        raise ValueError("Invalid fetch cursor") from exc
+    except Exception:
+        raise_tool_error(ValueError("Invalid fetch cursor"), provider="fetch")
     if not isinstance(decoded, dict) or decoded.get("version") != _CURSOR_VERSION:
-        raise ValueError("Unsupported fetch cursor version")
+        raise_tool_error(ValueError("Unsupported fetch cursor version"), provider="fetch")
     if decoded.get("mode") != "bulk" or not isinstance(decoded.get("urls"), list):
-        raise ValueError("Invalid bulk fetch cursor")
+        raise_tool_error(ValueError("Invalid bulk fetch cursor"), provider="fetch")
     urls = [item.strip() for item in decoded["urls"] if isinstance(item, str) and item.strip()]
     if not urls:
-        raise ValueError("Fetch cursor contains no pending URLs")
+        raise_tool_error(ValueError("Fetch cursor contains no pending URLs"), provider="fetch")
     decoded["urls"] = list(dict.fromkeys(urls))
     return decoded
 
-
-def _artifact_dict(
-    *,
-    input_url: str,
-    normalized_url: str,
-    fetched_url: str | None,
-    status: str,
-    source_type: str,
-    fetch_backend: str,
-    origin_backend: str | None,
-    cached: bool,
-    content_type: str | None,
-    markdown: str,
-    metadata: dict[str, Any] | None,
-    links: list[dict[str, Any]] | None,
-    error: dict[str, Any] | None,
-    entities: Any = None,
-    llms_txt: dict[str, Any] | None = None,
-    diagnostics: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    return {
-        "input_url": input_url,
-        "normalized_url": normalized_url,
-        "fetched_url": fetched_url,
-        "status": status,
-        "source_type": source_type,
-        "fetch_backend": fetch_backend,
-        "origin_backend": origin_backend or fetch_backend,
-        "cached": cached,
-        "content_type": content_type,
-        "markdown": markdown,
-        "metadata": metadata,
-        "links": links,
-        "error": error,
-        "entities": entities,
-        "llms_txt": llms_txt,
-        "diagnostics": diagnostics,
-    }
 
 
 def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, Any]) -> dict[str, Any]:
@@ -212,6 +152,8 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
     content_type = envelope.get("content_type") or "text/markdown"
     status = envelope.get("status") or "success"
     diagnostics = list(envelope.get("diagnostics") or [])
+    entities = envelope.get("entities")
+    entities = entities if isinstance(entities, list) else None
     if legacy:
         diagnostics.append(
             {
@@ -221,24 +163,27 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
             }
         )
 
-    return _artifact_dict(
-        input_url=input_url,
-        normalized_url=str(envelope.get("normalized_url") or normalized_url),
-        fetched_url=str(fetched_url) if fetched_url else None,
-        status=str(status),
-        source_type=str(source_type),
-        fetch_backend="cache",
-        origin_backend=str(origin_backend),
-        cached=True,
-        content_type=str(content_type) if content_type else None,
-        markdown=str(cached.get("page_content") or ""),
-        metadata=metadata if isinstance(metadata, dict) else None,
-        links=links if isinstance(links, list) else None,
-        error=None,
-        llms_txt=envelope.get("llms_txt") if isinstance(envelope.get("llms_txt"), dict) else None,
-        diagnostics=diagnostics,
-    )
-
+    artifact = {
+        "input_url": input_url,
+        "normalized_url": str(envelope.get("normalized_url") or normalized_url),
+        "fetched_url": str(fetched_url) if fetched_url else None,
+        "status": str(status),
+        "source_type": str(source_type),
+        "fetch_backend": "cache",
+        "origin_backend": str(origin_backend),
+        "cached": True,
+        "content_type": str(content_type) if content_type else None,
+        "markdown": str(cached.get("page_content") or ""),
+        "metadata": metadata if isinstance(metadata, dict) else None,
+        "links": links if isinstance(links, list) else None,
+        "error": envelope.get("error") if isinstance(envelope.get("error"), dict) else None,
+        "entities": entities,
+        "llms_txt": (
+            envelope.get("llms_txt") if isinstance(envelope.get("llms_txt"), dict) else None
+        ),
+        "diagnostics": diagnostics,
+    }
+    return _apply_status_error_invariant(artifact)
 
 def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -254,8 +199,10 @@ def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
             "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
             "metadata": artifact.get("metadata"),
             "links": artifact.get("links"),
+            "entities": artifact.get("entities"),
             "llms_txt": artifact.get("llms_txt"),
             "diagnostics": artifact.get("diagnostics"),
+            "error": artifact.get("error"),
         },
         "metadata": artifact.get("metadata"),
         "links": artifact.get("links"),
@@ -265,7 +212,8 @@ def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _store_cache(artifact: dict[str, Any]) -> None:
-    if artifact.get("status") not in {"success", "partial"} or not artifact.get("markdown"):
+    status = artifact.get("status")
+    if status not in {"success", "partial", "blocked", "error"} or not artifact.get("markdown"):
         return
     try:
         await get_page_cache().astore(
@@ -284,49 +232,38 @@ def _artifact_from_llms(input_url: str, probe: LlmsTxtResult) -> dict[str, Any]:
     status = "success" if classification.status in {"success", "partial"} else classification.status
     normalized = canonicalize_url(input_url)
     llms_meta = {"available": True, "used": True, "url": probe.url}
-    return _artifact_dict(
-        input_url=input_url,
-        normalized_url=normalized,
-        fetched_url=probe.url,
-        status=status,
-        source_type="llms_txt",
-        fetch_backend="llms_txt",
-        origin_backend="llms_txt",
-        cached=False,
-        content_type=probe.content_type or "text/plain",
-        markdown=content,
-        metadata={"source": "llms.txt", "url": probe.url},
-        links=[],
-        error=None if status == "success" else {"code": classification.reason or "partial", "message": classification.reason or "partial", "retryable": False},
-        llms_txt=llms_meta,
-    )
+    return {
+        "input_url": input_url,
+        "normalized_url": normalized,
+        "fetched_url": probe.url,
+        "status": status,
+        "source_type": "llms_txt",
+        "fetch_backend": "llms_txt",
+        "origin_backend": "llms_txt",
+        "cached": False,
+        "content_type": probe.content_type or "text/plain",
+        "markdown": content,
+        "metadata": {"source": "llms.txt", "url": probe.url},
+        "links": [],
+        "error": (
+            None
+            if status == "success"
+            else {
+                "code": classification.reason or "partial",
+                "message": classification.reason or "partial",
+                "retryable": False,
+            }
+        ),
+        "entities": None,
+        "llms_txt": llms_meta,
+        "diagnostics": None,
+    }
 
 
 def _artifact_from_content(input_url: str, fetched: ContentArtifact) -> dict[str, Any]:
-    error = None
-    if fetched.error is not None:
-        error = {
-            "code": fetched.error.code,
-            "message": fetched.error.message,
-            "retryable": fetched.error.retryable,
-        }
-    return _artifact_dict(
-        input_url=input_url,
-        normalized_url=fetched.normalized_url,
-        fetched_url=fetched.fetched_url,
-        status=fetched.status,
-        source_type=fetched.source_type,
-        fetch_backend=fetched.fetch_backend,
-        origin_backend=fetched.origin_backend or fetched.fetch_backend,
-        cached=fetched.cached,
-        content_type=fetched.content_type,
-        markdown=fetched.markdown,
-        metadata=fetched.metadata,
-        links=fetched.links,
-        error=error,
-        entities=fetched.entities,
-        diagnostics=fetched.diagnostics,
-    )
+    artifact = artifact_to_dict(fetched)
+    artifact["input_url"] = input_url
+    return artifact
 
 
 def _artifact_from_exception(input_url: str, exc: Exception, *, timeout: bool = False) -> dict[str, Any]:
@@ -341,21 +278,24 @@ def _artifact_from_exception(input_url: str, exc: Exception, *, timeout: bool = 
     else:
         error = _error_dict(exc)
         backend = "exception"
-    return _artifact_dict(
-        input_url=input_url,
-        normalized_url=normalized,
-        fetched_url=None,
-        status="error",
-        source_type="unknown",
-        fetch_backend=backend,
-        origin_backend=backend,
-        cached=False,
-        content_type=None,
-        markdown="",
-        metadata=None,
-        links=None,
-        error=error,
-    )
+    return {
+        "input_url": input_url,
+        "normalized_url": normalized,
+        "fetched_url": None,
+        "status": "error",
+        "source_type": "unknown",
+        "fetch_backend": backend,
+        "origin_backend": backend,
+        "cached": False,
+        "content_type": None,
+        "markdown": "",
+        "metadata": None,
+        "links": None,
+        "error": error,
+        "entities": None,
+        "llms_txt": None,
+        "diagnostics": None,
+    }
 
 
 async def _fetch_one_artifact(
@@ -399,7 +339,7 @@ async def _fetch_one_artifact(
     except Exception as exc:
         return _artifact_from_exception(input_url, exc)
 
-    artifact = _artifact_from_content(input_url, fetched)
+    artifact = _apply_status_error_invariant(_artifact_from_content(input_url, fetched))
     if probe is not None and probe.url:
         artifact["llms_txt"] = {"available": False, "used": False, "url": probe.url}
     await _store_cache(artifact)
@@ -418,11 +358,11 @@ def _result_from_artifact(
     full_markdown = str(artifact.get("markdown") or "")
     windowed = slice_content(full_markdown, offset=max(0, offset), length=max_chars)
     fetched_url = artifact.get("fetched_url") or artifact.get("normalized_url")
+    artifact = _apply_status_error_invariant(dict(artifact))
     error = artifact.get("error")
     return {
         "input_url": artifact["input_url"],
         "normalized_url": artifact["normalized_url"],
-        "url": fetched_url,
         "fetched_url": fetched_url,
         "status": artifact.get("status", "error"),
         "source_type": artifact.get("source_type", "unknown"),
@@ -441,11 +381,15 @@ def _result_from_artifact(
         "error": error,
         "entities": artifact.get("entities"),
         "summary": summary,
-        "content_quality": artifact.get("status"),
         "content_word_count": len(full_markdown.split()),
         "page_char_count": len(windowed.content),
         "word_count": len(windowed.content.split()),
-        "wall": _wall_for(str(artifact.get("status", "")), error, full_markdown),
+        "wall": wall_from_classification(
+            str(artifact.get("status", "")),
+            error if isinstance(error, dict) else None,
+            str(artifact.get("source_type") or "") or None,
+            full_markdown,
+        ),
         "llms_txt": artifact.get("llms_txt"),
         "diagnostics": artifact.get("diagnostics"),
     }
@@ -460,11 +404,13 @@ def _normalize_inputs(
     supplied_urls = [item.strip() for item in (urls or []) if isinstance(item, str) and item.strip()]
     if cursor:
         if primary or supplied_urls:
-            raise ValueError("cursor cannot be combined with url or urls")
+            raise_tool_error(
+                ValueError("cursor cannot be combined with url or urls"), provider="fetch"
+            )
         decoded = _decode_cursor(cursor)
         return "bulk", decoded["urls"], decoded
     if primary is None and not supplied_urls:
-        raise ValueError("Provide url or a non-empty urls list")
+        raise_tool_error(ValueError("Provide url or a non-empty urls list"), provider="fetch")
     if primary is not None and not supplied_urls:
         return "single", [primary], None
     if primary is None:
@@ -488,31 +434,24 @@ async def fetch(
 ) -> FetchResponse:
     """Fetch one URL or multiple URLs through the unified content pipeline.
 
-    The tool uses dsh-webfetch defaults internally: 60k characters per item,
-    20s per-request timeout, and a 5 MiB response-body limit. Bulk calls use
-    fixed ten-item waves and bounded internal concurrency; those resource
-    controls are intentionally not public arguments.
+    Content is returned in full by default. ``offset`` skips the first N characters
+    and returns the remainder. Pipeline limits: 20s per-request timeout, 5 MiB
+    response body. Bulk calls use fixed ten-item waves and bounded internal
+    concurrency; those resource controls are intentionally not public arguments.
     """
     if offset < 0:
-        raise ValueError("offset must be non-negative")
+        raise_tool_error(ValueError("offset must be non-negative"), provider="fetch")
     if cursor and offset:
-        raise ValueError("offset cannot be combined with a bulk cursor")
+        raise_tool_error(
+            ValueError("offset cannot be combined with a bulk cursor"), provider="fetch"
+        )
 
     mode, pending_urls, cursor_payload = _normalize_inputs(url, urls, cursor)
     if mode == "bulk" and offset:
-        raise ValueError("offset applies only to a single URL fetch")
+        raise_tool_error(
+            ValueError("offset applies only to a single URL fetch"), provider="fetch"
+        )
 
-    # 0 means unlimited (no truncation) - preserve pagination via offset/cursor when explicitly used
-    item_max_chars = settings.web_fetch_item_max_chars
-    total_char_budget = settings.web_fetch_total_char_budget
-    # Normalize: 0 = unlimited, otherwise clamp to at least 1
-    if item_max_chars > 0:
-        item_max_chars = max(1, item_max_chars)
-    if total_char_budget > 0:
-        total_char_budget = max(1, total_char_budget)
-        # Ensure total budget at least covers one item when both are limited
-        if item_max_chars > 0:
-            total_char_budget = max(item_max_chars, total_char_budget)
     workers = max(1, settings.web_fetch_workers)
     wave_size = max(1, settings.web_fetch_wave_size)
     fetch_options = build_fetch_options(
@@ -526,11 +465,11 @@ async def fetch(
         fetch_options=fetch_options,
         focus_query=focus_query,
         ai_summary=ai_summary,
-        item_max_chars=item_max_chars,
-        total_char_budget=total_char_budget,
     )
     if cursor_payload and cursor_payload.get("fingerprint") != fingerprint:
-        raise ValueError("Fetch cursor options do not match this request")
+        raise_tool_error(
+            ValueError("Fetch cursor options do not match this request"), provider="fetch"
+        )
 
     started = time.monotonic()
     emit_tool_observability_event(
@@ -555,7 +494,7 @@ async def fetch(
         result = _result_from_artifact(
             artifact,
             offset=offset,
-            max_chars=item_max_chars,
+            max_chars=0,
             include_metadata=include_metadata,
             include_links=include_links,
         )
@@ -564,11 +503,18 @@ async def fetch(
                 result["page_content"],
                 ai_summary=True,
                 focus_query=focus_query,
-                source_urls=[result["url"]] if result.get("url") else None,
+                source_urls=[result["fetched_url"]] if result.get("fetched_url") else None,
+            )
+            result["usage"] = TokenUsage.from_payload(result["summary"])
+        try:
+            validated = FetchResult.model_validate(result)
+        except Exception as exc:
+            raise_tool_error(
+                ValueError(f"Invalid fetch result: {str(exc)[:200]}"), provider="fetch"
             )
         response = FetchResponse(
             mode="single",
-            results=[FetchResult.model_validate(result)],
+            results=[validated],
             total_requested=1,
             total_returned=1,
             total_chars_returned=len(result["page_content"]),
@@ -576,6 +522,7 @@ async def fetch(
             cursor=None,
             wave_size=wave_size,
             waves_completed=1,
+            duration_ms=int(round((time.monotonic() - started) * 1000.0)),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
     else:
@@ -587,8 +534,6 @@ async def fetch(
         semaphore = asyncio.Semaphore(workers)
         admitted: list[dict[str, Any]] = []
         deferred: list[str] = []
-        # 0 total budget means unlimited - no char deferral
-        remaining_budget = total_char_budget if total_char_budget > 0 else None
         waves_completed = 0
 
         async def _one(url_value: str) -> dict[str, Any]:
@@ -597,35 +542,21 @@ async def fetch(
                 return _result_from_artifact(
                     artifact,
                     offset=0,
-                    max_chars=item_max_chars,
+                    max_chars=0,
                     include_metadata=include_metadata,
                     include_links=include_links,
                 )
 
-        for wave_start in range(0, len(pending_urls), wave_size):
-            wave = pending_urls[wave_start : wave_start + wave_size]
-            wave_results = await asyncio.gather(*(_one(item) for item in wave))
-            waves_completed += 1
-            for index, item in enumerate(wave_results):
-                # Only enforce budget when it's limited (>0)
-                if remaining_budget is not None:
-                    chars_used = len(item["page_content"])
-                    if chars_used > remaining_budget:
-                        deferred = pending_urls[wave_start + index :]
-                        break
-                    admitted.append(item)
-                    remaining_budget -= chars_used
-                else:
-                    admitted.append(item)
-            await ctx.report_progress(
-                progress=min(95, 10 + int(85 * (wave_start + len(wave)) / len(pending_urls))),
-                total=100,
-                message=f"Fetched {min(wave_start + len(wave), len(pending_urls))}/{len(pending_urls)} URLs...",
-            )
-            if deferred:
-                break
-            if wave_start + wave_size < len(pending_urls):
-                await asyncio.sleep(max(0.0, settings.web_fetch_wave_delay_seconds))
+        wave = pending_urls[:wave_size]
+        wave_results = await asyncio.gather(*(_one(item) for item in wave))
+        waves_completed = 1
+        admitted.extend(wave_results)
+        deferred = pending_urls[wave_size:]
+        await ctx.report_progress(
+            progress=min(95, 10 + int(85 * len(wave) / max(len(pending_urls), 1))),
+            total=100,
+            message=f"Fetched {len(wave)}/{len(pending_urls)} URLs...",
+        )
 
         if ai_summary and admitted:
             summaries = await create_batch_summaries(
@@ -636,11 +567,18 @@ async def fetch(
             )
             for index, summary in enumerate(summaries):
                 admitted[index]["summary"] = summary
+                admitted[index]["usage"] = TokenUsage.from_payload(summary)
 
         next_cursor = _encode_cursor(deferred, fingerprint) if deferred else None
+        try:
+            validated_results = [FetchResult.model_validate(item) for item in admitted]
+        except Exception as exc:
+            raise_tool_error(
+                ValueError(f"Invalid fetch result: {str(exc)[:200]}"), provider="fetch"
+            )
         response = FetchResponse(
             mode="bulk",
-            results=[FetchResult.model_validate(item) for item in admitted],
+            results=validated_results,
             total_requested=len(pending_urls),
             total_returned=len(admitted),
             total_chars_returned=sum(len(item["page_content"]) for item in admitted),
@@ -648,6 +586,7 @@ async def fetch(
             cursor=next_cursor,
             wave_size=wave_size,
             waves_completed=waves_completed,
+            duration_ms=int(round((time.monotonic() - started) * 1000.0)),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
 

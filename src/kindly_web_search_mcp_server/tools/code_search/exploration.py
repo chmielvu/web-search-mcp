@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from typing import Annotated, Any, Literal
 
@@ -12,6 +14,7 @@ from pydantic import BaseModel, Field
 from ...utils.github import normalize_github_repository
 from .._helpers import _code_fetch_flight
 from .snapshot import (
+    GRAPH_WAIT_SECONDS,
     QueryResult,
     SnapshotError,
     SnapshotHit,
@@ -27,6 +30,14 @@ class CodeFetchRelatedSymbol(BaseModel):
     line: int | None = None
 
 
+class CodeFetchGraphStatus(BaseModel):
+    status: Literal["pending", "ready", "failed"]
+    symbol_count: int = 0
+    edge_count: int = 0
+    error: str | None = None
+    retry_after_seconds: float | None = None
+
+
 class CodeFetchHit(BaseModel):
     path: str
     start_line: int
@@ -34,7 +45,7 @@ class CodeFetchHit(BaseModel):
     symbol: dict[str, str] | None = None
     role: str | None = None
     why: list[str] = Field(default_factory=list)
-    snippet: str = ""
+    snippet: str | None = None
     callers: list[CodeFetchRelatedSymbol] = Field(default_factory=list)
     callees: list[CodeFetchRelatedSymbol] = Field(default_factory=list)
     confidence: float | None = None
@@ -64,6 +75,9 @@ class CodeFetchResponse(BaseModel):
     content: str | None = None
     map: dict[str, Any] | None = None
     next: list[CodeFetchNext] = Field(default_factory=list)
+    graph: CodeFetchGraphStatus | None = None
+    has_more: bool = False
+    next_cursor: str | None = None
     error: str | None = None
     warning: str | None = None
     retry_after_seconds: float | None = None
@@ -114,7 +128,18 @@ def _next_from_hits(repository: str, hits: list[SnapshotHit]) -> list[CodeFetchN
     return items
 
 
-def _response_from_query(repository: str, result: QueryResult) -> CodeFetchResponse:
+def _encode_cursor(payload: dict[str, Any]) -> str:
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _response_from_query(
+    repository: str,
+    result: QueryResult,
+    *,
+    offset: int = 0,
+    cursor_params: dict[str, Any] | None = None,
+) -> CodeFetchResponse:
     snapshot = result.snapshot
     outcome: Literal["ok", "partial", "error", "stale"] = "ok"
     if snapshot.stale:
@@ -123,6 +148,36 @@ def _response_from_query(repository: str, result: QueryResult) -> CodeFetchRespo
         outcome = "error"
     elif result.truncated or snapshot.truncated:
         outcome = "partial"
+    warning = snapshot.warning
+    graph_status: Literal["pending", "ready", "failed"] = "failed"
+    if snapshot.graph_status == "pending":
+        graph_status = "pending"
+    elif snapshot.graph_status == "ready":
+        graph_status = "ready"
+    graph = CodeFetchGraphStatus(
+        status=graph_status,
+        symbol_count=snapshot.graph_symbol_count,
+        edge_count=snapshot.graph_edge_count,
+        error=snapshot.graph_error,
+    )
+    if snapshot.graph_status == "pending" and result.intent in {"graph", "map"}:
+        pending_warning = (
+            "symbol graph still building; symbol results may be file matches — "
+            "retry in a few seconds"
+        )
+        warning = f"{warning}; {pending_warning}" if warning else pending_warning
+        graph.retry_after_seconds = GRAPH_WAIT_SECONDS
+    if result.intent in {"search", "graph"} and not result.hits and result.error is None:
+        no_hit_warning = (
+            "No matches found in this repository snapshot. Try broader terms or a "
+            "symbol name; repository alone returns the file map."
+        )
+        warning = f"{warning}; {no_hit_warning}" if warning else no_hit_warning
+    next_cursor = None
+    if result.intent == "search" and result.has_more and cursor_params is not None:
+        next_cursor = _encode_cursor(
+            {"v": 1, "offset": offset + len(result.hits), **cursor_params}
+        )
     return CodeFetchResponse(
         outcome=outcome,
         repository=repository,
@@ -139,9 +194,16 @@ def _response_from_query(repository: str, result: QueryResult) -> CodeFetchRespo
         tree=list(result.tree),
         content=result.content,
         map=result.architecture,
-        next=_next_from_hits(repository, result.hits),
+        next=(
+            _next_from_hits(repository, result.hits)
+            if result.intent in {"search", "graph"}
+            else []
+        ),
+        graph=graph,
+        has_more=result.has_more,
+        next_cursor=next_cursor,
         error=result.error,
-        warning=snapshot.warning,
+        warning=warning,
     )
 
 
@@ -200,20 +262,53 @@ async def code_fetch(
         int | None,
         Field(description="Optional max directory tree depth (e.g. 1 for top-level only)."),
     ] = None,
+    language: Annotated[
+        str | None,
+        Field(description="Filter hits by language, e.g. python or typescript."),
+    ] = None,
+    filename: Annotated[
+        str | None,
+        Field(description="fnmatch filter on file basename, e.g. *.py."),
+    ] = None,
+    path_glob: Annotated[
+        str | None,
+        Field(description="fnmatch include filter on repo-relative path."),
+    ] = None,
+    exclude_glob: Annotated[
+        str | None,
+        Field(description="fnmatch exclude filter on repo-relative path."),
+    ] = None,
+    case_sensitive: Annotated[
+        bool,
+        Field(description="Case-sensitive literal matching."),
+    ] = False,
+    cursor: Annotated[
+        str | None,
+        Field(description="Continuation cursor from a previous response's next_cursor."),
+    ] = None,
     ctx: Context | None = CurrentContext(),
 ) -> CodeFetchResponse:
     """Explore a GitHub repository's current main/default branch.
 
-    Materializes a five-minute snapshot, then searches, reads, or graphs it.
-    Callers do not pass a commit SHA. Every successful response includes
-    ``resolved_commit`` and ``cache_age_seconds``.
+    Materializes a snapshot (TTL from ``CODE_FETCH_SNAPSHOT_TTL_SECONDS``,
+    default 300s), then searches, reads, or graphs it. Callers do not pass a
+    commit SHA. Every successful response includes ``resolved_commit`` and
+    ``cache_age_seconds``.
+
+    query returns matching lines with snippets across the snapshot — follow a
+    hit with path (and start_line/end_line) to read whole files. repository
+    alone returns a map with the file tree and top symbols; symbol returns
+    definitions with callers/callees (waits briefly for the symbol graph after
+    a cold clone). Search supports language/filename/glob/case filters and
+    cursor pagination via next_cursor/has_more.
 
     The first call for a repository downloads and indexes it (can take 30-90s);
-    later calls within five minutes are fast. To read a line window, pass
-    ``path`` plus ``start_line``/``end_line`` and omit ``query``/``symbol``.
-    To search inside one file or directory, pass ``query`` (or ``symbol``)
-    together with ``path``. ``truncated`` may reflect the snapshot index
-    budget (``snapshot_truncated``) rather than this query's results.
+    later calls within the TTL are fast. ``max_matches`` clamps to [1,100] and
+    ``context_lines`` to [0,8]; ``depth`` filters tree depth only. ``map`` is
+    returned when no query/path/symbol is given; ``tree`` when path is a
+    directory; ``read`` when path is a file. ``truncated`` may reflect the
+    snapshot index budget (``snapshot_truncated``) rather than this query's
+    results.
     """
     try:
         normalized_repository = _normalize_repository(repository)
@@ -236,6 +331,40 @@ async def code_fetch(
         snapshot = await _code_fetch_flight.do(
             flight_key, _open_snapshot, timeout_seconds=55.0, initiator_timeout_seconds=160.0
         )
+        # Cursor decode: opaque continuation of the same search on the same
+        # snapshot. Any drift (snapshot advanced, params changed) invalidates.
+        offset = 0
+        cursor_params: dict[str, Any] = {
+            "commit": None,
+            "query": query,
+            "path": path,
+            "regexp": regexp,
+            "language": language,
+            "filename": filename,
+            "path_glob": path_glob,
+            "exclude_glob": exclude_glob,
+            "case_sensitive": case_sensitive,
+        }
+        if cursor is not None:
+            try:
+                decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+            except Exception:
+                return _error_response(
+                    normalized_repository, "cursor expired: snapshot advanced or query changed; restart the search without cursor"
+                )
+            expected = {"v": 1, **{k: v for k, v in cursor_params.items() if k != "commit"}}
+            drifted = any(decoded.get(k) != v for k, v in expected.items()) or decoded.get(
+                "v"
+            ) != 1
+            if drifted or decoded.get("commit") != snapshot.resolved_commit:
+                return _error_response(
+                    normalized_repository, "cursor expired: snapshot advanced or query changed; restart the search without cursor"
+                )
+            offset = max(0, int(decoded.get("offset", 0)))
+        # Symbol and map intents need the graph; wait briefly for the deferred
+        # build instead of silently degrading to file matches.
+        if symbol or (query is None and path is None):
+            await manager.wait_for_graph(snapshot)
         # Use async query with HF semantic fallback (st-codesearch-distilroberta-base)
         # when FTS+literal yield 0 hits and HF_TOKEN present. Falls back to
         # sync query for read/tree/graph and when semantic unavailable.
@@ -252,6 +381,12 @@ async def code_fetch(
                     start_line=start_line,
                     end_line=end_line,
                     depth=depth,
+                    offset=offset,
+                    language=language,
+                    filename=filename,
+                    path_glob=path_glob,
+                    exclude_glob=exclude_glob,
+                    case_sensitive=case_sensitive,
                 )
             except Exception as exc:
                 LOGGER.debug("query_async failed, falling back to sync query: %s", exc)
@@ -266,6 +401,12 @@ async def code_fetch(
                     start_line=start_line,
                     end_line=end_line,
                     depth=depth,
+                    offset=offset,
+                    language=language,
+                    filename=filename,
+                    path_glob=path_glob,
+                    exclude_glob=exclude_glob,
+                    case_sensitive=case_sensitive,
                 )
         else:
             result = manager.query(
@@ -279,6 +420,12 @@ async def code_fetch(
                 start_line=start_line,
                 end_line=end_line,
                 depth=depth,
+                offset=offset,
+                language=language,
+                filename=filename,
+                path_glob=path_glob,
+                exclude_glob=exclude_glob,
+                case_sensitive=case_sensitive,
             )
     except SnapshotError as exc:
         return _error_response(
@@ -288,11 +435,19 @@ async def code_fetch(
         )
     except Exception as exc:  # pragma: no cover - defensive tool boundary
         LOGGER.exception("code_fetch failed for %s", normalized_repository)
-        return _error_response(normalized_repository, f"code_fetch failed: {type(exc).__name__}")
+        return _error_response(
+            normalized_repository,
+            f"code_fetch failed: {type(exc).__name__}: {str(exc) or 'no details'}",
+        )
 
     if ctx is not None:
         await ctx.report_progress(progress=100, total=100, message="Snapshot query complete.")
-    return _response_from_query(normalized_repository, result)
+    return _response_from_query(
+        normalized_repository,
+        result,
+        offset=offset,
+        cursor_params={**cursor_params, "commit": snapshot.resolved_commit},
+    )
 
 
 __all__ = [

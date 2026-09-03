@@ -133,6 +133,8 @@ def _strip_wikipedia_html_noise(html: str) -> str:
             sup.decompose()
         for el in soup.select("table.navbox, div.navbox, div.navbox-styles"):
             el.decompose()
+        for el in soup.select("div#mw-navigation, div.vector-header, div#p-personal"):
+            el.decompose()
         return str(soup)
     except Exception:
         # Regex fallback (not perfect, but avoids extra deps).
@@ -177,7 +179,6 @@ def render_wikipedia_markdown(
     canonical_url: str,
     host: str,
     body_markdown: str,
-    truncated: bool,
 ) -> str:
     lines: list[str] = []
     lines.append("# Wikipedia Article")
@@ -185,9 +186,6 @@ def render_wikipedia_markdown(
     lines.append("")
     lines.append(body_markdown.strip())
     lines.append("")
-    if truncated:
-        lines.append(f"_Content truncated. View full article: {canonical_url}_")
-        lines.append("")
     return "\n".join(lines).strip() + "\n"
 
 
@@ -238,17 +236,9 @@ async def fetch_wikipedia_article_markdown(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
-    max_chars: int | None = None,
 ) -> str:
     target = parse_wikipedia_url(url)
 
-    if max_chars is None:
-        try:
-            max_chars = int(os.environ.get("WIKIPEDIA_MAX_CHARS", "0"))
-        except Exception:
-            max_chars = 0
-    if max_chars is not None and max_chars < 0:
-        max_chars = 0
 
     async def _run(client: httpx.AsyncClient) -> str:
         api = WikipediaApiClient(http_client=client)
@@ -297,17 +287,11 @@ async def fetch_wikipedia_article_markdown(
         cleaned_html = ""
         md = sanitize_markdown(md)
 
-        truncated = False
-        if max_chars > 0 and len(md) > max_chars:
-            md = md[:max_chars].rstrip() + "\n\n…(truncated)\n"
-            truncated = True
-
         return render_wikipedia_markdown(
             title=title,
             canonical_url=target.canonical_url,
             host=target.host,
             body_markdown=md,
-            truncated=truncated,
         )
 
     if http_client is None:

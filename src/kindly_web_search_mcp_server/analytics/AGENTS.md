@@ -26,7 +26,9 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `app.py` | Rich-based analytics UI |
 | `motherduck_sync.py` | MotherDuck sync helpers |
 | `feedback_labels.py` | Offline LLM judge result-quality materialization into `result_labels` |
-| `graph_feedback.py` | Offline NetworkX graph construction, BiRank/PageRank, Adamic-Adar neighbor generation, and DuckDB snapshot publication |
+| `graph_feedback.py` | Direct read-only DuckDB observation query, in-memory NetworkX graph computation, and `generate`/`compare` SQLite operations |
+| `graph_store.py` | SQLite WAL persistence, transactional generation publication, ready-generation loading, and path-scoped cache |
+| `graph_replay.py` | Read-only DuckDB run-history replay against SQLite graph artifacts plus control/treatment metrics |
 
 ## Data Flow
 
@@ -45,10 +47,9 @@ All analytics rows join on `run_key`. Pipeline tables:
 11. `result_labels` — provenance-aware human/eval/model relevance annotations for offline replay
 12. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
 13. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
+14. SQLite graph artifact — generation manifests, Adamic-Adar neighbors, and document-side BiRank/PageRank features
+- Graph topology uses all time-windowed `final_results` query/document observations; judged `result_labels` remain the supervised edge-weight source. Related-query support is exposure co-occurrence, while BiRank/PageRank features remain judge-weighted.
 
-14. `graph_feedback_generations` — generation manifests with BiRank and graph metadata
-15. `graph_query_neighbors` — Adamic-Adar related query neighbors
-16. `graph_result_features` — document-side BiRank, PageRank, and weighted degree features
 ## Branch-Role Model
 
 Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls`:
@@ -88,6 +89,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - `tool_calls` is the source of truth for MCP tool lifecycle analytics; legacy `search_events` persistence is not used.
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
 - `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`.
+- `llm_judge` materialization retains one latest valid observation per `(run_key, canonical_result_id, stage, source, rubric_version, annotator_id)`; equal timestamps use a stable hash tie-breaker and upsert only materialized rows.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 - Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.
 

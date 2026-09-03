@@ -10,7 +10,7 @@ Provides:
 """
 
 from .models import YouTubeError, YouTubeTarget, TranscriptBackendError, YouTubeApiError
-from .url_parser import parse_youtube_url, extract_video_id
+from .url_parser import parse_youtube_url, extract_video_id, looks_like_channel_target
 from .transcript import (
     fetch_transcript_data,
     format_transcript_text,
@@ -59,6 +59,7 @@ __all__ = [
     # URL parsing
     "parse_youtube_url",
     "extract_video_id",
+    "looks_like_channel_target",
     # Transcript
     "fetch_transcript_data",
     "fetch_transcript_cascade",

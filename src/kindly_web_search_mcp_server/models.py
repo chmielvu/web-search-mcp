@@ -15,6 +15,78 @@ from pydantic import BaseModel, ConfigDict, Field
 from .entity.models import EntityRelation, EntitySpan  # always available (pure python)
 
 
+class TokenUsage(BaseModel):
+    """Standardized token consumption telemetry across AI-backed tools.
+
+    ``prompt_tokens``/``completion_tokens`` match the gemini_search surface;
+    Grok's ``input_tokens``/``output_tokens`` map onto these names.
+    """
+
+    prompt_tokens: int | None = Field(default=None, description="Input/prompt tokens.")
+    completion_tokens: int | None = Field(default=None, description="Output/completion tokens.")
+    total_tokens: int | None = Field(default=None, description="Total tokens consumed.")
+    cached_input_tokens: int | None = Field(
+        default=None, description="Prompt tokens served from cache."
+    )
+    reasoning_tokens: int | None = Field(
+        default=None, description="Internal reasoning/thinking tokens."
+    )
+    cost_usd: float | None = Field(default=None, description="Estimated API cost in USD.")
+    model_used: str | None = Field(default=None, description="Model that handled execution.")
+    provider: str | None = Field(default=None, description="Inference backend name.")
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any] | None) -> "TokenUsage | None":
+        """Build from a summary/LLM payload carrying llm_usage_fields keys."""
+        if not isinstance(payload, dict):
+            return None
+        prompt = payload.get("prompt_tokens", payload.get("input_tokens"))
+        completion = payload.get("completion_tokens", payload.get("output_tokens"))
+        if completion is None and str(payload.get("summary") or "").strip():
+            completion = 0
+        total = payload.get("total_tokens")
+        if total is None and (prompt is not None or completion is not None):
+            ints = [v for v in (prompt, completion) if isinstance(v, int)]
+            total = sum(ints) if ints else None
+        backend = payload.get("provider") or payload.get("backend")
+        provider_map = {
+            "gemini-api": "google",
+            "gemini-api-fallback": "google",
+            "gemini-batch-api": "google",
+            "gemini-per-item-fallback": "google",
+            "gemma-fallback": "gemma",
+            "gemma-batch-fallback": "gemma",
+            "google": "google",
+            "gemma": "gemma",
+        }
+        provider = provider_map.get(str(backend)) if backend else None
+        if prompt is None and completion is None and total is None and provider is None:
+            return None
+        return cls(
+            prompt_tokens=prompt if isinstance(prompt, int) else None,
+            completion_tokens=completion if isinstance(completion, int) else None,
+            total_tokens=total if isinstance(total, int) else None,
+            model_used=payload.get("model_used") or payload.get("model"),
+            provider=provider,
+        )
+
+
+class FilterStats(BaseModel):
+    """Outcome counters for the temporal post-filter safety net."""
+
+    dropped_out_of_range: int = Field(
+        default=0, description="Dated results outside the requested window."
+    )
+    dropped_undated: int | None = Field(
+        default=None,
+        description=(
+            "Undated results dropped under the window policy "
+            "(None when the policy kept all undated results)."
+        ),
+    )
+    undated_policy: Literal["capability_default", "keep_all", "drop_all"] | None = None
+
+
 # ============================================================================
 # Core Result Types
 # ============================================================================
@@ -118,9 +190,9 @@ class WebSearchResponse(BaseModel):
         default=0,
         description=(
             "Ranked-candidate count produced by the search pipeline before "
-            "domain/site post-filtering. When domain_boost/domain_block/"
-            "site_filters are supplied, len(results) is the authoritative "
-            "page size; total_results reflects the pre-filter pool."
+            "domain post-processing. When domain_boost is supplied, "
+            "len(results) is the authoritative page size; total_results "
+            "reflects the pre-filter pool."
         ),
     )
     providers_used: list[str] = Field(
@@ -131,6 +203,10 @@ class WebSearchResponse(BaseModel):
     diagnostics: list[dict[str, Any]] | None = None
     intent: str | None = None
     query_shaping: list[dict[str, Any]] | None = None
+    filter_stats: FilterStats | None = Field(
+        default=None,
+        description="Temporal post-filter outcome when an absolute window was applied.",
+    )
 
 
 class FetchResult(BaseModel):
@@ -138,10 +214,6 @@ class FetchResult(BaseModel):
 
     input_url: str
     normalized_url: str
-    url: str | None = Field(
-        default=None,
-        description="Resolved URL actually returned to the caller.",
-    )
     fetched_url: str | None = None
     status: str = Field(
         description="Fetch status: success, partial, blocked, unsupported, or error."
@@ -165,7 +237,7 @@ class FetchResult(BaseModel):
     error: dict[str, Any] | None = None
     entities: list[EntitySpan] | None = None
     summary: dict[str, Any] | None = None
-    content_quality: str | None = None
+    usage: TokenUsage | None = None
     content_word_count: int = 0
     page_char_count: int = 0
     word_count: int = 0
@@ -186,6 +258,8 @@ class FetchResponse(BaseModel):
     cursor: str | None = None
     wave_size: int = 10
     waves_completed: int = 0
+    duration_ms: int = 0
+
 
 
 class DiscoverLinksResponse(BaseModel):
@@ -223,6 +297,10 @@ class GeminiSearchResponse(BaseModel):
     fallback_chain: list[str] = Field(default_factory=list)
     fallback_reason: str | None = None
     error: str | None = None
+    usage: TokenUsage | None = Field(
+        default=None,
+        description="Canonical usage view of the flat counters above.",
+    )
 
 
 class GrokCitation(BaseModel):
@@ -252,6 +330,13 @@ class GrokSearchResponse(BaseModel):
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
     error: str | None = None
+    usage: TokenUsage | None = Field(
+        default=None,
+        description=(
+            "Canonical usage view; input_tokens→prompt_tokens, "
+            "output_tokens→completion_tokens."
+        ),
+    )
 
 
 class YouTubeTranscriptQuality(BaseModel):
@@ -292,6 +377,7 @@ class YouTubeTranscriptResponse(BaseModel):
     backend_used: str | None = None
     output_format: Literal["text", "timestamped", "json", "markdown"] | None = None
     summary: dict[str, Any] | None = None
+    usage: TokenUsage | None = None
     analysis: YouTubeTranscriptAnalysis | None = None
     quality: YouTubeTranscriptQuality | None = None
     error: str | None = None

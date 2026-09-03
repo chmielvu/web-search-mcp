@@ -33,7 +33,7 @@ class TranscriptSQLiteCache:
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path
         self._lock = threading.Lock()
-
+        self._schema_initialized = False
     def _resolve_path(self) -> Path:
         if self.db_path:
             return Path(self.db_path)
@@ -50,6 +50,8 @@ class TranscriptSQLiteCache:
         return con
 
     def _ensure_schema(self, con: sqlite3.Connection) -> None:
+        if self._schema_initialized:
+            return
         with con:
             con.execute(
                 """
@@ -73,13 +75,11 @@ class TranscriptSQLiteCache:
                 """
                 CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
                     video_id,
-                    text_content,
-                    content='transcript_cache',
-                    content_rowid='rowid'
+                    text_content
                 );
                 """
             )
-
+        self._schema_initialized = True
     def ensure_store_schema(self, con: sqlite3.Connection) -> None:
         try:
             self._ensure_schema(con)

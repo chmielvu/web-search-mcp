@@ -50,10 +50,12 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertIn("youtube_transcript", tools)
         self.assertIn("youtube_search", tools)
 
-        code_search_schema = str(tools["code_search"].output_schema)
+        output_schema = tools["code_search"].output_schema
+        self.assertIsNotNone(output_schema)
+        code_search_schema = str(output_schema)
         self.assertIn("query", code_search_schema)
         self.assertIn("results", code_search_schema)
-        code_search_properties = tools["code_search"].output_schema["properties"]
+        code_search_properties = (output_schema or {}).get("properties", {})
         self.assertNotIn("mode", code_search_properties)
         web_schema = str(tools["web_search"].output_schema)
         self.assertIn("query", web_schema)
@@ -376,16 +378,14 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
+            out = await tool_fn("hello", research_goal="Find information about hello", ctx=mock_ctx)
 
-        self.assertIsInstance(out, dict)
-        self.assertEqual(out["query"], "hello")
-        self.assertIn("results", out)
-        self.assertEqual(len(out["results"]), 1)
-        self.assertEqual(out["results"][0]["title"], "T")
-        self.assertEqual(out["results"][0]["link"], "https://example.com")
-        self.assertEqual(out["results"][0]["snippet"], "S")
-        self.assertNotIn("page_content", out["results"][0])
+        self.assertIsInstance(out, WebSearchResponse)
+        self.assertEqual(out.query, "hello")
+        self.assertEqual(len(out.results), 1)
+        self.assertEqual(out.results[0].title, "T")
+        self.assertEqual(out.results[0].link, "https://example.com")
+        self.assertEqual(out.results[0].snippet, "S")
 
     async def test_web_search_forwards_search_options(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -408,17 +408,16 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn(
                 "hello",
-                "Find information about hello",
-                site_filters=["docs.example.com"],
-                domain_filters=["example.com"],
+                research_goal="Find information about hello",
+                domain_boost=["boost.com"],
+                date_range="day",
                 ctx=mock_ctx,
             )
 
         forwarded_request = mock_search.call_args[0][0]
         forwarded_options = forwarded_request.options
         self.assertIsInstance(forwarded_options, SearchOptions)
-        self.assertEqual(forwarded_options.site_filters, ("docs.example.com",))
-        self.assertEqual(forwarded_options.domain_filters, ("example.com",))
+        self.assertEqual(forwarded_options.temporal.bucket, "day")
         self.assertNotIn("result_window", out)
 
     async def test_fetch_returns_single_result(self) -> None:
@@ -462,7 +461,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(out["mode"], "single")
         self.assertEqual(out["total_returned"], 1)
-        self.assertEqual(out["results"][0]["url"], "https://example.com/")
+        self.assertEqual(out["results"][0]["fetched_url"], "https://example.com/")
         self.assertEqual(out["results"][0]["fetch_backend"], "test")
         self.assertIn("Hello", out["results"][0]["page_content"])
 
@@ -581,19 +580,22 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(out["mode"], "bulk")
         self.assertEqual(out["total_requested"], 11)
-        self.assertEqual(out["total_returned"], 11)
-        self.assertEqual(out["waves_completed"], 2)
-        self.assertEqual(mock_one.await_count, 11)
-
+        self.assertEqual(out["total_returned"], 10)
+        self.assertEqual(out["waves_completed"], 1)
+        self.assertEqual(mock_one.await_count, 10)
+        self.assertTrue(out["has_more"])
+        self.assertIsNotNone(out.get("cursor"))
     async def test_fetch_rejects_empty_input_and_offset_cursor_mix(self) -> None:
+        from fastmcp.exceptions import ToolError
+
         from kindly_web_search_mcp_server.server import fetch
 
         mock_ctx = AsyncMock()
         mock_ctx.info = AsyncMock()
         tool_fn = fetch.fn if hasattr(fetch, "fn") else fetch
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ToolError):
             await tool_fn(ctx=mock_ctx)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ToolError):
             await tool_fn(url="https://example.com", cursor="invalid", offset=1, ctx=mock_ctx)
 
     async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
@@ -628,19 +630,19 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
-            out = await tool_fn("hello", "Find information about hello", ctx=mock_ctx)
+            out = await tool_fn("hello", research_goal="Find information about hello", ctx=mock_ctx)
 
-        self.assertNotIn("page_content", out["results"][0])
-        self.assertEqual(out["results"][0]["domain"], "example.com")
-        self.assertEqual(out["results"][0]["published_date"], "2026-05-29")
-        self.assertEqual(out["results"][0]["providers"], ["searxng", "ddg"])
-        self.assertEqual(out["results"][0]["provider_count"], 2)
-        self.assertNotIn("mime_hint", out["results"][0])
-        self.assertNotIn("source_engines", out["results"][0])
-        self.assertNotIn("category", out["results"][0])
-        self.assertNotIn("raw_score", out["results"][0])
-        self.assertNotIn("score", out["results"][0])
-        self.assertNotIn("diagnostics", out["results"][0])
+        result = out.results[0]
+        self.assertEqual(result.mime_hint, "text/html")
+        self.assertEqual(result.source_engines, ["searxng"])
+        self.assertEqual(result.category, "docs")
+        self.assertEqual(result.raw_score, 3.14)
+        self.assertEqual(result.score, 0.92)
+        self.assertEqual(result.diagnostics, [{"provider": "searxng"}])
+        self.assertEqual(result.domain, "example.com")
+        self.assertEqual(result.published_date, "2026-05-29")
+        self.assertEqual(result.providers, ["searxng", "ddg"])
+        self.assertEqual(result.provider_count, 2)
 
     def test_public_settings_resource_redacts_secrets(self) -> None:
         import json

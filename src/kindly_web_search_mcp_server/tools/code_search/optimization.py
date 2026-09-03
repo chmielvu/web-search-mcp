@@ -126,6 +126,8 @@ def _merge_enrichment(
     features: QueryFeatureAnalysis | None,
     optimization: CodeQueryOptimization | None,
     failures: list[str],
+    *,
+    max_variants: int,
 ) -> QueryPlan:
     # Keep deterministic user-intent variants ahead of model suggestions.
     # Enrichment may add high-signal identifiers, but it must not replace the
@@ -195,7 +197,7 @@ def _merge_enrichment(
         unique.append((value, kind))
         if value not in anchors and len(value) >= 3:
             anchors.append(value)
-        if len(unique) >= 3:
+        if len(unique) >= max_variants:
             break
     return replace(
         plan,
@@ -239,4 +241,10 @@ async def optimize_query_plan(plan: QueryPlan, request: CodeSearchRequest) -> Qu
             optimization = await worker_task
         except Exception as exc:
             failures.append(f"worker_llm optimization fallback: {type(exc).__name__}")
-    return _merge_enrichment(plan, features, optimization, failures)
+    return _merge_enrichment(
+        plan,
+        features,
+        optimization,
+        failures,
+        max_variants=request.budget.max_query_variants,
+    )

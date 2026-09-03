@@ -821,6 +821,24 @@ def insert_result_labels(
         _RESULT_LABELS_WRITER.dispatch_insert_batch(prepared, db_path=db_path)
 
 
+def upsert_materialized_result_labels(
+    rows: list[dict[str, Any]],
+    *,
+    db_path: str | None = None,
+    sync: bool = False,
+) -> None:
+    """Upsert label rows derived from LLM judgments without changing generic label semantics."""
+    if not rows:
+        return
+    from .inserts import _MATERIALIZED_RESULT_LABELS_WRITER
+
+    prepared = [_prepare_result_label_row(row) for row in rows]
+    if sync:
+        _MATERIALIZED_RESULT_LABELS_WRITER.insert_batch(prepared, db_path=db_path)
+    else:
+        _MATERIALIZED_RESULT_LABELS_WRITER.dispatch_insert_batch(prepared, db_path=db_path)
+
+
 # ---------------------------------------------------------------------------
 # Value-extraction helpers (kept for backward compat with any callers)
 # ---------------------------------------------------------------------------

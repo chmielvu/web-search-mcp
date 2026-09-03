@@ -1,0 +1,15 @@
+{
+  "id": "F-t1-typed-json",
+  "url": "https://jsonplaceholder.typicode.com/todos/1",
+  "notes": "Short valid JSON is success; no login guidance.",
+  "expect": {
+    "status": "success",
+    "source_type": "json",
+    "wall_kind": null,
+    "error_code": null,
+    "summary_must_not_contain": [],
+    "must_contain": [
+      "userId"
+    ]
+  }
+}

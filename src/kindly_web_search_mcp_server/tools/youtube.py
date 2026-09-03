@@ -11,6 +11,7 @@ from fastmcp.server.context import Context
 
 from ..errors import raise_tool_error
 from ..models import (
+    TokenUsage,
     YouTubeChannelTranscriptionItem,
     YouTubeChannelTranscriptionResponse,
     YouTubeSearchResponse,
@@ -28,9 +29,10 @@ from ..youtube import (
     parse_youtube_url,
     search_youtube,
     list_channel_videos,
+    looks_like_channel_target,
 )
-from ..youtube.api_quota import get_youtube_api_quota_tracker
 
+from ..youtube.api_quota import get_youtube_api_quota_tracker
 from ..heuristics.text_clean import clean_text_for_llm
 from ..utils.observability import emit_tool_observability_event
 
@@ -45,14 +47,34 @@ async def youtube_transcript(
     backend: str | None = None,
     include_summary: bool = False,
     summary_focus: str | None = None,
+    max_videos: int = 20,
+    page_token: str | None = None,
     ctx: Context = CurrentContext(),
-) -> YouTubeTranscriptResponse:
+) -> YouTubeTranscriptResponse | YouTubeChannelTranscriptionResponse:
     """Extract, analyze, and optionally summarize a YouTube transcript.
+
+    Accepts a video URL/ID or a channel handle/ID/URL (auto-detected). Channel
+    mode transcribes recent uploads with cache-first processing, GLiNER2
+    extraction, Gemini summaries, per-video partial-failure reporting, and
+    background-task support (``max_videos``/``page_token`` apply to channels).
 
     GLiNER2 VPS extraction is always executed for every successful transcript.
     ``include_summary`` adds a source-grounded Gemini summary using the
     existing summary backend (Gemini 3.5 Flash-Lite with fallbacks).
     """
+    if looks_like_channel_target(video_id_or_url):
+        return await _transcribe_channel(
+            video_id_or_url,
+            language=language,
+            translate_to=translate_to,
+            output_format=output_format,
+            backend=backend,
+            include_summary=include_summary,
+            summary_focus=summary_focus,
+            max_videos=max_videos,
+            page_token=page_token,
+            ctx=ctx,
+        )
     format = output_format
     from ..content.summary import create_summary
     from ..settings import settings
@@ -105,6 +127,7 @@ async def youtube_transcript(
         analysis = await analyze_transcript(full_text)
 
         summary: dict[str, object] | None = None
+        usage = None
         if include_summary:
             await ctx.report_progress(
                 progress=65, total=100, message="Generating Gemini summary..."
@@ -125,9 +148,10 @@ async def youtube_transcript(
                     "verbatim_terms": [],
                     "limitations": [f"Summary unavailable: {type(exc).__name__}"],
                 }
+            usage = TokenUsage.from_payload(summary)
 
         metadata: dict[str, object] = {}
-        if format == "markdown":
+        if format == "markdown" or (language is None and not translate_to):
             try:
                 from ..youtube.yt_dlp_backend import ytdlp_extract_metadata
 
@@ -135,7 +159,12 @@ async def youtube_transcript(
             except Exception:
                 metadata = {}
 
-        actual_language = language or "en"
+        actual_language = (
+            translate_to
+            or language
+            or str(metadata.get("language") or "")
+            or "und"
+        )
         is_translated = bool(translate_to)
         if format == "json":
             transcript_text = ""
@@ -182,8 +211,6 @@ async def youtube_transcript(
 
         if transcript_text and format != "markdown":
             transcript_text = clean_text_for_llm(transcript_text, role="transcript")
-        if len(transcript_text) > max_chars and format != "json":
-            transcript_text = transcript_text[:max_chars].rstrip() + "…"
 
         duration_seconds = calculate_total_duration(segments)
         record_youtube_transcript(
@@ -208,6 +235,7 @@ async def youtube_transcript(
             summary=summary,
             analysis=analysis,
             quality=quality,
+            usage=usage,
             error=None,
         ).model_dump(exclude_none=True)
 
@@ -300,22 +328,23 @@ async def youtube_transcript(
         raise_tool_error(e, provider="youtube")
 
 
-async def youtube_channel_transcription(
+async def _transcribe_channel(
     channel: str,
-    max_videos: int = 20,
-    language: str | None = None,
-    translate_to: str | None = None,
-    output_format: Literal["text", "timestamped", "json", "markdown"] = "markdown",
-    backend: str | None = None,
-    include_summary: bool = False,
-    summary_focus: str | None = None,
-    page_token: str | None = None,
-    ctx: Context = CurrentContext(),
+    *,
+    language: str | None,
+    translate_to: str | None,
+    output_format: Literal["text", "timestamped", "json", "markdown"],
+    backend: str | None,
+    include_summary: bool,
+    summary_focus: str | None,
+    max_videos: int,
+    page_token: str | None,
+    ctx: Context,
 ) -> YouTubeChannelTranscriptionResponse:
-    """Run a background-capable, cache-first transcription over channel uploads.
+    """Transcribe channel uploads with cache-first partial-failure reporting.
 
-    Clients supporting FastMCP tasks should call this with task execution
-    requested. GLiNER2 analysis is always performed by youtube_transcript.
+    Called from ``youtube_transcript`` when the target resolves to a channel;
+    GLiNER2 analysis is always performed per video by ``youtube_transcript``.
     """
     max_videos = max(1, min(max_videos, 5000))
     channel_id, videos, next_page_token = await list_channel_videos(

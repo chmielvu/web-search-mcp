@@ -262,12 +262,41 @@ async def run_academic_search(
     venue: str | None = None,
     open_access_only: bool = False,
     sort: str = "relevance",
+    cited_by_paper_id: str | None = None,
+    references_paper_id: str | None = None,
+    author_id: str | None = None,
 ) -> AcademicSearchResponse:
     """Execute academic search across all providers in parallel, merge, and deduplicate."""
     active_sources = _resolve_sources(sources, source_type)
     overfetch = limit * 2
-
     warnings: list[ProviderWarning] = []
+
+    from .citation_graph import (
+        search_openalex_author_papers,
+        search_openalex_citations,
+        search_openalex_references,
+        search_s2_author_papers,
+        search_s2_citations,
+        search_s2_references,
+    )
+
+    graph_mode = bool(cited_by_paper_id or references_paper_id or author_id)
+    if graph_mode:
+        supported = {"semanticscholar", "openalex"}
+        skipped = [s for s in active_sources if s not in supported]
+        active_sources = [s for s in active_sources if s in supported]
+        if skipped:
+            warnings.append(
+                ProviderWarning(
+                    provider="academic",
+                    error=(
+                        "Citation-graph/author filters are only supported by "
+                        f"semanticscholar/openalex; skipped: {', '.join(skipped)}."
+                    ),
+                    error_type="unsupported_filter",
+                )
+            )
+
     result_lists: list[list[AcademicPaper]] = []
     sources_used: list[str] = []
 
@@ -321,6 +350,12 @@ async def run_academic_search(
             )
 
     async def _search_s2() -> list[AcademicPaper]:
+        if cited_by_paper_id:
+            return await search_s2_citations(cited_by_paper_id, limit=overfetch)
+        if references_paper_id:
+            return await search_s2_references(references_paper_id, limit=overfetch)
+        if author_id:
+            return await search_s2_author_papers(author_id, limit=overfetch)
         return await search_semanticscholar(
             query,
             limit=overfetch,
@@ -341,6 +376,12 @@ async def run_academic_search(
         )
 
     async def _search_openalex_fn() -> list[AcademicPaper]:
+        if cited_by_paper_id:
+            return await search_openalex_citations(cited_by_paper_id, limit=overfetch)
+        if references_paper_id:
+            return await search_openalex_references(references_paper_id, limit=overfetch)
+        if author_id:
+            return await search_openalex_author_papers(author_id, limit=overfetch)
         return await search_openalex(
             query,
             limit=overfetch,
@@ -472,7 +513,7 @@ async def run_academic_search(
     return AcademicSearchResponse(
         query=query,
         results=final,
-        total_results=len(final),
+        total_results=len(merged),
         sources_used=sources_used,
         source_types_used=source_types_used,
         warnings=warnings or None,

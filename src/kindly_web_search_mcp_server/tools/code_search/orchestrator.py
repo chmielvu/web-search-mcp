@@ -238,12 +238,24 @@ async def execute_code_search(
             provider_summaries=_provider_summaries(responses),
         )
 
+    pre_diagnostics: list[Diagnostic] = []
     operations: list[tuple[str, Any]] = [
-        ("github", search_github(plan, request, http_client=http_client)),
         ("sourcegraph", search_sourcegraph(plan, request, http_client=http_client)),
         ("grep.app", search_grepapp(plan, request, http_client=http_client)),
         ("exa", search_exa(plan, request, http_client=http_client)),
     ]
+    if plan.search_text or not plan.qualifiers:
+        operations.insert(0, ("github", search_github(plan, request, http_client=http_client)))
+    else:
+        pre_diagnostics.append(
+            Diagnostic(
+                provider="github",
+                outcome="skipped",
+                message="Qualifier-only query cannot be executed by GitHub REST; skipped.",
+                failure_kind="validation",
+                query=request.query,
+            )
+        )
     responses = await asyncio.gather(
         *(_run_provider(name, operation) for name, operation in operations),
         return_exceptions=False,
@@ -262,7 +274,10 @@ async def execute_code_search(
             response.diagnostics.append(scope_diagnostic)
 
     hits = [hit for response in responses for hit in response.hits]
-    diagnostics = [diagnostic for response in responses for diagnostic in response.diagnostics]
+    diagnostics = [
+        *pre_diagnostics,
+        *(diagnostic for response in responses for diagnostic in response.diagnostics),
+    ]
     stats = _stats(responses, elapsed_ms=(time.monotonic() - started) * 1000)
 
     preliminary = rank_hits(

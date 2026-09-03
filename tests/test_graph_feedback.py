@@ -8,13 +8,18 @@ import unittest
 
 import duckdb
 import networkx as nx
+import sqlite3
 
 from kindly_web_search_mcp_server.analytics.duckdb_store import ensure_store_schema
 from kindly_web_search_mcp_server.analytics.graph_feedback import (
     GraphBuildConfig,
     GraphBuildError,
-    GraphSnapshot,
     build_graph_snapshot,
+)
+from kindly_web_search_mcp_server.analytics.graph_store import (
+    GraphSnapshot,
+    _CACHE_LOCK,
+    _CACHED_INDICES,
     load_latest_graph_index,
     publish_graph_snapshot,
 )
@@ -24,11 +29,14 @@ from kindly_web_search_mcp_server.analytics.writers.core import insert_result_la
 class TestGraphFeedback(unittest.TestCase):
     def setUp(self) -> None:
         self.db_path = Path(f"test_graph_feedback_{self._testMethodName}.duckdb")
+        self.sqlite_path = self.db_path.with_suffix(".graph.sqlite")
         self.db_path.unlink(missing_ok=True)
+        self.sqlite_path.unlink(missing_ok=True)
         ensure_store_schema(db_path=str(self.db_path))
 
     def tearDown(self) -> None:
         self.db_path.unlink(missing_ok=True)
+        self.sqlite_path.unlink(missing_ok=True)
 
     def test_build_publish_load_happy_path(self) -> None:
         con = duckdb.connect(str(self.db_path), read_only=False)
@@ -145,7 +153,7 @@ class TestGraphFeedback(unittest.TestCase):
         q1_rel = neighbor_pairs[("python tutorial", "learn python programming")]
         self.assertEqual(q1_rel["support_count"], 2)
         self.assertEqual(q1_rel["rank"], 1)
-        self.assertEqual(q1_rel["method"], "adamic_adar")
+        self.assertEqual(q1_rel["method"], "adamic_adar_exposure_topology")
         self.assertGreater(float(str(q1_rel["score"])), 0.0)
 
         # Ensure cooking pasta has no neighbors
@@ -153,34 +161,30 @@ class TestGraphFeedback(unittest.TestCase):
             self.assertNotEqual(q_src, "cooking pasta")
             self.assertNotEqual(q_tgt, "cooking pasta")
 
-        # Publish snapshot
-        publish_graph_snapshot(snapshot, db_path=str(self.db_path))
+        publish_graph_snapshot(snapshot, sqlite_path=str(self.sqlite_path))
 
-        # Verify DuckDB tables directly
-        con = duckdb.connect(str(self.db_path), read_only=True)
-        res_g = con.execute(
-            "SELECT COUNT(*) FROM graph_feedback_generations WHERE status = 'ready'"
-        ).fetchone()
-        res_f = con.execute(
-            "SELECT COUNT(*) FROM graph_result_features WHERE generation_id = ?",
-            [snapshot.generation_id],
-        ).fetchone()
-        res_n = con.execute(
-            "SELECT COUNT(*) FROM graph_query_neighbors WHERE generation_id = ?",
-            [snapshot.generation_id],
-        ).fetchone()
-        con.close()
+        connection = sqlite3.connect(str(self.sqlite_path))
+        try:
+            ready_count = connection.execute(
+                "SELECT COUNT(*) FROM graph_generations WHERE status = 'ready'"
+            ).fetchone()
+            feature_count = connection.execute(
+                "SELECT COUNT(*) FROM graph_result_features WHERE generation_id = ?",
+                [snapshot.generation_id],
+            ).fetchone()
+            neighbor_count = connection.execute(
+                "SELECT COUNT(*) FROM graph_query_neighbors WHERE generation_id = ?",
+                [snapshot.generation_id],
+            ).fetchone()
+        finally:
+            connection.close()
 
-        self.assertIsNotNone(res_g)
-        self.assertIsNotNone(res_f)
-        self.assertIsNotNone(res_n)
-        assert res_g is not None and res_f is not None and res_n is not None
-        self.assertEqual(res_g[0], 1)
-        self.assertEqual(res_f[0], 3)
-        self.assertEqual(res_n[0], 2)
+        assert ready_count is not None and feature_count is not None and neighbor_count is not None
+        self.assertEqual(ready_count[0], 1)
+        self.assertEqual(feature_count[0], 3)
+        self.assertEqual(neighbor_count[0], 2)
 
-        # Load latest index
-        index = load_latest_graph_index(db_path=str(self.db_path), max_age_seconds=86400)
+        index = load_latest_graph_index(sqlite_path=str(self.sqlite_path), max_age_seconds=86400)
         self.assertIsNotNone(index)
         assert index is not None
         self.assertEqual(index.generation_id, snapshot.generation_id)
@@ -189,75 +193,67 @@ class TestGraphFeedback(unittest.TestCase):
         self.assertNotIn("cooking pasta", index.neighbors)
 
     def test_stale_index_returns_none(self) -> None:
-        con = duckdb.connect(str(self.db_path), read_only=False)
         old_time = datetime.now(timezone.utc) - timedelta(days=2)
-        gen_id = "gen_old_001"
-
-        con.execute(
-            """
-            INSERT INTO graph_feedback_generations (
-                generation_id, built_at, source_cutoff, label_version, algorithm, status,
-                config_json, query_node_count, document_node_count, edge_count,
-                shared_document_count, neighbor_row_count
-            ) VALUES (
-                ?, CAST(? AS TIMESTAMPTZ), CAST(? AS TIMESTAMPTZ), 'v1', 'adamic_adar_birank', 'ready',
-                '{}', 2, 2, 2, 1, 2
-            )
-            """,
-            [gen_id, old_time.isoformat(), old_time.isoformat()],
+        snapshot = GraphSnapshot(
+            generation_id="gen_old_001",
+            built_at=old_time,
+            source_cutoff=old_time,
+            label_version="v1",
+            source_fingerprint="old-fingerprint",
+            config={
+                "scoring_policy_version": "judge_gain_confidence_mean_v1",
+                "source_fingerprint": "old-fingerprint",
+            },
+            query_node_count=1,
+            document_node_count=1,
+            edge_count=1,
+            shared_document_count=0,
+            neighbors=(),
+            result_features=(),
         )
-        con.close()
+        publish_graph_snapshot(snapshot, sqlite_path=str(self.sqlite_path))
+        _CACHED_INDICES.clear()
 
-        from kindly_web_search_mcp_server.analytics import graph_feedback
-
-        with graph_feedback._CACHE_LOCK:
-            graph_feedback._CACHED_INDEX = None
-            graph_feedback._CACHED_AT = 0.0
-
-        index = load_latest_graph_index(db_path=str(self.db_path), max_age_seconds=3600)
+        index = load_latest_graph_index(sqlite_path=str(self.sqlite_path), max_age_seconds=3600)
         self.assertIsNone(index)
 
     def test_failed_build_preserves_previous_ready_generation(self) -> None:
-        con = duckdb.connect(str(self.db_path), read_only=False)
         now = datetime.now(timezone.utc)
         ready_gen_id = "gen_ready_prev"
-
-        con.execute(
-            """
-            INSERT INTO graph_feedback_generations (
-                generation_id, built_at, source_cutoff, label_version, algorithm, status,
-                config_json, query_node_count, document_node_count, edge_count,
-                shared_document_count, neighbor_row_count
-            ) VALUES (
-                ?, CAST(? AS TIMESTAMPTZ), CAST(? AS TIMESTAMPTZ), 'v1', 'adamic_adar_birank', 'ready',
-                '{}', 1, 1, 1, 0, 1
-            )
-            """,
-            [ready_gen_id, now.isoformat(), now.isoformat()],
+        snapshot = GraphSnapshot(
+            generation_id=ready_gen_id,
+            built_at=now,
+            source_cutoff=now,
+            label_version="v1",
+            source_fingerprint="previous",
+            config={
+                "scoring_policy_version": "judge_gain_confidence_mean_v1",
+                "source_fingerprint": "previous",
+            },
+            query_node_count=1,
+            document_node_count=1,
+            edge_count=1,
+            shared_document_count=0,
+            neighbors=(
+                {
+                    "query_norm": "q1",
+                    "related_norm": "q2",
+                    "rank": 1,
+                    "score": 1.0,
+                    "method": "adamic_adar",
+                    "support_count": 2,
+                },
+            ),
+            result_features=(),
         )
-        con.execute(
-            """
-            INSERT INTO graph_query_neighbors (
-                generation_id, query_norm, related_norm, rank, score, method, support_count, built_at
-            ) VALUES (?, 'q1', 'q2', 1, 1.0, 'adamic_adar', 2, CAST(? AS TIMESTAMPTZ))
-            """,
-            [ready_gen_id, now.isoformat()],
-        )
-        con.close()
+        publish_graph_snapshot(snapshot, sqlite_path=str(self.sqlite_path))
+        _CACHED_INDICES.clear()
 
-        from kindly_web_search_mcp_server.analytics import graph_feedback
-
-        with graph_feedback._CACHE_LOCK:
-            graph_feedback._CACHED_INDEX = None
-            graph_feedback._CACHED_AT = 0.0
-
-        # Attempt to build from empty result_labels (raises GraphBuildError)
         config = GraphBuildConfig(source_cutoff=now)
         with self.assertRaises(GraphBuildError):
             build_graph_snapshot(db_path=str(self.db_path), config=config)
 
-        # Previous ready generation remains loadable
-        index = load_latest_graph_index(db_path=str(self.db_path), max_age_seconds=86400)
+        index = load_latest_graph_index(sqlite_path=str(self.sqlite_path), max_age_seconds=86400)
         self.assertIsNotNone(index)
         assert index is not None
         self.assertEqual(index.generation_id, ready_gen_id)
@@ -268,22 +264,75 @@ class TestGraphFeedback(unittest.TestCase):
         with self.assertRaises(Exception):
             nx.bipartite.overlap_weighted_projected_graph(mg, {"query:q1"})
 
-    def test_missing_table_returns_none(self) -> None:
-        empty_db = Path(f"test_empty_{self._testMethodName}.duckdb")
-        empty_db.unlink(missing_ok=True)
-        con = duckdb.connect(str(empty_db))
-        con.execute("CREATE TABLE dummy (x INT);")
-        con.close()
 
-        from kindly_web_search_mcp_server.analytics import graph_feedback
+    def test_index_cache_is_scoped_by_sqlite_path(self) -> None:
+        second_sqlite = self.sqlite_path.with_name("second.graph.sqlite")
+        second_sqlite.unlink(missing_ok=True)
+        now = datetime.now(timezone.utc)
 
-        with graph_feedback._CACHE_LOCK:
-            graph_feedback._CACHED_INDEX = None
-            graph_feedback._CACHED_AT = 0.0
+        def snapshot(generation_id: str, query: str, related: str) -> GraphSnapshot:
+            fingerprint = f"fingerprint-{generation_id}"
+            return GraphSnapshot(
+                generation_id=generation_id,
+                built_at=now,
+                source_cutoff=now,
+                label_version="v1",
+                source_fingerprint=fingerprint,
+                config={
+                    "scoring_policy_version": "judge_gain_confidence_mean_v1",
+                    "source_fingerprint": fingerprint,
+                },
+                query_node_count=2,
+                document_node_count=2,
+                edge_count=2,
+                shared_document_count=2,
+                neighbors=(
+                    {
+                        "query_norm": query,
+                        "related_norm": related,
+                        "rank": 1,
+                        "score": 1.0,
+                        "method": "adamic_adar",
+                        "support_count": 2,
+                    },
+                ),
+                result_features=(),
+            )
 
-        res = load_latest_graph_index(db_path=str(empty_db), max_age_seconds=86400)
-        self.assertIsNone(res)
-        empty_db.unlink(missing_ok=True)
+        try:
+            publish_graph_snapshot(
+                snapshot("gen-first", "first", "first-related"),
+                sqlite_path=str(self.sqlite_path),
+            )
+            publish_graph_snapshot(
+                snapshot("gen-second", "second", "second-related"),
+                sqlite_path=str(second_sqlite),
+            )
+            with _CACHE_LOCK:
+                _CACHED_INDICES.clear()
+            first = load_latest_graph_index(
+                sqlite_path=str(self.sqlite_path), max_age_seconds=3600
+            )
+            second = load_latest_graph_index(sqlite_path=str(second_sqlite), max_age_seconds=3600)
+            self.assertIsNotNone(first)
+            self.assertIsNotNone(second)
+            assert first is not None and second is not None
+            self.assertEqual(first.generation_id, "gen-first")
+            self.assertEqual(second.generation_id, "gen-second")
+            self.assertEqual(first.neighbors, {"first": ("first-related",)})
+            self.assertEqual(second.neighbors, {"second": ("second-related",)})
+        finally:
+            second_sqlite.unlink(missing_ok=True)
+
+    def test_missing_sqlite_artifact_returns_none(self) -> None:
+        missing_sqlite = self.sqlite_path.with_name("missing.graph.sqlite")
+        missing_sqlite.unlink(missing_ok=True)
+        with _CACHE_LOCK:
+            _CACHED_INDICES.clear()
+        self.assertIsNone(
+            load_latest_graph_index(sqlite_path=str(missing_sqlite), max_age_seconds=86400)
+        )
+
 
 
 if __name__ == "__main__":

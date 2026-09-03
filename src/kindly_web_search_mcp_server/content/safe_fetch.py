@@ -4,7 +4,7 @@ import asyncio
 import ipaddress
 from dataclasses import dataclass
 from typing import Iterable
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -14,6 +14,7 @@ class SafeFetchError(RuntimeError):
         super().__init__(message)
         self.code = code
 
+_MAX_REDIRECTS = 5
 
 @dataclass(frozen=True)
 class SafeFetchResult:
@@ -22,9 +23,10 @@ class SafeFetchResult:
     content_type: str | None
     body: bytes
     text: str
-    is_pdf: bool
+    is_pdf: bool = False
     doc_type: str | None = None
     status_code: int = 200
+    response_headers: dict[str, str] | None = None
 
 
 def _host_is_local(host: str) -> bool:
@@ -214,9 +216,6 @@ def _sniff_doc_type(content_type: str | None, fetched_url: str, body: bytes) -> 
     return None
 
 
-def _is_pdf(content_type: str | None, fetched_url: str, body: bytes) -> bool:
-    return _sniff_doc_type(content_type, fetched_url, body) == "pdf"
-
 
 async def safe_fetch_url(
     url: str,
@@ -239,14 +238,27 @@ async def safe_fetch_url(
     try:
         from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found,import-untyped]
 
-        async with AsyncSession(impersonate="chrome124", follow_redirects=True) as session:
-            resp = await session.get(url, headers=headers, timeout=int(timeout_seconds))
+        current_url = url
+        redirect_count = 0
+        async with AsyncSession(impersonate="chrome124", follow_redirects=False) as session:
+            while True:
+                resp = await session.get(current_url, headers=headers, timeout=int(timeout_seconds))
+                if 300 <= resp.status_code < 400 and "location" in resp.headers:
+                    redirect_count += 1
+                    if redirect_count > _MAX_REDIRECTS:
+                        raise SafeFetchError("too_many_redirects", f"Too many redirects ({redirect_count}) for {url}")
+                    location = resp.headers["location"]
+                    current_url = urljoin(current_url, location)
+                    await validate_public_url(current_url)
+                    continue
+                break
+
             if resp.status_code >= 400:
                 raise SafeFetchError(
                     f"http_{resp.status_code}",
                     f"HTTP {resp.status_code} fetching {url}",
                 )
-            fetched_url = str(resp.url)
+            fetched_url = str(resp.url) or current_url
             await validate_public_url(fetched_url)
 
             body = resp.content
@@ -288,6 +300,7 @@ async def safe_fetch_url(
                 is_pdf=is_pdf,
                 doc_type=doc_type,
                 status_code=resp.status_code,
+                response_headers=dict(resp.headers),
             )
     except SafeFetchError:
         raise
@@ -296,65 +309,78 @@ async def safe_fetch_url(
         pass
 
     timeout = httpx.Timeout(timeout_seconds)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-        async with client.stream("GET", url, headers=headers) as response:
-            response.raise_for_status()
-            fetched_url = str(response.url)
-            await validate_public_url(fetched_url)
+    current_url = url
+    redirect_count = 0
+    async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+        while True:
+            async with client.stream("GET", current_url, headers=headers) as response:
+                if 300 <= response.status_code < 400 and "location" in response.headers:
+                    redirect_count += 1
+                    if redirect_count > _MAX_REDIRECTS:
+                        raise SafeFetchError("too_many_redirects", f"Too many redirects ({redirect_count}) for {url}")
+                    location = response.headers["location"]
+                    current_url = urljoin(current_url, location)
+                    await validate_public_url(current_url)
+                    continue
 
-            content_length = response.headers.get("content-length")
-            if content_length:
-                try:
-                    declared = int(content_length)
-                except ValueError:
-                    declared = 0
-                if declared > max_response_bytes:
-                    raise SafeFetchError(
-                        "response_too_large",
-                        f"Response exceeds max allowed size: {declared} bytes",
-                    )
+                response.raise_for_status()
+                fetched_url = str(response.url) or current_url
+                await validate_public_url(fetched_url)
 
-            chunks: list[bytes] = []
-            total = 0
-            async for chunk in response.aiter_bytes():
-                total += len(chunk)
-                if total > max_response_bytes:
-                    raise SafeFetchError(
-                        "response_too_large",
-                        f"Streamed response exceeds max allowed size: {total} bytes",
-                    )
-                chunks.append(chunk)
-
-            body = b"".join(chunks)
-            content_type = response.headers.get("content-type")
-            doc_type = _sniff_doc_type(content_type, fetched_url, body)
-            is_pdf = doc_type == "pdf"
-
-            if not doc_type:
-                lowered = (content_type or "").lower()
-                is_allowed_text_type = any(t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS)
-                is_text_target = _is_raw_or_text_url(url) or _is_raw_or_text_url(fetched_url)
-                if lowered and not is_allowed_text_type:
-                    if (
-                        "application/octet-stream" in lowered or "binary/octet-stream" in lowered
-                    ) and (is_text_target or (body and b"\x00" not in body[:1024])):
-                        pass
-                    else:
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    try:
+                        declared = int(content_length)
+                    except ValueError:
+                        declared = 0
+                    if declared > max_response_bytes:
                         raise SafeFetchError(
-                            "unsupported_content_type",
-                            f"Expected HTML/XML/markdown/plain/document but got content-type={content_type}",
+                            "response_too_large",
+                            f"Response exceeds max allowed size: {declared} bytes",
                         )
-            text = ""
-            if not is_pdf and doc_type not in {"docx", "pptx", "xlsx", "epub"}:
-                encoding = response.encoding or "utf-8"
-                text = body.decode(encoding, errors="replace")
-            return SafeFetchResult(
-                input_url=url,
-                fetched_url=fetched_url,
-                content_type=content_type,
-                body=body,
-                text=text,
-                is_pdf=is_pdf,
-                doc_type=doc_type,
-                status_code=response.status_code,
-            )
+
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_response_bytes:
+                        raise SafeFetchError(
+                            "response_too_large",
+                            f"Streamed response exceeds max allowed size: {total} bytes",
+                        )
+                    chunks.append(chunk)
+
+                body = b"".join(chunks)
+                content_type = response.headers.get("content-type")
+                doc_type = _sniff_doc_type(content_type, fetched_url, body)
+                is_pdf = doc_type == "pdf"
+
+                if not doc_type:
+                    lowered = (content_type or "").lower()
+                    is_allowed_text_type = any(t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS)
+                    is_text_target = _is_raw_or_text_url(url) or _is_raw_or_text_url(fetched_url)
+                    if lowered and not is_allowed_text_type:
+                        if (
+                            "application/octet-stream" in lowered or "binary/octet-stream" in lowered
+                        ) and (is_text_target or (body and b"\x00" not in body[:1024])):
+                            pass
+                        else:
+                            raise SafeFetchError(
+                                "unsupported_content_type",
+                                f"Expected HTML/XML/markdown/plain/document but got content-type={content_type}",
+                            )
+                text = ""
+                if not is_pdf and doc_type not in {"docx", "pptx", "xlsx", "epub"}:
+                    encoding = response.encoding or "utf-8"
+                    text = body.decode(encoding, errors="replace")
+                return SafeFetchResult(
+                    input_url=url,
+                    fetched_url=fetched_url,
+                    content_type=content_type,
+                    body=body,
+                    text=text,
+                    is_pdf=is_pdf,
+                    doc_type=doc_type,
+                    status_code=response.status_code,
+                    response_headers=dict(response.headers),
+                )

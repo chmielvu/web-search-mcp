@@ -52,3 +52,46 @@ async def test_transcript_analysis_fails_open() -> None:
     assert result.status == "error"
     assert result.entities == []
     assert result.warnings
+@pytest.mark.asyncio
+async def test_transcript_analysis_parses_relation_extraction() -> None:
+    client = MagicMock()
+    client._model_name = "fastino/gliner2-multi-v1"
+    client.extract_transcript_chunk = AsyncMock(
+        return_value=(
+            {
+                "model_version": "fastino/gliner2-multi-v1",
+                "entities": {
+                    "person": [{"text": "Alice", "start": 0, "end": 5, "confidence": 0.93}],
+                    "organization": [
+                        {"text": "Microsoft", "start": 11, "end": 20, "confidence": 0.9}
+                    ],
+                },
+                "relation_extraction": {
+                    "uses": [
+                        {
+                            "head": {"text": "Alice", "start": 0, "end": 5, "confidence": 0.93},
+                            "tail": {
+                                "text": "Microsoft",
+                                "start": 11,
+                                "end": 20,
+                                "confidence": 0.9,
+                            },
+                        }
+                    ]
+                },
+            },
+            4.0,
+        )
+    )
+
+    with patch(
+        "kindly_web_search_mcp_server.youtube.analysis.get_gliner_client",
+        return_value=client,
+    ):
+        result = await analyze_transcript("Alice uses Microsoft")
+
+    assert result.status == "success"
+    assert len(result.relations) == 1
+    assert result.relations[0].relation == "uses"
+    assert result.relations[0].head.text == "Alice"
+    assert result.relations[0].tail.text == "Microsoft"
