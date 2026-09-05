@@ -45,7 +45,6 @@ def _result(provider: str, title: str, snippet: str = "snippet") -> WebSearchRes
         link=f"https://{provider}.example/{title.replace(' ', '-')}",
         snippet=snippet,
         providers=[provider],
-        provider_count=1,
     )
 
 
@@ -111,6 +110,46 @@ async def test_retrieve_branches_two_providers_both_attempted(
     assert [c["provider"] for c in outcomes[0].provider_calls] == ["brave", "tavily"]
     assert [c["status"] for c in outcomes[0].provider_calls] == ["success", "success"]
     assert [r.title for r in outcomes[0].results] == ["ok", "ok"]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_branches_merges_duplicate_urls_and_counts_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Duplicate URLs retain all contributing providers."""
+    monkeypatch.setattr(retrieval.settings, "search_retrieve_budget_seconds", 5.0)
+
+    async def shared_result(
+        _run: Any,
+        _branch: QueryBranch,
+        provider_name: str,
+        _embedding_task: Any,
+        *,
+        retrieve_deadline: float = 0.0,
+    ) -> tuple[str, list[WebSearchResult], ProviderRequestMetadata, str]:
+        await asyncio.sleep(0)
+        return (
+            provider_name,
+            [
+                WebSearchResult(
+                    title=f"{provider_name} result",
+                    link="https://shared.example/result",
+                    snippet="shared result",
+                    providers=[provider_name],
+                )
+            ],
+            ProviderRequestMetadata(provider=provider_name, result_class="nonempty"),
+            _branch.query,
+        )
+
+    monkeypatch.setattr(retrieval, "_call_provider", shared_result)
+
+    outcomes = await retrieval.retrieve_branches(
+        _make_run(_branch("brave", "tavily")), embedding_task=None
+    )
+
+    result = outcomes[0].results[0]
+    assert result.providers == ["brave", "tavily"]
 
 
 @pytest.mark.asyncio

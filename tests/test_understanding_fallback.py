@@ -139,8 +139,8 @@ async def test_analyze_query_gateway_error_derives_comparison(monkeypatch):
     monkeypatch.setattr(settings, "intent_classifier_enabled", True)
     client = GLiNER2Client(base_url="http://127.0.0.1:8000", timeout=1.0)
 
-    async def boom(self, path: str, payload: dict, *, operation: str):
-        del self, path, payload, operation
+    async def boom(self, path: str, payload: dict, *, operation: str, timeout=None):
+        del self, path, payload, operation, timeout
         raise httpx.TimeoutException("timed out")
 
     monkeypatch.setattr(GLiNER2Client, "_post", boom)

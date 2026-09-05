@@ -1,10 +1,10 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-03 | Last verified: 2026-09-03 -->
 
 # AGENTS.md - Index
 
-Write-only remote Qdrant web-results index (dense 786d + BM25 sparse).
+Write-only remote Qdrant web-results index (dense 768d + BM25 sparse).
 
 ## Key Files
 
@@ -18,7 +18,7 @@ Write-only remote Qdrant web-results index (dense 786d + BM25 sparse).
 - Write-only — do NOT treat it as the main search surface.
 - `WEB_RESULTS_INDEX_ENABLED` gates the write path.
 - `QDRANT_SPACE_URL` selects the remote endpoint.
-- Uses hybrid dense (786d) + sparse representations for future retrieval experiments.
+- Uses hybrid dense (768d) + sparse representations for future retrieval experiments.
 
 ## Testing
 

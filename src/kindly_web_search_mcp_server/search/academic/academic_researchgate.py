@@ -81,9 +81,7 @@ def _normalize_researchgate(work: dict) -> AcademicPaper | None:
     abstract: str | None = None
     if isinstance(abstract_raw, dict) and abstract_raw:
         try:
-            abstract = " ".join(
-                _abstract_word_positions(abstract_raw)
-            ).strip() or None
+            abstract = " ".join(_abstract_word_positions(abstract_raw)).strip() or None
         except Exception:
             abstract = None
     if abstract is None:

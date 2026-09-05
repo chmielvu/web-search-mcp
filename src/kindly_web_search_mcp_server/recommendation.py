@@ -128,22 +128,25 @@ def _is_complex_task(task: str) -> bool:
         score += 1
     if any(marker in lowered for marker in ("(a)", "(b)", "(c)", "first", "second", "third")):
         score += 1
-    if sum(
-        marker in lowered
-        for marker in (
-            "deep research",
-            "deep dive",
-            "compare",
-            "comparison",
-            "architecture",
-            "trade-off",
-            "primary source",
-            "counterevidence",
-            "whether",
-            "investigate",
-            "analyze",
+    if (
+        sum(
+            marker in lowered
+            for marker in (
+                "deep research",
+                "deep dive",
+                "compare",
+                "comparison",
+                "architecture",
+                "trade-off",
+                "primary source",
+                "counterevidence",
+                "whether",
+                "investigate",
+                "analyze",
+            )
         )
-    ) >= 2:
+        >= 2
+    ):
         score += 1
     return score >= 2
 
@@ -274,10 +277,28 @@ def _route_for_task(task: str) -> CommandRoute:
     if github_repo:
         if _contains_any(
             lowered,
-            ("release", "releases", "stars", "metadata", "repo info", "repository info", "发布", "仓库信息"),
+            (
+                "release",
+                "releases",
+                "stars",
+                "metadata",
+                "repo info",
+                "repository info",
+                "发布",
+                "仓库信息",
+            ),
         ):
             return _route(
-                ["search", "code", "--query", github_repo, "--repository", github_repo, "--mode", "discovery"],
+                [
+                    "search",
+                    "code",
+                    "--query",
+                    github_repo,
+                    "--repository",
+                    github_repo,
+                    "--mode",
+                    "discovery",
+                ],
                 intent="github_repository_discovery",
                 confidence="high",
                 reason="The task asks about a known GitHub repository rather than general web discovery.",
@@ -288,9 +309,16 @@ def _route_for_task(task: str) -> CommandRoute:
                     "--repository": github_repo,
                     "--mode": "discovery",
                 },
-                workflow=["search code --mode discovery", "code_fetch with repository + query to search its snapshot"],
+                workflow=[
+                    "search code --mode discovery",
+                    "code_fetch with repository + query to search its snapshot",
+                ],
             )
-        mode = "docs" if _contains_any(lowered, ("readme", "documentation", "docs", "api reference", "文档")) else "code"
+        mode = (
+            "docs"
+            if _contains_any(lowered, ("readme", "documentation", "docs", "api reference", "文档"))
+            else "code"
+        )
         arguments = ["search", "code", "--query", task, "--repository", github_repo, "--mode", mode]
         if mode == "code" or _contains_any(lowered, ("implementation", "source", "源码", "实现")):
             arguments.append("--deep")
@@ -307,10 +335,15 @@ def _route_for_task(task: str) -> CommandRoute:
                 "--mode": mode,
                 "--deep": mode == "code",
             },
-            workflow=["search code", "code_fetch with repository + query to search the full snapshot"],
+            workflow=[
+                "search code",
+                "code_fetch with repository + query to search the full snapshot",
+            ],
         )
 
-    if _contains_any(lowered, ("paper", "papers", "arxiv", "scholarly", "academic", "benchmark", "论文", "学术")):
+    if _contains_any(
+        lowered, ("paper", "papers", "arxiv", "scholarly", "academic", "benchmark", "论文", "学术")
+    ):
         return _route(
             ["search", "academic", "--query", task],
             intent="academic_search",
@@ -319,10 +352,25 @@ def _route_for_task(task: str) -> CommandRoute:
             mcp_tool="academic_search",
             required_profile="regular",
             structured_arguments={"--query": task},
-            workflow=["search academic", "content get on selected papers", "cross-check independent sources"],
+            workflow=[
+                "search academic",
+                "content get on selected papers",
+                "cross-check independent sources",
+            ],
         )
 
-    if _contains_any(lowered, ("analytics", "latency", "provider performance", "error count", "funnel", "分析数据", "指标")):
+    if _contains_any(
+        lowered,
+        (
+            "analytics",
+            "latency",
+            "provider performance",
+            "error count",
+            "funnel",
+            "分析数据",
+            "指标",
+        ),
+    ):
         return _route(
             ["analytics", "query", "--question", task],
             intent="analytics_query",
@@ -348,7 +396,20 @@ def _route_for_task(task: str) -> CommandRoute:
 
     if _contains_any(
         lowered,
-        ("function", "class", "stack trace", "error message", "implementation", "source code", "code example", "bug", "api usage", "代码", "源码", "报错"),
+        (
+            "function",
+            "class",
+            "stack trace",
+            "error message",
+            "implementation",
+            "source code",
+            "code example",
+            "bug",
+            "api usage",
+            "代码",
+            "源码",
+            "报错",
+        ),
     ):
         return _route(
             ["search", "code", "--query", task, "--deep"],
@@ -358,10 +419,15 @@ def _route_for_task(task: str) -> CommandRoute:
             mcp_tool="code_search",
             required_profile="regular",
             structured_arguments={"--query": task, "--deep": True},
-            workflow=["search code", "code_fetch with repository + query to search the full snapshot"],
+            workflow=[
+                "search code",
+                "code_fetch with repository + query to search the full snapshot",
+            ],
         )
 
-    if _contains_any(lowered, ("quick", "fast", "reconnaissance", "map the landscape", "快速", "速览")):
+    if _contains_any(
+        lowered, ("quick", "fast", "reconnaissance", "map the landscape", "快速", "速览")
+    ):
         return _route(
             ["search", "quick", "--query", task, "--objective", task],
             intent="quick_reconnaissance",
@@ -372,12 +438,25 @@ def _route_for_task(task: str) -> CommandRoute:
             structured_arguments={"--query": task, "--objective": task},
             workflow=["search quick", "search web after terminology or gaps are found"],
             prompt_name="web_search_workflow",
-            prompt_arguments=_web_search_prompt_arguments(
-                task, num_results=3, depth="quick"
-            ),
+            prompt_arguments=_web_search_prompt_arguments(task, num_results=3, depth="quick"),
         )
 
-    if _contains_any(lowered, ("what is", "who is", "latest", "current", "news", "summarize", "summary", "what happened", "最新", "当前", "总结")):
+    if _contains_any(
+        lowered,
+        (
+            "what is",
+            "who is",
+            "latest",
+            "current",
+            "news",
+            "summarize",
+            "summary",
+            "what happened",
+            "最新",
+            "当前",
+            "总结",
+        ),
+    ):
         return _route(
             ["ai", "gemini", "--query", task, "--research-goal", task],
             intent="grounded_answer",
@@ -388,9 +467,7 @@ def _route_for_task(task: str) -> CommandRoute:
             structured_arguments={"--query": task, "--research-goal": task},
             workflow=["ai gemini", "content get on sources when deeper verification is needed"],
             prompt_name="web_search_workflow",
-            prompt_arguments=_web_search_prompt_arguments(
-                task, num_results=3, depth="quick"
-            ),
+            prompt_arguments=_web_search_prompt_arguments(task, num_results=3, depth="quick"),
         )
 
     return _route(
@@ -401,11 +478,13 @@ def _route_for_task(task: str) -> CommandRoute:
         mcp_tool="web_search",
         required_profile="regular",
         structured_arguments={"--query": task, "--research-goal": task},
-        workflow=["search web", "content batch on the strongest sources", "iterate on evidence gaps"],
+        workflow=[
+            "search web",
+            "content batch on the strongest sources",
+            "iterate on evidence gaps",
+        ],
         prompt_name="web_search_workflow",
-        prompt_arguments=_web_search_prompt_arguments(
-            task, num_results=5, depth="medium"
-        ),
+        prompt_arguments=_web_search_prompt_arguments(task, num_results=5, depth="medium"),
     )
 
 
@@ -431,7 +510,13 @@ def build_command_recommendation(task: str) -> CommandRecommendation:
 
     fallback_routes: list[CommandRoute] = []
 
-    if primary.intent in {"known_url_read", "multi_url_read", "site_map", "link_discovery", "video_transcript"}:
+    if primary.intent in {
+        "known_url_read",
+        "multi_url_read",
+        "site_map",
+        "link_discovery",
+        "video_transcript",
+    }:
         fallback_routes.append(
             _route(
                 ["search", "web", "--query", cleaned, "--research-goal", cleaned],

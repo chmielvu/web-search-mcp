@@ -45,6 +45,7 @@ from .table_names import (
     _TC_TABLE_NAME,
     _TOI_TABLE_NAME,
 )
+
 # ---------------------------------------------------------------------------
 # Column lists (must match DDL in schema.py)
 # ---------------------------------------------------------------------------
@@ -205,8 +206,6 @@ _RERANK_STAGE_COLUMNS = [
     "duration_ms",
     "max_score",
     "avg_score",
-    "score_threshold",
-    "alpha_blend",
     "input_tokens",
     "output_tokens",
     "status",
@@ -214,8 +213,9 @@ _RERANK_STAGE_COLUMNS = [
     "instruction_present",
     "instruction_length",
     "query_type_hint",
-    "entity_overlap_enabled",
-    "payload_json",
+    "attempted_passes",
+    "valid_passes",
+    "failed_passes",
 ]
 
 _RERANK_CANDIDATE_COLUMNS = [
@@ -226,18 +226,17 @@ _RERANK_CANDIDATE_COLUMNS = [
     "canonical_result_id",
     "rank_before",
     "rank_after",
-    "score_before",
-    "score_after",
+    "final_score_before",
+    "final_score_after",
     "bm25_score",
     "bm25_rank",
-    "dense_score",
-    "dense_rank",
-    "cross_encoder_raw",
-    "llm_raw_score",
-    "fused_score",
-    "hybrid_rrf_score",
-    "recency_boost",
-    "entity_overlap_score",
+    "bi_encoder_score",
+    "bi_encoder_rank",
+    "cross_encoder_score",
+    "rankllm_score",
+    "retrieval_rrf_score",
+    "recency_score",
+    "diversity_penalty",
     "survived",
     "diversity_removed",
     "payload_json",

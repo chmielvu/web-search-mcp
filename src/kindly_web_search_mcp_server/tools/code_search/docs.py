@@ -19,7 +19,6 @@ from .models import (
     CodeSearchRequest,
     Diagnostic,
     ProviderResponse,
-    TextFragment,
     build_location_metadata,
 )
 from .query import QueryPlan
@@ -136,8 +135,7 @@ async def search_deepwiki(plan: QueryPlan, request: CodeSearchRequest) -> Provid
                     match_data_available=False,
                 ),
                 title=f"DeepWiki: {repo_name}",
-                snippet=answer,
-                fragments=[TextFragment(text=answer)],
+                source_window=answer,
                 source_metadata={"repo_name": repo_name},
             )
         ],
@@ -344,8 +342,7 @@ async def search_context7(
                     match_data_available=False,
                 ),
                 title=title or f"Context7: {selected_id}",
-                snippet=content,
-                fragments=[TextFragment(text=content)],
+                source_window=content,
                 source_metadata={
                     "library_id": provider_library_id,
                     "topic": request.topic,

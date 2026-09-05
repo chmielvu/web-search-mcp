@@ -30,9 +30,7 @@ def web_search_workflow_prompt(
             "- QUICK: use quick_web_search for ranked excerpts/citations or gemini_search for a synthesized answer."
         )
     elif depth == "medium":
-        lines.append(
-            "- MEDIUM: web_search -> triage by provider_count>=2 -> fetch on top 2-3 URLs."
-        )
+        lines.append("- MEDIUM: web_search -> fetch on top 2-3 URLs.")
     else:
         lines.append(
             "- DEEP: web_search(num_results=7) -> fetch with urls -> cross-check with academic_search."
@@ -52,7 +50,7 @@ def web_search_workflow_prompt(
     lines += [
         "",
         "Execution:",
-        "1. Evaluate results: provider_count>=2 is a strong signal; verify domain if 1 or missing.",
+        "1. Evaluate results before fetching.",
         "2. Read pages: fetch with url or urls; on TimeoutError see docs://workflow.",
         "3. Gap analysis: terminate when 3 independent sources agree, or 2 consecutive rounds add nothing.",
     ]
@@ -136,9 +134,7 @@ def research_methodology_prompt() -> list[Message]:
                     "",
                     "web_search is the primary deep-discovery tool:",
                     "- Leave rewrite=true for semantic search; set rewrite=false for exact literals",
-                    "- provider_count >= 2 is a strong signal — results surfaced by multiple engines",
-                    "- Use domain_boost to prefer authoritative domains (e.g., github.com, docs.rs)",
-                    "- Use domain_block to exclude noise domains (e.g., pinterest, quora)",
+                    "- Use domain_boost to prioritize authoritative domains (e.g., github.com, docs.rs); omit noisy sources from the final answer",
                     "- composio_similarlinks on your best URL finds related pages via neural similarity",
                     "- discover_links on a good landing page reveals link-graph connections",
                     "",
@@ -181,7 +177,6 @@ def research_methodology_prompt() -> list[Message]:
                     "- Calling web_search once and calling it done",
                     "- Trusting snippets without deep-reading the page",
                     "- Not checking publication dates — citing 2019 data in 2026",
-                    "- Ignoring provider_count=1 results without cross-verification",
                     "- Skipping reconnaissance — missing the right terminology costs rounds",
                 ]
             ),

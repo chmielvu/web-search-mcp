@@ -37,7 +37,9 @@ def looks_like_channel_target(target: str) -> bool:
     if _BARE_CHANNEL_ID_RE.match(stripped) or _HANDLE_RE.match(stripped):
         return True
     if not stripped.startswith(("http://", "https://")):
-        if not stripped.startswith(("youtube.com/", "www.youtube.com/", "m.youtube.com/", "youtu.be/")):
+        if not stripped.startswith(
+            ("youtube.com/", "www.youtube.com/", "m.youtube.com/", "youtu.be/")
+        ):
             return False
         stripped = f"https://{stripped}"
     parsed = urlparse(stripped)
@@ -68,8 +70,7 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
                 f"Expected a YouTube video ID or URL, got a channel target: {stripped!r}"
             )
         raise YouTubeError(
-            f"Invalid YouTube video ID: {stripped!r} - expected 11 characters, got "
-            f"{len(stripped)}."
+            f"Invalid YouTube video ID: {stripped!r} - expected 11 characters, got {len(stripped)}."
         )
 
     parsed = urlparse(url)

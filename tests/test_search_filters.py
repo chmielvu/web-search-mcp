@@ -29,9 +29,7 @@ TODAY = date(2026, 8, 24)
 
 class TestResolveWindow:
     def test_relative_bucket_resolves_absolute_bounds(self) -> None:
-        window = resolve_window(
-            date_range="week", after_date=None, before_date=None, today=TODAY
-        )
+        window = resolve_window(date_range="week", after_date=None, before_date=None, today=TODAY)
         assert window.bucket == "week"
         assert window.start == date(2026, 8, 17)
         assert window.end == TODAY
@@ -66,21 +64,15 @@ class TestResolveWindow:
 
     def test_future_start_raises(self) -> None:
         with pytest.raises(FilterValidationError):
-            resolve_window(
-                date_range=None, after_date="2099-01-01", before_date=None, today=TODAY
-            )
+            resolve_window(date_range=None, after_date="2099-01-01", before_date=None, today=TODAY)
 
     def test_invalid_format_raises(self) -> None:
         with pytest.raises(FilterValidationError):
-            resolve_window(
-                date_range=None, after_date="01/02/2026", before_date=None, today=TODAY
-            )
+            resolve_window(date_range=None, after_date="01/02/2026", before_date=None, today=TODAY)
 
     def test_invalid_bucket_raises(self) -> None:
         with pytest.raises(FilterValidationError):
-            resolve_window(
-                date_range="fortnight", after_date=None, before_date=None, today=TODAY
-            )
+            resolve_window(date_range="fortnight", after_date=None, before_date=None, today=TODAY)
 
 
 class TestNormalizeLocale:
@@ -129,7 +121,6 @@ class TestWireTokenMappers:
     def test_ddg_and_langsearch_buckets(self) -> None:
         assert ddg_timelimit("year") == "y"
         assert langsearch_freshness("week") == "oneWeek"
-
 
 
 @dataclass
@@ -201,6 +192,7 @@ class TestUndatedPolicy:
     def test_explicit_flags_win(self) -> None:
         assert not should_drop_undated(include_undated=True, providers=None)
         assert should_drop_undated(include_undated=False, providers=["tavily"])
+
 
 class TestSearchOptionsFingerprint:
     def test_fingerprint_distinguishes_temporal_and_locale(self) -> None:

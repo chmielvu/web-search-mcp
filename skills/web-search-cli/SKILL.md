@@ -775,7 +775,7 @@ settings include:
 | Capability | Environment |
 | --- | --- |
 | Search providers | `SEARXNG_BASE_URL`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`, `LANGSEARCH_API_KEY`, `SEARCH_ROUTER_API_KEY` |
-| Query rewriting | `CEREBRAS_API_KEY`, `GROQ_API_KEY`, `HF_TOKEN` |
+| Query rewriting | `GROQ_API_KEY`, `HF_TOKEN` |
 | Parallel reconnaissance | `PARALLEL_API_KEY` |
 | Gemini/Grok | `GEMINI_API_KEY`, `XAI_API_KEY` |
 | Public GitHub/code hydration | `GITHUB_TOKEN` or `GH_TOKEN` |

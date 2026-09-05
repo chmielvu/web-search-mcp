@@ -251,7 +251,6 @@ def parse_published_date(value: object) -> date | None:
     return None
 
 
-
 def provider_temporal_mode(name: str) -> str:
     """Capability class for a provider name (see PROVIDER_TEMPORAL_MODE)."""
     return PROVIDER_TEMPORAL_MODE.get((name or "").strip().lower(), "unknown")
@@ -283,6 +282,7 @@ def should_drop_undated(
         return False
     return all(provider_temporal_mode(n) not in {"native"} for n in names)
 
+
 def filter_results_by_window[T](
     results: Sequence[T],
     *,
@@ -313,9 +313,7 @@ def filter_results_by_window[T](
                 continue
             kept.append(item)
             continue
-        if (window.start and published < window.start) or (
-            window.end and published > window.end
-        ):
+        if (window.start and published < window.start) or (window.end and published > window.end):
             dropped_out_of_range += 1
             continue
         kept.append(item)

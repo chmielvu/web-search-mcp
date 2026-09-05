@@ -85,6 +85,30 @@ def _parse_string_dict_env(raw: str, *, name: str) -> dict[str, str]:
     return dict(value)
 
 
+def _parse_float_dict_env(raw: str, default: dict[str, float], *, name: str) -> dict[str, float]:
+    """Parse a JSON object env string into a dict of float values.
+
+    Raises ValueError (caught at Settings construction) on invalid JSON or on
+    any key/value that is not a non-empty string / finite number.
+    """
+    if not raw or not raw.strip():
+        return dict(default)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} must be valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{name} must be a JSON object.")
+    cleaned: dict[str, float] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{name} keys must be non-empty strings.")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{name}[{key!r}] must be a number.")
+        cleaned[key.strip()] = float(value)
+    return cleaned
+
+
 @dataclass
 class Settings:
     """Runtime configuration (env-first).
@@ -169,11 +193,9 @@ class Settings:
         DEFAULT_QUERY_UNDERSTANDING_JSONL,
     )
 
-    # Query rewrite providers (Cerebras → Groq → HF Inference cascade)
-    cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
+    # Query rewrite providers (Groq → HF Inference → Vercel cascade)
     groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
     hf_token: str = os.environ.get("HF_TOKEN", "")
-    cerebras_base_url: str = os.environ.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
     groq_base_url: str = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     vercel_ai_gateway_api_key: str = os.environ.get("AI_GATEWAY_API_KEY", "")
     vercel_ai_gateway_base_url: str = os.environ.get(
@@ -182,7 +204,6 @@ class Settings:
     query_understanding_model: str = os.environ.get(
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
-    cerebras_rewrite_model: str = os.environ.get("CEREBRAS_REWRITE_MODEL", "gpt-oss-120b")
     groq_rewrite_model: str = os.environ.get("GROQ_REWRITE_MODEL", "openai/gpt-oss-120b")
     huggingface_rewrite_model: str = os.environ.get(
         "HUGGINGFACE_REWRITE_MODEL", "openai/gpt-oss-120b:nscale"
@@ -195,8 +216,8 @@ class Settings:
         "EMBEDDING_ENDPOINT_URL",
         os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000"),
     )
-    embedding_model: str = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "786"))
+    embedding_model: str = os.environ.get("EMBEDDING_MODEL", "granite-embedding-311m-multilingual")
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "768"))
     embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
     embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
     embedding_retry_delay_seconds: float = float(
@@ -232,10 +253,6 @@ class Settings:
     )
     openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "5.0"))
 
-    rerank_score_thresholds_json: str = os.environ.get("RERANK_SCORE_THRESHOLDS_JSON", "{}")
-    diversity_similarity_threshold: float = float(
-        os.environ.get("DIVERSITY_SIMILARITY_THRESHOLD", "0.85")
-    )
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.70"))
     diversity_max_per_host: int = int(os.environ.get("DIVERSITY_MAX_PER_HOST", "2"))
 
@@ -260,14 +277,6 @@ class Settings:
     )
     gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2-multi-v1")
     gliner_threshold: float = float(os.environ.get("GLINER_THRESHOLD", "0.5"))
-
-    # Entity overlap feature for rerank (measured only; off by default)
-    rerank_entity_overlap_enabled: bool = (
-        os.environ.get("RERANK_ENTITY_OVERLAP_ENABLED", "false").lower() == "true"
-    )
-    rerank_entity_overlap_weight: float = float(
-        os.environ.get("RERANK_ENTITY_OVERLAP_WEIGHT", "0.15")
-    )
 
     analytics_enabled: bool = os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
     analytics_shutdown_drain_timeout_seconds: float = float(
@@ -547,6 +556,21 @@ class Settings:
 
     # RRF tuning
     rrf_k: int = int(os.environ.get("RRF_K", "60"))
+    rrf_provider_weights: dict[str, float] = field(
+        default_factory=lambda: _parse_float_dict_env(
+            os.environ.get("RRF_PROVIDER_WEIGHTS_JSON", ""),
+            default={
+                "exa": 2.0,
+                "tavily": 1.5,
+                "ddg": 0.8,
+                "qdrant": 0.8,
+                "searxng": 0.8,
+                "degoog": 0.8,
+            },
+            name="RRF_PROVIDER_WEIGHTS_JSON",
+        )
+    )
+    rrf_bm25_weight: float = float(os.environ.get("RRF_BM25_WEIGHT", "1.0"))
     blocklist_duckdb_path: str = ""
 
     # Remote web results index (Qdrant on HF Space)
@@ -714,10 +738,6 @@ class Settings:
                 f"gliner_threshold must be in [0, 1], got {self.gliner_threshold!r}. "
                 "Set GLINER_THRESHOLD env var."
             )
-        if not 0.0 <= self.rerank_entity_overlap_weight <= 1.0:
-            raise ValueError(
-                f"rerank_entity_overlap_weight must be in [0, 1], got {self.rerank_entity_overlap_weight!r}."
-            )
 
         if self.rerank_bi_encoder_timeout_seconds <= 0:
             raise ValueError(
@@ -754,26 +774,13 @@ class Settings:
             raise ValueError(
                 f"diversity_max_per_host must be >= 1, got {self.diversity_max_per_host}"
             )
-        if not 0.0 <= self.diversity_similarity_threshold <= 1.0:
-            raise ValueError(
-                f"diversity_similarity_threshold must be in [0, 1], got {self.diversity_similarity_threshold!r}."
-            )
-
-        import json
-
-        try:
-            thresholds = json.loads(self.rerank_score_thresholds_json)
-        except Exception as exc:
-            raise ValueError(f"rerank_score_thresholds_json is not valid JSON: {exc}")
-        if not isinstance(thresholds, dict):
-            raise ValueError("rerank_score_thresholds_json must be a JSON object (dict)")
-        for k, v in thresholds.items():
-            if not isinstance(k, str):
-                raise ValueError("rerank_score_thresholds_json keys must be strings")
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
-                raise ValueError("rerank_score_thresholds_json values must be float/int")
-            if not 0.0 <= float(v) <= 1.0:
-                raise ValueError("rerank_score_thresholds_json values must be in [0, 1]")
+        if self.rrf_bm25_weight < 0.0:
+            raise ValueError(f"rrf_bm25_weight must be >= 0, got {self.rrf_bm25_weight!r}.")
+        for provider_name, weight in self.rrf_provider_weights.items():
+            if weight < 0.0:
+                raise ValueError(
+                    f"rrf_provider_weights[{provider_name!r}] must be >= 0, got {weight!r}."
+                )
 
         # OTel / Observability validation
         if not (0.0 < self.otel_sampling_ratio <= 1.0):

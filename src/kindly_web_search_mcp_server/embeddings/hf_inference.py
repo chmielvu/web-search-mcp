@@ -14,7 +14,7 @@ from huggingface_hub import AsyncInferenceClient, InferenceTimeoutError
 
 from ..settings import settings
 
-EMBEDDING_DIM = 786
+EMBEDDING_DIM = 768
 LOGGER = logging.getLogger(__name__)
 
 # E5-instruct requires a task instruction prefix for queries, NOT for passages.
@@ -99,6 +99,7 @@ class HFCircuitBreaker:
     def record_success(self) -> None:
         """Record successful call, reset circuit."""
         self.reset()
+
     def record_failure(self) -> None:
         """Record failed call, potentially open circuit."""
         with self._lock:
@@ -157,7 +158,6 @@ def _validate_dimensions(vectors: list[list[float]], expected_dim: int) -> None:
             raise EmbeddingDimensionError(
                 f"Expected embedding dimension {expected_dim}, got {len(vector)} at index {index}"
             )
-
 
 
 # Singleton AsyncInferenceClient for connection reuse across embedding calls.

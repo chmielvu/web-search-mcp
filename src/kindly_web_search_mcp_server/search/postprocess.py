@@ -1,8 +1,8 @@
 """Single-source post-processing for web-search responses.
 
 Consolidates the domain-boost reordering that previously lived in
-``tools/_helpers.py::_apply_domain_filters`` so the service layer owns
-every post-rank transformation (temporal filter + domain boost).
+``tools/_helpers.py`` so ``search/ranking.py::rank_and_finalize`` owns the
+final page order before evidence and citation construction.
 """
 
 from __future__ import annotations

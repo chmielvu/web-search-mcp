@@ -146,9 +146,7 @@ def _parse_issue_node(
         snippet_parts.append(f"comments: {comment_count}")
 
     hit = CodeSearchHit(
-        location=build_location_metadata(
-            repository=repository, path=None, url=url.strip()
-        ),
+        location=build_location_metadata(repository=repository, path=None, url=url.strip()),
         repository=repository,
         url=url.strip(),
         provider="github",

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ..models import WebSearchResult
+from ..utils.url_canonicalize import canonicalize_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,60 +21,49 @@ class RerankCandidate:
 
 @dataclass(frozen=True, slots=True)
 class RerankResult:
-    """Ranked document index and provider score."""
+    """Ranked document index and provider relevance score."""
 
     index: int
-    score: float
+    relevance_score: float
+
+
+RerankStageName = Literal["bi_encoder", "cross_encoder", "rankllm", "mmr_fallback"]
+RerankTerminalStage = Literal[
+    "rrf",
+    "bi_encoder",
+    "cross_encoder",
+    "rankllm",
+    "mmr_fallback",
+]
+RerankOverflowStage = Literal["rankllm", "mmr_fallback", "cross", "rrf"]
+
+
+class RerankOverflowItem(BaseModel):
+    """A candidate left outside the returned page and its last stage."""
+
+    stage: RerankOverflowStage
+    result: WebSearchResult
 
 
 class RerankStageSummary(BaseModel):
-    stage: Literal["bi_encoder", "cross_encoder", "rankllm"]
+    stage: RerankStageName
     provider: str | None = None
     model: str | None = None
     input_count: int
     output_count: int
     duration_ms: float
-    status: Literal["success", "skipped", "fallback_success", "failed_open"]
+    status: Literal["success", "partial", "skipped", "fallback_success", "failed_open"]
     error_type: str | None = None
     max_score: float | None = None
     avg_score: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
-    score_threshold: float | None = None
-    alpha_blend: float | None = None
     instruction_present: bool | None = None
     instruction_length: int | None = None
     query_type_hint: str | None = None
-    entity_overlap_enabled: bool | None = None
-    payload_json: dict[str, Any] = Field(default_factory=dict)
-
-
-class RerankLLMOutput(BaseModel):
-    """Structured response schema for listwise LLM reranking."""
-
-    ranked_candidate_ids: list[int] = Field(
-        default_factory=list,
-        description="Ordered candidate ids from most relevant to least relevant",
-    )
-
-    model_config = {"frozen": True}
-
-
-class RerankProvider(Protocol):
-    """Async rerank provider boundary."""
-
-    provider_id: str
-
-    async def rerank(
-        self,
-        query: str,
-        candidates: list[RerankCandidate],
-        *,
-        model: str | None = None,
-        instruction: str | None = None,
-    ) -> list[RerankResult]:
-        """Return ranked candidate indexes with relevance scores."""
-        ...
+    attempted_passes: int | None = None
+    valid_passes: int | None = None
+    failed_passes: int | None = None
 
 
 # =============================================================================
@@ -87,7 +79,12 @@ class CandidateEmbedding(BaseModel):
 
     url: str = Field(description="Result URL (dedup/identity key)")
     text: str = Field(description="Text that was embedded (f'{title}\\n{snippet}')")
-    dense: list[float] = Field(description="786-dimensional dense embedding vector")
+    dense: list[float] = Field(description="768-dimensional dense embedding vector")
+
+    @field_validator("url")
+    @classmethod
+    def _canonicalize_identity_url(cls, value: str) -> str:
+        return canonicalize_url(value)
 
     model_config = {"frozen": True}
 
@@ -99,15 +96,16 @@ class RerankEmbeddingContext(BaseModel):
     consumers (e.g. Qdrant index) can reuse the already-computed vectors.
     """
 
-    query_embedding: list[float] = Field(description="786-dimensional query embedding vector")
+    query_embedding: list[float] = Field(description="768-dimensional query embedding vector")
     candidates: list[CandidateEmbedding] = Field(
         description="Per-candidate dense embeddings, indexed by url"
     )
 
     def find(self, url: str) -> CandidateEmbedding | None:
-        for c in self.candidates:
-            if c.url == url:
-                return c
+        lookup_url = canonicalize_url(url)
+        for candidate in self.candidates:
+            if canonicalize_url(candidate.url) == lookup_url:
+                return candidate
         return None
 
 
@@ -117,20 +115,26 @@ class RerankOutput(BaseModel):
     Consumers that only need results can access ``.results`` and ignore the context.
     """
 
-    results: list[Any] = Field(
-        description="Final reranked and diversified results (WebSearchResult objects)"
-    )
+    results: list[WebSearchResult] = Field(description="Final reranked and diversified results.")
     embedding_context: RerankEmbeddingContext | None = Field(
         default=None,
-        description="Per-candidate embeddings for reuse in downstream stages (e.g. Qdrant)",
+        description="Per-candidate embeddings reusable by downstream stages.",
     )
     provider: str | None = Field(
         default=None,
-        description="Reranker provider that produced the final results (e.g. cohere_fast, voyage, groq)",
+        description="Reranker provider that produced the final ordering.",
     )
     model: str | None = Field(
         default=None,
-        description="Model used by the reranker provider",
+        description="Model used by the reranker provider.",
     )
-    stage_summaries: tuple[RerankStageSummary, ...] = ()
+    stage_summaries: list[RerankStageSummary] = Field(
+        default_factory=list,
+        description="Observable summaries for each rerank stage.",
+    )
+    overflow_items: list[RerankOverflowItem] = Field(
+        default_factory=list,
+        description="Candidates left outside the returned slate, grouped by terminal stage.",
+    )
+    terminal_stage: RerankTerminalStage = "rrf"
     funnel_counts: dict[str, int] = Field(default_factory=dict)

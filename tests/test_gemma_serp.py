@@ -100,11 +100,7 @@ def test_parse_response_rejects_non_search_urls() -> None:
 
 
 def test_parse_response_accepts_explicit_empty_results() -> None:
-    data = {
-        "choices": [
-            {"message": {"content": '{"results":[]}'}}
-        ]
-    }
+    data = {"choices": [{"message": {"content": '{"results":[]}'}}]}
 
     assert gemma_serp._parse_response(data) == []
 

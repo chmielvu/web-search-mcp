@@ -244,6 +244,7 @@ def resolve_fallback_understanding(query: str) -> FallbackUnderstanding:
         compared_spans=compared_spans,
         time_sensitivity=time_sensitivity,
         should_decompose=should_decompose,
+        preserved_terms=(),
         rationale=rationale,
         rules=tuple(rules),
     )

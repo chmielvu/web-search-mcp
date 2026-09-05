@@ -588,6 +588,7 @@ _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "content-summary-output-signals": content_summary_output_signals,
 }
 
+
 def available_reports() -> tuple[str, ...]:
     return tuple(sorted(_REPORTS))
 

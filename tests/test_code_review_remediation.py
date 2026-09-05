@@ -31,7 +31,6 @@ def test_core_config_exports() -> None:
     assert AppSettings is not None
 
 
-
 def test_domain_boost_wildcard_glob() -> None:
     """Verify that domain_boost moves wildcard matched domains to front."""
     results = [
@@ -106,7 +105,9 @@ def test_transcript_sqlite_schema_and_fts(tmp_path) -> None:
         con.close()
 
     # Store a transcript and search via FTS
-    transcript = [{"text": "Machine learning and deep neural networks", "start": 0.0, "duration": 5.0}]
+    transcript = [
+        {"text": "Machine learning and deep neural networks", "start": 0.0, "duration": 5.0}
+    ]
     cache._store_sync("vid123", transcript, language="en")
 
     found = cache.search_transcripts("neural")

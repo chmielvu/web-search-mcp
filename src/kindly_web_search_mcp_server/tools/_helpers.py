@@ -93,6 +93,7 @@ def _resolve_session_id(ctx: Context | None) -> str | None:
         pass
     return None
 
+
 def _public_settings_snapshot() -> dict[str, object]:
     """Return a safe subset of runtime settings for MCP clients."""
     return {
@@ -101,7 +102,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "tool_search_enabled": settings.tool_search_enabled,
         },
         "features": {
-            "reranking_enabled": settings.rerank_entity_overlap_enabled,
             "judge_evaluation_enabled": settings.judge_evaluation_enabled,
             "entity_extraction_enabled": settings.entity_extraction_enabled,
             "analytics_enabled": settings.analytics_enabled,
@@ -301,4 +301,3 @@ def _resolve_web_search_max_concurrency(num_results: int) -> int:
     if num_results > 0:
         value = min(value, num_results)
     return value
-

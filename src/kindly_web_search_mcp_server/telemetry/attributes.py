@@ -95,9 +95,6 @@ RERANK_OUTPUT_COUNT = "rerank.output_count"
 RERANK_REMOVED_COUNT = "rerank.removed_count"
 RERANK_RELEVANCE_SCORE = "rerank.relevance_score"
 RERANK_MODEL = "rerank.model"
-RERANK_DIVERSITY_THRESHOLD = "rerank.diversity_threshold"
-RERANK_SIMILARITY_SCORE = "rerank.similarity_score"
-RERANK_BI_ENCODER_SCORE = "rerank.bi_encoder_score"
 
 # --- Circuit Breaker Attributes ---
 CIRCUIT_STATE = "circuit.state"
@@ -210,14 +207,11 @@ __all__ = [
     "PROVIDER_SEARXNG",
     "PROVIDER_STATUS",
     "PROVIDER_TAVILY",
-    "RERANK_BI_ENCODER_SCORE",
-    "RERANK_DIVERSITY_THRESHOLD",
     "RERANK_INPUT_COUNT",
     "RERANK_MODEL",
     "RERANK_OUTPUT_COUNT",
     "RERANK_RELEVANCE_SCORE",
     "RERANK_REMOVED_COUNT",
-    "RERANK_SIMILARITY_SCORE",
     "RERANK_STAGE",
     "RESULT_DOMAIN",
     "RESULT_HAS_SNIPPET",

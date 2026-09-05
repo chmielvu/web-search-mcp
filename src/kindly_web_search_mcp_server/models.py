@@ -92,6 +92,51 @@ class FilterStats(BaseModel):
 # ============================================================================
 
 
+class WebSearchFetchHint(BaseModel):
+    """Machine-ready continuation to fetch the result page."""
+
+    action: str = Field(
+        default="fetch",
+        description="Continuation action (always 'fetch').",
+    )
+    tool: str = Field(
+        default="fetch",
+        description="Target tool to call for this continuation.",
+    )
+    query: dict[str, Any] = Field(
+        description="Keyword arguments for the fetch tool; always contains 'url'.",
+    )
+    why: str | None = Field(
+        default=None,
+        description="Explanation of why this result warrants fetching.",
+    )
+    confidence: str | None = Field(
+        default=None,
+        description="Continuation confidence: 'high', 'medium', or 'low'.",
+    )
+
+
+class WebSearchEvidenceScore(BaseModel):
+    """Structured breakdown of ranking and evidence signals."""
+
+    final: float | None = Field(
+        default=None,
+        description="Final normalized score used for response ordering (0.0 to 1.0).",
+    )
+    semantic: float | None = Field(
+        default=None,
+        description="Raw cross-encoder relevance score before display normalization.",
+    )
+    lexical: float | None = Field(
+        default=None,
+        description="Single-stage RRF score combining provider rankings and BM25 lexical signal.",
+    )
+    engine_consensus: int | None = Field(
+        default=None,
+        description="Number of distinct search providers that surfaced this result.",
+    )
+
+
 class WebSearchResult(BaseModel):
     """Single search result from web search."""
 
@@ -99,44 +144,64 @@ class WebSearchResult(BaseModel):
     link: str
     snippet: str
     domain: str | None = None
-    mime_hint: str | None = Field(
-        default=None,
-        description="Best-effort MIME hint when known.",
-    )
     published_date: str | None = None
-    source_engines: list[str] | None = Field(
+    providers: list[str] | None = None
+    retrieval_rrf_score: float | None = Field(
         default=None,
-        description="Provider engine names that surfaced the result, when known.",
+        description="Weighted reciprocal-rank-fusion score from provider and BM25 retrieval lists.",
     )
-    category: str | None = None
+    bi_encoder_score: float | None = Field(
+        default=None,
+        description="Dense bi-encoder relevance score used to narrow the candidate pool.",
+    )
+    cross_encoder_score: float | None = Field(
+        default=None,
+        description="Raw cross-encoder relevance score before final-score normalization.",
+    )
+    rankllm_score: float | None = Field(
+        default=None,
+        description="Listwise RankLLM position score for the candidate.",
+    )
+    recency_score: float | None = Field(
+        default=None,
+        description="Temporal freshness score applied during reranking.",
+    )
+    diversity_penalty: float | None = Field(
+        default=None,
+        description="MMR redundancy penalty applied to the candidate.",
+    )
+    final_score: float | None = Field(
+        default=None,
+        description="Final score used for response ordering.",
+    )
+    final_rank: int | None = Field(
+        default=None,
+        description="One-based final rank assigned after all ranking stages.",
+    )
     raw_score: float | None = Field(
         default=None,
         description="Unnormalized score returned by the provider before merge/rerank.",
     )
-    providers: list[str] | None = None
-    provider_count: int | None = Field(
+    source_engines: list[str] | None = Field(
         default=None,
-        description="Number of providers that surfaced this result (agreement signal).",
+        description="SearXNG engine names that surfaced the result, when known.",
     )
-    score: float | None = Field(
+    citation_id: str | None = Field(
         default=None,
-        description="Merged/reranked score used for final ordering.",
+        description="1-based citation identifier in final rank order (e.g. 'c1', 'c2').",
     )
-    provider_consensus_rrf_score: float | None = Field(
+    evidence_score: WebSearchEvidenceScore | None = Field(
         default=None,
-        description="Deprecated: previously held a separate first-stage RRF score. "
-        "Now None; the pipeline uses a single fused RRF pass with BM25.",
+        description="Structured score breakdown for evidence evaluation.",
     )
-    hybrid_rrf_score: float | None = Field(
+    freshness_signal: Literal["fresh", "dated", "unknown"] | None = Field(
         default=None,
-        description="Single-stage RRF score incorporating provider rankings and BM25 lexical signal.",
+        description="Temporal classification: 'fresh' (<=90d), 'dated' (>90d), or 'unknown'.",
     )
-    cross_relevance_score: float | None = Field(
+    fetch_hint: WebSearchFetchHint | None = Field(
         default=None,
-        description="Raw cross-encoder relevance score.",
+        description="Machine-ready continuation to inspect or verify this URL with the fetch tool.",
     )
-    entities: list[EntitySpan] | None = None
-    diagnostics: list[dict[str, Any]] | None = None
 
 
 class ProviderWarning(BaseModel):
@@ -209,6 +274,57 @@ class WebSearchResponse(BaseModel):
     )
 
 
+class _PublicWebSearchModel(BaseModel):
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(**kwargs)
+
+    def model_dump_json(self, **kwargs: Any) -> str:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump_json(**kwargs)
+
+
+class WebSearchNext(_PublicWebSearchModel):
+    action: Literal["fetch"]
+    tool: Literal["fetch"]
+    query: dict[str, Any]
+    why: str
+    confidence: Literal["high", "medium", "low"]
+
+
+class WebSearchHit(_PublicWebSearchModel):
+    citation_id: str
+    title: str
+    url: str
+    snippet: str
+    domain: str | None = None
+    published_date: str | None = None
+    freshness: Literal["fresh", "dated", "unknown"]
+    score: float | None = None
+    consensus: int | None = None
+    providers: list[str] | None = None
+
+
+class WebSearchOverflowHit(_PublicWebSearchModel):
+    citation_id: str
+    title: str
+    url: str
+    stage: Literal["rankllm", "mmr_fallback", "cross", "rrf"]
+
+
+class WebSearchPublicResponse(_PublicWebSearchModel):
+    query: str
+    status: Literal["ok", "empty", "partial"]
+    results: list[WebSearchHit | WebSearchOverflowHit] = Field(default_factory=list)
+    intent: str | None = None
+    query_variants: dict[str, str] | None = None
+    warnings: list[ProviderWarning] | None = None
+    next: list[WebSearchNext] | None = None
+    has_more: bool | None = None
+    remaining: int | None = None
+    cursor: str | None = None
+
+
 class FetchResult(BaseModel):
     """Single URL result returned by the unified fetch tool."""
 
@@ -259,7 +375,6 @@ class FetchResponse(BaseModel):
     wave_size: int = 10
     waves_completed: int = 0
     duration_ms: int = 0
-
 
 
 class DiscoverLinksResponse(BaseModel):
@@ -333,8 +448,7 @@ class GrokSearchResponse(BaseModel):
     usage: TokenUsage | None = Field(
         default=None,
         description=(
-            "Canonical usage view; input_tokens→prompt_tokens, "
-            "output_tokens→completion_tokens."
+            "Canonical usage view; input_tokens→prompt_tokens, output_tokens→completion_tokens."
         ),
     )
 

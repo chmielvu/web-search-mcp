@@ -57,8 +57,6 @@ class TestIntentToCategoryRouting:
         assert not hasattr(digital_humanities, "rrf_k")
 
 
-
-
 def test_resolve_intent_policy_merges_configured_goggles(monkeypatch) -> None:
     import kindly_web_search_mcp_server.search.intent_policy as intent_policy_module
     from kindly_web_search_mcp_server.settings import settings
@@ -84,6 +82,7 @@ def test_resolve_intent_policy_leaves_goggles_empty_by_default() -> None:
     policy = resolve_intent_policy("general")
     assert "goggles" not in policy.provider_arguments.get("brave", {})
 
+
 @pytest.mark.parametrize(
     "intent, expected_ddg_args",
     [
@@ -99,6 +98,7 @@ def test_ddg_provider_arguments_per_intent(intent, expected_ddg_args):
     policy = resolve_intent_policy(intent)
     assert policy.provider_arguments["ddg"] == expected_ddg_args
 
+
 @pytest.mark.parametrize(
     "intent, expected_exa_args",
     [
@@ -113,5 +113,3 @@ def test_ddg_provider_arguments_per_intent(intent, expected_ddg_args):
 def test_exa_provider_arguments_per_intent(intent, expected_exa_args):
     policy = resolve_intent_policy(intent)
     assert policy.provider_arguments["exa"] == expected_exa_args
-
-

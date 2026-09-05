@@ -99,7 +99,6 @@ class DeepResearchReference(BaseModel):
     snippet: str | None = None
 
 
-
 class DeepResearchResponse(BaseModel):
     """Final deep_research tool response."""
 
@@ -149,12 +148,24 @@ async def _consume_sse_stream(
 
         if event_name == "action" and isinstance(payload, dict):
             action_count += 1
-            step_type = payload.get("type")
+            step_type = payload.get("action") or payload.get("type")
             if step_type == "search":
-                query = payload.get("query") or ", ".join(payload.get("queries") or [])
-                summary = f"Searching: {query}"
-            elif step_type == "visit":
-                summary = f"Visiting: {payload.get('url')}"
+                raw_queries = payload.get("searchRequests") or payload.get("queries")
+                if isinstance(raw_queries, list):
+                    query = ", ".join(str(q) for q in raw_queries)
+                else:
+                    query = str(payload.get("query") or "")
+                summary = f"Searching: {query}" if query else "Searching..."
+            elif step_type in ("visit", "answer"):
+                url_val = payload.get("url") or payload.get("URLTargets")
+                if isinstance(url_val, list) and url_val:
+                    summary = f"Visiting: {', '.join(str(u) for u in url_val)}"
+                elif url_val and not isinstance(url_val, list):
+                    summary = f"Visiting: {url_val}"
+                elif step_type == "answer":
+                    summary = "Synthesizing answers..."
+                else:
+                    summary = "Visiting sources..."
             elif step_type == "reflect":
                 summary = "Evaluating findings & planning next step..."
             elif step_type == "coding":

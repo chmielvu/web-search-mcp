@@ -250,7 +250,9 @@ async def search_openalex_references(paper_ref: str, *, limit: int = 20) -> list
     if not refs:
         return []
     selected = "|".join(refs[: max(1, min(limit, 100))])
-    data = await _openalex_get({"filter": f"ids.openalex:{selected}", "per-page": str(len(refs[:limit]))})
+    data = await _openalex_get(
+        {"filter": f"ids.openalex:{selected}", "per-page": str(len(refs[:limit]))}
+    )
     papers = [p for p in (_normalize_work(r) for r in data.get("results") or []) if p]
     return papers[:limit]
 

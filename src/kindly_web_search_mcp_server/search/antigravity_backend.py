@@ -137,12 +137,7 @@ def _extract_citations(step_content: list[Any], into: list[dict[str, Any]]) -> N
     for part in step_content:
         if not isinstance(part, dict):
             continue
-        raw = (
-            part.get("url_citations")
-            or part.get("urlCitations")
-            or part.get("annotations")
-            or []
-        )
+        raw = part.get("url_citations") or part.get("urlCitations") or part.get("annotations") or []
         for cit in raw:
             if isinstance(cit, dict) and cit.get("url"):
                 into.append({"url": str(cit["url"]), "title": cit.get("title")})
@@ -186,8 +181,7 @@ def _map_interaction_to_result(
     # Enrich fetched URLs with citation titles where available.
     title_by_url = {c["url"]: c.get("title") for c in citations if c.get("url")}
     sources = [
-        {"url": s["url"], "title": title_by_url.get(s["url"])}
-        for s in _dedupe(fetched_urls, "url")
+        {"url": s["url"], "title": title_by_url.get(s["url"])} for s in _dedupe(fetched_urls, "url")
     ]
 
     # Citation fallback chain: structured sources -> bare URLs found in answer.
@@ -271,9 +265,7 @@ async def _cancel_best_effort(
     interaction_id: str,
 ) -> None:
     try:
-        await client.post(
-            f"{INTERACTIONS_URL}/{interaction_id}/cancel", json={}, headers=headers
-        )
+        await client.post(f"{INTERACTIONS_URL}/{interaction_id}/cancel", json={}, headers=headers)
     except Exception as exc:  # noqa: BLE001 - cancel is best-effort cleanup
         logger.debug("Antigravity cancel failed for %s: %s", interaction_id, exc)
 

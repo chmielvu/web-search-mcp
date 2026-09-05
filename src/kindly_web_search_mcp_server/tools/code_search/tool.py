@@ -313,9 +313,9 @@ async def code_search(
       * `issues`: Searches GitHub Issues and Discussions (requires GITHUB_TOKEN).
       * `huggingface`: Searches semantic model and dataset cards through the Hub API.
 
-    Returns grouped results (Octocode-style): repository → files → text_matches,
-    match_lines with exact spans, symbols, sha, and url. Hints and next
-    continuations guide agents to fetch exact line anchors via fetch.
+    Returns grouped results (Octocode-style): repository → files → source_window,
+    line_start, line_end, symbols, sha, and url. Hints and next continuations
+    guide agents to fetch exact line anchors via fetch.
     Ranking scores and provider telemetry are omitted.
     """
     tool_call_id = str(uuid.uuid4())

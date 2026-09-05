@@ -131,13 +131,14 @@ def _seed_run(
         for stage, inp, outp in rerank_stages or []:
             con.execute(
                 "INSERT INTO rerank_stages "
-                "(run_key, stage, provider, model, input_count, output_count, status, score_threshold) "
-                "VALUES (?, ?, 'ce', 'ce-v1', ?, ?, 'success', 0.5)",
+                "(run_key, stage, provider, model, input_count, output_count, status) "
+                "VALUES (?, ?, 'ce', 'ce-v1', ?, ?, 'success')",
                 [run_key, stage, inp, outp],
             )
             con.execute(
                 "INSERT INTO rerank_candidates "
-                "(run_key, stage, link, rank_before, rank_after, survived, llm_raw_score, fused_score) "
+                "(run_key, stage, link, rank_before, rank_after, survived, "
+                "rankllm_score, cross_encoder_score) "
                 "VALUES (?, ?, ?, 0, 1, true, 0.9, 0.8)",
                 [run_key, stage, f"https://{stage}.example.com"],
             )

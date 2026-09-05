@@ -15,7 +15,9 @@ def register(app: typer.Typer) -> None:
     def recommend_cmd(
         task: Annotated[
             list[str] | None,
-            typer.Argument(help="Natural-language task to route to an existing CLI/MCP capability."),
+            typer.Argument(
+                help="Natural-language task to route to an existing CLI/MCP capability."
+            ),
         ] = None,
     ) -> None:
         """Recommend an existing command without executing it."""

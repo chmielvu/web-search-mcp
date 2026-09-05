@@ -291,7 +291,9 @@ def remove_blocklist_pattern(glob_pattern: str) -> bool:
 # ── Subscription import ──────────────────────────────────────────────────
 
 
-def _fetch_subscription_text(url: str, timeout: float = 15.0, max_bytes: int = 100 * 1024 * 1024) -> str:
+def _fetch_subscription_text(
+    url: str, timeout: float = 15.0, max_bytes: int = 100 * 1024 * 1024
+) -> str:
     req = urllib.request.Request(
         url,
         headers={
@@ -345,8 +347,7 @@ def import_subscription(url: str, source: str = "subscription", timeout: float =
     path = _resolve_db_path()
     _ensure_db(path)
     payload = [
-        (glob_pat, _translate_ublacklist_to_regex(glob_pat), source)
-        for glob_pat in candidates
+        (glob_pat, _translate_ublacklist_to_regex(glob_pat), source) for glob_pat in candidates
     ]
     with _db_lock:
         con = sqlite3.connect(str(path), timeout=10.0)

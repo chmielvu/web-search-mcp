@@ -82,9 +82,7 @@ async def test_search_semanticscholar_parses_paper(monkeypatch) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert str(request.url).startswith(
-            "https://api.semanticscholar.org/graph/v1/paper/search"
-        )
+        assert str(request.url).startswith("https://api.semanticscholar.org/graph/v1/paper/search")
         params = dict(request.url.params)
         captured["params"] = params
         assert params["query"] == "transformers"

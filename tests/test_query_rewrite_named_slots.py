@@ -51,14 +51,16 @@ def test_no_stale_specialized_provider_strings_in_prompts() -> None:
         assert banned not in REWRITE_SYSTEM
 
 
-def test_serp_rules_enforce_lcd_only() -> None:
-    assert "site:" in REWRITE_USER and "-term" in REWRITE_USER
-    for banned_op in ("intitle:", "inbody:", "inpage:", "lang:", "+term"):
-        idx = REWRITE_USER.find(banned_op)
-        # banned operators may only appear in the Forbidden enumeration line
-        if idx != -1:
-            line = REWRITE_USER[max(0, idx - 60) : idx].rsplit("\n", 1)[-1]
-            assert "Forbidden" in line or "ONLY" in REWRITE_USER[max(0, idx - 200) : idx]
+def test_serp_rules_ban_operators_as_keyword_bags() -> None:
+    start = REWRITE_USER.index("<SERP_QUERY_RULES>")
+    end = REWRITE_USER.index("</SERP_QUERY_RULES>")
+    serp = REWRITE_USER[start:end]
+    assert "4-8 words" in serp
+    assert "Do not use site:" in serp
+    for banned_op in ("filetype:", "inurl:", "intitle:"):
+        assert banned_op in serp
+    assert "-term" not in serp
+    assert "Allowed operators" not in serp
 
 
 def test_named_model_parses_and_rejects_extras() -> None:

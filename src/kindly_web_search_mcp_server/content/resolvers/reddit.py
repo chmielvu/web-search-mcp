@@ -285,9 +285,7 @@ async def _fetch_reddit_arctic_shift(target: RedditTarget) -> str:
     raise RedditError("Arctic Shift API fetch failed")
 
 
-def _apify_item_to_post_data(
-    item: dict[str, Any], target: RedditTarget
-) -> dict[str, Any] | None:
+def _apify_item_to_post_data(item: dict[str, Any], target: RedditTarget) -> dict[str, Any] | None:
     """Map one Apify Reddit item into the ``render_reddit_markdown`` post shape.
 
     Returns None when the item clearly is not the thread post (no title and no
@@ -320,9 +318,7 @@ def _apify_items_to_comment_children(
     for item in items:
         if not isinstance(item, dict):
             continue
-        body = str(
-            item.get("body") or item.get("commentText") or item.get("text") or ""
-        ).strip()
+        body = str(item.get("body") or item.get("commentText") or item.get("text") or "").strip()
         if not body or body in {"[deleted]", "[removed]"}:
             continue
         children.append(
@@ -330,9 +326,7 @@ def _apify_items_to_comment_children(
                 "kind": "t1",
                 "data": {
                     "body": body,
-                    "author": str(
-                        item.get("author") or item.get("username") or "anonymous"
-                    ),
+                    "author": str(item.get("author") or item.get("username") or "anonymous"),
                     "score": item.get("score", item.get("upvotes", 0)),
                     "replies": None,
                 },

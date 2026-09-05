@@ -118,9 +118,7 @@ async def test_search_dlibra_year_filters_added_to_params() -> None:
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        await search_dlibra(
-            "test", limit=2, year_from=1900, year_to=1920, http_client=client
-        )
+        await search_dlibra("test", limit=2, year_from=1900, year_to=1920, http_client=client)
 
     assert seen["from"] == "1900-01-01"
     assert seen["until"] == "1920-12-31"

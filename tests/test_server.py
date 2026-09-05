@@ -5,13 +5,25 @@ import os
 from pathlib import Path
 import unittest
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kindly_web_search_mcp_server.models import WebSearchResponse, WebSearchResult
+from kindly_web_search_mcp_server.models import (
+    WebSearchPublicResponse,
+    WebSearchResponse,
+    WebSearchResult,
+)
+
+
+def _web_search_tuple(response: WebSearchResponse) -> tuple[WebSearchResponse, MagicMock]:
+    run = MagicMock()
+    run.response = response
+    run.plan = None
+    run.diagnostics.overflow_ranked = []
+    return (response, run)
 
 
 class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
@@ -374,17 +386,19 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         with patch(
             "kindly_web_search_mcp_server.search.service.execute_web_search", new_callable=AsyncMock
         ) as mock_search:
-            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
+            mock_search.return_value = _web_search_tuple(
+                WebSearchResponse(query="hello", results=mocked_results)
+            )
 
             # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn("hello", research_goal="Find information about hello", ctx=mock_ctx)
 
-        self.assertIsInstance(out, WebSearchResponse)
+        self.assertIsInstance(out, WebSearchPublicResponse)
         self.assertEqual(out.query, "hello")
         self.assertEqual(len(out.results), 1)
         self.assertEqual(out.results[0].title, "T")
-        self.assertEqual(out.results[0].link, "https://example.com")
+        self.assertEqual(out.results[0].url, "https://example.com")
         self.assertEqual(out.results[0].snippet, "S")
 
     async def test_web_search_forwards_search_options(self) -> None:
@@ -400,9 +414,11 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.service.execute_web_search",
             new_callable=AsyncMock,
         ) as mock_search:
-            mock_search.return_value = WebSearchResponse(
-                query="hello",
-                results=mocked_results,
+            mock_search.return_value = _web_search_tuple(
+                WebSearchResponse(
+                    query="hello",
+                    results=mocked_results,
+                )
             )
 
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
@@ -418,7 +434,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         forwarded_options = forwarded_request.options
         self.assertIsInstance(forwarded_options, SearchOptions)
         self.assertEqual(forwarded_options.temporal.bucket, "day")
-        self.assertNotIn("result_window", out)
+        self.assertNotIn("result_window", out.model_dump())
 
     async def test_fetch_returns_single_result(self) -> None:
         from kindly_web_search_mcp_server.content.artifact import ContentArtifact
@@ -481,7 +497,14 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             content_type="text/markdown",
             markdown="First paragraph.\n\nSecond paragraph.",
             metadata={"title": "Example"},
-            links=[{"url": "https://example.com/next", "text": "Next", "domain": "example.com", "internal": True}],
+            links=[
+                {
+                    "url": "https://example.com/next",
+                    "text": "Next",
+                    "domain": "example.com",
+                    "internal": True,
+                }
+            ],
         )
         with (
             patch(
@@ -489,7 +512,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
                 return_value=type("Probe", (), {"available": False, "url": None})(),
             ),
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
             patch(
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
@@ -523,7 +548,9 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
                 return_value=type("Probe", (), {"available": False, "url": None})(),
             ),
-            patch("kindly_web_search_mcp_server.tools.content.get_page_cache") as mock_get_page_cache,
+            patch(
+                "kindly_web_search_mcp_server.tools.content.get_page_cache"
+            ) as mock_get_page_cache,
             patch(
                 "kindly_web_search_mcp_server.tools.content.fetch_content_artifact",
                 new_callable=AsyncMock,
@@ -585,6 +612,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(mock_one.await_count, 10)
         self.assertTrue(out["has_more"])
         self.assertIsNotNone(out.get("cursor"))
+
     async def test_fetch_rejects_empty_input_and_offset_cursor_mix(self) -> None:
         from fastmcp.exceptions import ToolError
 
@@ -598,7 +626,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ToolError):
             await tool_fn(url="https://example.com", cursor="invalid", offset=1, ctx=mock_ctx)
 
-    async def test_web_search_keeps_results_lightweight_on_cached_search(self) -> None:
+    async def test_web_search_strips_internal_fields_on_public_payload(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
 
         mocked_results = [
@@ -607,13 +635,8 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
                 link="https://example.com",
                 snippet="S",
                 domain="example.com",
-                mime_hint="text/html",
                 published_date="2026-05-29",
-                source_engines=["searxng"],
-                category="docs",
-                raw_score=3.14,
-                providers=["searxng", "ddg"],
-                provider_count=2,
+                providers=["searxng"],
                 score=0.92,
                 diagnostics=[{"provider": "searxng"}],
             )
@@ -627,22 +650,30 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             "kindly_web_search_mcp_server.search.service.execute_web_search",
             new_callable=AsyncMock,
         ) as mock_search:
-            mock_search.return_value = WebSearchResponse(query="hello", results=mocked_results)
-            # Access underlying function via .fn attribute (FastMCP v2 returns FunctionTool)
+            mock_search.return_value = _web_search_tuple(
+                WebSearchResponse(query="hello", results=mocked_results)
+            )
             tool_fn = web_search.fn if hasattr(web_search, "fn") else web_search
             out = await tool_fn("hello", research_goal="Find information about hello", ctx=mock_ctx)
 
         result = out.results[0]
-        self.assertEqual(result.mime_hint, "text/html")
-        self.assertEqual(result.source_engines, ["searxng"])
-        self.assertEqual(result.category, "docs")
-        self.assertEqual(result.raw_score, 3.14)
-        self.assertEqual(result.score, 0.92)
-        self.assertEqual(result.diagnostics, [{"provider": "searxng"}])
-        self.assertEqual(result.domain, "example.com")
-        self.assertEqual(result.published_date, "2026-05-29")
-        self.assertEqual(result.providers, ["searxng", "ddg"])
-        self.assertEqual(result.provider_count, 2)
+        dumped = result.model_dump()
+        self.assertEqual(result.title, "T")
+        self.assertEqual(result.url, "https://example.com")
+        self.assertEqual(dumped.get("providers"), ["searxng"])
+        for forbidden in (
+            "diagnostics",
+            "link",
+            "fetch_hint",
+            "evidence_score",
+            "provider_count",
+            "mime_hint",
+            "source_engines",
+            "category",
+            "raw_score",
+            "entities",
+        ):
+            self.assertNotIn(forbidden, dumped)
 
     def test_public_settings_resource_redacts_secrets(self) -> None:
         import json
@@ -691,9 +722,7 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         events = []
         with (
-            patch(
-                "kindly_web_search_mcp_server.server._ensure_telemetry"
-            ) as ensure_telemetry,
+            patch("kindly_web_search_mcp_server.server._ensure_telemetry") as ensure_telemetry,
             patch(
                 "kindly_web_search_mcp_server.server._warm_heavy_imports",
                 side_effect=lambda: events.append("warm"),

@@ -39,9 +39,7 @@ class GraphExpansionReplayReport:
         decision_counts = self.decision_counts
         query_frequency = Counter(row.normalized_query for row in self.rows)
         support_counts = Counter(
-            support
-            for row in self.rows
-            for _, support in row.decision.candidate_support_counts
+            support for row in self.rows for _, support in row.decision.candidate_support_counts
         )
         prompt_delta_chars = sum(
             len(" ".join(row.decision.effective_seed_queries))
@@ -57,7 +55,9 @@ class GraphExpansionReplayReport:
                 else 0.0
             ),
             "effective_seed_distribution": dict(
-                sorted(Counter(len(row.decision.effective_seed_queries) for row in self.rows).items())
+                sorted(
+                    Counter(len(row.decision.effective_seed_queries) for row in self.rows).items()
+                )
             ),
             "head_tail_query_split": {
                 "head": sum(query_frequency[row.normalized_query] > 1 for row in self.rows),
@@ -74,7 +74,9 @@ class GraphExpansionReplayReport:
             ),
             "prompt_size_delta_chars": prompt_delta_chars,
             "related_query_coverage": (
-                sum(bool(row.decision.related_queries) for row in self.rows) / total if total else 0.0
+                sum(bool(row.decision.related_queries) for row in self.rows) / total
+                if total
+                else 0.0
             ),
         }
 
@@ -131,7 +133,6 @@ def _stored_seed_queries(
     return (normalized_query,), True
 
 
-
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
@@ -155,14 +156,14 @@ def _ndcg_and_mrr(labels: list[tuple[int, float]]) -> tuple[float | None, float 
 
 
 def _summarize_outcomes(
-    run_rows: Sequence[
-        tuple[str, str | None, int | None, str | None, float | None, float | None]
-    ],
+    run_rows: Sequence[tuple[str, str | None, int | None, str | None, float | None, float | None]],
     labels_by_run: dict[str, list[tuple[int, float]]],
     domains_by_run: dict[str, set[str]],
     costs_by_run: dict[str, float],
 ) -> dict[str, dict[str, object]]:
-    groups: dict[str, list[tuple[str, str | None, int | None, str | None, float | None, float | None]]] = {
+    groups: dict[
+        str, list[tuple[str, str | None, int | None, str | None, float | None, float | None]]
+    ] = {
         "control": [],
         "treatment": [],
     }
@@ -217,6 +218,7 @@ def _summarize_outcomes(
         }
     return summaries
 
+
 def replay_graph_expansion(
     *,
     db_path: str | None = None,
@@ -227,7 +229,9 @@ def replay_graph_expansion(
     if not path.exists():
         return GraphExpansionReplayReport(rows=(), fallback_seed_count=0)
 
-    runs: list[tuple[str, str, object, str | None, int | None, str | None, float | None, float | None]] = []
+    runs: list[
+        tuple[str, str, object, str | None, int | None, str | None, float | None, float | None]
+    ] = []
     labels_by_run: dict[str, list[tuple[int, float]]] = {}
     domains_by_run: dict[str, set[str]] = {}
     costs_by_run: dict[str, float] = {}
@@ -276,9 +280,7 @@ def replay_graph_expansion(
                 except (TypeError, ValueError):
                     continue
                 if position_value >= 0 and math.isfinite(label_value):
-                    labels_by_run.setdefault(run_key, []).append(
-                        (position_value, label_value)
-                    )
+                    labels_by_run.setdefault(run_key, []).append((position_value, label_value))
 
         if "final_results" in table_names:
             for run_key, rank, domain in con.execute(

@@ -139,7 +139,7 @@ An instruction and a whole-run digest of evidence are given.
 - bad: Empty final results, off-topic results against the research_goal, critical branch/provider failures, or a rerank pipeline that destroyed relevant candidates. The digest shows the run did not deliver.
 
 ###Scope note:
-NO numeric reranker scores (llm_raw_score, cross_encoder_raw, fused_score, hybrid_rrf_score, final_score) are provided - judge the run on structural / positional evidence (ranks, titles, links, counts, branch summaries, rerank stage names and counts) alone, not on whether the overview agrees with the reranker's own scores.
+NO numeric reranker scores (final_score, rankllm_score, cross_encoder_score, retrieval_rrf_score, bi_encoder_score, recency_score, diversity_penalty) are provided - judge the run on structural / positional evidence (ranks, titles, links, counts, branch summaries, rerank stage names and counts) alone, not on whether the overview agrees with the reranker's own scores.
 ###Evidence:
 <run_digest>
 {{run_digest}}
@@ -206,7 +206,7 @@ variants (with intended strategy):
         """You are a fair judge assistant tasked with providing clear, objective feedback based on specific criteria, ensuring each assessment reflects the absolute standards set for performance.
 
 ###Task Description:
-An instruction and positional evidence about a single rerank stage are given (ranks before vs after; survival flags). NO numeric reranker scores (llm_raw_score, cross_encoder_raw, fused_score, hybrid_rrf_score, final_score) are provided - you must judge reordering on positional / semantic merit alone, not on whether it agrees with the reranker's own scores.
+An instruction and positional evidence about a single rerank stage are given (ranks before vs after; survival flags). NO numeric reranker scores (rankllm_score, cross_encoder_score, retrieval_rrf_score, bi_encoder_score, recency_score, diversity_penalty, final_score) are provided - you must judge reordering on positional / semantic merit alone, not on whether it agrees with the reranker's own scores.
 1. Write a detailed feedback that assesses whether the reordering for this stage improved topical alignment with the query, neutral (no measurable effect), or degraded it (relevant candidates pushed down or dropped).
 2. After writing the feedback, emit a verdict as JSON.
 3. The output format MUST be exactly: "Feedback: <your reasoning> [RESULT] <json>".
@@ -233,7 +233,7 @@ ranks after:
         """You are a fair judge assistant tasked with providing clear, objective feedback based on specific criteria, ensuring each assessment reflects the absolute standards set for performance.
 
 ###Task Description:
-An instruction and evidence about a single search result are given. NO numeric reranker scores (final_score, llm_raw_score, cross_encoder_raw, fused_score, hybrid_rrf_score) are provided - you must judge quality on the title/snippet text alone, not on whether the reranker agreed with you.
+An instruction and evidence about a single search result are given. NO numeric reranker scores (final_score, rankllm_score, cross_encoder_score, retrieval_rrf_score, bi_encoder_score, recency_score, diversity_penalty) are provided - you must judge quality on the title/snippet text alone, not on whether the reranker agreed with you.
 1. Write a detailed feedback that assesses (a) whether the result matches the search intent and research_goal, and (b) how informative the snippet is.
 2. After writing the feedback, emit a verdict as JSON.
 3. The output format MUST be exactly: "Feedback: <your reasoning> [RESULT] <json>".

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import logging
 import re
@@ -19,7 +18,6 @@ from .models import (
     Diagnostic,
     FailureKind,
     ProviderResponse,
-    TextFragment,
     build_location_metadata,
 )
 from .query import QueryPlan
@@ -44,8 +42,7 @@ def _diagnostic(
         provider="grep.app",
         outcome=outcome,  # type: ignore[arg-type]
         message=message[:500],
-        failure_kind=failure_kind
-        or ("network" if "request" in message.casefold() else "provider"),
+        failure_kind=failure_kind or ("network" if "request" in message.casefold() else "provider"),
         query=query,
         details=details or {},
         status_code=status_code,
@@ -200,7 +197,6 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
         url = fields.get("url")
         if not repository or not path or not url:
             continue
-        snippet = "\n".join(snippet_lines).strip()[:4000][:4000]
         hits.append(
             CodeSearchHit(
                 repository=repository,
@@ -210,15 +206,6 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
                 query_variant=query_variant,
                 search_rank=len(hits) + 1,
                 result_kind="code_match",
-                fragments=[
-                    TextFragment(
-                        text=snippet,
-                        line_start=first_line,
-                        line_end=last_line or first_line,
-                    )
-                ]
-                if snippet
-                else [],
                 line_start=first_line,
                 line_end=last_line or first_line,
                 location=build_location_metadata(
@@ -227,9 +214,8 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
                     url=url,
                     line_start=first_line,
                     line_end=last_line or first_line,
-                    match_data_available=bool(snippet),
+                    match_data_available=True,
                 ),
-                snippet=snippet or None,
                 source_metadata={"license": fields.get("license")},
             )
         )
@@ -260,9 +246,6 @@ def _parse_rest_payload(
         repository, path = _raw(item.get("repo")), _raw(item.get("path"))
         raw_ref = _raw(item.get("branch"))
         branch = raw_ref or "HEAD"
-        content = item.get("content")
-        snippet_html = content.get("snippet") if isinstance(content, dict) else ""
-        snippet = html.unescape(re.sub(r"<[^>]+>", "", snippet_html or "")).strip()
         if not repository or not path:
             continue
         url = f"https://github.com/{repository}/blob/{branch}/{path}"
@@ -275,14 +258,12 @@ def _parse_rest_payload(
                 query_variant=query_variant,
                 search_rank=len(hits) + 1,
                 result_kind="code_match",
-                snippet=snippet or None,
-                fragments=[TextFragment(text=snippet)] if snippet else [],
                 location=build_location_metadata(
                     repository=repository,
                     path=path,
                     url=url,
                     ref=raw_ref,
-                    match_data_available=bool(snippet),
+                    match_data_available=True,
                 ),
                 source_metadata={
                     "transport": "rest",
@@ -500,6 +481,7 @@ async def _search_grepapp_variant(
             "transport": "mixed",
         },
     )
+
 
 async def search_grepapp(
     plan: QueryPlan, request: CodeSearchRequest, *, http_client: httpx.AsyncClient

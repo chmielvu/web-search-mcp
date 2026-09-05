@@ -16,7 +16,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 _MODEL_PRICING: dict[str, tuple[float, float]] = {
-    "cerebras:gpt-oss-120b": (0.35, 0.75),
     "groq:gpt-oss-120b": (0.15, 0.60),
     "groq:gpt-oss-20b": (0.075, 0.30),
     "vercel:gpt-oss-20b": (0.10, 0.40),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 
 from fastmcp.dependencies import CurrentContext
@@ -11,7 +11,7 @@ from fastmcp.server.context import Context
 from opentelemetry import trace
 
 from ..errors import raise_tool_error
-from ..models import ProviderWarning, WebSearchResponse
+from ..models import ProviderWarning, WebSearchPublicResponse, WebSearchResponse
 from ..search.filters import FilterValidationError, normalize_locale, resolve_window
 from ..search.options import build_search_options
 from ..telemetry import (
@@ -25,6 +25,7 @@ from ._helpers import (
     _resolve_session_id,
 )
 from ..utils.observability import emit_tool_observability_event
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -42,8 +43,9 @@ async def web_search(
     domain_boost: list[str] | None = None,
     reranking_instructions: str | None = None,
     include_undated: bool | None = None,
+    cursor: str | None = None,
     ctx: Context = CurrentContext(),
-) -> WebSearchResponse:
+) -> WebSearchPublicResponse:
     """Run one validated multi-provider web search across configured backends with RRF ranking.
 
     Multi-query input:
@@ -57,12 +59,12 @@ async def web_search(
     Selection & Chaining Process:
     1. Provide a specific search query containing exact terms, error codes, or dates.
     2. Provide a natural-language research_goal used for intent policy and relevance scoring.
-    3. Evaluate results based on provider_count (>=2 indicates high consensus).
-    4. You MUST call fetch on the top URLs to read their full context before finalizing your answer.
-
-    Do NOT use for:
-    - Initial fast scoping (use quick_web_search first).
-    - AI-grounded synthesized answers (use gemini_search instead).
+    3. Ranked evidence is not page text. citation_id is the cite key; url not link.
+       query_variants are dispatched branch queries. status is ok, empty, or partial.
+       next is mandatory evaluate-then-fetch. cursor is optional leftover continuation
+       of this run and must not be used instead of fetch. web_search(cursor=...) does
+       not re-search.
+    4. You MUST call fetch on the URLs in next.query.urls before treating snippets as page text.
 
     Args:
         query: Search query string. Be specific — include keywords, dates,
@@ -89,9 +91,14 @@ async def web_search(
         region: Country bias/filter (alpha-2, e.g. "PL").
         gl: Deprecated alias for region.
     """
-    from ..search.contracts import WebSearchRequest
+    from ..search.contracts import SearchRun, WebSearchRequest
     from ..search.service import execute_web_search
     from ..utils.http_client import get_http_client
+    from ..utils.public_output import (
+        decode_web_search_overflow_cursor,
+        page_overflow_cursor,
+        to_public_web_search_from_run,
+    )
 
     started = time.monotonic()
     tool_call_id = str(uuid.uuid4())
@@ -105,6 +112,26 @@ async def web_search(
         research_goal=research_goal,
         rewrite=rewrite,
     )
+    if cursor and cursor.strip():
+        try:
+            public = page_overflow_cursor(decode_web_search_overflow_cursor(cursor.strip()))
+        except ValueError as exc:
+            _record_tool_failure("web_search")
+            emit_tool_observability_event(
+                LOGGER,
+                "web_search",
+                "error",
+                tool_call_id=tool_call_id,
+                query=query,
+                research_goal=research_goal,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
+            raise_tool_error(exc, provider="web_search")
+        _record_tool_success("web_search")
+        return public
+
     try:
         if queries:
             cleaned_queries = tuple(q.strip() for q in queries if q and q.strip())[:4]
@@ -135,7 +162,9 @@ async def web_search(
     # Resolve temporal/locale filters once; absolute bounds win over bucket.
     filter_warnings: list[str] = []
     if after_date and date_range:
-        filter_warnings.append("date_range ignored; absolute after_date/before_date take precedence.")
+        filter_warnings.append(
+            "date_range ignored; absolute after_date/before_date take precedence."
+        )
     try:
         temporal_window = resolve_window(
             date_range=date_range,
@@ -188,14 +217,16 @@ async def web_search(
         ctx_token = bind_run_context(tool_call_id, operation="web_search")
         try:
             try:
-                response_model = await execute_web_search(
+                search_result = await execute_web_search(
                     request,
                     http_client=await get_http_client(),
                     run_key=tool_call_id,
                     tool_call_id=tool_call_id,
                     session_id=_resolve_session_id(ctx),
                     progress=ctx,
+                    return_diagnostics=True,
                 )
+                response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
             except Exception as exc:
                 _record_tool_failure("web_search")
                 emit_tool_observability_event(
@@ -210,9 +241,6 @@ async def web_search(
                     duration_ms=(time.monotonic() - started) * 1000,
                 )
                 raise_tool_error(exc, provider="web_search")
-            if isinstance(response_model, tuple):
-                response_model = response_model[0]
-            response = response_model
         finally:
             reset_run_context(ctx_token)
 
@@ -248,4 +276,4 @@ async def web_search(
     except Exception:
         pass
     _record_tool_success("web_search")
-    return response
+    return to_public_web_search_from_run(run)

@@ -160,10 +160,11 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
             http_client=mock_client,
         )
         self.assertEqual(vec, [0.1, 0.2, 0.3])
-        # Verify query prefix was applied in the request
+        # Granite is sent unprefixed; E5 prefix is model-name gated.
         call_args = mock_client.post.call_args
         payload = call_args[1].get("json", {})
-        self.assertEqual(payload["input"], ["query: hello"])
+        self.assertEqual(payload["input"], ["hello"])
+        self.assertEqual(payload["model"], "granite-embedding-311m-multilingual")
 
     async def test_empty_text_raises_value_error(self) -> None:
         with self.assertRaises(ValueError):
@@ -223,7 +224,7 @@ class TestUnifiedMLEmbeddingsAsync(unittest.IsolatedAsyncioTestCase):
                 await embed_texts(
                     ["hello"],
                     provider="unifiedml_only",
-                    expected_dim=786,
+                    expected_dim=768,
                     http_client=mock_client,
                 )
 
@@ -242,14 +243,14 @@ class TestLiveUnifiedMLEmbeddings(unittest.IsolatedAsyncioTestCase):
 
         # Test live embed_query
         q_vec = await embed_query("how to deploy docker containers")
-        self.assertEqual(len(q_vec), 786)
+        self.assertEqual(len(q_vec), 768)
         self.assertTrue(all(isinstance(x, float) for x in q_vec))
 
         # Test live embed_texts
         t_vecs = await embed_texts(["docker in production", "fastembed onnx inference"])
         self.assertEqual(len(t_vecs), 2)
-        self.assertEqual(len(t_vecs[0]), 786)
-        self.assertEqual(len(t_vecs[1]), 786)
+        self.assertEqual(len(t_vecs[0]), 768)
+        self.assertEqual(len(t_vecs[1]), 768)
 
 
 if __name__ == "__main__":

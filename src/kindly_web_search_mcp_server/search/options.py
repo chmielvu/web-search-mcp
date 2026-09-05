@@ -77,6 +77,7 @@ class SearchOptions:
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
+
 def build_search_options(
     *,
     searxng_categories: list[str] | None = None,
@@ -108,6 +109,8 @@ def build_search_options(
         region=(locale_spec.region if locale_spec else None),
     )
     return options.validate()
+
+
 def build_search_identity_key(
     providers: list[str] | None,
     search_options: SearchOptions | None,

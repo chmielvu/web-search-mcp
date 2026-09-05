@@ -10,6 +10,7 @@ Also provides SearXNG result metadata enhancement and channel handle resolution.
 
 from __future__ import annotations
 
+import html as html_lib
 import os
 import re
 import logging
@@ -254,9 +255,9 @@ async def search_youtube_videos(
 
             results.append(
                 WebSearchResult(
-                    title=title.strip(),
+                    title=html_lib.unescape(title.strip()),
                     link=link.strip(),
-                    snippet=enriched_snippet,
+                    snippet=html_lib.unescape(enriched_snippet),
                     published_date=published_date if isinstance(published_date, str) else None,
                 )
             )
@@ -419,9 +420,9 @@ async def search_youtube_html_scrape(
 
                 results.append(
                     WebSearchResult(
-                        title=title.strip(),
+                        title=html_lib.unescape(title.strip()),
                         link=link,
-                        snippet=snippet,
+                        snippet=html_lib.unescape(snippet),
                         published_date=published_text if isinstance(published_text, str) else None,
                     )
                 )

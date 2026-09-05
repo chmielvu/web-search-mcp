@@ -194,7 +194,10 @@ async def _search_type(
     endpoint = f"{settings.huggingface_semantic_search_url.rstrip('/')}/search/{asset_type}"
     try:
         headers = {"Accept": "application/json", "User-Agent": "web-search-mcp/code-search"}
-        hf_token = os.environ.get("HF_TOKEN", "").strip() or os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
+        hf_token = (
+            os.environ.get("HF_TOKEN", "").strip()
+            or os.environ.get("HUGGING_FACE_HUB_TOKEN", "").strip()
+        )
         if hf_token:
             headers["Authorization"] = f"Bearer {hf_token}"
         response = await client.get(

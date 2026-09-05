@@ -8,7 +8,7 @@ import math
 import os
 import re
 import time
-from collections import defaultdict, deque
+from collections import deque
 from typing import Any, Iterable
 
 import httpx
@@ -20,11 +20,9 @@ from .models import (
     Diagnostic,
     ProviderResponse,
     RepoCandidate,
-    TextFragment,
     build_location_metadata,
 )
 from .query import QueryPlan
-from .tree_sitter_evidence import classify_source, language_for_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,6 +32,7 @@ _GITHUB_CODE_SEARCH_URL = f"{_GITHUB_API_URL}/search/code"
 _GITHUB_ACCEPT = "application/vnd.github+json"
 _GITHUB_TEXT_MATCH_ACCEPT = "application/vnd.github.text-match+json"
 _GITHUB_API_VERSION = "2022-11-28"
+_QUERY_MAX_CHARS = 256
 _CODE_SEARCH_QUALIFIERS = {
     "extension",
     "file",
@@ -432,6 +431,7 @@ def _qualifier_text(
         parts.append(f"{canonical_key}:{value}")
     return " ".join(parts)
 
+
 def _repository_terms(plan: QueryPlan) -> tuple[list[str], str | None]:
     terms: list[str] = []
     inferred_language: str | None = None
@@ -565,19 +565,6 @@ def _build_code_query(
     return " ".join(part for part in parts if part)[:_QUERY_MAX_CHARS].rstrip()
 
 
-def _fragment_from_match(match: dict[str, Any]) -> TextFragment | None:
-    fragment = match.get("fragment")
-    if not isinstance(fragment, str) or not fragment.strip():
-        return None
-    matches = match.get("matches")
-    metadata = {
-        key: match[key] for key in ("property", "object_url", "object_type") if key in match
-    }
-    if isinstance(matches, list):
-        metadata["matches"] = matches
-    return TextFragment(text=fragment, match_metadata=metadata)
-
-
 def _parse_code_items(
     payload: dict[str, Any],
     *,
@@ -603,30 +590,6 @@ def _parse_code_items(
         if not isinstance(url, str) or not url.strip():
             url = f"https://github.com/{repository}/blob/{item.get('sha', 'HEAD')}/{path}"
         revision_match = re.search(r"/blob/([^/]+)/", url)
-        fragments: list[TextFragment] = []
-        match_spans: list[dict[str, Any]] = []
-        text_matches = item.get("text_matches")
-        if isinstance(text_matches, list):
-            for fragment_index, match in enumerate(text_matches):
-                if isinstance(match, dict) and (fragment := _fragment_from_match(match)):
-                    fragments.append(fragment)
-                    for matched in match.get("matches", []):
-                        if not isinstance(matched, dict):
-                            continue
-                        indices = matched.get("indices")
-                        if (
-                            isinstance(indices, list)
-                            and len(indices) == 2
-                            and all(isinstance(value, int) for value in indices)
-                        ):
-                            match_spans.append(
-                                {
-                                    "fragment": fragment_index,
-                                    "start": indices[0],
-                                    "end": indices[1],
-                                    "text": matched.get("text"),
-                                }
-                            )
         hits.append(
             CodeSearchHit(
                 repository=repository,
@@ -645,28 +608,30 @@ def _parse_code_items(
                     revision=revision_match.group(1) if revision_match else None,
                     match_data_available=True,
                 ),
-                fragments=fragments,
-                match_spans=match_spans,
-                snippet="\n".join(fragment.text for fragment in fragments) or None,
                 score_components={"provider_score": float(item.get("score") or 0.0)},
                 source_metadata={
-                    "repository_url": repository_data.get("html_url")
-                    if isinstance(repository_data, dict)
-                    else None,
+                    "repository_url": (
+                        repository_data.get("html_url")
+                        if isinstance(repository_data, dict)
+                        else None
+                    ),
                     "api_url": item.get("url"),
                     "git_url": item.get("git_url"),
-                    "archived": bool(repository_data.get("archived"))
-                    if isinstance(repository_data, dict)
-                    else False,
-                    "stars": int(repository_data.get("stargazers_count") or 0)
-                    if isinstance(repository_data, dict)
-                    else 0,
-                    "forks": int(repository_data.get("forks_count") or 0)
-                    if isinstance(repository_data, dict)
-                    else 0,
-                    "omitted_fragments": max(0, len(text_matches) - 10)
-                    if isinstance(text_matches, list)
-                    else 0,
+                    "archived": (
+                        bool(repository_data.get("archived"))
+                        if isinstance(repository_data, dict)
+                        else False
+                    ),
+                    "stars": (
+                        int(repository_data.get("stargazers_count") or 0)
+                        if isinstance(repository_data, dict)
+                        else 0
+                    ),
+                    "forks": (
+                        int(repository_data.get("forks_count") or 0)
+                        if isinstance(repository_data, dict)
+                        else 0
+                    ),
                 },
             )
         )
@@ -965,7 +930,9 @@ async def search_github(
 
     sem = asyncio.Semaphore(2)
 
-    async def _throttled_search(scope_val: str | None, var_val: str) -> tuple[list[CodeSearchHit], list[Diagnostic]]:
+    async def _throttled_search(
+        scope_val: str | None, var_val: str
+    ) -> tuple[list[CodeSearchHit], list[Diagnostic]]:
         async with sem:
             await asyncio.sleep(0.05)
             try:
@@ -1029,264 +996,3 @@ async def search_github(
             "engine": "github_rest_legacy_code_search",
         },
     )
-
-
-_HYDRATE_QUERY_TEMPLATE = """query HydrateFiles({variables}) {{
-{fields}
-}}"""
-
-
-def _hydrate_query(group: list[CodeSearchHit]) -> tuple[str, dict[str, str]]:
-    variables: dict[str, str] = {}
-    fields: list[str] = []
-    for index, hit in enumerate(group):
-        repository = hit.repository or ""
-        owner, _, repo = repository.partition("/")
-        variables[f"owner{index}"] = owner
-        variables[f"repo{index}"] = repo
-        if hit.sha and re.match(r"^[0-9a-f]{40}$", hit.sha, re.I):
-            variables[f"oid{index}"] = hit.sha
-            fields.append(
-                "  f{0}: repository(owner: $owner{0}, name: $repo{0}) {{\n"
-                "    object(oid: $oid{0}) {{ oid ... on Blob {{ byteSize isBinary text }} }}\n"
-                "  }}".format(index)
-            )
-        else:
-            commit = hit.commit_oid or "HEAD"
-            path = hit.path or ""
-            variables[f"expr{index}"] = f"{commit}:{path}"
-            fields.append(
-                "  f{0}: repository(owner: $owner{0}, name: $repo{0}) {{\n"
-                "    object(expression: $expr{0}) {{ oid ... on Blob {{ byteSize isBinary text }} }}\n"
-                "  }}".format(index)
-            )
-    declarations = " ".join(f"${name}: String!" for name in variables)
-    return _HYDRATE_QUERY_TEMPLATE.format(
-        variables=declarations, fields="\n".join(fields)
-    ), variables
-
-
-async def hydrate_github_hits(
-    hits: list[CodeSearchHit],
-    *,
-    http_client: httpx.AsyncClient,
-    token: str | None = None,
-    max_files: int = 25,
-    max_chars_per_file: int = 200_000,
-    deep: bool = False,
-) -> tuple[list[Diagnostic], int, bool]:
-    """Hydrate selected GitHub hits with commit-pinned GraphQL aliases."""
-
-    token = token or _token()
-    if not token:
-        return (
-            [
-                _diagnostic(
-                    "GitHub hydration skipped because GITHUB_TOKEN or GH_TOKEN is missing",
-                    outcome="partial",
-                    failure_kind="auth",
-                )
-            ],
-            0,
-            False,
-        )
-    safe_max_chars_per_file = max(1, max_chars_per_file)
-    selected: list[CodeSearchHit] = []
-    seen: set[tuple[str, str, str]] = set()
-    for hit in hits:
-        if not hit.repository or not hit.path:
-            continue
-        key = (hit.repository, hit.path, hit.commit_oid or "HEAD")
-        if key in seen:
-            continue
-        seen.add(key)
-        selected.append(hit)
-        if len(selected) >= max_files:
-            break
-    groups: dict[str, list[CodeSearchHit]] = defaultdict(list)
-    for hit in selected:
-        groups[hit.repository or ""].append(hit)
-    diagnostics: list[Diagnostic] = []
-    hydrated_count = 0
-    truncated = False
-    for repository, group in groups.items():
-        query, variables = _hydrate_query(group)
-        response = await http_client.post(
-            _GITHUB_GRAPHQL_URL,
-            headers=_headers(token),
-            json={"query": query, "variables": variables},
-            timeout=settings.search_retrieve_budget_seconds,
-        )
-        if response.status_code != 200:
-            diagnostics.append(
-                _diagnostic(
-                    f"GitHub hydration returned HTTP {response.status_code}",
-                    outcome="partial",
-                    query=repository,
-                    response=response,
-                )
-            )
-            continue
-        payload = _json(response)
-        if payload is None:
-            diagnostics.append(
-                _diagnostic(
-                    "GitHub hydration returned invalid JSON", outcome="partial", query=repository
-                )
-            )
-            continue
-        if payload.get("errors"):
-            diagnostics.append(
-                _diagnostic(_graphql_error_message(payload), outcome="partial", query=repository)
-            )
-        data = payload.get("data") or {}
-        for index, hit in enumerate(group):
-            node = data.get(f"f{index}") if isinstance(data, dict) else None
-            blob = node.get("object") if isinstance(node, dict) else None
-            if not isinstance(blob, dict):
-                diagnostics.append(
-                    _diagnostic(
-                        f"GitHub could not hydrate {hit.repository}:{hit.path}",
-                        outcome="partial",
-                        failure_kind="not_found",
-                    )
-                )
-                continue
-            if blob.get("isBinary"):
-                diagnostics.append(
-                    _diagnostic(
-                        f"Skipped binary GitHub file {hit.repository}:{hit.path}",
-                        outcome="partial",
-                        failure_kind="provider",
-                        details={"binary": True},
-                    )
-                )
-                continue
-            text = blob.get("text")
-            if not isinstance(text, str):
-                diagnostics.append(
-                    _diagnostic(
-                        f"GitHub file has no textual content: {hit.repository}:{hit.path}",
-                        outcome="partial",
-                        failure_kind="provider",
-                    )
-                )
-                continue
-            blob_oid = blob.get("oid") if isinstance(blob.get("oid"), str) else None
-            if hit.sha and blob_oid and hit.sha != blob_oid:
-                diagnostics.append(
-                    _diagnostic(
-                        f"GitHub blob identity mismatch for {hit.repository}:{hit.path}",
-                        outcome="partial",
-                        failure_kind="provider",
-                        details={"expected_blob_sha": hit.sha, "actual_blob_sha": blob_oid},
-                    )
-                )
-                continue
-            if blob_oid:
-                hit.source_metadata["hydrated_blob_oid"] = blob_oid
-            normalized_text = text.replace("\r\n", "\n")
-            candidates = [fragment.text for fragment in hit.fragments if fragment.text]
-            if hit.query_variant:
-                candidates.extend(
-                    item.strip('"') for item in re.findall(r'"[^"\n]+"|\S+', hit.query_variant)
-                )
-            location = -1
-            for candidate in candidates:
-                for cand_line in candidate.splitlines():
-                    cleaned_line = cand_line.strip()
-                    if len(cleaned_line) >= 4:
-                        pos = normalized_text.find(cleaned_line)
-                        if pos >= 0:
-                            location = pos
-                            break
-                if location >= 0:
-                    break
-            if location < 0:
-                for candidate in candidates:
-                    words = re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", candidate)
-                    for word in words:
-                        pos = normalized_text.find(word)
-                        if pos >= 0:
-                            location = pos
-                            break
-                    if location >= 0:
-                        break
-            lines = normalized_text.splitlines()
-            full_source_chars = len(normalized_text)
-            if full_source_chars <= safe_max_chars_per_file:
-                hit.hydrated_source = normalized_text
-                hit.hydrated_source_truncated = False
-                hit.source_metadata.update(
-                    {
-                        "source_window_start": 1,
-                        "source_window_end": len(lines),
-                        "full_source_chars": full_source_chars,
-                    }
-                )
-            else:
-                truncated = True
-                hit.hydrated_source_truncated = True
-                if location >= 0:
-                    match_line = normalized_text[:location].count("\n") + 1
-                    hit.line_start = hit.line_start or match_line
-                    hit.line_end = hit.line_end or match_line
-                    before_lines = 160 if deep else 80
-                    after_lines = 320 if deep else 160
-                    window_start = max(0, match_line - 1 - before_lines)
-                    window_end = min(len(lines), match_line + after_lines)
-                    hit.hydrated_source = "\n".join(lines[window_start:window_end])
-                    hit.source_metadata.update(
-                        {
-                            "source_window_start": window_start + 1,
-                            "source_window_end": window_end,
-                            "full_source_chars": full_source_chars,
-                        }
-                    )
-                else:
-                    fragment_location = -1
-                    for fragment in hit.fragments:
-                        if not fragment.text:
-                            continue
-                        fragment_text = fragment.text[:50]
-                        position = normalized_text.find(fragment_text)
-                        if position >= 0:
-                            fragment_location = position
-                            break
-                    if fragment_location >= 0:
-                        match_line = normalized_text[:fragment_location].count("\n") + 1
-                        hit.line_start = hit.line_start or match_line
-                        hit.line_end = hit.line_end or match_line
-                        window_start = max(0, match_line - 1 - 80)
-                        window_end = min(len(lines), match_line + 160)
-                        hit.hydrated_source = "\n".join(lines[window_start:window_end])
-                        hit.source_metadata.update(
-                            {
-                                "source_window_start": window_start + 1,
-                                "source_window_end": window_end,
-                                "full_source_chars": full_source_chars,
-                            }
-                        )
-                    else:
-                        hit.hydrated_source = "\n".join(lines[:800])
-                        hit.source_metadata.update(
-                            {
-                                "source_window_start": 1,
-                                "source_window_end": min(len(lines), 800),
-                                "full_source_chars": full_source_chars,
-                            }
-                        )
-            ast_classification = classify_source(
-                normalized_text,
-                language=language_for_path(hit.path),
-                path=hit.path,
-                source_line_start=1,
-                match_line_start=hit.line_start,
-                match_line_end=hit.line_end,
-            )
-            hit.source_metadata["ast_classification"] = ast_classification.as_metadata()
-            hydrated_count += 1
-    return diagnostics, hydrated_count, truncated
-
-
-_QUERY_MAX_CHARS = 256

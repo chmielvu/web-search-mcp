@@ -149,7 +149,7 @@ def test_content_fetch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
     )
     source = tmp_path / "urls.jsonl"
     source.write_text(
-        "https://one.example\n{\"id\": \"two\", \"url\": \"https://two.example\"}\n",
+        'https://one.example\n{"id": "two", "url": "https://two.example"}\n',
         encoding="utf-8",
     )
 
@@ -166,6 +166,7 @@ def test_content_fetch_accepts_jsonl_input(monkeypatch, tmp_path: Path) -> None:
         "https://one.example",
         "https://two.example",
     ]
+
 
 def test_content_fetch_suggests_next_window(monkeypatch) -> None:
     monkeypatch.setattr(

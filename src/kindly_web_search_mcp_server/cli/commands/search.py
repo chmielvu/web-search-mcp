@@ -48,9 +48,7 @@ def quick_cmd(
     location: Annotated[str | None, typer.Option("--location")] = None,
     max_age_seconds: Annotated[int | None, typer.Option("--max-age-seconds")] = None,
     timeout_seconds: Annotated[float | None, typer.Option("--timeout-seconds")] = None,
-    disable_cache_fallback: Annotated[
-        bool, typer.Option("--disable-cache-fallback")
-    ] = False,
+    disable_cache_fallback: Annotated[bool, typer.Option("--disable-cache-fallback")] = False,
 ) -> None:
     """Run the Parallel AI-backed quick web search path."""
     from ..services.quick_search import fetch_quick_web_search_payload
@@ -93,9 +91,7 @@ def quick_cmd(
         advanced["disable_cache_fallback"] = True
 
     try:
-        payload = run_cli_async(
-            fetch_quick_web_search_payload(queries, goal, **advanced)
-        )
+        payload = run_cli_async(fetch_quick_web_search_payload(queries, goal, **advanced))
     except Exception as exc:
         raise CliError(
             kind="tool_error",
@@ -119,7 +115,7 @@ def web_cmd(
             "-q",
             help="Search query text (can be specified up to 4 times for multi-query search).",
         ),
-    ] = ...,
+    ] = [],
     rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
     research_goal: Annotated[
         str,
@@ -189,9 +185,22 @@ def web_cmd(
         bool,
         typer.Option("--diagnostics", help="Include full pipeline diagnostics in output."),
     ] = False,
+    cursor: Annotated[
+        str | None,
+        typer.Option("--cursor", help="Leftover continuation cursor from this run."),
+    ] = None,
 ) -> None:
     """Run the full multi-provider web search pipeline."""
     from ..services.search_web import fetch_web_search_payload
+
+    if not (cursor and cursor.strip()) and not any(item.strip() for item in query):
+        raise CliError(
+            kind="usage_error",
+            message="Provide --query or --cursor.",
+            hint="Specify at least one search query or a leftover cursor.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search web"},
+        )
 
     try:
         payload = run_cli_async(
@@ -213,6 +222,7 @@ def web_cmd(
                 region=region,
                 include_undated=include_undated,
                 diagnostics=diagnostics,
+                cursor=cursor,
             )
         )
     except ValueError as exc:
@@ -290,7 +300,6 @@ def postmortem_cmd(
             context={"command": "search postmortem", "run_key": run_key},
         ) from exc
     emit_json(payload, command="search postmortem")
-
 
 
 @search_app.command("code")
@@ -429,25 +438,49 @@ def fetch_cmd(
     query: Annotated[str | None, typer.Option("--query")] = None,
     path: Annotated[str | None, typer.Option("--path")] = None,
     symbol: Annotated[str | None, typer.Option("--symbol")] = None,
-    ref: Annotated[str | None, typer.Option("--ref", help="Optional git revision (branch, tag, or commit SHA).")] = None,
+    ref: Annotated[
+        str | None,
+        typer.Option("--ref", help="Optional git revision (branch, tag, or commit SHA)."),
+    ] = None,
     regexp: Annotated[
         bool,
         typer.Option("--regexp/--no-regexp", help="Treat --query as a regular expression."),
     ] = False,
     max_matches: Annotated[int, typer.Option("--max-matches")] = 25,
     context_lines: Annotated[int, typer.Option("--context-lines")] = 3,
-    start_line: Annotated[int | None, typer.Option("--start-line", help="Optional 1-based start line.")] = None,
-    end_line: Annotated[int | None, typer.Option("--end-line", help="Optional 1-based end line.")] = None,
-    depth: Annotated[int | None, typer.Option("--depth", help="Optional max directory tree depth.")] = None,
-    language: Annotated[str | None, typer.Option("--language", help="Filter hits by language, e.g. python.")] = None,
-    filename: Annotated[str | None, typer.Option("--filename", help="fnmatch filter on file basename.")] = None,
-    path_glob: Annotated[str | None, typer.Option("--path-glob", help="fnmatch include filter on repo-relative path.")] = None,
-    exclude_glob: Annotated[str | None, typer.Option("--exclude-glob", help="fnmatch exclude filter on repo-relative path.")] = None,
+    start_line: Annotated[
+        int | None, typer.Option("--start-line", help="Optional 1-based start line.")
+    ] = None,
+    end_line: Annotated[
+        int | None, typer.Option("--end-line", help="Optional 1-based end line.")
+    ] = None,
+    depth: Annotated[
+        int | None, typer.Option("--depth", help="Optional max directory tree depth.")
+    ] = None,
+    language: Annotated[
+        str | None, typer.Option("--language", help="Filter hits by language, e.g. python.")
+    ] = None,
+    filename: Annotated[
+        str | None, typer.Option("--filename", help="fnmatch filter on file basename.")
+    ] = None,
+    path_glob: Annotated[
+        str | None,
+        typer.Option("--path-glob", help="fnmatch include filter on repo-relative path."),
+    ] = None,
+    exclude_glob: Annotated[
+        str | None,
+        typer.Option("--exclude-glob", help="fnmatch exclude filter on repo-relative path."),
+    ] = None,
     case_sensitive: Annotated[
         bool,
-        typer.Option("--case-sensitive/--no-case-sensitive", help="Case-sensitive literal matching."),
+        typer.Option(
+            "--case-sensitive/--no-case-sensitive", help="Case-sensitive literal matching."
+        ),
     ] = False,
-    cursor: Annotated[str | None, typer.Option("--cursor", help="Continuation cursor from a previous next_cursor.")] = None,
+    cursor: Annotated[
+        str | None,
+        typer.Option("--cursor", help="Continuation cursor from a previous next_cursor."),
+    ] = None,
 ) -> None:
     """Explore a cached GitHub repository snapshot."""
     from ..services.code_fetch import fetch_code_fetch_payload
@@ -491,7 +524,6 @@ def fetch_cmd(
             context={"command": "search fetch", "repository": repository},
         ) from exc
     emit_json(payload, command="search fetch")
-
 
 
 @search_app.command("academic")

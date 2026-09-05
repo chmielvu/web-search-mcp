@@ -57,6 +57,7 @@ class TestExaProvider(unittest.TestCase):
             self.assertEqual(results[0].snippet, "A relevant semantic highlight.")
 
         anyio.run(run)
+
     def test_search_exa_applies_intent_arguments_and_freshness(self) -> None:
         async def run() -> None:
             os.environ["EXA_API_KEY"] = "exa_test"

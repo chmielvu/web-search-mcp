@@ -1,8 +1,7 @@
-"""Rerank stage telemetry and analytics helpers."""
+"""Rerank stage telemetry helpers."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from ..telemetry import RERANK_INPUT_COUNT, RERANK_OUTPUT_COUNT, RERANK_STAGE, record_rerank_stage
@@ -13,12 +12,7 @@ def record_bi_encoder_stage(
     original_count: int,
     output_count: int,
     duration_seconds: float,
-    run_key: str | None,
-    query_type_hint: str | None,
-    entity_overlap_enabled: bool,
     main_span: Any,
-    logger: logging.Logger,
-    payload_json: dict[str, Any] | None = None,
 ) -> None:
     record_rerank_stage(
         stage="bi_encoder",
@@ -47,19 +41,13 @@ def record_ranked_stage(
     output_count: int,
     duration_seconds: float,
     relevance_scores: list[float],
-    payload_json: dict[str, Any],
-    query_type_hint: str | None,
-    entity_overlap_enabled: bool,
-    run_key: str | None,
-    main_span: Any,
-    logger: logging.Logger,
+    attempted_passes: int = 0,
+    valid_passes: int = 0,
+    failed_passes: int = 0,
+    main_span: object,
 ) -> tuple[float | None, float | None]:
-    if stage_name == "rankllm":
-        max_score = None
-        avg_score = None
-    else:
-        max_score = max(relevance_scores) if relevance_scores else 0.0
-        avg_score = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
+    max_score = max(relevance_scores) if relevance_scores else 0.0
+    avg_score = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
     record_rerank_stage(
         stage=stage_name,
         input_count=input_count,
@@ -68,22 +56,25 @@ def record_ranked_stage(
         relevance_scores=relevance_scores,
         model=model,
     )
-    event_attributes = {
+    event_attributes: dict[str, object] = {
         RERANK_STAGE: stage_name,
         RERANK_INPUT_COUNT: input_count,
         RERANK_OUTPUT_COUNT: output_count,
+        "rerank.top_score": round(max_score, 4),
+        "rerank.avg_score": round(avg_score, 4),
     }
-    if max_score is not None:
-        event_attributes["rerank.top_score"] = round(max_score, 4)
-    if avg_score is not None:
-        event_attributes["rerank.avg_score"] = round(avg_score, 4)
+    if provider:
+        event_attributes["rerank.provider"] = provider
     if model is not None:
         event_attributes["rerank.model"] = model
-        event_attributes["rerank.model_used"] = model
     if input_tokens is not None:
         event_attributes["rerank.input_tokens"] = input_tokens
     if output_tokens is not None:
         event_attributes["rerank.output_tokens"] = output_tokens
+    if attempted_passes:
+        event_attributes["rerank.attempted_passes"] = attempted_passes
+        event_attributes["rerank.valid_passes"] = valid_passes
+        event_attributes["rerank.failed_passes"] = failed_passes
     main_span.add_event(
         f"rerank.{stage_name}",
         attributes=event_attributes,

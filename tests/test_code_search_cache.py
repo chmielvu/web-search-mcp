@@ -21,7 +21,9 @@ class FakePageCache:
     async def _lookup(self, key: str) -> dict | None:
         return self.values.get(key)
 
-    async def _store(self, key: str, content: str, method: str, metadata: dict, ttl_seconds: int) -> None:
+    async def _store(
+        self, key: str, content: str, method: str, metadata: dict, ttl_seconds: int
+    ) -> None:
         self.values[key] = {
             "page_content": content,
             "extraction_method": method,

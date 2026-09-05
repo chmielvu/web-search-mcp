@@ -26,8 +26,18 @@ async def fetch_web_search_payload(
     gl: str | None = None,
     include_undated: bool | None = None,
     diagnostics: bool = False,
+    cursor: str | None = None,
     **_obsolete_options: object,
 ) -> dict[str, Any]:
+    if cursor and str(cursor).strip():
+        from ...utils.public_output import (
+            decode_web_search_overflow_cursor,
+            page_overflow_cursor,
+        )
+
+        public = page_overflow_cursor(decode_web_search_overflow_cursor(str(cursor).strip()))
+        return public.model_dump(exclude_none=True)
+
     if isinstance(query, list):
         cleaned_queries = tuple(q.strip() for q in query if q and q.strip())[:4]
         if not cleaned_queries:
@@ -77,8 +87,10 @@ async def fetch_web_search_payload(
         return_diagnostics=True,
         schedule_judges=False,
     )
-    response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
-    payload = response.model_dump(exclude_none=True)
+    _response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
+    from ...utils.public_output import to_public_web_search_from_run
+
+    payload = to_public_web_search_from_run(run).model_dump(exclude_none=True)
     payload["run_key"] = run_key
 
     if diagnostics:

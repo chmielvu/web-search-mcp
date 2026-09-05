@@ -204,10 +204,6 @@ def _without_json_fence(text: str) -> str:
     return match.group(1) if match else text.strip()
 
 
-
-
-
-
 def _parse_presentation_text(text: str) -> list[dict[str, str]]:
     """Best-effort compatibility fallback for non-JSON model responses."""
     results: list[dict[str, str]] = []
@@ -316,9 +312,7 @@ async def search_gemma(
         )
         response.raise_for_status()
         metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider="gemma")
-        set_provider_request_metadata(
-            _with_metadata(metadata, http_status=response.status_code)
-        )
+        set_provider_request_metadata(_with_metadata(metadata, http_status=response.status_code))
         try:
             data = response.json()
         except ValueError as exc:
@@ -328,11 +322,7 @@ async def search_gemma(
         if data.get("error"):
             # OpenAI-style error body: {"error": {"message": ..., "type": ...}}.
             error_body = data["error"]
-            message = (
-                error_body.get("message")
-                if isinstance(error_body, dict)
-                else str(error_body)
-            )
+            message = error_body.get("message") if isinstance(error_body, dict) else str(error_body)
             error_type = (
                 error_body.get("type")
                 if isinstance(error_body, dict) and error_body.get("type")

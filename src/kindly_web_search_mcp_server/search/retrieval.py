@@ -9,7 +9,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Sequence
 from typing import Any
 
-from urllib.parse import urlsplit, urlunsplit
+from ..utils.url_canonicalize import canonicalize_url
 
 from ..models import ProviderWarning, WebSearchResult
 from ..settings import settings
@@ -22,12 +22,6 @@ from .providers.base import ProviderRequestMetadata, get_provider_request_metada
 
 from ..heuristics.shaping import shape_for_branch
 from ..heuristics.query_features import build_query_features
-
-
-def _canonical_url(url: str) -> str:
-    parsed = urlsplit(url)
-    path = parsed.path.rstrip("/") or "/"
-    return urlunsplit((parsed.scheme, parsed.netloc.lower(), path, parsed.query, ""))
 
 
 def _warning(
@@ -123,9 +117,7 @@ async def _call_provider(
         understanding=understanding,
         support_terms=branch.support_terms or (),
     )
-    aug = shape_for_branch(
-        branch.role.value, query, features, exact=not run.request.rewrite
-    )
+    aug = shape_for_branch(branch.role.value, query, features, exact=not run.request.rewrite)
     query_for_call = aug.query
     provider_arguments = dict(
         run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
@@ -306,7 +298,7 @@ def _record_provider_result(
     seen_urls = set()
     deduped_results = []
     for item in value:
-        url_key = _canonical_url(item.link)
+        url_key = canonicalize_url(item.link)
         if url_key not in seen_urls:
             seen_urls.add(url_key)
             deduped_results.append(item)
@@ -321,32 +313,36 @@ def _record_provider_result(
     # Collect provider_result rows for funnel uplift analytics
     if provider_result_rows is not None:
         from ..analytics.observability_store import _canonical_result_id as _cri
+
         for rank, item in enumerate(deduped_results, start=1):
-            provider_result_rows.append({
-                "provider_result_id": _cri(f"{name}|{branch_index}|{item.link}"),
-                "provider_call_id": _cri(f"{run_key}|{branch_index}|{name}"),
-                "run_key": run_key,
-                "branch_id": _cri(f"{run_key}|{branch_index}"),
-                "provider": name,
-                "provider_rank": rank,
-                "canonical_result_id": _cri(item.link),
-                "raw_url": item.link,
-                "title": getattr(item, "title", None),
-                "snippet": getattr(item, "snippet", None),
-                "raw_score": getattr(item, "score", None),
-                "is_eligible": True,
-                "rejection_reason": None,
-                "payload_json": None,
-            })
+            provider_result_rows.append(
+                {
+                    "provider_result_id": _cri(f"{name}|{branch_index}|{item.link}"),
+                    "provider_call_id": _cri(f"{run_key}|{branch_index}|{name}"),
+                    "run_key": run_key,
+                    "branch_id": _cri(f"{run_key}|{branch_index}"),
+                    "provider": name,
+                    "provider_rank": rank,
+                    "canonical_result_id": _cri(item.link),
+                    "raw_url": item.link,
+                    "title": getattr(item, "title", None),
+                    "snippet": getattr(item, "snippet", None),
+                    "raw_score": getattr(item, "raw_score", None),
+                    "is_eligible": True,
+                    "rejection_reason": None,
+                    "payload_json": None,
+                }
+            )
 
     for item in value:
-        key = _canonical_url(item.link)
+        key = canonicalize_url(item.link)
         if key not in rows:
             rows[key] = item
         else:
             existing = rows[key]
-            existing.providers = sorted({*(existing.providers or []), *(item.providers or []), name})
-            existing.provider_count = len(existing.providers)
+            existing.providers = sorted(
+                {*(existing.providers or []), *(item.providers or []), name}
+            )
     provider_calls.append(
         {
             "provider": name,

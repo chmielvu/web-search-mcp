@@ -5,18 +5,29 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from collections.abc import Awaitable, Sequence
+from datetime import date
 import logging
 import time
+from typing import Literal
 
-from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
+from ..models import (
+    FilterStats,
+    ProviderWarning,
+    WebSearchEvidenceScore,
+    WebSearchFetchHint,
+    WebSearchResponse,
+    WebSearchResult,
+)
 from ..rerank.bm25 import score_candidates_async
 from ..rerank.core import rerank_results
 from ..settings import settings
 from ..telemetry.spans import get_tracer
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
+from .filters import filter_results_by_window, parse_published_date
 from .merge import _memoize_canonicalize, reciprocal_rank_fusion
-from .normalize import canonicalize_url
+from .postprocess import apply_domain_boost
+from ..utils.url_canonicalize import canonicalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +48,78 @@ def _stable_warnings(outcomes: tuple[BranchOutcome, ...]) -> list[ProviderWarnin
     return warnings
 
 
+def _build_freshness_signal(
+    published_date: str | None,
+) -> Literal["fresh", "dated", "unknown"]:
+    if not published_date:
+        return "unknown"
+    parsed = parse_published_date(published_date)
+    if parsed is None:
+        return "unknown"
+    age_days = (date.today() - parsed).days
+    if age_days <= 90:
+        return "fresh"
+    return "dated"
+
+
+def _build_fetch_hint(result: WebSearchResult, rank: int) -> WebSearchFetchHint:
+    cross = result.cross_encoder_score
+    if cross is not None:
+        if cross >= 0.70:
+            confidence = "high"
+            why = "Strong semantic relevance from cross-encoder; fetch full page for grounded context."
+        elif cross >= 0.50:
+            confidence = "medium"
+            why = "Moderate semantic relevance; fetch to verify snippet details."
+        else:
+            confidence = "low"
+            why = "Lower semantic relevance; fetch only if higher-ranked sources are insufficient."
+    else:
+        if rank <= 3 or (result.final_score is not None and result.final_score >= 0.70):
+            confidence = "high"
+            why = "Top-ranked search result; fetch full page for grounded context."
+        elif rank <= 7 or (result.final_score is not None and result.final_score >= 0.40):
+            confidence = "medium"
+            why = "Relevant search result; fetch to inspect complete source details."
+        else:
+            confidence = "low"
+            why = "Lower-ranked result; fetch only if higher-ranked sources are insufficient."
+
+    return WebSearchFetchHint(
+        action="fetch",
+        tool="fetch",
+        query={"url": result.link},
+        why=why,
+        confidence=confidence,
+    )
+
+
+def attach_agent_evidence(results: list[WebSearchResult]) -> list[WebSearchResult]:
+    updated: list[WebSearchResult] = []
+    for idx, res in enumerate(results, start=1):
+        pc = len(res.providers) if res.providers else 1
+        evidence_score = WebSearchEvidenceScore(
+            final=res.final_score,
+            semantic=res.cross_encoder_score,
+            lexical=res.retrieval_rrf_score,
+            engine_consensus=pc,
+        )
+        freshness = _build_freshness_signal(res.published_date)
+        hint = _build_fetch_hint(res, idx)
+        updated.append(
+            res.model_copy(
+                update={
+                    "final_rank": idx,
+                    "citation_id": f"c{idx}",
+                    "evidence_score": evidence_score,
+                    "freshness_signal": freshness,
+                    "fetch_hint": hint,
+                }
+            )
+        )
+    return updated
+
+
 async def rank_and_finalize(
     run: SearchRun,
     outcomes: tuple[BranchOutcome, ...],
@@ -47,23 +130,50 @@ async def rank_and_finalize(
     rank_started = time.monotonic()
     dc = run.diagnostics
     with tracer.start_as_current_span("search.rank") as span:
-        provider_result_lists = []
+        key_for = _memoize_canonicalize(canonicalize_url)
+        warnings = _stable_warnings(outcomes)
+        warnings.extend(
+            ProviderWarning(provider="filters", error=message, error_type="filter")
+            for message in run.request.pre_warnings
+        )
+        filter_stats: FilterStats | None = None
+
+        # Collapse per-branch provider lists into one list per distinct
+        # provider before fusion. Branches like "original" and "free" query
+        # the same provider set (e.g. ddg, qdrant, searxng, degoog), so a
+        # provider queried from multiple branches must contribute exactly
+        # one fused list -- otherwise it gets counted (and RRF-boosted)
+        # once per branch, rewarding branch volume instead of independent
+        # provider evidence. Each URL keeps its best (lowest) rank across
+        # every branch that surfaced it.
+        provider_hit_ranks: dict[str, dict[str, tuple[int, WebSearchResult]]] = {}
+        provider_order: list[str] = []
         for outcome in outcomes:
             for prr in outcome.provider_ranked_results:
                 filtered = filter_blocked_results(list(prr.results))
-                if filtered:
-                    provider_result_lists.append(filtered)
+                if not filtered:
+                    continue
+                bucket = provider_hit_ranks.setdefault(prr.provider_name, {})
+                if prr.provider_name not in provider_order:
+                    provider_order.append(prr.provider_name)
+                for rank, result in enumerate(filtered, start=1):
+                    url_key = key_for(result.link)
+                    existing = bucket.get(url_key)
+                    if existing is None or rank < existing[0]:
+                        bucket[url_key] = (rank, result)
+
+        provider_result_lists: list[list[WebSearchResult]] = []
+        provider_list_weights: list[float] = []
+        for provider_name in provider_order:
+            ordered = sorted(provider_hit_ranks[provider_name].values(), key=lambda pair: pair[0])
+            provider_result_lists.append([result for _, result in ordered])
+            provider_list_weights.append(settings.rrf_provider_weights.get(provider_name, 1.0))
 
         merged: list[WebSearchResult] = []
         rrf_k = settings.rrf_k
         bm25_scores: list[float] = []
         overlap_rate = 0.0
         if provider_result_lists:
-            # Share one canonicalize cache across BM25, RRF fusion, and
-            # this function's own overlap/score lookups, so each distinct
-            # raw URL is canonicalized at most once per rank_and_finalize.
-            key_for = _memoize_canonicalize(canonicalize_url)
-
             # Track overlap rate across providers
             url_occurrences: Counter[str] = Counter(
                 key_for(result.link) for results in provider_result_lists for result in results
@@ -105,26 +215,70 @@ async def rank_and_finalize(
             #    additional independent ranking signal. BM25 contributes
             #    lexical relevance; providers contribute semantic/dense
             #    relevance. RRF naturally surfaces documents that perform
-            #    well across both modalities.
+            #    well across both modalities. Each list is weighted so a
+            #    scarce, strong signal counts for more than a high-volume,
+            #    weaker one, independent of how many lists it contributes.
             fused_lists = list(provider_result_lists)
+            fused_weights = list(provider_list_weights)
             if bm25_order:
                 fused_lists.append(bm25_order)
+                fused_weights.append(settings.rrf_bm25_weight)
             fused_with_scores = reciprocal_rank_fusion(
                 fused_lists,
                 k=rrf_k,
                 canonicalize=key_for,
+                weights=fused_weights,
             )
 
             # 3. Apply RRF scores to merged results
             for res, score in fused_with_scores:
                 res_updated = res.model_copy(
                     update={
-                        "score": score,
-                        "hybrid_rrf_score": score,
-                        "provider_consensus_rrf_score": None,
+                        "retrieval_rrf_score": score,
                     }
                 )
                 merged.append(res_updated)
+        window = run.request.options.temporal
+        if window is not None and not window.is_empty:
+            merged, dropped_range, dropped_undated = filter_results_by_window(
+                merged,
+                window=window,
+                get_published_date=lambda item: item.published_date,
+                get_providers=lambda item: item.providers or None,
+                include_undated=run.request.include_undated,
+            )
+            policy = (
+                "keep_all"
+                if run.request.include_undated is True
+                else ("drop_all" if run.request.include_undated is False else "capability_default")
+            )
+            filter_stats = FilterStats(
+                dropped_out_of_range=dropped_range,
+                dropped_undated=dropped_undated,
+                undated_policy=policy,
+            )
+            if dropped_range:
+                warnings.append(
+                    ProviderWarning(
+                        provider="filters",
+                        error=(
+                            f"Post-filter removed {dropped_range} result(s) outside "
+                            f"{window.start}..{window.end}."
+                        ),
+                        error_type="filter",
+                    )
+                )
+            if dropped_undated:
+                warnings.append(
+                    ProviderWarning(
+                        provider="filters",
+                        error=(
+                            f"Dropped {dropped_undated} undated result(s) under the "
+                            f"{policy} window policy."
+                        ),
+                        error_type="filter",
+                    )
+                )
 
         dc.merged_candidates = list(merged)
         span.set_attribute("search.merge_algorithm", "provider_rrf_with_bm25")
@@ -143,15 +297,14 @@ async def rank_and_finalize(
                 [result.model_copy() for result in merged],
                 research_goal=run.request.research_goal,
                 query_type_hint=(
-                    run.plan.understanding.intent
-                    if (run.plan and run.plan.understanding)
-                    else None
+                    run.plan.understanding.intent if (run.plan and run.plan.understanding) else None
                 ),
                 run_key=run.run_key,
                 session_id=run.session_id,
                 reranking_instructions=run.request.reranking_instructions,
             )
             ranked_pool = list(reranked.results)
+            dc.overflow_ranked = [(item.stage, item.result) for item in reranked.overflow_items]
             rerank_provider = reranked.provider
             rerank_model = reranked.model
             ctx = reranked.embedding_context
@@ -192,7 +345,8 @@ async def rank_and_finalize(
         )
         if merged:
             run.rerank_metadata["funnel_counts"] = reranked.funnel_counts
-        final_results = ranked_pool
+        final_ordered = apply_domain_boost(ranked_pool, run.request.domain_boost)
+        final_results = attach_agent_evidence(final_ordered)
         candidate_count = len(merged)
         returned = len(final_results)
         providers_used = sorted(
@@ -216,11 +370,12 @@ async def rank_and_finalize(
             results=final_results,
             total_results=returned,
             providers_used=providers_used,
-            warnings=_stable_warnings(outcomes) or None,
+            warnings=warnings or None,
             intent=(
                 str(run.plan.understanding.intent)
                 if (run.plan is not None and run.plan.understanding is not None)
                 else (run.diagnostics.intent or None)
             ),
             query_shaping=(run.diagnostics.query_shaping or None) or None,
+            filter_stats=filter_stats,
         )

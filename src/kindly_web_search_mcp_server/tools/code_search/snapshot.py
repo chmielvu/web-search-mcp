@@ -45,13 +45,18 @@ HF_FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float] | None:
     """Normal HF embeddings via InferenceClient feature_extraction."""
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    token = (
+        os.environ.get("HF_TOKEN")
+        or os.environ.get("HUGGINGFACE_TOKEN")
+        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    )
     if not token or not text:
         return None
     snippet = text[:max_chars]
     try:
         from huggingface_hub import InferenceClient
         import asyncio
+
         def _call(model: str) -> list[float] | None:
             try:
                 client = InferenceClient(token=token)
@@ -60,6 +65,7 @@ async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float]
                 # Normalize to list[float]
                 try:
                     import numpy as np
+
                     if isinstance(emb, np.ndarray):
                         # single text -> 1D array
                         return [float(x) for x in emb.tolist()]
@@ -73,6 +79,7 @@ async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float]
             except Exception as exc:
                 LOGGER.debug("HF embedding %s failed: %s", model, exc)
                 return None
+
         # Try primary code model, then fallback
         for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
             result = await asyncio.to_thread(_call, model)
@@ -84,11 +91,17 @@ async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float]
         return None
 
 
-async def _hf_batch_code_embeddings(texts: list[str], *, max_chars: int = 2000, batch_size: int = 16) -> list[list[float] | None]:
+async def _hf_batch_code_embeddings(
+    texts: list[str], *, max_chars: int = 2000, batch_size: int = 16
+) -> list[list[float] | None]:
     """Batch normal HF embeddings — uses same InferenceClient per batch."""
     if not texts:
         return []
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    token = (
+        os.environ.get("HF_TOKEN")
+        or os.environ.get("HUGGINGFACE_TOKEN")
+        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    )
     if not token:
         return [None] * len(texts)
     truncated = [t[:max_chars] for t in texts]
@@ -100,11 +113,13 @@ async def _hf_batch_code_embeddings(texts: list[str], *, max_chars: int = 2000, 
             try:
                 from huggingface_hub import InferenceClient
                 import asyncio
+
                 def _call_batch(model: str) -> list[list[float]] | None:
                     try:
                         client = InferenceClient(token=token)
                         embs = client.feature_extraction(batch, model=model)
                         import numpy as np
+
                         if isinstance(embs, np.ndarray):
                             # batch -> 2D array [batch, dim]
                             if embs.ndim == 2 and embs.shape[0] == len(batch):
@@ -125,6 +140,7 @@ async def _hf_batch_code_embeddings(texts: list[str], *, max_chars: int = 2000, 
                     except Exception as exc:
                         LOGGER.debug("HF batch %s failed: %s", model, exc)
                         return None
+
                 for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
                     batch_result = await asyncio.to_thread(_call_batch, model)
                     if batch_result is not None and len(batch_result) == len(batch):
@@ -148,6 +164,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
         return 0.0
     try:
         import math
+
         dot = sum(x * y for x, y in zip(a, b))
         norm_a = math.sqrt(sum(x * x for x in a))
         norm_b = math.sqrt(sum(y * y for y in b))
@@ -156,6 +173,8 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
         return dot / (norm_a * norm_b)
     except Exception:
         return 0.0
+
+
 TTL_SECONDS = settings.code_fetch_snapshot_ttl_seconds
 MAX_ARCHIVE_BYTES = 80 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 120 * 1024 * 1024
@@ -307,11 +326,11 @@ class SnapshotManager:
 
     def _connect(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        con = sqlite3.connect(str(self.db_path), timeout=10.0)
+        con = sqlite3.connect(str(self.db_path), timeout=30.0)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL;")
         con.execute("PRAGMA synchronous=NORMAL;")
-        con.execute("PRAGMA busy_timeout=5000;")
+        con.execute("PRAGMA busy_timeout=30000;")
         return con
 
     def _ensure_schema(self) -> None:
@@ -439,14 +458,11 @@ class SnapshotManager:
         else:
             # The deferred build re-reads the worktree, so it works on restore.
             try:
-                snapshot.graph_task = asyncio.create_task(
-                    self._deferred_graph_build(snapshot)
-                )
+                snapshot.graph_task = asyncio.create_task(self._deferred_graph_build(snapshot))
             except RuntimeError:
                 pass  # No loop (some test paths) — status stays pending
         self._remember(snapshot, key=key)
         return snapshot
-
 
     def build_from_directory(
         self,
@@ -620,7 +636,14 @@ class SnapshotManager:
                     if b"\0" in data[:1024]:
                         continue
                     text = data.decode("utf-8", errors="replace")
-                    records.append((relative.as_posix(), language_for_path(relative.as_posix()), len(data), text))
+                    records.append(
+                        (
+                            relative.as_posix(),
+                            language_for_path(relative.as_posix()),
+                            len(data),
+                            text,
+                        )
+                    )
                 except Exception:
                     continue
             symbols, edges = await asyncio.to_thread(_extract_graph, records)
@@ -668,7 +691,12 @@ class SnapshotManager:
             snapshot.graph_status = "ready"
             snapshot.graph_symbol_count = len(symbols)
             snapshot.graph_edge_count = len(edges)
-            LOGGER.info("Deferred graph build completed for %s: %d symbols, %d edges", snapshot.repository, len(symbols), len(edges))
+            LOGGER.info(
+                "Deferred graph build completed for %s: %d symbols, %d edges",
+                snapshot.repository,
+                len(symbols),
+                len(edges),
+            )
         except Exception as exc:
             snapshot.graph_status = "failed"
             snapshot.graph_error = str(exc)[:500]
@@ -696,7 +724,6 @@ class SnapshotManager:
         if persisted is not None:
             return persisted
         return await self.refresh(repository, ref=ref)
-
 
     async def refresh(self, repository: str, *, ref: str | None = None) -> Snapshot:
         key = f"{repository}@{ref}" if ref else repository
@@ -793,8 +820,12 @@ class SnapshotManager:
                     selected_lines = lines[sl - 1 : el]
                     sliced_text = "\n".join(selected_lines)
                     # 0 MAX_CONTENT_CHARS means unlimited - return full content
-                    content_out = sliced_text if MAX_CONTENT_CHARS <= 0 else sliced_text[:MAX_CONTENT_CHARS]
-                    is_truncated = False if MAX_CONTENT_CHARS <= 0 else len(sliced_text) > MAX_CONTENT_CHARS
+                    content_out = (
+                        sliced_text if MAX_CONTENT_CHARS <= 0 else sliced_text[:MAX_CONTENT_CHARS]
+                    )
+                    is_truncated = (
+                        False if MAX_CONTENT_CHARS <= 0 else len(sliced_text) > MAX_CONTENT_CHARS
+                    )
                     return QueryResult(
                         snapshot=snapshot,
                         intent="read",
@@ -811,8 +842,12 @@ class SnapshotManager:
                             )
                         ],
                     )
-                raw_content_out = raw_text if MAX_CONTENT_CHARS <= 0 else raw_text[:MAX_CONTENT_CHARS]
-                raw_truncated = False if MAX_CONTENT_CHARS <= 0 else len(raw_text) > MAX_CONTENT_CHARS
+                raw_content_out = (
+                    raw_text if MAX_CONTENT_CHARS <= 0 else raw_text[:MAX_CONTENT_CHARS]
+                )
+                raw_truncated = (
+                    False if MAX_CONTENT_CHARS <= 0 else len(raw_text) > MAX_CONTENT_CHARS
+                )
                 return QueryResult(
                     snapshot=snapshot,
                     intent="read",
@@ -1014,7 +1049,11 @@ class SnapshotManager:
         why=["semantic"] and confidence = cosine similarity.
         """
         # Gate: token required
-        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+        token = (
+            os.environ.get("HF_TOKEN")
+            or os.environ.get("HUGGINGFACE_TOKEN")
+            or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+        )
         if not token:
             return []
         if not query or len(query.strip()) < 3:
@@ -1095,7 +1134,9 @@ class SnapshotManager:
         # Enrich with neighbors/symbol like _search_hits does
         for hit in hits:
             try:
-                hit.callers, hit.callees = self._neighbors(_repo_key(snapshot), hit.symbol_name or query, hit.path)
+                hit.callers, hit.callees = self._neighbors(
+                    _repo_key(snapshot), hit.symbol_name or query, hit.path
+                )
                 if hit.symbol_name is None:
                     sym = self._symbol_at(_repo_key(snapshot), hit.path, hit.start_line)
                     if sym is not None:
@@ -1124,13 +1165,29 @@ class SnapshotManager:
         """
         if regexp:
             # Semantic fallback never for regex
-            hits, _truncated, _has_more = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=True, limit=limit, context_lines=context_lines)
+            hits, _truncated, _has_more = self._search_hits(
+                snapshot,
+                query,
+                path_prefix=path_prefix,
+                regexp=True,
+                limit=limit,
+                context_lines=context_lines,
+            )
             return hits, _truncated
-        hits, truncated, _has_more = self._search_hits(snapshot, query, path_prefix=path_prefix, regexp=False, limit=limit, context_lines=context_lines)
+        hits, truncated, _has_more = self._search_hits(
+            snapshot,
+            query,
+            path_prefix=path_prefix,
+            regexp=False,
+            limit=limit,
+            context_lines=context_lines,
+        )
         if hits or truncated:
             return hits, truncated
         # No hits — try semantic if token present
-        sem_hits = await self._semantic_search_hits(snapshot, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines)
+        sem_hits = await self._semantic_search_hits(
+            snapshot, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines
+        )
         if sem_hits:
             # RRF-like merge: keep semantic hits as result; if we later have FTS hits,
             # merge would be _merge_hits(hits, sem_hits, limit)
@@ -1212,7 +1269,9 @@ class SnapshotManager:
                 # If symbol also requested, merge graph hits as sync query does
                 hits = sem_hits
                 if (symbol or "").strip():
-                    graph_hits = self._graph_hits(snapshot, (symbol or "").strip(), limit=limit, context_lines=context)
+                    graph_hits = self._graph_hits(
+                        snapshot, (symbol or "").strip(), limit=limit, context_lines=context
+                    )
                     hits = _merge_hits(hits, graph_hits, limit)
                 return QueryResult(
                     snapshot=snapshot,
@@ -1241,7 +1300,9 @@ class SnapshotManager:
         # requested the literal scan carries the query instead.
         if case_sensitive:
             return []
-        terms = [token for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(token) > 1]
+        terms = [
+            token for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(token) > 1
+        ]
         if not terms:
             return []
         terms = terms[:8]
@@ -1372,9 +1433,7 @@ class SnapshotManager:
             ],
         )
 
-    def _symbol_at(
-        self, repo_key: str, path: str, line: int
-    ) -> tuple[str, str | None, str] | None:
+    def _symbol_at(self, repo_key: str, path: str, line: int) -> tuple[str, str | None, str] | None:
         with self._lock:
             con = self._connect()
             try:
@@ -1509,10 +1568,7 @@ async def _resolve_main_commit(repository: str, *, ref: str | None = None) -> tu
         raise SnapshotError(
             f"GitHub commit lookup failed: {str(exc) or type(exc).__name__}"
         ) from exc
-    if (
-        commit_response.status_code == 404
-        and branch != "main"
-    ):
+    if commit_response.status_code == 404 and branch != "main":
         branch = "main"
         commit_response = await client.get(
             f"{repo_url}/commits/{quote(branch)}",
@@ -1625,7 +1681,9 @@ def _collect_files(
         target = dest / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
-        records.append((relative.as_posix(), language_for_path(relative.as_posix()), len(data), text))
+        records.append(
+            (relative.as_posix(), language_for_path(relative.as_posix()), len(data), text)
+        )
         copied += 1
     return copied, truncated, skipped_binary, records
 
@@ -1661,7 +1719,16 @@ def _extract_graph(
         if len(targets) == 1:
             target_path, target_line = targets[0]
             edges.append(
-                (source_name, source_path, source_line, "calls", target_name, target_path, target_line, 0.8)
+                (
+                    source_name,
+                    source_path,
+                    source_line,
+                    "calls",
+                    target_name,
+                    target_path,
+                    target_line,
+                    0.8,
+                )
             )
         elif len(targets) > 1:
             same_file = [t for t in targets if t[0] == source_path]
@@ -1672,10 +1739,21 @@ def _extract_graph(
                 target_path, target_line = targets[0]
                 confidence = 0.5
             edges.append(
-                (source_name, source_path, source_line, "calls", target_name, target_path, target_line, confidence)
+                (
+                    source_name,
+                    source_path,
+                    source_line,
+                    "calls",
+                    target_name,
+                    target_path,
+                    target_line,
+                    confidence,
+                )
             )
         elif not targets:
-            edges.append((source_name, source_path, source_line, "calls", target_name, None, None, 0.3))
+            edges.append(
+                (source_name, source_path, source_line, "calls", target_name, None, None, 0.3)
+            )
     return symbols, edges
 
 
@@ -1759,16 +1837,21 @@ def _try_ripgrep_scan(
             "--json",
             "--no-config",
             "--hidden",
-            "--glob", "!.git/*",
-            "--max-count", str(limit),
-            "--context", str(context_lines),
+            "--glob",
+            "!.git/*",
+            "--max-count",
+            str(limit),
+            "--context",
+            str(context_lines),
         ]
         if not is_regex:
             cmd.append("--fixed-strings")
         if not case_sensitive:
             cmd.append("--ignore-case")
         cmd.extend(["--", query, str(search_root)])
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=8, encoding="utf-8", errors="replace")
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=8, encoding="utf-8", errors="replace"
+        )
         if result.returncode not in (0, 1):
             return None
         hits: list[SnapshotHit] = []
@@ -1995,11 +2078,7 @@ def _first_match_snippet(path: Path, query: str, context_lines: int) -> tuple[in
             if MAX_SNIPPET_CHARS > 0:
                 snippet = snippet[:MAX_SNIPPET_CHARS]
             return index, index, snippet
-    tokens = [
-        t.casefold()
-        for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query)
-        if len(t) > 1
-    ]
+    tokens = [t.casefold() for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,}", query) if len(t) > 1]
     if tokens:
         for index, line in enumerate(lines, start=1):
             line_cf = line.casefold()

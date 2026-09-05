@@ -73,9 +73,7 @@ class TestCompileIssuesQuery(IsolatedAsyncioTestCase):
             repositories=(),
             mode="issues",
         )
-        compiled = compile_issues_query(
-            plan, _request(repositories=("prefecthq/fastmcp",))
-        )
+        compiled = compile_issues_query(plan, _request(repositories=("prefecthq/fastmcp",)))
         self.assertIn("repo:prefecthq/fastmcp", compiled)
 
     def test_preserves_existing_repo_qualifier(self) -> None:
@@ -84,9 +82,7 @@ class TestCompileIssuesQuery(IsolatedAsyncioTestCase):
             repositories=(),
             mode="issues",
         )
-        compiled = compile_issues_query(
-            plan, _request(repositories=("other/repo",))
-        )
+        compiled = compile_issues_query(plan, _request(repositories=("other/repo",)))
         self.assertIn("repo:owner/repo", compiled)
         self.assertNotIn("other/repo", compiled)
 
@@ -157,9 +153,7 @@ class TestSearchGithubIssues(IsolatedAsyncioTestCase):
     async def test_requires_token(self) -> None:
         plan = build_query_plan("retry logic", mode="issues")
         with patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""}):
-            response = await search_github_issues(
-                plan, _request(), http_client=httpx.AsyncClient()
-            )
+            response = await search_github_issues(plan, _request(), http_client=httpx.AsyncClient())
         self.assertEqual(response.hits, [])
         self.assertEqual(response.diagnostics[0].failure_kind, "auth")
 
@@ -186,9 +180,7 @@ class TestSearchGithubIssues(IsolatedAsyncioTestCase):
         plan = build_query_plan("retry logic", mode="issues")
         with patch.dict(os.environ, {"GITHUB_TOKEN": "t"}):
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-                response = await search_github_issues(
-                    plan, _request(), http_client=client
-                )
+                response = await search_github_issues(plan, _request(), http_client=client)
         self.assertEqual(response.hits, [])
         self.assertTrue(response.diagnostics)
         self.assertIn("bad query", response.diagnostics[0].message)

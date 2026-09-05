@@ -105,7 +105,10 @@ class TestStackExchangeMarkdown(unittest.TestCase):
             "link": "https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do-in-python",
             "score": 1,
             "creation_date": 1700000000,
-            "owner": {"link": "https://stackoverflow.com/users/1/u", "display_name": "Asker &amp; Co"},
+            "owner": {
+                "link": "https://stackoverflow.com/users/1/u",
+                "display_name": "Asker &amp; Co",
+            },
             "body_markdown": "body",
         }
         answers = [
@@ -122,6 +125,7 @@ class TestStackExchangeMarkdown(unittest.TestCase):
         self.assertIn('Question: What does the "yield" keyword do', md)
         self.assertIn("Author: Asker & Co", md)
         self.assertIn('Author: Ans "Name"', md)
+
 
 if __name__ == "__main__":
     unittest.main()

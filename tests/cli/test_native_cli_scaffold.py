@@ -44,6 +44,7 @@ def test_reference_tools_covers_current_catalog() -> None:
     assert "grok_search" in tools
     assert "code_search" in tools
 
+
 def test_search_code_forwards_mcp_aligned_options(monkeypatch) -> None:
     mock_payload = AsyncMock(
         return_value={
@@ -213,9 +214,8 @@ def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
         AsyncMock(
             return_value={
                 "query": "web search query",
+                "status": "empty",
                 "results": [],
-                "total_results": 0,
-                "providers_used": [],
             }
         ),
     )
@@ -235,4 +235,4 @@ def test_search_web_can_be_injected_with_stubbed_payload(monkeypatch) -> None:
     )
     assert payload["meta"]["command"] == "search web"
     assert payload["data"]["query"] == "web search query"
-    assert payload["data"]["total_results"] == 0
+    assert payload["data"]["status"] == "empty"

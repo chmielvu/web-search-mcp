@@ -425,8 +425,6 @@ def _token_fields(data: Mapping[str, Any]) -> dict[str, int | None]:
     }
 
 
-
-
 async def grok_search(
     query: str,
     research_goal: str,

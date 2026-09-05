@@ -6,6 +6,10 @@ from unittest.mock import AsyncMock, patch
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.rerank import core
 from kindly_web_search_mcp_server.rerank.conditional_bi import ConditionalBiOutcome
+from kindly_web_search_mcp_server.rerank.models import (
+    CandidateEmbedding,
+    RerankEmbeddingContext,
+)
 from kindly_web_search_mcp_server.rerank.stage_runner import RankedStageOutcome
 
 
@@ -15,8 +19,7 @@ def _make_candidates(n: int) -> list[WebSearchResult]:
             title=f"doc{index}",
             link=f"https://example.com/c{index}",
             snippet=f"snippet {index}",
-            score=0.5,
-            hybrid_rrf_score=0.5,
+            retrieval_rrf_score=0.5,
         )
         for index in range(n)
     ]
@@ -52,10 +55,14 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
             input_count=30,
             output_count=15,
             duration_seconds=0.01,
-            relevance_scores=[],
+            relevance_scores=[0.8] * 15,
             max_score=0.0,
             input_tokens=100,
             output_tokens=50,
+            attempted_passes=2,
+            valid_passes=1,
+            failed_passes=1,
+            error=RuntimeError("one RankLLM pass failed"),
         )
 
         bi_mock = AsyncMock(return_value=bi_outcome)
@@ -65,6 +72,7 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
             patch.object(core, "run_conditional_bi_encoder", bi_mock),
             patch.object(core, "run_cross_encoder_stage", cross_mock),
             patch.object(core, "run_llm_stage", llm_mock),
+            patch.object(core, "select_mmr_slate") as mmr_mock,
         ):
             result = await core.rerank_results(
                 "How do bridges stay standing?",
@@ -93,7 +101,179 @@ class TestRerankCore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.funnel_counts["bi_output_count"], 40)
         self.assertEqual(result.funnel_counts["cross_output_count"], 30)
         self.assertEqual(result.funnel_counts["rankllm_output_count"], 15)
-        self.assertEqual(len(result.stage_summaries), 3)
+        self.assertEqual(result.terminal_stage, "rankllm")
+        self.assertEqual(result.stage_summaries[2].status, "partial")
+        self.assertEqual(result.stage_summaries[2].error_type, "RuntimeError")
+        self.assertEqual(len(result.stage_summaries), 4)
+        self.assertEqual(result.stage_summaries[-1].stage, "mmr_fallback")
+        self.assertEqual(result.stage_summaries[-1].status, "skipped")
+        mmr_mock.assert_not_called()
+
+    async def test_rankllm_failure_uses_cross_window_mmr_fallback(self) -> None:
+        base = _make_candidates(30)
+        cross_candidates = [
+            candidate.model_copy(update={"cross_encoder_score": float(index)})
+            for index, candidate in enumerate(base)
+        ]
+        embedding_context = RerankEmbeddingContext(
+            query_embedding=[1.0, 0.0],
+            candidates=[
+                CandidateEmbedding(url=candidate.link, text=candidate.title, dense=[1.0, 0.0])
+                for candidate in base
+            ],
+        )
+        bi_outcome = ConditionalBiOutcome(
+            candidates=base,
+            embedding_context=embedding_context,
+            duration_seconds=0.01,
+            status="applied",
+        )
+        cross_outcome = RankedStageOutcome(
+            candidates=cross_candidates,
+            provider="cohere_fast",
+            model="rerank-v4.0-fast",
+            stage_name="cross_encoder",
+            input_count=30,
+            output_count=30,
+            duration_seconds=0.01,
+            relevance_scores=[float(index) for index in range(30)],
+            max_score=29.0,
+        )
+        llm_outcome = RankedStageOutcome(
+            candidates=[],
+            provider="chain_failed",
+            model=None,
+            stage_name="rankllm",
+            input_count=30,
+            output_count=0,
+            duration_seconds=0.01,
+            relevance_scores=[],
+            max_score=0.0,
+            error=RuntimeError("all RankLLM providers failed"),
+        )
+        with (
+            patch.object(core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)),
+            patch.object(core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)),
+            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)),
+        ):
+            result = await core.rerank_results("query", base, research_goal="goal")
+
+        self.assertEqual(len(result.results), 15)
+        self.assertEqual(result.results[0].link, base[-1].link)
+        self.assertEqual(len({candidate.link for candidate in result.results}), 15)
+        self.assertEqual(result.terminal_stage, "mmr_fallback")
+        self.assertEqual(result.stage_summaries[-1].stage, "mmr_fallback")
+        self.assertEqual(result.stage_summaries[-1].status, "success")
+        self.assertEqual(result.funnel_counts["overflow_count"], 15)
+        self.assertEqual(
+            {candidate.link for candidate in result.results}
+            | {item.result.link for item in result.overflow_items},
+            {candidate.link for candidate in base},
+        )
+        self.assertIn("mmr_fallback", {item.stage for item in result.overflow_items})
+
+    async def test_mmr_embedding_failure_fails_open_to_cross_order(self) -> None:
+        base = _make_candidates(30)
+        cross_candidates = [
+            candidate.model_copy(update={"cross_encoder_score": float(index)})
+            for index, candidate in enumerate(base)
+        ]
+        bi_outcome = ConditionalBiOutcome(
+            candidates=base,
+            embedding_context=None,
+            duration_seconds=0.01,
+            status="applied",
+        )
+        cross_outcome = RankedStageOutcome(
+            candidates=cross_candidates,
+            provider="cohere_fast",
+            model="rerank-v4.0-fast",
+            stage_name="cross_encoder",
+            input_count=30,
+            output_count=30,
+            duration_seconds=0.01,
+            relevance_scores=[float(index) for index in range(30)],
+            max_score=29.0,
+        )
+        llm_outcome = RankedStageOutcome(
+            candidates=[],
+            provider="chain_failed",
+            model=None,
+            stage_name="rankllm",
+            input_count=30,
+            output_count=0,
+            duration_seconds=0.01,
+            relevance_scores=[],
+            max_score=0.0,
+            error=RuntimeError("all RankLLM providers failed"),
+        )
+        embedding_mock = AsyncMock(side_effect=RuntimeError("embedding unavailable"))
+        with (
+            patch.object(core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)),
+            patch.object(core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)),
+            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)),
+            patch.object(core, "embed_query", embedding_mock),
+            patch.object(core, "select_mmr_slate") as mmr_mock,
+        ):
+            result = await core.rerank_results("query", base, research_goal="goal")
+
+        self.assertEqual(
+            [candidate.link for candidate in result.results],
+            [candidate.link for candidate in cross_candidates[:15]],
+        )
+        self.assertEqual(result.terminal_stage, "cross_encoder")
+        self.assertEqual(result.stage_summaries[-1].status, "failed_open")
+        embedding_mock.assert_awaited_once()
+        mmr_mock.assert_not_called()
+
+    async def test_mmr_is_skipped_when_cross_window_has_at_most_final_limit(self) -> None:
+        base = _make_candidates(15)
+        cross_candidates = [
+            candidate.model_copy(update={"cross_encoder_score": float(index)})
+            for index, candidate in enumerate(base)
+        ]
+        bi_outcome = ConditionalBiOutcome(
+            candidates=base,
+            embedding_context=None,
+            duration_seconds=0.01,
+            status="candidate_count_not_above_cross_limit",
+        )
+        cross_outcome = RankedStageOutcome(
+            candidates=cross_candidates,
+            provider="cohere_fast",
+            model="rerank-v4.0-fast",
+            stage_name="cross_encoder",
+            input_count=15,
+            output_count=15,
+            duration_seconds=0.01,
+            relevance_scores=[float(index) for index in range(15)],
+            max_score=14.0,
+        )
+        llm_outcome = RankedStageOutcome(
+            candidates=[],
+            provider="chain_failed",
+            model=None,
+            stage_name="rankllm",
+            input_count=15,
+            output_count=0,
+            duration_seconds=0.01,
+            relevance_scores=[],
+            max_score=0.0,
+            error=RuntimeError("all RankLLM providers failed"),
+        )
+        with (
+            patch.object(core, "run_conditional_bi_encoder", AsyncMock(return_value=bi_outcome)),
+            patch.object(core, "run_cross_encoder_stage", AsyncMock(return_value=cross_outcome)),
+            patch.object(core, "run_llm_stage", AsyncMock(return_value=llm_outcome)),
+            patch.object(core, "embed_query") as embedding_mock,
+            patch.object(core, "select_mmr_slate") as mmr_mock,
+        ):
+            result = await core.rerank_results("query", base, research_goal="goal")
+
+        self.assertEqual(len(result.results), 15)
+        self.assertEqual(result.stage_summaries[-1].status, "skipped")
+        embedding_mock.assert_not_called()
+        mmr_mock.assert_not_called()
 
     async def test_blank_research_goal_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "research_goal must be non-blank"):

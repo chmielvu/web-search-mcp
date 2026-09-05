@@ -135,7 +135,7 @@ class TestComputeSearchQuality:
                 db_path=str(db_path),
             )
 
-            # rerank_candidates – 3 rows with score_after values
+            # rerank_candidates – 3 rows with final_score_after values
             # top_score = MAX(0.92, 0.85, 0.75) = 0.92
             # p95_score approx_quantile(0.95) — with 3 values the
             # approximation should be close to 0.92 (the max)
@@ -147,8 +147,8 @@ class TestComputeSearchQuality:
                     link=f"https://example.com/rerank-{i}",
                     rank_before=i + 1,
                     rank_after=i + 1,
-                    score_before=score - 0.1,
-                    score_after=score,
+                    final_score_before=score - 0.1,
+                    final_score_after=score,
                     db_path=str(db_path),
                 )
 

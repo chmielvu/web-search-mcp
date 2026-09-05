@@ -8,8 +8,6 @@ from typing import Any
 from .runtime import get_runtime
 
 
-
-
 SCHEMA_VERSION = "1.0"
 
 
@@ -107,6 +105,7 @@ def emit_json(
 ) -> None:
     runtime = get_runtime()
     from .metadata import feedback_guidance, rules_full, skill_catalog
+
     if command != "results search" and not command.endswith(" --help"):
         from .services.results import persist_cli_result
 

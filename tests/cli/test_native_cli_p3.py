@@ -9,7 +9,9 @@ from kindly_web_search_mcp_server.cli.app import app
 from kindly_web_search_mcp_server.cli.services import jobs
 
 
-def test_job_store_supports_idempotency_cancel_resume_and_completion(tmp_path: Path, monkeypatch) -> None:
+def test_job_store_supports_idempotency_cancel_resume_and_completion(
+    tmp_path: Path, monkeypatch
+) -> None:
     database = tmp_path / "jobs.sqlite"
     monkeypatch.setenv("WEB_SEARCH_CLI_JOBS_DB", str(database))
     spawned: list[str] = []

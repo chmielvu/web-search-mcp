@@ -193,7 +193,7 @@ async def search_qdrant(
                         link=hit_url,
                         snippet=payload.get("snippet", ""),
                         domain=payload.get("domain"),
-                        score=hit.score,
+                        retrieval_rrf_score=hit.score,
                         raw_score=hit.score,
                     )
                 )

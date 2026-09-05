@@ -12,17 +12,18 @@ from kindly_web_search_mcp_server.tools.search import web_search
 
 class TestMultiQueryAndRerankingInstructions(unittest.IsolatedAsyncioTestCase):
     async def test_tool_web_search_accepts_queries_and_reranking_instructions(self) -> None:
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {
-            "query": "q1",
-            "results": [],
-            "providers_used": ["ddg"],
-        }
+        from kindly_web_search_mcp_server.models import WebSearchResponse
+
+        mock_response = WebSearchResponse(query="q1", results=[])
+        mock_run = MagicMock()
+        mock_run.response = mock_response
+        mock_run.plan = None
+        mock_run.diagnostics.overflow_ranked = []
 
         with (
             patch(
                 "kindly_web_search_mcp_server.search.service.execute_web_search",
-                return_value=mock_response,
+                return_value=(mock_response, mock_run),
             ) as mock_exec,
             patch("kindly_web_search_mcp_server.utils.http_client.get_http_client"),
         ):
@@ -46,15 +47,24 @@ class TestMultiQueryAndRerankingInstructions(unittest.IsolatedAsyncioTestCase):
         from fastmcp.exceptions import ToolError
 
         ctx = AsyncMock()
-        with pytest.raises((ValueError, ToolError), match="Either query or queries must be provided"):
+        with pytest.raises(
+            (ValueError, ToolError), match="Either query or queries must be provided"
+        ):
             await web_search(query="", queries=[], research_goal="goal", ctx=ctx)
 
-        with pytest.raises((ValueError, ToolError), match="queries must contain at least one non-blank string"):
+        with pytest.raises(
+            (ValueError, ToolError), match="queries must contain at least one non-blank string"
+        ):
             await web_search(queries=["  ", ""], research_goal="goal", ctx=ctx)
+
     async def test_cli_fetch_web_search_payload_multi_query(self) -> None:
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {"query": "q1", "results": []}
-        mock_run = AsyncMock()
+        from kindly_web_search_mcp_server.models import WebSearchResponse
+
+        mock_response = WebSearchResponse(query="q1", results=[])
+        mock_run = MagicMock()
+        mock_run.response = mock_response
+        mock_run.plan = None
+        mock_run.diagnostics.overflow_ranked = []
 
         with patch(
             "kindly_web_search_mcp_server.cli.services.search_web.execute_web_search",

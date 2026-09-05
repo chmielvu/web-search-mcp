@@ -81,7 +81,9 @@ class SingleFlight:
         )
 
         try:
-            result = await asyncio.wait_for(fn(*args, **kwargs), timeout=effective_initiator_timeout)
+            result = await asyncio.wait_for(
+                fn(*args, **kwargs), timeout=effective_initiator_timeout
+            )
             future.set_result(result)
             return result
         except asyncio.TimeoutError:
@@ -90,7 +92,11 @@ class SingleFlight:
                 key[:16],
                 effective_initiator_timeout,
             )
-            future.set_exception(asyncio.TimeoutError(f"SingleFlight initiator timeout after {effective_initiator_timeout}s"))
+            future.set_exception(
+                asyncio.TimeoutError(
+                    f"SingleFlight initiator timeout after {effective_initiator_timeout}s"
+                )
+            )
             raise
         except asyncio.CancelledError:
             future.cancel()

@@ -58,8 +58,10 @@ async def gemini_search(
     start_time = time.time()
     await ctx.report_progress(progress=10, total=100, message="Querying Gemini with grounding...")
     try:
+        if not query or not query.strip():
+            raise ValueError("query must be a non-blank string.")
         result = await gemini_search_with_grounding(
-            query, structured_output=structured_output, research_goal=research_goal
+            query.strip(), structured_output=structured_output, research_goal=research_goal
         )
         response = result.model_dump(exclude_none=True)
         response.pop("search_widget_html", None)
@@ -136,7 +138,7 @@ async def gemini_search(
             except Exception:
                 pass
 
-        return response
+        return GeminiSearchResponse.model_validate(response)
     except Exception as exc:
         duration_seconds = time.time() - start_time
         record_gemini_search(
@@ -303,7 +305,7 @@ async def grok_search(
             except Exception:
                 pass
 
-        return response
+        return GrokSearchResponse.model_validate(response)
 
     except ValueError as e:
         LOGGER.warning("Grok search config error: %s", e)

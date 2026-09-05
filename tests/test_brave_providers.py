@@ -90,5 +90,3 @@ def test_search_brave_requires_standard_api_key(monkeypatch) -> None:
             await search_brave("test", num_results=3)
 
     _run(run())
-
-

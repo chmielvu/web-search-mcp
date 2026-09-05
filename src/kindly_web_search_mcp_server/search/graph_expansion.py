@@ -75,7 +75,9 @@ def expand_seed_queries(
         matched_query = normalize_query(normalized_query)
         candidates = index.neighbors.get(matched_query, ())
         support_map = index.neighbor_supports.get(matched_query, {})
-        support_counts = tuple((candidate, support_map.get(candidate, 0)) for candidate in candidates)
+        support_counts = tuple(
+            (candidate, support_map.get(candidate, 0)) for candidate in candidates
+        )
         artifact_age = (datetime.now(timezone.utc) - index.built_at).total_seconds()
         common = {
             "artifact_age_seconds": artifact_age,

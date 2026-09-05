@@ -126,7 +126,6 @@ def _get_int_env(name: str, default: int) -> int:
     return _env_int(name, default)
 
 
-
 def _parse_arxiv_atom_xml(xml_text: str, *, arxiv_id: str) -> ArxivMetadata:
     # Atom feed uses namespaces; arXiv-specific fields are under arxiv ns.
     ns = {
@@ -370,8 +369,6 @@ def render_arxiv_paper_markdown(
         lines.extend(["", f"_Truncated due to {reason}._", "", f"Source: {source_url}", ""])
 
     return "\n".join(lines).strip() + "\n"
-
-
 
 
 async def fetch_arxiv_paper_markdown(

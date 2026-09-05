@@ -88,17 +88,16 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
                             ("https://example.com/a", "success"),
                             ("https://example.com/bad", "error"),
                         ],
-                        citations=[
-                            {"url": "https://example.com/a", "title": "Example A Title"}
-                        ],
+                        citations=[{"url": "https://example.com/a", "title": "Example A Title"}],
                     ),
                 )
             return httpx.Response(404)
 
         transport = httpx.MockTransport(handler)
 
-        with patch.object(settings, "gemini_api_key", "test_key"), patch.object(
-            settings, "antigravity_poll_interval_seconds", 0.001
+        with (
+            patch.object(settings, "gemini_api_key", "test_key"),
+            patch.object(settings, "antigravity_poll_interval_seconds", 0.001),
         ):
             result = await call_antigravity_grounding(
                 "test query",
@@ -141,8 +140,9 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
 
         transport = httpx.MockTransport(handler)
 
-        with patch.object(settings, "gemini_api_key", "test_key"), patch.object(
-            settings, "antigravity_poll_interval_seconds", 0.001
+        with (
+            patch.object(settings, "gemini_api_key", "test_key"),
+            patch.object(settings, "antigravity_poll_interval_seconds", 0.001),
         ):
             result = await call_antigravity_grounding(
                 "query",
@@ -169,8 +169,9 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
 
         transport = httpx.MockTransport(handler)
 
-        with patch.object(settings, "gemini_api_key", "test_key"), patch.object(
-            settings, "antigravity_poll_interval_seconds", 0.001
+        with (
+            patch.object(settings, "gemini_api_key", "test_key"),
+            patch.object(settings, "antigravity_poll_interval_seconds", 0.001),
         ):
             result = await call_antigravity_grounding("query", transport=transport)
 
@@ -188,8 +189,9 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
 
         transport = httpx.MockTransport(handler)
 
-        with patch.object(settings, "gemini_api_key", "test_key"), patch.object(
-            settings, "antigravity_poll_interval_seconds", 0.001
+        with (
+            patch.object(settings, "gemini_api_key", "test_key"),
+            patch.object(settings, "antigravity_poll_interval_seconds", 0.001),
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 await call_antigravity_grounding("query", transport=transport)
@@ -209,9 +211,11 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
 
         transport = httpx.MockTransport(handler)
 
-        with patch.object(settings, "gemini_api_key", "test_key"), patch.object(
-            settings, "antigravity_timeout_seconds", 0.05
-        ), patch.object(settings, "antigravity_poll_interval_seconds", 0.01):
+        with (
+            patch.object(settings, "gemini_api_key", "test_key"),
+            patch.object(settings, "antigravity_timeout_seconds", 0.05),
+            patch.object(settings, "antigravity_poll_interval_seconds", 0.01),
+        ):
             with self.assertRaises(RuntimeError) as ctx:
                 await call_antigravity_grounding("query", transport=transport)
 
@@ -219,9 +223,11 @@ class TestAntigravityBackend(unittest.IsolatedAsyncioTestCase):
         self.assertIn("timed out", str(ctx.exception).lower())
 
     async def test_missing_api_key_raises(self) -> None:
-        with patch.object(settings, "gemini_api_key", ""), patch.object(
-            settings, "gemini_second_api_key", ""
-        ), patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_SECOND_API_KEY": ""}):
+        with (
+            patch.object(settings, "gemini_api_key", ""),
+            patch.object(settings, "gemini_second_api_key", ""),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "", "GEMINI_SECOND_API_KEY": ""}),
+        ):
             with self.assertRaises(RuntimeError) as ctx:
                 await call_antigravity_grounding("query")
         self.assertIn("api key", str(ctx.exception).lower())
@@ -231,12 +237,16 @@ class TestWiring(unittest.IsolatedAsyncioTestCase):
     async def test_antigravity_backend_selected_and_falls_back_on_error(self) -> None:
         grounding_sentinel = GeminiGroundingResult(query="q", answer="grounding answer")
 
-        with patch.object(settings, "gemini_search_backend", "antigravity"), patch(
-            "kindly_web_search_mcp_server.search.antigravity_backend.call_antigravity_grounding",
-            new=AsyncMock(side_effect=RuntimeError("simulated antigravity failure")),
-        ), patch(
-            "kindly_web_search_mcp_server.search.gemini_search_tool._call_single_grounding",
-            new=AsyncMock(return_value=grounding_sentinel),
+        with (
+            patch.object(settings, "gemini_search_backend", "antigravity"),
+            patch(
+                "kindly_web_search_mcp_server.search.antigravity_backend.call_antigravity_grounding",
+                new=AsyncMock(side_effect=RuntimeError("simulated antigravity failure")),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool._call_single_grounding",
+                new=AsyncMock(return_value=grounding_sentinel),
+            ),
         ):
             result = await gemini_search_with_grounding("q", parallel_mode=False)
 
@@ -250,13 +260,17 @@ class TestWiring(unittest.IsolatedAsyncioTestCase):
             model_used="antigravity/gemini-3.7-flash",
         )
 
-        with patch.object(settings, "gemini_search_backend", "antigravity"), patch(
-            "kindly_web_search_mcp_server.search.antigravity_backend.call_antigravity_grounding",
-            new=AsyncMock(return_value=antigravity_sentinel),
-        ), patch(
-            "kindly_web_search_mcp_server.search.gemini_search_tool._call_single_grounding",
-            new=AsyncMock(),
-        ) as mock_single:
+        with (
+            patch.object(settings, "gemini_search_backend", "antigravity"),
+            patch(
+                "kindly_web_search_mcp_server.search.antigravity_backend.call_antigravity_grounding",
+                new=AsyncMock(return_value=antigravity_sentinel),
+            ),
+            patch(
+                "kindly_web_search_mcp_server.search.gemini_search_tool._call_single_grounding",
+                new=AsyncMock(),
+            ) as mock_single,
+        ):
             result = await gemini_search_with_grounding("q", parallel_mode=True)
             mock_single.assert_not_called()
 

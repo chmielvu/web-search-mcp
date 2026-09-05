@@ -31,7 +31,6 @@ def join_terms(terms: list[str]) -> str:
 # parameter. We set both forms for providers that inspect the system header.
 #
 # See: https://console.groq.com/docs/reasoning
-# See: https://inference-docs.cerebras.ai/api-reference/chat-completions
 # ---------------------------------------------------------------------------
 
 #: Canonical reasoning-effort levels for GPT-OSS tasks.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import OrderedDict
 from types import SimpleNamespace
 from typing import Any
 
@@ -29,9 +30,9 @@ def _branch(*providers: str) -> QueryBranch:
 def _run(*branches: QueryBranch) -> Any:
     return SimpleNamespace(
         plan=SimpleNamespace(branches=branches, provider_arguments={}, understanding=None),
-        request=SimpleNamespace(options=None),
-        http_client=None,
+        request=SimpleNamespace(options=None, rewrite=True),
         run_key="retrieve-budget-test",
+        http_client=None,
         diagnostics=DiagnosticsCollector(),
         outcomes=(),
     )
@@ -43,8 +44,42 @@ def _result(provider: str) -> WebSearchResult:
         link=f"https://{provider}.example/result",
         snippet="completed within the retrieve budget",
         providers=[provider],
-        provider_count=1,
     )
+
+
+def test_record_provider_result_deduplicates_canonical_urls() -> None:
+    branch = _branch("provider")
+    rows: OrderedDict[str, WebSearchResult] = OrderedDict()
+    ranked_results = []
+
+    retrieval._record_provider_result(
+        branch=branch,
+        branch_index=0,
+        name="provider",
+        value=[
+            WebSearchResult(
+                title="first",
+                link="https://www.example.test/result/?utm_source=test",
+                snippet="short",
+                providers=["provider"],
+            ),
+            WebSearchResult(
+                title="second",
+                link="https://example.test/result/",
+                snippet="also short",
+                providers=["provider"],
+            ),
+        ],
+        latency_ms=0.0,
+        rows=rows,
+        warnings_by_name={},
+        provider_calls=[],
+        provider_ranked_results_list=ranked_results,
+    )
+
+    assert len(ranked_results) == 1
+    assert len(ranked_results[0].results) == 1
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio

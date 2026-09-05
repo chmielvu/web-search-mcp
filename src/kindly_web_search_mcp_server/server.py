@@ -195,9 +195,8 @@ mcp = FastMCP(
         "Deep-read the best sources. After discovery, use fetch on one or more\n"
         "promising URLs. The tool accepts url or urls and returns ordered\n"
         "per-source results with metadata, links, quality, and continuation\n"
-        "signals. Judge by provider consensus (provider_count >= 2), domain\n"
-        "authority, and snippet specificity. Do not trust snippets alone — read\n"
-        "the page.\n"
+        "signals. Judge by domain authority and snippet specificity. Do not trust snippets\n"
+        "alone — read the page.\n"
         "\n"
         "Know when enough is enough. Terminate when 3 independent sources\n"
         "agree on key claims, or when 2 consecutive search rounds add nothing\n"
@@ -242,8 +241,8 @@ from .middleware import create_expensive_tool_middleware
 
 mcp.add_middleware(create_expensive_tool_middleware())
 
- # Add differentiated rate limiting:
- # - Higher throughput for lightweight tools (web_search/fetch/gemini_search)
+# Add differentiated rate limiting:
+# - Higher throughput for lightweight tools (web_search/fetch/gemini_search)
 # - Stricter quota for expensive tools (grok_search)
 from .middleware import create_differentiated_rate_limit_middleware
 
@@ -316,8 +315,7 @@ mcp.add_middleware(
             "grok_search",
             "youtube_search",
             "youtube_transcript",
-
-             "generate_sitemap",
+            "generate_sitemap",
             "academic_search",
             "code_fetch",
             "quick_web_search",

@@ -294,10 +294,12 @@ _DIGEST_TOP_N_FINAL = 10
 # and `judge_result_quality` contexts (G-Eval self-enhancement bias).
 _BANNED_RERANK_SCORES = (
     "final_score",
-    "llm_raw_score",
-    "cross_encoder_raw",
-    "fused_score",
-    "hybrid_rrf_score",
+    "rankllm_score",
+    "cross_encoder_score",
+    "retrieval_rrf_score",
+    "bi_encoder_score",
+    "recency_score",
+    "diversity_penalty",
 )
 
 # Module-level model selector for `judge_search_run`. Both aliases run the
@@ -1004,8 +1006,9 @@ def _build_run_digest(
 
     Includes STRUCTURAL facts only: ranks, titles, links, counts,
     branches, rerank stage names + counts. Does NOT include raw
-    reranker scores (`final_score`, `llm_raw_score`, `cross_encoder_raw`,
-    `fused_score`, `hybrid_rrf_score`) -- the overview is a summary,
+    reranker scores (`final_score`, `rankllm_score`, `cross_encoder_score`,
+    `retrieval_rrf_score`, `bi_encoder_score`, `recency_score`,
+    `diversity_penalty`) -- the overview is a summary,
     not a rubber-stamp of the reranker. Empty fields render as empty
     strings; no exceptions raised on missing rows.
     """
@@ -1066,20 +1069,20 @@ def _build_run_digest(
         f"final={final_count or 0}  raw={cand_count or 0}"
     )
 
-    # Reank stage structural summary -- stage name, counts, threshold.
+    # Rerank stage structural summary -- stage name and counts.
     # No raw scores (the digest is reranker-blind).
     stages = connection.execute(
         "SELECT stage, provider, model, input_count, output_count, status, "
-        "error_type, score_threshold "
+        "error_type "
         "FROM rerank_stages WHERE run_key = ? ORDER BY recorded_at",
         [run_key],
     ).fetchall()
     if stages:
         parts.append("rerank stages:")
-        for stage, prov, model, inp, outp, sst, serr, thr in stages:
+        for stage, prov, model, inp, outp, sst, serr in stages:
             line = (
                 f"  - {stage or '?'}: in={inp or 0} out={outp or 0} "
-                f"thr={thr} st={sst or '?'} prov={prov or '?'} m={model or '?'}"
+                f"st={sst or '?'} prov={prov or '?'} m={model or '?'}"
             )
             if serr:
                 line += f" err={serr}"

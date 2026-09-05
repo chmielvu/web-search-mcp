@@ -102,6 +102,7 @@ def _is_rerank_question(question: str) -> bool:
         or "cross encode" in question
         or "bi-encode" in question
         or "rankllm" in question
+        or "mmr" in question
     )
 
 
@@ -285,11 +286,22 @@ def build_analytics_query_plan(
                 COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
                 MODE(error_type) AS most_common_error,
                 SUM(input_tokens) AS total_input_tokens,
-                SUM(output_tokens) AS total_output_tokens
+                SUM(output_tokens) AS total_output_tokens,
+                SUM(attempted_passes) AS attempted_passes,
+                SUM(valid_passes) AS valid_passes,
+                SUM(failed_passes) AS failed_passes
             FROM {prefix}rerank_stages
-            WHERE stage IN ('bi_encoder', 'cross_encoder', 'rankllm')
+            WHERE stage IN ('bi_encoder', 'cross_encoder', 'rankllm', 'mmr_fallback')
             GROUP BY 1, 2, 3
-            ORDER BY stage_runs DESC, stage, provider, model
+            ORDER BY
+                CASE stage
+                    WHEN 'bi_encoder' THEN 1
+                    WHEN 'cross_encoder' THEN 2
+                    WHEN 'rankllm' THEN 3
+                    WHEN 'mmr_fallback' THEN 4
+                    ELSE 5
+                END,
+                stage, provider, model
             LIMIT {limit}
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="rerank")

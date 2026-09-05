@@ -19,7 +19,10 @@ Entity extraction for query handling and content analysis.
 ## Rules
 
 - The application never imports `gliner2` or `torch`; inference is performed by the configured VPS gateway.
-- Query understanding tries one `/v2/query-understanding` request; when the deployed service lacks that route it composes the same contract from `/classify` + `/ner` (real classifier confidence), failing open to deterministic `general` only when both paths fail.
+- Query understanding calls deployed unified-ml ``/classify`` + ``/ner`` (no
+  ``/v2/query-understanding`` — that route is not on the container). Entity
+  spans must match exact source offsets. Fail open to deterministic ``general``
+  only when classify/ner both fail.
 - Code-search query enrichment uses the deployed lightweight `/classify` and `/ner` endpoints in parallel through `GLiNER2Client.analyze_query_features`; it does not alter the web-search intent contract or run relation extraction.
 - Content extraction is opt-in via `ENTITY_EXTRACTION_ENABLED` and uses the same gateway's `/extract` endpoint.
 - `chunk.py` preserves global offsets for long text.

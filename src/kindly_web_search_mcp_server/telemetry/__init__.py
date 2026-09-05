@@ -41,14 +41,11 @@ __all__ = [
     # Basic metrics recording
     "record_provider_call",
     "record_search_request",
-    "record_merge",
     "record_cache_lookup",
     "record_mcp_tool_call",
     "record_content_resolution",
     "record_content_fallback",
     "record_content_error",
-    # RRF merge metrics (NEW)
-    "record_rrf_merge",
     "record_rrf_score",
     # Query rewrite metrics (NEW)
     "record_query_rewrite",
@@ -146,9 +143,6 @@ __all__ = [
     "RERANK_REMOVED_COUNT",
     "RERANK_RELEVANCE_SCORE",
     "RERANK_MODEL",
-    "RERANK_DIVERSITY_THRESHOLD",
-    "RERANK_SIMILARITY_SCORE",
-    "RERANK_BI_ENCODER_SCORE",
     "CIRCUIT_STATE",
     "CIRCUIT_FAILURE_COUNT",
     "CIRCUIT_LAST_FAILURE_TIME",

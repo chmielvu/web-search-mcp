@@ -223,7 +223,6 @@ def _chrome_ratio(markdown: str) -> float:
     return (empty_bullet + advertisement + duplicate_copies) / total
 
 
-
 def _emit_classification_event(
     result: ClassificationResult,
     markdown: str,

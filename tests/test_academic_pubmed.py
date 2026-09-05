@@ -152,7 +152,7 @@ async def test_search_pubmed_empty_ids_returns_empty() -> None:
         assert "esearch.fcgi" in str(request.url)
         return httpx.Response(
             200,
-            content=b'<eSearchResult><Count>0</Count><IdList></IdList></eSearchResult>',
+            content=b"<eSearchResult><Count>0</Count><IdList></IdList></eSearchResult>",
         )
 
     with _patched_async_client(handler):

@@ -78,7 +78,21 @@ def _create_table(
     connection.execute(f"CREATE TABLE IF NOT EXISTS {table_name} (\n{ddl_body}\n)")
 
 
-_EMBEDDING_DIM = 786
+def _rename_columns_if_missing(
+    connection: duckdb.DuckDBPyConnection,
+    table_name: str,
+    renames: dict[str, str],
+) -> None:
+    """Rename legacy columns to canonical names without repeating migrations."""
+    existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    for legacy, canonical in renames.items():
+        if legacy in existing and canonical not in existing:
+            connection.execute(f"ALTER TABLE {table_name} RENAME COLUMN {legacy} TO {canonical}")
+            existing.remove(legacy)
+            existing.add(canonical)
+
+
+_EMBEDDING_DIM = 768
 
 
 def _rollover_embedding_table(
@@ -87,7 +101,7 @@ def _rollover_embedding_table(
     table_name: str,
     index_names: tuple[str, ...],
 ) -> None:
-    """Preserve incompatible historical vectors before creating the 786d table."""
+    """Preserve incompatible historical vectors before creating the 768d table."""
     exists = connection.execute(
         """
         SELECT 1
@@ -109,7 +123,7 @@ def _rollover_embedding_table(
     if not current_type.startswith("FLOAT[") or not current_type.endswith("]"):
         raise RuntimeError(
             f"{table_name}.embedding has unsupported type {current_type!r}; "
-            "cannot preserve it during the 786d rollover"
+            "cannot preserve it during the 768d rollover"
         )
     legacy_table = f"{table_name}_{current_type[6:-1]}d_legacy"
     legacy_exists = connection.execute(
@@ -380,8 +394,6 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
         duration_ms              DOUBLE,
         max_score                DOUBLE,
         avg_score                DOUBLE,
-        score_threshold          DOUBLE,
-        alpha_blend              DOUBLE,
         input_tokens             INTEGER,
         output_tokens            INTEGER,
         status                   VARCHAR,
@@ -389,9 +401,19 @@ def _ensure_rerank_stages(connection: duckdb.DuckDBPyConnection) -> None:
         instruction_present      BOOLEAN,
         instruction_length       INTEGER,
         query_type_hint          VARCHAR,
-        entity_overlap_enabled   BOOLEAN,
-        payload_json             JSON
+        attempted_passes        INTEGER,
+        valid_passes             INTEGER,
+        failed_passes            INTEGER
         """,
+    )
+    _ensure_columns(
+        connection,
+        _RS_TABLE_NAME,
+        {
+            "attempted_passes": "INTEGER",
+            "valid_passes": "INTEGER",
+            "failed_passes": "INTEGER",
+        },
     )
 
 
@@ -411,27 +433,54 @@ def _ensure_rerank_candidates(connection: duckdb.DuckDBPyConnection) -> None:
         canonical_result_id  VARCHAR,
         rank_before          INTEGER,
         rank_after           INTEGER,
-        score_before         DOUBLE,
-        score_after          DOUBLE,
+        final_score_before   DOUBLE,
+        final_score_after    DOUBLE,
         bm25_score           DOUBLE,
         bm25_rank            INTEGER,
-        dense_score          DOUBLE,
-        dense_rank           INTEGER,
-        cross_encoder_raw    DOUBLE,
-        llm_raw_score        DOUBLE,
-        fused_score          DOUBLE,
-        hybrid_rrf_score     DOUBLE,
-        recency_boost        DOUBLE,
-        entity_overlap_score DOUBLE,
+        bi_encoder_score     DOUBLE,
+        bi_encoder_rank      INTEGER,
+        cross_encoder_score  DOUBLE,
+        rankllm_score        DOUBLE,
+        retrieval_rrf_score  DOUBLE,
+        recency_score        DOUBLE,
+        diversity_penalty    DOUBLE,
         survived             BOOLEAN NOT NULL,
         diversity_removed    BOOLEAN NOT NULL DEFAULT FALSE,
         payload_json         JSON
         """,
     )
+    _rename_columns_if_missing(
+        connection,
+        _RC_TABLE_NAME,
+        {
+            "score_before": "final_score_before",
+            "score_after": "final_score_after",
+            "dense_score": "bi_encoder_score",
+            "dense_rank": "bi_encoder_rank",
+            "cross_encoder_raw": "cross_encoder_score",
+            "llm_raw_score": "rankllm_score",
+            "hybrid_rrf_score": "retrieval_rrf_score",
+            "recency_boost": "recency_score",
+        },
+    )
     _ensure_columns(
         connection,
         _RC_TABLE_NAME,
-        {"diversity_removed": "BOOLEAN"},
+        {
+            "bm25_score": "DOUBLE",
+            "bm25_rank": "INTEGER",
+            "final_score_before": "DOUBLE",
+            "final_score_after": "DOUBLE",
+            "bi_encoder_score": "DOUBLE",
+            "bi_encoder_rank": "INTEGER",
+            "cross_encoder_score": "DOUBLE",
+            "rankllm_score": "DOUBLE",
+            "retrieval_rrf_score": "DOUBLE",
+            "recency_score": "DOUBLE",
+            "diversity_penalty": "DOUBLE",
+            "survived": "BOOLEAN DEFAULT TRUE",
+            "diversity_removed": "BOOLEAN DEFAULT FALSE",
+        },
     )
 
 
@@ -474,7 +523,7 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key       VARCHAR NOT NULL,
         embedding     FLOAT[{_EMBEDDING_DIM}],
-        model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
+        model_id      VARCHAR DEFAULT 'granite-embedding-311m-multilingual',
         payload_json  JSON
         """,
     )
@@ -496,7 +545,7 @@ def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         link          VARCHAR NOT NULL,
         title         VARCHAR,
         embedding     FLOAT[{_EMBEDDING_DIM}],
-        model_id      VARCHAR DEFAULT 'intfloat/multilingual-e5-large-instruct',
+        model_id      VARCHAR DEFAULT 'granite-embedding-311m-multilingual',
         payload_json  JSON
         """,
     )

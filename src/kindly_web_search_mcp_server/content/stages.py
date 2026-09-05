@@ -155,9 +155,7 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
     if jina_warning:
         status = "blocked"
         error = ContentError(code="access_blocked:jina_warning", message=jina_warning)
-    elif cls.status == "success" and (
-        pre_chrome > 0.5 or word_count < 80
-    ):
+    elif cls.status == "success" and (pre_chrome > 0.5 or word_count < 80):
         status = "partial"
         error = ContentError(code="chrome_boilerplate", message="chrome_boilerplate")
     else:

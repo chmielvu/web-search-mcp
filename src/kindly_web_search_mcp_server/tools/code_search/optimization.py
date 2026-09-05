@@ -75,7 +75,10 @@ class CodeQueryOptimization(BaseModel):
     symbols: list[str] = Field(default_factory=list)
     api_literals: list[str] = Field(default_factory=list)
     must_preserve: list[str] = Field(default_factory=list)
-    exa_semantic_query: str = Field(default="", description="A natural-language semantic query optimized for Exa's /context code retrieval endpoint.")
+    exa_semantic_query: str = Field(
+        default="",
+        description="A natural-language semantic query optimized for Exa's /context code retrieval endpoint.",
+    )
     rationale: str = ""
 
 
@@ -153,9 +156,7 @@ def _merge_enrichment(
             if entity.label == "language" and not any(key == "language" for key, _ in qualifiers):
                 qualifiers.append(("language", entity.text))
             entity_confidence = (
-                entity.confidence
-                if entity.confidence is not None
-                else features.confidence
+                entity.confidence if entity.confidence is not None else features.confidence
             )
             if entity_confidence >= _RESOLUTION_MIN_CONFIDENCE:
                 if entity.label == "package" and value and library_hint is None:

@@ -270,6 +270,8 @@ repomix-output*.md
 
 # Cloned research repositories
 research_repos/
+tmpgithub-mcp-server/
+.tmp_rewrite_live/
 
 # ======================
 # Additional ignores for files/dirs that should not be tracked

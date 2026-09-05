@@ -33,11 +33,16 @@ class TestPageContentResolver(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ) as mock_search,
         ):
-            mock_search.return_value = WebSearchResponse(query="q", results=search_results)
+            response = WebSearchResponse(query="q", results=search_results)
+            run = MagicMock()
+            run.response = response
+            run.plan = None
+            run.diagnostics.overflow_ranked = []
+            mock_search.return_value = (response, run)
 
             # Pass ctx explicitly to bypass CurrentContext() injection
             out = await web_search("q", research_goal="testing", ctx=mock_ctx)
-        self.assertNotIn("page_content", out["results"][0])
+        self.assertNotIn("page_content", out.results[0].model_dump())
 
     async def test_web_search_keeps_results_lightweight_for_pdf(self) -> None:
         from kindly_web_search_mcp_server.server import web_search
@@ -61,10 +66,15 @@ class TestPageContentResolver(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ) as mock_search,
         ):
-            mock_search.return_value = WebSearchResponse(query="q", results=results)
+            response = WebSearchResponse(query="q", results=results)
+            run = MagicMock()
+            run.response = response
+            run.plan = None
+            run.diagnostics.overflow_ranked = []
+            mock_search.return_value = (response, run)
 
             out = await web_search("q", research_goal="testing", ctx=mock_ctx)
-        self.assertNotIn("page_content", out["results"][0])
+        self.assertNotIn("page_content", out.results[0].model_dump())
 
 
 if __name__ == "__main__":

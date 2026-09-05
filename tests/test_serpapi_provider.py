@@ -23,9 +23,11 @@ class TestSerpApiEngineOverride(unittest.TestCase):
         from kindly_web_search_mcp_server.settings import settings
 
         search_mock.return_value = []
-        with patch.object(settings, "serpapi_enabled", True), \
-             patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")), \
-             patch.object(settings, "disabled_providers", ()):
+        with (
+            patch.object(settings, "serpapi_enabled", True),
+            patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")),
+            patch.object(settings, "disabled_providers", ()),
+        ):
             asyncio.run(search_serpapi("q", num_results=5, engine="naver"))
             self.assertEqual(search_mock.await_args.args[1], "naver")
 
@@ -46,9 +48,11 @@ class TestSerpApiEngineOverride(unittest.TestCase):
             asyncio.run(search_serpapi("q", num_results=5))
 
         # Even when serpapi is enabled, google and baidu remain disabled
-        with patch.object(settings, "serpapi_enabled", True), \
-             patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")), \
-             patch.object(settings, "disabled_providers", ()):
+        with (
+            patch.object(settings, "serpapi_enabled", True),
+            patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")),
+            patch.object(settings, "disabled_providers", ()),
+        ):
             for disabled_engine in ("baidu", "google", "BAIDU", "Google"):
                 with self.assertRaises(SerpApiConfigError):
                     asyncio.run(search_serpapi("q", num_results=5, engine=disabled_engine))
@@ -59,13 +63,16 @@ class TestSerpApiEngineOverride(unittest.TestCase):
         # Default configuration: all disabled
         engines = _get_engines()
         self.assertEqual(engines, [])
+
     def test_get_engines_filters_disabled_engines_when_enabled(self):
         from kindly_web_search_mcp_server.search.providers.serpapi import _get_engines
         from kindly_web_search_mcp_server.settings import settings
 
-        with patch.object(settings, "serpapi_enabled", True), \
-             patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")), \
-             patch.object(settings, "disabled_providers", ()):
+        with (
+            patch.object(settings, "serpapi_enabled", True),
+            patch.object(settings, "serpapi_disabled_engines", ("google", "baidu")),
+            patch.object(settings, "disabled_providers", ()),
+        ):
             with patch.dict("os.environ", {"SERPAPI_ENGINES": "yahoo,baidu,google,naver"}):
                 engines = _get_engines()
                 self.assertEqual(engines, ["yahoo", "naver"])
@@ -74,9 +81,11 @@ class TestSerpApiEngineOverride(unittest.TestCase):
         from kindly_web_search_mcp_server.search.providers.serpapi import _get_engines
         from kindly_web_search_mcp_server.settings import settings
 
-        with patch.object(settings, "serpapi_enabled", True), \
-             patch.object(settings, "serpapi_disabled_engines", ("naver",)), \
-             patch.object(settings, "disabled_providers", ()):
+        with (
+            patch.object(settings, "serpapi_enabled", True),
+            patch.object(settings, "serpapi_disabled_engines", ("naver",)),
+            patch.object(settings, "disabled_providers", ()),
+        ):
             with patch.dict("os.environ", {"SERPAPI_ENGINES": "yahoo,naver"}):
                 engines = _get_engines()
                 self.assertEqual(engines, ["yahoo"])
@@ -85,9 +94,11 @@ class TestSerpApiEngineOverride(unittest.TestCase):
         from kindly_web_search_mcp_server.search.providers.serpapi import _get_engines
         from kindly_web_search_mcp_server.settings import settings
 
-        with patch.object(settings, "serpapi_enabled", True), \
-             patch.object(settings, "serpapi_disabled_engines", ()), \
-             patch.object(settings, "disabled_providers", ("serpapi_naver",)):
+        with (
+            patch.object(settings, "serpapi_enabled", True),
+            patch.object(settings, "serpapi_disabled_engines", ()),
+            patch.object(settings, "disabled_providers", ("serpapi_naver",)),
+        ):
             with patch.dict("os.environ", {"SERPAPI_ENGINES": "yahoo,naver"}):
                 engines = _get_engines()
                 self.assertEqual(engines, ["yahoo"])

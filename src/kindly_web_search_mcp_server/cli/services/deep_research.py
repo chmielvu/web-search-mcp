@@ -7,7 +7,6 @@ from fastmcp.server.context import Context
 from ...deep_research import deep_research
 
 
-
 class _CliContext:
     async def report_progress(self, **_: Any) -> None:
         return None

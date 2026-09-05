@@ -238,9 +238,9 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
              WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'rankllm'
              LIMIT 1) AS rankllm_rank,
             f.rank AS final_rank,
-            (SELECT rc.cross_encoder_raw FROM rerank_candidates rc
+            (SELECT rc.cross_encoder_score FROM rerank_candidates rc
              WHERE rc.run_key = c.run_key AND rc.link = c.link AND rc.stage = 'cross_encoder'
-             LIMIT 1) AS cross_encoder_raw,
+             LIMIT 1) AS cross_encoder_score,
             (f.rank IS NOT NULL) AS in_final_results
         FROM search_candidates c
         LEFT JOIN final_results f ON c.run_key = f.run_key AND c.link = f.link
@@ -257,6 +257,7 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
                 WHEN rs.stage = 'bi_encoder' THEN '1. Bi-Encoder'
                 WHEN rs.stage = 'cross_encoder' THEN '2. Cross-Encoder'
                 WHEN rs.stage = 'rankllm' THEN '3. RankLLM'
+                WHEN rs.stage = 'mmr_fallback' THEN '4. MMR Fallback'
                 ELSE rs.stage
             END AS stage_label,
             rs.provider, rs.model,
@@ -266,15 +267,17 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             ROUND(rs.max_score, 4) AS max_score,
             ROUND(rs.avg_score, 4) AS avg_score,
             rs.status, rs.error_type,
-            rs.input_tokens, rs.output_tokens
+            rs.input_tokens, rs.output_tokens,
+            rs.attempted_passes, rs.valid_passes, rs.failed_passes
         FROM rerank_stages rs
-        WHERE rs.stage IN ('bi_encoder', 'cross_encoder', 'rankllm')
+        WHERE rs.stage IN ('bi_encoder', 'cross_encoder', 'rankllm', 'mmr_fallback')
         ORDER BY rs.run_key,
             CASE
                 WHEN rs.stage = 'bi_encoder' THEN 1
                 WHEN rs.stage = 'cross_encoder' THEN 2
                 WHEN rs.stage = 'rankllm' THEN 3
-                ELSE 4
+                WHEN rs.stage = 'mmr_fallback' THEN 4
+                ELSE 5
             END
         """,
         # 6. Rewrite diagnostics
@@ -1209,6 +1212,7 @@ def _build_funnel_uplift_view_sql(target: str) -> list[str]:
                     WHEN 'bi_encoder' THEN 100
                     WHEN 'cross_encoder' THEN 200
                     WHEN 'rankllm' THEN 300
+                    WHEN 'mmr_fallback' THEN 400
                     ELSE 999
                 END AS stage_order,
                 stage AS stage_name,
@@ -1236,6 +1240,8 @@ def _build_funnel_uplift_view_sql(target: str) -> list[str]:
             max(status) FILTER (WHERE stage_name = 'cross_encoder') AS cross_status,
             max(output_count) FILTER (WHERE stage_name = 'rankllm') AS rankllm_output,
             max(status) FILTER (WHERE stage_name = 'rankllm') AS rankllm_status,
+            max(output_count) FILTER (WHERE stage_name = 'mmr_fallback') AS mmr_output,
+            max(status) FILTER (WHERE stage_name = 'mmr_fallback') AS mmr_status,
             max(output_count) FILTER (WHERE stage_name = 'final') AS final_count
         FROM {t}.vw_run_stage_funnel
         GROUP BY run_key
@@ -1403,18 +1409,18 @@ def _build_funnel_uplift_view_sql(target: str) -> list[str]:
             GROUP BY normalized_url
         ) fr ON o.raw_url = fr.normalized_url
         """,
-        # 54. Dense score calibration — rerank score vs survival
+        # 54. Final score calibration — rerank score vs survival
         f"""
         CREATE OR REPLACE VIEW {t}.vw_dense_score_calibration AS
         SELECT
             stage AS stage_name,
-            floor(score_after * 10) / 10 AS score_bin,
+            floor(final_score_after * 10) / 10 AS final_score_bin,
             count(*) AS candidates,
             avg((rank_after IS NOT NULL)::INTEGER) AS survival_rate,
-            avg(score_after) AS avg_score_after
+            avg(final_score_after) AS avg_final_score_after
         FROM rerank_candidates
-        WHERE score_after IS NOT NULL
-        GROUP BY stage_name, score_bin
+        WHERE final_score_after IS NOT NULL
+        GROUP BY stage_name, final_score_bin
         """,
     ]
 

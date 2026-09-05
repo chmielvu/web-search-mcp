@@ -34,6 +34,7 @@ class TranscriptSQLiteCache:
         self.db_path = db_path
         self._lock = threading.Lock()
         self._schema_initialized = False
+
     def _resolve_path(self) -> Path:
         if self.db_path:
             return Path(self.db_path)
@@ -80,6 +81,7 @@ class TranscriptSQLiteCache:
                 """
             )
         self._schema_initialized = True
+
     def ensure_store_schema(self, con: sqlite3.Connection) -> None:
         try:
             self._ensure_schema(con)

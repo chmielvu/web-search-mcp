@@ -145,9 +145,7 @@ def provider_is_reachable(definition: ProviderDefinition) -> bool:
 
 def select_provider_names() -> tuple[str, ...]:
     """All reachable providers; branch candidate tuples decide routing."""
-    return tuple(
-        item.name for item in PROVIDER_DEFINITIONS_LIST if provider_is_reachable(item)
-    )
+    return tuple(item.name for item in PROVIDER_DEFINITIONS_LIST if provider_is_reachable(item))
 
 
 def select_paid_google_provider(available_names: Sequence[str]) -> str | None:

@@ -166,13 +166,6 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
             parts.append("Try gemini_search for broader coverage.")
             next_tools.append("gemini_search")
 
-    # Provider agreement
-    top_pc = max((r.get("provider_count", 0) for r in results[:3]), default=0)
-    if top_pc <= 1 and len(providers) > 1:
-        parts.append("Top results from single provider — cross-check.")
-        if gemini_ok:
-            next_tools.append("gemini_search")
-
     return (" ".join(parts), next_tools, next_prompts)
 
 
@@ -197,7 +190,9 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
             parts.append(f"Truncated at {nxt} chars. Continue: fetch(offset={nxt}).")
             next_tools.append("fetch")
         if source_type == "github_issue":
-            parts.append("GitHub issue detected. Use composio_similarlinks to find related issues/PRs.")
+            parts.append(
+                "GitHub issue detected. Use composio_similarlinks to find related issues/PRs."
+            )
             next_tools.append("composio_similarlinks")
         elif source_type == "wikipedia":
             parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
@@ -214,15 +209,16 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
             and not typed
             and not (status == "success" and wall_kind is None)
         ):
-            parts.append("Very short content (possibly behind login/paywall). Try an alternative source.")
-        if (
-            isinstance(wall, dict)
-            and (
-                (wall_kind in {"login", "paywall", "bot"} and status in {"blocked", "error"})
-                or (wall_kind == "js_shell" and status in {"partial", "blocked", "error"})
+            parts.append(
+                "Very short content (possibly behind login/paywall). Try an alternative source."
             )
+        if isinstance(wall, dict) and (
+            (wall_kind in {"login", "paywall", "bot"} and status in {"blocked", "error"})
+            or (wall_kind == "js_shell" and status in {"partial", "blocked", "error"})
         ):
-            parts.append(f"Access signal detected: {wall['kind']}. Do not trust the returned wall content.")
+            parts.append(
+                f"Access signal detected: {wall['kind']}. Do not trust the returned wall content."
+            )
         return (" ".join(parts) if parts else "", next_tools, next_prompts)
 
     has_more = data.get("has_more", False)
@@ -230,9 +226,7 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     total_req = data.get("total_requested", 0)
     if has_more and cursor:
         remaining = max(0, int(total_req or 0) - len(results))
-        parts.append(
-            f"has_more=true ({remaining} URLs pending). Continue: fetch(cursor={cursor})."
-        )
+        parts.append(f"has_more=true ({remaining} URLs pending). Continue: fetch(cursor={cursor}).")
         next_tools.append("fetch")
 
     success_count = sum(1 for item in results if item.get("status") == "success")
@@ -240,9 +234,7 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
         parts.append(f"{success_count}/{total_req} URLs succeeded in this page.")
 
     source_types = {
-        str(item.get("source_type") or "")
-        for item in results
-        if item.get("source_type")
+        str(item.get("source_type") or "") for item in results if item.get("source_type")
     }
     if len(source_types) > 1:
         parts.append("Mixed source_types: " + ", ".join(sorted(source_types)) + ".")
@@ -289,7 +281,6 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
 
 
 GUIDANCE_GENERATORS = {
-    "web_search": _guide_web_search,
     "fetch": _guide_fetch,
     "gemini_search": _guide_gemini_search,
     "quick_web_search": _guide_quick_web_search,

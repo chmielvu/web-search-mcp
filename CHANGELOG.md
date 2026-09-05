@@ -1,4 +1,108 @@
 ## [Unreleased]
+### Changed — Rerank pipeline score and boundary consolidation
+- Internal results now use stage-owned retrieval, bi-encoder, cross-encoder, RankLLM,
+  recency, diversity, final-score, and final-rank fields; the public `score` remains
+  the projection of terminal `final_score`.
+- Rerank output now carries typed terminal stages and overflow items. Temporal
+  filtering runs before reranking, domain boost runs before citations/ranks, and
+  RankLLM-success searches bypass MMR while failed RankLLM searches use bounded
+  cross-stage MMR with fail-open diagnostics.
+- Provider-response validation runs inside fallback attempts, including partial
+  RankLLM pass accounting. Analytics writers and schema migrations use canonical
+  stage columns while preserving historical legacy columns as inert data.
+
+
+### Changed — Typed `web_search` envelope and overflow continuation
+- `web_search` now returns a public-only typed response with agent-facing hits,
+  warnings, next actions, and a resumable cursor for ranked overflow.
+- CLI search accepts the same cursor contract, while internal result fields
+  remain outside the public MCP/CLI payload.
+
+
+### Fixed — Remove stale `WebSearchResult.provider_count` accesses
+- Deleted the stale result-model writes and reads that caused duplicate-provider
+  searches to raise a Pydantic field error.
+
+### Added — code_fetch single-file GitHub preflight
+- Uncached `code_fetch(repository, path=...)` with no query/symbol hydrates that
+  one file via existing `hydrate_sources` (GraphQL blob + REST Contents fallback)
+  and skips the tarball snapshot. Directory listings and hydrate misses fall
+  through to the snapshot pipeline unchanged.
+
+### Fixed — Query rewrite slots still land in training JSONL
+- `plan_search` appends a `kind=rewrite` record to
+  `duckdb_data/training/query_understanding.jsonl` immediately after named
+  slots are produced. Outcome JSONL rows also carry `rewritten_branch_queries`.
+  Concurrent appends are serialized so parallel searches cannot interleave lines.
+
+### Removed — Cerebras inference provider
+- Dropped Cerebras from `worker_llm`, settings (`CEREBRAS_*`), the OpenAI
+  adapter alias, and catalog models `zai-glm-4.7` / `gemma-4-31b`. Rewrite
+  starts at Groq. No shims.
+
+### Fixed — HTTP 400/401/402/403/404 advance the inference fallback chain
+- `_is_retryable_error` treats bad request, auth, quota/payment, and not-found
+  as provider-local so `execute_with_fallback` continues to the next spec
+  (Cerebras → Groq/HF/Vercel). Archived Cerebras models (404) no longer abort
+  rewrite before Groq. 422 still aborts.
+
+### Fixed — Query understanding uses deployed /classify + /ner
+- `GLiNER2Client.analyze_query` no longer POSTs `/v2/query-understanding` (that
+  route is not on unified-ml). It calls `/classify` and `/ner` so NER entity
+  surfaces reach rewrite `Preserve Exactly` instead of timing out empty.
+  Preserve Exactly is NER-only; compared-entity names are not copied in.
+
+### Changed — Rewrite v10 SERP keyword bags + official Tavily/Exa query rules
+- `prompts/query_rewrite.py` `REWRITE_PROMPT_VERSION` is `"10"`. Named-slot schema
+  (free / serp1 / serp2 / semantic_tavily / semantic_exa) is unchanged.
+- SERP slots follow Codexity / CRAG / gpt-researcher: 4-8 word keyword bags, not
+  operator-laden queries. `site:`, `filetype:`, `inurl:`, `intitle:`, OR/AND/NOT
+  are banned. Comparisons split across serp1/serp2. Preserve Exactly is per-facet
+  on SERP slots (literal inclusion still required on free + both semantic slots).
+- Tavily slot follows [Tavily Search best practices](https://docs.tavily.com/documentation/best-practices/best-practices-search):
+  one focused agent query (question or short statement), not a long-form prompt;
+  quotes only for exact-match names; no `site:` (domains are API parameters).
+- Exa slot follows [Exa Search best practices](https://exa.ai/docs/reference/search-best-practices)
+  and [exa-mcp-server searching.md](https://github.com/exa-labs/exa-mcp-server/blob/main/skills/search/references/searching.md):
+  describe the page to find with a long semantically rich phrase; embeddings do
+  not honor Boolean operators, quotes, or `site:`.
+
+
+### Changed — Intent-specific rewrite angle prompts (v8)
+- `prompts/query_rewrite.py` `REWRITE_PROMPT_VERSION` is `"8"`. Shared slot syntax
+  (free / serp1 / serp2 / semantic_tavily / semantic_exa) is unchanged. The LLM
+  still fills all five slots; `select_rewrite_prompt(intent)` injects a per-intent
+  `<ANGLE_STRATEGY>` block (general, comparison, ai_coding_and_infrastructure,
+  news, social_media, digital_humanities).
+- Angle instructions and few-shots are adapted from `query_writer_instructions`
+  (topic analysis, anti-assumption, recency, subtopic examples), GitRAG multi_query,
+  alexdong comparison/expansion, dspy-opt SubQuerySignature, knowledge-ops
+  pronoun ban, secondbrain per-engine phrasing, and WebRAgent one-aspect queries.
+- `planning.py::_rewrite_queries` selects the intent template; six-branch topology
+  is unchanged. Cache key already includes intent.
+
+
+### Added — Agent evidence fields and machine-ready fetch hints on WebSearchResult
+- Added typed `WebSearchFetchHint` and `WebSearchEvidenceScore` models and exposed `citation_id`, `evidence_score`, `freshness_signal`, and `fetch_hint` on `WebSearchResult`.
+- `rank_and_finalize` attaches evidence via `attach_agent_evidence`:
+  - `citation_id`: 1-based sequential citation label (`c1`, `c2`, ...).
+  - `evidence_score`: score decomposition with `final` (normalized final score), `semantic` (raw cross-encoder score), `lexical` (hybrid RRF score), and `engine_consensus` (distinct provider count).
+  - `freshness_signal`: temporal classification (`fresh` for <=90d, `dated` for >90d, or `unknown`).
+  - `fetch_hint`: machine-ready continuation payload targeting `fetch` with pre-populated arguments, relevance rationale, and confidence level (`high`/`medium`/`low`) derived from semantic and positional relevance.
+- Updated public output serialization in `utils/public_output.py` (`WEB_SEARCH_RESULT_FIELDS`) to include the new evidence fields.
+- Documented live score-field semantics and evidence contracts in `tools/search.py` and `search/AGENTS.md`.
+
+### Changed — Unified ML granite 768d embedding contract (breaking)
+- Default `EMBEDDING_MODEL` is `granite-embedding-311m-multilingual`; default `EMBEDDING_DIM` is 768. Endpoint remains `POST {EMBEDDING_ENDPOINT_URL}/v1/embeddings` (default `http://127.0.0.1:8000`). Stops zero-padding live 768d granite vectors to the old 786d contract.
+- DuckDB `query_embeddings` / `candidate_embeddings` and Qdrant `web_results_768d` follow 768d. Existing DuckDB 786d tables roll to `*_786d_legacy` on schema bootstrap.
+
+
+### Changed — ranking fusion and diversity (breaking)
+- Weighted RRF: `reciprocal_rank_fusion` accepts per-list `weights` as `w/(k+rank)`. `rank_and_finalize` collapses same-provider hits across branches into one list (best rank kept), then applies `settings.rrf_provider_weights` (defaults: exa 2.0, tavily 1.5, ddg/qdrant/searxng/degoog 0.8) and `rrf_bm25_weight` (default 1.0). Override via `RRF_PROVIDER_WEIGHTS_JSON` / `RRF_BM25_WEIGHT`.
+- Deleted `WebSearchResult.provider_consensus_rrf_score` (always-None dead field). Public ranking evidence is `score`, `hybrid_rrf_score`, `providers`, `provider_count`, `cross_relevance_score`.
+- RankLLM `WebSearchResult.score` is min-max normalized (`preserve_raw_scores=False` on the LLM stage). Cross-encoder still stores raw scores on `cross_relevance_score`.
+- MMR now runs on typical `web_search` calls: when the full-pool bi-encoder is skipped (pool ≤100), `rerank_results` embeds just the final slate. `select_diverse_slate` takes RankLLM/cross-encoder `relevance_scores` instead of hardcoded `1.0`. Gated by `settings.diversity_enabled` / `DIVERSITY_ENABLED` (default true). Fail-open if slate embeddings fail.
+
 
 ### Changed — fetch overhaul (breaking)
 - Summaries with non-empty `page_content` no longer use Gemini URL-context; they summarize SOURCE_TEXT only and drop inaccessible claims on long bodies.

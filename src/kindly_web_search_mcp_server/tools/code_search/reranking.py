@@ -83,15 +83,7 @@ class CodeRerankOutcome:
 
 def _temporary_web_result(hit: CodeSearchHit) -> WebSearchResult:
     title = hit.title or ": ".join(item for item in (hit.repository, hit.path) if item) or hit.url
-    evidence = "\n".join(
-        item
-        for item in (
-            hit.snippet,
-            *(fragment.text for fragment in hit.fragments),
-            (hit.hydrated_source or "")[:6_000],
-        )
-        if item
-    )
+    evidence = (hit.source_window or "").strip()
     parsed = urlparse(hit.url)
     return WebSearchResult(
         title=title[:500],
@@ -99,9 +91,8 @@ def _temporary_web_result(hit: CodeSearchHit) -> WebSearchResult:
         snippet=evidence[:8_000] or title,
         domain=parsed.hostname,
         providers=[hit.provider],
-        provider_count=1,
-        hybrid_rrf_score=hit.score,
-        score=hit.score,
+        retrieval_rrf_score=hit.score,
+        final_score=hit.score,
     )
 
 
@@ -172,7 +163,7 @@ async def rerank_code_hits(
     blend_weight = _BLEND_WEIGHTS.get(profile, 0.20)
 
     # 1. Update candidate hits with normalized cloud rerank scores
-    cloud_scores = [float(r.score) for r in outcome.ranked if hasattr(r, "score")]
+    cloud_scores = [float(r.relevance_score) for r in outcome.ranked]
     max_cloud = max(cloud_scores, default=1.0)
     min_cloud = min(cloud_scores, default=0.0)
     score_range = max(max_cloud - min_cloud, 1e-6)
@@ -189,8 +180,11 @@ async def rerank_code_hits(
             continue
         seen.add(index)
         hit = candidate_pool[index].model_copy(deep=True)
-        raw_cloud_score = float(ranked.score)
-        norm_cloud_score = max(0.0, min(1.0, (raw_cloud_score - min_cloud) / score_range))
+        raw_cloud_score = float(ranked.relevance_score)
+        norm_cloud_score = max(
+            0.0,
+            min(1.0, (raw_cloud_score - min_cloud) / score_range),
+        )
 
         # Blend cloud score into deterministic RRF score on a shared scale
         base_score = float(hit.score or 0.0)

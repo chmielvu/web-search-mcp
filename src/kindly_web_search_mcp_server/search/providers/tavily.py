@@ -1,8 +1,8 @@
 """Tavily Search API provider — AI-optimized web search.
 
 Default: ``search_depth="advanced"`` for highest relevance + chunked content.
-``search_options`` provides domain filtering (via ``domain_filters`` /
-``domain_boost``) and time-range mapping (via ``searxng_time_range``).
+``search_options`` maps ``domain_boost`` to Tavily's ``include_domains``
+and maps ``searxng_time_range`` to the provider's ``time_range``.
 ``**kwargs`` captures intent-driven ``provider_arguments`` (e.g. ``topic``,
 ``time_range``, ``country``) defined in ``intent_policy.py``.
 
@@ -41,22 +41,24 @@ class TavilyConfigError(TavilyError):
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 # Provider-argument keys that map directly to Tavily API payload fields.
-_TAVILY_ARG_KEYS = frozenset({
-    "topic",
-    "search_depth",
-    "time_range",
-    "include_answer",
-    "include_raw_content",
-    "include_images",
-    "include_image_descriptions",
-    "include_favicon",
-    "country",
-    "auto_parameters",
-    "exact_match",
-    "chunks_per_source",
-    "safe_search",
-    "include_usage",
-})
+_TAVILY_ARG_KEYS = frozenset(
+    {
+        "topic",
+        "search_depth",
+        "time_range",
+        "include_answer",
+        "include_raw_content",
+        "include_images",
+        "include_image_descriptions",
+        "include_favicon",
+        "country",
+        "auto_parameters",
+        "exact_match",
+        "chunks_per_source",
+        "safe_search",
+        "include_usage",
+    }
+)
 
 # Tavily's ``country`` parameter accepts full lowercase country names and is
 # only honored for topic=general. Map the alpha-2 codes we normalize to.
@@ -104,8 +106,8 @@ async def search_tavily(
     num_results : int
         Maximum results to return (clamped to 0-20 by the API).
     search_options : SearchOptions | None
-        Pipeline search options — maps ``domain_filters`` → ``exclude_domains``,
-        ``domain_boost`` → ``include_domains``, ``searxng_time_range`` → ``time_range``.
+        Pipeline search options — maps ``domain_boost`` → ``include_domains``
+        and ``searxng_time_range`` → ``time_range``.
     http_client : httpx.AsyncClient | None
         Shared HTTP client for connection pooling.
     **kwargs
@@ -183,9 +185,7 @@ async def search_tavily(
             if value:
                 meta_headers[key.replace("-", "_")] = value[:500]
         if meta_headers:
-            metadata = get_provider_request_metadata() or ProviderRequestMetadata(
-                provider="tavily"
-            )
+            metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider="tavily")
             set_provider_request_metadata(
                 _with_metadata(
                     metadata,

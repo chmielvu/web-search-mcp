@@ -18,7 +18,7 @@ def canonicalize_url(url: str) -> str:
     parts = urlsplit(url.strip())
     scheme = parts.scheme.lower()
     netloc = parts.netloc.lower().removeprefix("www.")
-    path = parts.path or ""
+    path = parts.path or "/"
     query_items = [
         (key, value)
         for key, value in parse_qsl(parts.query, keep_blank_values=False)
@@ -26,7 +26,7 @@ def canonicalize_url(url: str) -> str:
     ]
     query = urlencode(query_items, doseq=True)
     fragment = ""
-    if path not in ("", "/") and path.endswith("/"):
+    if path != "/" and path.endswith("/"):
         path = path[:-1]
     if not scheme or not netloc:
         return url.strip()

@@ -58,6 +58,7 @@ def score_candidates(query: str, candidate_texts: Sequence[str]) -> list[float]:
         return [0.0] * len(candidate_texts)
     try:
         import bm25s
+
         retriever = bm25s.BM25(k1=1.2, b=0.75, method="lucene")
         retriever.index(corpus, show_progress=False)
         scores = retriever.get_scores(query_tokens)

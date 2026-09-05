@@ -141,109 +141,65 @@ class LocationMetadata(BaseModel):
     )
 
 
-class TextFragment(BaseModel):
-    """A bounded source/search fragment with optional line metadata."""
-
-    text: str = Field(default="", description="Source or search text for this bounded fragment.")
-    line_start: int | None = Field(
-        default=None, description="One-based first source line represented by the fragment."
-    )
-    line_end: int | None = Field(
-        default=None, description="One-based last source line represented by the fragment."
-    )
-    match_metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Provider-specific match offsets or classification metadata.",
-    )
-
-
 class CodeSearchHit(BaseModel):
-    """Provider-neutral evidence item; ``location`` is the canonical precision metadata."""
-
-    result_kind: ResultKind = Field(
-        default="code_match",
-        description="Evidence kind: exact code match, semantic page, documentation, or repository.",
-    )
-    location: LocationMetadata = Field(
-        default_factory=LocationMetadata,
-        description="Explicit location precision and availability metadata.",
-    )
+    """Clean provider-neutral code search hit."""
 
     repository: str | None = Field(
         default=None, description="Repository containing the evidence, when identified."
     )
     path: str | None = Field(default=None, description="Repository-relative file path.")
-    sha: str | None = Field(
-        default=None, description="Provider blob SHA or file revision identifier, when available."
-    )
     url: str = Field(default="", description="Canonical URL for the evidence or source file.")
     provider: str = Field(description="Backend that returned this evidence item.")
+    sha: str | None = Field(
+        default=None, description="Provider blob SHA or revision identifier, when available."
+    )
+    commit_oid: str | None = Field(default=None, description="Exact commit OID, when available.")
     query_variant: str | None = Field(
-        default=None,
-        description=(
-            "Planner or provider query variant associated with this hit. Provider-specific "
-            "compiled queries are retained in query_metadata.compiled_queries."
-        ),
+        default=None, description="Planner or provider query variant."
     )
     search_rank: int | None = Field(
         default=None, description="Provider-native rank before cross-provider ranking."
     )
-    fragments: list[TextFragment] = Field(
-        default_factory=list,
-        description="Bounded source or provider fragments containing the match.",
-    )
-    commit_oid: str | None = Field(
-        default=None, description="Exact indexed or hydrated commit OID, when available."
-    )
-    hydrated_source: str | None = Field(
-        default=None, description="Bounded source window fetched for follow-up analysis."
-    )
-    hydrated_source_truncated: bool = Field(
-        default=False, description="Whether the hydrated source window was truncated."
-    )
-    line_start: int | None = Field(
-        default=None,
-        description="Top-level mirror of location.line_start for compatibility, when known.",
-    )
-    line_end: int | None = Field(
-        default=None,
-        description="Top-level mirror of location.line_end for compatibility, when known.",
-    )
-    match_spans: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Character or line spans identified as matching the query.",
-    )
-    symbols: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Structured symbols associated with the matched source.",
+    result_kind: ResultKind = Field(
+        default="code_match",
+        description="Evidence kind: code_match, semantic_page, documentation, repository.",
     )
     evidence_role: str | None = Field(
-        default=None,
-        description="Role of this evidence, such as implementation, documentation, or repository proof.",
+        default=None, description="Role of evidence: definition, callsite, test, documentation."
     )
     title: str | None = Field(
-        default=None, description="Human-readable title supplied by the provider."
+        default=None, description="Human-readable title supplied by provider."
     )
-    snippet: str | None = Field(
-        default=None, description="Short provider snippet suitable for triage."
+    published_date: str | None = Field(default=None, description="Publication or update date.")
+
+    # Canonical bounded source window (populated after hydration & windowing)
+    source_window: str | None = Field(
+        default=None, description="Clean bounded source window (max 100 lines)."
     )
-    published_date: str | None = Field(
-        default=None, description="Publication or update date, when supplied by the provider."
+    line_start: int | None = Field(
+        default=None, description="One-based start line of the source window."
     )
-    score: float | None = Field(
-        default=None, description="Final provider-neutral relevance score after ranking."
+    line_end: int | None = Field(
+        default=None, description="One-based end line of the source window."
     )
+    match_lines: list[int] = Field(
+        default_factory=list, description="One-based absolute lines matching query terms."
+    )
+    symbols: list[dict[str, Any]] = Field(
+        default_factory=list, description="Structured symbols associated with the matched code."
+    )
+
+    # Internal scoring & metadata (excluded from public serialization)
+    score: float | None = Field(default=None, description="Composite relevance/quality score.")
     score_components: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Explainable components contributing to the final score.",
+        default_factory=dict, description="Component scores for explainability."
     )
-    reasons: list[str] = Field(
-        default_factory=list,
-        description="Short ranking reasons explaining why this hit was selected.",
-    )
+    reasons: list[str] = Field(default_factory=list, description="Human-readable ranking reasons.")
     source_metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Provider and hydration metadata for continued investigation.",
+        default_factory=dict, description="Provider and hydration metadata."
+    )
+    location: LocationMetadata = Field(
+        default_factory=LocationMetadata, description="Location precision metadata."
     )
 
 
@@ -326,8 +282,11 @@ def normalize_hit_metadata(hit: CodeSearchHit) -> CodeSearchHit:
     provider = hit.provider.casefold()
     match_data_available = hit.location.match_data_available
     if not match_data_available and provider in {"github", "sourcegraph", "grep.app"}:
-        match_data_available = bool(hit.fragments or hit.match_spans)
-
+        match_data_available = bool(
+            hit.source_window
+            or hit.match_lines
+            or (isinstance(hit.line_start, int) and hit.line_start >= 1)
+        )
     revision = hit.location.revision or hit.commit_oid
     if provider == "grep.app" and hit.location.ref:
         revision = None
@@ -498,38 +457,6 @@ _PATH_LANGUAGE = {
 }
 
 
-class CodeSearchPublicSpan(BaseModel):
-    """Match extent: absolute line/column (Sourcegraph/grep.app) or snippet-relative offsets (GitHub)."""
-
-    line: int | None = Field(default=None, description="Absolute one-based line of the match.")
-    column: int | None = Field(default=None, description="Zero-based column offset (Sourcegraph).")
-    length: int | None = Field(default=None, description="Match length in characters.")
-    start: int | None = Field(
-        default=None, description="Snippet-relative start offset (GitHub indices)."
-    )
-    end: int | None = Field(
-        default=None, description="Snippet-relative end offset (GitHub indices)."
-    )
-    line_offset: int | None = Field(
-        default=None, description="Line offset within the snippet (GitHub)."
-    )
-
-
-class CodeSearchPublicMatchLines(BaseModel):
-    """Line-precise coordinates for one text_matches entry, when known."""
-
-    line_start: int | None = Field(
-        default=None, description="First source line of this match or window."
-    )
-    line_end: int | None = Field(
-        default=None, description="Last source line of this match or window."
-    )
-    spans: list[CodeSearchPublicSpan] = Field(
-        default_factory=list,
-        description="Exact match extents: absolute line/column (Sourcegraph/grep.app) or snippet-relative (GitHub).",
-    )
-
-
 class CodeSearchPublicSymbol(BaseModel):
     """Symbol hit contributed by a symbol-aware provider (Sourcegraph)."""
 
@@ -545,23 +472,24 @@ class CodeSearchPublicFile(BaseModel):
     language: str | None = Field(default=None, description="Detected or requested language.")
     url: str | None = Field(default=None, description="Canonical file URL.")
     sha: str | None = Field(default=None, description="Blob SHA or commit OID when known.")
-    snippet: str | None = Field(default=None, description="Primary provider match context.")
-    text_matches: list[str] = Field(default_factory=list, description="Provider match contexts.")
-    match_lines: list[CodeSearchPublicMatchLines] = Field(
-        default_factory=list,
-        description="Parallel line coordinates and exact spans for text_matches.",
-    )
-    line_start: int | None = Field(default=None, description="First primary match line.")
-    line_end: int | None = Field(default=None, description="Last primary match line.")
+
+    source_window: str | None = Field(default=None, description="Matched source code window.")
+    line_start: int | None = Field(default=None, description="First line of the source window.")
+    line_end: int | None = Field(default=None, description="Last line of the source window.")
+
     symbols: list[CodeSearchPublicSymbol] = Field(default_factory=list)
     providers: list[str] = Field(default_factory=list)
     path_only: bool = Field(default=False)
-    source_window_start: int | None = Field(default=None, description="First line of hydrated source window.")
-    source_window_end: int | None = Field(default=None, description="Last line of hydrated source window.")
-    full_source_chars: int | None = Field(default=None, description="Total chars of the full source file.")
-    omitted_fragments: int = Field(default=0, description="Number of provider match fragments dropped by per-file caps.")
+
+    full_source_chars: int | None = Field(
+        default=None, description="Total chars of the full source file."
+    )
+    omitted_fragments: int = Field(
+        default=0, description="Number of provider match fragments dropped."
+    )
     agent_ready: bool = Field(default=False)
     agent_ready_fail_reasons: list[str] = Field(default_factory=list)
+
 
 class CodeSearchPublicRepo(BaseModel):
     """Slim repository row for discovery mode."""
@@ -610,6 +538,7 @@ class CodeSearchPublicHint(BaseModel):
 
 class CodeSearchPublicNext(BaseModel):
     """Machine-ready continuation to search a repository snapshot or inspect a file."""
+
     action: str = Field(description="Continuation action.")
     tool: str = Field(description="Tool to call for this continuation.")
     query: dict[str, Any] = Field(default_factory=dict)
@@ -645,109 +574,6 @@ def _language_from_path(path: str | None) -> str | None:
     return _PATH_LANGUAGE.get(suffix)
 
 
-def _spans_for_range(
-    hit: CodeSearchHit, line_start: int | None, line_end: int | None
-) -> list[CodeSearchPublicSpan]:
-    """Build spans from provider match metadata without altering source text."""
-
-    spans: list[CodeSearchPublicSpan] = []
-    for span in hit.match_spans:
-        if not isinstance(span, dict):
-            continue
-        line = span.get("line")
-        if not isinstance(line, int):
-            if isinstance(span.get("start"), int) and isinstance(span.get("end"), int):
-                spans.append(
-                    CodeSearchPublicSpan(
-                        start=span["start"], end=span["end"], line_offset=span.get("fragment")
-                    )
-                )
-            continue
-        if line_start is not None and line < line_start:
-            continue
-        if line_end is not None and line > line_end:
-            continue
-        spans.append(
-            CodeSearchPublicSpan(
-                line=line,
-                column=span.get("column") if isinstance(span.get("column"), int) else None,
-                length=span.get("length") if isinstance(span.get("length"), int) else None,
-            )
-        )
-    return spans
-
-
-def _build_text_and_lines(
-    hit: CodeSearchHit,
-) -> list[tuple[str, CodeSearchPublicMatchLines]]:
-    """Project provider contexts into non-redundant match and window entries."""
-
-    pairs: list[tuple[str, CodeSearchPublicMatchLines]] = []
-    seen_clean: set[str] = set()
-
-    for fragment in hit.fragments:
-        if not isinstance(fragment.text, str) or not fragment.text.strip():
-            continue
-        cleaned = fragment.text.strip()
-        if cleaned in seen_clean:
-            continue
-        offsets = fragment.match_metadata.get("offsets")
-        spans: list[CodeSearchPublicSpan] = []
-        if isinstance(offsets, list):
-            for offset in offsets:
-                if isinstance(offset, list) and len(offset) == 2:
-                    spans.append(
-                        CodeSearchPublicSpan(
-                            line=fragment.line_start,
-                            column=offset[0] if isinstance(offset[0], int) else None,
-                            length=offset[1] if isinstance(offset[1], int) else None,
-                        )
-                    )
-        if not spans:
-            spans = _spans_for_range(hit, fragment.line_start, fragment.line_end)
-        seen_clean.add(cleaned)
-        pairs.append(
-            (
-                fragment.text,
-                CodeSearchPublicMatchLines(
-                    line_start=fragment.line_start, line_end=fragment.line_end, spans=spans
-                ),
-            )
-        )
-
-    if isinstance(hit.snippet, str) and hit.snippet.strip():
-        cleaned_snippet = hit.snippet.strip()
-        if cleaned_snippet not in seen_clean and not any(cleaned_snippet in c for c in seen_clean):
-            seen_clean.add(cleaned_snippet)
-            pairs.append(
-                (
-                    hit.snippet,
-                    CodeSearchPublicMatchLines(
-                        line_start=hit.line_start,
-                        line_end=hit.line_end,
-                        spans=_spans_for_range(hit, hit.line_start, hit.line_end),
-                    ),
-                )
-            )
-
-    if isinstance(hit.hydrated_source, str) and hit.hydrated_source.strip():
-        cleaned_hydrated = hit.hydrated_source.strip()
-        window_start = hit.source_metadata.get("source_window_start")
-        window_end = hit.source_metadata.get("source_window_end")
-        ws = window_start if isinstance(window_start, int) and window_start >= 1 else hit.line_start
-        we = window_end if isinstance(window_end, int) and window_end >= 1 else hit.line_end
-        if cleaned_hydrated not in seen_clean:
-            pairs.append(
-                (
-                    hit.hydrated_source,
-                    CodeSearchPublicMatchLines(
-                        line_start=ws, line_end=we, spans=_spans_for_range(hit, ws, we)
-                    ),
-                )
-            )
-    return pairs
-
-
 def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSearchPublicFile:
     """Project one internal hit to a full structured file row with readiness status."""
 
@@ -771,32 +597,31 @@ def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSe
         for symbol in hit.symbols
         if isinstance(symbol, dict) and symbol.get("name")
     ]
-    pairs = _build_text_and_lines(hit)
-    text_matches = [text for text, _ in pairs]
-    match_lines = [lines for _, lines in pairs]
-    primary_lines = match_lines[0] if match_lines else None
-    line_start = hit.line_start or (primary_lines.line_start if primary_lines else None)
-    line_end = hit.line_end or (primary_lines.line_end if primary_lines else None)
+
+    source_window = (
+        hit.source_window
+        if isinstance(hit.source_window, str) and hit.source_window.strip()
+        else None
+    )
+    line_start = hit.line_start
+    line_end = hit.line_end
     providers: list[str] = []
     for provider in [hit.provider, *(hit.source_metadata.get("providers") or [])]:
         if isinstance(provider, str) and provider.strip() and provider not in providers:
             providers.append(provider)
+
     agent_ready, fail_reasons = assess_candidate_readiness(hit)
     return CodeSearchPublicFile(
         path=hit.path,
         language=detected,
         url=hit.url or None,
         sha=revision,
-        snippet=text_matches[0] if text_matches else None,
-        text_matches=text_matches,
-        match_lines=match_lines,
+        source_window=source_window,
         line_start=line_start,
         line_end=line_end,
         symbols=symbols,
         providers=providers,
-        path_only=not text_matches and not match_lines,
-        source_window_start=hit.source_metadata.get("source_window_start"),
-        source_window_end=hit.source_metadata.get("source_window_end"),
+        path_only=not bool(source_window),
         full_source_chars=hit.source_metadata.get("full_source_chars"),
         omitted_fragments=max(0, int(hit.source_metadata.get("omitted_fragments") or 0)),
         agent_ready=agent_ready,
@@ -922,7 +747,6 @@ def to_public_result(
 
     groups: list[CodeSearchPublicGroup] = []
     by_repo: dict[str, CodeSearchPublicGroup] = {}
-    by_file: dict[str, dict[str, CodeSearchPublicFile]] = {}
     best_score: dict[str, float] = {}
     for hit in result.results:
         repository = hit.repository or "unknown"
@@ -933,48 +757,13 @@ def to_public_result(
                 repository=repository, owner=owner or None, repo=repo_name or None
             )
             by_repo[repository] = group
-            by_file[repository] = {}
             best_score[repository] = hit.score or 0.0
             groups.append(group)
         else:
             best_score[repository] = max(best_score.get(repository, 0.0), hit.score or 0.0)
 
-        path_key = (hit.path or "").casefold()
-        existing = by_file[repository].get(path_key)
         file_entry = to_public_file(hit, language=language)
-        if existing is None:
-            by_file[repository][path_key] = file_entry
-            group.files.append(file_entry)
-            continue
-
-        existing_texts = {text.strip() for text in existing.text_matches}
-        for text, lines in zip(file_entry.text_matches, file_entry.match_lines):
-            if text.strip() not in existing_texts:
-                existing.text_matches.append(text)
-                existing.match_lines.append(lines)
-                existing_texts.add(text.strip())
-        for symbol in file_entry.symbols:
-            if symbol not in existing.symbols:
-                existing.symbols.append(symbol)
-        for provider in file_entry.providers:
-            if provider not in existing.providers:
-                existing.providers.append(provider)
-        existing.sha = existing.sha or file_entry.sha
-        existing.url = existing.url or file_entry.url
-        existing.language = existing.language or file_entry.language
-        existing.snippet = existing.snippet or file_entry.snippet
-        existing.line_start = existing.line_start or file_entry.line_start
-        existing.line_end = existing.line_end or file_entry.line_end
-        existing.path_only = existing.path_only and file_entry.path_only
-        existing.agent_ready = existing.agent_ready or file_entry.agent_ready
-        existing.agent_ready_fail_reasons.extend(file_entry.agent_ready_fail_reasons)
-        existing.omitted_fragments += file_entry.omitted_fragments
-        if file_entry.source_window_start is not None and existing.source_window_start is None:
-            existing.source_window_start = file_entry.source_window_start
-        if file_entry.source_window_end is not None and existing.source_window_end is None:
-            existing.source_window_end = file_entry.source_window_end
-        if file_entry.full_source_chars is not None and existing.full_source_chars is None:
-            existing.full_source_chars = file_entry.full_source_chars
+        group.files.append(file_entry)
 
     for group in groups:
         for file_entry in group.files:
@@ -1008,7 +797,7 @@ def to_public_result(
                 asset_id=str(metadata.get("asset_id") or hit.repository or ""),
                 asset_type=str(metadata.get("asset_type") or "unknown"),
                 url=hit.url,
-                summary=hit.snippet or "",
+                summary=hit.source_window or "",
                 semantic_score=metadata.get("semantic_score"),
                 score_semantics=str(metadata.get("score_semantics") or "provider_similarity"),
                 likes=int(metadata.get("likes") or 0),

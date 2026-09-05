@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import Field
 
+from ..errors import raise_tool_error
 from ..recommendation import CommandRecommendation, build_command_recommendation
 
 
@@ -19,7 +20,10 @@ def recommend_command(
     ],
 ) -> CommandRecommendation:
     """Recommend the safest existing route for a natural-language task."""
-    return build_command_recommendation(task)
+    try:
+        return build_command_recommendation(task)
+    except Exception as exc:
+        raise_tool_error(exc, provider="recommend_command")
 
 
 __all__ = ["recommend_command"]

@@ -18,9 +18,9 @@ def _candidate(index: int) -> WebSearchResult:
     )
 
 
-class TestBiEncoderFilter(unittest.IsolatedAsyncioTestCase):
+class TestBiEncoderRank(unittest.IsolatedAsyncioTestCase):
     async def test_candidate_embedding_texts_are_bounded_before_hf_call(self) -> None:
-        from kindly_web_search_mcp_server.rerank.bi_encoder import bi_encoder_filter
+        from kindly_web_search_mcp_server.rerank.bi_encoder import bi_encoder_rank
 
         captured_texts: list[str] = []
 
@@ -42,14 +42,14 @@ class TestBiEncoderFilter(unittest.IsolatedAsyncioTestCase):
             mock_embed.side_effect = fake_embed_texts
 
             candidates = [_candidate(i) for i in range(6)]
-            await bi_encoder_filter([1.0, 0.0, 0.0], candidates, top_k=3)
+            await bi_encoder_rank([1.0, 0.0, 0.0], candidates)
 
         self.assertEqual(len(captured_texts), 6)
         self.assertTrue(all(len(text) <= 96 for text in captured_texts))
         self.assertTrue(all(text.startswith("Candidate ") for text in captured_texts))
 
     async def test_candidate_embeddings_are_sent_in_bounded_batches(self) -> None:
-        from kindly_web_search_mcp_server.rerank.bi_encoder import bi_encoder_filter
+        from kindly_web_search_mcp_server.rerank.bi_encoder import bi_encoder_rank
 
         batch_sizes: list[int] = []
 
@@ -71,11 +71,11 @@ class TestBiEncoderFilter(unittest.IsolatedAsyncioTestCase):
             mock_embed.side_effect = fake_embed_texts
 
             candidates = [_candidate(i) for i in range(10)]
-            result, context = await bi_encoder_filter([1.0, 0.0, 0.0], candidates, top_k=5)
+            result, context = await bi_encoder_rank([1.0, 0.0, 0.0], candidates)
 
         self.assertEqual(batch_sizes, [4, 4, 2])
-        self.assertEqual(len(result), 5)
-        self.assertIsNotNone(context)
+        self.assertEqual(len(result), 10)
+        assert context is not None
         self.assertEqual(len(context.candidates), 10)
 
 

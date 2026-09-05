@@ -24,7 +24,9 @@ from kindly_web_search_mcp_server.utils.observability import (
 )
 
 
-def test_response_producers_persist_full_fields_and_batch_output_links(tmp_path, monkeypatch) -> None:
+def test_response_producers_persist_full_fields_and_batch_output_links(
+    tmp_path, monkeypatch
+) -> None:
     db_path = tmp_path / "analytics.duckdb"
     ensure_store_schema(db_path=str(db_path))
     monkeypatch.setattr(settings, "analytics_duckdb_path", str(db_path))
@@ -174,7 +176,9 @@ def test_code_search_analytics_uses_provider_and_rerank_metadata(tmp_path, monke
     response = CodeSearchResultType(
         query="retry backoff",
         outcome="ok",
-        results=[CodeSearchHit(url="https://github.com/acme/repo/blob/main/retry.py", provider="github")],
+        results=[
+            CodeSearchHit(url="https://github.com/acme/repo/blob/main/retry.py", provider="github")
+        ],
         repositories=[],
         diagnostics=[],
         stats=stats,
@@ -252,13 +256,13 @@ def test_async_rerank_writer_persists_candidate_stage_events(tmp_path, monkeypat
             link="https://example.com/a",
             title="A",
             snippet="before",
-            score=0.4,
+            retrieval_rrf_score=0.4,
         ),
         WebSearchResult(
             link="https://example.com/b",
             title="B",
             snippet="before",
-            score=0.3,
+            retrieval_rrf_score=0.3,
         ),
     ]
     after = [before[0]]
@@ -289,6 +293,7 @@ def test_async_rerank_writer_persists_candidate_stage_events(tmp_path, monkeypat
         assert any(row[2] is False and row[3] == "rerank_stage_removed" for row in rows)
     finally:
         connection.close()
+
 
 def test_result_catalog_upsert_tracks_cross_run_appearances(tmp_path) -> None:
     db_path = tmp_path / "analytics.duckdb"

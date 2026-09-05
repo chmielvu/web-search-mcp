@@ -79,7 +79,6 @@ def _ensure_summary_rerank_daily(connection: duckdb.DuckDBPyConnection) -> None:
             ("avg_max_score", "DOUBLE"),
             ("p50_latency_ms", "DOUBLE"),
             ("p95_latency_ms", "DOUBLE"),
-            ("entity_overlap_runs", "BIGINT"),
         ],
         constraints=["PRIMARY KEY (day, stage, provider)"],
     )

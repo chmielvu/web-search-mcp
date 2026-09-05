@@ -257,10 +257,13 @@ def assess_candidate_readiness(candidate: Mapping[str, Any] | object) -> tuple[b
 
     # 3. Sufficient Text Context Check
     has_text_context = False
-    hydrated_source = _get_val(candidate, "hydrated_source")
-    if isinstance(hydrated_source, str) and hydrated_source.strip():
+    source_window = _get_val(candidate, "source_window")
+    if isinstance(source_window, str) and source_window.strip():
         has_text_context = True
     else:
+        hydrated_source = _get_val(candidate, "hydrated_source")
+        if isinstance(hydrated_source, str) and hydrated_source.strip():
+            has_text_context = True
         fragments = _get_val(candidate, "fragments")
         if isinstance(fragments, list) and len(fragments) > 0:
             for frag in fragments:

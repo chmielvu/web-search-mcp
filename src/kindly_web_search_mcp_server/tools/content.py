@@ -54,9 +54,7 @@ def _cache_key(normalized_url: str) -> str:
 
 
 def _error_dict(exc: Exception) -> dict[str, Any]:
-    retryable = isinstance(
-        exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError)
-    )
+    retryable = isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError))
     return {
         "code": type(exc).__name__,
         "message": str(exc)[:500],
@@ -85,8 +83,6 @@ def _apply_status_error_invariant(artifact: dict[str, Any]) -> dict[str, Any]:
     if artifact.get("status") == "success":
         artifact["error"] = None
     return artifact
-
-
 
 
 def _request_fingerprint(
@@ -132,8 +128,9 @@ def _decode_cursor(cursor: str) -> dict[str, Any]:
     return decoded
 
 
-
-def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, Any]) -> dict[str, Any]:
+def _artifact_from_cache(
+    input_url: str, normalized_url: str, cached: dict[str, Any]
+) -> dict[str, Any]:
     stored = cached.get("metadata")
     stored = stored if isinstance(stored, dict) else {}
     envelope = stored.get("__web_fetch__")
@@ -144,8 +141,14 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
         or envelope.get("route_version") != _CACHE_ROUTE_VERSION
     )
 
-    metadata = envelope.get("metadata") if isinstance(envelope.get("metadata"), dict) else stored.get("metadata")
-    links = envelope.get("links") if isinstance(envelope.get("links"), list) else stored.get("links")
+    metadata = (
+        envelope.get("metadata")
+        if isinstance(envelope.get("metadata"), dict)
+        else stored.get("metadata")
+    )
+    links = (
+        envelope.get("links") if isinstance(envelope.get("links"), list) else stored.get("links")
+    )
     origin_backend = envelope.get("origin_backend") or cached.get("extraction_method") or "cache"
     source_type = envelope.get("source_type") or ("cache_legacy" if legacy else "html")
     fetched_url = envelope.get("fetched_url") or cached.get("url_canonical") or normalized_url
@@ -185,6 +188,7 @@ def _artifact_from_cache(input_url: str, normalized_url: str, cached: dict[str, 
     }
     return _apply_status_error_invariant(artifact)
 
+
 def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
     return {
         "__web_fetch__": {
@@ -219,7 +223,9 @@ async def _store_cache(artifact: dict[str, Any]) -> None:
         await get_page_cache().astore(
             canonical_url=_cache_key(artifact["normalized_url"]),
             page_content=artifact["markdown"],
-            extraction_method=artifact.get("origin_backend") or artifact.get("fetch_backend") or "unknown",
+            extraction_method=artifact.get("origin_backend")
+            or artifact.get("fetch_backend")
+            or "unknown",
             metadata=_cache_metadata(artifact),
         )
     except Exception as exc:  # pragma: no cover - cache isolation
@@ -266,12 +272,14 @@ def _artifact_from_content(input_url: str, fetched: ContentArtifact) -> dict[str
     return artifact
 
 
-def _artifact_from_exception(input_url: str, exc: Exception, *, timeout: bool = False) -> dict[str, Any]:
+def _artifact_from_exception(
+    input_url: str, exc: Exception, *, timeout: bool = False
+) -> dict[str, Any]:
     normalized = canonicalize_url(input_url)
     if timeout:
         error = {
             "code": "timeout",
-            "message": "Fetch exceeded the dsh-webfetch 20 second request budget.",
+            "message": f"Fetch exceeded the {int(settings.web_fetch_timeout_seconds)} second request budget.",
             "retryable": True,
         }
         backend = "timeout"
@@ -401,7 +409,9 @@ def _normalize_inputs(
     cursor: str | None,
 ) -> tuple[Literal["single", "bulk"], list[str], dict[str, Any] | None]:
     primary = url.strip() if isinstance(url, str) and url.strip() else None
-    supplied_urls = [item.strip() for item in (urls or []) if isinstance(item, str) and item.strip()]
+    supplied_urls = [
+        item.strip() for item in (urls or []) if isinstance(item, str) and item.strip()
+    ]
     if cursor:
         if primary or supplied_urls:
             raise_tool_error(
@@ -448,9 +458,7 @@ async def fetch(
 
     mode, pending_urls, cursor_payload = _normalize_inputs(url, urls, cursor)
     if mode == "bulk" and offset:
-        raise_tool_error(
-            ValueError("offset applies only to a single URL fetch"), provider="fetch"
-        )
+        raise_tool_error(ValueError("offset applies only to a single URL fetch"), provider="fetch")
 
     workers = max(1, settings.web_fetch_workers)
     wave_size = max(1, settings.web_fetch_wave_size)

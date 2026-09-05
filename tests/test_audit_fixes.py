@@ -5,8 +5,9 @@ import duckdb
 from kindly_web_search_mcp_server.tools._helpers import _search_history_snapshot
 from kindly_web_search_mcp_server.search.providers.brave import suggest_brave_queries
 from kindly_web_search_mcp_server.inference.chain import register_chain
-from kindly_web_search_mcp_server.rerank.stages import apply_ranked_results
 from kindly_web_search_mcp_server.models import WebSearchResult
+from kindly_web_search_mcp_server.rerank.models import RerankResult
+from kindly_web_search_mcp_server.rerank.stages import apply_ranked_results
 
 
 def test_search_history_snapshot_columns(tmp_path, monkeypatch):
@@ -70,18 +71,11 @@ def test_register_chain_empty_models_validation():
         register_chain("test_empty_chain", [])
 
 
-def test_apply_ranked_results_out_of_bounds_index():
-    class DummyRankedResult:
-        def __init__(self, index, score):
-            self.index = index
-            self.score = score
-
+def test_apply_ranked_results_rejects_out_of_bounds_index():
     candidates = [
         WebSearchResult(title="T1", link="http://example.com/1", snippet="S1"),
         WebSearchResult(title="T2", link="http://example.com/2", snippet="S2"),
     ]
-    # Pass index 99 which is out of bounds
-    invalid_ranked = [DummyRankedResult(index=99, score=0.9)]
-    res_candidates, scores, max_s, avg_s = apply_ranked_results(candidates, invalid_ranked)
-    assert res_candidates == candidates
-    assert scores == []
+    invalid_ranked = [RerankResult(index=99, relevance_score=0.9)]
+    with pytest.raises(ValueError, match="out of range"):
+        apply_ranked_results(candidates, invalid_ranked, stage_name="cross_encoder")

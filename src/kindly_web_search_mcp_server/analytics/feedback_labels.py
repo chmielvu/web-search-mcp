@@ -278,9 +278,7 @@ def materialize_result_labels(
 
         position = rank - 1
         raw_url = matched_result["link"] or target
-        canonical_result_id = (
-            matched_result["canonical_result_id"] or _canonical_result_id(raw_url)
-        )
+        canonical_result_id = matched_result["canonical_result_id"] or _canonical_result_id(raw_url)
         stage = "final"
         source = "llm_judge"
         annotator_id = (model_name or "").strip() or "judge"

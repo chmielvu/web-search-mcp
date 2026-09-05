@@ -25,8 +25,7 @@ def _make_ready_code_candidate() -> dict[str, object]:
         "line_start": 85,
         "line_end": 140,
         "commit_oid": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
-        "snippet": "pub struct Resolver<'a> { ... }",
-        "hydrated_source": "pub struct Resolver<'a> {\n    requirements: &'a [Requirement],\n}",
+        "source_window": "pub struct Resolver<'a> {\n    requirements: &'a [Requirement],\n}",
         "location": {
             "url": "https://github.com/astral-sh/uv/blob/0.2.20/crates/uv-resolver/src/resolver/mod.rs#L85-L140",
             "path": "crates/uv-resolver/src/resolver/mod.rs",
@@ -166,13 +165,13 @@ def test_candidate_missing_lines_and_revision_fails() -> None:
     assert "missing_lines_or_revision" in reasons
 
 
-def test_candidate_with_hydrated_source_and_lines_succeeds() -> None:
+def test_candidate_with_source_window_and_lines_succeeds() -> None:
     cand = {
         "result_kind": "code_match",
         "url": "https://github.com/org/repo/blob/main/src/lib.rs#L20-L30",
         "line_start": 20,
         "line_end": 30,
-        "hydrated_source": "pub fn solve() -> bool {\n    true\n}",
+        "source_window": "pub fn solve() -> bool {\n    true\n}",
     }
     ready, reasons = assess_candidate_readiness(cand)
     assert ready

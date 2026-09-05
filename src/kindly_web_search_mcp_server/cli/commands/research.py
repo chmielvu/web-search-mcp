@@ -17,7 +17,9 @@ research_app = typer.Typer(no_args_is_help=True)
 @research_app.command("deep")
 def deep_cmd(
     query: Annotated[str, typer.Option("--query", help="Research topic or question.")],
-    depth: Annotated[str, typer.Option("--depth", help="quick, standard, deep, or a supported alias.")] = "standard",
+    depth: Annotated[
+        str, typer.Option("--depth", help="quick, standard, deep, or a supported alias.")
+    ] = "standard",
     with_images: Annotated[bool, typer.Option("--with-images/--no-with-images")] = False,
     language_code: Annotated[str | None, typer.Option("--language-code")] = None,
     token_budget_override: Annotated[int | None, typer.Option("--token-budget")] = None,
@@ -25,7 +27,9 @@ def deep_cmd(
     endpoint_override: Annotated[str | None, typer.Option("--endpoint")] = None,
     output: Annotated[
         str | None,
-        typer.Option("--output", help="Atomically write the generated Markdown report to this path."),
+        typer.Option(
+            "--output", help="Atomically write the generated Markdown report to this path."
+        ),
     ] = None,
 ) -> None:
     """Run the existing autonomous deep-research backend."""

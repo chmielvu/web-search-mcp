@@ -40,8 +40,8 @@ CHAIN REFERENCE FORMAT
 Chains reference models as ``"canonical_id@provider"``.  The registry splits
 on ``@`` to resolve the canonical model and the provider.
 
-Example: ``"gpt-oss-120b@cerebras"`` → canonical model ``gpt-oss-120b``
-                                      served by ``cerebras``.
+Example: ``"gpt-oss-120b@groq"`` → canonical model ``gpt-oss-120b``
+                                      served by ``groq``.
 
 -------------------------------------------------------------------------------
 MODEL ID NORMALIZATION
@@ -50,7 +50,6 @@ MODEL ID NORMALIZATION
 Different providers often expose the same underlying model under different
 names.  For example, the same Llama-derived model is:
 
-  - ``"gpt-oss-120b"``       on Cerebras
   - ``"openai/gpt-oss-120b"`` on Groq
   - ``"openai/gpt-oss-120b:nscale"`` on HuggingFace / Nscale
 
@@ -63,7 +62,7 @@ provider prefixes to get the canonical form.
 PROVIDER QUIRKS
 -------------------------------------------------------------------------------
 
-- **Cerebras / Groq / Vercel**: OpenAI-compatible.  Use ``as_openai()``.
+- **Groq / Vercel**: OpenAI-compatible.  Use ``as_openai()``.
 - **HuggingFace**: Uses ``huggingface_hub.InferenceClient`` (sync, runs in
   thread).  Use ``as_huggingface()``.
 - **Google / Gemini**: Native GenAI SDK.  Use ``as_google()``.
@@ -139,7 +138,7 @@ class ProviderAdapter:
     provider family's API.
 
     Fields:
-        name:          Provider name (e.g. ``"cerebras"``, ``"google"``).
+        name:          Provider name (e.g. ``"groq"``, ``"google"``).
         execute:       Async function ``(ModelSpec, **kwargs) -> LLMGeneration``.
         capabilities:  Capabilities this adapter can fulfil.
     """
@@ -557,20 +556,20 @@ def add_provider(
 
     Args:
         canonical_id:  The model's canonical ID.
-        provider:      Provider name (e.g. ``"cerebras"``, ``"groq"``).
+        provider:      Provider name (e.g. ``"groq"``, ``"google"``).
         config:        ``ProviderConfig`` with delivery details.
 
     Example::
 
         add_provider(
             "gpt-oss-120b",
-            "cerebras",
+            "groq",
             as_openai(
-                model_id="gpt-oss-120b",
-                api_key_env="CEREBRAS_API_KEY",
-                base_url="https://api.cerebras.ai/v1",
-                cost_per_1m_input=0.35,
-                cost_per_1m_output=0.75,
+                model_id="openai/gpt-oss-120b",
+                api_key_env="GROQ_API_KEY",
+                base_url="https://api.groq.com/openai/v1",
+                cost_per_1m_input=0.15,
+                cost_per_1m_output=0.60,
             ),
         )
     """
@@ -610,7 +609,7 @@ def register_provider_alias(alias: str, target: str) -> None:
     Register an alias from one provider name to another.
 
     This is useful when multiple providers share the same adapter (e.g.
-    ``cerebras``, ``groq``, ``vercel`` all use the OpenAI-compatible adapter).
+    ``groq``, ``vercel`` all use the OpenAI-compatible adapter).
 
     The alias must be registered *after* the target adapter.
     """

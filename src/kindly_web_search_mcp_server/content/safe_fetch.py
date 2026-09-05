@@ -14,7 +14,9 @@ class SafeFetchError(RuntimeError):
         super().__init__(message)
         self.code = code
 
+
 _MAX_REDIRECTS = 5
+
 
 @dataclass(frozen=True)
 class SafeFetchResult:
@@ -216,7 +218,6 @@ def _sniff_doc_type(content_type: str | None, fetched_url: str, body: bytes) -> 
     return None
 
 
-
 async def safe_fetch_url(
     url: str,
     *,
@@ -246,7 +247,9 @@ async def safe_fetch_url(
                 if 300 <= resp.status_code < 400 and "location" in resp.headers:
                     redirect_count += 1
                     if redirect_count > _MAX_REDIRECTS:
-                        raise SafeFetchError("too_many_redirects", f"Too many redirects ({redirect_count}) for {url}")
+                        raise SafeFetchError(
+                            "too_many_redirects", f"Too many redirects ({redirect_count}) for {url}"
+                        )
                     location = resp.headers["location"]
                     current_url = urljoin(current_url, location)
                     await validate_public_url(current_url)
@@ -317,7 +320,9 @@ async def safe_fetch_url(
                 if 300 <= response.status_code < 400 and "location" in response.headers:
                     redirect_count += 1
                     if redirect_count > _MAX_REDIRECTS:
-                        raise SafeFetchError("too_many_redirects", f"Too many redirects ({redirect_count}) for {url}")
+                        raise SafeFetchError(
+                            "too_many_redirects", f"Too many redirects ({redirect_count}) for {url}"
+                        )
                     location = response.headers["location"]
                     current_url = urljoin(current_url, location)
                     await validate_public_url(current_url)
@@ -357,11 +362,14 @@ async def safe_fetch_url(
 
                 if not doc_type:
                     lowered = (content_type or "").lower()
-                    is_allowed_text_type = any(t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS)
+                    is_allowed_text_type = any(
+                        t in lowered for t in _ALLOWED_TEXT_CONTENT_SUBSTRINGS
+                    )
                     is_text_target = _is_raw_or_text_url(url) or _is_raw_or_text_url(fetched_url)
                     if lowered and not is_allowed_text_type:
                         if (
-                            "application/octet-stream" in lowered or "binary/octet-stream" in lowered
+                            "application/octet-stream" in lowered
+                            or "binary/octet-stream" in lowered
                         ) and (is_text_target or (body and b"\x00" not in body[:1024])):
                             pass
                         else:

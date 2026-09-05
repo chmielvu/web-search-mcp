@@ -10,6 +10,7 @@ Breaking/non-gated design: no feature flag, unconditional import, hardcoded
 threshold. Callers receive the segmented form as an *additive variant*
 (``QueryFeatures.segmented_variants``); ``cleaned`` stays untouched.
 """
+
 from __future__ import annotations
 
 import wordninja

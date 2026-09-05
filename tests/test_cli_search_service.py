@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from kindly_web_search_mcp_server.cli.services.search_web import fetch_web_search_payload
-
-
-class _Response:
-    def model_dump(self, exclude_none: bool = True) -> dict[str, object]:
-        return {}
+from kindly_web_search_mcp_server.models import WebSearchResponse
 
 
 class TestCliSearchService(IsolatedAsyncioTestCase):
     async def test_fetch_web_search_payload_uses_shared_service_contract(self) -> None:
         http_client = object()
-        execute = AsyncMock(return_value=(_Response(), object()))
+        response = WebSearchResponse(query="FastMCP docs", results=[])
+        run = MagicMock()
+        run.response = response
+        run.plan = None
+        run.diagnostics.overflow_ranked = []
+        execute = AsyncMock(return_value=(response, run))
         with (
             patch(
                 "kindly_web_search_mcp_server.cli.services.search_web.get_http_client",

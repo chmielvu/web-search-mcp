@@ -16,7 +16,7 @@ from .hf_inference import (
     HFCircuitBreaker,
 )
 
-EMBEDDING_DIM = 786
+EMBEDDING_DIM = 768
 LOGGER = logging.getLogger(__name__)
 
 # E5-instruct requires task instruction; standard E5 uses "query: " prefix.
@@ -114,14 +114,10 @@ def _validate_dimensions(vectors: list[list[float]], expected_dim: int) -> None:
             )
 
 
-def _pad_shorter_vectors(
-    vectors: list[list[float]], expected_dim: int
-) -> list[list[float]]:
+def _pad_shorter_vectors(vectors: list[list[float]], expected_dim: int) -> list[list[float]]:
     """Pad Unified ML's short vectors without discarding any dimensions."""
     return [
-        vector + [0.0] * (expected_dim - len(vector))
-        if 0 < len(vector) < expected_dim
-        else vector
+        vector + [0.0] * (expected_dim - len(vector)) if 0 < len(vector) < expected_dim else vector
         for vector in vectors
     ]
 

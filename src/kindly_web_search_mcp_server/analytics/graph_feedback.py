@@ -20,7 +20,6 @@ from .quality_metrics import compute_positional_discount
 from .writers.connection import _db_path
 
 
-
 class GraphBuildError(RuntimeError):
     """Raised when graph construction or convergence fails."""
 
@@ -34,8 +33,6 @@ class GraphBuildConfig:
     canonicalization_version: str = "url_canonical_v1"
     min_shared_documents: int = 2
     max_related_queries: int = 5
-
-
 
 
 def build_graph_snapshot(*, db_path: str | None, config: GraphBuildConfig) -> GraphSnapshot:
@@ -125,7 +122,16 @@ def build_graph_snapshot(*, db_path: str | None, config: GraphBuildConfig) -> Gr
 
     weights_by_pair_run: dict[tuple[str, str], dict[str, list[float]]] = {}
     retained_observations: list[dict[str, object]] = []
-    for run_key, q_norm, cid, disc_gain, label, position, recorded_at_epoch, raw_payload in label_rows:
+    for (
+        run_key,
+        q_norm,
+        cid,
+        disc_gain,
+        label,
+        position,
+        recorded_at_epoch,
+        raw_payload,
+    ) in label_rows:
         query = (q_norm or "").strip()
         canonical_result_id = (cid or "").strip()
         if not run_key or not query or not canonical_result_id:
@@ -232,12 +238,8 @@ def build_graph_snapshot(*, db_path: str | None, config: GraphBuildConfig) -> Gr
                     "recorded_at_epoch": observation["recorded_at_epoch"],
                 }
             )
-    topology_query_nodes = {
-        node for node in topology_graph if str(node).startswith("query:")
-    }
-    topology_doc_nodes = {
-        node for node in topology_graph if str(node).startswith("doc:")
-    }
+    topology_query_nodes = {node for node in topology_graph if str(node).startswith("query:")}
+    topology_doc_nodes = {node for node in topology_graph if str(node).startswith("doc:")}
     if not topology_query_nodes or not topology_doc_nodes:
         raise GraphBuildError("Result topology has empty node partition")
 
@@ -426,6 +428,7 @@ def build_graph_snapshot(*, db_path: str | None, config: GraphBuildConfig) -> Gr
         result_features=tuple(result_features),
     )
 
+
 def _parse_utc_cutoff(raw_value: str) -> datetime:
     try:
         cutoff = datetime.fromisoformat(raw_value)
@@ -519,14 +522,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     replay_parser = subparsers.add_parser(
         "replay", help="Replay graph-expansion decisions without provider calls."
     )
-    replay_parser.add_argument("--db-path", type=str, default=None, help="DuckDB search history path")
-    replay_parser.add_argument("--sqlite-path", type=str, default=None, help="SQLite graph artifact path")
+    replay_parser.add_argument(
+        "--db-path", type=str, default=None, help="DuckDB search history path"
+    )
+    replay_parser.add_argument(
+        "--sqlite-path", type=str, default=None, help="SQLite graph artifact path"
+    )
 
     generate_parser = subparsers.add_parser(
         "generate", help="Read DuckDB facts and publish one SQLite graph artifact."
     )
     generate_parser.add_argument("--db-path", type=str, default=None, help="DuckDB analytics path")
-    generate_parser.add_argument("--sqlite-path", type=str, required=True, help="SQLite artifact path")
+    generate_parser.add_argument(
+        "--sqlite-path", type=str, required=True, help="SQLite artifact path"
+    )
     generate_parser.add_argument("--cutoff", type=str, required=True, help="Explicit UTC cutoff")
     generate_parser.add_argument("--label-version", type=str, default="v1")
     generate_parser.add_argument("--lookback-days", type=int, default=60)
@@ -537,7 +546,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "compare", help="Generate isolated SQLite artifacts for multiple windows."
     )
     compare_parser.add_argument("--db-path", type=str, default=None, help="DuckDB analytics path")
-    compare_parser.add_argument("--sqlite-dir", type=str, required=True, help="SQLite output directory")
+    compare_parser.add_argument(
+        "--sqlite-dir", type=str, required=True, help="SQLite output directory"
+    )
     compare_parser.add_argument("--cutoff", type=str, required=True, help="Explicit UTC cutoff")
     compare_parser.add_argument("--windows", type=str, default="30,60,90")
     compare_parser.add_argument("--label-version", type=str, default="v1")
@@ -599,11 +610,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         sys.stderr.write(f"Graph operation failed: {exc}\n")
         return 1
+
+
 if __name__ == "__main__":
     import sys
 
     sys.exit(main())
-
-
-
-

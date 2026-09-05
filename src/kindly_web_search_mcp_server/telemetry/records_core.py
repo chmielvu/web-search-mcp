@@ -17,11 +17,6 @@ from .attributes import (
     REWRITE_MODEL,
     REWRITE_POLICY,
     REWRITE_VARIANT_COUNT,
-    RRF_DISCARDED_COUNT,
-    RRF_INPUT_LISTS,
-    RRF_INPUT_TOTAL,
-    RRF_OUTPUT_TOTAL,
-    RRF_OVERLAP_RATE,
     SEARCH_NUM_RESULTS_RETURNED,
     SEARCH_PROVIDERS_USED,
     STATUS_ERROR,
@@ -126,18 +121,6 @@ def record_search_request(
     duration_histogram.record(duration_seconds, {SEARCH_PROVIDERS_USED: providers_str})
 
 
-def record_merge(duration_seconds: float, input_lists: int, output_count: int) -> None:
-    """Record RRF merge metrics."""
-    _, _, merge_histogram = get_search_metrics()
-    merge_histogram.record(
-        duration_seconds,
-        {
-            "merge.input_lists": input_lists,
-            "merge.output_count": output_count,
-        },
-    )
-
-
 def record_mcp_tool_call(tool_name: str, success: bool) -> None:
     """Record MCP tool invocation."""
     tool_counter, error_counter = get_mcp_metrics()
@@ -157,48 +140,6 @@ def record_mcp_tool_call(tool_name: str, success: bool) -> None:
             {
                 GEN_AI_TOOL_NAME: tool_name,
                 ERROR_TYPE: "tool_execution_error",
-            },
-        )
-
-
-def record_rrf_merge(
-    input_lists: int,
-    input_total: int,
-    output_total: int,
-    discarded_count: int,
-    overlap_rate: float,
-    provider_contributions: dict[str, int],
-) -> None:
-    """Record RRF merge operation details.
-
-    Args:
-        input_lists: Number of provider result lists merged
-        input_total: Total results before deduplication
-        output_total: Final results after merge
-        discarded_count: URLs discarded as duplicates
-        overlap_rate: Fraction of URLs appearing in multiple lists
-        provider_contributions: Dict of provider_name -> count of results in final top-N
-    """
-    merge_counter, contribution_counter, score_histogram = get_rrf_metrics()
-
-    # Record merge operation
-    merge_counter.add(
-        1,
-        {
-            RRF_INPUT_LISTS: input_lists,
-            RRF_INPUT_TOTAL: input_total,
-            RRF_OUTPUT_TOTAL: output_total,
-            RRF_DISCARDED_COUNT: discarded_count,
-            RRF_OVERLAP_RATE: round(overlap_rate, 3),
-        },
-    )
-
-    # Record per-provider contribution
-    for provider, count in provider_contributions.items():
-        contribution_counter.add(
-            count,
-            {
-                PROVIDER_NAME: provider,
             },
         )
 
@@ -326,11 +267,9 @@ __all__ = [
     "record_cache_lookup",
     "record_domain_diversity",
     "record_mcp_tool_call",
-    "record_merge",
     "record_provider_call",
     "record_query_length",
     "record_query_rewrite",
-    "record_rrf_merge",
     "record_rrf_score",
     "record_search_request",
     "record_tool_details",

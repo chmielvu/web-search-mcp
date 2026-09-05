@@ -195,7 +195,7 @@ def test_nanogpt_requires_api_key(monkeypatch) -> None:
         (_http_exc(401, "auth"), False),
         (_http_exc(400, "bad request"), False),
         (RuntimeError("connection reset by peer"), True),
-    ]
+    ],
 )
 def test_is_retryable_stage_error(exc, expected) -> None:
     assert judges._is_retryable_stage_error(exc) is expected

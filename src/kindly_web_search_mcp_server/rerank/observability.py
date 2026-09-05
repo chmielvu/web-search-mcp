@@ -9,51 +9,21 @@ from ..analytics.duckdb_store import insert_funnel_uplift_batches
 from ..analytics.observability_store import _candidate_id, _canonical_result_id
 from ..models import WebSearchResult
 from ..utils.observability import emit_observability_event, serialize_search_results
-
-
-def emit_rerank_stage(
-    logger: logging.Logger,
-    *,
-    stage: str,
-    query: str,
-    input_count: int,
-    output_count: int,
-    duration_seconds: float,
-    status: str,
-    error: BaseException | None = None,
-    extra: dict[str, Any] | None = None,
-) -> None:
-    fields: dict[str, Any] = {
-        "stage": stage,
-        "query": query,
-        "input_count": input_count,
-        "output_count": output_count,
-        "duration_ms": round(duration_seconds * 1000, 3),
-        "status": status,
-    }
-    if error is not None:
-        fields["error_type"] = type(error).__name__
-        fields["error_message"] = str(error)
-    if extra:
-        fields.update(extra)
-    emit_observability_event(logger, "search.rerank.stage", **fields)
+from ..utils.url_canonicalize import canonicalize_url
 
 
 def emit_rerank_summary(
     logger: logging.Logger,
     *,
-    provider: str,
-    model: str,
+    provider: str | None,
+    model: str | None,
     query: str,
     input_count: int,
     output: list[WebSearchResult],
     top_k: int,
     duration_seconds: float,
-    score_threshold: float,
-    max_score: float,
-    instruction_present: bool = False,
-    instruction_length: int | None = None,
-    query_type_hint: str | None = None,
+    max_score: float | None,
+    terminal_stage: str,
 ) -> None:
     emit_observability_event(
         logger,
@@ -65,91 +35,10 @@ def emit_rerank_summary(
         output_count=len(output),
         top_k=top_k,
         duration_ms=round(duration_seconds * 1000, 3),
-        score_threshold=round(score_threshold, 6),
-        max_score=round(max_score, 6),
-        instruction_present=instruction_present,
-        instruction_length=instruction_length,
-        query_type_hint=query_type_hint,
-        results=output,
+        max_score=round(max_score, 6) if max_score is not None else None,
+        terminal_stage=terminal_stage,
         top_results=serialize_search_results(output, max_results=min(top_k, 5)),
     )
-
-
-def emit_rerank_policy_decision(
-    logger: logging.Logger,
-    *,
-    decision: str,
-    **fields: Any,
-) -> None:
-    emit_observability_event(logger, f"rerank.{decision}", **fields)
-
-
-def record_rerank_candidate_rows(
-    logger: logging.Logger,
-    *,
-    run_key: str | None,
-    stage: str,
-    before_candidates: list[WebSearchResult],
-    after_candidates: list[WebSearchResult],
-    payload_json: dict[str, Any] | None = None,
-    bm25_scores: dict[str, float] | None = None,
-    bm25_ranks: dict[str, int] | None = None,
-    dense_scores: dict[str, float] | None = None,
-    dense_ranks: dict[str, int] | None = None,
-    cross_encoder_scores: dict[str, float] | None = None,
-    llm_scores: dict[str, float] | None = None,
-    fused_scores: dict[str, float] | None = None,
-    hybrid_rrf_scores: dict[str, float] | None = None,
-    recency_boosts: dict[str, float] | None = None,
-    entity_overlap_scores: dict[str, float] | None = None,
-) -> None:
-    if not run_key:
-        return
-    try:
-        rows = build_rerank_candidate_rows(
-            run_key=run_key,
-            stage=stage,
-            before_candidates=before_candidates,
-            after_candidates=after_candidates,
-            payload_json=payload_json,
-            bm25_scores=bm25_scores,
-            bm25_ranks=bm25_ranks,
-            dense_scores=dense_scores,
-            dense_ranks=dense_ranks,
-            cross_encoder_scores=cross_encoder_scores,
-            llm_scores=llm_scores,
-            fused_scores=fused_scores,
-            hybrid_rrf_scores=hybrid_rrf_scores,
-            recency_boosts=recency_boosts,
-            entity_overlap_scores=entity_overlap_scores,
-        )
-        insert_rerank_candidate_rows_batch(rows)
-        # Build candidate_stage_events rows from the same data
-        stage_execution_id = _canonical_result_id(f"{run_key}|{stage}")
-        stage_event_rows = []
-        for row in rows:
-            rank_before = row.get("rank_before")
-            rank_after = row.get("rank_after")
-            entered = rank_before is None and rank_after is not None
-            survived = rank_after is not None
-            stage_event_rows.append({
-                "stage_execution_id": stage_execution_id,
-                "run_key": run_key,
-                "canonical_result_id": row["canonical_result_id"],
-                "entered": entered,
-                "survived": survived,
-                "rank_before": rank_before,
-                "rank_after": rank_after,
-                "score_before": row.get("score_before"),
-                "score_after": row.get("score_after"),
-                "score_name": stage,
-                "removal_reason": None if survived else "rerank_stage_removed",
-                "payload_json": row.get("payload_json"),
-            })
-        from ..analytics.duckdb_store import insert_funnel_uplift_batches
-        insert_funnel_uplift_batches(candidate_stage_events=stage_event_rows)
-    except Exception as exc:
-        logger.debug("analytics insert_rerank_candidates failed: %s", exc)
 
 
 def build_rerank_candidate_rows(
@@ -161,63 +50,112 @@ def build_rerank_candidate_rows(
     payload_json: dict[str, Any] | None = None,
     bm25_scores: dict[str, float] | None = None,
     bm25_ranks: dict[str, int] | None = None,
-    dense_scores: dict[str, float] | None = None,
-    dense_ranks: dict[str, int] | None = None,
+    bi_encoder_scores: dict[str, float] | None = None,
+    bi_encoder_ranks: dict[str, int] | None = None,
     cross_encoder_scores: dict[str, float] | None = None,
-    llm_scores: dict[str, float] | None = None,
-    fused_scores: dict[str, float] | None = None,
-    hybrid_rrf_scores: dict[str, float] | None = None,
-    recency_boosts: dict[str, float] | None = None,
-    entity_overlap_scores: dict[str, float] | None = None,
+    rankllm_scores: dict[str, float] | None = None,
+    retrieval_rrf_scores: dict[str, float] | None = None,
+    recency_scores: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+
+    def _lookup(
+        mapping: dict[str, float] | dict[str, int] | None,
+        canonical_link: str,
+        source_link: str,
+    ) -> float | int | None:
+        if mapping is None:
+            return None
+        return mapping.get(canonical_link, mapping.get(source_link))
+
+    def _lookup_or_candidate(
+        mapping: dict[str, float] | dict[str, int] | None,
+        canonical_link: str,
+        source_link: str,
+        candidate: WebSearchResult,
+        attribute: str,
+    ) -> float | int | None:
+        value = _lookup(mapping, canonical_link, source_link)
+        return value if value is not None else getattr(candidate, attribute, None)
+
     try:
-        before_by_link = {
-            candidate.link: (index + 1, candidate)
-            for index, candidate in enumerate(before_candidates)
-        }
-        after_by_link = {
-            candidate.link: (index + 1, candidate)
-            for index, candidate in enumerate(after_candidates)
-        }
+        before_by_link: dict[str, tuple[int, WebSearchResult, str]] = {}
+        for index, candidate in enumerate(before_candidates):
+            canonical_link = canonicalize_url(candidate.link)
+            before_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.link))
+
+        after_by_link: dict[str, tuple[int, WebSearchResult, str]] = {}
+        for index, candidate in enumerate(after_candidates):
+            canonical_link = canonicalize_url(candidate.link)
+            after_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.link))
+
         all_links = list(before_by_link)
-        for link in after_by_link:
-            if link not in before_by_link:
-                all_links.append(link)
-        for link in all_links:
-            before_rank, before_candidate = before_by_link.get(link, (None, None))
-            after_rank, after_candidate = after_by_link.get(link, (None, None))
+        for canonical_link in after_by_link:
+            if canonical_link not in before_by_link:
+                all_links.append(canonical_link)
+
+        for canonical_link in all_links:
+            before_entry = before_by_link.get(canonical_link)
+            after_entry = after_by_link.get(canonical_link)
+            before_rank, before_candidate, before_link = before_entry or (None, None, "")
+            after_rank, after_candidate, after_link = after_entry or (None, None, "")
             candidate = after_candidate or before_candidate
             if candidate is None:
                 continue
+
+            source_link = after_link or before_link or canonical_link
             row = {
                 "run_key": run_key,
                 "stage": stage,
-                "link": link,
-                "candidate_id": _candidate_id(link, candidate.title, candidate.snippet),
-                "canonical_result_id": _canonical_result_id(link),
+                "link": canonical_link,
+                "candidate_id": _candidate_id(canonical_link, candidate.title, candidate.snippet),
+                "canonical_result_id": _canonical_result_id(canonical_link),
                 "rank_before": before_rank,
                 "rank_after": after_rank,
-                "score_before": getattr(before_candidate, "score", None),
-                "score_after": getattr(after_candidate, "score", None),
-                "bm25_score": bm25_scores.get(link) if bm25_scores else None,
-                "bm25_rank": bm25_ranks.get(link) if bm25_ranks else None,
-                "dense_score": dense_scores.get(link) if dense_scores else None,
-                "dense_rank": dense_ranks.get(link) if dense_ranks else None,
-                "cross_encoder_raw": cross_encoder_scores.get(link)
-                if cross_encoder_scores
-                else None,
-                "llm_raw_score": llm_scores.get(link) if llm_scores else None,
-                "fused_score": fused_scores.get(link) if fused_scores else None,
-                "hybrid_rrf_score": hybrid_rrf_scores.get(link) if hybrid_rrf_scores else None,
-                "recency_boost": recency_boosts.get(link) if recency_boosts else None,
-                "entity_overlap_score": entity_overlap_scores.get(link)
-                if entity_overlap_scores
-                else None,
+                "final_score_before": getattr(before_candidate, "final_score", None),
+                "final_score_after": getattr(after_candidate, "final_score", None),
+                "bm25_score": _lookup(bm25_scores, canonical_link, source_link),
+                "bm25_rank": _lookup(bm25_ranks, canonical_link, source_link),
+                "bi_encoder_score": _lookup_or_candidate(
+                    bi_encoder_scores,
+                    canonical_link,
+                    source_link,
+                    candidate,
+                    "bi_encoder_score",
+                ),
+                "bi_encoder_rank": _lookup(bi_encoder_ranks, canonical_link, source_link),
+                "cross_encoder_score": _lookup_or_candidate(
+                    cross_encoder_scores,
+                    canonical_link,
+                    source_link,
+                    candidate,
+                    "cross_encoder_score",
+                ),
+                "rankllm_score": _lookup_or_candidate(
+                    rankllm_scores,
+                    canonical_link,
+                    source_link,
+                    candidate,
+                    "rankllm_score",
+                ),
+                "retrieval_rrf_score": _lookup_or_candidate(
+                    retrieval_rrf_scores,
+                    canonical_link,
+                    source_link,
+                    candidate,
+                    "retrieval_rrf_score",
+                ),
+                "recency_score": _lookup_or_candidate(
+                    recency_scores,
+                    canonical_link,
+                    source_link,
+                    candidate,
+                    "recency_score",
+                ),
+                "diversity_penalty": getattr(candidate, "diversity_penalty", None),
                 "survived": after_candidate is not None,
-                "payload_json": {
-                    **(payload_json or {}),
-                },
+                "diversity_removed": stage == "mmr_fallback" and after_candidate is None,
+                "payload_json": {**(payload_json or {})},
             }
             rows.append(row)
     except Exception as exc:
@@ -235,19 +173,18 @@ async def record_rerank_candidate_rows_async(
     payload_json: dict[str, Any] | None = None,
     bm25_scores: dict[str, float] | None = None,
     bm25_ranks: dict[str, int] | None = None,
-    dense_scores: dict[str, float] | None = None,
-    dense_ranks: dict[str, int] | None = None,
+    bi_encoder_scores: dict[str, float] | None = None,
+    bi_encoder_ranks: dict[str, int] | None = None,
     cross_encoder_scores: dict[str, float] | None = None,
-    llm_scores: dict[str, float] | None = None,
-    fused_scores: dict[str, float] | None = None,
-    hybrid_rrf_scores: dict[str, float] | None = None,
-    recency_boosts: dict[str, float] | None = None,
-    entity_overlap_scores: dict[str, float] | None = None,
+    rankllm_scores: dict[str, float] | None = None,
+    retrieval_rrf_scores: dict[str, float] | None = None,
+    recency_scores: dict[str, float] | None = None,
 ) -> None:
     """Queue one stage's candidate analytics without blocking rerank latency."""
     if not run_key:
         return
-    def _write():
+
+    def _write() -> None:
         try:
             rows = build_rerank_candidate_rows(
                 run_key=run_key,
@@ -257,14 +194,12 @@ async def record_rerank_candidate_rows_async(
                 payload_json=payload_json,
                 bm25_scores=bm25_scores,
                 bm25_ranks=bm25_ranks,
-                dense_scores=dense_scores,
-                dense_ranks=dense_ranks,
+                bi_encoder_scores=bi_encoder_scores,
+                bi_encoder_ranks=bi_encoder_ranks,
                 cross_encoder_scores=cross_encoder_scores,
-                llm_scores=llm_scores,
-                fused_scores=fused_scores,
-                hybrid_rrf_scores=hybrid_rrf_scores,
-                recency_boosts=recency_boosts,
-                entity_overlap_scores=entity_overlap_scores,
+                rankllm_scores=rankllm_scores,
+                retrieval_rrf_scores=retrieval_rrf_scores,
+                recency_scores=recency_scores,
             )
             insert_rerank_candidate_rows_batch(rows)
             stage_execution_id = _canonical_result_id(f"{run_key}|{stage}")
@@ -273,13 +208,12 @@ async def record_rerank_candidate_rows_async(
                     "stage_execution_id": stage_execution_id,
                     "run_key": run_key,
                     "canonical_result_id": row["canonical_result_id"],
-                    "entered": row.get("rank_before") is None
-                    and row.get("rank_after") is not None,
+                    "entered": row.get("rank_before") is None and row.get("rank_after") is not None,
                     "survived": row.get("rank_after") is not None,
                     "rank_before": row.get("rank_before"),
                     "rank_after": row.get("rank_after"),
-                    "score_before": row.get("score_before"),
-                    "score_after": row.get("score_after"),
+                    "score_before": row.get("final_score_before"),
+                    "score_after": row.get("final_score_after"),
                     "score_name": stage,
                     "removal_reason": (
                         None if row.get("rank_after") is not None else "rerank_stage_removed"

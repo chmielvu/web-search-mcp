@@ -142,7 +142,6 @@ def serialize_search_results(
             snippet = str(result.get("snippet") or "")
             domain = str(result.get("domain") or "")
             providers = list(result.get("providers") or [])
-            provider_count = result.get("provider_count")
             score = result.get("score")
         else:
             title = getattr(result, "title", "") or ""
@@ -150,7 +149,6 @@ def serialize_search_results(
             snippet = getattr(result, "snippet", "") or ""
             domain = getattr(result, "domain", "")
             providers = list(getattr(result, "providers", []) or [])
-            provider_count = getattr(result, "provider_count", None)
             score = getattr(result, "score", None)
         serialized.append(
             {
@@ -159,7 +157,6 @@ def serialize_search_results(
                 "snippet": preview_text(snippet, limit=4000),
                 "domain": domain,
                 "providers": providers,
-                "provider_count": provider_count,
                 "score": score,
                 "title_len": len(title),
                 "snippet_len": len(snippet),
@@ -357,30 +354,34 @@ def _persist_quick_web_search_analytics(
         if isinstance(citations_data, list):
             for idx, cit in enumerate(citations_data):
                 if isinstance(cit, dict):
-                    citation_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "citation_index": idx,
-                        "title": cit.get("title"),
-                        "url": cit.get("url"),
-                        "snippet": cit.get("snippet"),
-                        "publish_date": cit.get("publish_date"),
-                        "excerpts": cit.get("excerpts"),
-                        "payload_json": cit,
-                    })
+                    citation_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "citation_index": idx,
+                            "title": cit.get("title"),
+                            "url": cit.get("url"),
+                            "snippet": cit.get("snippet"),
+                            "publish_date": cit.get("publish_date"),
+                            "excerpts": cit.get("excerpts"),
+                            "payload_json": cit,
+                        }
+                    )
                 elif hasattr(cit, "model_dump"):
                     cd = cit.model_dump()
-                    citation_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "citation_index": idx,
-                        "title": getattr(cit, "title", None),
-                        "url": getattr(cit, "url", None),
-                        "snippet": getattr(cit, "snippet", None),
-                        "publish_date": getattr(cit, "publish_date", None),
-                        "excerpts": getattr(cit, "excerpts", None),
-                        "payload_json": cd,
-                    })
+                    citation_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "citation_index": idx,
+                            "title": getattr(cit, "title", None),
+                            "url": getattr(cit, "url", None),
+                            "snippet": getattr(cit, "snippet", None),
+                            "publish_date": getattr(cit, "publish_date", None),
+                            "excerpts": getattr(cit, "excerpts", None),
+                            "payload_json": cd,
+                        }
+                    )
 
         run_row = {
             "terminal_event_id": terminal_event_id,
@@ -441,48 +442,56 @@ def _persist_gemini_search_analytics(
         if isinstance(sources_data, list):
             for idx, src in enumerate(sources_data):
                 if isinstance(src, dict):
-                    source_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "source_kind": "grounding_source",
-                        "source_index": idx,
-                        "url": src.get("url"),
-                        "title": src.get("title"),
-                        "source_json": src,
-                    })
+                    source_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "source_kind": "grounding_source",
+                            "source_index": idx,
+                            "url": src.get("url"),
+                            "title": src.get("title"),
+                            "source_json": src,
+                        }
+                    )
                 elif hasattr(src, "model_dump"):
-                    source_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "source_kind": "grounding_source",
-                        "source_index": idx,
-                        "url": getattr(src, "url", None),
-                        "title": getattr(src, "title", None),
-                        "source_json": src.model_dump(),
-                    })
+                    source_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "source_kind": "grounding_source",
+                            "source_index": idx,
+                            "url": getattr(src, "url", None),
+                            "title": getattr(src, "title", None),
+                            "source_json": src.model_dump(),
+                        }
+                    )
 
         if isinstance(url_citations_data, list):
             for idx, src in enumerate(url_citations_data):
                 if isinstance(src, dict):
-                    source_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "source_kind": "url_citation",
-                        "source_index": idx,
-                        "url": src.get("url"),
-                        "title": src.get("title"),
-                        "source_json": src,
-                    })
+                    source_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "source_kind": "url_citation",
+                            "source_index": idx,
+                            "url": src.get("url"),
+                            "title": src.get("title"),
+                            "source_json": src,
+                        }
+                    )
                 elif hasattr(src, "model_dump"):
-                    source_rows.append({
-                        "terminal_event_id": terminal_event_id,
-                        "tool_call_id": tool_call_id,
-                        "source_kind": "url_citation",
-                        "source_index": idx,
-                        "url": getattr(src, "url", None),
-                        "title": getattr(src, "title", None),
-                        "source_json": src.model_dump(),
-                    })
+                    source_rows.append(
+                        {
+                            "terminal_event_id": terminal_event_id,
+                            "tool_call_id": tool_call_id,
+                            "source_kind": "url_citation",
+                            "source_index": idx,
+                            "url": getattr(src, "url", None),
+                            "title": getattr(src, "title", None),
+                            "source_json": src.model_dump(),
+                        }
+                    )
 
         run_row = {
             "terminal_event_id": terminal_event_id,
@@ -637,9 +646,7 @@ def _persist_code_search_analytics(
             "planner_backend_channels": getattr(plan_meta, "backend_channels", None),
             "planner_variants": getattr(plan, "variants", None),
             "planner_variant_kinds": getattr(plan_meta, "variant_kinds", None),
-            "provider_response_count": len(
-                getattr(response, "provider_summaries", []) or []
-            ),
+            "provider_response_count": len(getattr(response, "provider_summaries", []) or []),
             "provider_hit_counts": getattr(stats, "provider_counts", None),
             "request_count": getattr(stats, "request_count", None),
             "hydration_count": getattr(stats, "hydration_count", None),
@@ -658,144 +665,154 @@ def _persist_code_search_analytics(
         }
 
         provider_rows = []
-        for idx, provider_summary in enumerate(
-            getattr(response, "provider_summaries", []) or []
-        ):
-            provider_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "response_index": idx,
-                "provider": provider_summary.get("provider"),
-                "hit_count": provider_summary.get("hit_count", 0),
-                "request_count": provider_summary.get("request_count", 0),
-                "outcome": provider_summary.get("outcome"),
-                "compiled_queries": provider_summary.get("compiled_queries"),
-                "duration_ms": provider_summary.get("duration_ms"),
-                "error_type": provider_summary.get("error_type"),
-                "error_message": provider_summary.get("error_message"),
-                "payload_json": provider_summary.get("payload_json"),
-            })
+        for idx, provider_summary in enumerate(getattr(response, "provider_summaries", []) or []):
+            provider_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "response_index": idx,
+                    "provider": provider_summary.get("provider"),
+                    "hit_count": provider_summary.get("hit_count", 0),
+                    "request_count": provider_summary.get("request_count", 0),
+                    "outcome": provider_summary.get("outcome"),
+                    "compiled_queries": provider_summary.get("compiled_queries"),
+                    "duration_ms": provider_summary.get("duration_ms"),
+                    "error_type": provider_summary.get("error_type"),
+                    "error_message": provider_summary.get("error_message"),
+                    "payload_json": provider_summary.get("payload_json"),
+                }
+            )
 
         diagnostic_rows = []
         for idx, d in enumerate(getattr(response, "diagnostics", []) or []):
-            diagnostic_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "diagnostic_index": idx,
-                "provider": getattr(d, "provider", None),
-                "outcome": getattr(d, "outcome", "error"),
-                "failure_kind": getattr(d, "failure_kind", "provider"),
-                "message": getattr(d, "message", None),
-                "status_code": getattr(d, "status_code", None),
-                "retry_after_seconds": getattr(d, "retry_after_seconds", None),
-                "query": getattr(d, "query", None),
-                "details": getattr(d, "details", None),
-            })
+            diagnostic_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "diagnostic_index": idx,
+                    "provider": getattr(d, "provider", None),
+                    "outcome": getattr(d, "outcome", "error"),
+                    "failure_kind": getattr(d, "failure_kind", "provider"),
+                    "message": getattr(d, "message", None),
+                    "status_code": getattr(d, "status_code", None),
+                    "retry_after_seconds": getattr(d, "retry_after_seconds", None),
+                    "query": getattr(d, "query", None),
+                    "details": getattr(d, "details", None),
+                }
+            )
 
         hit_rows = []
         hit_variant_rows = []
         for hit_rank, hit in enumerate(getattr(response, "results", []) or [], 1):
             location = getattr(hit, "location", None)
-            hit_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "hit_rank": hit_rank,
-                "url": getattr(hit, "url", ""),
-                "repository": getattr(hit, "repository", None),
-                "path": getattr(hit, "path", None),
-                "sha": getattr(hit, "sha", None),
-                "provider": getattr(hit, "provider", "unknown"),
-                "query_variant": getattr(hit, "query_variant", None),
-                "search_rank": getattr(hit, "search_rank", None),
-                "result_kind": getattr(hit, "result_kind", "code_match"),
-                "evidence_role": getattr(hit, "evidence_role", None),
-                "title": getattr(hit, "title", None),
-                "snippet": getattr(hit, "snippet", None),
-                "published_date": getattr(hit, "published_date", None),
-                "final_score": getattr(hit, "score", None),
-                "score_components": getattr(hit, "score_components", None),
-                "reasons": getattr(hit, "reasons", None),
-                "hydrated": bool(getattr(hit, "hydrated_source", None)),
-                "hydrated_source_truncated": getattr(
-                    hit, "hydrated_source_truncated", False
-                ),
-                "line_start": getattr(hit, "line_start", None),
-                "line_end": getattr(hit, "line_end", None),
-                "commit_oid": getattr(hit, "commit_oid", None),
-                "fragment_count": len(getattr(hit, "fragments", []) or []),
-                "symbol_count": len(getattr(hit, "symbols", []) or []),
-                "match_span_count": len(getattr(hit, "match_spans", []) or []),
-                "location_precision": getattr(location, "precision", "unknown"),
-                "lines_available": getattr(location, "lines_available", False),
-                "revision_available": getattr(location, "revision_available", False),
-                "match_data_available": getattr(location, "match_data_available", False),
-                "source_metadata": getattr(hit, "source_metadata", None),
-                "payload_json": None,
-            })
-            if getattr(hit, "query_variant", None):
-                hit_variant_rows.append({
+            hit_rows.append(
+                {
                     "terminal_event_id": terminal_event_id,
                     "hit_rank": hit_rank,
-                    "association_index": 0,
-                    "variant_index": None,
-                    "provider": getattr(hit, "provider", None),
+                    "url": getattr(hit, "url", ""),
+                    "repository": getattr(hit, "repository", None),
+                    "path": getattr(hit, "path", None),
+                    "sha": getattr(hit, "sha", None),
+                    "provider": getattr(hit, "provider", "unknown"),
                     "query_variant": getattr(hit, "query_variant", None),
                     "search_rank": getattr(hit, "search_rank", None),
-                })
+                    "result_kind": getattr(hit, "result_kind", "code_match"),
+                    "evidence_role": getattr(hit, "evidence_role", None),
+                    "title": getattr(hit, "title", None),
+                    "snippet": getattr(hit, "source_window", None),
+                    "published_date": getattr(hit, "published_date", None),
+                    "final_score": getattr(hit, "score", None),
+                    "score_components": getattr(hit, "score_components", None),
+                    "reasons": getattr(hit, "reasons", None),
+                    "hydrated": bool(getattr(hit, "source_window", None)),
+                    "hydrated_source_truncated": False,
+                    "line_start": getattr(hit, "line_start", None),
+                    "line_end": getattr(hit, "line_end", None),
+                    "commit_oid": getattr(hit, "commit_oid", None),
+                    "fragment_count": 1 if getattr(hit, "source_window", None) else 0,
+                    "symbol_count": len(getattr(hit, "symbols", []) or []),
+                    "match_span_count": len(getattr(hit, "match_lines", []) or []),
+                    "location_precision": getattr(location, "precision", "unknown"),
+                    "lines_available": getattr(location, "lines_available", False),
+                    "revision_available": getattr(location, "revision_available", False),
+                    "match_data_available": getattr(location, "match_data_available", False),
+                    "source_metadata": getattr(hit, "source_metadata", None),
+                    "payload_json": None,
+                }
+            )
+            if getattr(hit, "query_variant", None):
+                hit_variant_rows.append(
+                    {
+                        "terminal_event_id": terminal_event_id,
+                        "hit_rank": hit_rank,
+                        "association_index": 0,
+                        "variant_index": None,
+                        "provider": getattr(hit, "provider", None),
+                        "query_variant": getattr(hit, "query_variant", None),
+                        "search_rank": getattr(hit, "search_rank", None),
+                    }
+                )
 
         query_variant_rows = []
         variants = getattr(plan, "variants", []) or []
         variant_kinds = getattr(plan_meta, "variant_kinds", []) or []
         for v_idx, q_text in enumerate(variants):
             q_kind = variant_kinds[v_idx] if v_idx < len(variant_kinds) else None
-            query_variant_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "variant_index": v_idx,
-                "query_text": q_text,
-                "variant_kind": q_kind,
-            })
+            query_variant_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "variant_index": v_idx,
+                    "query_text": q_text,
+                    "variant_kind": q_kind,
+                }
+            )
 
         repo_rows = []
         for r_idx, repo in enumerate(getattr(response, "repositories", []) or []):
-            repo_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "repository_index": r_idx,
-                "name_with_owner": getattr(repo, "name_with_owner", None),
-                "url": getattr(repo, "url", None),
-                "description": getattr(repo, "description", None),
-                "stars": getattr(repo, "stars", 0),
-                "forks": getattr(repo, "forks", 0),
-                "pushed_at": getattr(repo, "pushed_at", None),
-                "language": getattr(repo, "language", None),
-                "topics": getattr(repo, "topics", None),
-                "license_spdx_id": getattr(repo, "license_spdx_id", None),
-                "homepage_url": getattr(repo, "homepage_url", None),
-                "default_branch": getattr(repo, "default_branch", None),
-                "head_oid": getattr(repo, "head_oid", None),
-                "archived": getattr(repo, "archived", False),
-                "fork": getattr(repo, "fork", False),
-                "discovery_rank": getattr(repo, "discovery_rank", None),
-                "discovery_score": getattr(repo, "discovery_score", 0.0),
-                "discovery_queries": getattr(repo, "discovery_queries", None),
-                "proof_hits": getattr(repo, "proof_hits", 0),
-                "proof_paths": getattr(repo, "proof_paths", None),
-                "proof_providers": getattr(repo, "proof_providers", None),
-                "verified": getattr(repo, "verified", False),
-                "payload_json": None,
-            })
+            repo_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "repository_index": r_idx,
+                    "name_with_owner": getattr(repo, "name_with_owner", None),
+                    "url": getattr(repo, "url", None),
+                    "description": getattr(repo, "description", None),
+                    "stars": getattr(repo, "stars", 0),
+                    "forks": getattr(repo, "forks", 0),
+                    "pushed_at": getattr(repo, "pushed_at", None),
+                    "language": getattr(repo, "language", None),
+                    "topics": getattr(repo, "topics", None),
+                    "license_spdx_id": getattr(repo, "license_spdx_id", None),
+                    "homepage_url": getattr(repo, "homepage_url", None),
+                    "default_branch": getattr(repo, "default_branch", None),
+                    "head_oid": getattr(repo, "head_oid", None),
+                    "archived": getattr(repo, "archived", False),
+                    "fork": getattr(repo, "fork", False),
+                    "discovery_rank": getattr(repo, "discovery_rank", None),
+                    "discovery_score": getattr(repo, "discovery_score", 0.0),
+                    "discovery_queries": getattr(repo, "discovery_queries", None),
+                    "proof_hits": getattr(repo, "proof_hits", 0),
+                    "proof_paths": getattr(repo, "proof_paths", None),
+                    "proof_providers": getattr(repo, "proof_providers", None),
+                    "verified": getattr(repo, "verified", False),
+                    "payload_json": None,
+                }
+            )
 
         rerank_rows = []
         if stats and getattr(stats, "rerank_count", 0) > 0:
-            rerank_rows.append({
-                "terminal_event_id": terminal_event_id,
-                "provider": getattr(stats, "rerank_provider", None),
-                "model": getattr(stats, "rerank_model", None),
-                "input_count": getattr(stats, "rerank_input_count", None),
-                "output_count": getattr(stats, "rerank_output_count", None),
-                "reranked_count": getattr(stats, "rerank_count", 0),
-                "status": getattr(stats, "rerank_status", None),
-                "diagnostic_outcome": getattr(stats, "rerank_diagnostic_outcome", None),
-                "diagnostic_message": getattr(stats, "rerank_diagnostic_message", None),
-                "duration_ms": getattr(stats, "rerank_duration_ms", None),
-                "payload_json": getattr(stats, "rerank_payload", None),
-            })
+            rerank_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "provider": getattr(stats, "rerank_provider", None),
+                    "model": getattr(stats, "rerank_model", None),
+                    "input_count": getattr(stats, "rerank_input_count", None),
+                    "output_count": getattr(stats, "rerank_output_count", None),
+                    "reranked_count": getattr(stats, "rerank_count", 0),
+                    "status": getattr(stats, "rerank_status", None),
+                    "diagnostic_outcome": getattr(stats, "rerank_diagnostic_outcome", None),
+                    "diagnostic_message": getattr(stats, "rerank_diagnostic_message", None),
+                    "duration_ms": getattr(stats, "rerank_duration_ms", None),
+                    "payload_json": getattr(stats, "rerank_payload", None),
+                }
+            )
         insert_code_search_batches(
             code_search_runs=[run_row],
             code_search_providers=provider_rows,
@@ -808,6 +825,7 @@ def _persist_code_search_analytics(
         )
     except Exception as exc:
         logger.debug("Failed to persist code_search analytics: %s", exc)
+
 
 def _persist_content_analytics(
     *,
@@ -868,7 +886,9 @@ def _persist_content_analytics(
                         "cached": item.get("cached"),
                         "fetch_backend": item.get("fetch_backend") or item.get("origin_backend"),
                         "status": item.get("status") or status,
-                        "content_length": len(page_content) if isinstance(page_content, str) else None,
+                        "content_length": len(page_content)
+                        if isinstance(page_content, str)
+                        else None,
                         "page_char_count": item.get("page_char_count") or len(page_content),
                         "word_count": item.get("word_count") or len(str(page_content).split()),
                         "window_offset": window.get("offset"),
@@ -900,7 +920,8 @@ def _persist_content_analytics(
                             ),
                             "backend": summary_data.get("backend"),
                             "model_requested": summary_data.get("model_requested"),
-                            "model_used": summary_data.get("model_used") or summary_data.get("model"),
+                            "model_used": summary_data.get("model_used")
+                            or summary_data.get("model"),
                             "fallback_attempted": summary_data.get("fallback_attempted"),
                             "fallback_tier": summary_data.get("fallback_tier"),
                             "input_tokens": summary_data.get("input_tokens"),
@@ -910,7 +931,9 @@ def _persist_content_analytics(
                             "key_points_count": len(summary_data.get("key_points", []))
                             if isinstance(summary_data.get("key_points"), list)
                             else 0,
-                            "important_entities_count": len(summary_data.get("important_entities", []))
+                            "important_entities_count": len(
+                                summary_data.get("important_entities", [])
+                            )
                             if isinstance(summary_data.get("important_entities"), list)
                             else 0,
                             "verbatim_terms_count": len(summary_data.get("verbatim_terms", []))
@@ -965,19 +988,21 @@ def _persist_tool_output_items(
                     link = getattr(item, "link", "") or getattr(item, "url", "") or ""
                     title = getattr(item, "title", "") or ""
                     snippet = getattr(item, "snippet", "") or ""
-                rows.append({
-                    "output_item_id": _cri(f"{tool_call_id}|result|{rank}"),
-                    "tool_call_id": tool_call_id,
-                    "session_id": session_id,
-                    "run_key": run_key,
-                    "tool_name": tool_name,
-                    "item_type": "result",
-                    "item_rank": rank,
-                    "canonical_result_id": _cri(link) if link else None,
-                    "raw_url": link,
-                    "title": title,
-                    "snippet": snippet,
-                })
+                rows.append(
+                    {
+                        "output_item_id": _cri(f"{tool_call_id}|result|{rank}"),
+                        "tool_call_id": tool_call_id,
+                        "session_id": session_id,
+                        "run_key": run_key,
+                        "tool_name": tool_name,
+                        "item_type": "result",
+                        "item_rank": rank,
+                        "canonical_result_id": _cri(link) if link else None,
+                        "raw_url": link,
+                        "title": title,
+                        "snippet": snippet,
+                    }
+                )
         elif tool_name == "fetch":
             raw_items = fields.get("results") or []
             items = [
@@ -986,25 +1011,23 @@ def _persist_tool_output_items(
                 if isinstance(item, dict)
             ]
         for rank, item in items:
-            url = (
-                item.get("url") or item.get("input_url")
-                if isinstance(item, dict)
-                else ""
-            )
+            url = item.get("url") or item.get("input_url") if isinstance(item, dict) else ""
             if url:
-                rows.append({
-                    "output_item_id": _cri(f"{tool_call_id}|content|{rank}"),
-                    "tool_call_id": tool_call_id,
-                    "session_id": session_id,
-                    "run_key": run_key,
-                    "tool_name": tool_name,
-                    "item_type": "content",
-                    "item_rank": rank,
-                    "canonical_result_id": _cri(url),
-                    "raw_url": url,
-                    "title": item.get("title") if isinstance(item, dict) else None,
-                    "snippet": None,
-                })
+                rows.append(
+                    {
+                        "output_item_id": _cri(f"{tool_call_id}|content|{rank}"),
+                        "tool_call_id": tool_call_id,
+                        "session_id": session_id,
+                        "run_key": run_key,
+                        "tool_name": tool_name,
+                        "item_type": "content",
+                        "item_rank": rank,
+                        "canonical_result_id": _cri(url),
+                        "raw_url": url,
+                        "title": item.get("title") if isinstance(item, dict) else None,
+                        "snippet": None,
+                    }
+                )
         if tool_name == "gemini_search":
             sources = fields.get("sources") or []
             for rank, src in enumerate(sources, start=1):
@@ -1014,19 +1037,21 @@ def _persist_tool_output_items(
                 else:
                     url = getattr(src, "url", "") or ""
                     title = getattr(src, "title", "") or ""
-                rows.append({
-                    "output_item_id": _cri(f"{tool_call_id}|source|{rank}"),
-                    "tool_call_id": tool_call_id,
-                    "session_id": session_id,
-                    "run_key": run_key,
-                    "tool_name": tool_name,
-                    "item_type": "source",
-                    "item_rank": rank,
-                    "canonical_result_id": _cri(url) if url else None,
-                    "raw_url": url,
-                    "title": title,
-                    "snippet": None,
-                })
+                rows.append(
+                    {
+                        "output_item_id": _cri(f"{tool_call_id}|source|{rank}"),
+                        "tool_call_id": tool_call_id,
+                        "session_id": session_id,
+                        "run_key": run_key,
+                        "tool_name": tool_name,
+                        "item_type": "source",
+                        "item_rank": rank,
+                        "canonical_result_id": _cri(url) if url else None,
+                        "raw_url": url,
+                        "title": title,
+                        "snippet": None,
+                    }
+                )
 
         if rows:
             insert_funnel_uplift_batches(tool_output_items=rows)
@@ -1148,15 +1173,14 @@ def _insert_tool_call_analytics(
                 logger=logger,
             )
         # Persist tool output items for cross-tool linkage
-        if tool_name in (
-            "web_search", "fetch", "gemini_search"
-        ):
+        if tool_name in ("web_search", "fetch", "gemini_search"):
             _persist_tool_output_items(
                 tool_name=tool_name,
                 tool_call_id=tool_call_id,
                 fields=fields,
                 logger=logger,
             )
+
 
 def _persist_analytics_event(
     event: str,

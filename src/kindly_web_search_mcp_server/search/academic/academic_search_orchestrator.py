@@ -216,8 +216,7 @@ def _resolve_sources(
     """
     if source_type is not None and source_type not in SOURCE_TYPE_DEFAULTS:
         raise ValueError(
-            f"Unknown source_type {source_type!r}; expected one of "
-            f"{sorted(SOURCE_TYPE_DEFAULTS)}"
+            f"Unknown source_type {source_type!r}; expected one of {sorted(SOURCE_TYPE_DEFAULTS)}"
         )
 
     if sources:
@@ -243,7 +242,9 @@ def _resolve_sources(
         if source_type is not None:
             # Explicit sources win; keep only those matching the requested type.
             normalized = [s for s in normalized if PROVIDER_SOURCE_TYPES[s] == source_type]
-        return normalized or SOURCE_TYPE_DEFAULTS.get(source_type or "general", ["arxiv", "semanticscholar"])
+        return normalized or SOURCE_TYPE_DEFAULTS.get(
+            source_type or "general", ["arxiv", "semanticscholar"]
+        )
 
     if source_type is not None:
         return list(SOURCE_TYPE_DEFAULTS[source_type])
@@ -345,9 +346,7 @@ async def run_academic_search(
             else:
                 msg = f"{name} returned empty (no matches or rate limited)"
             logger.info(msg)
-            warnings.append(
-                ProviderWarning(provider=name, error=msg, error_type="empty_results")
-            )
+            warnings.append(ProviderWarning(provider=name, error=msg, error_type="empty_results"))
 
     async def _search_s2() -> list[AcademicPaper]:
         if cited_by_paper_id:

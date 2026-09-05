@@ -13,12 +13,8 @@ from typing import Any, Awaitable, Callable, Generic, TypeVar
 from openai import (
     APIConnectionError,
     APITimeoutError,
-    AuthenticationError,
-    BadRequestError,
     ConflictError,
     InternalServerError,
-    NotFoundError,
-    PermissionDeniedError,
     RateLimitError,
     UnprocessableEntityError,
 )
@@ -54,13 +50,14 @@ def current_operation() -> str:
 logger = logging.getLogger(__name__)
 
 
-def _is_retryable_error(exc: Exception) -> bool:
+def is_retryable_error(exc: Exception) -> bool:
     """Return whether a provider failure should advance the fallback chain.
 
-    Transport failures, timeouts, rate limits, conflicts, and server errors
-    are transient.  Authentication, permission, request-validation, and
-    local configuration errors are deterministic and should surface instead of
-    making every fallback provider repeat the same invalid request.
+    Provider HTTP failures (400/401/402/403/404, rate limits, timeouts,
+    conflicts, server errors) are provider-local and advance the chain.
+    Request-validation (422) and local configuration errors are deterministic
+    and should surface instead of making every fallback provider repeat the
+    same invalid request.
     """
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
         return True
@@ -74,13 +71,7 @@ def _is_retryable_error(exc: Exception) -> bool:
         InternalServerError,
         RateLimitError,
     )
-    openai_non_retryable = (
-        AuthenticationError,
-        BadRequestError,
-        NotFoundError,
-        PermissionDeniedError,
-        UnprocessableEntityError,
-    )
+    openai_non_retryable = (UnprocessableEntityError,)
 
     if isinstance(exc, openai_retryable):
         return True
@@ -92,21 +83,10 @@ def _is_retryable_error(exc: Exception) -> bool:
     if status_code is None and response is not None:
         status_code = getattr(response, "status_code", None)
     if isinstance(status_code, int):
-        return status_code in {408, 409, 429} or status_code >= 500
+        return status_code in {400, 401, 402, 403, 404, 408, 409, 429} or status_code >= 500
 
     error_name = type(exc).__name__.casefold()
-    if any(
-        marker in error_name
-        for marker in (
-            "authentication",
-            "authorization",
-            "permission",
-            "badrequest",
-            "invalidrequest",
-            "validation",
-            "notfound",
-        )
-    ):
+    if any(marker in error_name for marker in ("validation",)):
         return False
     return True
 
@@ -135,7 +115,8 @@ async def execute_with_fallback(
     operation: str,
     handler: Callable[[ModelSpec], Awaitable[Any]] | None = None,
     *,
-    is_retryable: Callable[[Exception], bool] = _is_retryable_error,
+    is_retryable: Callable[[Exception], bool] = is_retryable_error,
+    validator: Callable[[Any], Any] | None = None,
     **kwargs: Any,
 ) -> ExecutionResult[Any]:
     """Execute down a fallback chain using provider registry dispatch.
@@ -167,6 +148,8 @@ async def execute_with_fallback(
                             adapter.execute(spec, **kwargs),
                             timeout=spec.default_timeout,
                         )
+                    if validator is not None:
+                        result = validator(result)
                     set_span_success(span)
                     elapsed = time.perf_counter() - t0
                     return ExecutionResult(spec=spec, payload=result, elapsed_seconds=elapsed)

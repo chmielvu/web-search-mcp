@@ -129,7 +129,7 @@ class TestSearxngParsing(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].published_date, "2026-01-01")
             self.assertEqual(results[0].source_engines, ["google", "bing"])
-            self.assertEqual(results[0].category, "general")
+
             self.assertIsNotNone(results[0].raw_score)
             assert results[0].raw_score is not None
             self.assertGreater(results[0].raw_score, 0.0)
@@ -241,6 +241,7 @@ class TestSearxngParsing(unittest.TestCase):
                         await search_searxng("q", num_results=1, http_client=client)
 
         anyio.run(run)
+
     def test_search_searxng_rejects_invalid_base_url(self) -> None:
         async def run() -> None:
             from kindly_web_search_mcp_server.search.providers.searxng import (

@@ -16,16 +16,15 @@ from kindly_web_search_mcp_server.tools.code_search.github import (
     _build_code_query,
     _build_repository_query,
     _build_repository_queries,
-    _fragment_from_match,
     _is_low_value_global_discovery_hit,
     _parse_code_items,
     _probe_repo_state,
     _rank_repository_candidates,
     _repository_proof_variants,
     _search_scope_variant,
-    hydrate_github_hits,
     search_github,
 )
+from kindly_web_search_mcp_server.tools.code_search.hydration import hydrate_sources
 from kindly_web_search_mcp_server.tools.code_search.grepapp import (
     _exception_chain,
     parse_grepapp_text,
@@ -40,13 +39,12 @@ from kindly_web_search_mcp_server.tools.code_search.models import (
     QueryMetadata,
     RepoCandidate,
     Stats,
-    TextFragment,
     to_public_file,
     to_public_result,
 )
 from kindly_web_search_mcp_server.tools.code_search.orchestrator import execute_code_search
 from kindly_web_search_mcp_server.tools.code_search.query import build_query_plan
-from kindly_web_search_mcp_server.tools.code_search.ranking import rank_hits
+from kindly_web_search_mcp_server.tools.code_search.ranking import rank_candidates
 from kindly_web_search_mcp_server.tools.code_search.reranking import rerank_code_hits
 from kindly_web_search_mcp_server.tools.code_search.sourcegraph import _parse_payload
 from kindly_web_search_mcp_server.tools.code_search.tool import _validate_request
@@ -88,9 +86,7 @@ class FakeClient:
 
 class TestQueryPlanner(IsolatedAsyncioTestCase):
     async def test_plural_implementations_activates_repository_discovery(self):
-        plan = build_query_plan(
-            "find Python GitHub code search implementations", mode="discovery"
-        )
+        plan = build_query_plan("find Python GitHub code search implementations", mode="discovery")
         self.assertEqual(plan.mode, "discovery")
         self.assertIn("repository", plan.metadata.backend_channels)
 
@@ -208,18 +204,6 @@ class TestGithubAdapter(IsolatedAsyncioTestCase):
         self.assertNotIn("[_-]", query)
         self.assertIn("retry", query)
 
-    async def test_text_match_fragment_keeps_offsets_relative_to_original_text(self):
-        fragment = _fragment_from_match(
-            {
-                "fragment": "  retry_after()",
-                "property": "content",
-                "matches": [{"text": "retry", "indices": [2, 7]}],
-            }
-        )
-        self.assertIsNotNone(fragment)
-        self.assertEqual(fragment.text, "  retry_after()")
-        self.assertEqual(fragment.match_metadata["matches"][0]["indices"], [2, 7])
-
     async def test_missing_token_is_typed_partial_auth_diagnostic(self):
         client = FakeClient()
         with patch.dict(os.environ, {"GITHUB_TOKEN": "", "GH_TOKEN": ""}):
@@ -266,8 +250,8 @@ class TestGithubAdapter(IsolatedAsyncioTestCase):
         self.assertEqual(total, 1)
         self.assertTrue(incomplete)
         self.assertEqual(hits[0].search_rank, 101)
-        self.assertEqual(hits[0].fragments[0].text, "def retry_after():")
-        self.assertEqual(hits[0].match_spans[0]["start"], 4)
+        self.assertEqual(hits[0].repository, "owner/repo")
+        self.assertEqual(hits[0].path, "src/retry.py")
         self.assertEqual(hits[0].sha, "abc123")
         self.assertEqual(hits[0].result_kind, "code_match")
         self.assertEqual(hits[0].location.precision, "file")
@@ -359,35 +343,20 @@ class TestGrepAppAdapter(IsolatedAsyncioTestCase):
             commit_oid="commit123",
             url="https://github.com/owner/repo/blob/commit123/src/retry.py",
             provider="github",
-            fragments=[TextFragment(text="helper()")],
         )
-        diagnostics, hydrated, truncated = await hydrate_github_hits(
+        sources, diagnostics = await hydrate_sources(
             [hit],
             http_client=cast(httpx.AsyncClient, client),
             token="token",
             max_chars_per_file=200_000,
         )
-        self.assertEqual(hydrated, 1)
-        self.assertFalse(truncated)  # No server-side truncation
-        self.assertEqual(hit.commit_oid, "commit123")
-        # Full source preserved — no char-cap
-        self.assertIn("return helper()", hit.hydrated_source or "")
+        key = ("owner/repo", "src/retry.py")
+        self.assertIn(key, sources)
+        self.assertIn("return helper()", sources[key].text)
         self.assertEqual(
-            hit.hydrated_source,
+            sources[key].text,
             "class App:\n    def run(self):\n        return helper()\n",
         )
-        self.assertEqual(hit.source_metadata["source_window_start"], 1)
-        self.assertEqual(hit.source_metadata["source_window_end"], 3)
-        self.assertEqual(hit.source_metadata["full_source_chars"], 54)
-        ast_payload = hit.source_metadata["ast_classification"]
-        if ast_payload["status"] == "ok":
-            self.assertTrue(
-                {item["role"] for item in ast_payload["evidence"]}
-                & {"definition", "callsite"}
-            )
-        else:
-            self.assertIn(ast_payload["status"], ("parser_unavailable", "grammar_not_cached"))
-        self.assertIn("class App:", hit.hydrated_source or "")
         self.assertIn(
             "commit123:src/retry.py", client.post_calls[0][1]["json"]["variables"].values()
         )
@@ -433,7 +402,6 @@ class TestSourcegraphAndGrepApp(IsolatedAsyncioTestCase):
         self.assertEqual(hits[0].repository, "owner/repo")
         self.assertEqual(hits[0].line_start, 42)
         self.assertEqual(hits[0].symbols[0]["name"], "retry_after")
-        self.assertEqual(hits[0].match_spans[0]["line"], 42)
         self.assertEqual(hits[0].result_kind, "code_match")
         self.assertEqual(diagnostics[0].failure_kind, "incomplete_index")
         self.assertEqual(hits[0].line_end, 42)
@@ -460,8 +428,7 @@ License: MIT
         self.assertTrue(hits[0].location.lines_available)
         self.assertTrue(hits[0].location.match_data_available)
         self.assertEqual(hits[0].repository, "owner/repo")
-        self.assertIn("return response", hits[0].snippet or "")
-
+        self.assertEqual(hits[0].path, "src/retry.py")
 
     async def test_grepapp_rest_branch_is_not_revision(self):
         hits = _parse_rest_payload(
@@ -487,6 +454,7 @@ License: MIT
         self.assertEqual(hits[0].source_metadata["branch"], "main")
         self.assertEqual(hits[0].location.precision, "file")
         self.assertFalse(hits[0].location.revision_available)
+
 
 class TestExaAndDocs(IsolatedAsyncioTestCase):
     async def test_exa_uses_context_endpoint_and_parses_github_blob(self):
@@ -543,7 +511,7 @@ class TestExaAndDocs(IsolatedAsyncioTestCase):
         )
         result = await search_context7(build_query_plan("hooks"), request, http_client=client)
         self.assertEqual(result.hits[0].source_metadata["library_id"], "/facebook/react")
-        self.assertIn("useEffect", result.hits[0].snippet or "")
+        self.assertIn("useEffect", result.hits[0].source_window or "")
         self.assertEqual(result.hits[0].result_kind, "documentation")
         self.assertEqual(result.hits[0].location.precision, "url")
         self.assertEqual(len(client.get_calls), 2)
@@ -585,7 +553,7 @@ class TestExaAndDocs(IsolatedAsyncioTestCase):
         ):
             result = await search_deepwiki(build_query_plan("retry"), request)
         self.assertEqual(result.hits[0].provider, "deepwiki")
-        self.assertIn("retry helper", result.hits[0].snippet or "")
+        self.assertIn("retry helper", result.hits[0].source_window or "")
         self.assertEqual(result.hits[0].result_kind, "documentation")
         self.assertEqual(result.hits[0].location.precision, "url")
 
@@ -612,7 +580,7 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
                 snippet="retry-after",
             ),
         ]
-        ranked = rank_hits(build_query_plan("retry"), hits, max_results=10)
+        ranked = rank_candidates(build_query_plan("retry"), hits, max_results=10)
         self.assertEqual(len(ranked), 1)
         self.assertIn("rrf", ranked[0].score_components)
         self.assertGreater(ranked[0].score_components["provider_agreement"], 0)
@@ -625,8 +593,10 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
         outcome = SimpleNamespace(
             provider_id="cohere_fast",
             model="rerank-v4.0-fast",
-            ranked=[RerankResult(index=1, score=0.9), RerankResult(index=0, score=0.1)],
-            ordered_candidates=[],
+            ranked=[
+                RerankResult(index=1, relevance_score=0.9),
+                RerankResult(index=0, relevance_score=0.1),
+            ],
             error=None,
         )
         with patch(
@@ -652,7 +622,6 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
             provider_id="chain",
             model=None,
             ranked=[],
-            ordered_candidates=[hit],
             error=RuntimeError("no providers"),
         )
         with patch(
@@ -666,12 +635,12 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
 
     async def test_no_truncation_all_hits_preserved(self):
         hits = [
-            CodeSearchHit(url=f"https://{index}.example", provider="exa", snippet="x" * 200)
+            CodeSearchHit(url=f"https://{index}.example", provider="exa", source_window="x" * 200)
             for index in range(5)
         ]
         # No compact_hits — all hits survive; clients handle clipping.
         self.assertEqual(len(hits), 5)
-        self.assertTrue(all(item.snippet for item in hits))
+        self.assertTrue(all(item.source_window for item in hits))
 
     async def test_hydrated_source_preserved_in_public_file(self):
         hit = CodeSearchHit(
@@ -679,7 +648,7 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
             provider="github",
             repository="acme/lib",
             path="src/retry.py",
-            hydrated_source="def retry():\n    return 1\n",
+            source_window="def retry():\n    return 1\n",
             score_components={"rrf": 0.01, "cloud_rerank_score": 0.9},
             source_metadata={"cloud_rerank_provider": "cohere_fast", "providers": ["github"]},
             reasons=["cloud rerank: cohere_fast"],
@@ -688,7 +657,7 @@ class TestRankingAndReranking(IsolatedAsyncioTestCase):
         dumped = public.model_dump()
         self.assertNotIn("score_components", dumped)
         self.assertNotIn("source_metadata", dumped)
-        self.assertIn("def retry", public.text_matches[0])
+        self.assertIn("def retry", public.source_window or "")
 
 
 class TestDispatchAndValidation(IsolatedAsyncioTestCase):
@@ -758,8 +727,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
             sha="abc123",
             line_start=10,
             line_end=18,
-            hydrated_source="export const traces = pgTable('traces', {\n  id: text('id'),\n});",
-            fragments=[TextFragment(text="export const traces = pgTable", line_start=10, line_end=10)],
+            source_window="export const traces = pgTable('traces', {\n  id: text('id'),\n});",
             score=0.91,
             score_components={"rrf": 0.02, "cloud_rerank_norm": 0.8},
             reasons=["cloud rerank: cohere_fast"],
@@ -778,9 +746,8 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertEqual(public.path, "packages/db/schema.ts")
         self.assertEqual(public.language, "TypeScript")
         self.assertEqual(public.sha, "abc123")
-        self.assertIn("pgTable", public.text_matches[0])
-        # match_lines parallel to text_matches
-        self.assertEqual(len(public.text_matches), len(public.match_lines))
+        self.assertIn("pgTable", public.source_window or "")
+        self.assertEqual(public.line_start, 10)
 
     def test_public_result_groups_by_repository_and_emits_hints(self) -> None:
         hit = CodeSearchHit(
@@ -788,7 +755,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
             provider="github",
             repository="acme/lib",
             path="src/a.py",
-            snippet="def retry():\n    pass",
+            source_window="def retry():\n    pass",
         )
         internal = CodeSearchResultType(
             query="retry",
@@ -828,7 +795,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertEqual(public.results[0].owner, "acme")
         self.assertEqual(public.results[0].repo, "lib")
         self.assertEqual(public.results[0].files[0].path, "src/a.py")
-        self.assertEqual(public.results[0].files[0].text_matches, ["def retry():\n    pass"])
+        self.assertEqual(public.results[0].files[0].source_window, "def retry():\n    pass")
         # Hints present for incomplete index
         self.assertTrue(any(h.code == "incomplete_index" for h in public.hints))
         self.assertNotIn("warnings", dumped)
@@ -846,7 +813,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
             commit_oid="a" * 40,
             line_start=12,
             line_end=18,
-            snippet="def run():\n    return True",
+            source_window="def run():\n    return True",
         )
         public = to_public_file(hit)
 
@@ -855,7 +822,7 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertEqual(public.line_start, 12)
         self.assertEqual(public.line_end, 18)
         self.assertEqual(public.providers, ["sourcegraph"])
-        self.assertEqual(public.snippet, public.text_matches[0])
+        self.assertEqual(public.source_window, "def run():\n    return True")
 
     def test_public_projection_does_not_shorten_provider_text(self) -> None:
         source = "SELECT value FROM result_labels WHERE ranking_position = 1;\n" * 500
@@ -866,12 +833,11 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
             path="schema.sql",
             line_start=1,
             line_end=500,
-            fragments=[TextFragment(text=source, line_start=1, line_end=500)],
+            source_window=source,
         )
         public = to_public_file(hit)
 
-        self.assertEqual(public.text_matches, [source])
-        self.assertEqual(public.snippet, source)
+        self.assertEqual(public.source_window, source)
         self.assertNotIn("truncated", public.model_dump())
 
     def test_unready_file_exposes_reasons_instead_of_legacy_warning_dump(self) -> None:
@@ -882,24 +848,26 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
         self.assertIn("insufficient_text_context", public.agent_ready_fail_reasons)
         self.assertIn("missing_lines_or_revision", public.agent_ready_fail_reasons)
 
-    def test_text_matches_alignment_after_merge(self) -> None:
-        """Cross-provider merge dedupes text_matches and keeps match_lines aligned."""
-        shared = TextFragment(text="def retry():\n    pass", line_start=3, line_end=4)
-        extra = TextFragment(text="def backoff():\n    pass", line_start=9, line_end=10)
+    def test_source_windows_grouped_by_file(self) -> None:
+        """Cross-provider group keeps distinct source windows on the same file."""
         hits = [
             CodeSearchHit(
-                url="https://github.com/acme/lib/blob/main/src/a.py",
+                url="https://github.com/acme/lib/blob/main/src/a.py#L3-L4",
                 provider="github",
                 repository="acme/lib",
                 path="src/a.py",
-                fragments=[shared],
+                source_window="def retry():\n    pass",
+                line_start=3,
+                line_end=4,
             ),
             CodeSearchHit(
-                url="https://github.com/acme/lib/blob/main/src/a.py",
+                url="https://github.com/acme/lib/blob/main/src/a.py#L9-L10",
                 provider="sourcegraph",
                 repository="acme/lib",
                 path="src/a.py",
-                fragments=[shared, extra],
+                source_window="def backoff():\n    pass",
+                line_start=9,
+                line_end=10,
             ),
         ]
         internal = CodeSearchResultType(
@@ -916,9 +884,8 @@ class TestPublicCodeSearchOutput(IsolatedAsyncioTestCase):
             ),
         )
         public = to_public_result(internal)
-        file_entry = public.results[0].files[0]
-        self.assertEqual(len(file_entry.text_matches), len(file_entry.match_lines))
-        cleaned = [text.strip() for text in file_entry.text_matches]
-        self.assertEqual(len(cleaned), len(set(cleaned)))
-        self.assertIn("def retry():\n    pass", file_entry.text_matches)
-        self.assertIn("def backoff():\n    pass", file_entry.text_matches)
+        self.assertEqual(len(public.results), 1)
+        files = public.results[0].files
+        self.assertEqual(len(files), 2)
+        self.assertEqual(files[0].source_window, "def retry():\n    pass")
+        self.assertEqual(files[1].source_window, "def backoff():\n    pass")

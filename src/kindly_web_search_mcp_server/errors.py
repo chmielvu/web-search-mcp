@@ -27,7 +27,7 @@ class StructuredToolError:
 
     Attributes:
         error: Human-readable error message
-        error_type: Classification: "rate_limit", "auth", "network", "content", "config", "unknown"
+        error_type: Classification: "rate_limit", "auth", "network", "content", "config", "validation", "unknown"
         action: Optional actionable guidance for the agent
         provider: Optional provider name that caused the error
         status_code: Optional HTTP status code
@@ -116,8 +116,17 @@ def classify_error(
             provider=provider,
         )
 
+    # Input and parameter validation errors
+    if isinstance(error, ValueError) or "ValidationError" in error_name:
+        return StructuredToolError(
+            error=f"Invalid parameter: {str(error)}",
+            error_type="validation",
+            action="Check input parameters and format.",
+            provider=provider,
+        )
+
     # Content/parsing errors
-    if "Parse" in error_name or "JSON" in error_name or "Value" in error_name:
+    if "Parse" in error_name or "JSON" in error_name:
         return StructuredToolError(
             error=f"Content parsing error: {str(error)[:80]}",
             error_type="content",

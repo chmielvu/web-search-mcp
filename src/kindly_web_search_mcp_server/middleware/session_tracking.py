@@ -39,6 +39,7 @@ def get_session_id(context: MiddlewareContext) -> str:
 
     return _FALLBACK_SESSION_ID
 
+
 @dataclass
 class SessionState:
     last_activity: float = field(default_factory=time.time)

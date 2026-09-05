@@ -18,7 +18,7 @@ import httpx
 from ..settings import settings
 from ..utils.observability import emit_observability_event
 from .chunk import chunk_text
-from .default_schema import DEFAULT_CONTENT_LABELS, DEFAULT_QUERY_LABELS, DEFAULT_QUERY_RELATIONS
+from .default_schema import DEFAULT_CONTENT_LABELS, DEFAULT_QUERY_LABELS
 from .models import EntitySpan
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,10 @@ _CONTENT_CHUNK_OVERLAP = 200
 # well over the generic intent-classifier timeout; use a dedicated budget.
 _TRANSCRIPT_EXTRACT_TIMEOUT = 30.0
 _CONTENT_EXTRACT_TIMEOUT = 30.0
+# Query NER uses the full label vocabulary on GLiNER2; the generic 3s
+# classifier budget is too small, and parallel classify+ner serialize on
+# unified-ml's blocked event loop.
+_QUERY_NER_TIMEOUT = 15.0
 
 
 def is_entity_extraction_enabled() -> bool:
@@ -167,11 +171,14 @@ class GLiNER2Client:
         )
 
     async def analyze_query(self, text: str) -> GatewayAnalysis:
-        """Issue one combined query-understanding call to the VPS service."""
-        from ..search.understanding.adapter import (
-            QueryUnderstandingContractError,
-            normalize_query_understanding_response,
-        )
+        """Resolve intent and NER via the deployed unified-ml routes.
+
+        unified-ml serves ``/classify`` and ``/ner``. It does not serve
+        ``/v2/query-understanding``; calling that route contends with embed on
+        the same blocked event loop and expires the 3s client budget before NER
+        runs.
+        """
+        from ..search.understanding.adapter import QueryUnderstandingContractError
 
         normalized_text = text.strip()
         if not normalized_text:
@@ -191,49 +198,13 @@ class GLiNER2Client:
             )
 
         threshold = float(getattr(settings, "intent_classifier_confidence_threshold", 0.5))
-        payload = {
-            "text": normalized_text,
-            "entity_labels": DEFAULT_QUERY_LABELS,
-            "relation_labels": DEFAULT_QUERY_RELATIONS,
-            "entity_threshold": float(getattr(settings, "gliner_threshold", 0.5)),
-            "include_confidence": True,
-            "include_spans": True,
-        }
         started = time.perf_counter()
         try:
-            data, request_latency_ms = await self._post(
-                "/v2/query-understanding", payload, operation="query_understanding"
-            )
-            normalized = normalize_query_understanding_response(
-                data,
-                normalized_text,
-                confidence_threshold=threshold,
-            )
-            warnings = normalized.warnings
-            for warning in warnings:
-                emit_observability_event(
-                    logger,
-                    "search.query_understanding.contract_warning",
-                    warning=warning,
-                    model=normalized.model_version,
-                )
-            return GatewayAnalysis(
-                understanding=normalized.understanding,
-                model_version=normalized.model_version,
-                latency_ms=normalized.latency_ms or request_latency_ms,
-                warnings=warnings,
+            return await self._composed_query_understanding(
+                normalized_text, threshold=threshold, started=started
             )
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (404, 405):
-                try:
-                    return await self._composed_query_understanding(
-                        normalized_text, threshold=threshold, started=started
-                    )
-                except Exception as composed_exc:  # degrade to deterministic fallback
-                    logger.warning("composed query understanding failed: %s", composed_exc)
-                    reason = "gliner2-composed-failed"
-            else:
-                reason = f"gliner2-http-{exc.response.status_code}"
+            reason = f"gliner2-http-{exc.response.status_code}"
         except httpx.TimeoutException:
             reason = "gliner2-timeout"
         except (httpx.RequestError, OSError):
@@ -261,33 +232,29 @@ class GLiNER2Client:
     async def _composed_query_understanding(
         self, text: str, *, threshold: float, started: float
     ) -> GatewayAnalysis:
-        """Build query understanding from ``/classify`` + ``/ner`` when the
-        combined ``/v2/query-understanding`` endpoint is not deployed.
+        """Build query understanding from deployed ``/classify`` + ``/ner``.
 
         Confidence comes straight from the classifier so downstream analytics
         and judging see a real signal instead of the 0.0 failure sentinel.
         """
         from ..search.understanding.adapter import normalize_query_understanding_response
-        classify_result, ner_result = await asyncio.gather(
-            self._post(
-                "/classify", {"text": text}, operation="query_understanding_classify"
-            ),
-            self._post(
+
+        classify_payload, _ = await self._post(
+            "/classify", {"text": text}, operation="query_understanding_classify"
+        )
+        try:
+            ner_payload_pair = await self._post(
                 "/ner",
                 {"text": text, "labels": list(DEFAULT_QUERY_LABELS)},
                 operation="query_understanding_ner",
-            ),
-            return_exceptions=True,
-        )
-        if isinstance(classify_result, BaseException):
-            raise classify_result
-        classify_payload, _ = classify_result
+                timeout=_QUERY_NER_TIMEOUT,
+            )
+            ner_result = ner_payload_pair
+        except Exception as ner_exc:
+            logger.warning("query NER failed after classify: %s", ner_exc)
+            ner_result = ner_exc
         raw_intent = classify_payload.get("intent")
-        intent = (
-            raw_intent.strip()
-            if isinstance(raw_intent, str) and raw_intent.strip()
-            else None
-        )
+        intent = raw_intent.strip() if isinstance(raw_intent, str) and raw_intent.strip() else None
         confidence = 0.0
         scores = classify_payload.get("scores")
         if isinstance(scores, list):
@@ -329,7 +296,6 @@ class GLiNER2Client:
             understanding=normalized.understanding,
             model_version=str(combined["model_version"]),
             latency_ms=float(combined["latency_ms"]),
-            warnings=("v2-query-understanding-unavailable",),
         )
 
     async def analyze_query_features(self, text: str) -> QueryFeatureAnalysis:
@@ -359,6 +325,7 @@ class GLiNER2Client:
                 "/ner",
                 {"text": normalized_text, "labels": list(DEFAULT_QUERY_LABELS)},
                 operation="code_query_entities",
+                timeout=_QUERY_NER_TIMEOUT,
             ),
             return_exceptions=True,
         )

@@ -14,6 +14,7 @@ from ..entity.postprocess import postprocess_entities
 from ..models import YouTubeTranscriptAnalysis
 from ..search.understanding.adapter import normalize_content_entities
 
+
 def _unwrap_payload(raw: Mapping[str, Any]) -> Mapping[str, Any]:
     result = raw.get("result")
     if isinstance(result, Mapping):

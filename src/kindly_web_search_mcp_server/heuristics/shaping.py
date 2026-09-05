@@ -310,7 +310,7 @@ def shape_for_branch(
             rules.append("budget.trim")
     if dialect.max_chars is not None and len(body) > dialect.max_chars:
         meta["budget.trim.chars"] = f"{len(body)}->{dialect.max_chars}"
-        body = body[:dialect.max_chars]
+        body = body[: dialect.max_chars]
         rules.append("budget.trim")
 
     # Additive wordninja glue-repair on the final shaped form.

@@ -129,6 +129,8 @@ class TestProviderCandidatesSchema:
         finally:
             if db_path.exists():
                 db_path.unlink()
+
+
 class TestMergedCandidatesSchema:
     """Test merged_candidates table (consolidated into search_candidates)."""
 
@@ -176,6 +178,8 @@ class TestMergedCandidatesSchema:
         finally:
             if db_path.exists():
                 db_path.unlink()
+
+
 class TestRerankStagesSchema:
     """Test rerank_stages table."""
 
@@ -204,12 +208,12 @@ class TestRerankStagesSchema:
                 duration_ms=234.5,
                 max_score=0.98,
                 avg_score=0.76,
-                score_threshold=0.5,
                 instruction_present=True,
                 instruction_length=120,
                 query_type_hint="research",
-                entity_overlap_enabled=False,
-                payload_json=None,
+                attempted_passes=1,
+                valid_passes=1,
+                failed_passes=0,
                 db_path=str(db_path),
             )
 
@@ -277,13 +281,12 @@ class TestRerankCandidatesSchema:
                 link="https://fastmcp.dev",
                 rank_before=3,
                 rank_after=1,
-                score_before=0.65,
-                score_after=0.92,
-                score_after_relevance=0.88,
-                score_after_recency=0.02,
-                score_after_entity=0.02,
-                recency_boost=0.02,
-                entity_overlap_score=0.02,
+                final_score_before=0.65,
+                final_score_after=0.92,
+                cross_encoder_score=0.88,
+                retrieval_rrf_score=0.65,
+                recency_score=0.02,
+                diversity_penalty=0.02,
                 survived=True,
                 payload_json=None,
                 db_path=str(db_path),
@@ -291,7 +294,7 @@ class TestRerankCandidatesSchema:
 
             con = duckdb.connect(str(db_path), read_only=True)
             row = con.execute(
-                "SELECT run_key, stage, link, rank_before, rank_after, score_after FROM rerank_candidates"
+                "SELECT run_key, stage, link, rank_before, rank_after, final_score_after FROM rerank_candidates"
             ).fetchone()
             con.close()
 

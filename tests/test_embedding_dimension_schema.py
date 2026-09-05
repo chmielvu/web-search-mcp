@@ -1,4 +1,4 @@
-"""Regression coverage for the 786-dimensional embedding storage contract."""
+"""Regression coverage for the 768-dimensional embedding storage contract."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def _embedding_type(connection: duckdb.DuckDBPyConnection, table_name: str) -> s
     return value
 
 
-def test_embedding_schema_rolls_over_legacy_vectors_and_persists_786d_rows(tmp_path) -> None:
+def test_embedding_schema_rolls_over_legacy_vectors_and_persists_768d_rows(tmp_path) -> None:
     db_path = tmp_path / "analytics.duckdb"
     legacy_vector = [0.0] * 1024
     connection = duckdb.connect(str(db_path))
@@ -49,20 +49,20 @@ def test_embedding_schema_rolls_over_legacy_vectors_and_persists_786d_rows(tmp_p
         connection.close()
 
     ensure_store_schema(db_path=str(db_path))
-    vector = [0.0] * 786
+    vector = [0.0] * 768
     insert_query_embeddings(
-        run_key="query-786",
+        run_key="query-768",
         embedding=vector,
-        model_id="configured-786d-model",
+        model_id="configured-768d-model",
         payload_json=None,
         db_path=str(db_path),
     )
     insert_candidate_embeddings(
-        run_key="query-786",
-        link="https://example.test/786",
-        title="786 dimensional candidate",
+        run_key="query-768",
+        link="https://example.test/768",
+        title="768 dimensional candidate",
         embedding=vector,
-        model_id="configured-786d-model",
+        model_id="configured-768d-model",
         payload_json=None,
         db_path=str(db_path),
     )
@@ -70,8 +70,8 @@ def test_embedding_schema_rolls_over_legacy_vectors_and_persists_786d_rows(tmp_p
 
     connection = duckdb.connect(str(db_path), read_only=True)
     try:
-        assert _embedding_type(connection, "query_embeddings") == "FLOAT[786]"
-        assert _embedding_type(connection, "candidate_embeddings") == "FLOAT[786]"
+        assert _embedding_type(connection, "query_embeddings") == "FLOAT[768]"
+        assert _embedding_type(connection, "candidate_embeddings") == "FLOAT[768]"
         assert _single_value(connection, "SELECT count() FROM query_embeddings_1024d_legacy") == 1
         assert (
             _single_value(connection, "SELECT count() FROM candidate_embeddings_1024d_legacy") == 1
@@ -79,16 +79,16 @@ def test_embedding_schema_rolls_over_legacy_vectors_and_persists_786d_rows(tmp_p
         assert (
             _single_value(
                 connection,
-                "SELECT array_length(embedding) FROM query_embeddings WHERE run_key = 'query-786'",
+                "SELECT array_length(embedding) FROM query_embeddings WHERE run_key = 'query-768'",
             )
-            == 786
+            == 768
         )
         assert (
             _single_value(
                 connection,
-                "SELECT array_length(embedding) FROM candidate_embeddings WHERE run_key = 'query-786'",
+                "SELECT array_length(embedding) FROM candidate_embeddings WHERE run_key = 'query-768'",
             )
-            == 786
+            == 768
         )
     finally:
         connection.close()

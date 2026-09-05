@@ -221,10 +221,16 @@ def _feed_markdown(
             lines.extend(["", item_description])
 
     metadata = {"format": fmt, "title": title, "item_count": item_count}
-    return "\n".join(lines).strip() or f"# {fmt.upper()} feed\n\nSource: {source_url}", metadata, links
+    return (
+        "\n".join(lines).strip() or f"# {fmt.upper()} feed\n\nSource: {source_url}",
+        metadata,
+        links,
+    )
 
 
-def _csv_markdown(text: str, source_url: str, delimiter: str) -> tuple[str, dict[str, object], list[dict[str, object]]]:
+def _csv_markdown(
+    text: str, source_url: str, delimiter: str
+) -> tuple[str, dict[str, object], list[dict[str, object]]]:
     reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     rows: list[list[str]] = []
     for index, row in enumerate(reader):
@@ -234,7 +240,11 @@ def _csv_markdown(text: str, source_url: str, delimiter: str) -> tuple[str, dict
         if any(cleaned):
             rows.append(cleaned)
     if not rows:
-        return f"# Data Table\n\nSource: {source_url}\n\n_Empty table_", {"format": "tsv" if delimiter == "\t" else "csv", "row_count": 0}, []
+        return (
+            f"# Data Table\n\nSource: {source_url}\n\n_Empty table_",
+            {"format": "tsv" if delimiter == "\t" else "csv", "row_count": 0},
+            [],
+        )
 
     width = max(len(row) for row in rows)
     normalized = [row + [""] * (width - len(row)) for row in rows]
@@ -247,7 +257,11 @@ def _csv_markdown(text: str, source_url: str, delimiter: str) -> tuple[str, dict
     lines.extend("| " + " | ".join(row) + " |" for row in normalized[1:])
     if len(rows) >= _MAX_CSV_ROWS:
         lines.extend(["", f"_Note: Table truncated to first {_MAX_CSV_ROWS} rows_"])
-    return "\n".join(lines), {"format": "tsv" if delimiter == "\t" else "csv", "row_count": len(rows) - 1}, []
+    return (
+        "\n".join(lines),
+        {"format": "tsv" if delimiter == "\t" else "csv", "row_count": len(rows) - 1},
+        [],
+    )
 
 
 def render_typed_content(

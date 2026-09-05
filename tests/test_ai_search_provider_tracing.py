@@ -114,7 +114,6 @@ class TestAiSearchProviderTracing(unittest.IsolatedAsyncioTestCase):
         from kindly_web_search_mcp_server.search.providers.grok import grok_search
         from kindly_web_search_mcp_server.search.providers import grok as grok_module
 
-
         tool_patcher, tool_span = self._span_patch(
             "kindly_web_search_mcp_server.search.providers.grok.create_llm_operation_span"
         )

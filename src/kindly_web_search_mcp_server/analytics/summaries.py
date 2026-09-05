@@ -98,8 +98,7 @@ def refresh_summary_tables(db_path: str | None = None) -> None:
                     avg(input_count * 1.0 / NULLIF(output_count, 0)) AS avg_compression_ratio,
                     avg(max_score) AS avg_max_score,
                     approx_quantile(duration_ms, 0.5) AS p50_latency_ms,
-                    approx_quantile(duration_ms, 0.95) AS p95_latency_ms,
-                    count(*) FILTER (WHERE entity_overlap_enabled) AS entity_overlap_runs
+                    approx_quantile(duration_ms, 0.95) AS p95_latency_ms
                 FROM rerank_stages
                 WHERE recorded_at >= now() - INTERVAL '2 days'
                 GROUP BY ALL
@@ -108,8 +107,7 @@ def refresh_summary_tables(db_path: str | None = None) -> None:
                     avg_compression_ratio = excluded.avg_compression_ratio,
                     avg_max_score = excluded.avg_max_score,
                     p50_latency_ms = excluded.p50_latency_ms,
-                    p95_latency_ms = excluded.p95_latency_ms,
-                    entity_overlap_runs = excluded.entity_overlap_runs
+                    p95_latency_ms = excluded.p95_latency_ms
                 """
             )
 

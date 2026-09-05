@@ -358,8 +358,6 @@ class TestFeedbackLabels(unittest.TestCase):
         assert res2 is not None
         self.assertEqual(res2[0], 1)  # ON CONFLICT DO NOTHING kept row count at 1
 
-
-
     def test_materializes_latest_valid_observation_per_model_deterministically(self) -> None:
         con = duckdb.connect(str(self.db_path), read_only=False)
         run_key = "rk_test_latest_observation"
@@ -456,6 +454,7 @@ class TestFeedbackLabels(unittest.TestCase):
         second_report = materialize_result_labels(db_path=str(self.db_path))
         self.assertEqual(second_report.submitted, 4)
         self.assertEqual(materialized_labels(), first_materialization)
+
 
 if __name__ == "__main__":
     unittest.main()

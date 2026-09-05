@@ -34,7 +34,9 @@ class TestVpsWhisperResponseParsing:
         assert segments[0]["text"] == "Full transcript paragraph"
 
     def test_parse_gradio_wrapper(self) -> None:
-        data = {"data": ['{"segments": [{"text": "Gradio segment", "start": 1.0, "duration": 2.0}]}']}
+        data = {
+            "data": ['{"segments": [{"text": "Gradio segment", "start": 1.0, "duration": 2.0}]}']
+        }
         segments = _parse_vps_response(data)
         assert len(segments) == 1
         assert segments[0]["text"] == "Gradio segment"

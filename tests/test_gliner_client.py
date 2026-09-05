@@ -110,6 +110,8 @@ def test_singleton_factory_is_stable(monkeypatch):
     first = get_gliner_client()
     second = get_gliner_client()
     assert first is second
+
+
 @pytest.mark.asyncio
 async def test_extract_transcript_chunk_sends_flat_label_lists(monkeypatch) -> None:
     from unittest.mock import AsyncMock

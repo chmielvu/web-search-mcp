@@ -159,12 +159,7 @@ async def youtube_transcript(
             except Exception:
                 metadata = {}
 
-        actual_language = (
-            translate_to
-            or language
-            or str(metadata.get("language") or "")
-            or "und"
-        )
+        actual_language = translate_to or language or str(metadata.get("language") or "") or "und"
         is_translated = bool(translate_to)
         if format == "json":
             transcript_text = ""

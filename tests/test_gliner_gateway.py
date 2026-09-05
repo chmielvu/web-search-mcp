@@ -8,10 +8,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from kindly_web_search_mcp_server.entity.default_schema import (
-    DEFAULT_QUERY_LABELS,
-    DEFAULT_QUERY_RELATIONS,
-)
+from kindly_web_search_mcp_server.entity.default_schema import DEFAULT_QUERY_LABELS
 from kindly_web_search_mcp_server.entity.gliner_client import GLiNER2Client
 from kindly_web_search_mcp_server.settings import settings
 
@@ -101,34 +98,102 @@ def _payload(*, confidence: float = 0.91) -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_query_gateway_sends_exact_v2_contract(monkeypatch):
-    monkeypatch.setattr(settings, "intent_classifier_enabled", True)
-    with _run_client(_Response(_payload())) as calls:
-        analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
-            "Compare FastAPI 0.100 with Starlette"
-        )
+def _classify_ner_post(*, intent: str = "comparison", confidence: float = 0.91):
+    async def post(self, path, payload, *, operation, timeout=None):
+        del self, operation, timeout
+        if path == "/classify":
+            return (
+                {
+                    "intent": intent,
+                    "scores": [{"label": intent, "score": confidence}],
+                },
+                12.0,
+            )
+        if path == "/ner":
+            return (
+                {
+                    "entities": [
+                        {
+                            "text": "FastAPI",
+                            "label": "package",
+                            "start": 8,
+                            "end": 15,
+                            "score": 0.96,
+                        },
+                        {
+                            "text": "Starlette",
+                            "label": "package",
+                            "start": 27,
+                            "end": 36,
+                            "score": 0.94,
+                        },
+                    ]
+                },
+                40.0,
+            )
+        raise AssertionError(path)
 
+    return post
+
+
+@pytest.mark.asyncio
+async def test_query_gateway_calls_classify_and_ner(monkeypatch):
+    monkeypatch.setattr(settings, "intent_classifier_enabled", True)
+    posts: list[tuple[str, dict]] = []
+
+    async def post(self, path, payload, *, operation, timeout=None):
+        del self, operation, timeout
+        posts.append((path, payload))
+        if path == "/classify":
+            return (
+                {"intent": "comparison", "scores": [{"label": "comparison", "score": 0.91}]},
+                12.0,
+            )
+        if path == "/ner":
+            return (
+                {
+                    "entities": [
+                        {
+                            "text": "FastAPI",
+                            "label": "package",
+                            "start": 8,
+                            "end": 15,
+                            "score": 0.96,
+                        },
+                        {
+                            "text": "Starlette",
+                            "label": "package",
+                            "start": 27,
+                            "end": 36,
+                            "score": 0.94,
+                        },
+                    ]
+                },
+                40.0,
+            )
+        raise AssertionError(path)
+
+    monkeypatch.setattr(GLiNER2Client, "_post", post)
+    analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
+        "Compare FastAPI 0.100 with Starlette"
+    )
+
+    assert analysis.fallback is False
     assert analysis.understanding.intent == "comparison"
-    assert analysis.understanding.relations[0].relation == "compares_with"
-    assert calls[0][0] == "http://127.0.0.1:8000/v2/query-understanding"
-    assert calls[0][1] == {
-        "text": "Compare FastAPI 0.100 with Starlette",
-        "entity_labels": DEFAULT_QUERY_LABELS,
-        "relation_labels": DEFAULT_QUERY_RELATIONS,
-        "entity_threshold": settings.gliner_threshold,
-        "include_confidence": True,
-        "include_spans": True,
-    }
+    assert analysis.understanding.preserved_terms == ["FastAPI", "Starlette"]
+    assert {path for path, _ in posts} == {"/classify", "/ner"}
+    ner_payload = next(payload for path, payload in posts if path == "/ner")
+    assert ner_payload["labels"] == list(DEFAULT_QUERY_LABELS)
+    assert all(path != "/v2/query-understanding" for path, _ in posts)
 
 
 @pytest.mark.asyncio
 async def test_query_gateway_enforces_low_confidence_general_fallback(monkeypatch):
     monkeypatch.setattr(settings, "intent_classifier_enabled", True)
-    with _run_client(_Response(_payload(confidence=0.2))):
-        analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
-            "Compare FastAPI with Starlette"
-        )
+    monkeypatch.setattr(GLiNER2Client, "_post", _classify_ner_post(confidence=0.2))
+    analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
+        "Compare FastAPI 0.100 with Starlette"
+    )
 
     assert analysis.understanding.intent == "general"
     assert analysis.understanding.confidence == 0.2
@@ -171,10 +236,11 @@ async def test_query_gateway_disabled_does_not_make_http_call(monkeypatch):
 @pytest.mark.asyncio
 async def test_query_gateway_preserves_model_and_latency_metadata(monkeypatch):
     monkeypatch.setattr(settings, "intent_classifier_enabled", True)
-    with _run_client(_Response(_payload())):
-        analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
-            "Compare FastAPI with Starlette"
-        )
+    monkeypatch.setattr(GLiNER2Client, "_post", _classify_ner_post())
+    analysis = await GLiNER2Client(base_url="http://127.0.0.1:8000").analyze_query(
+        "Compare FastAPI 0.100 with Starlette"
+    )
 
-    assert analysis.model_version == "fastino/gliner2-multi-v1"
-    assert analysis.latency_ms == pytest.approx(123.4)
+    assert analysis.model_version.endswith("+unifiedml-composed")
+    assert analysis.latency_ms >= 0.0
+    assert analysis.understanding.preserved_terms == ["FastAPI", "Starlette"]

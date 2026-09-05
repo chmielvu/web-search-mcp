@@ -52,6 +52,8 @@ async def test_transcript_analysis_fails_open() -> None:
     assert result.status == "error"
     assert result.entities == []
     assert result.warnings
+
+
 @pytest.mark.asyncio
 async def test_transcript_analysis_parses_relation_extraction() -> None:
     client = MagicMock()

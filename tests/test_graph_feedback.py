@@ -264,7 +264,6 @@ class TestGraphFeedback(unittest.TestCase):
         with self.assertRaises(Exception):
             nx.bipartite.overlap_weighted_projected_graph(mg, {"query:q1"})
 
-
     def test_index_cache_is_scoped_by_sqlite_path(self) -> None:
         second_sqlite = self.sqlite_path.with_name("second.graph.sqlite")
         second_sqlite.unlink(missing_ok=True)
@@ -310,9 +309,7 @@ class TestGraphFeedback(unittest.TestCase):
             )
             with _CACHE_LOCK:
                 _CACHED_INDICES.clear()
-            first = load_latest_graph_index(
-                sqlite_path=str(self.sqlite_path), max_age_seconds=3600
-            )
+            first = load_latest_graph_index(sqlite_path=str(self.sqlite_path), max_age_seconds=3600)
             second = load_latest_graph_index(sqlite_path=str(second_sqlite), max_age_seconds=3600)
             self.assertIsNotNone(first)
             self.assertIsNotNone(second)
@@ -332,7 +329,6 @@ class TestGraphFeedback(unittest.TestCase):
         self.assertIsNone(
             load_latest_graph_index(sqlite_path=str(missing_sqlite), max_age_seconds=86400)
         )
-
 
 
 if __name__ == "__main__":

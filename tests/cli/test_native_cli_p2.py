@@ -15,13 +15,18 @@ from kindly_web_search_mcp_server.cli.services.search_runs import (
 
 
 def test_search_web_service_returns_run_key(monkeypatch) -> None:
-    class _Response:
-        def model_dump(self, **_: object) -> dict:
-            return {"query": "q", "results": []}
+    from unittest.mock import MagicMock
 
+    from kindly_web_search_mcp_server.models import WebSearchResponse
+
+    response = WebSearchResponse(query="q", results=[])
+    run = MagicMock()
+    run.response = response
+    run.plan = None
+    run.diagnostics.overflow_ranked = []
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.search_web.execute_web_search",
-        AsyncMock(return_value=(_Response(), object())),
+        AsyncMock(return_value=(response, run)),
     )
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.search_web.get_http_client",

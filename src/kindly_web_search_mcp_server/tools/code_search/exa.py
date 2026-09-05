@@ -16,7 +16,6 @@ from .models import (
     CodeSearchRequest,
     Diagnostic,
     ProviderResponse,
-    TextFragment,
     build_location_metadata,
 )
 from .query import QueryPlan
@@ -165,11 +164,7 @@ def _context_query(plan: QueryPlan, request: CodeSearchRequest) -> str:
     when no optimized query is available (fail-open).
     """
 
-    base = (
-        plan.exa_semantic_query.strip()
-        or request.query.strip()
-        or plan.original_query.strip()
-    )
+    base = plan.exa_semantic_query.strip() or request.query.strip() or plan.original_query.strip()
     constraints: list[str] = []
     repositories = _scope_values(plan, request, "repo")
     if repositories:
@@ -241,14 +236,8 @@ def _context_hit(
             revision=revision,
             match_data_available=False,
         ),
-        fragments=[
-            TextFragment(
-                text=context,
-                match_metadata={"source_urls": source_urls},
-            )
-        ],
+        source_window=context,
         title="Exa Code context",
-        snippet=context,
         evidence_role="code_context_synthesis",
         source_metadata=metadata,
     )
@@ -376,11 +365,7 @@ async def _search_context(
     repositories = _scope_values(plan, request, "repo")
     source_url = _preferred_source_url(urls, repositories)
     if source_url is None:
-        scoped_message = (
-            " matching the requested repository scope"
-            if repositories
-            else ""
-        )
+        scoped_message = " matching the requested repository scope" if repositories else ""
         return ProviderResponse(
             provider="exa",
             diagnostics=[

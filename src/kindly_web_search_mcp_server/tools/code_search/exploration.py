@@ -12,12 +12,18 @@ from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
 from ...utils.github import normalize_github_repository
+from ...utils.http_client import get_http_client
 from .._helpers import _code_fetch_flight
+from .github import _token
+from .hydration import hydrate_sources
+from .models import CodeSearchHit
 from .snapshot import (
     GRAPH_WAIT_SECONDS,
+    MAX_CONTENT_CHARS,
     QueryResult,
     SnapshotError,
     SnapshotHit,
+    _resolve_main_commit,
     get_snapshot_manager,
 )
 
@@ -175,9 +181,7 @@ def _response_from_query(
         warning = f"{warning}; {no_hit_warning}" if warning else no_hit_warning
     next_cursor = None
     if result.intent == "search" and result.has_more and cursor_params is not None:
-        next_cursor = _encode_cursor(
-            {"v": 1, "offset": offset + len(result.hits), **cursor_params}
-        )
+        next_cursor = _encode_cursor({"v": 1, "offset": offset + len(result.hits), **cursor_params})
     return CodeFetchResponse(
         outcome=outcome,
         repository=repository,
@@ -195,9 +199,7 @@ def _response_from_query(
         content=result.content,
         map=result.architecture,
         next=(
-            _next_from_hits(repository, result.hits)
-            if result.intent in {"search", "graph"}
-            else []
+            _next_from_hits(repository, result.hits) if result.intent in {"search", "graph"} else []
         ),
         graph=graph,
         has_more=result.has_more,
@@ -220,6 +222,135 @@ def _error_response(
         retry_after_seconds=retry_after_seconds,
         stale=False,
         truncated=False,
+    )
+
+
+def _is_single_file_read_candidate(
+    *,
+    query: str | None,
+    path: str | None,
+    symbol: str | None,
+    depth: int | None,
+    language: str | None,
+    filename: str | None,
+    path_glob: str | None,
+    exclude_glob: str | None,
+    cursor: str | None,
+) -> bool:
+    return (
+        bool((path or "").strip().strip("/"))
+        and not (query or "").strip()
+        and not (symbol or "").strip()
+        and cursor is None
+        and depth is None
+        and language is None
+        and filename is None
+        and path_glob is None
+        and exclude_glob is None
+    )
+
+
+async def _try_fast_lane_github_file(
+    repository: str,
+    path: str,
+    *,
+    ref: str | None = None,
+    start_line: int | None = None,
+    end_line: int | None = None,
+) -> CodeFetchResponse | None:
+    branch: str | None = ref
+    sha: str | None = None
+    try:
+        branch, sha = await _resolve_main_commit(repository, ref=ref)
+    except SnapshotError:
+        branch = ref
+        sha = None
+    except Exception:
+        branch = ref
+        sha = None
+
+    try:
+        client = await get_http_client()
+        token = _token()
+        hit = CodeSearchHit(
+            repository=repository,
+            path=path,
+            provider="github",
+            commit_oid=sha or ref,
+        )
+        max_chars = MAX_CONTENT_CHARS if MAX_CONTENT_CHARS > 0 else 5_000_000
+        sources, _diags = await hydrate_sources(
+            [hit],
+            http_client=client,
+            token=token,
+            max_files=1,
+            max_chars_per_file=max_chars,
+        )
+    except Exception:
+        LOGGER.debug("code_fetch fast-lane hydrate failed", exc_info=True)
+        return None
+
+    source = sources.get((repository.casefold(), path.replace("\\", "/").casefold()))
+    if source is None or not source.text:
+        return None
+
+    if source.text.lstrip().startswith("["):
+        try:
+            parsed = json.loads(source.text)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return None
+
+    lines = source.text.splitlines()
+    total_lines = len(lines)
+    if start_line is not None or end_line is not None:
+        sl = max(1, start_line or 1)
+        el = min(total_lines, end_line or total_lines)
+        sl = min(sl, total_lines or 1)
+        el = max(sl, el)
+        content_out = "\n".join(lines[sl - 1 : el])
+        why = ["read:window"]
+        hit_start, hit_end = sl, el
+    else:
+        content_out = source.text
+        why = ["read"]
+        hit_start, hit_end = 1, max(1, total_lines)
+
+    LOGGER.info(
+        "code_fetch fast-lane hit",
+        extra={"repository": repository, "path": path, "ref": ref},
+    )
+    return CodeFetchResponse(
+        outcome="ok",
+        repository=repository,
+        branch=branch,
+        resolved_commit=sha,
+        cache_age_seconds=0,
+        expires_in_seconds=300,
+        stale=False,
+        truncated=False,
+        search_truncated=False,
+        snapshot_truncated=False,
+        intent="read",
+        hits=[
+            CodeFetchHit(
+                path=path,
+                start_line=hit_start,
+                end_line=hit_end,
+                why=why,
+                confidence=1.0,
+            )
+        ],
+        tree=[],
+        content=content_out,
+        map=None,
+        next=[],
+        graph=None,
+        has_more=False,
+        next_cursor=None,
+        error=None,
+        warning=None,
     )
 
 
@@ -252,11 +383,15 @@ async def code_fetch(
     context_lines: Annotated[int, Field(description="Context lines around each match.")] = 3,
     start_line: Annotated[
         int | None,
-        Field(description="Optional 1-based start line when reading a file (requires path without query/symbol)."),
+        Field(
+            description="Optional 1-based start line when reading a file (requires path without query/symbol)."
+        ),
     ] = None,
     end_line: Annotated[
         int | None,
-        Field(description="Optional 1-based end line when reading a file (requires path without query/symbol)."),
+        Field(
+            description="Optional 1-based end line when reading a file (requires path without query/symbol)."
+        ),
     ] = None,
     depth: Annotated[
         int | None,
@@ -315,11 +450,40 @@ async def code_fetch(
     except ValueError as exc:
         return _error_response(repository.strip(), str(exc))
 
+    if _is_single_file_read_candidate(
+        query=query,
+        path=path,
+        symbol=symbol,
+        depth=depth,
+        language=language,
+        filename=filename,
+        path_glob=path_glob,
+        exclude_glob=exclude_glob,
+        cursor=cursor,
+    ):
+        key = f"{normalized_repository}@{ref}" if ref else normalized_repository
+        if get_snapshot_manager().live_snapshot(key) is None:
+            fast = await _try_fast_lane_github_file(
+                normalized_repository,
+                (path or "").strip().strip("/"),
+                ref=ref,
+                start_line=start_line,
+                end_line=end_line,
+            )
+            if fast is not None:
+                if ctx is not None:
+                    await ctx.report_progress(
+                        progress=100, total=100, message="GitHub file read complete."
+                    )
+                return fast
+
     if ctx is not None:
         await ctx.report_progress(progress=10, total=100, message="Opening main-branch snapshot...")
 
     manager = get_snapshot_manager()
-    flight_key = _code_fetch_flight.make_key(f"{normalized_repository}@{ref}" if ref else normalized_repository)
+    flight_key = _code_fetch_flight.make_key(
+        f"{normalized_repository}@{ref}" if ref else normalized_repository
+    )
 
     async def _open_snapshot():
         return await manager.ensure(normalized_repository, ref=ref)
@@ -329,7 +493,7 @@ async def code_fetch(
         # catalog timeout (180s) so waiters (55s) get a clear error before the
         # outer tool timeout. 160s leaves 20s for query.
         snapshot = await _code_fetch_flight.do(
-            flight_key, _open_snapshot, timeout_seconds=55.0, initiator_timeout_seconds=160.0
+            flight_key, _open_snapshot, timeout_seconds=160.0, initiator_timeout_seconds=160.0
         )
         # Cursor decode: opaque continuation of the same search on the same
         # snapshot. Any drift (snapshot advanced, params changed) invalidates.
@@ -350,15 +514,15 @@ async def code_fetch(
                 decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
             except Exception:
                 return _error_response(
-                    normalized_repository, "cursor expired: snapshot advanced or query changed; restart the search without cursor"
+                    normalized_repository,
+                    "cursor expired: snapshot advanced or query changed; restart the search without cursor",
                 )
             expected = {"v": 1, **{k: v for k, v in cursor_params.items() if k != "commit"}}
-            drifted = any(decoded.get(k) != v for k, v in expected.items()) or decoded.get(
-                "v"
-            ) != 1
+            drifted = any(decoded.get(k) != v for k, v in expected.items()) or decoded.get("v") != 1
             if drifted or decoded.get("commit") != snapshot.resolved_commit:
                 return _error_response(
-                    normalized_repository, "cursor expired: snapshot advanced or query changed; restart the search without cursor"
+                    normalized_repository,
+                    "cursor expired: snapshot advanced or query changed; restart the search without cursor",
                 )
             offset = max(0, int(decoded.get("offset", 0)))
         # Symbol and map intents need the graph; wait briefly for the deferred

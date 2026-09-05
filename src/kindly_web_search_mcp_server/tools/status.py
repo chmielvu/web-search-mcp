@@ -43,7 +43,6 @@ def get_features_status() -> str:
         "## Personal Enhanced Profile",
         f"**Current Tool Profile**: {settings.tool_profile}",
         f"**Entity Extraction**: {'✓ Enabled' if settings.entity_extraction_enabled else '✗ Disabled'}",
-        f"**Entity Overlap Rerank**: {'✓ Enabled' if settings.rerank_entity_overlap_enabled else '✗ Disabled'}",
         f"**Result Memory**: {'✓ Enabled' if settings.web_results_index_enabled else '✗ Disabled'}",
         "",
         "**Reranking**: ✓ Enabled",

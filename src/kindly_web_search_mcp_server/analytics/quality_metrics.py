@@ -30,16 +30,16 @@ def compute_positional_discount(label: float, position: int) -> float:
     return value / math.log2(position + 2)
 
 
-def compute_discounted_cumulative_gain(
-    labels: Iterable[float], *, k: int | None = None
-) -> float:
+def compute_discounted_cumulative_gain(labels: Iterable[float], *, k: int | None = None) -> float:
     """Compute discounted cumulative gain from labels ordered by position."""
     values = list(labels)
     if k is not None:
         if isinstance(k, bool) or not isinstance(k, int) or k < 0:
             raise ValueError("k must be a nonnegative integer or None")
         values = values[:k]
-    return sum(compute_positional_discount(value, position) for position, value in enumerate(values))
+    return sum(
+        compute_positional_discount(value, position) for position, value in enumerate(values)
+    )
 
 
 def replay_result_labels_aggregate(
@@ -94,6 +94,7 @@ def replay_result_labels_aggregate(
         }
         for row in rows
     ]
+
 
 def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str, object]:
     """Query DuckDB tables for *run_key* and insert computed quality metrics.
@@ -153,11 +154,12 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
         ).fetchone()
         avg_rrf_score = row[0] if row else None
         row = con.execute(
-            "SELECT MAX(score_after) FROM rerank_candidates WHERE run_key = ?", [run_key]
+            "SELECT MAX(final_score_after) FROM rerank_candidates WHERE run_key = ?", [run_key]
         ).fetchone()
         top_score = row[0] if row else None
         row = con.execute(
-            "SELECT approx_quantile(score_after, 0.95) FROM rerank_candidates WHERE run_key = ?",
+            "SELECT approx_quantile(final_score_after, 0.95) "
+            "FROM rerank_candidates WHERE run_key = ?",
             [run_key],
         ).fetchone()
         p95_score = row[0] if row else None

@@ -88,7 +88,7 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
             domain="fastapi.tiangolo.com",
             score=0.9,
         )
-        dense = [[0.05] * 786]
+        dense = [[0.05] * 768]
         sparse = [{"indices": [1, 2, 3], "values": [0.5, 0.3, 0.8]}]
 
         await idx.index_results(
@@ -98,19 +98,22 @@ class TestQdrantSearch(unittest.IsolatedAsyncioTestCase):
             intent="technical",
         )
         self.assertTrue(idx._collection_ok)
-        self.assertEqual(COLLECTION_NAME, "web_results_786d")
+        self.assertEqual(COLLECTION_NAME, "web_results_768d")
 
-        with patch(
-            "kindly_web_search_mcp_server.search.providers.qdrant.AsyncQdrantClient",
-            return_value=shared_client,
-        ), patch(
-            "kindly_web_search_mcp_server.settings.settings.qdrant_space_url",
-            "https://fake-url",
+        with (
+            patch(
+                "kindly_web_search_mcp_server.search.providers.qdrant.AsyncQdrantClient",
+                return_value=shared_client,
+            ),
+            patch(
+                "kindly_web_search_mcp_server.settings.settings.qdrant_space_url",
+                "https://fake-url",
+            ),
         ):
             results = await search_qdrant(
                 "FastAPI lifespan",
                 num_results=5,
-                query_embedding=[0.05] * 786,
+                query_embedding=[0.05] * 768,
             )
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].title, "FastAPI Lifespan Events")

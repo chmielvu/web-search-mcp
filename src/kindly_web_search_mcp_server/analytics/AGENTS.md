@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-05 | Last verified: 2026-09-05 -->
 
 # AGENTS.md - Analytics & Search Quality
 
@@ -38,7 +38,8 @@ All analytics rows join on `run_key`. Pipeline tables:
 2. `search_branches` — per-branch topology (6 fixed roles)
 3. `provider_calls` — every outbound provider call
 4. `search_candidates` — deduplicated RRF-scored candidates
-5. `rerank_stages` + `rerank_candidates` — reranking stage results
+5. `rerank_stages` + `rerank_candidates` — ordered rerank stages and canonical score facts
+   (`bi_encoder`, `cross_encoder`, `rankllm`, with terminal `mmr_fallback` on fallback)
 6. `final_results` — public output with provider provenance
 7. `query_embeddings` + `candidate_embeddings` — vector storage
 8. `llm_call_log` — unified LLM cost tracking
@@ -48,6 +49,10 @@ All analytics rows join on `run_key`. Pipeline tables:
 12. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
 13. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
 14. SQLite graph artifact — generation manifests, Adamic-Adar neighbors, and document-side BiRank/PageRank features
+- Rerank candidate facts use `final_score_before`/`after`, `bm25_*`,
+  `bi_encoder_*`, `cross_encoder_score`, `rankllm_score`,
+  `retrieval_rrf_score`, `recency_score`, `diversity_penalty`, and survival flags;
+  historical legacy score columns are migration-only and receive no new writes.
 - Graph topology uses all time-windowed `final_results` query/document observations; judged `result_labels` remain the supervised edge-weight source. Related-query support is exposure co-occurrence, while BiRank/PageRank features remain judge-weighted.
 
 ## Branch-Role Model

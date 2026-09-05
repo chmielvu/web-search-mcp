@@ -119,16 +119,13 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     "code_search_repositories": (
         "Discovered repository candidates with GitHub metadata, stars, forks, and supporting proof hit counts."
     ),
-    "code_search_rerank": (
-        "Cloud rerank execution outcomes and candidate counts for code search."
-    ),
+    "code_search_rerank": ("Cloud rerank execution outcomes and candidate counts for code search."),
     "result_labels": (
         "Provenance-aware human, eval, or model relevance annotations for offline replay; "
         "discounted_gain uses the zero-based log2(position + 2) discount."
     ),
     "content_operations": (
-        "One row per terminal fetch operation, tracking input/output counts, "
-        "duration, and status."
+        "One row per terminal fetch operation, tracking input/output counts, duration, and status."
     ),
     "content_fetches": (
         "Individual content fetch items with source type, backend, status, character/word counts, "
@@ -227,9 +224,7 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "Gemini grounded search performance by model, mode, and status: tokens, grounding chunks, "
         "queries, and latencies."
     ),
-    "vw_gemini_search_fallbacks": (
-        "Gemini search fallback occurrences and model transitions."
-    ),
+    "vw_gemini_search_fallbacks": ("Gemini search fallback occurrences and model transitions."),
     "vw_gemini_search_sources": (
         "Grounding sources and URL citations from Gemini searches grouped by source kind and domain."
     ),
@@ -266,9 +261,7 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     "vw_content_summary_batch_vs_single": (
         "Comparison of batch versus single content summarization operations and item yields."
     ),
-    "vw_content_summary_fallbacks": (
-        "Content summary fallback activations and tier transitions."
-    ),
+    "vw_content_summary_fallbacks": ("Content summary fallback activations and tier transitions."),
     "vw_content_summary_focus_comparison": (
         "Comparison of summary output signals between focused and unfocused extraction."
     ),

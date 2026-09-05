@@ -41,7 +41,11 @@ def _report_markdown(
         "",
     ]
     for index, result in enumerate(results, start=1):
-        title = result.get("metadata", {}).get("title") if isinstance(result.get("metadata"), dict) else None
+        title = (
+            result.get("metadata", {}).get("title")
+            if isinstance(result.get("metadata"), dict)
+            else None
+        )
         title = title or result.get("title") or result.get("input_url") or "Untitled source"
         url = result.get("fetched_url") or result.get("input_url") or result.get("url") or ""
         artifact = result.get("artifact_path") or ""
@@ -50,7 +54,13 @@ def _report_markdown(
             lines.append(f"   - Local artifact: [{Path(artifact).name}]({Path(artifact).name})")
         if result.get("error"):
             lines.append(f"   - Error: {result['error']}")
-    lines += ["", "## Collection metadata", "", f"- Generated: `{_utc_now()}`", f"- Output directory: `{output_dir}`"]
+    lines += [
+        "",
+        "## Collection metadata",
+        "",
+        f"- Generated: `{_utc_now()}`",
+        f"- Output directory: `{output_dir}`",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -95,7 +105,9 @@ async def collect_research_bundle(
         result = dict(raw)
         page_content = result.pop("page_content", "")
         artifact_path = root / "sources" / f"source-{index:03d}.md"
-        write_text_atomic(artifact_path, page_content if isinstance(page_content, str) else str(page_content))
+        write_text_atomic(
+            artifact_path, page_content if isinstance(page_content, str) else str(page_content)
+        )
         result["artifact_path"] = str(artifact_path)
         results.append(result)
 

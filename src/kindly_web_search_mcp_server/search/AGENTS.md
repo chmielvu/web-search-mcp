@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-03 | Last verified: 2026-09-03 -->
 
 # AGENTS.md - Search
 
@@ -15,8 +15,8 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `planning.py` | Normalize, understand intent, 5-variant rewrite, select providers, emit branches |
 | `graph_expansion.py` | Rewrite-only, bounded related-query injection from a SQLite graph artifact; preserves the normalized original seed and six-branch topology |
 | `retrieval.py` | Structured branch/provider fanout with budget management |
-| `ranking.py` | Blocklist, merge, BM25/rerank, diversity, final response |
-| `merge.py` | Canonical deduplication + RRF merge |
+| `ranking.py` | Blocklist, weighted RRF merge, BM25/rerank, final response |
+| `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
 | `blocklist.py` | DuckDB-backed URL blocking |
 | `provider_catalog.py` | Provider metadata definitions |
@@ -41,7 +41,9 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
 - Specialized adapters (Telegram, Hacker News, Reddit, Brave News) publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials. Public-code providers were removed from web_search — use the code_search tool.
+- Merge uses weighted RRF. Same-provider lists from multiple branches collapse to one list (best rank kept) before fusion. Weights: `settings.rrf_provider_weights` + `rrf_bm25_weight`. `provider_consensus_rrf_score` is deleted.
 - Each `run_provider` invocation starts with fresh request metadata; provider-specific seed fields are initialized inside the request callback so prior-call endpoint/status/error fields cannot leak.
+- `rank_and_finalize` appends agent evidence to all emitted `WebSearchResult` items via `attach_agent_evidence`: `citation_id` ("c1", "c2"...), `evidence_score` (`final`, `semantic`, `lexical`, `engine_consensus`), `freshness_signal` (`fresh`, `dated`, `unknown`), and `fetch_hint` (action="fetch", tool="fetch", query={"url": link}, why, confidence="high"|"medium"|"low"). Multi-engine consensus is strictly isolated to `evidence_score.engine_consensus`; `fetch_hint.confidence` is derived solely from cross-encoder and positional/score relevance.
 
 ## Temporal & locale filters (`filters.py`)
 
@@ -80,7 +82,7 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 
 ## Query Understanding Gateway
 
-- The preferred hosted contract is `POST /v2/query-understanding`; when absent (404/405) `GLiNER2Client.analyze_query` composes it from `/classify` + `/ner` with live classifier confidence. Entity spans must match exact source offsets and relation endpoints require grounded high-confidence entities.
+- Query understanding calls deployed unified-ml `POST /classify` + `POST /ner`. There is no `/v2/query-understanding` on that container. Entity spans must match exact source offsets. `_rewrite_queries` unions `preserved_terms` with grounded entity surfaces into Preserve Exactly.
 - `search/understanding/adapter.py` is the pure normalization boundary. Keep transport handling in `entity/gliner_client.py` and search policy derivation in the adapter.
 
 ## Cold-Start Import Warm-Up

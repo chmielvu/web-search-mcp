@@ -110,6 +110,7 @@ def test_tool_search_transform_exposes_meta_tools_and_surfaces_correct_tools(
 def test_tool_search_emits_surface_events(monkeypatch, caplog):
     """When enabled, server emits tool_surface.search_enabled and tool_surface.profile_applied."""
     import logging
+
     monkeypatch.setenv("TOOL_SEARCH_ENABLED", "true")
     caplog.set_level(logging.INFO)
     logging.getLogger("kindly_web_search_mcp_server.server").setLevel(logging.INFO)

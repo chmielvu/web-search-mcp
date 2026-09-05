@@ -1,8 +1,6 @@
 """Regression tests for `_memoize_canonicalize` cache sharing.
 
-Covers the dedup of repeated raw URL canonicalization across
-`reciprocal_rank_fusion` and `merge_search_results`, with the explicit
-default-None path and the supplied-callable path both exercised.
+Covers repeated raw URL canonicalization within Reciprocal Rank Fusion.
 """
 
 from __future__ import annotations
@@ -17,10 +15,9 @@ import kindly_web_search_mcp_server.search.merge as merge_mod
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search.merge import (
     _memoize_canonicalize,
-    merge_search_results,
     reciprocal_rank_fusion,
 )
-from kindly_web_search_mcp_server.search.normalize import canonicalize_url
+from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
 
 
 def _r(link: str, providers: list[str] | None = None) -> WebSearchResult:
@@ -113,43 +110,17 @@ class TestCanonicalizeCaching(unittest.TestCase):
         # key from list_a), no-params at rank 2 drops.
         self.assertAlmostEqual(fused[0][1], 1 / 61 + 1 / 61)
 
-    def test_merge_search_results_canonicalizes_each_distinct_url_once(self) -> None:
-        """`merge_search_results` shares one cache across counter + RRF.
+    def test_root_www_tracking_variants_share_one_identity_bucket(self) -> None:
+        fused = reciprocal_rank_fusion(
+            [
+                [_r("https://www.example.com")],
+                [_r("https://example.com/?utm_source=test#fragment")],
+            ],
+            k=60,
+        )
 
-        Without the shared cache, the overlap counter and RRF would each
-        canonicalize the same raw URL — i.e. 2× the work for every URL
-        appearing in multiple provider lists. With the shared cache, each
-        distinct raw URL is canonicalized exactly once.
-        """
-        original = merge_mod.canonicalize_url
-        call_count = {"n": 0}
-        per_raw: dict[str, int] = {}
-
-        def counting(raw: str) -> str:
-            call_count["n"] += 1
-            per_raw[raw] = per_raw.get(raw, 0) + 1
-            return original(raw)
-
-        merge_mod.canonicalize_url = counting
-        try:
-            list_a = [_r("https://a.com/"), _r("https://b.com/")]
-            list_b = [_r("https://b.com/")]
-            inputs = list_a + list_b
-            merged = merge_search_results(
-                [list_a, list_b],
-                k=60,
-                enable_telemetry=False,
-            )
-        finally:
-            merge_mod.canonicalize_url = original
-
-        # Each distinct raw URL was canonicalized exactly once.
-        self.assertEqual(per_raw, {r.link: 1 for r in inputs})
-        # And the total call count equals the number of distinct URLs.
-        self.assertEqual(call_count["n"], len(set(r.link for r in inputs)))
-        # b.com merges across lists; rank-2 in list_a + rank-1 in list_b.
-        self.assertEqual(merged[0].link, "https://b.com/")
-        self.assertAlmostEqual(merged[0].score, 1 / 61 + 1 / 62)
+        self.assertEqual(canonicalize_url("https://www.example.com"), "https://example.com/")
+        self.assertEqual(len(fused), 1)
 
 
 if __name__ == "__main__":

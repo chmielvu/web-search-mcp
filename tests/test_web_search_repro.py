@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastmcp import Client
@@ -29,7 +29,11 @@ async def test_web_search_invoked_through_server_mcp_succeeds_without_type_error
         "kindly_web_search_mcp_server.search.service.execute_web_search",
         new_callable=AsyncMock,
     ) as mock_exec:
-        mock_exec.return_value = mock_response
+        run = MagicMock()
+        run.response = mock_response
+        run.plan = None
+        run.diagnostics.overflow_ranked = []
+        mock_exec.return_value = (mock_response, run)
 
         async with Client(mcp) as client:
             result = await client.call_tool("web_search", {"query": "python documentation"})

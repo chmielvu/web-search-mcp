@@ -85,6 +85,7 @@ class TestDDGSearch(unittest.TestCase):
                     await search_ddg("test query", num_results=5)
 
         asyncio.run(run())
+
     def test_search_ddg_forwards_kwargs(self) -> None:
         async def run() -> None:
             mock_results = [
@@ -222,6 +223,7 @@ class TestDDGSyncSearch(unittest.TestCase):
 
         # Should limit to requested count
         self.assertEqual(len(results), 3)
+
     def test_search_ddg_sync_text_default_backend(self) -> None:
         mock_ddgs_instance = MagicMock()
         mock_ddgs_instance.__enter__.return_value = mock_ddgs_instance
@@ -284,9 +286,7 @@ class TestDDGSyncSearch(unittest.TestCase):
         ):
             results = _search_ddg_sync("news query", num_results=5, category="news")
 
-        mock_ddgs_instance.news.assert_called_once_with(
-            "news query", max_results=5, backend="auto"
-        )
+        mock_ddgs_instance.news.assert_called_once_with("news query", max_results=5, backend="auto")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].title, "News Headline")
         self.assertEqual(results[0].link, "https://example.com/news/1")

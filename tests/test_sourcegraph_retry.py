@@ -40,7 +40,10 @@ _SAMPLE_GRAPHQL_PAYLOAD = {
                             "path": "src/retry.py",
                             "url": "/github.com/owner/repo/-/blob/src/retry.py",
                         },
-                        "repository": {"name": "github.com/owner/repo", "url": "https://github.com/owner/repo"},
+                        "repository": {
+                            "name": "github.com/owner/repo",
+                            "url": "https://github.com/owner/repo",
+                        },
                         "lineMatches": [{"lineNumber": 42, "preview": "retry_logic = True"}],
                         "symbols": [],
                     }
@@ -70,6 +73,8 @@ def _fast_asyncio_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
     monkeypatch.setattr("asyncio.sleep", _instant_sleep)
+
+
 # 1. 429 Retry-After then success
 # ---------------------------------------------------------------------------
 
@@ -259,6 +264,8 @@ async def test_stream_transport_error_then_stream_success() -> None:
     assert response.hits[0].repository == "owner/repo"
     assert response.metadata["transports"] == ["stream"]
     assert response.metadata["transport_summary"]["stream"] == 1
+
+
 # ---------------------------------------------------------------------------
 # 4. Non-retryable 400
 # ---------------------------------------------------------------------------
@@ -437,6 +444,8 @@ async def test_stream_503_then_deadline_aborts_retry_yields_single_get() -> None
     assert hits == []
     assert len(diags) == 1
     assert diags[0].failure_kind == "network"
+
+
 # 6. Contract and diagnostic invariants
 # ---------------------------------------------------------------------------
 
@@ -507,7 +516,9 @@ async def test_valid_empty_result_not_retried() -> None:
         calls.append(request)
         return httpx.Response(
             200,
-            json={"data": {"search": {"results": {"matchCount": 0, "limitHit": False, "results": []}}}},
+            json={
+                "data": {"search": {"results": {"matchCount": 0, "limitHit": False, "results": []}}}
+            },
         )
 
     transport = httpx.MockTransport(handler)

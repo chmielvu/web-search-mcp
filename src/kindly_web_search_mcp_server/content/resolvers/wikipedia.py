@@ -239,7 +239,6 @@ async def fetch_wikipedia_article_markdown(
 ) -> str:
     target = parse_wikipedia_url(url)
 
-
     async def _run(client: httpx.AsyncClient) -> str:
         api = WikipediaApiClient(http_client=client)
         data = await api.fetch_parsed_html(target)

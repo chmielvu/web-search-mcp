@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-04 | Last verified: 2026-09-04 -->
 
 # AGENTS.md - Training
 
@@ -10,7 +10,7 @@ Write-only JSONL sink for query understanding training data.
 
 | File | Role |
 |---|---|
-| `query_understanding_jsonl.py` | JSONL sink for query understanding/outcome records |
+| `query_understanding_jsonl.py` | JSONL sink for understanding, rewrite slots, and outcome records |
 | `session_state.py` | TTL session state for search-side signals |
 
 ## Rules
@@ -18,8 +18,11 @@ Write-only JSONL sink for query understanding training data.
 - Emit training records from search events without coupling to analytics reads.
 - Keep records write-only and easy to append.
 - `append_query_understanding_record()` writes the understanding snapshot.
-- `append_query_outcome_record()` writes the observed outcome snapshot.
-- Understanding records include classifier score vectors, model/endpoint/latency, confidence threshold, decision path, and fallback reason when available.
+- `append_query_rewrite_record()` writes planner slots as soon as rewrite
+  finishes (success or error), so the JSONL still receives them if later
+  search persistence or MCP stdio encoding fails.
+- `append_query_outcome_record()` writes the observed outcome snapshot and
+  repeats `rewritten_branch_queries` when the plan carried slots.
 - Analytics mirrors those decisions in `query_understanding_events`; unlabeled rows are not treated as calibration truth.
 - `SessionStateStore` keeps TTL-based session data in memory.
 

@@ -77,6 +77,9 @@ class DiagnosticsRerankStage(_DiagBase):
     avg_score: float | None = None
     status: str | None = None
     error_type: str | None = None
+    attempted_passes: int | None = None
+    valid_passes: int | None = None
+    failed_passes: int | None = None
 
 
 class DiagnosticsMergeCounts(_DiagBase):
@@ -132,7 +135,6 @@ def _enrichment_from_run(run: SearchRun, dc: DiagnosticsCollector) -> Diagnostic
     return DiagnosticsEnrichment(
         rake_terms=_coerce_str_tuple(raw.get("rake_terms")),
         brave_autosuggest=_coerce_str_tuple(raw.get("brave_autosuggest")),
-
         intent=intent,
         understanding_confidence=confidence,
         policy_version=plan.policy_version if plan is not None else None,
@@ -296,6 +298,15 @@ def _rerank_stages(dc: DiagnosticsCollector) -> tuple[DiagnosticsRerankStage, ..
                 status=row.get("status") if isinstance(row.get("status"), str) else None,
                 error_type=row.get("error_type")
                 if isinstance(row.get("error_type"), str)
+                else None,
+                attempted_passes=row.get("attempted_passes")
+                if isinstance(row.get("attempted_passes"), int)
+                else None,
+                valid_passes=row.get("valid_passes")
+                if isinstance(row.get("valid_passes"), int)
+                else None,
+                failed_passes=row.get("failed_passes")
+                if isinstance(row.get("failed_passes"), int)
                 else None,
             )
         )

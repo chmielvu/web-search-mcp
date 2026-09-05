@@ -42,4 +42,6 @@ async def fetch_payload(
         strip_selectors=strip_selectors,
         ctx=mock_ctx,
     )
-    return output.model_dump(exclude_none=True) if isinstance(output, FetchResponse) else dict(output)
+    return (
+        output.model_dump(exclude_none=True) if isinstance(output, FetchResponse) else dict(output)
+    )

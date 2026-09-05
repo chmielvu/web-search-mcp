@@ -26,6 +26,7 @@ class _FakeAsyncInferenceClient:
     async def feature_extraction(self, text, *, model: str, normalize: bool = True):
         return [[0.1, 0.2, 0.3] for _ in text]
 
+
 class _NoProviderAsyncInferenceClient:
     """Simulates huggingface_hub versions where AsyncInferenceClient has no provider arg."""
 
@@ -42,6 +43,7 @@ class _NoProviderAsyncInferenceClient:
 
     async def feature_extraction(self, text, *, model: str, normalize: bool = True):
         return [[0.5, 0.6, 0.7] for _ in text]
+
 
 class _BadDimensionClient(_FakeAsyncInferenceClient):
     async def feature_extraction(self, text, *, model: str, normalize: bool = True):
@@ -220,6 +222,7 @@ class TestHfInferenceEmbeddings(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertGreaterEqual(_ConcurrencyTrackingClient.peak, 2)
+
     async def test_embed_texts_works_with_client_without_provider_argument(self) -> None:
         from kindly_web_search_mcp_server.embeddings.hf_inference import embed_texts
 
@@ -236,7 +239,6 @@ class TestHfInferenceEmbeddings(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(vectors, [[0.5, 0.6, 0.7], [0.5, 0.6, 0.7]])
-
 
 
 if __name__ == "__main__":

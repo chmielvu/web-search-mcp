@@ -34,7 +34,10 @@ async def persist_search_outcome(run):
         insert_search_run,
     )
     from ..settings import settings
-    from ..training.query_understanding_jsonl import append_query_outcome_record
+    from ..training.query_understanding_jsonl import (
+        append_query_outcome_record,
+        rewritten_slots_payload,
+    )
     from .diagnostics import build_diagnostics
 
     outcome = run.snapshot()
@@ -72,6 +75,15 @@ async def persist_search_outcome(run):
                 path=settings.query_understanding_jsonl_path,
                 session_id=outcome.session_id,
                 run_key=rk,
+                rewritten_branch_queries=rewritten_slots_payload(outcome.plan.rewrite_queries),
+                rewrite_model=rw.get("model") if isinstance(rw.get("model"), str) else None,
+                rewrite_error=rw.get("error") if isinstance(rw.get("error"), str) else None,
+                rewrite_prompt_version=(
+                    dc.rewrite_metadata.get("prompt_version")
+                    if isinstance(dc.rewrite_metadata, dict)
+                    and isinstance(dc.rewrite_metadata.get("prompt_version"), str)
+                    else None
+                ),
             )
         except Exception as exc:
             LOGGER.warning("query understanding outcome JSONL write failed: %s", exc)
@@ -162,7 +174,9 @@ async def persist_search_outcome(run):
                         else None
                     ),
                     "artifact_age_seconds": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("artifact_age_seconds")
+                        (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                            "artifact_age_seconds"
+                        )
                         if dc.rewrite_metadata
                         else None
                     ),
@@ -271,10 +285,10 @@ async def persist_search_outcome(run):
                 "title": res.title,
                 "snippet": res.snippet,
                 "domain": res.domain or extract_domain_from_url(res.link) or "",
-                "rrf_score": res.score or 0.0,
-                "provider_count": res.provider_count or 0,
+                "rrf_score": res.retrieval_rrf_score or 0.0,
+                "provider_count": len(res.providers or []),
                 "providers": list(res.providers or []),
-                "overlap_flag": (res.provider_count or 0) > 1,
+                "overlap_flag": len(res.providers or []) > 1,
                 "payload_json": {"rank": rank},
             }
         )
@@ -289,9 +303,9 @@ async def persist_search_outcome(run):
                     "link": res.link,
                     "snippet": res.snippet,
                     "domain": res.domain or extract_domain_from_url(res.link) or "",
-                    "final_score": res.score,
+                    "final_score": res.final_score,
                     "providers": list(res.providers or []),
-                    "provider_count": res.provider_count or 0,
+                    "provider_count": len(res.providers or []),
                     "entities_count": 0,
                     "candidate_id": _candidate_id(res.link, res.title, res.snippet),
                     "canonical_result_id": _canonical_result_id(res.link),
@@ -336,8 +350,6 @@ async def persist_search_outcome(run):
                 "duration_ms": s.get("duration_ms"),
                 "max_score": s.get("max_score"),
                 "avg_score": s.get("avg_score"),
-                "score_threshold": s.get("score_threshold"),
-                "alpha_blend": s.get("alpha_blend"),
                 "input_tokens": s.get("input_tokens"),
                 "output_tokens": s.get("output_tokens"),
                 "status": s.get("status"),
@@ -345,8 +357,9 @@ async def persist_search_outcome(run):
                 "instruction_present": s.get("instruction_present"),
                 "instruction_length": s.get("instruction_length"),
                 "query_type_hint": s.get("query_type_hint"),
-                "entity_overlap_enabled": s.get("entity_overlap_enabled"),
-                "payload_json": s.get("payload_json") or {},
+                "attempted_passes": s.get("attempted_passes"),
+                "valid_passes": s.get("valid_passes"),
+                "failed_passes": s.get("failed_passes"),
             }
         )
 

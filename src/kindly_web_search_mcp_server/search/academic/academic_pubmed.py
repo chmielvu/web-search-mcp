@@ -76,12 +76,7 @@ def _parse_pubmed_article(article: ET.Element) -> AcademicPaper | None:
     for author in article.findall(".//Author"):
         fore_name = author.find("ForeName")
         last_name = author.find("LastName")
-        if (
-            fore_name is not None
-            and fore_name.text
-            and last_name is not None
-            and last_name.text
-        ):
+        if fore_name is not None and fore_name.text and last_name is not None and last_name.text:
             authors.append(f"{fore_name.text} {last_name.text}")
         elif last_name is not None and last_name.text:
             authors.append(last_name.text)

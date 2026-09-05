@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-import logging
-import time
-from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Sequence
-
-from opentelemetry import trace
+from typing import Sequence
 
 from ..models import WebSearchResult
-from ..settings import settings
-from ..telemetry import record_merge, record_rrf_merge, record_rrf_score
-from .merge_observability import emit_merge_summary
-from .normalize import canonicalize_url
-
-logger = logging.getLogger(__name__)
-tracer: Any = trace.get_tracer("web-search-mcp")
+from ..utils.url_canonicalize import canonicalize_url
 
 
 @dataclass
@@ -37,7 +26,7 @@ def _memoize_canonicalize(
 
     Caps each distinct raw URL to one canonicalization regardless of how
     many call sites touch it. Callers that already share a memoized
-    callable (e.g. `merge_search_results`) pass it through directly to
+    callable (e.g. `search/ranking.py`) pass it through directly to
     avoid double-wrapping.
     """
     cache: dict[str, str] = {}
@@ -57,18 +46,33 @@ def reciprocal_rank_fusion(
     *,
     k: int = 60,
     canonicalize: Callable[[str], str] | None = None,
+    weights: Sequence[float] | None = None,
 ) -> list[tuple[WebSearchResult, float]]:
-    """Merge ranked lists using Reciprocal Rank Fusion.
+    """Merge ranked lists using (optionally weighted) Reciprocal Rank Fusion.
 
     When `canonicalize` is None, an internal memoizing wrapper around
     `canonicalize_url` is used so repeated raw URLs are canonicalized
     only once per call. Callers that already share a memoized callable
     across multiple stages should pass it in to avoid double-wrapping.
+
+    `weights` scales each list's contribution as `weight / (k + rank)`
+    instead of the classic unweighted `1 / (k + rank)`, so a scarce,
+    strong signal (e.g. a paid semantic search branch) can outweigh a
+    high-volume, weaker one (e.g. a free-tier engine) without changing
+    how many lists either side contributes. Defaults to 1.0 for every
+    list, which reproduces the classic unweighted formula exactly.
     """
     key_for = canonicalize if canonicalize is not None else _memoize_canonicalize(canonicalize_url)
+    resolved_weights = list(weights) if weights is not None else [1.0] * len(result_lists)
+    if len(resolved_weights) != len(result_lists):
+        raise ValueError(
+            f"weights length ({len(resolved_weights)}) must match result_lists length "
+            f"({len(result_lists)})."
+        )
     merged: dict[str, _MergedCandidate] = {}
     encounter_order: dict[str, int] = {}
-    for results in result_lists:
+    for list_index, results in enumerate(result_lists):
+        list_weight = resolved_weights[list_index]
         seen_in_list: set[str] = set()
         for rank, result in enumerate(results, start=1):
             key = key_for(result.link)
@@ -79,7 +83,7 @@ def reciprocal_rank_fusion(
                 merged[key] = _MergedCandidate(result=result, providers=set(result.providers or []))
                 encounter_order[key] = len(encounter_order)
             bucket = merged[key]
-            bucket.score += 1.0 / (k + rank)
+            bucket.score += list_weight / (k + rank)
             bucket.providers.update(provider for provider in result.providers or [] if provider)
             bucket.result = _pick_better(bucket.result, result)
 
@@ -89,65 +93,10 @@ def reciprocal_rank_fusion(
             bucket.result.model_copy(
                 update={
                     "providers": sorted(bucket.providers) or bucket.result.providers,
-                    "provider_count": len(bucket.providers),
+                    "retrieval_rrf_score": bucket.score,
                 }
             ),
             bucket.score,
         )
         for _, bucket in ranked
     ]
-
-
-def merge_search_results(
-    result_lists: list[list[WebSearchResult]],
-    *,
-    k: int | None = None,
-    enable_telemetry: bool = False,
-    run_key: str | None = None,
-) -> list[WebSearchResult]:
-    """Merge ranked lists using pure rank-based Reciprocal Rank Fusion."""
-    total_input = sum(len(results) for results in result_lists)
-    key_for = _memoize_canonicalize(canonicalize_url)
-    url_occurrences: Counter[str] = Counter()
-    for results in result_lists:
-        for result in results:
-            url_occurrences[key_for(result.link)] += 1
-    overlapping_urls = [url for url, count in url_occurrences.items() if count > 1]
-    overlap_rate = len(overlapping_urls) / len(url_occurrences) if url_occurrences else 0.0
-    effective_k = settings.rrf_k if k is None else k
-    start_time = time.time()
-
-    fused = reciprocal_rank_fusion(result_lists, k=effective_k, canonicalize=key_for)
-    output = []
-    for result, score in fused:
-        output.append(result.model_copy(update={"score": score}))
-
-    discarded_count = total_input - len(output)
-    provider_contributions: Counter[str] = Counter()
-    for result in output:
-        provider_contributions.update(result.providers or [])
-    duration_seconds = time.time() - start_time
-    emit_merge_summary(
-        logger,
-        result_lists=result_lists,
-        output=output,
-        provider_contributions=provider_contributions,
-        k=effective_k,
-        discarded_count=discarded_count,
-        overlap_rate=overlap_rate,
-        duration_seconds=duration_seconds,
-    )
-    if enable_telemetry:
-        record_merge(duration_seconds, len(result_lists), len(output))
-        record_rrf_merge(
-            input_lists=len(result_lists),
-            input_total=total_input,
-            output_total=len(output),
-            discarded_count=discarded_count,
-            overlap_rate=overlap_rate,
-            provider_contributions=dict(provider_contributions),
-        )
-        for rank, result in enumerate(output[:10], start=1):
-            if result.score is not None:
-                record_rrf_score(result.score, rank)
-    return output

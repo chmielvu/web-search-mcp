@@ -1,4 +1,4 @@
-"""OpenAI-compatible provider adapter (cerebras, groq, vercel, openrouter)."""
+"""OpenAI-compatible provider adapter (groq, vercel, openrouter)."""
 
 from __future__ import annotations
 
@@ -11,40 +11,6 @@ from ..registry import ProviderAdapter, register_provider_adapter
 from ..types import LLMGeneration, ModelCapability, ModelSpec
 from ...telemetry.phoenix_tracing import LLMTraceContext, openinference_context_scope
 from ...telemetry.usage import extract_llm_usage
-
-
-_CEREBRAS_NON_HARMONY_MODELS = frozenset({"zai-glm-4.7", "gemma-4-31b"})
-
-
-def _adapt_cerebras_messages(
-    spec: ModelSpec, messages: list[dict[str, str]]
-) -> list[dict[str, str]]:
-    """Remove GPT-OSS Harmony reasoning directives for other Cerebras models."""
-    if spec.provider != "cerebras" or spec.model_id not in _CEREBRAS_NON_HARMONY_MODELS:
-        return messages
-
-    adapted: list[dict[str, str]] = []
-    for message in messages:
-        if message.get("role") != "system":
-            adapted.append(message)
-            continue
-        content = message.get("content", "")
-        if not content or not any(
-            line.lstrip().casefold().startswith("reasoning:") for line in content.splitlines()
-        ):
-            adapted.append(message)
-            continue
-        adapted.append(
-            {
-                **message,
-                "content": "\n".join(
-                    line
-                    for line in content.splitlines()
-                    if not line.lstrip().casefold().startswith("reasoning:")
-                ).strip(),
-            }
-        )
-    return adapted
 
 
 async def execute_openai(
@@ -65,7 +31,7 @@ async def execute_openai(
 
     request_kwargs: dict[str, Any] = {
         "model": spec.model_id,
-        "messages": _adapt_cerebras_messages(spec, messages),
+        "messages": messages,
         "temperature": temperature,
     }
     if tools is not None:
@@ -74,10 +40,7 @@ async def execute_openai(
         request_kwargs["web_search_options"] = web_search_options
     if provider_fields:
         request_kwargs["extra_body"] = provider_fields
-    if reasoning_effort is not None and (
-        spec.provider not in {"groq", "cerebras", "huggingface", "vercel"}
-        or (spec.provider == "cerebras" and spec.model_id in _CEREBRAS_NON_HARMONY_MODELS)
-    ):
+    if reasoning_effort is not None and spec.provider not in {"groq", "huggingface", "vercel"}:
         request_kwargs["reasoning_effort"] = reasoning_effort
 
     effective_timeout = timeout_seconds or spec.default_timeout
@@ -138,7 +101,7 @@ def _init() -> None:
     )
     from ..registry import register_provider_alias
 
-    for alias in ("cerebras", "groq", "vercel", "openrouter"):
+    for alias in ("groq", "vercel", "openrouter"):
         register_provider_alias(alias, "openai")
 
 

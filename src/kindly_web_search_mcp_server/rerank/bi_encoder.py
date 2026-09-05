@@ -15,6 +15,7 @@ from ..embeddings import (
     embed_texts,
 )
 from ..models import WebSearchResult
+from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
 from .models import CandidateEmbedding, RerankEmbeddingContext
 
@@ -108,7 +109,7 @@ async def bi_encoder_rank(
         query_embedding=query_embedding,
         candidates=[
             CandidateEmbedding(
-                url=candidate.link.strip(),
+                url=canonicalize_url(candidate.link),
                 text=text,
                 dense=vector,
             )
@@ -124,14 +125,8 @@ async def bi_encoder_rank(
         range(len(candidates)),
         key=lambda index: (-float(similarities[index]), index),
     )
-    return [candidates[index] for index in ranked_indices], embedding_ctx
-
-
-async def bi_encoder_filter(
-    query_embedding: list[float],
-    candidates: list[WebSearchResult],
-    top_k: int = 100,
-) -> tuple[list[WebSearchResult], RerankEmbeddingContext | None]:
-    """Compatibility filter over the complete bi-encoder ranking."""
-    ranked, embedding_ctx = await bi_encoder_rank(query_embedding, candidates)
-    return ranked[:top_k], embedding_ctx
+    ranked_candidates = [
+        candidates[index].model_copy(update={"bi_encoder_score": float(similarities[index])})
+        for index in ranked_indices
+    ]
+    return ranked_candidates, embedding_ctx

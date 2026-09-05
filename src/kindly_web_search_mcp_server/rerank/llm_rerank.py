@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,9 @@ class LLMRerankOutcome:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: Exception | None = None
+    attempted_passes: int = 0
+    valid_passes: int = 0
+    failed_passes: int = 0
 
 
 class _CoordinatorGuardTimeout(TimeoutError):
@@ -35,6 +39,7 @@ def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
     """Lazy-load rank_llm SafeOpenai path to avoid pulling in vllm or litellm."""
     import sys
     import huggingface_hub
+
     if not hasattr(huggingface_hub, "is_offline_mode"):
         setattr(huggingface_hub, "is_offline_mode", lambda: False)
 
@@ -62,6 +67,7 @@ def _load_rank_llm_genai() -> Any:
     """Lazy-load SafeGenai from rank_llm without touching the litellm path."""
     import sys
     import huggingface_hub
+
     if not hasattr(huggingface_hub, "is_offline_mode"):
         setattr(huggingface_hub, "is_offline_mode", lambda: False)
     from unittest.mock import MagicMock
@@ -119,11 +125,6 @@ def _get_bounded_genai_class() -> type:
 
 _openrouter_coordinator: type | None = None
 _gemini_coordinators: dict[str, Any] = {}
-
-
-def _route_model(provider: str, model: str) -> str:
-    prefix = f"{provider}/"
-    return model if model.startswith(prefix) else f"{prefix}{model}"
 
 
 def _build_openai_coordinator(
@@ -204,7 +205,7 @@ def _build_request(
                     f"URL: {candidate.link}\n"
                     f"Domain: {candidate.domain or 'unknown'}\n"
                     f"Providers: {', '.join(candidate.providers or []) or 'unknown'}\n"
-                    f"ProviderCount: {candidate.provider_count or 1}"
+                    f"ProviderCount: {len(candidate.providers) if candidate.providers else 1}"
                 ),
             },
             score=0.0,
@@ -226,7 +227,7 @@ def _ranked_permutation(result: Any, candidate_count: int) -> list[RerankResult]
     if len(returned_ids) != candidate_count or set(returned_ids) != expected_ids:
         raise ValueError("RankLLM result is not a complete candidate permutation")
     return [
-        RerankResult(index=int(candidate.docid), score=1.0 / (60 + position))
+        RerankResult(index=int(candidate.docid), relevance_score=1.0 / (60 + position))
         for position, candidate in enumerate(result.candidates)
     ]
 
@@ -242,8 +243,16 @@ async def _run_coordinator(
     coordinator: Any,
     request: Any,
     candidate_count: int,
-) -> tuple[list[RerankResult], int | None, int | None]:
-    """Run shuffled listwise passes and aggregate via Borda count.
+) -> tuple[
+    list[RerankResult],
+    int | None,
+    int | None,
+    int,
+    int,
+    int,
+    Exception | None,
+]:
+    """Run shuffled listwise passes and aggregate successful passes via Borda.
 
     Permutation self-consistency (Found in the Middle, ACL 2024): aggregating
     positions across independently shuffled passes reduces positional bias.
@@ -267,7 +276,7 @@ async def _run_coordinator(
 
         task = asyncio.create_task(
             coordinator.rerank_batch_async(
-                [request],
+                [copy.deepcopy(request)],
                 rank_start=0,
                 rank_end=candidate_count,
                 shuffle_candidates=True,
@@ -299,27 +308,54 @@ async def _run_coordinator(
     ranked_passes: list[list[RerankResult]] = []
     input_tokens = 0
     output_tokens = 0
+    passes_failed = 0
+    first_error: Exception | None = None
     for item in pass_results:
         if isinstance(item, BaseException):
-            raise item
+            passes_failed += 1
+            if not isinstance(item, Exception):
+                raise item
+            first_error = first_error or item
+            continue
         ranked, in_tokens, out_tokens = item
         ranked_passes.append(ranked)
         input_tokens += in_tokens or 0
         output_tokens += out_tokens or 0
+    passes_succeeded = len(ranked_passes)
+    if not ranked_passes:
+        if first_error is not None:
+            raise first_error
+        raise RuntimeError("RankLLM returned no successful passes")
     if num_passes == 1:
-        return ranked_passes[0], input_tokens or None, output_tokens or None
+        return (
+            ranked_passes[0],
+            input_tokens or None,
+            output_tokens or None,
+            num_passes,
+            passes_succeeded,
+            passes_failed,
+            first_error,
+        )
 
-    # Borda count: sum each candidate's position across passes, sort ascending.
+    # Borda count: sum each candidate's position across successful passes.
     position_sums: dict[int, float] = {}
     for ranked in ranked_passes:
         for position, item in enumerate(ranked):
             position_sums[item.index] = position_sums.get(item.index, 0.0) + position
     order = sorted(position_sums, key=lambda index: (position_sums[index], index))
     ranked = [
-        RerankResult(index=index, score=1.0 / (60 + position))
+        RerankResult(index=index, relevance_score=1.0 / (60 + position))
         for position, index in enumerate(order)
     ]
-    return ranked, input_tokens or None, output_tokens or None
+    return (
+        ranked,
+        input_tokens or None,
+        output_tokens or None,
+        num_passes,
+        passes_succeeded,
+        passes_failed,
+        first_error,
+    )
 
 
 async def rerank_with_llm(

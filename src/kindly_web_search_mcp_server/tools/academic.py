@@ -70,9 +70,13 @@ async def academic_search(
     if sort not in ("relevance", "citations", "date"):
         sort = "relevance"
     if not query.strip() and not (cited_by_paper_id or references_paper_id or author_id):
-        raise ValueError(
-            "query is required unless cited_by_paper_id, references_paper_id, "
-            "or author_id is provided."
+        _record_tool_failure("academic_search")
+        raise_tool_error(
+            ValueError(
+                "query is required unless cited_by_paper_id, references_paper_id, "
+                "or author_id is provided."
+            ),
+            provider="academic_search",
         )
 
     await ctx.report_progress(progress=5, total=100, message="Checking cache...")

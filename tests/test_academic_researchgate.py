@@ -36,13 +36,9 @@ def _work(
         "primary_location": {
             "source": {"display_name": venue} if venue else None,
         },
-        "authorships": [
-            {"author": {"display_name": name}} for name in (authors or [])
-        ],
+        "authorships": [{"author": {"display_name": name}} for name in (authors or [])],
         "abstract_inverted_index": (
-            {w: [i] for i, w in enumerate(abstract_text.split())}
-            if abstract_text
-            else None
+            {w: [i] for i, w in enumerate(abstract_text.split())} if abstract_text else None
         ),
     }
     return work
@@ -141,6 +137,7 @@ async def test_search_researchgate_year_filter_in_params() -> None:
 @pytest.mark.asyncio
 async def test_search_researchgate_caps_at_limit() -> None:
     works = [_work(title=f"Paper {i}", doi=f"10.1/{i}") for i in range(5)]
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=_mock_openalex_response(*works))
 

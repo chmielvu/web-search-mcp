@@ -121,4 +121,3 @@ COMMANDS: tuple[str, ...] = (
     "reference external-tools",
     "server start",
 )
-

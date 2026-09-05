@@ -23,12 +23,8 @@ class TestRawTextResolver(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             is_raw_text_url("https://gist.githubusercontent.com/user/123/raw/snippet.txt")
         )
-        self.assertTrue(
-            is_raw_text_url("https://github.com/owner/repo/raw/main/docs/guide.md")
-        )
-        self.assertTrue(
-            is_raw_text_url("https://gitlab.com/owner/repo/raw/main/README.rst")
-        )
+        self.assertTrue(is_raw_text_url("https://github.com/owner/repo/raw/main/docs/guide.md"))
+        self.assertTrue(is_raw_text_url("https://gitlab.com/owner/repo/raw/main/README.rst"))
         self.assertTrue(is_raw_text_url("https://example.com/doc.md"))
         self.assertTrue(is_raw_text_url("https://example.com/notes.txt"))
         self.assertTrue(is_raw_text_url("https://example.com/guide.markdown"))
@@ -40,6 +36,7 @@ class TestRawTextResolver(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(is_raw_text_url("https://example.com/index.html"))
         self.assertFalse(is_raw_text_url("https://example.com/api/v1"))
         self.assertFalse(is_raw_text_url("https://example.com/"))
+
     def test_get_raw_text_type(self) -> None:
         self.assertEqual(
             get_raw_text_type("https://example.com/doc.md"), ("text/markdown", "markdown_file")
@@ -159,13 +156,17 @@ class TestRawTextResolver(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res_json.content_type, "application/json")
             self.assertIn('"key": "value"', res_json.text)
 
-            res_octet = await safe_fetch_url("https://raw.githubusercontent.com/user/repo/main/raw_octet.md")
+            res_octet = await safe_fetch_url(
+                "https://raw.githubusercontent.com/user/repo/main/raw_octet.md"
+            )
             self.assertIn("Raw Text from GitHub", res_octet.text)
 
             from kindly_web_search_mcp_server.content.safe_fetch import SafeFetchError
+
             with self.assertRaises(SafeFetchError) as ctx:
                 await safe_fetch_url("https://example.com/file.image")
             self.assertEqual(ctx.exception.code, "unsupported_content_type")
+
     # NOTE: test_batch_fetch_uses_raw_text_resolver was removed — it tested
     # batch_orchestrator internals which no longer exist. Raw text resolver
     # routing is covered by test_fetch_content_artifact_tier1_routes_raw_text above.

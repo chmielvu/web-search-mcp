@@ -13,13 +13,16 @@ from ..heuristics.text_segment import segment_query
 from ..inference.router import build_worker_router
 from ..prompts.query_rewrite import (
     REWRITE_PROMPT_VERSION,
-    REWRITE_SYSTEM,
-    REWRITE_USER,
     RewrittenQueries,
+    select_rewrite_prompt,
 )
 from ..prompts.rerank import build_relevance_query
 from ..settings import settings
 from ..telemetry.spans import get_tracer
+from ..training.query_understanding_jsonl import (
+    append_query_rewrite_record,
+    rewritten_slots_payload,
+)
 from .contracts import BranchRole, QueryBranch, SearchPlan, SearchRun
 from .graph_expansion import GraphExpansionDecision, expand_seed_queries
 from .intent_policy import resolve_intent_policy
@@ -33,6 +36,7 @@ from .provider_registry import (
 )
 from .providers.brave import suggest_brave_queries
 from .understanding.resolver import resolve_query_understanding
+
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
@@ -83,10 +87,7 @@ def _suggestions(payload: object) -> tuple[str, ...]:
 
 def _keyword_query(base: str, terms: tuple[str, ...]) -> str:
     base_words = set(base.casefold().split())
-    additions = [
-        term for term in terms[:4]
-        if not set(term.casefold().split()) <= base_words
-    ]
+    additions = [term for term in terms[:4] if not set(term.casefold().split()) <= base_words]
     return normalize_query(" ".join((base, *additions)))
 
 
@@ -172,8 +173,18 @@ async def _rewrite_queries(
     understanding: Any | None = None,
 ) -> tuple[RewrittenQueries, dict[str, Any]]:
     compared_entities = _stable_terms(list(getattr(understanding, "compared_entities", None) or []))
-    preserved_terms = _stable_terms(list(getattr(understanding, "preserved_terms", None) or []))
-    user_content = REWRITE_USER.format(
+    entity_surfaces = [
+        str(getattr(ent, "text", "") or "")
+        for ent in (getattr(understanding, "entities", None) or [])
+    ]
+    preserved_terms = _stable_terms(
+        [
+            *list(getattr(understanding, "preserved_terms", None) or []),
+            *entity_surfaces,
+        ]
+    )
+    system_prompt, user_template = select_rewrite_prompt(intent)
+    user_content = user_template.format(
         current_year=current_year,
         time_sensitivity=str(getattr(understanding, "time_sensitivity", "none") or "none"),
         query=query,
@@ -197,7 +208,7 @@ async def _rewrite_queries(
     started = time.monotonic()
     generation = await build_worker_router().complete_json(
         messages=[
-            {"role": "system", "content": REWRITE_SYSTEM},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         response_model=RewrittenQueries,
@@ -324,8 +335,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "base_seed_queries": list(decision.base_seed_queries[:4]),
             "candidate_support_counts": dict(decision.candidate_support_counts),
             "dropped_candidates": [
-                {"query": query, "reason": reason}
-                for query, reason in decision.dropped_candidates
+                {"query": query, "reason": reason} for query, reason in decision.dropped_candidates
             ],
             "effective_seed_queries": list(decision.effective_seed_queries[:4]),
             "generation_id": decision.generation_id,
@@ -400,6 +410,30 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             request.rewrite and dc.rewrite_metadata and "error" not in dc.rewrite_metadata
         )
         rewrite_queries: tuple[str, ...] = rewritten_slots if rewrite_success else ()
+        if settings.query_understanding_jsonl_enabled and request.rewrite:
+            try:
+                rewrite_meta = dc.rewrite_metadata or {}
+                await append_query_rewrite_record(
+                    raw_query=request.query,
+                    normalized_query=normalized_query,
+                    research_goal=request.research_goal,
+                    intent=str(understanding.intent),
+                    rewritten_branch_queries=rewritten_slots_payload(rewrite_queries),
+                    path=settings.query_understanding_jsonl_path,
+                    rewrite_model=rewrite_meta.get("model")
+                    if isinstance(rewrite_meta.get("model"), str)
+                    else None,
+                    rewrite_error=rewrite_meta.get("error")
+                    if isinstance(rewrite_meta.get("error"), str)
+                    else None,
+                    rewrite_prompt_version=rewrite_meta.get("prompt_version")
+                    if isinstance(rewrite_meta.get("prompt_version"), str)
+                    else None,
+                    session_id=run.session_id,
+                    run_key=run.run_key,
+                )
+            except Exception as exc:
+                LOGGER.warning("query rewrite JSONL write failed: %s", exc)
 
         # `use_llm_why` is true when the LLM-rewrite path succeeded; in
         # every other case (rewrite disabled, rewrite errored, no

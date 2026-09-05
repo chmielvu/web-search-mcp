@@ -59,13 +59,15 @@ class TestFetchCacheError(unittest.TestCase):
                     "source_type": "html",
                     "content_type": "text/markdown",
                     "origin_backend": "jina_reader",
-                    "error": {"code": "error_page:404 not found", "message": "stale", "retryable": False},
+                    "error": {
+                        "code": "error_page:404 not found",
+                        "message": "stale",
+                        "retryable": False,
+                    },
                 }
             },
         }
-        artifact = _artifact_from_cache(
-            "https://example.com/ok", "https://example.com/ok", cached
-        )
+        artifact = _artifact_from_cache("https://example.com/ok", "https://example.com/ok", cached)
         self.assertEqual(artifact["status"], "success")
         self.assertIsNone(artifact["error"])
         result = _result_from_artifact(

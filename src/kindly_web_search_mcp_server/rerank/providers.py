@@ -1,23 +1,23 @@
-"""Cross-encoder rerank provider fallback chain.
-
-Routes through the unified ``kindly_web_search_mcp_server.inference`` fallback engine
-and dynamic model catalog while preserving legacy output contracts.
-"""
+"""Cross-encoder rerank provider fallback chain."""
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from dataclasses import dataclass
+from typing import Any
 
 from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
+from ..inference.engine import is_retryable_error
 from ..models import WebSearchResult
 from .models import RerankCandidate, RerankResult
 
 logger = logging.getLogger(__name__)
 
 
-# Legacy alias maintained for backwards compatibility
-_PROVIDER_CHAIN: tuple[str, ...] = ("cohere_fast", "cohere_fast_openrouter", "voyage")
+class RerankResponseError(ValueError):
+    """Raised when a provider returns an unsafe rerank permutation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,6 @@ class RerankProviderOutcome:
     provider_id: str
     model: str | None
     ranked: list[RerankResult]
-    ordered_candidates: list[WebSearchResult]
     error: Exception | None = None
 
 
@@ -44,7 +43,7 @@ def build_rerank_candidates(
             "URL": candidate.link,
             "Domain": candidate.domain or "unknown",
             "Providers": list(candidate.providers or []),
-            "ProviderCount": candidate.provider_count or 1,
+            "ProviderCount": len(candidate.providers) if candidate.providers else 1,
         }
         if candidate.published_date:
             doc_dict["PublishedDate"] = candidate.published_date
@@ -71,18 +70,69 @@ def _spec_to_provider_id(spec: ModelSpec) -> str:
     return spec.provider
 
 
-async def _parse_rerank_result(spec: ModelSpec, gen) -> list[tuple[int, float]]:
-    """Parse an LLMGeneration content back into rerank results."""
-    content = gen.content
-    if content.startswith("["):
-        import json
+def parse_rerank_response(
+    payload: Any,
+    *,
+    candidate_count: int,
+    provider: str | None = None,
+) -> list[RerankResult]:
+    """Parse and validate a provider response before it reaches ranking code."""
+    if (
+        isinstance(candidate_count, bool)
+        or not isinstance(candidate_count, int)
+        or candidate_count < 1
+    ):
+        raise RerankResponseError("candidate_count must be a positive integer")
+    spec = getattr(payload, "spec", None)
+    provider_name = provider or getattr(spec, "provider", "unknown")
+    content = getattr(payload, "content", payload)
 
+    if isinstance(content, str):
         try:
-            raw = json.loads(content)
-            return [(item["index"], item["relevance_score"]) for item in raw]
-        except (json.JSONDecodeError, KeyError, TypeError):
-            pass
-    raise ValueError(f"Cannot parse rerank result from {spec.provider}: {content[:200]}")
+            content = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise RerankResponseError(f"{provider_name} returned invalid JSON: {exc.msg}") from exc
+
+    if not isinstance(content, list):
+        raise RerankResponseError(f"{provider_name} rerank response must be a list")
+    if not content:
+        raise RerankResponseError(f"{provider_name} rerank response must not be empty")
+    if len(content) > candidate_count:
+        raise RerankResponseError(
+            f"{provider_name} returned {len(content)} results for {candidate_count} candidates"
+        )
+
+    seen: set[int] = set()
+    ranked: list[RerankResult] = []
+    for position, item in enumerate(content):
+        if not isinstance(item, dict):
+            raise RerankResponseError(f"{provider_name} result {position} must be an object")
+        index = item.get("index")
+        score = item.get("relevance_score")
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise RerankResponseError(f"{provider_name} result {position} has a non-integer index")
+        if index < 0 or index >= candidate_count:
+            raise RerankResponseError(
+                f"{provider_name} result {position} index {index} is out of range"
+            )
+        if index in seen:
+            raise RerankResponseError(
+                f"{provider_name} rerank response contains duplicate index {index}"
+            )
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            raise RerankResponseError(f"{provider_name} result {position} has a non-numeric score")
+        score_float = float(score)
+        if not math.isfinite(score_float):
+            raise RerankResponseError(f"{provider_name} result {position} has a non-finite score")
+        if not 0.0 <= score_float <= 1.0:
+            raise RerankResponseError(f"{provider_name} result {position} score is outside [0, 1]")
+        seen.add(index)
+        ranked.append(RerankResult(index=index, relevance_score=score_float))
+    return ranked
+
+
+def _is_retryable_rerank_error(exc: Exception) -> bool:
+    return isinstance(exc, RerankResponseError) or is_retryable_error(exc)
 
 
 async def rerank_with_provider_fallback(
@@ -90,6 +140,9 @@ async def rerank_with_provider_fallback(
     candidates: list[WebSearchResult],
 ) -> RerankProviderOutcome:
     """Run cross-encoder rerank using the unified inference fallback engine."""
+    if not candidates:
+        return RerankProviderOutcome(provider_id="none", model=None, ranked=[])
+
     prepared = build_rerank_candidates(candidates)
     documents = [candidate.document for candidate in prepared]
     chain = get_chain("cross_encoder_rerank")
@@ -101,16 +154,16 @@ async def rerank_with_provider_fallback(
             query=query,
             documents=documents,
             top_n=len(candidates),
+            is_retryable=_is_retryable_rerank_error,
+            validator=lambda payload: parse_rerank_response(
+                payload,
+                candidate_count=len(candidates),
+            ),
         )
-        gen = exec_res.payload
-        ranked_list = await _parse_rerank_result(exec_res.spec, gen)
-        ranked = [RerankResult(index=index, score=score) for index, score in ranked_list]
-        provider_id = _spec_to_provider_id(exec_res.spec)
         return RerankProviderOutcome(
-            provider_id=provider_id,
+            provider_id=_spec_to_provider_id(exec_res.spec),
             model=exec_res.spec.model_id,
-            ranked=ranked,
-            ordered_candidates=[candidates[item.index] for item in ranked],
+            ranked=exec_res.payload,
         )
     except ChainExhaustedError as exc:
         last_error = exc.errors[-1][1] if exc.errors else exc
@@ -118,14 +171,5 @@ async def rerank_with_provider_fallback(
             provider_id="chain",
             model=None,
             ranked=[],
-            ordered_candidates=candidates,
             error=last_error,
         )
-
-
-def _default_model_for(provider_id: str) -> str | None:
-    chain = get_chain("cross_encoder_rerank")
-    for spec in chain.models:
-        if _spec_to_provider_id(spec) == provider_id:
-            return spec.model_id
-    return None

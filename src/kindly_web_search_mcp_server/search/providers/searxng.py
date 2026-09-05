@@ -10,8 +10,7 @@ import httpx
 
 from ...models import WebSearchResult
 from ...settings import settings
-from ...utils.url_canonicalize import extract_domain_from_url
-from ..normalize import canonicalize_url
+from ...utils.url_canonicalize import canonicalize_url, extract_domain_from_url
 from ..filters import searxng_time_range
 from ..options import SearchOptions
 from .base import (

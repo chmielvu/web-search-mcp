@@ -31,6 +31,7 @@ class SerpApiError(ProviderRequestError):
 class SerpApiConfigError(SerpApiError):
     pass
 
+
 DISABLED_ENGINES: frozenset[str] = frozenset({"google", "baidu"})
 
 
@@ -71,9 +72,7 @@ def _get_engines() -> list[str]:
     engines_str = get_env_value("SERPAPI_ENGINES", settings.serpapi_engines).strip()
     if engines_str:
         engines = [
-            e.strip()
-            for e in engines_str.split(",")
-            if e.strip() and not _is_engine_disabled(e)
+            e.strip() for e in engines_str.split(",") if e.strip() and not _is_engine_disabled(e)
         ]
         if engines:
             return engines
@@ -82,6 +81,7 @@ def _get_engines() -> list[str]:
     if default and not _is_engine_disabled(default):
         return [default]
     return []
+
 
 def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
     """Parse organic results from a SerpApi response.

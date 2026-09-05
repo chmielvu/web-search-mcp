@@ -75,6 +75,7 @@ def test_content_fetch_emits_json_payload(monkeypatch) -> None:
     assert payload["meta"]["command"] == "content fetch"
     assert payload["data"]["total_requested"] == 1
 
+
 def test_ai_gemini_emits_json_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         "kindly_web_search_mcp_server.cli.services.ai.fetch_gemini_search_payload",

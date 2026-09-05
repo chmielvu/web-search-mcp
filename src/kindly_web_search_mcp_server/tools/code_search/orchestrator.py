@@ -10,7 +10,8 @@ import httpx
 
 from .docs import search_docs
 from .exa import search_exa
-from .github import hydrate_github_hits, search_github
+from .github import search_github
+from .hydration import hydrate_sources
 from .grepapp import search_grepapp
 from .huggingface import search_huggingface
 from .issues import search_github_issues
@@ -25,7 +26,8 @@ from .models import (
     Stats,
 )
 from .query import QueryPlan
-from .ranking import rank_hits, verify_regex_hits
+from .ranking import rank_candidates
+from .windows import extract_source_windows
 from .reranking import RerankProfile, rerank_code_hits
 from .sourcegraph import search_sourcegraph
 
@@ -280,29 +282,43 @@ async def execute_code_search(
     ]
     stats = _stats(responses, elapsed_ms=(time.monotonic() - started) * 1000)
 
-    preliminary = rank_hits(
+    preliminary = rank_candidates(
         plan,
         hits,
         max_results=None,
     )
-    if any(hit.provider == "github" for hit in preliminary):
-        hydration_diagnostics, hydration_count, hydration_truncated = await hydrate_github_hits(
-            preliminary,
-            http_client=http_client,
-            max_files=request.budget.max_hydrate_files,
-            max_chars_per_file=request.budget.max_hydrated_chars_per_file,
-            deep=request.deep,
-        )
-        diagnostics.extend(hydration_diagnostics)
-        stats.hydration_count = hydration_count
-        stats.truncated = stats.truncated or hydration_truncated
-    if plan.local_regex is not None:
-        preliminary = verify_regex_hits(preliminary, plan.local_regex)
-    hits = rank_hits(
-        plan,
-        preliminary,
-        max_results=None,
-    )
+
+    if request.mode == "code":
+        code_candidates = [
+            hit
+            for hit in preliminary
+            if hit.repository and hit.path and hit.result_kind == "code_match"
+        ]
+        other_hits = [hit for hit in preliminary if hit not in code_candidates]
+
+        if code_candidates:
+            file_sources, hydration_diagnostics = await hydrate_sources(
+                code_candidates,
+                http_client=http_client,
+                max_files=request.budget.max_hydrate_files,
+                max_chars_per_file=request.budget.max_hydrated_chars_per_file,
+            )
+            diagnostics.extend(hydration_diagnostics)
+            stats.hydration_count = len(file_sources)
+            stats.truncated = stats.truncated or any(
+                d.failure_kind == "budget" for d in hydration_diagnostics
+            )
+            extracted = extract_source_windows(
+                plan,
+                file_sources,
+                code_candidates,
+                max_results=request.budget.max_rerank_candidates,
+            )
+            hits = extracted + other_hits
+        else:
+            hits = other_hits
+    else:
+        hits = preliminary
 
     if hits:
         rerank_profile = _select_rerank_profile(plan, request)
@@ -330,7 +346,7 @@ async def execute_code_search(
             stats.rerank_diagnostic_message = rerank.diagnostic.message
             diagnostics.append(rerank.diagnostic)
 
-    hits = [normalize_hit_metadata(hit) for hit in hits]
+    hits = [normalize_hit_metadata(hit) for hit in hits[: request.max_results]]
     stats.returned_count = len(hits)
     stats.estimated_tokens = sum(len(hit.model_dump_json()) for hit in hits) // 4
     stats.elapsed_ms = (time.monotonic() - started) * 1000

@@ -134,11 +134,22 @@ def _rerank_query(limit: int) -> tuple[str, str]:
             COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count,
             MODE(error_type) AS most_common_error,
             SUM(input_tokens) AS total_input_tokens,
-            SUM(output_tokens) AS total_output_tokens
+            SUM(output_tokens) AS total_output_tokens,
+            SUM(attempted_passes) AS attempted_passes,
+            SUM(valid_passes) AS valid_passes,
+            SUM(failed_passes) AS failed_passes
         FROM rerank_stages
-        WHERE stage IN ('bi_encoder', 'cross_encoder', 'rankllm')
+        WHERE stage IN ('bi_encoder', 'cross_encoder', 'rankllm', 'mmr_fallback')
         GROUP BY 1, 2, 3
-        ORDER BY stage_runs DESC, stage, provider, model
+        ORDER BY
+            CASE stage
+                WHEN 'bi_encoder' THEN 1
+                WHEN 'cross_encoder' THEN 2
+                WHEN 'rankllm' THEN 3
+                WHEN 'mmr_fallback' THEN 4
+                ELSE 5
+            END,
+            stage, provider, model
         LIMIT {limit}
     """
     return sql, "rerank"
@@ -197,7 +208,7 @@ def build_local_analytics_query_sql(question: str, *, max_rows: int = 100) -> tu
     limit = _limit(max_rows)
     q = question.lower().strip()
 
-    if "rerank" in q or "cross encode" in q or "bi-encode" in q or "rankllm" in q:
+    if "rerank" in q or "cross encode" in q or "bi-encode" in q or "rankllm" in q or "mmr" in q:
         return _rerank_query(limit)
     if "latency" in q or "speed" in q or "duration" in q or "fast" in q or "slow" in q:
         return _latency_query(limit)

@@ -18,7 +18,6 @@ from .models import (
     CodeSearchRequest,
     Diagnostic,
     ProviderResponse,
-    TextFragment,
     build_location_metadata,
 )
 from .query import QueryPlan
@@ -46,6 +45,8 @@ def _parse_retry_after_header(value: str | None) -> float | None:
         return max(0.0, float(value))
     except (ValueError, TypeError):
         return None
+
+
 LOGGER = logging.getLogger(__name__)
 _SOURCEGRAPH_URL = "https://sourcegraph.com/.api/graphql"
 _SOURCEGRAPH_STREAM_URL = "https://sourcegraph.com/.api/search/stream"
@@ -69,6 +70,7 @@ query SearchCode($query: String!, $patternType: SearchPatternType!) {
   }
 }
 """
+
 
 def _quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -178,6 +180,7 @@ def _diag(
         details=details or {},
     )
 
+
 def _error_text(payload: dict[str, Any]) -> str:
     errors = payload.get("errors")
     if not isinstance(errors, list):
@@ -252,40 +255,18 @@ def _parse_payload(
             file_url = f"https://sourcegraph.com{file_url}"
         if not isinstance(file_url, str) or not file_url.strip():
             file_url = f"https://sourcegraph.com/github.com/{repository_name}/-/blob/{path}"
-        fragments: list[TextFragment] = []
         line_start: int | None = None
         line_end: int | None = None
-        match_spans: list[dict[str, Any]] = []
         line_matches = match.get("lineMatches")
         if isinstance(line_matches, list):
             for line_match in line_matches:
                 if not isinstance(line_match, dict):
                     continue
-                preview = line_match.get("preview")
-                if not isinstance(preview, str) or not preview.strip():
-                    continue
                 line_number = line_match.get("lineNumber")
-                if not isinstance(line_number, int):
-                    line_number = None
-                if line_start is None:
-                    line_start = line_number
-                if line_number is not None:
+                if isinstance(line_number, int):
+                    if line_start is None:
+                        line_start = line_number
                     line_end = max(line_end or line_number, line_number)
-                offsets = line_match.get("offsetAndLengths")
-                if isinstance(offsets, list):
-                    for offset in offsets:
-                        if isinstance(offset, list) and len(offset) == 2:
-                            match_spans.append(
-                                {"line": line_number, "column": offset[0], "length": offset[1]}
-                            )
-                fragments.append(
-                    TextFragment(
-                        text=preview.rstrip(),
-                        line_start=line_number,
-                        line_end=line_number,
-                        match_metadata={"offsets": line_match.get("offsetAndLengths")},
-                    )
-                )
         symbols: list[dict[str, Any]] = []
         raw_symbols = match.get("symbols")
         if isinstance(raw_symbols, list):
@@ -316,13 +297,10 @@ def _parse_payload(
                     line_end=line_end or line_start,
                     match_data_available=True,
                 ),
-                fragments=fragments,
                 line_start=line_start,
                 line_end=line_end or line_start,
-                match_spans=match_spans,
                 symbols=symbols,
                 evidence_role="definition" if symbols else None,
-                snippet="\n".join(fragment.text for fragment in fragments) or None,
                 score_components={"match_count": float(match.get("matchCount") or 0.0)},
                 source_metadata={
                     "symbols": symbols,
@@ -364,92 +342,38 @@ def _parse_stream_matches(
         branches = match.get("branches")
 
         file_url = f"https://sourcegraph.com/github.com/{repository_name}/-/blob/{path}"
-        fragments: list[TextFragment] = []
-        line_start: int | None = None
-        line_end: int | None = None
-        match_spans: list[dict[str, Any]] = []
+        line_start = None
+        line_end = None
 
-        # 1. Primary: chunkMatches (function/block level multi-line contexts)
+        # 1. Primary: chunkMatches
         chunk_matches = match.get("chunkMatches")
         if isinstance(chunk_matches, list) and chunk_matches:
             for chunk in chunk_matches:
                 if not isinstance(chunk, dict):
                     continue
-                content = chunk.get("content", "")
-                if not isinstance(content, str) or not content.strip():
-                    continue
                 content_start = chunk.get("contentStart", {})
-                chunk_line = content_start.get("line", 0) + 1 if isinstance(content_start, dict) else 1
-                lines = content.split("\n")
-                chunk_end = chunk_line + len(lines) - 1
+                chunk_line = (
+                    content_start.get("line", 0) + 1 if isinstance(content_start, dict) else 1
+                )
+                content = chunk.get("content", "")
+                lines_count = len(content.splitlines()) if isinstance(content, str) else 1
+                chunk_end = chunk_line + max(0, lines_count - 1)
                 if line_start is None:
                     line_start = chunk_line
                 line_end = max(line_end or chunk_end, chunk_end)
 
-                # Extract ranges inside chunk if present
-                ranges = chunk.get("ranges")
-                if isinstance(ranges, list):
-                    for r in ranges:
-                        if isinstance(r, dict):
-                            start_pos = r.get("start", {})
-                            end_pos = r.get("end", {})
-                            if isinstance(start_pos, dict) and isinstance(end_pos, dict):
-                                start_line_val = start_pos.get("line")
-                                line_no = start_line_val + 1 if isinstance(start_line_val, int) else chunk_line
-                                start_col = start_pos.get("column", 0) if isinstance(start_pos.get("column"), int) else 0
-                                end_col = end_pos.get("column", 0) if isinstance(end_pos.get("column"), int) else 0
-                                end_line_val = end_pos.get("line", start_line_val or 0)
-                                if isinstance(end_line_val, int) and isinstance(start_line_val, int) and end_line_val > start_line_val:
-                                    span_len = max(1, end_col)
-                                else:
-                                    span_len = max(1, end_col - start_col)
-                                match_spans.append({
-                                    "line": line_no,
-                                    "column": start_col,
-                                    "length": span_len,
-                                })
-                fragments.append(
-                    TextFragment(
-                        text=content.rstrip(),
-                        line_start=chunk_line,
-                        line_end=chunk_end,
-                        match_metadata={"chunk": True},
-                    )
-                )
-
         # 2. Fallback: lineMatches
-        if not fragments:
+        if line_start is None:
             line_matches = match.get("lineMatches")
             if isinstance(line_matches, list):
                 for line_match in line_matches:
                     if not isinstance(line_match, dict):
                         continue
-                    preview = line_match.get("preview")
-                    if not isinstance(preview, str) or not preview.strip():
-                        continue
                     line_number = line_match.get("lineNumber")
-                    if not isinstance(line_number, int):
-                        line_number = None
-                    if line_start is None:
-                        line_start = line_number
-                    if line_number is not None:
+                    if isinstance(line_number, int):
+                        if line_start is None:
+                            line_start = line_number
                         line_end = max(line_end or line_number, line_number)
-                    offsets = line_match.get("offsetAndLengths")
-                    if isinstance(offsets, list):
-                        for offset in offsets:
-                            if isinstance(offset, list) and len(offset) == 2:
-                                match_spans.append(
-                                    {"line": line_number, "column": offset[0], "length": offset[1]}
-                                )
-                    fragments.append(
-                        TextFragment(
-                            text=preview.rstrip(),
-                            line_start=line_number,
-                            line_end=line_number,
-                            match_metadata={"offsets": line_match.get("offsetAndLengths")},
-                        )
-                    )
-
         symbols: list[dict[str, Any]] = []
         raw_symbols = match.get("symbols")
         if isinstance(raw_symbols, list):
@@ -496,14 +420,11 @@ def _parse_stream_matches(
                     revision=revision_str,
                     match_data_available=True,
                 ),
-                fragments=fragments,
                 line_start=line_start,
                 line_end=line_end or line_start,
-                match_spans=match_spans,
                 symbols=symbols,
                 evidence_role="definition" if symbols else None,
-                snippet="\n".join(fragment.text for fragment in fragments) or None,
-                score_components={"match_count": float(match.get("matchCount") or len(fragments))},
+                score_components={"match_count": float(match.get("matchCount") or 1.0)},
                 source_metadata=source_meta,
             )
         )
@@ -687,9 +608,7 @@ async def _stream_search_variant(
         deadline = time.monotonic() + settings.search_retrieve_budget_seconds
 
     pattern_type = (
-        "regexp"
-        if var_kind == "regex"
-        else ("keyword" if var_kind == "symbol" else "standard")
+        "regexp" if var_kind == "regex" else ("keyword" if var_kind == "symbol" else "standard")
     )
     stream_params = {
         "q": f"{query_variant} count:{max_results}",
@@ -734,7 +653,11 @@ async def _stream_search_variant(
             last_exc = exc
             last_response = None
             # SSE total timeout — fallback to GraphQL immediately, no retry on TimeoutError
-            LOGGER.warning("Sourcegraph Stream total timeout after %.1fs for %r", request_timeout, query_variant[:80])
+            LOGGER.warning(
+                "Sourcegraph Stream total timeout after %.1fs for %r",
+                request_timeout,
+                query_variant[:80],
+            )
             break
         except (httpx.HTTPError, TimeoutError, OSError) as exc:
             last_exc = exc
@@ -846,9 +769,7 @@ async def _stream_search_variant(
             last_response.status_code,
         )
     else:
-        LOGGER.warning(
-            "Sourcegraph Stream API deadline exceeded, attempting GraphQL fallback"
-        )
+        LOGGER.warning("Sourcegraph Stream API deadline exceeded, attempting GraphQL fallback")
 
     return await _graphql_search_variant(
         http_client,

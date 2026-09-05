@@ -89,9 +89,11 @@ def _render_tweet_item(item: dict[str, Any]) -> str | None:
     if not text or text in {"[deleted]", "[removed]"}:
         return None
 
-    handle = str(
-        _pick(item, "userName", "screen_name", "screenName", "authorUsername") or ""
-    ).strip().lstrip("@")
+    handle = (
+        str(_pick(item, "userName", "screen_name", "screenName", "authorUsername") or "")
+        .strip()
+        .lstrip("@")
+    )
     name = str(_pick(item, "name", "authorName", "user.name") or "").strip()
 
     header = "# X/Tweet"
@@ -121,9 +123,7 @@ def _render_tweet_item(item: dict[str, Any]) -> str | None:
         if value not in (None, ""):
             stats.append(f"{label}: {value}")
 
-    permalink = str(
-        _pick(item, "url", "tweetUrl", "permalink", "link") or ""
-    ).strip()
+    permalink = str(_pick(item, "url", "tweetUrl", "permalink", "link") or "").strip()
     if handle and not permalink:
         tweet_id = str(_pick(item, "id", "id_str", "tweet_id", "conversationId") or "")
         if tweet_id.isdigit():

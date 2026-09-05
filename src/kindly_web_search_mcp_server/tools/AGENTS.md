@@ -83,6 +83,9 @@ uv run pytest tests/test_code_search.py
 ```
 
 ## Recent Changes (2026-07-22 sprint 2)
+- `code_fetch` — uncached single-file reads (`path`, no query/symbol) hydrate via
+  `hydrate_sources` and skip the tarball snapshot; directories and hydrate misses
+  fall through.
 - `code_fetch` — repository-scoped queries now fall back from strict FTS AND matching
   to per-term candidates, restore valid persisted snapshots across manager lifetimes,
   and return hits/tree/content/map payloads instead of dropping query data. Search

@@ -27,7 +27,7 @@ async def generate_sitemap(
     allow_external: bool = False,
     ctx: Context = CurrentContext(),
 ) -> SitemapResponse:
-    """Generate a structural sitemap for a website using Tavily Map (with Crawl4AI fallback).
+    """Generate a structural sitemap for a website using Tavily Map.
 
     When to use this tool:
     - To map full URL hierarchies and site structures for documentation sites, blogs, or APIs.
@@ -87,7 +87,13 @@ async def generate_sitemap(
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
         duration_ms = (time.monotonic() - started) * 1000.0
-        pages_count = len(result.get("results", [])) if isinstance(result, dict) and "results" in result else len(result.get("pages", [])) if isinstance(result, dict) else 0
+        pages_count = (
+            len(result.get("results", []))
+            if isinstance(result, dict) and "results" in result
+            else len(result.get("pages", []))
+            if isinstance(result, dict)
+            else 0
+        )
         emit_tool_observability_event(
             LOGGER,
             "generate_sitemap",
@@ -102,7 +108,7 @@ async def generate_sitemap(
             input_url_count=1,
             output_result_count=pages_count,
         )
-        return SitemapResponse.model_validate(result).model_dump(exclude_none=True)
+        return SitemapResponse.model_validate(result)
     except Exception as e:
         duration_ms = (time.monotonic() - started) * 1000.0
         LOGGER.warning("generate_sitemap error: %s", e, exc_info=True)

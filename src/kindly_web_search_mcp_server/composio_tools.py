@@ -118,8 +118,11 @@ def register_composio_tools(mcp: Any) -> None:
             provider="composio",
         )
         try:
+            cleaned_url = url.strip()
+            if not (cleaned_url.startswith("http://") or cleaned_url.startswith("https://")):
+                raise ValueError("url must start with http:// or https://")
             response = await _composio_similarlinks_impl(
-                url,
+                cleaned_url,
                 num_results,
                 search_type,
                 category,
@@ -151,4 +154,4 @@ def register_composio_tools(mcp: Any) -> None:
             output_count=response.total_results,
             duration_ms=(time.monotonic() - started) * 1000,
         )
-        return response.model_dump(exclude_none=True)
+        return response

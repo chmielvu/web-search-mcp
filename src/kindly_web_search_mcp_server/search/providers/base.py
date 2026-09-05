@@ -46,6 +46,7 @@ class ProviderRequestError(RuntimeError):
         super().__init__(message)
         self.metadata = metadata
 
+
 _provider_metadata_context: contextvars.ContextVar[ProviderRequestMetadata | None] = (
     contextvars.ContextVar("provider_request_metadata", default=None)
 )

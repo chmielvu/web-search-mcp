@@ -19,7 +19,11 @@ TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "partial"})
 
 def jobs_db_path() -> Path:
     configured = os.environ.get("WEB_SEARCH_CLI_JOBS_DB", "").strip()
-    return Path(configured).expanduser() if configured else REPO_ROOT / "duckdb_data" / "cli" / "jobs.sqlite"
+    return (
+        Path(configured).expanduser()
+        if configured
+        else REPO_ROOT / "duckdb_data" / "cli" / "jobs.sqlite"
+    )
 
 
 def jobs_log_dir() -> Path:
@@ -269,9 +273,7 @@ def cancel_job(job_id: str) -> dict[str, Any]:
                 (_now(), job_id),
             )
         elif status not in TERMINAL_STATUSES:
-            connection.execute(
-                "UPDATE jobs SET cancel_requested = 1 WHERE job_id = ?", (job_id,)
-            )
+            connection.execute("UPDATE jobs SET cancel_requested = 1 WHERE job_id = ?", (job_id,))
         connection.commit()
     finally:
         connection.close()
@@ -309,7 +311,9 @@ def resume_job(job_id: str) -> dict[str, Any]:
     return get_job(job_id)
 
 
-def wait_for_job(job_id: str, *, timeout_seconds: float, poll_interval_seconds: float) -> tuple[dict[str, Any], bool]:
+def wait_for_job(
+    job_id: str, *, timeout_seconds: float, poll_interval_seconds: float
+) -> tuple[dict[str, Any], bool]:
     import time
 
     deadline = time.monotonic() + max(0.0, timeout_seconds)

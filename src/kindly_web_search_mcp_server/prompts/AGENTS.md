@@ -13,7 +13,7 @@ Prompt templates, builders, and registry for all subsystems.
 | `registry.py` | Prompt registry and lookup |
 | `builders.py` | Prompt-building helpers |
 | `query_understanding.py` | Query understanding prompts |
-| `query_rewrite.py` | Owner of rewrite templates, named-slot schema (`RewrittenQueries`), `REWRITE_PROMPT_VERSION` |
+| `query_rewrite.py` | Owner of rewrite templates, named-slot schema (`RewrittenQueries`), `REWRITE_PROMPT_VERSION`, and per-intent `REWRITE_INTENT_ANGLES` / `select_rewrite_prompt` |
 | `rerank.py` | Reranking prompts |
 | `rerank_llm.py` / `rerank_llm.yaml` | LLM rerank prompts and config |
 | `entity_extraction.py` | Entity extraction prompts |
@@ -30,6 +30,13 @@ Prompt templates, builders, and registry for all subsystems.
 - `rerank.py` owns the canonical six-intent instruction registry and shared
   ranking hierarchy used by cross-encoder, Voyage, RankLLM, and relevance
   query builders; keep its exact contract covered by `tests/test_rerank_prompt.py`.
+- `query_rewrite.py` owns the six-intent angle registry used by `_rewrite_queries`;
+  the planner still emits the same six branches. Intent blocks are adapted from
+  `query_writer_instructions` plus GitRAG / alexdong / dspy-opt / knowledge-ops /
+  secondbrain / WebRAgent templates — do not invent a parallel rewrite schema.
+  SERP slots are keyword bags (no operators). Tavily/Exa slot rules follow the
+  official Tavily search best-practices and Exa searching.md page-description
+  grammar; do not reintroduce `site:` into rewrite strings.
 
 ## Testing
 

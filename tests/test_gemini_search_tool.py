@@ -90,6 +90,7 @@ class TestGeminiFallbackTier(unittest.TestCase):
         self.assertTrue(_is_gemini_model(GEMINI_GROUNDING_TIER[0]))
         self.assertEqual(GEMINI_GROUNDING_TIER[0], "gemini-2.5-flash")
 
+
 class TestGeminiStructuredSchema(unittest.TestCase):
     def test_structured_output_schema_has_no_additional_properties(self) -> None:
         """Gemini rejects structured schemas containing additionalProperties."""

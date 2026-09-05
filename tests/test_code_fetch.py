@@ -55,8 +55,7 @@ async def test_code_fetch_search_returns_snapshot_metadata(tmp_path: Path) -> No
     assert isinstance(result.cache_age_seconds, int)
     assert result.intent == "search"
     assert any(
-        "authenticate" in hit.snippet
-        or (hit.symbol or {}).get("name") == "authenticate"
+        "authenticate" in hit.snippet or (hit.symbol or {}).get("name") == "authenticate"
         for hit in result.hits
     )
 
@@ -96,6 +95,7 @@ async def test_code_fetch_lists_tree_with_depth(tmp_path: Path) -> None:
     assert "level1/file1.py" in result.tree
     assert "level1/level2/file2.py" not in result.tree
 
+
 @pytest.mark.asyncio
 async def test_code_fetch_graph_symbol(tmp_path: Path) -> None:
     _seed_snapshot(tmp_path)
@@ -111,6 +111,8 @@ async def test_code_fetch_regex_search(tmp_path: Path) -> None:
     assert result.intent == "search"
     assert result.hits
     assert any("regex" in hit.why for hit in result.hits)
+
+
 @pytest.mark.asyncio
 async def test_code_fetch_reads_windowed_lines(tmp_path: Path) -> None:
     _seed_snapshot(tmp_path)
@@ -241,6 +243,7 @@ async def test_code_fetch_map_reports_graph_ready(tmp_path: Path) -> None:
     assert "src/auth.py" in (result.map or {})["files"]
     assert "README.md" in (result.map or {})["files"]
 
+
 @pytest.mark.asyncio
 async def test_code_fetch_symbol_waits_for_pending_graph(tmp_path: Path) -> None:
     source = tmp_path / "repo"
@@ -253,7 +256,9 @@ async def test_code_fetch_symbol_waits_for_pending_graph(tmp_path: Path) -> None
         db_path=str(tmp_path / "snap.sqlite"),
         worktree_root=tmp_path / "worktrees",
     )
-    snapshot = manager.build_from_directory("owner/repo", "main", "a" * 40, source, defer_graph=True)
+    snapshot = manager.build_from_directory(
+        "owner/repo", "main", "a" * 40, source, defer_graph=True
+    )
     snapshot.graph_task = asyncio.create_task(manager._deferred_graph_build(snapshot))
     reset_snapshot_manager_for_tests(manager)
     result = await code_fetch("owner/repo", symbol="authenticate", ctx=None)
@@ -465,3 +470,134 @@ async def test_code_fetch_search_filters_thread_to_hits(tmp_path: Path) -> None:
     result = await code_fetch("owner/repo", query="needle", exclude_glob="docs/*", ctx=None)
     assert result.hits
     assert all(not hit.path.startswith("docs/") for hit in result.hits)
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_fast_lane_single_file_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from kindly_web_search_mcp_server.tools.code_search import exploration as exploration_module
+    from kindly_web_search_mcp_server.tools.code_search import snapshot as snapshot_module
+    from kindly_web_search_mcp_server.tools.code_search.windows import FileSource
+
+    async def fake_hydrate(candidates, **kwargs):
+        return {
+            ("owner/repo", "src/main.py"): FileSource(
+                repository="owner/repo",
+                path="src/main.py",
+                text="print('hello')",
+            )
+        }, []
+
+    async def fake_resolve(repository: str, *, ref: str | None = None):
+        return "main", "abc123"
+
+    async def ensure_must_not_run(self, repository: str, *, ref: str | None = None):
+        raise AssertionError("SnapshotManager.ensure should not run on fast-lane hit")
+
+    async def tarball_must_not_run(*args, **kwargs):
+        raise AssertionError("_download_tarball should not run on fast-lane hit")
+
+    monkeypatch.setattr(exploration_module, "hydrate_sources", fake_hydrate)
+    monkeypatch.setattr(exploration_module, "_resolve_main_commit", fake_resolve)
+    monkeypatch.setattr(SnapshotManager, "ensure", ensure_must_not_run)
+    monkeypatch.setattr(snapshot_module, "_download_tarball", tarball_must_not_run)
+
+    result = await code_fetch("owner/repo", path="src/main.py", ctx=None)
+    assert result.outcome == "ok"
+    assert result.intent == "read"
+    assert result.content == "print('hello')"
+    assert result.graph is None
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_fast_lane_window_slicing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from kindly_web_search_mcp_server.tools.code_search import exploration as exploration_module
+    from kindly_web_search_mcp_server.tools.code_search.windows import FileSource
+
+    text = "\n".join(f"line{i}" for i in range(1, 11))
+
+    async def fake_hydrate(candidates, **kwargs):
+        return {
+            ("owner/repo", "src/main.py"): FileSource(
+                repository="owner/repo",
+                path="src/main.py",
+                text=text,
+            )
+        }, []
+
+    async def fake_resolve(repository: str, *, ref: str | None = None):
+        return "main", "abc123"
+
+    monkeypatch.setattr(exploration_module, "hydrate_sources", fake_hydrate)
+    monkeypatch.setattr(exploration_module, "_resolve_main_commit", fake_resolve)
+
+    result = await code_fetch(
+        "owner/repo",
+        path="src/main.py",
+        start_line=3,
+        end_line=5,
+        ctx=None,
+    )
+    assert result.content == "line3\nline4\nline5"
+    assert result.hits
+    assert result.hits[0].why == ["read:window"]
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_fast_lane_directory_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kindly_web_search_mcp_server.tools.code_search import exploration as exploration_module
+    from kindly_web_search_mcp_server.tools.code_search.windows import FileSource
+
+    manager = _seed_snapshot(tmp_path)
+    manager._live.clear()
+    called = {"hydrate": False}
+
+    async def fake_hydrate(candidates, **kwargs):
+        called["hydrate"] = True
+        return {
+            ("owner/repo", "src/auth.py"): FileSource(
+                repository="owner/repo",
+                path="src/auth.py",
+                text='[{"name":"file.py"}]',
+            )
+        }, []
+
+    async def fake_resolve(repository: str, *, ref: str | None = None):
+        return "main", "a" * 40
+
+    monkeypatch.setattr(exploration_module, "hydrate_sources", fake_hydrate)
+    monkeypatch.setattr(exploration_module, "_resolve_main_commit", fake_resolve)
+
+    result = await code_fetch("owner/repo", path="src/auth.py", ctx=None)
+    assert called["hydrate"] is True
+    assert result.intent == "read"
+    assert "def authenticate" in (result.content or "")
+
+
+@pytest.mark.asyncio
+async def test_code_fetch_fast_lane_error_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from kindly_web_search_mcp_server.tools.code_search import exploration as exploration_module
+
+    manager = _seed_snapshot(tmp_path)
+    manager._live.clear()
+    called = {"hydrate": False}
+
+    async def fake_hydrate(candidates, **kwargs):
+        called["hydrate"] = True
+        return {}, []
+
+    async def fake_resolve(repository: str, *, ref: str | None = None):
+        return "main", "a" * 40
+
+    monkeypatch.setattr(exploration_module, "hydrate_sources", fake_hydrate)
+    monkeypatch.setattr(exploration_module, "_resolve_main_commit", fake_resolve)
+
+    result = await code_fetch("owner/repo", path="src/auth.py", ctx=None)
+    assert called["hydrate"] is True
+    assert result.intent == "read"
+    assert "def authenticate" in (result.content or "")

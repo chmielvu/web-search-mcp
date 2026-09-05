@@ -102,13 +102,7 @@ async def search_exa(
         "contents": {"highlights": True},
     }
 
-
-    unknown = (
-        set(kwargs)
-        - _EXA_ARGUMENT_KEYS
-        - _EXA_CONTENTS_ARGUMENT_KEYS
-        - {"freshness"}
-    )
+    unknown = set(kwargs) - _EXA_ARGUMENT_KEYS - _EXA_CONTENTS_ARGUMENT_KEYS - {"freshness"}
     if unknown:
         raise ExaError(f"Unsupported Exa provider arguments: {', '.join(sorted(unknown))}")
 
@@ -124,9 +118,7 @@ async def search_exa(
     temporal = search_options.temporal if search_options is not None else None
     if temporal is not None and not temporal.is_empty and "startPublishedDate" not in payload:
         if temporal.start is not None:
-            payload["startPublishedDate"] = (
-                f"{temporal.start.isoformat()}T00:00:00.000Z"
-            )
+            payload["startPublishedDate"] = f"{temporal.start.isoformat()}T00:00:00.000Z"
         if temporal.end is not None:
             payload["endPublishedDate"] = f"{temporal.end.isoformat()}T23:59:59.999Z"
     elif kwargs.get("freshness") is not None and "startPublishedDate" not in payload:

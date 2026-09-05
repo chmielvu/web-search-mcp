@@ -141,6 +141,7 @@ class DiagnosticsCollector:
     query_transform_rows: list[dict[str, Any]] = field(default_factory=list)
     total_latency_ms: float | None = None
     query_shaping: list[dict[str, Any]] = field(default_factory=list)
+    overflow_ranked: list[tuple[str, WebSearchResult]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

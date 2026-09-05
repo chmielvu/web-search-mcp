@@ -357,7 +357,9 @@ class ApifyClient:
                 retryable=status >= 500 or status == 429,
             ) from exc
         except httpx.RequestError as exc:
-            raise ApifyClientError(f"Apify {path} connection failed: {exc}", retryable=True) from exc
+            raise ApifyClientError(
+                f"Apify {path} connection failed: {exc}", retryable=True
+            ) from exc
 
         try:
             data = resp.json()

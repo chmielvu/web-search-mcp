@@ -15,7 +15,9 @@ content_app = typer.Typer(no_args_is_help=True)
 
 @content_app.command("fetch")
 def fetch_cmd(
-    url: Annotated[list[str] | None, typer.Option("--url", help="URL to fetch; repeat for bulk fetch.")] = None,
+    url: Annotated[
+        list[str] | None, typer.Option("--url", help="URL to fetch; repeat for bulk fetch.")
+    ] = None,
     input_file: Annotated[
         str | None,
         typer.Option("--input-file", help="URL lines or JSONL records; use '-' for stdin."),

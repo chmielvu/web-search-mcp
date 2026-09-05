@@ -1,6 +1,6 @@
 """Search result set relevance judge — 4-dimensional evaluation.
 
-Uses GPT-OSS 120B via worker router (Cerebras -> Groq -> Vercel fallback).
+Uses GPT-OSS 120B via worker router (Groq -> HF -> Vercel fallback).
 Evaluates search results across four dimensions: relevance, accuracy,
 completeness, and source_quality. Each dimension gets a discrete grade
 (excellent|good|fair|poor) and a float score (0.0-1.0), plus an
@@ -129,7 +129,7 @@ def _format_results_text(results: list[Any]) -> str:
 class SearchRelevanceJudge:
     """Evaluates relevance of a search result SET to a query.
 
-    Uses GPT-OSS 120B via worker router (Cerebras -> Groq -> Vercel fallback).
+    Uses GPT-OSS 120B via worker router (Groq -> HF -> Vercel fallback).
     Formats result list as a single passage for the judge.
     """
 

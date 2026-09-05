@@ -18,9 +18,7 @@ from kindly_web_search_mcp_server.analytics.quality_metrics import (
 def test_positional_discount_uses_zero_based_position() -> None:
     assert compute_positional_discount(4.0, 0) == pytest.approx(4.0)
     assert compute_positional_discount(4.0, 1) == pytest.approx(4.0 / 1.5849625)
-    assert compute_discounted_cumulative_gain([4.0, 2.0]) == pytest.approx(
-        4.0 + 2.0 / 1.5849625
-    )
+    assert compute_discounted_cumulative_gain([4.0, 2.0]) == pytest.approx(4.0 + 2.0 / 1.5849625)
     with pytest.raises(ValueError):
         compute_positional_discount(1.0, -1)
 

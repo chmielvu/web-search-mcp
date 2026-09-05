@@ -77,9 +77,7 @@ async def test_search_rds_per_page_capped_at_50() -> None:
 
     async def handler(request: httpx.Request) -> httpx.Response:
         seen["per_page"] = request.url.params["per_page"]
-        return httpx.Response(
-            200, json={"status": "OK", "data": {"total_count": 0, "items": []}}
-        )
+        return httpx.Response(200, json={"status": "OK", "data": {"total_count": 0, "items": []}})
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:

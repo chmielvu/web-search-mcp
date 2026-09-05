@@ -166,16 +166,13 @@ async def search_semanticscholar(
             resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
             if resp.status_code == 429:
                 logger.warning(
-                    "Semantic Scholar search rate limited (429); "
-                    "set S2_API_KEY for higher limits"
+                    "Semantic Scholar search rate limited (429); set S2_API_KEY for higher limits"
                 )
                 return []
             resp.raise_for_status()
             data = resp.json().get("data", [])
     except httpx.TimeoutException as e:
-        logger.warning(
-            "Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s", e
-        )
+        logger.warning("Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s", e)
         return []
     except Exception as e:
         logger.warning("Semantic Scholar search failed: %s", e)

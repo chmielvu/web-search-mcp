@@ -189,7 +189,6 @@ GITHUB_TOKEN="..."                         # Better GitHub Issue/Discussion extr
 ```bash
 AI_GATEWAY_API_KEY="..."                   # For LLM-backed query rewrite
 QUERY_UNDERSTANDING_MODEL="amazon/nova-micro"
-CEREBRAS_REWRITE_MODEL="cerebras/gpt-oss-120b"
 GROQ_REWRITE_MODEL="groq/gpt-oss-120b"
 ```
 

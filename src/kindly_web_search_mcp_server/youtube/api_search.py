@@ -9,6 +9,7 @@ enrichment, added in Phase 3).
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
 
@@ -152,9 +153,9 @@ async def search_youtube_api(
 
             results.append(
                 WebSearchResult(
-                    title=title.strip(),
+                    title=html.unescape(title.strip()),
                     link=link,
-                    snippet=rich_snippet,
+                    snippet=html.unescape(rich_snippet),
                 )
             )
 

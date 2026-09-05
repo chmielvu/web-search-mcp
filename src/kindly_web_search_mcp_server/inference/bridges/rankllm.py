@@ -36,7 +36,9 @@ async def rerank_with_rankllm_bridge(
     request = _build_request(query, candidates, request_id or "rerank-request")
     chain = get_chain("rankllm")
 
-    async def _handle_rankllm_spec(spec: ModelSpec) -> tuple[Any, int | None, int | None]:
+    async def _handle_rankllm_spec(
+        spec: ModelSpec,
+    ) -> tuple[Any, int | None, int | None, int, int, int, Exception | None]:
         if spec.provider == "google":
             coordinator = _get_gemini_coordinator(spec.model_id)
         elif spec.provider == "openrouter":
@@ -73,11 +75,23 @@ async def rerank_with_rankllm_bridge(
         last_error = exc.errors[-1][1] if exc.errors else exc
         return LLMRerankOutcome("chain_failed", None, [], error=last_error)
 
-    ranked, input_tokens, output_tokens = exec_res.payload
+    (
+        ranked,
+        input_tokens,
+        output_tokens,
+        passes_attempted,
+        passes_succeeded,
+        passes_failed,
+        pass_error,
+    ) = exec_res.payload
     return LLMRerankOutcome(
         endpoint_name=exec_res.spec.provider,
         model=exec_res.spec.model_id,
         ranked=ranked,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        error=pass_error,
+        attempted_passes=passes_attempted,
+        valid_passes=passes_succeeded,
+        failed_passes=passes_failed,
     )

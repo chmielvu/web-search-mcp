@@ -56,6 +56,7 @@ def test_convert_pdf_to_markdown() -> None:
     assert "# PDF Document" in rendered
     assert "Hello PyMuPDF Document Extraction" in rendered
 
+
 def test_rewrite_document_url() -> None:
     doc_url = "https://docs.google.com/document/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit"
     rewritten_doc = rewrite_document_url(doc_url)

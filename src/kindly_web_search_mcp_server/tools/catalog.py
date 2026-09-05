@@ -117,7 +117,18 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         open_world=False,
     ),
     "quick_web_search": _entry("quick_web_search", "Quick Web Search", {"regular", "full"}),
-    "web_search": _entry("web_search", "Web Search", {"regular", "full"}, task=True),
+    "web_search": _entry(
+        "web_search",
+        "Web Search",
+        {"regular", "full"},
+        version="2.0",
+        task=True,
+        description=(
+            "Deep multi-provider search; not reconnaissance (quick_web_search) or "
+            "grounded synthesis (gemini_search). Returns citations plus a mandatory "
+            "fetch continuation; optional cursor pages leftovers from the same run."
+        ),
+    ),
     "fetch": _entry("fetch", "Fetch", {"regular", "full"}),
     "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
     "grok_search": _entry(
@@ -141,8 +152,8 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             'semantic Hub asset search. Use mode="huggingface" for models/datasets. '
             "Use repositories, language, path, filename, extension, or topic to narrow "
             "the search. Results are grouped by repository (Octocode-style): each group "
-            "contains files with text_matches (source windows), match_lines with exact "
-            "spans, symbols, sha, and url. Hints and next continuations guide agents to "
+            "contains files with source_window (bounded code context), line_start, "
+            "line_end, symbols, sha, and url. Hints and next continuations guide agents to "
             "fetch exact line anchors via fetch. Use web_search or fetch for "
             "general web pages and narrative research."
         ),

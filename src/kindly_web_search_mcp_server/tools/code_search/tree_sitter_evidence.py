@@ -344,7 +344,9 @@ def classify_source(
 
     parser, status, error = _get_parser(resolved_language)
     if parser is None:
-        return AstClassification(status, resolved_language, _parser_version(), len(source_bytes), error=error)
+        return AstClassification(
+            status, resolved_language, _parser_version(), len(source_bytes), error=error
+        )
     try:
         timeout_micros = int(float(os.environ.get("TREE_SITTER_PARSE_TIMEOUT_MS", "100")) * 1000)
         parser.timeout_micros = max(1, timeout_micros)
@@ -413,8 +415,7 @@ def prefetch_required_languages(languages: Iterable[str] | None = None) -> tuple
     """Download approved grammars for deployment/bootstrap, never search runtime."""
     selected = tuple(
         dict.fromkeys(
-            canonical_language(item) or item
-            for item in (languages or required_languages())
+            canonical_language(item) or item for item in (languages or required_languages())
         )
     )
     import tree_sitter_language_pack as language_pack

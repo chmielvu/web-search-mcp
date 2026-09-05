@@ -172,8 +172,8 @@ branches and providers. Each row is one unique result URL per run.
 **Table name:** `rerank_stages`
 **DDL location:** `analytics/writers/schema.py` → `_ensure_rerank_stages()`
 **Write function:** `insert_rerank_stages()`
-**Purpose:** Metadata for each reranking stage (bi_encoder, cross-encoder,
-llm_rerank, diversity, rerank.final).
+**Purpose:** Metadata for each reranking stage (bi_encoder, cross_encoder,
+rankllm, mmr_fallback).
 
 #### Columns
 
@@ -189,8 +189,6 @@ llm_rerank, diversity, rerank.final).
 | `duration_ms` | `DOUBLE` | Stage execution time |
 | `max_score` | `DOUBLE` | Maximum score assigned in this stage |
 | `avg_score` | `DOUBLE` | Average score assigned in this stage |
-| `score_threshold` | `DOUBLE` | Threshold applied to filter candidates |
-| `alpha_blend` | `DOUBLE` | Alpha blend weight if applicable |
 | `input_tokens` | `INTEGER` | Input tokens consumed |
 | `output_tokens` | `INTEGER` | Output tokens consumed |
 | `status` | `VARCHAR` | Stage status |
@@ -198,8 +196,9 @@ llm_rerank, diversity, rerank.final).
 | `instruction_present` | `BOOLEAN` | Whether custom rerank instruction was provided |
 | `instruction_length` | `INTEGER` | Length of rerank instruction in characters |
 | `query_type_hint` | `VARCHAR` | Query type hint used for rerank |
-| `entity_overlap_enabled` | `BOOLEAN` | Whether entity overlap scoring was active |
-| `payload_json` | `JSON` | Full payload |
+| `attempted_passes` | `INTEGER` | RankLLM passes attempted |
+| `valid_passes` | `INTEGER` | RankLLM passes with valid rankings |
+| `failed_passes` | `INTEGER` | RankLLM passes that failed validation or execution |
 
 ---
 
@@ -222,18 +221,18 @@ llm_rerank, diversity, rerank.final).
 | `canonical_result_id` | `VARCHAR` | Canonical URL ID |
 | `rank_before` | `INTEGER` | Rank before this stage |
 | `rank_after` | `INTEGER` | Rank after this stage |
-| `score_before` | `DOUBLE` | Score before this stage |
-| `score_after` | `DOUBLE` | Score after this stage |
+| `final_score_before` | `DOUBLE` | Terminal score before this stage |
+| `final_score_after` | `DOUBLE` | Terminal score after this stage |
 | `bm25_score` | `DOUBLE` | BM25 sparse score |
 | `bm25_rank` | `INTEGER` | BM25 rank |
-| `dense_score` | `DOUBLE` | Dense vector score |
-| `dense_rank` | `INTEGER` | Dense rank |
-| `cross_encoder_raw` | `DOUBLE` | Cross-encoder raw score |
-| `llm_raw_score` | `DOUBLE` | LLM raw score |
-| `fused_score` | `DOUBLE` | Fused composite score |
-| `hybrid_rrf_score` | `DOUBLE` | Hybrid RRF score |
-| `recency_boost` | `DOUBLE` | Recency boost multiplier |
-| `entity_overlap_score` | `DOUBLE` | Entity overlap similarity score |
+| `bi_encoder_score` | `DOUBLE` | Bi-encoder cosine score |
+| `bi_encoder_rank` | `INTEGER` | Bi-encoder rank |
+| `cross_encoder_score` | `DOUBLE` | Cross-encoder score |
+| `rankllm_score` | `DOUBLE` | RankLLM positional relevance score |
+| `retrieval_rrf_score` | `DOUBLE` | Retrieval RRF score |
+| `recency_score` | `DOUBLE` | Independent recency score |
+| `diversity_penalty` | `DOUBLE` | MMR diversity penalty |
+| `survived` | `BOOLEAN` | Candidate survived the stage |
 | `diversity_removed` | `BOOLEAN` | Removed by diversity filter |
 | `payload_json` | `JSON` | Full payload |
 
@@ -283,7 +282,7 @@ search.
 |---|---|---|
 | `recorded_at` | `TIMESTAMPTZ NOT NULL` | `DEFAULT now()` |
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
-| `embedding` | `FLOAT[786]` | Query embedding vector |
+| `embedding` | `FLOAT[768]` | Query embedding vector |
 | `model_id` | `VARCHAR` | Embedding model ID |
 | `payload_json` | `JSON` | Full payload |
 
@@ -312,7 +311,7 @@ for vss similarity search.
 | `run_key` | `VARCHAR NOT NULL` | FK → `search_runs.run_key` |
 | `link` | `VARCHAR NOT NULL` | Result URL |
 | `title` | `VARCHAR` | Result title (first line) |
-| `embedding` | `FLOAT[786]` | Candidate embedding vector |
+| `embedding` | `FLOAT[768]` | Candidate embedding vector |
 | `model_id` | `VARCHAR` | Embedding model ID |
 | `payload_json` | `JSON` | Full payload |
 
@@ -347,8 +346,8 @@ tables.
 | `domain_diversity_ratio` | `DOUBLE` | `domain_diversity_count / total_final_results` |
 | `rerank_compression_ratio` | `DOUBLE` | `SUM(input_count) / SUM(output_count)` from `rerank_stages` |
 | `avg_rrf_score` | `DOUBLE` | Average RRF score from `search_candidates` |
-| `top_score` | `DOUBLE` | Max `score_after` from `rerank_candidates` |
-| `p95_score` | `DOUBLE` | Approx 95th percentile of `score_after` |
+| `top_score` | `DOUBLE` | Max `final_score_after` from `rerank_candidates` |
+| `p95_score` | `DOUBLE` | Approx 95th percentile of `final_score_after` |
 | `provider_count` | `INTEGER` | Distinct providers from `provider_calls` |
 | `branch_count` | `INTEGER` | Count from `search_branches` (normally 6) |
 | `total_candidates_input` | `INTEGER` | `SUM(num_results_returned)` from `provider_calls` |

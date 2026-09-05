@@ -8,7 +8,7 @@ ensures all models, providers, and chains are available.
 from . import catalog as _catalog  # noqa: F401 — registers models + chains
 
 from .chain import ChainSpec, get_chain, list_chains
-from .engine import ChainExhaustedError, ExecutionResult, execute_with_fallback
+from .engine import ChainExhaustedError, ExecutionResult, execute_with_fallback, is_retryable_error
 from .registry import (
     ProviderAdapter,
     ProviderConfig,
@@ -33,7 +33,7 @@ from .types import ModelCapability, ModelSpec
 from .validation import describe_catalog, validate_catalog
 
 __all__ = [
-    "ChainExhaustedError",
+    "is_retryable_error",
     "ChainSpec",
     "ExecutionResult",
     "ModelCapability",

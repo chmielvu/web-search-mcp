@@ -31,7 +31,6 @@ class IntentSearchPolicy:
 _BASE_POLICY_KWARGS: dict[str, Any] = {"rewrite_temperature": 0.0}
 
 
-
 _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "general": IntentSearchPolicy(
         intent="general",
@@ -39,8 +38,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": True},
             "tavily": {"topic": "general"},
-           "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
-           "exa": {"type": "auto"},
+            "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
+            "exa": {"type": "auto"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -50,8 +49,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False},
             "tavily": {"search_depth": "advanced"},
-           "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
-           "exa": {"type": "auto"},
+            "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
+            "exa": {"type": "auto"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -61,8 +60,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False},
             "tavily": {"search_depth": "advanced"},
-           "ddg": {"backend": "grokipedia,wikipedia"},
-           "exa": {"type": "auto", "category": "publication"},
+            "ddg": {"backend": "grokipedia,wikipedia"},
+            "exa": {"type": "auto", "category": "publication"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -72,8 +71,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": True},
             "tavily": {"search_depth": "advanced"},
-           "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
-           "exa": {"type": "auto"},
+            "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
+            "exa": {"type": "auto"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -83,7 +82,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         provider_arguments={
             "brightdata": {"country": "us", "language": "en", "exact_match": False},
             "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
-           "exa": {"type": "auto", "category": "personal site"},
+            "exa": {"type": "auto", "category": "personal site"},
         },
         **_BASE_POLICY_KWARGS,
     ),
@@ -96,8 +95,8 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
             "brightdata": {"search_type": "news", "language": "en"},
             "brave_news": {"freshness": "week"},
             "tavily": {"topic": "news", "time_range": "week", "search_depth": "advanced"},
-           "ddg": {"category": "news"},
-           "exa": {"type": "auto", "category": "news", "freshness": "week"},
+            "ddg": {"category": "news"},
+            "exa": {"type": "auto", "category": "news", "freshness": "week"},
         },
         **_BASE_POLICY_KWARGS,
     ),

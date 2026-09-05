@@ -45,38 +45,13 @@ from .types import ModelCapability
 def _register_all() -> None:
     # ─────────────────────────────────────────────────────────────────────
     # WORKER LLM: gpt-oss-120b
-    #   Primary rewrite LLM — fast, cheap, OpenAI-compatible.
-    #   Cerebras is cheapest; Groq second; HF/Nscale fallback; Vercel last.
+    #   Primary rewrite LLM — Groq first; HF/Nscale fallback; Vercel last.
     # ─────────────────────────────────────────────────────────────────────
     define_model(
         "gpt-oss-120b",
         display_name="GPT OSS 120B",
         description="Primary worker LLM — fast, cheap, OpenAI-compatible.",
         capabilities={ModelCapability.CHAT, ModelCapability.STRUCTURED_OUTPUT},
-    )
-    add_provider(
-        "gpt-oss-120b",
-        "cerebras",
-        as_openai(
-            model_id=settings.cerebras_rewrite_model,
-            base_url=settings.cerebras_base_url,
-            api_key_env="CEREBRAS_API_KEY",
-            cost_per_1m_input=0.35,
-            cost_per_1m_output=0.75,
-            default_timeout=30.0,
-        ),
-    )
-    add_provider(
-        "gpt-oss-120b",
-        "cerebras:second",
-        as_openai(
-            model_id=settings.cerebras_rewrite_model,
-            base_url=settings.cerebras_base_url,
-            api_key_env="SECOND_CEREBRAS_API_KEY",
-            cost_per_1m_input=0.35,
-            cost_per_1m_output=0.75,
-            default_timeout=30.0,
-        ),
     )
     add_provider(
         "gpt-oss-120b",
@@ -123,69 +98,10 @@ def _register_all() -> None:
             default_timeout=30.0,
         ),
     )
-    # Cerebras rewrite fallbacks (verified via /v1/models and chat smoke calls).
-    define_model(
-        "zai-glm-4.7",
-        display_name="GLM 4.7",
-        description="Cerebras-hosted GLM 4.7 chat model.",
-        capabilities={ModelCapability.CHAT, ModelCapability.STRUCTURED_OUTPUT},
-    )
-    add_provider(
-        "zai-glm-4.7",
-        "cerebras",
-        as_openai(
-            model_id="zai-glm-4.7",
-            base_url=settings.cerebras_base_url,
-            api_key_env="CEREBRAS_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
-    add_provider(
-        "zai-glm-4.7",
-        "cerebras:second",
-        as_openai(
-            model_id="zai-glm-4.7",
-            base_url=settings.cerebras_base_url,
-            api_key_env="SECOND_CEREBRAS_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
-    define_model(
-        "gemma-4-31b",
-        display_name="Gemma 4 31B",
-        description="Cerebras-hosted Gemma 4 31B chat model.",
-        capabilities={ModelCapability.CHAT, ModelCapability.STRUCTURED_OUTPUT},
-    )
-    add_provider(
-        "gemma-4-31b",
-        "cerebras",
-        as_openai(
-            model_id="gemma-4-31b",
-            base_url=settings.cerebras_base_url,
-            api_key_env="CEREBRAS_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
-    add_provider(
-        "gemma-4-31b",
-        "cerebras:second",
-        as_openai(
-            model_id="gemma-4-31b",
-            base_url=settings.cerebras_base_url,
-            api_key_env="SECOND_CEREBRAS_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
 
     register_chain(
         "worker_llm",
         [
-            "gpt-oss-120b@cerebras",
-            "gpt-oss-120b@cerebras:second",
-            "zai-glm-4.7@cerebras",
-            "zai-glm-4.7@cerebras:second",
-            "gemma-4-31b@cerebras",
-            "gemma-4-31b@cerebras:second",
             "gpt-oss-120b@groq",
             "gpt-oss-120b@groq:second",
             "gpt-oss-120b@huggingface",

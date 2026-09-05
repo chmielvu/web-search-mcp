@@ -9,6 +9,7 @@ The detector is built once at import (eager model preload avoids cold-path
 latency spikes) and is thread-safe per upstream docs. Breaking/non-gated
 design: no feature flag; missing dependency fails loudly at import.
 """
+
 from __future__ import annotations
 
 from lingua import Language, LanguageDetectorBuilder
@@ -28,9 +29,7 @@ MIN_CONFIDENCE = 0.70
 MIN_MARGIN = 0.40
 
 _detector = (
-    LanguageDetectorBuilder.from_languages(*_SUPPORTED)
-    .with_preloaded_language_models()
-    .build()
+    LanguageDetectorBuilder.from_languages(*_SUPPORTED).with_preloaded_language_models().build()
 )
 
 

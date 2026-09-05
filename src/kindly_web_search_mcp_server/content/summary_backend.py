@@ -51,7 +51,10 @@ def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[
     updated = dict(summary)
     updated["summary"] = "Source text was present but the model failed to summarize it."
     updated["key_points"] = []
-    updated["limitations"] = [*(str(item) for item in limitations), "model_claimed_inaccessible_with_body"]
+    updated["limitations"] = [
+        *(str(item) for item in limitations),
+        "model_claimed_inaccessible_with_body",
+    ]
     return updated
 
 
@@ -488,7 +491,11 @@ async def summarize_batch_with_fallback(
     with_body = [item for item in items if str(item.get("page_content") or "").strip()]
     without_body = [item for item in items if not str(item.get("page_content") or "").strip()]
     if not with_body:
-        return list(await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency))
+        return list(
+            await _fallback_per_item_summaries(
+                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+            )
+        )
 
     urls = [
         item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
@@ -496,7 +503,11 @@ async def summarize_batch_with_fallback(
     ]
     urls = [url for url in urls if url]
     if not urls:
-        return list(await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency))
+        return list(
+            await _fallback_per_item_summaries(
+                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+            )
+        )
 
     def _reorder(batched: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Interleave batched results back into the original item order."""
@@ -514,9 +525,7 @@ async def summarize_batch_with_fallback(
         without_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
     )
     try:
-        batched = await _summarize_batched(
-            with_body, mode=mode, focus_query=focus_query
-        )
+        batched = await _summarize_batched(with_body, mode=mode, focus_query=focus_query)
     except Exception:
         batched = await _fallback_per_item_summaries(
             with_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
@@ -604,9 +613,7 @@ async def _summarize_batched(
             config = _make_batch_config(
                 max_output_tokens=scaled_max, model_id=fallback_model, use_schema=False
             )
-            contents = _build_batch_user_prompt(
-                mode=mode, focus_query=focus_query, items=items
-            )
+            contents = _build_batch_user_prompt(mode=mode, focus_query=focus_query, items=items)
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model=fallback_model,
@@ -644,8 +651,6 @@ def _parse_batch_summary(raw: str) -> Any:
         return BatchSummaryOutput.model_validate_json(cleaned)
     except Exception as exc:
         raise SummaryError(f"Batch summary response was not valid JSON: {exc}") from exc
-
-
 
 
 async def _fallback_per_item_summaries(
@@ -698,8 +703,6 @@ def _map_batch_summaries(
             stub["limitations"] = ["No summary returned for this URL in the batch response."]
             results.append(stub)
     return results
-
-
 
 
 async def _per_item_summary(
