@@ -18,16 +18,15 @@ class TestFetchGuidance(unittest.TestCase):
                     {
                         "source_type": "json",
                         "status": "success",
-                        "page_content": '{"userId":1}',
+                        "content": '{"userId":1}',
                         "window": {"has_more": False},
-                        "wall": None,
                     }
                 ],
             }
         )
         self.assertNotIn("login/paywall", message)
 
-    def test_wall_warning_only_on_blocked_status(self) -> None:
+    def test_wall_warning_follows_status(self) -> None:
         from kindly_web_search_mcp_server.middleware.query_guidance import _guide_fetch
 
         blocked, _, _ = _guide_fetch(
@@ -36,10 +35,9 @@ class TestFetchGuidance(unittest.TestCase):
                 "results": [
                     {
                         "source_type": "html",
-                        "status": "blocked",
-                        "page_content": "Sign in",
+                        "status": "login",
+                        "content": "Sign in",
                         "window": {},
-                        "wall": {"kind": "login"},
                     }
                 ],
             }
@@ -53,9 +51,8 @@ class TestFetchGuidance(unittest.TestCase):
                     {
                         "source_type": "html",
                         "status": "success",
-                        "page_content": "Article body " * 40,
+                        "content": "Article body " * 40,
                         "window": {},
-                        "wall": {"kind": "login"},
                     }
                 ],
             }

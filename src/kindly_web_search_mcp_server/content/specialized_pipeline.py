@@ -17,7 +17,6 @@ from ..errors import classify_error
 from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_error, record_content_resolution
 from .artifact import ContentArtifact, ContentError
-from .options import FetchOptions
 from .resolvers.arxiv import ArxivError, fetch_arxiv_paper_markdown, parse_arxiv_url
 from .resolvers.crates import fetch_crates_markdown, parse_crates_url
 from .resolvers.discourse import fetch_discourse_topic_markdown, parse_discourse_url
@@ -56,7 +55,7 @@ from .resolvers.youtube import (
     fetch_youtube_content_markdown,
     parse_youtube_content_url,
 )
-from .status_classifier import classify_markdown
+from ..utils.content_classify import classify_markdown
 
 LOGGER = logging.getLogger(__name__)
 
@@ -143,23 +142,25 @@ async def _maybe_specialized(
     )
 
 
-async def _resolve_tier1(url: str, options: FetchOptions) -> ContentArtifact | None:
+async def _resolve_tier1(url: str, *, max_response_bytes: int) -> ContentArtifact | None:
     """Try all specialized resolvers in order. Returns an artifact or None if no resolver matches."""
     # 1. Documents (PDF, DOCX, PPTX, XLSX, EPUB, IPYNB, CSV, Google Docs/Sheets)
     if is_document_url(url):
-        doc_artifact = await fetch_document_markdown(url, fetch_options=options)
+        doc_artifact = await fetch_document_markdown(url, max_response_bytes=max_response_bytes)
         if doc_artifact.status in ("success", "partial"):
             return doc_artifact
 
     # 2. Raw text & code files
     if is_raw_text_url(url):
-        raw_artifact = await fetch_raw_text_markdown(url, fetch_options=options)
+        raw_artifact = await fetch_raw_text_markdown(
+            url, max_response_bytes=max_response_bytes, include_links=False
+        )
         if raw_artifact.status in ("success", "partial"):
             return raw_artifact
 
     # 3. Academic DOIs & Open Access papers (Unpaywall)
     if parse_doi_url(url) is not None:
-        doi_artifact = await fetch_doi_paper_markdown(url, fetch_options=options)
+        doi_artifact = await fetch_doi_paper_markdown(url, max_response_bytes=max_response_bytes)
         if doi_artifact.status in ("success", "partial"):
             return doi_artifact
 

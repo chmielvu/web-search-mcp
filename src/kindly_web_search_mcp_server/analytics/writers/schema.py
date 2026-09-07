@@ -92,7 +92,7 @@ def _rename_columns_if_missing(
             existing.add(canonical)
 
 
-_EMBEDDING_DIM = 768
+_EMBEDDING_DIM = 384
 
 
 def _rollover_embedding_table(
@@ -101,7 +101,7 @@ def _rollover_embedding_table(
     table_name: str,
     index_names: tuple[str, ...],
 ) -> None:
-    """Preserve incompatible historical vectors before creating the 768d table."""
+    """Preserve incompatible historical vectors before creating the 384d table."""
     exists = connection.execute(
         """
         SELECT 1
@@ -123,7 +123,7 @@ def _rollover_embedding_table(
     if not current_type.startswith("FLOAT[") or not current_type.endswith("]"):
         raise RuntimeError(
             f"{table_name}.embedding has unsupported type {current_type!r}; "
-            "cannot preserve it during the 768d rollover"
+            "cannot preserve it during the 384d rollover"
         )
     legacy_table = f"{table_name}_{current_type[6:-1]}d_legacy"
     legacy_exists = connection.execute(
@@ -521,9 +521,8 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         _QE_TABLE_NAME,
         f"""
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        run_key       VARCHAR NOT NULL,
+        model_id      VARCHAR DEFAULT 'snowflake-arctic-embed-s',
         embedding     FLOAT[{_EMBEDDING_DIM}],
-        model_id      VARCHAR DEFAULT 'granite-embedding-311m-multilingual',
         payload_json  JSON
         """,
     )
@@ -543,9 +542,8 @@ def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key       VARCHAR NOT NULL,
         link          VARCHAR NOT NULL,
-        title         VARCHAR,
+        model_id      VARCHAR DEFAULT 'snowflake-arctic-embed-s',
         embedding     FLOAT[{_EMBEDDING_DIM}],
-        model_id      VARCHAR DEFAULT 'granite-embedding-311m-multilingual',
         payload_json  JSON
         """,
     )

@@ -266,10 +266,11 @@ def as_embedding(
     default_timeout: float = 30.0,
 ) -> ProviderConfig:
     """
-    Build a ``ProviderConfig`` for a HuggingFace embedding endpoint.
+    Build a ``ProviderConfig`` for an embedding endpoint.
 
-    Uses the same ``InferenceClient`` but with the ``feature_extraction``
-    pipeline instead of chat completion.
+    The live embedding chain uses the ``fastembed`` provider (ml/ client
+    against the fastembed-snowflake service); the spec's ``base_url`` points
+    at it, while the InferenceClient-based legacy path is retired.
     """
     return ProviderConfig(
         model_id=model_id,

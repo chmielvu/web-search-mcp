@@ -33,7 +33,7 @@ from ..youtube import (
 )
 
 from ..youtube.api_quota import get_youtube_api_quota_tracker
-from ..heuristics.text_clean import clean_text_for_llm
+from ..utils.text_clean import clean_text_for_llm
 from ..utils.observability import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ async def youtube_transcript(
             ctx=ctx,
         )
     format = output_format
-    from ..content.summary import create_summary
+    from ..content.ai_summary import create_summary
     from ..settings import settings
     from ..youtube.analysis import analyze_transcript
     from ..youtube.quality import normalize_transcript_segments, truncate_segments

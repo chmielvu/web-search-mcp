@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from ..entity.models import EntitySpan  # pure, safe import
+from ..utils.entity import EntitySpan  # pure, safe import
 
 
 ContentStatus = Literal["success", "partial", "blocked", "unsupported", "error"]

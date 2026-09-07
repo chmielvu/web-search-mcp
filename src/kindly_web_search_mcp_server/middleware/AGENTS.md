@@ -29,3 +29,7 @@ FastMCP middleware stack: rate limits, query guidance, tool protection.
 uv run pytest tests/test_middleware*.py
 uv run pytest tests/test_agent_steering_middleware.py
 ```
+### Recent Changes (2026-09-06)
+- Fetch guidance reads public `content`, pagination, and status-based wall
+  outcomes; it no longer depends on public cache, backend, wall, or continuation
+  metadata.

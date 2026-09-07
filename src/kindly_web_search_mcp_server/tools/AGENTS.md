@@ -45,7 +45,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
 | `code_search` | Typed code/documentation hits, repository candidates, and diagnostics | Backend selects lexical, symbol, regex, semantic, repository, and documentation channels; bounded cloud cross-encoder reranking is always attempted fail-open |
 
-`fetch` accepts `ai_summary: bool = false`; when enabled it returns detailed source-grounded Gemini summaries for emitted results.
+- `fetch` accepts `ai_summary: bool = false`; when enabled the synthesized answer replaces public `content`, while the full summary object remains internal for analytics.
 
 ## Rules
 
@@ -100,3 +100,7 @@ uv run pytest tests/test_code_search.py
 - Keep the user-facing MCP signature stable. `model` is an xAI model ID (for example `grok-4.5`), not an OpenRouter-prefixed ID.
 - The tool reports a configuration error when `GROK_BACKEND=vertex`, because Vertex's managed Grok Responses endpoint does not currently provide native xAI web/X search.
 - Treat Grok as an expensive tool: xAI bills server-side search invocations separately from model input/output tokens. Do not hide those counts from telemetry or responses.
+### Recent Changes (2026-09-06)
+- `fetch` now returns a compact public `FetchResult` with typed errors and
+  status-based access-wall outcomes. Internal artifact, cache, summary, and
+  analytics fields remain private to the tool pipeline.

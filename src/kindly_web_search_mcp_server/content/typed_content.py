@@ -18,6 +18,7 @@ from .format_renderers import (
     render_toml_markdown,
     render_yaml_markdown,
 )
+from ..utils.text_clean import strip_jina_frontmatter
 
 
 _JSON_MIMES = {"application/json", "text/json"}
@@ -49,33 +50,6 @@ SUPPORTED_TYPED_FORMATS = frozenset(
         "svg",
     }
 )
-
-_JINA_FRONTMATTER_RE = re.compile(r"(?s)^---\n(?:[^\n]*\n)*?url:[^\n]*\n(?:[^\n]*\n)*?---(?:\n|$)")
-
-
-def strip_jina_frontmatter(text: str) -> str:
-    """Drop a Jina frontmatter envelope (identified by its ``url:`` field)."""
-    if not text:
-        return text
-    match = _JINA_FRONTMATTER_RE.match(text)
-    if match is None:
-        return text
-    return text[match.end() :]
-
-
-def parse_jina_frontmatter(text: str) -> dict[str, str]:
-    """Return the Jina envelope fields (title/url/warning/...) when present."""
-    if not text:
-        return {}
-    match = _JINA_FRONTMATTER_RE.match(text)
-    if match is None:
-        return {}
-    fields: dict[str, str] = {}
-    for line in match.group(0)[3:-5].splitlines():
-        key, sep, value = line.partition(":")
-        if sep and key.strip().isidentifier():
-            fields[key.strip().lower()] = value.strip().strip('"').strip("'")
-    return fields
 
 
 def _mime(content_type: str | None) -> str:

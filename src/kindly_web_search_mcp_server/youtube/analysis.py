@@ -6,13 +6,17 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
-from ..entity.chunk import chunk_text
-from ..entity.default_schema import DEFAULT_CONTENT_LABELS, DEFAULT_CONTENT_RELATIONS
-from ..entity.gliner_client import get_gliner_client
-from ..entity.models import EntityRelation, EntitySpan
-from ..entity.postprocess import postprocess_entities
+from ..ml.gliner_client import get_gliner_client
 from ..models import YouTubeTranscriptAnalysis
 from ..search.understanding.adapter import normalize_content_entities
+from ..utils.entity import (
+    DEFAULT_CONTENT_LABELS,
+    DEFAULT_CONTENT_RELATIONS,
+    EntityRelation,
+    EntitySpan,
+    postprocess_entities,
+)
+from ..utils.text_chunking import chunk_text
 
 
 def _unwrap_payload(raw: Mapping[str, Any]) -> Mapping[str, Any]:

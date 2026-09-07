@@ -10,7 +10,6 @@ Converts multi-format documents into clean LLM-ready Markdown using:
 
 from __future__ import annotations
 
-import csv
 import io
 import json
 import logging
@@ -20,14 +19,17 @@ import urllib.parse
 
 from ..artifact import ContentArtifact, ContentError
 from ..format_renderers import render_columnar_markdown, render_mhtml_markdown
-from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
-from ..sanitize import sanitize_markdown
-from ..status_classifier import classify_markdown
+from ...utils.content_classify import classify_markdown
+from ...utils.text_clean import sanitize_markdown
+from ..typed_content import render_typed_content
 from ...telemetry import record_content_error, record_content_resolution
 from ...utils.url_canonicalize import canonicalize_url
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_TIMEOUT_SECONDS = 30.0
+_MAX_PDF_PAGES = int(os.environ.get("GENERIC_PDF_MAX_PAGES", "30").strip())
 
 
 class DocumentConversionError(RuntimeError):
@@ -127,8 +129,7 @@ def _convert_pdf_to_markdown(pdf_bytes: bytes, source_url: str) -> str:
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page_count = len(doc)
-    max_pages = int(os.environ.get("GENERIC_PDF_MAX_PAGES", "30").strip())
-    pages_to_render = min(page_count, max_pages)
+    pages_to_render = min(page_count, _MAX_PDF_PAGES)
 
     md_lines: list[str] = [
         "# PDF Document",
@@ -216,43 +217,6 @@ def _convert_ipynb_to_markdown(ipynb_text: str, source_url: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _convert_csv_to_markdown(csv_text: str, source_url: str, delimiter: str = ",") -> str:
-    """Format CSV or TSV text as a clean GitHub-Flavored Markdown table."""
-    reader = csv.reader(io.StringIO(csv_text, newline=""), delimiter=delimiter)
-    rows: list[list[str]] = []
-    max_rows = 500
-
-    for i, row in enumerate(reader):
-        if i >= max_rows:
-            break
-        cleaned_row = [cell.strip().replace("\n", " ").replace("|", "\\|") for cell in row]
-        if any(cleaned_row):
-            rows.append(cleaned_row)
-
-    if not rows:
-        return f"# Data Table\n\nSource: {source_url}\n\n_Empty table_"
-
-    col_count = max(len(r) for r in rows)
-    normalized_rows = [r + [""] * (col_count - len(r)) for r in rows]
-
-    header = normalized_rows[0]
-    separator = ["---"] * col_count
-
-    md_lines: list[str] = [
-        f"# Data Table\nSource: {source_url}\n",
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join(separator) + " |",
-    ]
-
-    for row in normalized_rows[1:]:
-        md_lines.append("| " + " | ".join(row) + " |")
-
-    if len(rows) >= max_rows:
-        md_lines.append(f"\n_Note: Table truncated to first {max_rows} rows_")
-
-    return "\n".join(md_lines).strip()
-
-
 def _convert_office_with_markitdown(body: bytes, filename: str) -> str:
     """Convert Office / EPUB files using the explicit MarkItDown extras."""
     suffix = os.path.splitext(filename)[1].lower()
@@ -328,18 +292,16 @@ def _office_error_artifact(
 async def fetch_document_markdown(
     url: str,
     *,
-    fetch_options: FetchOptions | None = None,
+    max_response_bytes: int = 5 * 1024 * 1024,
 ) -> ContentArtifact:
-    """Fetch and convert document into clean LLM-ready Markdown."""
-    options = fetch_options or FetchOptions()
     effective_url = rewrite_document_url(url)
 
     try:
-        timeout_sec = options.stage_timeout_seconds or 30.0
+        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
         fetched = await safe_fetch_url(
             effective_url,
             timeout_seconds=timeout_sec,
-            max_response_bytes=options.max_response_bytes,
+            max_response_bytes=max_response_bytes,
         )
         doc_type = fetched.doc_type or get_doc_source_type(effective_url)
         markdown = ""
@@ -351,8 +313,7 @@ async def fetch_document_markdown(
             markdown = _convert_ipynb_to_markdown(text_content, url)
         elif doc_type in ("csv", "tsv"):
             text_content = fetched.text or fetched.body.decode("utf-8", errors="replace")
-            delimiter = "\t" if doc_type == "tsv" else ","
-            markdown = _convert_csv_to_markdown(text_content, url, delimiter=delimiter)
+            markdown, _, _ = render_typed_content(doc_type, text_content, url)
         elif doc_type == "mhtml":
             markdown, _ = render_mhtml_markdown(fetched.body, url)
         elif doc_type in {"parquet", "arrow", "feather"}:

@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ..sanitize import sanitize_markdown
+from ...utils.text_clean import sanitize_markdown
 from ...utils.github import normalize_github_repository
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"

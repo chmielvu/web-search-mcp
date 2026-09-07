@@ -50,3 +50,7 @@ uv run pytest tests/test_content_*.py
 - Gemma SERP tests use mocked Pollinations responses only; do not make authenticated generation calls during the test suite.
 - Analytics lifecycle tests use temporary DuckDB files and `drain_duckdb_writes`; tool telemetry assertions patch the typed `insert_tool_call_event` seam rather than the removed generic event sink.
 - `conftest.py` patches `SEARXNG_BASE_URL` and `TAVILY_API_KEY` for deterministic unit tests.
+### Recent Changes (2026-09-06)
+- Fetch contract tests assert the public `url`/`status`/`content`/`window`
+  envelope, typed errors, status-based access walls, internal cache format,
+  and summary-to-content routing.

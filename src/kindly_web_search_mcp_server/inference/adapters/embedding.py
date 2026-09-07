@@ -1,8 +1,8 @@
-"""Embedding adapter wrapping Unified ML and HF inference providers."""
+"""Embedding adapter wrapping the fastembed-snowflake ML service."""
 
 from __future__ import annotations
 
-from ...embeddings import embed_query, embed_texts
+from ...ml import embed_query, embed_texts
 from ..types import ModelSpec
 
 
@@ -15,7 +15,7 @@ async def embed_texts_with_spec(
     skip_circuit_check: bool = False,
 ) -> list[list[float]]:
     """Embed texts using the unified inference ModelSpec configuration."""
-    provider = "hf-inference" if spec.provider == "huggingface" else spec.provider
+    provider = "fastembed"
     return await embed_texts(
         texts,
         provider=provider,
@@ -36,7 +36,7 @@ async def embed_query_with_spec(
     skip_circuit_check: bool = False,
 ) -> list[float]:
     """Embed a single query using the unified inference ModelSpec configuration."""
-    provider = "hf-inference" if spec.provider == "huggingface" else spec.provider
+    provider = "fastembed"
     return await embed_query(
         query,
         provider=provider,

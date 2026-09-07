@@ -1,12 +1,105 @@
-"""Pure-Python validation, deduplication, and overlap merging for entities."""
+"""Entity contracts: models, label schemas, and source-grounded post-processing.
+
+Pure-Python core shared by query understanding, YouTube transcript analysis,
+and optional content extraction. Inference runs on the hosted GLiNER2
+gateway (see ml/gliner_client.py); this module never imports it.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Iterable
 
-from .models import EntitySpan
+from pydantic import BaseModel, Field
 
+__all__ = [
+    "DEFAULT_CONTENT_LABELS",
+    "DEFAULT_CONTENT_RELATIONS",
+    "DEFAULT_QUERY_LABELS",
+    "DEFAULT_QUERY_RELATIONS",
+    "EntityRelation",
+    "EntitySpan",
+    "postprocess_entities",
+]
+
+
+class EntitySpan(BaseModel):
+    """A source-grounded entity mention."""
+
+    text: str = Field(description="Surface form exactly as it appears in source text.")
+    label: str = Field(description="Entity label from the extraction schema.")
+    start: int | None = Field(
+        default=None,
+        description="Character start offset (inclusive) in the source text.",
+    )
+    end: int | None = Field(
+        default=None,
+        description="Character end offset (exclusive) in the source text.",
+    )
+    confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Model-assigned confidence for this span.",
+    )
+
+    model_config = {"extra": "forbid"}
+
+
+class EntityRelation(BaseModel):
+    """A validated relation between two source-grounded entity mentions.
+
+    ``confidence`` is derived from the minimum endpoint confidence because
+    GLiNER2 does not expose an independent relation score.
+    """
+
+    relation: str
+    head: EntitySpan
+    tail: EntitySpan
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    model_config = {"extra": "forbid"}
+
+
+# One vocabulary is shared by query understanding and content extraction.
+DEFAULT_QUERY_LABELS: dict[str, str] = {
+    "package": "Software package, library, or framework name",
+    "version": "Software version string",
+    "api_function": "API endpoint, function, or method name",
+    "error_class": "Error or exception class name",
+    "repo_ref": "GitHub or GitLab repository reference",
+    "cli_flag": "Command-line flag or argument",
+    "model_id": "Machine-learning model identifier",
+    "file_path": "File or module path",
+    "env_var": "Environment variable name",
+    "person": "Person name",
+    "organization": "Company, team, or organization",
+    "date": "Date or time expression",
+    "product": "Product, service, or platform product name",
+    "url": "URL or web address",
+    "language": "Programming, markup, or data language",
+    "platform": "Operating system, runtime, hosting platform, or target environment",
+    "provider": "Cloud, model, search, or API provider",
+    "dataset": "Dataset or corpus name",
+    "topic": "Named subject or technical topic",
+    "tool": "Developer or command-line tool",
+}
+
+DEFAULT_QUERY_RELATIONS: dict[str, str] = {
+    "compares_with": "One named software, model, provider, platform, product, or tool is compared with another",
+    "version_of": "A package, product, or model is associated with its version",
+    "uses": "A project, package, framework, or tool uses another package, API, model, or tool",
+    "requires": "A package, project, or tool requires a dependency, version, API, or environment variable",
+    "runs_on": "A package, model, or tool runs on or targets a platform, runtime, operating system, or provider",
+    "implements": "A package, project, or framework implements an API, protocol, or interface",
+}
+
+# Content extraction reuses every query label and adds no second vocabulary.
+DEFAULT_CONTENT_LABELS: dict[str, str] = dict(DEFAULT_QUERY_LABELS)
+DEFAULT_CONTENT_RELATIONS: dict[str, str] = dict(DEFAULT_QUERY_RELATIONS)
+
+
+# --- Post-processing: validation, deduplication, and overlap merging ---
 
 _VERSION_V_PREFIX = re.compile(r"^v(?=\d)", re.IGNORECASE)
 _REPO_REF_VALID = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:#[A-Za-z0-9_.-]+)?$")

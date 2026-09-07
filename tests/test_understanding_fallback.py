@@ -9,7 +9,7 @@ import pytest
 
 from kindly_web_search_mcp_server.settings import settings
 
-from kindly_web_search_mcp_server.entity.gliner_client import GLiNER2Client
+from kindly_web_search_mcp_server.ml.gliner_client import GLiNER2Client
 from kindly_web_search_mcp_server.heuristics.understanding_fallback import (
     resolve_fallback_understanding,
 )

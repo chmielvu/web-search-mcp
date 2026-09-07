@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..remote_clients import get_apify_client
-from ..sanitize import sanitize_markdown
+from ...utils.text_clean import sanitize_markdown
 
 logger = logging.getLogger(__name__)
 

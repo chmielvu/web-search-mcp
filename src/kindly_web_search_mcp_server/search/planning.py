@@ -8,8 +8,7 @@ import logging
 import time
 from typing import Any, Awaitable, Sequence
 
-from ..heuristics.query_features import QueryFeatures, build_query_features
-from ..heuristics.text_segment import segment_query
+from ..utils.query_pipeline import QueryFeatures, build_query_features
 from ..inference.router import build_worker_router
 from ..prompts.query_rewrite import (
     REWRITE_PROMPT_VERSION,
@@ -104,11 +103,9 @@ def _strip_goal(slot: str, goal: str) -> str:
     return " ".join((slot[:start] + " " + slot[end:]).split())
 
 
-def _normalize_branch_query(query: str) -> tuple[str, bool]:
-    """Normalize a rewritten slot; wordninja glue-repair is additive."""
-    segmented = segment_query(query or "")
-    normalized = normalize_query(segmented or query or "")
-    return normalized, segmented is not None
+def _normalize_branch_query(query: str) -> str:
+    """Normalize a rewritten slot (whitespace/ingress cleaning only)."""
+    return normalize_query(query or "")
 
 
 def _branch_fallback_queries(
@@ -369,14 +366,10 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                     "semantic_exa": rewrite.semantic_exa,
                 }
                 normalized_slots: dict[str, str] = {}
-                glued: list[str] = []
                 for name in SLOT_ORDER:
-                    norm, did_glue = _normalize_branch_query(raw_slots[name])
-                    normalized_slots[name] = _strip_goal(norm, goal_text)
-                    if did_glue:
-                        glued.append(name)
-                if glued:
-                    rewrite_meta["segment_glued"] = glued
+                    normalized_slots[name] = _strip_goal(
+                        _normalize_branch_query(raw_slots[name]), goal_text
+                    )
                 rewrite_meta["branch_count"] = 6
                 rewrite_meta["graph_expansion"] = graph_expansion_meta
                 dc.rewrite_metadata = rewrite_meta

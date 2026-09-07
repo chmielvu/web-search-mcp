@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ...entity.models import EntityRelation, EntitySpan
+from ...utils.entity import EntityRelation, EntitySpan
 from ..intents import SearchIntent
 
 

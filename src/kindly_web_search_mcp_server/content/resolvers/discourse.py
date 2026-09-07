@@ -12,8 +12,8 @@ from typing import Any
 
 import httpx
 
-from ..extract import extract_content_as_markdown
-from ..sanitize import sanitize_markdown
+from ..html_extract import extract_html_as_markdown
+from ...utils.text_clean import sanitize_markdown
 
 
 class DiscourseError(RuntimeError):
@@ -84,7 +84,7 @@ def render_discourse_markdown(data: dict[str, Any], url: str) -> str:
         op_author = op.get("username") or op.get("name") or "author"
         op_body = op.get("raw") or ""
         if not op_body and op.get("cooked"):
-            op_body = extract_content_as_markdown(op["cooked"])
+            op_body = extract_html_as_markdown(op["cooked"])
 
         lines.append("\n## Original Post")
         lines.append(f"**Author:** @{op_author}\n")
@@ -103,7 +103,7 @@ def render_discourse_markdown(data: dict[str, Any], url: str) -> str:
 
                 p_body = p.get("raw") or ""
                 if not p_body and p.get("cooked"):
-                    p_body = extract_content_as_markdown(p["cooked"])
+                    p_body = extract_html_as_markdown(p["cooked"])
 
                 lines.append(f"### #{post_num} by @{author}{accepted} (Score: {p_likes})")
                 lines.append(sanitize_markdown(p_body.strip()))

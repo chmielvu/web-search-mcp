@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from ..heuristics.text_clean import clean_text_for_llm
+from .text_clean import clean_text_for_llm
 
 # Hard cap on snippet characters (prevents context-budget blowouts)
 MAX_SNIPPET_LENGTH = 500

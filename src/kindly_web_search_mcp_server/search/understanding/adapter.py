@@ -7,18 +7,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from ...entity.default_schema import (
+from ...utils.entity import (
     DEFAULT_CONTENT_LABELS,
     DEFAULT_QUERY_LABELS,
     DEFAULT_QUERY_RELATIONS,
+    EntityRelation,
+    EntitySpan,
+    postprocess_entities,
 )
-from ...entity.models import EntityRelation, EntitySpan
-from ...entity.postprocess import postprocess_entities
-from ...heuristics.query_features import _langs_from_text
-from ...heuristics.understanding_fallback import (
-    _TIME_CURRENT as _CURRENT_TERMS,
-    _TIME_HISTORICAL as _HISTORICAL_TERMS,
-    _TIME_RECENT as _RECENT_TERMS,
+from ...utils.query_pipeline import langs_from_text
+from ...utils.query_understanding import (
+    TIME_CURRENT as _CURRENT_TERMS,
+    TIME_HISTORICAL as _HISTORICAL_TERMS,
+    TIME_RECENT as _RECENT_TERMS,
 )
 from ..intents import SearchIntent, normalize_intent
 from .models import QueryUnderstandingResult
@@ -57,7 +58,7 @@ _TECHNICAL_LABELS = frozenset(
 _COMPARISON_FALLBACK_LABELS = frozenset(
     {"package", "product", "model_id", "provider", "platform", "repo_ref"}
 )
-# Time-term regexes are owned by heuristics.understanding_fallback (single
+# Time-term regexes are owned by utils.query_understanding (single
 # source of truth); _COMPARISON_TERMS stays adapter-specific (includes bare
 # vs, which the fallback's precision-first classifier deliberately excludes).
 _COMPARISON_TERMS = re.compile(r"\b(?:compare|versus|vs\.?|compared)\b", re.IGNORECASE)
@@ -337,7 +338,7 @@ def _derive_fields(
     ]
     domain_hints: list[str] = []
     seen_hints: set[str] = set()
-    for value in [*domain_values, *_langs_from_text(source, domain_values)]:
+    for value in [*domain_values, *langs_from_text(source, domain_values)]:
         key = value.casefold()
         if key not in seen_hints:
             seen_hints.add(key)

@@ -16,10 +16,7 @@ async def fetch_payload(
     offset: int = 0,
     ai_summary: bool = False,
     focus_query: str | None = None,
-    include_metadata: bool = True,
     include_links: bool = False,
-    max_links: int = 25,
-    strip_selectors: str | None = None,
 ) -> dict[str, Any]:
     """Call the unified fetch tool without exposing resource tuning knobs."""
     mock_ctx = AsyncMock()
@@ -36,10 +33,7 @@ async def fetch_payload(
         cursor=cursor,
         ai_summary=ai_summary,
         focus_query=focus_query,
-        include_metadata=include_metadata,
         include_links=include_links,
-        max_links=max_links,
-        strip_selectors=strip_selectors,
         ctx=mock_ctx,
     )
     return (

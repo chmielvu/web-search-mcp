@@ -177,7 +177,7 @@ def test_content_fetch_suggests_next_window(monkeypatch) -> None:
                 "results": [
                     {
                         "url": "https://example.com",
-                        "page_content": "part",
+                        "content": "part",
                         "window": {"has_more": True, "next_offset": 42},
                     }
                 ],

@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
-from kindly_web_search_mcp_server.entity.models import EntityRelation, EntitySpan
-from kindly_web_search_mcp_server.entity.gliner_client import GatewayAnalysis
+from kindly_web_search_mcp_server.ml.gliner_client import GatewayAnalysis
+from kindly_web_search_mcp_server.utils.entity import EntityRelation, EntitySpan
 from kindly_web_search_mcp_server.search.understanding.models import QueryUnderstandingResult
 from kindly_web_search_mcp_server.search.understanding.resolver import resolve_query_understanding
 from kindly_web_search_mcp_server.settings import settings

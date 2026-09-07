@@ -477,11 +477,13 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(out["mode"], "single")
         self.assertEqual(out["total_returned"], 1)
-        self.assertEqual(out["results"][0]["fetched_url"], "https://example.com/")
-        self.assertEqual(out["results"][0]["fetch_backend"], "test")
-        self.assertIn("Hello", out["results"][0]["page_content"])
+        result = out["results"][0]
+        self.assertEqual(result["url"], "https://example.com/")
+        self.assertIn("Hello", result["content"])
+        self.assertIsNone(result.get("error"))
+        self.assertNotIn("fetch_backend", result)
 
-    async def test_fetch_includes_metadata_and_links(self) -> None:
+    async def test_fetch_omits_metadata_and_includes_links(self) -> None:
         from kindly_web_search_mcp_server.content.artifact import ContentArtifact
         from kindly_web_search_mcp_server.server import fetch
 
@@ -528,13 +530,12 @@ class TestWebSearchTool(unittest.IsolatedAsyncioTestCase):
             out = await tool_fn(
                 url="https://example.com",
                 include_links=True,
-                max_links=5,
                 ctx=mock_ctx,
             )
         out = out.model_dump(exclude_none=True)
 
         result = out["results"][0]
-        self.assertEqual(result["metadata"]["title"], "Example")
+        self.assertNotIn("metadata", result)
         self.assertEqual(result["links"][0]["url"], "https://example.com/next")
 
     async def test_fetch_returns_structured_timeout_error(self) -> None:

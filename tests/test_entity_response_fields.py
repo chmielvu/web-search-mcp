@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from kindly_web_search_mcp_server.entity.models import EntitySpan
+from kindly_web_search_mcp_server.utils.entity import EntitySpan
 
 from kindly_web_search_mcp_server.models import FetchResult, WebSearchResult
 
@@ -21,12 +21,9 @@ def test_web_search_result_model_accepts_entities() -> None:
 def test_fetch_result_model_accepts_entities() -> None:
     e = EntitySpan(text="bar", label="api_function", start=10, end=13)
     c = FetchResult(
-        input_url="u",
-        normalized_url="u",
+        url="u",
         status="success",
-        source_type="html",
-        fetch_backend="http",
-        page_content="content here",
+        content="content here",
         window={},
         entities=[e],
     )

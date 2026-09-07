@@ -9,7 +9,7 @@ import time
 
 import numpy as np
 
-from ..embeddings import (
+from ..ml import (
     EmbeddingAPIError,
     EmbeddingTimeoutError,
     embed_texts,

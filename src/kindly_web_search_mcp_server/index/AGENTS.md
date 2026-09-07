@@ -1,10 +1,10 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-03 | Last verified: 2026-09-03 -->
+<!-- Last updated: 2026-09-07 | Last verified: 2026-09-07 -->
 
 # AGENTS.md - Index
 
-Write-only remote Qdrant web-results index (dense 768d + BM25 sparse).
+Write-only remote Qdrant web-results index (dense 384d Arctic + BM25-IDF sparse).
 
 ## Key Files
 
@@ -18,7 +18,8 @@ Write-only remote Qdrant web-results index (dense 768d + BM25 sparse).
 - Write-only — do NOT treat it as the main search surface.
 - `WEB_RESULTS_INDEX_ENABLED` gates the write path.
 - `QDRANT_SPACE_URL` selects the remote endpoint.
-- Uses hybrid dense (768d) + sparse representations for future retrieval experiments.
+- Collection `web_results_384d`: named dense "dense" (384-d, Cosine, from ml/ Arctic client) + named sparse "sparse" (server-side IDF modifier; locally encoded via `bm25_encoder.encode_bm25`).
+- Dense embeddings MUST come from `ml.embed_texts`/`ml.embed_query` (snowflake-arctic-embed-s, 384-dim) — never HF Inference.
 
 ## Testing
 

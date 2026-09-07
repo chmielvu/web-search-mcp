@@ -10,7 +10,7 @@ from collections.abc import Callable, Sequence
 import httpx
 from qdrant_client import AsyncQdrantClient, models
 
-from ...embeddings import embed_query
+from ...ml import embed_query
 from ...index.bm25_encoder import encode_bm25
 from ...index.web_results_index import COLLECTION_NAME
 from ...models import WebSearchResult

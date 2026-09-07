@@ -113,6 +113,15 @@ class TestUnifiedFetch(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output["waves_completed"], 1)
         self.assertTrue(output["has_more"])
         self.assertEqual(calls, urls[:10])
+        for result in output["results"]:
+            self.assertLessEqual(
+                set(result),
+                {"url", "status", "content", "links", "window", "error", "entities", "diagnostics"},
+            )
+            self.assertNotIn("summary", result)
+            self.assertNotIn("usage", result)
+            self.assertNotIn("metadata", result)
+            self.assertNotIn("page_content", result)
 
     async def test_internal_workers_are_bounded(self) -> None:
         urls = [f"https://{index}.example.com" for index in range(10)]

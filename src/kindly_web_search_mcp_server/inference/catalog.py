@@ -516,40 +516,24 @@ def _register_all() -> None:
     # EMBEDDING
     # ─────────────────────────────────────────────────────────────────────
     define_model(
-        "multilingual-e5-small",
-        display_name="Multilingual E5 Small",
-        description="Unified ML ONNX embedding model (VPS primary).",
+        "snowflake-arctic-embed-s",
+        display_name="Snowflake Arctic Embed S",
+        description="fastembed-snowflake ONNX embedding model (VPS, 384-d).",
         capabilities={ModelCapability.EMBEDDING},
     )
     add_provider(
-        "multilingual-e5-small",
-        "unifiedml",
+        "snowflake-arctic-embed-s",
+        "fastembed",
         as_embedding(
             model_id=settings.embedding_model,
             base_url=settings.embedding_endpoint_url,
             default_timeout=settings.embedding_timeout_seconds,
         ),
     )
-    define_model(
-        "multilingual-e5-large-instruct",
-        display_name="Multilingual E5 Large Instruct",
-        description="HuggingFace embedding model for bi-encoder reranking fallback.",
-        capabilities={ModelCapability.EMBEDDING},
-    )
-    add_provider(
-        "multilingual-e5-large-instruct",
-        "huggingface",
-        as_embedding(
-            model_id=settings.hf_embedding_model,
-            api_key_env="HF_TOKEN",
-            default_timeout=settings.embedding_timeout_seconds,
-        ),
-    )
     register_chain(
         "embedding",
         [
-            "multilingual-e5-small@unifiedml",
-            "multilingual-e5-large-instruct@huggingface",
+            "snowflake-arctic-embed-s@fastembed",
         ],
     )
 

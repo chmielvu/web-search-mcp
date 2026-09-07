@@ -4,7 +4,7 @@
 
 # AGENTS.md — Kindly Web Search MCP Server
 
-FastMCP server + Typer CLI for multi-provider web search, content extraction, reranking, analytics, and AI-grounded answers.
+Experimental FastMCP server + Typer CLI for an experimental multi-provider web search, content extraction, reranking, analytics, and AI-grounded answers.
 
 ## Tech Stack
 
@@ -18,17 +18,15 @@ FastMCP server + Typer CLI for multi-provider web search, content extraction, re
 - **Academic Search Subsystem** (Separate from web search) — 6 dedicated adapters: ArXiv, Semantic Scholar (S2), OpenAlex, CrossRef, PubMed, CORE
 
 ## Commands (verified)
+> **Experimental app / testing freeze:** This is an experimental application. Tests are currently frozen and intentionally ignored. Agents **MUST NOT run any test command, test file, test discovery, or test suite**, and **MUST NOT add, modify, repair, or unfreeze tests** unless explicitly instructed.
 
 | Task | Command | ~Time |
 |------|---------|-------|
 | Install | `uv sync` | ~5s |
 | Lint | `uv run ruff check src/ tests/` | <1s |
 | Format Check | `uv run ruff format --check src/ tests/` | <1s |
-| Test (single) | `uv run pytest tests/test_merge.py` | ~4s |
-| Test (all) | `uv run pytest` | ~30s |
 | Run MCP Server | `uv run web-search-cli server` | foreground |
 | CLI Doctor | `uv run web-search-cli doctor` | ~8s |
-| Public-code prototype test | `uv run python -m unittest discover -s prototypes/public_code_search -p "test_*.py"` | <1s |
 
 ## CLI & MCP Tools Overview
 
@@ -78,17 +76,14 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 | `src/kindly_web_search_mcp_server/inference/AGENTS.md` | Model & provider registry, fallback engine, adapters |
 | `src/kindly_web_search_mcp_server/middleware/AGENTS.md` | FastMCP middleware (rate limits, guidance, protection) |
 | `src/kindly_web_search_mcp_server/prompts/AGENTS.md` | Prompt templates and registry |
-| `src/kindly_web_search_mcp_server/embeddings/AGENTS.md` | HF Inference embedding client |
-| `src/kindly_web_search_mcp_server/index/AGENTS.md` | Write-only Qdrant web-results index |
-| `src/kindly_web_search_mcp_server/entity/AGENTS.md` | Entity extraction (GLiNER2, chunking, overlap) |
-| `src/kindly_web_search_mcp_server/heuristics/AGENTS.md` | Query clean/augment, provider dialect shaping, guidance messages |
+| `src/kindly_web_search_mcp_server/ml/AGENTS.md` | ML gateway clients (fastembed embeddings, GLiNER2 entity extraction) |
 | `src/kindly_web_search_mcp_server/ab_testing/AGENTS.md` | A/B testing framework |
 | `src/kindly_web_search_mcp_server/evals/AGENTS.md` | Evaluation test cases, LLM judges, regression metrics |
 | `src/kindly_web_search_mcp_server/observability/AGENTS.md` | Observability event helpers |
 | `src/kindly_web_search_mcp_server/telemetry/AGENTS.md` | OpenTelemetry instrumentation |
 | `src/kindly_web_search_mcp_server/training/AGENTS.md` | Write-only JSONL training data sink |
 | `src/kindly_web_search_mcp_server/utils/AGENTS.md` | Cross-cutting helpers (HTTP, logging, async) |
-| `tests/AGENTS.md` | Test organization and conventions |
+| `tests/AGENTS.md` | Reference only; tests are frozen, ignored, and forbidden to run or modify unless explicitly instructed |
 | `docs/AGENTS.md` | Human-readable documentation |
 | `duckdb_data/AGENTS.md` | DuckDB database inventory and read-only access |
 | `prototypes/public_code_search/AGENTS.md` | Agent-oriented public GitHub code search prototype |
@@ -115,7 +110,7 @@ Persistent `.duckdb` databases use DuckDB's native single-writer format. Externa
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (21356 symbols, 54636 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (13880 symbols, 22904 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

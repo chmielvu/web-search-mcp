@@ -25,7 +25,7 @@ def _suggested_next(data: Any) -> list[str]:
         primary = data["results"][0]
     window = primary.get("window") if isinstance(primary, dict) else None
     if isinstance(window, dict) and window.get("has_more"):
-        url = primary.get("input_url") or primary.get("url")
+        url = primary.get("url")
         next_offset = window.get("next_offset")
         if isinstance(url, str) and next_offset is not None:
             suggestions.append(

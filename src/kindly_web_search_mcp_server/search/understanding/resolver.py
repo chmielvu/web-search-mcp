@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from ...entity.gliner_client import GatewayAnalysis, get_gliner_client
-from ...heuristics.understanding_fallback import resolve_fallback_understanding
+from ...ml.gliner_client import GatewayAnalysis, get_gliner_client
+from ...utils.query_understanding import resolve_fallback_understanding
 from ...settings import settings
 from ...training.query_understanding_jsonl import append_query_understanding_record
 from ...training.session_state import get_session_state_store

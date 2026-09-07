@@ -13,7 +13,7 @@ from email import policy
 from email.parser import BytesParser
 from typing import Any
 
-from .extract import extract_content_as_markdown
+from .html_extract import extract_html_as_markdown
 
 MAX_CONFIG_CHARS = 1_000_000
 MAX_JSONL_RECORDS = 200
@@ -320,7 +320,7 @@ def render_mhtml_markdown(body: bytes, source_url: str) -> tuple[str, dict[str, 
         elif content_type == "text/plain" and plain_text is None:
             plain_text = decoded
     if html_text is not None:
-        markdown = extract_content_as_markdown(html_text, url=source_url)
+        markdown = extract_html_as_markdown(html_text, url=source_url)
         chosen = "text/html"
     elif plain_text is not None:
         markdown = plain_text.strip()

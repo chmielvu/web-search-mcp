@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..entity.gliner_client import get_gliner_client
-from ..entity.models import EntitySpan
+from ..ml.gliner_client import get_gliner_client
+from ..utils.entity import EntitySpan
 
 
 async def extract_entities(

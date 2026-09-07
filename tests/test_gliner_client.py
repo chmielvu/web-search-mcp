@@ -7,12 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from kindly_web_search_mcp_server.entity.gliner_client import (
+from kindly_web_search_mcp_server.ml.gliner_client import (
     GLiNER2Client,
     get_gliner_client,
     is_entity_extraction_enabled,
 )
-from kindly_web_search_mcp_server.entity.models import EntitySpan
+from kindly_web_search_mcp_server.utils.entity import EntitySpan
 from kindly_web_search_mcp_server.settings import settings
 
 
@@ -47,11 +47,11 @@ class _Client:
         return self.response
 
 
-def test_main_entity_package_does_not_import_gliner2():
+def test_utils_entity_module_does_not_import_gliner2():
     for module in list(sys.modules):
         if module == "gliner2" or module.startswith("gliner2."):
             del sys.modules[module]
-    import kindly_web_search_mcp_server.entity as entity
+    import kindly_web_search_mcp_server.utils.entity as entity
 
     assert "gliner2" not in sys.modules
     assert entity.EntitySpan is EntitySpan
@@ -79,7 +79,7 @@ async def test_content_gateway_normalizes_grouped_entities_and_offsets(monkeypat
             }
         }
     )
-    with patch("kindly_web_search_mcp_server.entity.gliner_client.httpx.AsyncClient", _Client):
+    with patch("kindly_web_search_mcp_server.ml.gliner_client.httpx.AsyncClient", _Client):
         entities = await GLiNER2Client(base_url="http://127.0.0.1:8000").extract_entities(
             "Use FastAPI here"
         )
@@ -98,7 +98,7 @@ async def test_disabled_content_gateway_makes_no_request(monkeypatch):
     monkeypatch.setenv("ENTITY_EXTRACTION_ENABLED", "false")
     monkeypatch.setattr(settings, "entity_extraction_enabled", False)
     _Client.calls = []
-    with patch("kindly_web_search_mcp_server.entity.gliner_client.httpx.AsyncClient", _Client):
+    with patch("kindly_web_search_mcp_server.ml.gliner_client.httpx.AsyncClient", _Client):
         entities = await GLiNER2Client(base_url="http://127.0.0.1:8000").extract_entities("FastAPI")
 
     assert entities == []
@@ -106,7 +106,7 @@ async def test_disabled_content_gateway_makes_no_request(monkeypatch):
 
 
 def test_singleton_factory_is_stable(monkeypatch):
-    monkeypatch.setattr("kindly_web_search_mcp_server.entity.gliner_client._gliner_client", None)
+    monkeypatch.setattr("kindly_web_search_mcp_server.ml.gliner_client._gliner_client", None)
     first = get_gliner_client()
     second = get_gliner_client()
     assert first is second

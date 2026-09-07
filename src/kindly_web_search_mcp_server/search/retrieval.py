@@ -20,8 +20,7 @@ from .diagnostics import branch_outcome_preview
 from .provider_registry import get_provider_adapter, get_provider_definition
 from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
 
-from ..heuristics.shaping import shape_for_branch
-from ..heuristics.query_features import build_query_features
+from ..utils.query_pipeline import build_query_features, shape_for_branch
 
 
 def _warning(

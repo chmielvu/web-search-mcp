@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 import time
 
-from ..embeddings import embed_query
+from ..ml import embed_query
 from ..models import WebSearchResult
 from ..settings import settings
 from .bi_encoder import bi_encoder_rank

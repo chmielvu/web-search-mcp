@@ -70,9 +70,7 @@ class TestFetchCacheError(unittest.TestCase):
         artifact = _artifact_from_cache("https://example.com/ok", "https://example.com/ok", cached)
         self.assertEqual(artifact["status"], "success")
         self.assertIsNone(artifact["error"])
-        result = _result_from_artifact(
-            artifact, offset=0, max_chars=0, include_metadata=True, include_links=False
-        )
+        result = _result_from_artifact(artifact, offset=0, max_chars=0, include_links=False)
         self.assertIsNone(result["error"])
 
 

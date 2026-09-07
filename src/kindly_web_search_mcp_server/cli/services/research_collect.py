@@ -41,19 +41,28 @@ def _report_markdown(
         "",
     ]
     for index, result in enumerate(results, start=1):
-        title = (
-            result.get("metadata", {}).get("title")
-            if isinstance(result.get("metadata"), dict)
-            else None
+        url = result.get("url") or ""
+        url = url if isinstance(url, str) else str(url)
+        derived_title = (
+            url.rsplit("/", 1)[-1].rsplit(".", 1)[0].replace("-", " ").replace("_", " ").title()
         )
-        title = title or result.get("title") or result.get("input_url") or "Untitled source"
-        url = result.get("fetched_url") or result.get("input_url") or result.get("url") or ""
+        title = result.get("title") or derived_title or url or "Untitled source"
         artifact = result.get("artifact_path") or ""
         lines.append(f"{index}. [{title}]({url}) — `{result.get('status', 'unknown')}`")
         if artifact:
             lines.append(f"   - Local artifact: [{Path(artifact).name}]({Path(artifact).name})")
-        if result.get("error"):
-            lines.append(f"   - Error: {result['error']}")
+        error_obj = result.get("error")
+        if isinstance(error_obj, dict):
+            lines.append(
+                f"   - Error: {error_obj.get('message', error_obj.get('code', 'unknown'))}"
+            )
+            if error_obj.get("resolution"):
+                lines.append(f"   - Resolution: {error_obj['resolution']}")
+        status = result.get("status")
+        if status in {"login", "paywall", "bot", "js_shell"}:
+            lines.append(
+                f"   - Access signal: {status} (page body may be the wall, not the content)"
+            )
     lines += [
         "",
         "## Collection metadata",
@@ -94,20 +103,15 @@ async def collect_research_bundle(
         offset=0,
         ai_summary=ai_summary,
         focus_query=research_goal,
-        include_metadata=True,
         include_links=True,
-        max_links=25,
-        strip_selectors=None,
     )
 
     results: list[dict[str, Any]] = []
     for index, raw in enumerate(content_payload.get("results") or [], start=1):
         result = dict(raw)
-        page_content = result.pop("page_content", "")
+        content = result.pop("content", "")
         artifact_path = root / "sources" / f"source-{index:03d}.md"
-        write_text_atomic(
-            artifact_path, page_content if isinstance(page_content, str) else str(page_content)
-        )
+        write_text_atomic(artifact_path, content if isinstance(content, str) else str(content))
         result["artifact_path"] = str(artifact_path)
         results.append(result)
 

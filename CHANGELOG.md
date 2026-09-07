@@ -1,4 +1,45 @@
 ## [Unreleased]
+### Changed — Entity package dissolved into `ml/` + `utils/`
+- Deleted `entity/` package. `entity/gliner_client.py` moved to `ml/gliner_client.py` (joins `ml/embeddings.py` as the hosted-gateway-clients package); `ml/__init__.py` now re-exports `GLiNER2Client`, `GatewayAnalysis`, `QueryFeatureAnalysis`, `get_gliner_client` alongside the embedding contract.
+- Entity models, default label/relation schemas, and `postprocess_entities` merged into a single `utils/entity.py` (from former `entity/models.py` + `entity/default_schema.py` + `entity/postprocess.py`). Dead `RelationMention` alias and unused `GLiNER2Client.base_url` property removed.
+- New `utils/text_chunking.py`: `chunk_text` (ex-`entity/chunk.py`) + `slice_content`/`ContentWindow`/`WindowedContent` (ex-`content/windowing.py`, module deleted) sharing public `find_boundary_index`.
+- 9 src callers + 8 test files re-pointed (imports and patch-string targets only); no behavior change, no MCP contract change. Docs updated (`utils/AGENTS.md`, new `ml/AGENTS.md`, root/content guides).
+## [Unreleased]
+### Changed — Embeddings: Arctic 384-d everywhere; Qdrant index rebuilt for dense-384 + BM25-IDF
+- Qdrant Space (chmielvu-web-index.hf.space): wiped legacy collections web_results (1024d, 1351 points) and web_results_786d (786d, 2 points); created web_results_384d — named dense vector "dense" (384-d, Cosine) + named sparse vector "sparse" with modifier=idf (BM25-style IDF weighting server-side).
+- index/web_results_index.py: COLLECTION_NAME → web_results_384d, dense VectorParams(size=384), sparse SparseVectorParams(modifier=models.Modifier.IDF); _ensure_collection recreates on dimension mismatch as before.
+- tools/code_search/snapshot.py: removed the HF InferenceClient embedding path entirely (huggingface_hub calls, HF_CODESEARCH_MODEL/HF_FALLBACK_MODEL constants, HF_TOKEN gating); _hf_code_embedding/_hf_batch_code_embeddings now route through the shared ml/ client (fastembed-snowflake, snowflake-arctic-embed-s, 384-dim). Semantic fallback no longer requires HF_TOKEN.
+- analytics/writers/schema.py: _EMBEDDING_DIM 768 → 384; DuckDB embedding tables (query_embeddings, candidate_embeddings) now FLOAT[384] with rollover preserving legacy tables; model_id default → snowflake-arctic-embed-s.
+- rerank/models.py: field descriptions now say 384-dimensional.
+- inference/registry.py: as_embedding docstring updated (legacy InferenceClient path retired; fastembed provider only).
+- All dense embeddings flow through ml/embeddings.py (Arctic 384): rerank (bi_encoder, conditional_bi, core), search service, qdrant provider, query-understanding kNN, code_search semantic fallback.
+
+## [Unreleased]
+### Changed — `sanitize.py` text-hygiene merge: cleaning + classification overhaul
+- Merged `content/status_classifier.py` into `content/sanitize.py` (single text-hygiene module: cleaning, Jina frontmatter, HTML extraction, status classification); `strip_jina_frontmatter`/`parse_jina_frontmatter` moved out of `typed_content.py` to keep the import graph acyclic. 7 caller sites cut over; no shims.
+- Markdown cleaning is now CommonMark fence-aware: fenced (``` / ~~~) and indented code keep whitespace verbatim, nested lists/quotes/tables keep leading indentation — previously `sanitize_markdown` collapsed code indentation and nested-list depth.
+- New prose cleaning passes: typographic unicode folding (arrows/dashes/quotes/bullets → ASCII, prose only), data-URI/base64 image removal with generic-alt dropping, self-link/fragment-link unwrapping, UI-chrome line stripping ("Skip to main content", "Was this page helpful?", "Powered by …", edit/feedback links, pagination arrows, "Last updated", footer link bars), breadcrumb-trail removal, nav-link-row removal (3+ links, ≤3 residual words), empty heading/list/blockquote removal.
+- HTML extraction: Trafilatura now runs with `include_comments=False`; BS4 fallback gains conservative structural chrome pruning (role/aria-hidden/class/id tokens with content-container and code/table protection).
+- Classification upgrades: expanded phrase sets (Cloudflare/Fastly/Incapsula/CloudFront/DDoS-Guard interstitials, GitHub/login-wall phrases, Medium-style paywalls, framework SPA-shell defaults, infra error pages), strong-phrase weighting (0.5 vs 0.25) for infra-certain phrases, explicit HTTP-status precedence (401 → login, 403/429 → blocked, 404/410/5xx → error), consent-action-cue gate on cookie boilerplate, `_chrome_ratio` now ignores blank lines, `# root`/`# app` SPA markers require a near-empty page, redirect detection requires a URL scheme or explicit redirect wording (bare single-word lines no longer misfire), and a new `navigation_only` partial status for link-farm pages.
+
+### Changed — Content module consolidation & legacy shim removal
+- Consolidated `content/` package by deleting 4 redundant modules (`options.py`, `sitemap.py`, `extract.py`, `html_tools.py`).
+- Moved `FetchOptions` into `content/fetch_pipeline.py` (scoped to `max_response_bytes`), dropping dead `stage_timeout_seconds` and redundant `include_links`.
+- Rerouted sitemap generation directly to `content/tavily_map.map_site`.
+- Merged HTML extraction into `content/sanitize.py` as `extract_html_as_markdown`.
+- Inlined HTML link and metadata extraction into `stages.py` and `link_discovery.py`.
+- Unified CSV row cap (500 rows in `typed_content._MAX_CSV_ROWS`) and PDF page cap (`_MAX_PDF_PAGES = int(os.environ.get("GENERIC_PDF_MAX_PAGES", "30").strip())` in `document.py`).
+- Deleted dead `stages._render_pdf_markdown` helper and replaced duplicated document conversion block in `_fetch_via_local` with single `fetch_document_markdown` call.
+- Replaced duplicate `_TYPED_FORMATS` literal set in `tools/content.py` with `content.typed_content.SUPPORTED_TYPED_FORMATS`.
+
+### Changed — Unified fetch public contract
+- The unified `fetch` tool now exposes a compact `url`/`status`/`content`/
+  `window` envelope with typed actionable errors; login, paywall, bot, and
+  JavaScript-shell outcomes are represented directly by `status`.
+- Removed obsolete fetch tuning inputs and public internal fields such as
+  metadata, cache state, continuation notices, and separate summary/usage
+  envelopes. AI summaries now populate `content`; cache and analytics retain
+  their internal metadata.
 ### Changed — Rerank pipeline score and boundary consolidation
 - Internal results now use stage-owned retrieval, bi-encoder, cross-encoder, RankLLM,
   recency, diversity, final-score, and final-rank fields; the public `score` remains

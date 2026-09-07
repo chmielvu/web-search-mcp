@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from ..heuristics.text_clean import clean_text_for_llm
+from ..utils.text_clean import clean_text_for_llm
 from ..models import YouTubeTranscriptQuality
 
 

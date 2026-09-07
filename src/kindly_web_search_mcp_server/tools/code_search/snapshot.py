@@ -34,128 +34,43 @@ from .tree_sitter_evidence import classify_source, language_for_path
 
 LOGGER = logging.getLogger(__name__)
 
-# HF Inference for semantic code search — normal embeddings via Hugging Face InferenceClient
-# Model: flax-sentence-embeddings/st-codesearch-distilroberta-base (768-dim, DistilRoBERTa, CodeSearchNet)
-# Verified via web_search + HF docs: https://huggingface.co/docs/inference-providers/tasks/feature-extraction
-# and https://huggingface.co/docs/huggingface_hub/main/en/guides/inference — use InferenceClient feature_extraction
-# No manual URL, no sentence_transformers local.
-HF_CODESEARCH_MODEL = "flax-sentence-embeddings/st-codesearch-distilroberta-base"
-HF_FALLBACK_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-
 
 async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float] | None:
-    """Normal HF embeddings via InferenceClient feature_extraction."""
-    token = (
-        os.environ.get("HF_TOKEN")
-        or os.environ.get("HUGGINGFACE_TOKEN")
-        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    )
-    if not token or not text:
-        return None
+    """Embed via the shared ml/ client (fastembed-snowflake, Arctic, 384-dim).
+
+    Returns None when the snippet is empty or the service is unreachable —
+    semantic search then degrades to zero hits (same fail-open as before).
+    """
     snippet = text[:max_chars]
-    try:
-        from huggingface_hub import InferenceClient
-        import asyncio
-
-        def _call(model: str) -> list[float] | None:
-            try:
-                client = InferenceClient(token=token)
-                # feature_extraction returns np.ndarray or list
-                emb = client.feature_extraction(snippet, model=model)
-                # Normalize to list[float]
-                try:
-                    import numpy as np
-
-                    if isinstance(emb, np.ndarray):
-                        # single text -> 1D array
-                        return [float(x) for x in emb.tolist()]
-                except Exception:
-                    pass
-                if isinstance(emb, list) and emb and isinstance(emb[0], (int, float)):
-                    return [float(x) for x in emb]
-                if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                    return [float(x) for x in emb[0]]
-                return None
-            except Exception as exc:
-                LOGGER.debug("HF embedding %s failed: %s", model, exc)
-                return None
-
-        # Try primary code model, then fallback
-        for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
-            result = await asyncio.to_thread(_call, model)
-            if result is not None:
-                return result
+    if not snippet.strip():
         return None
+    try:
+        from ...ml import embed_query
+
+        return await embed_query(snippet, timeout=20.0)
     except Exception as exc:
-        LOGGER.debug("HF embedding error: %s", exc)
+        LOGGER.debug("ml embedding failed: %s", exc)
         return None
 
 
 async def _hf_batch_code_embeddings(
     texts: list[str], *, max_chars: int = 2000, batch_size: int = 16
 ) -> list[list[float] | None]:
-    """Batch normal HF embeddings — uses same InferenceClient per batch."""
-    if not texts:
-        return []
-    token = (
-        os.environ.get("HF_TOKEN")
-        or os.environ.get("HUGGINGFACE_TOKEN")
-        or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-    )
-    if not token:
-        return [None] * len(texts)
+    """Batch embeddings through the shared ml/ client, 256 per request (service cap)."""
+    del batch_size  # kept for call-site compatibility
     truncated = [t[:max_chars] for t in texts]
     results: list[list[float] | None] = [None] * len(truncated)
-    semaphore = asyncio.Semaphore(3)
+    batch_cap = 64
+    for start in range(0, len(truncated), batch_cap):
+        batch = truncated[start : start + batch_cap]
+        try:
+            from ...ml import embed_texts
 
-    async def _embed_batch(batch: list[str], start_idx: int) -> None:
-        async with semaphore:
-            try:
-                from huggingface_hub import InferenceClient
-                import asyncio
-
-                def _call_batch(model: str) -> list[list[float]] | None:
-                    try:
-                        client = InferenceClient(token=token)
-                        embs = client.feature_extraction(batch, model=model)
-                        import numpy as np
-
-                        if isinstance(embs, np.ndarray):
-                            # batch -> 2D array [batch, dim]
-                            if embs.ndim == 2 and embs.shape[0] == len(batch):
-                                return [[float(x) for x in row.tolist()] for row in embs]
-                            if embs.ndim == 1:
-                                return [[float(x) for x in embs.tolist()]]
-                        if isinstance(embs, list):
-                            # list of lists
-                            out: list[list[float]] = []
-                            for e in embs:
-                                if isinstance(e, list) and e and isinstance(e[0], (int, float)):
-                                    out.append([float(x) for x in e])
-                                elif isinstance(e, list) and e and isinstance(e[0], list):
-                                    out.append([float(x) for x in e[0]])
-                            if len(out) == len(batch):
-                                return out
-                        return None
-                    except Exception as exc:
-                        LOGGER.debug("HF batch %s failed: %s", model, exc)
-                        return None
-
-                for model in (HF_CODESEARCH_MODEL, HF_FALLBACK_MODEL):
-                    batch_result = await asyncio.to_thread(_call_batch, model)
-                    if batch_result is not None and len(batch_result) == len(batch):
-                        for i, vec in enumerate(batch_result):
-                            results[start_idx + i] = vec
-                        return
-                # per-item fallback
-                for i, txt in enumerate(batch):
-                    emb = await _hf_code_embedding(txt, max_chars=max_chars)
-                    results[start_idx + i] = emb
-            except Exception as exc:
-                LOGGER.debug("HF batch error: %s", exc)
-
-    batches = [(truncated[i : i + batch_size], i) for i in range(0, len(truncated), batch_size)]
-    await asyncio.gather(*[_embed_batch(b, s) for b, s in batches])
+            vectors = await embed_texts(batch, timeout=30.0)
+            for i, vec in enumerate(vectors):
+                results[start + i] = vec
+        except Exception as exc:
+            LOGGER.debug("ml batch embedding failed: %s", exc)
     return results
 
 
@@ -1041,27 +956,19 @@ class SnapshotManager:
         limit: int,
         context_lines: int,
     ) -> list[SnapshotHit]:
-        """Semantic fallback via HF st-codesearch-distilroberta-base.
+        """Semantic fallback via the shared ml/ client (Arctic, 384-dim).
 
-        Only invoked when FTS+literal yield 0 hits and HF_TOKEN present.
-        Batches file snippets (path + first 1k chars) to HF Inference,
-        compares via cosine to query embedding, returns top hits with
+        Only invoked when FTS+literal yield 0 hits. Batches file snippets
+        (path + first 1k chars) through the fastembed-snowflake service,
+        compares via cosine to the query embedding, returns top hits with
         why=["semantic"] and confidence = cosine similarity.
         """
-        # Gate: token required
-        token = (
-            os.environ.get("HF_TOKEN")
-            or os.environ.get("HUGGINGFACE_TOKEN")
-            or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-        )
-        if not token:
-            return []
         if not query or len(query.strip()) < 3:
             return []
         query_emb = await _hf_code_embedding(query, max_chars=2000)
         if query_emb is None:
             return []
-        # Gather candidate files — cap to avoid 2000 HF calls
+        # Gather candidate files — cap to avoid huge embed batches
         try:
             candidates = list(_iter_files(snapshot.root, path_prefix))
         except Exception:
@@ -1155,7 +1062,7 @@ class SnapshotManager:
         limit: int,
         context_lines: int,
     ) -> tuple[list[SnapshotHit], bool]:
-        """Async search with semantic fallback when FTS+literal miss and HF_TOKEN present.
+        """Async search with semantic fallback when FTS+literal miss.
 
         Preserves sync _search_hits semantics for all existing callers; semantic
         hits are merged via RRF-like _merge_hits (dedup by path+line). If FTS
@@ -1184,7 +1091,7 @@ class SnapshotManager:
         )
         if hits or truncated:
             return hits, truncated
-        # No hits — try semantic if token present
+        # No hits — try semantic via the shared ml/ embedding client
         sem_hits = await self._semantic_search_hits(
             snapshot, query, path_prefix=path_prefix, limit=limit, context_lines=context_lines
         )
@@ -1214,12 +1121,13 @@ class SnapshotManager:
         exclude_glob: str | None = None,
         case_sensitive: bool = False,
     ) -> QueryResult:
-        """Async counterpart to query() with HF semantic fallback.
+        """Async counterpart to query() with semantic fallback.
 
         For read/tree/graph/map intents, delegates to sync query(). For search
-        intent with 0 hits, attempts semantic fallback via st-codesearch-distilroberta-base
-        when HF_TOKEN is set, merging via deduplication (RRF-like). Falls back
-        gracefully if HF unavailable.
+        intent with 0 hits, attempts semantic fallback via the shared ml/
+        embedding client (fastembed-snowflake, Arctic 384-dim), merging via
+        deduplication (RRF-like). Falls back gracefully if the service is
+        unavailable.
         """
         # Reuse sync validation for window, read/tree/graph fast paths
         # Call sync query first to handle non-search intents

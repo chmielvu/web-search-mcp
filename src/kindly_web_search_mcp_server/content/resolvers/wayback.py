@@ -12,28 +12,27 @@ from typing import Any
 import httpx
 
 from ..artifact import ContentArtifact, ContentError
-from ..extract import extract_content_as_markdown
-from ..options import FetchOptions
 from ..safe_fetch import safe_fetch_url
-from ..sanitize import sanitize_markdown
-from ..status_classifier import classify_markdown
+from ..html_extract import extract_html_as_markdown
+from ...utils.content_classify import classify_markdown
+from ...utils.text_clean import sanitize_markdown
 from ...telemetry import record_content_error, record_content_resolution
 from ...utils.url_canonicalize import canonicalize_url
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_TIMEOUT_SECONDS = 15.0
+
 
 async def fetch_wayback_snapshot_markdown(
     url: str,
     *,
-    fetch_options: FetchOptions | None = None,
+    max_response_bytes: int = 5 * 1024 * 1024,
 ) -> ContentArtifact | None:
-    """Query Wayback Machine Availability API and fetch closest archived snapshot."""
-    options = fetch_options or FetchOptions()
     api_url = f"https://archive.org/wayback/available?url={urllib.parse.quote(url, safe='')}"
 
     try:
-        timeout_sec = options.stage_timeout_seconds or 15.0
+        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
         async with httpx.AsyncClient(timeout=timeout_sec, follow_redirects=True) as client:
             headers = {"User-Agent": "kindly-web-search-mcp/1.0 (archive-resolver)"}
             resp = await client.get(api_url, headers=headers)
@@ -52,13 +51,13 @@ async def fetch_wayback_snapshot_markdown(
             fetched = await safe_fetch_url(
                 snapshot_url,
                 timeout_seconds=timeout_sec,
-                max_response_bytes=options.max_response_bytes,
+                max_response_bytes=max_response_bytes,
             )
             html = fetched.text
             if not html.strip():
                 return None
 
-            raw_md = extract_content_as_markdown(html, url=snapshot_url)
+            raw_md = extract_html_as_markdown(html, url=snapshot_url)
             header = (
                 f"# Archived Snapshot (Wayback Machine)\n"
                 f"**Original URL:** {url}\n"

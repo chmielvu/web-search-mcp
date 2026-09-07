@@ -210,22 +210,18 @@ class Settings:
     )
     vercel_rewrite_model: str = os.environ.get("VERCEL_REWRITE_MODEL", "openai/gpt-oss-20b")
 
-    # Embeddings (Unified ML primary, Hugging Face Inference fallback)
-    embedding_provider: str = os.environ.get("EMBEDDING_PROVIDER", "unifiedml")
+    # Embeddings (fastembed-snowflake service; SSH-tunnel to VPS port 8001)
+    embedding_provider: str = os.environ.get("EMBEDDING_PROVIDER", "fastembed")
     embedding_endpoint_url: str = os.environ.get(
         "EMBEDDING_ENDPOINT_URL",
-        os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000"),
+        "http://127.0.0.1:8001",
     )
-    embedding_model: str = os.environ.get("EMBEDDING_MODEL", "granite-embedding-311m-multilingual")
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "768"))
+    embedding_model: str = os.environ.get("EMBEDDING_MODEL", "snowflake/snowflake-arctic-embed-s")
+    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
     embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
     embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
     embedding_retry_delay_seconds: float = float(
         os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "1.0")
-    )
-    hf_inference_provider: str = os.environ.get("HF_INFERENCE_PROVIDER", "hf-inference")
-    hf_embedding_model: str = os.environ.get(
-        "HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-large-instruct"
     )
     # Reranking (Cohere primary, OpenRouter Cohere 4-fast fallback, Voyage last;
     # listwise LLM reranker stays in the default stack but is tightly bounded)

@@ -8,8 +8,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from kindly_web_search_mcp_server.entity.default_schema import DEFAULT_QUERY_LABELS
-from kindly_web_search_mcp_server.entity.gliner_client import GLiNER2Client
+from kindly_web_search_mcp_server.ml.gliner_client import GLiNER2Client
+from kindly_web_search_mcp_server.utils.entity import DEFAULT_QUERY_LABELS
 from kindly_web_search_mcp_server.settings import settings
 
 
@@ -58,7 +58,7 @@ def _run_client(response: _Response | None = None, error: Exception | None = Non
     _AsyncClient.response = response
     _AsyncClient.error = error
     _AsyncClient.calls = []
-    with patch("kindly_web_search_mcp_server.entity.gliner_client.httpx.AsyncClient", _AsyncClient):
+    with patch("kindly_web_search_mcp_server.ml.gliner_client.httpx.AsyncClient", _AsyncClient):
         yield _AsyncClient.calls
 
 

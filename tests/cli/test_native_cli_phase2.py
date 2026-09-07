@@ -82,13 +82,9 @@ def test_content_fetch_emits_json_payload(monkeypatch) -> None:
                 "mode": "single",
                 "results": [
                     {
-                        "input_url": "https://example.com/docs",
-                        "normalized_url": "https://example.com/docs",
                         "url": "https://example.com/docs",
                         "status": "success",
-                        "source_type": "html",
-                        "fetch_backend": "safe_http_extract",
-                        "page_content": "# Example docs",
+                        "content": "# Example docs",
                         "window": {"has_more": False},
                     }
                 ],
@@ -111,5 +107,5 @@ def test_content_fetch_emits_json_payload(monkeypatch) -> None:
     assert payload["meta"]["command"] == "content fetch"
     assert payload["data"]["mode"] == "single"
     assert payload["data"]["results"][0]["status"] == "success"
-    assert payload["data"]["results"][0]["page_content"] == "# Example docs"
+    assert payload["data"]["results"][0]["content"] == "# Example docs"
     assert payload["data"]["results"][0]["window"]["has_more"] is False

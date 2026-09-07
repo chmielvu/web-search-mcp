@@ -4,8 +4,8 @@ import pytest
 from dataclasses import replace
 from typing import Any, cast
 
-from kindly_web_search_mcp_server.entity.gliner_client import QueryFeatureAnalysis
-from kindly_web_search_mcp_server.entity.models import EntitySpan
+from kindly_web_search_mcp_server.ml.gliner_client import QueryFeatureAnalysis
+from kindly_web_search_mcp_server.utils.entity import EntitySpan
 from kindly_web_search_mcp_server.tools.code_search.models import CodeSearchRequest
 from kindly_web_search_mcp_server.tools.code_search.optimization import optimize_query_plan
 from kindly_web_search_mcp_server.tools.code_search.query import build_query_plan

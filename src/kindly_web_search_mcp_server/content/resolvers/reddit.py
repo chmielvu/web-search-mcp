@@ -17,7 +17,7 @@ import functools
 
 import httpx
 
-from ..sanitize import sanitize_markdown
+from ...utils.text_clean import sanitize_markdown
 from ..remote_clients import get_apify_client
 
 LOGGER = logging.getLogger(__name__)

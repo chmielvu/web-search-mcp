@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .entity.models import EntityRelation, EntitySpan  # always available (pure python)
+from .utils.entity import EntityRelation, EntitySpan  # always available (pure python)
 
 
 class TokenUsage(BaseModel):
@@ -325,40 +325,67 @@ class WebSearchPublicResponse(_PublicWebSearchModel):
     cursor: str | None = None
 
 
+PublicStatus = Literal[
+    "success",
+    "partial",
+    "blocked",
+    "unsupported",
+    "login",
+    "paywall",
+    "bot",
+    "js_shell",
+    "error",
+]
+
+
+class FetchError(BaseModel):
+    """Typed, actionable error envelope returned by the fetch tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    category: Literal[
+        "validation",
+        "auth",
+        "rate_limit",
+        "upstream",
+        "blocked",
+        "timeout",
+        "internal",
+    ]
+    message: str
+    expected_format: dict[str, Any] | None = None
+    resolution: str | None = None
+    retryable: bool = False
+    http_status: int | None = None
+    stage: str | None = None
+
+
+class FetchWindow(BaseModel):
+    """Pagination metadata for one fetched content body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    offset: int = 0
+    length: int = 0
+    returned_chars: int = 0
+    total_chars: int = 0
+    has_more: bool = False
+    next_offset: int | None = None
+
+
 class FetchResult(BaseModel):
     """Single URL result returned by the unified fetch tool."""
 
-    input_url: str
-    normalized_url: str
-    fetched_url: str | None = None
-    status: str = Field(
-        description="Fetch status: success, partial, blocked, unsupported, or error."
-    )
-    source_type: str = Field(
-        description="Detected source type, e.g. html, json, rss, csv, pdf, github_issue."
-    )
-    fetch_backend: str = Field(description="Backend strategy used to retrieve content.")
-    origin_backend: str | None = Field(
-        default=None,
-        description="Backend that originally extracted the content, including on cache hits.",
-    )
-    cached: bool = False
-    page_content: str = ""
-    window: dict[str, Any] = Field(default_factory=dict)
-    content_format: str = "markdown"
-    content_type: str | None = None
-    metadata: dict[str, Any] | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+    status: PublicStatus
+    content: str = ""
+    error: FetchError | None = None
     links: list[ContentLink] | None = None
-    continuation_notice: str | None = None
-    error: dict[str, Any] | None = None
+    window: FetchWindow = Field(default_factory=FetchWindow)
     entities: list[EntitySpan] | None = None
-    summary: dict[str, Any] | None = None
-    usage: TokenUsage | None = None
-    content_word_count: int = 0
-    page_char_count: int = 0
-    word_count: int = 0
-    wall: dict[str, Any] | None = None
-    llms_txt: dict[str, Any] | None = None
     diagnostics: list[dict[str, Any]] | None = None
 
 

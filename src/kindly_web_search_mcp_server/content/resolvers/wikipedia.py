@@ -10,8 +10,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 import anyio
 import httpx
 
-from ..extract import extract_content_as_markdown
-from ..sanitize import sanitize_markdown
+from ..html_extract import extract_html_as_markdown
+from ...utils.text_clean import sanitize_markdown
 
 
 class WikipediaError(RuntimeError):
@@ -282,7 +282,7 @@ async def fetch_wikipedia_article_markdown(
         cleaned_html = _strip_wikipedia_html_noise(html)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
-        md = await anyio.to_thread.run_sync(partial(extract_content_as_markdown, cleaned_html))  # type: ignore[attr-defined]
+        md = await anyio.to_thread.run_sync(partial(extract_html_as_markdown, cleaned_html))  # type: ignore[attr-defined]
         cleaned_html = ""
         md = sanitize_markdown(md)
 

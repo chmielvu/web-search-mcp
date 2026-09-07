@@ -18,7 +18,7 @@ from mcp.types import TextContent
 from ..errors import classify_error
 from .session_tracking import SessionTracker, get_session_id
 
-from ..heuristics.guidance_messages import (
+from ..utils.guidance_messages import (
     format_shaping_guidance,
     web_search_empty_guidance,
     web_search_specialized_gap_guidance,
@@ -35,7 +35,7 @@ _GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS = 300
 # ── Helpers ────────────────────────────────────────────────────────────
 
 # Keys that indicate the dict is an actual tool response (not an envelope)
-_RESPONSE_KEYS = frozenset({"results", "query", "page_content", "error", "answer"})
+_RESPONSE_KEYS = frozenset({"results", "query", "content", "error", "answer"})
 
 
 def _unwrap_fastmcp_result(data: dict) -> dict:
@@ -181,10 +181,9 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     if data.get("mode") == "single":
         item = results[0] if results else data
         source_type = item.get("source_type", "")
-        fetch_backend = item.get("fetch_backend", "")
         window = item.get("window", {})
         status = item.get("status", "")
-        content_len = len(item.get("page_content", ""))
+        content_len = len(item.get("content") or "")
         if window.get("has_more"):
             nxt = window.get("next_offset", 0)
             parts.append(f"Truncated at {nxt} chars. Continue: fetch(offset={nxt}).")
@@ -197,27 +196,14 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
         elif source_type == "wikipedia":
             parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
             next_tools.append("academic_search")
-        if fetch_backend == "browser_fallback":
-            parts.append("Used browser fallback (JS-heavy page). Content may be less complete.")
         typed = source_type in {"json", "jsonl", "csv", "tsv", "rss", "atom", "xml"}
-        wall = item.get("wall")
-        wall_kind = wall.get("kind") if isinstance(wall, dict) else None
-        if (
-            content_len < 300
-            and not window.get("has_more")
-            and status != "error"
-            and not typed
-            and not (status == "success" and wall_kind is None)
-        ):
+        if content_len < 300 and not window.get("has_more") and status == "success" and not typed:
             parts.append(
                 "Very short content (possibly behind login/paywall). Try an alternative source."
             )
-        if isinstance(wall, dict) and (
-            (wall_kind in {"login", "paywall", "bot"} and status in {"blocked", "error"})
-            or (wall_kind == "js_shell" and status in {"partial", "blocked", "error"})
-        ):
+        if status in {"login", "paywall", "bot", "js_shell"}:
             parts.append(
-                f"Access signal detected: {wall['kind']}. Do not trust the returned wall content."
+                f"Access signal detected: {status}. Do not trust the returned wall content."
             )
         return (" ".join(parts) if parts else "", next_tools, next_prompts)
 

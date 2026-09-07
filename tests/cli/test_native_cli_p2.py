@@ -151,10 +151,9 @@ async def test_research_collect_writes_bundle(monkeypatch, tmp_path: Path) -> No
                 "mode": "bulk",
                 "results": [
                     {
-                        "input_url": "https://example.com",
+                        "url": "https://example.com",
                         "status": "success",
-                        "page_content": "# Source\n",
-                        "metadata": {"title": "Source"},
+                        "content": "# Source\n",
                     }
                 ],
                 "has_more": False,

@@ -32,16 +32,10 @@ def fetch_cmd(
         ),
     ] = False,
     focus_query: Annotated[str | None, typer.Option("--focus-query")] = None,
-    include_metadata: Annotated[
-        bool,
-        typer.Option("--include-metadata/--no-include-metadata"),
-    ] = True,
     include_links: Annotated[
         bool,
         typer.Option("--include-links/--no-include-links"),
     ] = False,
-    max_links: Annotated[int, typer.Option("--max-links", min=1)] = 25,
-    strip_selectors: Annotated[str | None, typer.Option("--strip-selectors")] = None,
     output: Annotated[str | None, typer.Option("--output")] = None,
 ) -> None:
     """Fetch one or multiple URLs through the unified fetch pipeline."""
@@ -57,10 +51,7 @@ def fetch_cmd(
                 offset=offset,
                 ai_summary=ai_summary,
                 focus_query=focus_query,
-                include_metadata=include_metadata,
                 include_links=include_links,
-                max_links=max_links,
-                strip_selectors=strip_selectors,
             )
         )
     except ValueError as exc:
@@ -82,16 +73,16 @@ def fetch_cmd(
 
     if output:
         if payload.get("mode") == "single" and payload.get("results"):
-            page_content = payload["results"][0].get("page_content", "")
-            if not isinstance(page_content, str):
+            content = payload["results"][0].get("content", "")
+            if not isinstance(content, str):
                 raise CliError(
                     kind="schema_error",
-                    message="Fetch response did not contain string page_content.",
+                    message="Fetch response did not contain string content.",
                     hint="Retry without --output and inspect the structured response.",
                     exit_code=ExitCode.SCHEMA_ERROR,
                     context={"command": "content fetch", "output": output},
                 )
-            payload["output_path"] = write_text_atomic(output, page_content)
+            payload["output_path"] = write_text_atomic(output, content)
         else:
             payload["output_path"] = write_json_atomic(output, payload)
     emit_json(payload, command="content fetch")

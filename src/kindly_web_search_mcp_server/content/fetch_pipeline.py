@@ -10,14 +10,14 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from hashlib import sha256
 from urllib.parse import urlparse
 
 from opentelemetry import trace
 
 from ..settings import settings
 from .artifact import ContentArtifact, ContentError
-from .options import FetchOptions
 from .remote_clients import (
     CamoufoxClientError,
     Crawl4AIClientError,
@@ -30,6 +30,15 @@ from .specialized_pipeline import _resolve_tier1
 from ..utils.url_canonicalize import canonicalize_url
 from ..telemetry import record_content_error
 from .stages import _fetch_via_camoufox, _fetch_via_crawl4ai, _fetch_via_jina, _fetch_via_local
+
+
+@dataclass(frozen=True, slots=True)
+class FetchOptions:
+    max_response_bytes: int = 5 * 1024 * 1024
+
+    def cache_fingerprint(self) -> str:
+        return sha256(f"{self.max_response_bytes}".encode("utf-8")).hexdigest()[:16]
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -89,13 +98,12 @@ async def fetch_content_artifact(
     with _content_tracer.start_as_current_span("content.fetch_pipeline") as span:
         span.set_attribute("content.url", url)
 
-        options = fetch_options or FetchOptions()
-        options.validate()
+        max_response_bytes = (fetch_options or FetchOptions()).max_response_bytes
 
         # ----------------------------------------------------------
         # Tier 1: Specialized resolvers
         # ----------------------------------------------------------
-        tier1 = await _resolve_tier1(url, options)
+        tier1 = await _resolve_tier1(url, max_response_bytes=max_response_bytes)
         if tier1 is not None and tier1.status in ("success", "partial"):
             return tier1
 
@@ -106,21 +114,23 @@ async def fetch_content_artifact(
         is_binary = _is_binary_target(url)
 
         # Stage 1: Jina Reader
-        jina_options = replace(
-            options,
-            stage_timeout_seconds=_resolve_stage_timeout("jina", start_time=start_time),
+        jina_artifact = await _fetch_via_jina(
+            url,
+            max_response_bytes=max_response_bytes,
+            include_links=False,
+            timeout_seconds=_resolve_stage_timeout("jina", start_time=start_time),
         )
-        jina_artifact = await _fetch_via_jina(url, options=jina_options)
         if jina_artifact is not None and jina_artifact.status == "success":
             return jina_artifact
 
         # Stage 2: Local extraction (curl_cffi JA3/JA4 TLS impersonation + Trafilatura / BS4 / Doc converters)
         # Always executed when Jina is not a full success (fixes local stage isolation bug)
-        local_options = replace(
-            options,
-            stage_timeout_seconds=_resolve_stage_timeout("local", start_time=start_time),
+        local_artifact = await _fetch_via_local(
+            url,
+            max_response_bytes=max_response_bytes,
+            include_links=False,
+            timeout_seconds=_resolve_stage_timeout("local", start_time=start_time),
         )
-        local_artifact = await _fetch_via_local(url, options=local_options)
         if local_artifact.status == "success":
             return local_artifact
 
@@ -128,11 +138,12 @@ async def fetch_content_artifact(
         c4a_artifact: ContentArtifact | None = None
         if not is_binary and get_crawl4ai_client() is not None:
             try:
-                c4a_options = replace(
-                    options,
-                    stage_timeout_seconds=_resolve_stage_timeout("crawl4ai", start_time=start_time),
+                c4a_artifact = await _fetch_via_crawl4ai(
+                    url,
+                    max_response_bytes=max_response_bytes,
+                    include_links=False,
+                    timeout_seconds=_resolve_stage_timeout("crawl4ai", start_time=start_time),
                 )
-                c4a_artifact = await _fetch_via_crawl4ai(url, c4a_options)
                 if c4a_artifact.status == "success":
                     return c4a_artifact
             except Crawl4AIClientError as exc:
@@ -143,11 +154,12 @@ async def fetch_content_artifact(
         camoufox_artifact: ContentArtifact | None = None
         if not is_binary and get_camoufox_client() is not None:
             try:
-                camoufox_options = replace(
-                    options,
-                    stage_timeout_seconds=_resolve_stage_timeout("camoufox", start_time=start_time),
+                camoufox_artifact = await _fetch_via_camoufox(
+                    url,
+                    max_response_bytes=max_response_bytes,
+                    include_links=False,
+                    timeout_seconds=_resolve_stage_timeout("camoufox", start_time=start_time),
                 )
-                camoufox_artifact = await _fetch_via_camoufox(url, camoufox_options)
                 if camoufox_artifact.status == "success":
                     return camoufox_artifact
             except CamoufoxClientError as exc:
@@ -158,11 +170,11 @@ async def fetch_content_artifact(
         # Tier 3: Web Archive Resilience Fallback (Wayback Machine)
         # ----------------------------------------------------------
         wayback_artifact: ContentArtifact | None = None
-        wb_options = replace(
-            options,
-            stage_timeout_seconds=_resolve_stage_timeout("wayback", start_time=start_time),
+        wayback_artifact = await fetch_wayback_snapshot_markdown(
+            url,
+            max_response_bytes=max_response_bytes,
+            timeout_seconds=_resolve_stage_timeout("wayback", start_time=start_time),
         )
-        wayback_artifact = await fetch_wayback_snapshot_markdown(url, fetch_options=wb_options)
         if wayback_artifact is not None and wayback_artifact.status in ("success", "partial"):
             return wayback_artifact
 

@@ -1,40 +1,33 @@
-"""Deterministic query-understanding fallback (pure python-re, no network).
+"""Deterministic query-understanding fallback with optional embedding kNN.
 
-Precision-first cascade used only when the hosted GLiNER2 gateway fails or is
+Pure-python fallback used only when the hosted GLiNER2 gateway fails or is
 disabled. Never imports GLiNER, torch, or pydantic models.
 
-Cascade (all stages explicit, mirrors ``heuristics/shaping.py`` style):
-
-  S1 candidates    bounded marker scans over the surface text:
-                   comparison split markers (vs/versus/compared to|with),
-                   comparison intent words (compare/comparison/comparing/
-                   versus/compared), time terms (current/recent/historical),
-                   intent keyword sets (social / news / coding)
-  S2 validate      product exclusion (``vs code`` is a product, not a
-                   comparison); split sides must each carry a non-stop token
-                   of length >= 2; keyword intent requires exact token-set
-                   intersection with tokens of length >= 2; time precedence
-                   current > recent > historical (first class wins)
-  S3 resolve       product exclusion > comparison word/split > keyword sets
-                   > general (abstention); first valid split marker wins;
-                   ``_MAX_SPLIT_SCANS`` bounds marker examination
-  S4 normalize     leading comparison verbs are stripped from split sides
-                   (``compare X vs Y`` -> ``X``); surfaces are deduped
-                   case-insensitively and capped at ``_MAX_COMPARED``; every
-                   span satisfies ``text[start:end] == surface``
-  S5 score/explain rule ids recorded in ``rules`` + ``rationale``; callers
-                   keep fallback confidence semantics (0.0, fallback=True)
+Intent resolution (H9 fix — keyword sets removed):
+  1. comparison markers (regex, precision-first; ``vs code`` is a product)
+  2. embedding kNN over per-intent prototype exemplars (abstains on low
+     margin or embedding errors — curia ``EmbeddingQueryRouter`` pattern)
+  3. ``general`` (abstention)
 """
 
 from __future__ import annotations
 
+import logging
+import math
 import re
 from dataclasses import dataclass
 from typing import Literal
 
 from ..search.intents import SearchIntent
 
-__all__ = ["FallbackUnderstanding", "resolve_fallback_understanding"]
+__all__ = [
+    "FallbackUnderstanding",
+    "TIME_CURRENT",
+    "TIME_HISTORICAL",
+    "TIME_RECENT",
+    "classify_intent_by_embedding",
+    "resolve_fallback_understanding",
+]
 
 TimeSensitivity = Literal["none", "recent", "current", "historical"]
 
@@ -45,42 +38,12 @@ _COMPARISON_WORD = re.compile(r"\b(?:compare|comparison|comparing|versus|compare
 _COMPARISON_VERB_PREFIX = re.compile(r"^(?:compare|comparison|comparing|compared)\b\s*", re.I)
 _PRODUCT_VS_CODE = re.compile(r"\bvs\s*code\b", re.I)
 
-_TIME_CURRENT = re.compile(r"\b(?:current|currently|now|today|latest)\b", re.I)
-_TIME_RECENT = re.compile(r"\b(?:recent|recently|this\s+week|this\s+month)\b", re.I)
-_TIME_HISTORICAL = re.compile(r"\b(?:historical|history|formerly|deprecated|past)\b", re.I)
+TIME_CURRENT = re.compile(r"\b(?:current|currently|now|today|latest)\b", re.I)
+TIME_RECENT = re.compile(r"\b(?:recent|recently|this\s+week|this\s+month)\b", re.I)
+TIME_HISTORICAL = re.compile(r"\b(?:historical|history|formerly|deprecated|past)\b", re.I)
 
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+#.]*")
 
-_SOCIAL = frozenset(
-    {"twitter", "x", "tweet", "reddit", "instagram", "threads", "facebook", "subreddit"}
-)
-_NEWS = frozenset(
-    {"news", "headline", "announcement", "release", "launch", "breaking", "election", "policy"}
-)
-_CODING = frozenset(
-    {
-        "api",
-        "sdk",
-        "library",
-        "package",
-        "framework",
-        "github",
-        "python",
-        "typescript",
-        "sql",
-        "rust",
-        "docker",
-        "kubernetes",
-        "pytest",
-        "async",
-        "bug",
-        "error",
-        "docs",
-        "documentation",
-        "install",
-        "tutorial",
-    }
-)
 _STOP_SIDES = frozenset({"the", "and", "for", "with", "vs", "or", "to", "a", "an", "of", "in"})
 
 _MAX_COMPARED = 3
@@ -91,17 +54,16 @@ _MAX_SPLIT_SCANS = 3
 class FallbackUnderstanding:
     """Pure extraction result; callers map it onto ``QueryUnderstandingResult``.
 
-    ``compared_spans`` are (start, end) offsets into the ORIGINAL query; every
-    span satisfies ``query[start:end] == surface``.
+    Fallback confidence semantics stay 0.0 with ``fallback=True`` upstream.
     """
 
     intent: SearchIntent
-    compared_entities: tuple[str, ...] = ()
-    compared_spans: tuple[tuple[int, int], ...] = ()
-    time_sensitivity: TimeSensitivity = "none"
-    should_decompose: bool = False
-    preserved_terms: tuple[str, ...] = ()
-    rationale: str = ""
+    compared_entities: tuple[str, ...]
+    compared_spans: tuple[tuple[int, int], ...]
+    time_sensitivity: TimeSensitivity
+    should_decompose: bool
+    preserved_terms: tuple[str, ...]
+    rationale: str
     rules: tuple[str, ...] = ()
 
 
@@ -172,8 +134,101 @@ def _extract_compared(
     return tuple(deduped[:_MAX_COMPARED]), tuple(deduped_spans[:_MAX_COMPARED])
 
 
+# --- Embedding kNN intent tier (curia EmbeddingQueryRouter pattern) ---
+
+_INTENT_EXEMPLARS: dict[SearchIntent, tuple[str, ...]] = {
+    "ai_coding_and_infrastructure": (
+        "how to fix async timeout error in fastapi",
+        "python library for parsing html",
+        "docker kubernetes deployment best practices",
+        "sqlalchemy session connection pool",
+    ),
+    "social_media": (
+        "twitter thread about the new model release",
+        "best subreddits for mechanical keyboards",
+        "instagram reel ideas for coffee shops",
+        "facebook group for local hiking",
+    ),
+    "news": (
+        "latest headlines about the election",
+        "breaking news on the merger",
+        "policy announcement this week",
+        "launch event coverage today",
+    ),
+    "general": (
+        "history of the printing press",
+        "how do solar panels work",
+        "best recipes for sourdough bread",
+        "overview of roman aqueducts",
+    ),
+}
+
+_INTENT_PROTOTYPES: dict[SearchIntent, list[float]] | None = None
+_EMBED_MARGIN = 0.15
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(x * x for x in b)) or 1.0
+    return dot / (na * nb)
+
+
+async def classify_intent_by_embedding(
+    text: str,
+    embed,
+    *,
+    margin: float = _EMBED_MARGIN,
+) -> SearchIntent | None:
+    """Nearest-prototype intent classification; abstains (``None``) on low margin.
+
+    ``embed`` is any async callable ``str -> list[float]`` (repo convention:
+    ``embeddings.embed_query`` / ``ml.embed_query``). Prototype vectors are
+    built once from ``_INTENT_EXEMPLARS`` and cached. Abstains when the
+    top-2 margin is below ``margin`` or the embedder errors — callers keep
+    the deterministic ``general`` fallback.
+    """
+    global _INTENT_PROTOTYPES
+    if not text or not text.strip():
+        return None
+    try:
+        if _INTENT_PROTOTYPES is None:
+            flat = [s for exemplars in _INTENT_EXEMPLARS.values() for s in exemplars]
+            vectors = await embed(flat)
+            prototypes: dict[SearchIntent, list[float]] = {}
+            idx = 0
+            counts: dict[SearchIntent, int] = {}
+            sums: dict[SearchIntent, list[float]] = {}
+            for intent, exemplars in _INTENT_EXEMPLARS.items():
+                for _ in exemplars:
+                    vec = vectors[idx]
+                    idx += 1
+                    sums.setdefault(intent, [0.0] * len(vec))
+                    counts.setdefault(intent, 0)
+                    acc = sums[intent]
+                    for i, v in enumerate(vec):
+                        acc[i] += v
+                    counts[intent] += 1
+            for intent, acc in sums.items():
+                n = float(counts[intent])
+                prototypes[intent] = [v / n for v in acc]
+            _INTENT_PROTOTYPES = prototypes
+        query_vec = await embed(text)
+        scores = {intent: _cosine(query_vec, proto) for intent, proto in _INTENT_PROTOTYPES.items()}
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        if len(ranked) < 2:
+            return None
+        (top_intent, top_score), (_, second_score) = ranked[0], ranked[1]
+        if (top_score - second_score) < margin:
+            return None
+        return top_intent
+    except Exception as exc:  # embedder failure is an abstention, never a crash
+        _LOGGER.debug("embedding intent abstained: %s", exc)
+        return None
+
+
 def _coarse_intent(text: str, compared: tuple[str, ...] = ()) -> SearchIntent:
-    """S2/S3: product exclusion beats markers; keyword sets are exact-token.
+    """S2/S3: product exclusion beats markers; otherwise abstain to general.
 
     Bare ``vs`` alone is NOT comparison (precision-first abstention): require
     an explicit comparison word OR a structurally valid two-sided split. The
@@ -184,35 +239,32 @@ def _coarse_intent(text: str, compared: tuple[str, ...] = ()) -> SearchIntent:
             return "comparison"
         if compared:
             return "comparison"
-    # Precision rule: single-letter tokens (e.g. bare "x" for X/Twitter) are
-    # too ambiguous for keyword intent — only tokens of length >= 2 count.
-    words = {w.casefold() for w in _TOKEN.findall(text) if len(w) >= 2}
-    if words & _SOCIAL:
-        return "social_media"
-    if words & _NEWS:
-        return "news"
-    if words & _CODING:
-        return "ai_coding_and_infrastructure"
     return "general"
 
 
 def _time_sensitivity(text: str) -> TimeSensitivity:
     """S3 precedence: current > recent > historical (mirrors adapter._derive_fields)."""
-    if _TIME_CURRENT.search(text):
+    if TIME_CURRENT.search(text):
         return "current"
-    if _TIME_RECENT.search(text):
+    if TIME_RECENT.search(text):
         return "recent"
-    if _TIME_HISTORICAL.search(text):
+    if TIME_HISTORICAL.search(text):
         return "historical"
     return "none"
 
 
-def resolve_fallback_understanding(query: str) -> FallbackUnderstanding:
+def resolve_fallback_understanding(
+    query: str,
+    *,
+    intent_override: SearchIntent | None = None,
+) -> FallbackUnderstanding:
     """Deterministic query understanding for the GLiNER outage/disabled path.
 
     Precision-first: ambiguous queries stay ``general`` (abstention) rather
     than being force-labeled. Deterministic and auditable — every decision is
     recorded in ``rules`` for telemetry (``query_understanding_events``).
+    ``intent_override`` (e.g. from ``classify_intent_by_embedding``) is applied
+    after the deterministic coarse pass, when provided.
 
     ``compared_spans`` are offsets into the ORIGINAL query (leading whitespace
     included) so callers can always reproduce ``query[start:end] == surface``.
@@ -223,12 +275,12 @@ def resolve_fallback_understanding(query: str) -> FallbackUnderstanding:
     compared, compared_spans = _extract_compared(text)  # single marker scan
     if lead and compared_spans:
         compared_spans = tuple((start + lead, end + lead) for start, end in compared_spans)
-    intent = _coarse_intent(text, compared)  # reuses the extraction
+    intent = intent_override or _coarse_intent(text, compared)  # override wins
     rules: list[str] = []
     if intent == "comparison":
         rules.append("intent.comparison_marker")
-    elif intent != "general":
-        rules.append(f"intent.keyword:{intent}")
+    elif intent_override is not None and intent != "general":
+        rules.append(f"intent.embedding:{intent}")
     if compared:
         rules.append("compared.split_marker")
     time_sensitivity = _time_sensitivity(text)
@@ -248,3 +300,6 @@ def resolve_fallback_understanding(query: str) -> FallbackUnderstanding:
         rationale=rationale,
         rules=tuple(rules),
     )
+
+
+_LOGGER = logging.getLogger(__name__)

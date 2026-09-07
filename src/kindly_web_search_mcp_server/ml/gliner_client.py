@@ -17,9 +17,8 @@ import httpx
 
 from ..settings import settings
 from ..utils.observability import emit_observability_event
-from .chunk import chunk_text
-from .default_schema import DEFAULT_CONTENT_LABELS, DEFAULT_QUERY_LABELS
-from .models import EntitySpan
+from ..utils.entity import DEFAULT_CONTENT_LABELS, DEFAULT_QUERY_LABELS, EntitySpan
+from ..utils.text_chunking import chunk_text
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +143,7 @@ class GLiNER2Client:
     def _fallback_result(
         reason: str, *, model: str, latency_ms: float = 0.0, query: str = ""
     ) -> GatewayAnalysis:
-        from ..heuristics.understanding_fallback import resolve_fallback_understanding
+        from ..utils.query_understanding import resolve_fallback_understanding
         from ..search.understanding.models import QueryUnderstandingResult
 
         fb = resolve_fallback_understanding(query)
@@ -472,7 +471,7 @@ class GLiNER2Client:
                     )
                     for entity in entities
                 )
-            from .postprocess import postprocess_entities
+            from ..utils.entity import postprocess_entities
 
             result = postprocess_entities(all_entities)
             return result

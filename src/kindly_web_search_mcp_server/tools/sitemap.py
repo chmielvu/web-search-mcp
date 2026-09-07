@@ -5,7 +5,7 @@ import time
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
-from ..content.sitemap import generate_sitemap as _generate_sitemap
+from ..content.tavily_map import map_site as _generate_sitemap
 from ..errors import raise_tool_error
 from ..models import SitemapResponse
 from ..utils.observability import emit_tool_observability_event

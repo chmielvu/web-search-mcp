@@ -31,20 +31,20 @@ Three-tier architecture with active resilience:
 
 | File | Role |
 |---|---|
-| `fetch_pipeline.py` | Single-URL orchestrator (Tier 1 + Tier 2 cascading) |
+| `fetch_pipeline.py` | Single-URL orchestrator (Tier 1 + Tier 2 cascading) & `FetchOptions` |
 | `specialized_pipeline.py` | Tier 1 resolver routing |
 | `stages.py` | 4 generic extraction stage functions |
 | `artifact.py` | `ContentArtifact` / `ContentError` models |
 | `format_renderers.py` | Bounded structured, subtitle, SVG, MHTML, and columnar Markdown renderers |
-| `options.py` | `FetchOptions` |
-| `windowing.py` | Content slicing with pagination (`has_more`, `next_offset`) |
-| `summary.py` | Gemini-backed URL/context summaries |
-| `summary_backend.py` | LLM backend router for summary generation |
+| `html_extract.py` | HTML extraction ladder: Trafilatura → BS4+markdownify → regex fallback, chrome pruning. Each rung returns `sanitize_markdown` only (from `utils/text_clean.py`). |
+| — | Text hygiene and status classification live in `utils/text_clean.py` (markdown cleaning, Jina frontmatter) and `utils/content_classify.py` (`classify_markdown`, `chrome_ratio`, `wall_from_classification`). |
+| — | Content slicing/pagination lives in `utils/text_chunking.py` (`slice_content`, `ContentWindow`, `WindowedContent`) since the windowing module merge. |
+| `ai_summary.py` | Unified LLM summarization pipeline, models, and fallback ladder |
 | `safe_fetch.py` | Safe HTTP fetch wrapper with content-type validation |
 | `jina_reader.py` | Jina Reader HTTP client |
 | `remote_clients.py` | Crawl4AI + Camoufox + optional Apify HTTP clients |
 | `link_discovery.py` | Link extraction from pages |
-| `sitemap.py` | Tavily-only sitemap generation |
+| `tavily_map.py` | Tavily-only sitemap generation (`map_site`) |
 | `resolvers/` | Specialized URL resolvers (Documents, PyPI, npm, HuggingFace, Crates.io, Unpaywall/DOI, Discourse, Reddit, X/Twitter, GitHub, StackExchange, Wikipedia, arXiv, YouTube, Telegram, Wayback) |
 
 ## Rules
@@ -58,11 +58,12 @@ Three-tier architecture with active resilience:
   call; callers use `cursor` for remaining URLs. There is no fetch markdown
   char cap; `offset` paginates a single URL. `FetchResponse.duration_ms` is
   first-class.
-- `sitemap.py` is Tavily-only (no fallback).
+- `tavily_map.py` is Tavily-only (no fallback).
 - Per-stage timeouts: Jina 25s, Crawl4AI 30s, local 20s, Camoufox 35s.
 - Jina Reader circuit breaker: opens after 3 failures in 60s. Jina markdown is classified on the pre-strip body (chrome ratio) and its frontmatter is parsed for fields (`title/url/warning`); a non-empty `warning` field maps to `blocked` + `access_blocked:jina_warning`. `X-Retain-Links` is `all`.
+- `sanitize.py` cleaning is fence-aware: fenced/indented code, nested lists, and tables are preserved verbatim; classification uses additive phrase scores (0.25 generic, 0.5 strong) with explicit HTTP-status precedence (401 → login, 403/429 → blocked, 404/410/5xx → error) and a long-doc veto (>150 words) that bypasses phrase wins.
 - Content-type validation routes HTML, JSON/JSONL, YAML, TOML, RSS/Atom, CSV/TSV, XML, RTF, subtitles, SVG, plain text, Office, MHTML, and columnar documents without browser escalation. Jina JSON/XML envelopes are relabeled via `relabel_typed_artifact`.
-- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`. Non-empty `page_content` disables URL-context; empty body + URLs still uses it.
+- Optional summaries use the Gemini chain `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → Gemma; `fetch` exposes `ai_summary: bool = false`. Non-empty fetched content disables URL-context; empty body + URLs still uses it.
 
 ## Adding a New Specialized Resolver
 
@@ -77,3 +78,7 @@ uv run pytest tests/test_page_content_resolver.py
 uv run pytest tests/test_content_*.py tests/test_sitemap_orchestrator.py
 uv run pytest tests/test_remote_clients.py tests/test_stages.py
 ```
+### Recent Changes (2026-09-06)
+- The unified fetch path keeps metadata and format details internal to artifacts,
+  cache envelopes, and analytics. Public results expose `content` plus the
+  pagination window; continuation notices are no longer part of window models.

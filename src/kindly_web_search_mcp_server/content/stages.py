@@ -13,20 +13,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import httpx
 from typing import Any, Awaitable, Callable, TypeVar
+from urllib.parse import urljoin, urlparse
+
+try:
+    from bs4 import BeautifulSoup  # type: ignore
+except Exception:  # pragma: no cover
+    BeautifulSoup = None  # type: ignore
 
 from .artifact import ContentArtifact, ContentError
-from .extract import extract_content_as_markdown
-from .html_tools import (
-    extract_html_links,
-    extract_html_metadata,
-    strip_html_selectors,
-)
+from .resolvers.document import fetch_document_markdown
 from .jina_reader import JinaReaderError, fetch_with_jina_reader
-from .sanitize import strip_boilerplate
-from .options import FetchOptions
+from ..utils.content_classify import chrome_ratio, classify_markdown
+from ..utils.text_clean import (
+    parse_jina_frontmatter,
+    strip_boilerplate,
+    strip_jina_frontmatter,
+)
+from .html_extract import extract_html_as_markdown
 from .remote_clients import (
     CamoufoxClientError,
     Crawl4AIClientError,
@@ -39,9 +44,7 @@ from .typed_content import (
     detect_content_format,
     relabel_typed_artifact,
     render_typed_content,
-    strip_jina_frontmatter,
 )
-from .status_classifier import _chrome_ratio, classify_markdown
 from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
 from ..telemetry import record_content_resolution
@@ -51,22 +54,115 @@ _CAMOUFOX_SEMAPHORE = asyncio.Semaphore(1)
 LOGGER = logging.getLogger(__name__)
 
 
-def _render_pdf_markdown(pdf_bytes: bytes, source_url: str) -> str | None:
-    """Best-effort PDF -> Markdown conversion."""
-    try:
-        from .resolvers.arxiv import _pdf_bytes_to_markdown_best_effort
-
-        max_pages = int((os.environ.get("GENERIC_PDF_MAX_PAGES") or "20").strip())
-        rendered = _pdf_bytes_to_markdown_best_effort(pdf_bytes, max_pages=max_pages)
-        return (
-            f"# PDF Document\n\n"
-            f"Source: {source_url}\n\n"
-            f"_Pages extracted: {rendered.pages_rendered}/{rendered.page_count}_\n\n"
-            f"{rendered.markdown}".strip()
-        )
-    except Exception as exc:
-        LOGGER.debug("PDF rendering failed for %s: %s", source_url, exc)
+def _soup(html: str):
+    if BeautifulSoup is None:
         return None
+    return BeautifulSoup(html or "", "html.parser")
+
+
+def _safe_domain(url: str) -> str | None:
+    parsed = urlparse(url)
+    return parsed.netloc.lower() or None
+
+
+def _stage_extract_metadata(
+    html: str, *, page_url: str, fetched_url: str | None = None
+) -> dict[str, str]:
+    soup = _soup(html)
+    metadata: dict[str, str] = {
+        "fetched_url": fetched_url or page_url,
+        "domain": _safe_domain(fetched_url or page_url) or "",
+    }
+    if soup is None:
+        return {key: value for key, value in metadata.items() if value}
+
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    if title:
+        metadata["title"] = title
+
+    def _meta(*, name: str | None = None, property: str | None = None) -> str:
+        attrs: dict[str, str] = {}
+        if name:
+            attrs["name"] = name
+        if property:
+            attrs["property"] = property
+        tag = soup.find("meta", attrs=attrs)  # type: ignore[call-overload]
+        content = tag.get("content") if tag else None
+        return content.strip() if isinstance(content, str) and content.strip() else ""
+
+    for key, value in (
+        ("description", _meta(name="description") or _meta(property="og:description")),
+        ("site_name", _meta(property="og:site_name") or _meta(name="application-name")),
+    ):
+        if value:
+            metadata[key] = value
+
+    canonical = ""
+    link = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})  # type: ignore[call-overload]
+    if link:
+        href = link.get("href")
+        canonical = href.strip() if isinstance(href, str) and href.strip() else ""
+    if canonical:
+        metadata["canonical_url"] = canonical
+
+    html_tag = soup.find("html")
+    if html_tag:
+        lang = html_tag.get("lang")
+        if isinstance(lang, str) and lang.strip():
+            metadata["language"] = lang.strip()
+
+    return metadata
+
+
+def _stage_extract_links(
+    html: str,
+    *,
+    base_url: str,
+    max_links: int = 25,
+    include_external: bool = True,
+    same_domain_only: bool = False,
+) -> list[dict[str, str | bool]]:
+    soup = _soup(html)
+    if soup is None:
+        return []
+
+    base_domain = _safe_domain(base_url)
+    links: list[dict[str, str | bool]] = []
+    seen: set[str] = set()
+
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor.get("href") or "").strip()
+        if not href or href.startswith(("javascript:", "mailto:", "tel:")):
+            continue
+        absolute_url = urljoin(base_url, href)
+        parsed = urlparse(absolute_url)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+
+        domain = parsed.netloc.lower() or ""
+        internal = bool(base_domain and domain == base_domain)
+        if same_domain_only or not include_external:
+            if not internal:
+                continue
+
+        normalized_url = parsed._replace(fragment="").geturl()
+        if normalized_url in seen:
+            continue
+        seen.add(normalized_url)
+
+        text = anchor.get_text(" ", strip=True) or normalized_url
+        links.append(
+            {
+                "url": normalized_url,
+                "text": text,
+                "domain": domain,
+                "internal": internal,
+            }
+        )
+        if len(links) >= max_links:
+            break
+
+    return links
 
 
 T = TypeVar("T")
@@ -117,14 +213,19 @@ async def _stage_retry(
 # ------------------------------------------------------------------
 
 
-async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact | None:
+async def _fetch_via_jina(
+    url: str,
+    *,
+    max_response_bytes: int,
+    include_links: bool,
+    timeout_seconds: float | None = None,
+) -> ContentArtifact | None:
     """Fetch via Jina Reader (free, no API key).
 
     Returns ``None`` on transport failure (unavailable). Returns a
     ``ContentArtifact`` on success or low-quality response.
     """
     try:
-        timeout_seconds = options.stage_timeout_seconds
         if timeout_seconds is not None and timeout_seconds < 1.0:
             LOGGER.debug("Jina stage skipped: remaining budget too small (%s)", timeout_seconds)
             return None
@@ -144,11 +245,9 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
         LOGGER.debug("Jina Reader failed: %s", exc)
         return None
 
-    from .typed_content import parse_jina_frontmatter
-
     envelope = parse_jina_frontmatter(jina_markdown)
     jina_warning = envelope.get("warning", "")
-    pre_chrome = _chrome_ratio(jina_markdown)
+    pre_chrome = chrome_ratio(jina_markdown)
     jina_markdown = strip_boilerplate(jina_markdown)
     cls = classify_markdown(jina_markdown)
     word_count = len(jina_markdown.split())
@@ -191,19 +290,18 @@ async def _fetch_via_jina(url: str, *, options: FetchOptions) -> ContentArtifact
 
 
 # ------------------------------------------------------------------
-# Stage 2: Local extraction (BS4+markdownify)
-# ------------------------------------------------------------------
-
-
-async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifact:
+async def _fetch_via_local(
+    url: str,
+    *,
+    max_response_bytes: int,
+    include_links: bool,
+    timeout_seconds: float | None = None,
+) -> ContentArtifact:
     """Fetch via local BS4+markdownify (offline, pure HTTP).
 
     Always returns a ``ContentArtifact`` (never raises).
     """
-    opts = options
     canonical = canonicalize_url(url)
-
-    timeout_seconds = options.stage_timeout_seconds
     if timeout_seconds is not None and timeout_seconds < 1.0:
         return ContentArtifact(
             input_url=url,
@@ -229,7 +327,7 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             lambda: safe_fetch_url(
                 url,
                 timeout_seconds=timeout_seconds if timeout_seconds is not None else 20.0,
-                max_response_bytes=options.max_response_bytes,
+                max_response_bytes=max_response_bytes,
             ),
         )
     except SafeFetchError as exc:
@@ -283,8 +381,8 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
             fetch_backend="typed_content",
             content_type=fetched.content_type,
             markdown=typed_markdown,
-            metadata=typed_metadata if options.include_metadata else None,
-            links=typed_links if options.include_links else None,
+            metadata=typed_metadata,
+            links=typed_links if include_links else None,
             word_count=len(typed_markdown.split()),
             quality_score=1.0 if typed_status == "success" else 0.4,
             error=None
@@ -297,97 +395,23 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
 
     # Handle Documents & PDFs
     if fetched.doc_type:
-        from .resolvers.document import (
-            DocumentConversionError,
-            _convert_csv_to_markdown,
-            _convert_ipynb_to_markdown,
-            _convert_office_with_markitdown,
-            _convert_pdf_to_markdown,
-            render_mhtml_markdown,
-            render_columnar_markdown,
-            _office_error_artifact,
-        )
-        import urllib.parse
-
-        doc_type = fetched.doc_type
-        doc_md = ""
-        if doc_type == "pdf":
-            doc_md = _convert_pdf_to_markdown(fetched.body, fetched.fetched_url)
-        elif doc_type == "ipynb":
-            doc_md = _convert_ipynb_to_markdown(
-                fetched.text or fetched.body.decode("utf-8", errors="replace"),
-                fetched.fetched_url,
-            )
-        elif doc_type in ("csv", "tsv"):
-            delimiter = "\t" if doc_type == "tsv" else ","
-            doc_md = _convert_csv_to_markdown(
-                fetched.text or fetched.body.decode("utf-8", errors="replace"),
-                fetched.fetched_url,
-                delimiter=delimiter,
-            )
-        elif doc_type == "mhtml":
-            doc_md, _ = render_mhtml_markdown(fetched.body, fetched.fetched_url)
-        elif doc_type in {"parquet", "arrow", "feather"}:
-            try:
-                doc_md, _ = render_columnar_markdown(fetched.body, fetched.fetched_url, doc_type)
-            except Exception as exc:
-                return _office_error_artifact(
-                    url,
-                    fetched.fetched_url or url,
-                    doc_type,
-                    fetched.content_type,
-                    DocumentConversionError("columnar_conversion_failed", str(exc)),
-                )
-        elif doc_type in ("docx", "pptx", "xlsx", "doc", "ppt", "xls", "epub"):
-            filename = (
-                os.path.basename(urllib.parse.urlparse(fetched.fetched_url).path)
-                or f"file.{doc_type}"
-            )
-            try:
-                md_text = _convert_office_with_markitdown(fetched.body, filename)
-            except DocumentConversionError as exc:
-                return _office_error_artifact(
-                    url,
-                    fetched.fetched_url or url,
-                    doc_type,
-                    fetched.content_type,
-                    exc,
-                )
-            doc_md = f"# Document ({doc_type.upper()})\nSource: {fetched.fetched_url}\n\n{md_text}"
-
-        if doc_md:
-            cls = classify_markdown(doc_md)
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonical,
-                fetched_url=fetched.fetched_url,
-                status="success" if cls.status in ("success", "partial") else cls.status,
-                source_type=doc_type,
-                fetch_backend=f"doc_converter_{doc_type}",
-                content_type=fetched.content_type,
-                markdown=doc_md,
-                word_count=len(doc_md.split()),
-                quality_score=1.0,
-            )
+        doc_artifact = await fetch_document_markdown(url, max_response_bytes=max_response_bytes)
+        if doc_artifact.status == "success":
+            return doc_artifact
     html = fetched.text
-    if opts.strip_selectors:
-        html = strip_html_selectors(html, opts.strip_selectors)
 
-    metadata: dict[str, Any] | None = None
-    if opts.include_metadata:
-        metadata = extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
+    metadata = _stage_extract_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
 
     links: list[dict[str, Any]] | None = None
-    if opts.include_links:
-        links = extract_html_links(
+    if include_links:
+        links = _stage_extract_links(
             html,
             base_url=fetched.fetched_url or url,
-            max_links=opts.max_links,
             include_external=True,
             same_domain_only=False,
         )
 
-    markdown = extract_content_as_markdown(html, url=fetched.fetched_url)
+    markdown = extract_html_as_markdown(html, url=fetched.fetched_url)
     cls = classify_markdown(
         markdown,
         http_status=fetched.status_code if fetched.status_code != 200 else None,
@@ -437,7 +461,13 @@ async def _fetch_via_local(url: str, *, options: FetchOptions) -> ContentArtifac
 # ------------------------------------------------------------------
 
 
-async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifact:
+async def _fetch_via_crawl4ai(
+    url: str,
+    *,
+    max_response_bytes: int,
+    include_links: bool,
+    timeout_seconds: float | None = None,
+) -> ContentArtifact:
     """Fetch via Crawl4AI remote POST /md (non-browser cloud markdown).
 
     Raises ``Crawl4AIClientError`` on transport failure (unavailable).
@@ -453,9 +483,9 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
             lambda: client.fetch_markdown(url, mode="fit"),
             retryable_exceptions=(Crawl4AIClientError,),
         )
-    if len(markdown.encode("utf-8")) > options.max_response_bytes:
+    if len(markdown.encode("utf-8")) > max_response_bytes:
         raise Crawl4AIClientError(
-            f"Crawl4AI response exceeds {options.max_response_bytes} byte cap",
+            f"Crawl4AI response exceeds {max_response_bytes} byte cap",
             retryable=False,
         )
     cls = classify_markdown(markdown)
@@ -492,16 +522,17 @@ async def _fetch_via_crawl4ai(url: str, options: FetchOptions) -> ContentArtifac
     )
 
 
-# ------------------------------------------------------------------
-# Stage 4: Camoufox sidecar (last-resort browser)
-# ------------------------------------------------------------------
-
-
-async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifact:
+async def _fetch_via_camoufox(
+    url: str,
+    *,
+    max_response_bytes: int,
+    include_links: bool,
+    timeout_seconds: float | None = None,
+) -> ContentArtifact:
     """Fetch via Camoufox sidecar: raw HTML -> markdown + metadata + links.
 
     Camoufox returns raw HTML (POST /content), NOT markdown — pipe through
-    extract_content_as_markdown. Do NOT swap for Crawl4AIClient.fetch_markdown.
+    extract_html_as_markdown. Do NOT swap for Crawl4AIClient.fetch_markdown.
 
     Raises ``CamoufoxClientError`` on transport failure (unavailable).
     Returns a ``ContentArtifact`` on success or low-quality response.
@@ -510,20 +541,14 @@ async def _fetch_via_camoufox(url: str, options: FetchOptions) -> ContentArtifac
     if client is None:
         raise CamoufoxClientError("Camoufox client not configured", retryable=False)
     async with _CAMOUFOX_SEMAPHORE:
-        html = await client.fetch_html(url, max_bytes=options.max_response_bytes)
-    if options.strip_selectors:
-        html = strip_html_selectors(html, options.strip_selectors)
+        html = await client.fetch_html(url, max_bytes=max_response_bytes)
 
-    markdown = extract_content_as_markdown(html, url=url)
+    markdown = extract_html_as_markdown(html, url=url)
     cls = classify_markdown(markdown)
     word_count = len(markdown.split())
 
-    metadata = extract_html_metadata(html, page_url=url) if options.include_metadata else None
-    links = (
-        extract_html_links(html, base_url=url, max_links=options.max_links)
-        if options.include_links
-        else None
-    )
+    metadata = _stage_extract_metadata(html, page_url=url)
+    links = _stage_extract_links(html, base_url=url) if include_links else None
 
     record_content_resolution(
         stage="camoufox_remote",

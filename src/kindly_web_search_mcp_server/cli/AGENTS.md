@@ -81,3 +81,7 @@ uv run web-search-cli sitemap generate <url>
 ```bash
 uv run pytest tests/cli/
 ```
+### Recent Changes (2026-09-06)
+- `content fetch` now exposes only the unified public result fields and accepts
+  `--include-links`, `--ai-summary`, `--focus-query`, offset, and cursor options;
+  obsolete metadata/link-tuning flags are rejected.

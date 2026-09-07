@@ -6,22 +6,27 @@ import hashlib
 import json
 import logging
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 
 from ..cache import get_page_cache
 from ..content.artifact import ContentArtifact, artifact_to_dict
+from ..content.ai_summary import create_batch_summaries, create_summary
 from ..errors import raise_tool_error
 from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.llms_txt import LlmsTxtResult, check_llms_txt
-from ..content.options import FetchOptions, build_fetch_options
-from ..content.status_classifier import classify_markdown, wall_from_classification
-from ..content.summary import create_batch_summaries, create_summary
-from ..content.windowing import slice_content
-from ..models import FetchResponse, FetchResult, TokenUsage
+from ..content.fetch_pipeline import FetchOptions
+from ..utils.content_classify import (
+    ClassificationResult,
+    classify_markdown,
+    wall_from_classification,
+)
+from ..content.typed_content import SUPPORTED_TYPED_FORMATS
+from ..models import FetchError, FetchResponse, FetchResult, PublicStatus, TokenUsage
 from ..settings import settings
+from ..utils.text_chunking import slice_content
 from ..utils.observability import emit_tool_observability_event
 from ..utils.url_canonicalize import canonicalize_url
 from ._helpers import _record_tool_success
@@ -29,23 +34,8 @@ from ._helpers import _record_tool_success
 LOGGER = logging.getLogger(__name__)
 
 _CURSOR_VERSION = 1
-_CACHE_SCHEMA_VERSION = 3
+_CACHE_SCHEMA_VERSION = 4
 _CACHE_ROUTE_VERSION = 4
-_TYPED_FORMATS = {
-    "json",
-    "jsonl",
-    "yaml",
-    "toml",
-    "rss",
-    "atom",
-    "xml",
-    "csv",
-    "tsv",
-    "rtf",
-    "vtt",
-    "srt",
-    "svg",
-}
 
 
 def _cache_key(normalized_url: str) -> str:
@@ -62,9 +52,10 @@ def _error_dict(exc: Exception) -> dict[str, Any]:
     }
 
 
+# Internal: cache envelope only; public FetchResult omits content format.
 def _content_format(source_type: str, content_type: str | None) -> str:
     lowered = (content_type or "").split(";", 1)[0].strip().lower()
-    if source_type in _TYPED_FORMATS or source_type == "llms_txt":
+    if source_type in SUPPORTED_TYPED_FORMATS or source_type == "llms_txt":
         return source_type
     if "json" in lowered:
         return "json"
@@ -200,6 +191,9 @@ def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
             "status": artifact.get("status"),
             "source_type": artifact.get("source_type"),
             "content_type": artifact.get("content_type"),
+            "format": _content_format(
+                str(artifact.get("source_type", "")), artifact.get("content_type")
+            ),
             "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
             "metadata": artifact.get("metadata"),
             "links": artifact.get("links"),
@@ -354,52 +348,223 @@ async def _fetch_one_artifact(
     return artifact
 
 
+def _error_http_status(code: str) -> int | None:
+    prefix, _, value = code.lower().partition("_")
+    if prefix != "http" or not value.isdigit():
+        return None
+    parsed = int(value)
+    return parsed if 100 <= parsed <= 599 else None
+
+
+def _error_category(
+    code: str,
+    *,
+    retryable: bool,
+    http_status: int | None,
+) -> Literal["validation", "auth", "rate_limit", "upstream", "blocked", "timeout", "internal"]:
+    lowered = code.lower()
+    if lowered in {"timeout", "request_timeout"} or "timeout" in lowered:
+        return "timeout"
+    if http_status == 429 or any(
+        marker in lowered for marker in ("rate_limit", "rate-limit", "too_many", "quota")
+    ):
+        return "rate_limit"
+    if http_status in {401, 407} or any(
+        marker in lowered for marker in ("auth", "login", "unauthorized", "credential")
+    ):
+        return "auth"
+    if http_status in {403, 451} or any(
+        marker in lowered for marker in ("blocked", "captcha", "forbidden", "access_denied")
+    ):
+        return "blocked"
+    if lowered in {"invalid_url", "invalidurl", "validation", "unsupported_url"}:
+        return "validation"
+    if lowered in {"internal", "internal_error"}:
+        return "internal"
+    del retryable
+    return "upstream"
+
+
+def _error_resolution(
+    code: str,
+    category: str,
+    *,
+    retryable: bool,
+    http_status: int | None,
+) -> str:
+    if http_status == 404:
+        return "Verify the URL or choose another source."
+    if category == "validation":
+        return "Provide a valid public http(s) URL and try again."
+    if category == "auth":
+        return "Authenticate with the source or choose a publicly accessible URL."
+    if category == "rate_limit":
+        return "Wait for the provider limit to clear, then retry the request."
+    if category == "blocked":
+        return "Choose another source or retry without triggering the source protection."
+    if category == "timeout" or retryable:
+        return "Retry the request; if it persists, choose another source."
+    if code.lower() in {"unsupported", "unsupported_url"}:
+        return "Choose a publicly supported http(s) URL."
+    if category == "internal":
+        return "Retry the request; report the error if it persists."
+    return "Verify the source and retry the request."
+
+
+def _shape_fetch_error(artifact: dict[str, Any]) -> dict[str, Any]:
+    raw_error = artifact.get("error")
+    raw_error = raw_error if isinstance(raw_error, dict) else {}
+    code = str(raw_error.get("code") or artifact.get("status") or "fetch_error")
+    message = str(raw_error.get("message") or "The fetch could not complete.")
+    retryable = bool(raw_error.get("retryable", False))
+    raw_http_status = raw_error.get("http_status")
+    http_status = raw_http_status if isinstance(raw_http_status, int) else _error_http_status(code)
+    category = _error_category(code, retryable=retryable, http_status=http_status)
+    expected_format = raw_error.get("expected_format")
+    if not isinstance(expected_format, dict) and category == "validation":
+        expected_format = {
+            "description": "A public HTTP(S) URL.",
+            "example": "https://example.com",
+            "pattern": "^https?://",
+        }
+    resolution = raw_error.get("resolution")
+    if not isinstance(resolution, str) or not resolution.strip():
+        resolution = _error_resolution(
+            code,
+            category,
+            retryable=retryable,
+            http_status=http_status,
+        )
+    stage = raw_error.get("stage") or artifact.get("fetch_backend")
+    shaped: dict[str, Any] = {
+        "code": code,
+        "category": category,
+        "message": message,
+        "expected_format": expected_format,
+        "resolution": resolution,
+        "retryable": retryable,
+        "http_status": http_status,
+        "stage": str(stage) if stage else None,
+    }
+    return {key: value for key, value in shaped.items() if value is not None}
+
+
+def _access_signal_from_artifact(
+    artifact: dict[str, Any],
+    classified: ClassificationResult,
+) -> str | None:
+    wall = wall_from_classification(
+        classified,
+        artifact.get("error") if isinstance(artifact.get("error"), dict) else None,
+    )
+    if isinstance(wall, dict):
+        kind = wall.get("kind")
+        if kind in {"login", "paywall", "bot", "js_shell"}:
+            return cast(str, kind)
+    return None
+
+
+def _classify_status(
+    artifact: dict[str, Any],
+    raw_status: str,
+    access_signal: str | None,
+) -> tuple[PublicStatus, dict[str, Any] | None]:
+    """Collapse internal status and wall classification into the public outcome."""
+    if access_signal in {"login", "paywall", "bot", "js_shell"}:
+        return cast(PublicStatus, access_signal), None
+    raw_error = artifact.get("error")
+    if isinstance(raw_error, dict) and raw_status in {"", "error"}:
+        return "error", FetchError.model_validate(_shape_fetch_error(artifact)).model_dump(
+            exclude_none=True
+        )
+    if raw_status in {"success", "partial", "blocked", "unsupported"}:
+        return cast(PublicStatus, raw_status), None
+    return "error", FetchError.model_validate(_shape_fetch_error(artifact)).model_dump(
+        exclude_none=True
+    )
+
+
 def _result_from_artifact(
     artifact: dict[str, Any],
     *,
     offset: int,
     max_chars: int,
-    include_metadata: bool,
     include_links: bool,
-    summary: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], ClassificationResult]:
+    artifact = _apply_status_error_invariant(dict(artifact))
     full_markdown = str(artifact.get("markdown") or "")
     windowed = slice_content(full_markdown, offset=max(0, offset), length=max_chars)
-    fetched_url = artifact.get("fetched_url") or artifact.get("normalized_url")
-    artifact = _apply_status_error_invariant(dict(artifact))
-    error = artifact.get("error")
-    return {
-        "input_url": artifact["input_url"],
-        "normalized_url": artifact["normalized_url"],
-        "fetched_url": fetched_url,
-        "status": artifact.get("status", "error"),
-        "source_type": artifact.get("source_type", "unknown"),
-        "fetch_backend": artifact.get("fetch_backend", "unknown"),
-        "origin_backend": artifact.get("origin_backend"),
-        "cached": bool(artifact.get("cached", False)),
-        "page_content": windowed.content,
-        "window": windowed.window.__dict__,
-        "content_format": _content_format(
-            str(artifact.get("source_type", "")), artifact.get("content_type")
-        ),
-        "content_type": artifact.get("content_type"),
-        "metadata": artifact.get("metadata") if include_metadata else None,
+    raw_status = str(artifact.get("status") or "").strip().lower()
+    classified = classify_markdown(
+        full_markdown,
+        source_type=artifact.get("source_type") or None,
+    )
+    access_signal = _access_signal_from_artifact(artifact, classified)
+    public_status, error_obj = _classify_status(artifact, raw_status, access_signal)
+    result = {
+        "url": artifact.get("fetched_url") or artifact.get("normalized_url") or "",
+        "status": public_status,
+        "content": windowed.content,
+        "error": error_obj,
         "links": artifact.get("links") if include_links else None,
-        "continuation_notice": windowed.window.continuation_notice,
-        "error": error,
+        "window": {
+            "offset": windowed.window.offset,
+            "length": windowed.window.length,
+            "returned_chars": windowed.window.returned_chars,
+            "total_chars": windowed.window.total_chars,
+            "has_more": windowed.window.has_more,
+            "next_offset": windowed.window.next_offset,
+        },
         "entities": artifact.get("entities"),
-        "summary": summary,
-        "content_word_count": len(full_markdown.split()),
-        "page_char_count": len(windowed.content),
-        "word_count": len(windowed.content.split()),
-        "wall": wall_from_classification(
-            str(artifact.get("status", "")),
-            error if isinstance(error, dict) else None,
-            str(artifact.get("source_type") or "") or None,
-            full_markdown,
-        ),
-        "llms_txt": artifact.get("llms_txt"),
         "diagnostics": artifact.get("diagnostics"),
+    }
+    return result, classified
+
+
+def _analytics_result(
+    artifact: dict[str, Any],
+    public_result: dict[str, Any],
+    classified: ClassificationResult,
+) -> dict[str, Any]:
+    full_markdown = str(artifact.get("markdown") or "")
+    internal = dict(public_result)
+    internal.update(
+        {
+            "input_url": artifact.get("input_url"),
+            "normalized_url": artifact.get("normalized_url"),
+            "fetched_url": artifact.get("fetched_url") or public_result.get("url"),
+            "source_type": artifact.get("source_type"),
+            "fetch_backend": artifact.get("fetch_backend"),
+            "origin_backend": artifact.get("origin_backend"),
+            "cached": bool(artifact.get("cached", False)),
+            "page_content": full_markdown,
+            "content_format": _content_format(
+                str(artifact.get("source_type", "")), artifact.get("content_type")
+            ),
+            "content_type": artifact.get("content_type"),
+            "metadata": artifact.get("metadata"),
+            "content_word_count": len(full_markdown.split()),
+            "page_char_count": len(public_result.get("content") or ""),
+            "word_count": len(str(public_result.get("content") or "").split()),
+            "wall": wall_from_classification(
+                classified,
+                artifact.get("error") if isinstance(artifact.get("error"), dict) else None,
+            ),
+            "llms_txt": artifact.get("llms_txt"),
+        }
+    )
+    return internal
+
+
+def _summary_input(item: dict[str, Any]) -> dict[str, Any]:
+    """Adapt the public result to the summary backend's internal input contract."""
+    url = str(item.get("url") or "")
+    return {
+        **item,
+        "input_url": url,
+        "normalized_url": url,
+        "fetched_url": url,
+        "page_content": str(item.get("content") or ""),
     }
 
 
@@ -436,10 +601,7 @@ async def fetch(
     cursor: str | None = None,
     ai_summary: bool = False,
     focus_query: str | None = None,
-    include_metadata: bool = True,
     include_links: bool = False,
-    max_links: int = 25,
-    strip_selectors: str | None = None,
     ctx: Context = CurrentContext(),
 ) -> FetchResponse:
     """Fetch one URL or multiple URLs through the unified content pipeline.
@@ -462,11 +624,7 @@ async def fetch(
 
     workers = max(1, settings.web_fetch_workers)
     wave_size = max(1, settings.web_fetch_wave_size)
-    fetch_options = build_fetch_options(
-        include_metadata=include_metadata,
-        include_links=include_links,
-        max_links=max_links,
-        strip_selectors=strip_selectors,
+    fetch_options = FetchOptions(
         max_response_bytes=max(1, settings.web_fetch_max_body_bytes),
     )
     fingerprint = _request_fingerprint(
@@ -489,43 +647,50 @@ async def fetch(
         has_cursor=bool(cursor),
         ai_summary=ai_summary,
         focus_query=focus_query,
-        include_metadata=include_metadata,
         include_links=include_links,
-        max_links=max_links,
-        strip_selectors=strip_selectors,
     )
     await ctx.info(f"Fetching {len(pending_urls)} URL(s) with the unified fetch tool...")
 
+    analytics_results: list[dict[str, Any]] = []
     if mode == "single":
         await ctx.report_progress(progress=20, total=100, message="Fetching URL...")
         artifact = await _fetch_one_artifact(pending_urls[0], fetch_options=fetch_options)
-        result = _result_from_artifact(
+        result, classified = _result_from_artifact(
             artifact,
             offset=offset,
             max_chars=0,
-            include_metadata=include_metadata,
             include_links=include_links,
         )
+        analytics_result = _analytics_result(artifact, result, classified)
         if ai_summary:
-            result["summary"] = await create_summary(
-                result["page_content"],
+            summary_obj = await create_summary(
+                result["content"],
                 ai_summary=True,
                 focus_query=focus_query,
-                source_urls=[result["fetched_url"]] if result.get("fetched_url") else None,
+                source_urls=[result["url"]] if result.get("url") else None,
             )
-            result["usage"] = TokenUsage.from_payload(result["summary"])
+            if isinstance(summary_obj, dict):
+                summary_text = str(summary_obj.get("summary") or "").strip()
+                if summary_text:
+                    result["content"] = summary_text
+                analytics_result["summary"] = summary_obj
+                usage = TokenUsage.from_payload(summary_obj)
+                if usage is not None:
+                    analytics_result["usage"] = usage.model_dump(exclude_none=True)
+                analytics_result["content"] = result["content"]
         try:
             validated = FetchResult.model_validate(result)
         except Exception as exc:
             raise_tool_error(
                 ValueError(f"Invalid fetch result: {str(exc)[:200]}"), provider="fetch"
             )
+        analytics_results = [analytics_result]
         response = FetchResponse(
             mode="single",
             results=[validated],
             total_requested=1,
             total_returned=1,
-            total_chars_returned=len(result["page_content"]),
+            total_chars_returned=len(result["content"]),
             has_more=bool(result["window"].get("has_more")),
             cursor=None,
             wave_size=wave_size,
@@ -541,24 +706,27 @@ async def fetch(
         )
         semaphore = asyncio.Semaphore(workers)
         admitted: list[dict[str, Any]] = []
+        analytics_admitted: list[dict[str, Any]] = []
         deferred: list[str] = []
         waves_completed = 0
 
-        async def _one(url_value: str) -> dict[str, Any]:
+        async def _one(url_value: str) -> tuple[dict[str, Any], dict[str, Any]]:
             async with semaphore:
                 artifact = await _fetch_one_artifact(url_value, fetch_options=fetch_options)
-                return _result_from_artifact(
+                result, classified = _result_from_artifact(
                     artifact,
                     offset=0,
                     max_chars=0,
-                    include_metadata=include_metadata,
                     include_links=include_links,
                 )
+                return result, _analytics_result(artifact, result, classified)
 
         wave = pending_urls[:wave_size]
         wave_results = await asyncio.gather(*(_one(item) for item in wave))
         waves_completed = 1
-        admitted.extend(wave_results)
+        for public_result, analytics_result in wave_results:
+            admitted.append(public_result)
+            analytics_admitted.append(analytics_result)
         deferred = pending_urls[wave_size:]
         await ctx.report_progress(
             progress=min(95, 10 + int(85 * len(wave) / max(len(pending_urls), 1))),
@@ -568,14 +736,22 @@ async def fetch(
 
         if ai_summary and admitted:
             summaries = await create_batch_summaries(
-                admitted,
+                [_summary_input(item) for item in admitted],
                 ai_summary=True,
                 focus_query=focus_query,
                 max_concurrency=workers,
             )
             for index, summary in enumerate(summaries):
-                admitted[index]["summary"] = summary
-                admitted[index]["usage"] = TokenUsage.from_payload(summary)
+                if not isinstance(summary, dict):
+                    continue
+                analytics_admitted[index]["summary"] = summary
+                usage = TokenUsage.from_payload(summary)
+                if usage is not None:
+                    analytics_admitted[index]["usage"] = usage.model_dump(exclude_none=True)
+                summary_text = str(summary.get("summary") or "").strip()
+                if summary_text:
+                    admitted[index]["content"] = summary_text
+                analytics_admitted[index]["content"] = admitted[index]["content"]
 
         next_cursor = _encode_cursor(deferred, fingerprint) if deferred else None
         try:
@@ -584,12 +760,13 @@ async def fetch(
             raise_tool_error(
                 ValueError(f"Invalid fetch result: {str(exc)[:200]}"), provider="fetch"
             )
+        analytics_results = analytics_admitted
         response = FetchResponse(
             mode="bulk",
             results=validated_results,
             total_requested=len(pending_urls),
             total_returned=len(admitted),
-            total_chars_returned=sum(len(item["page_content"]) for item in admitted),
+            total_chars_returned=sum(len(item["content"]) for item in admitted),
             has_more=bool(deferred),
             cursor=next_cursor,
             wave_size=wave_size,
@@ -598,7 +775,6 @@ async def fetch(
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
 
-    result_dict = response.model_dump(exclude_none=True)
     emit_tool_observability_event(
         LOGGER,
         "fetch",
@@ -610,7 +786,7 @@ async def fetch(
         total_chars_returned=response.total_chars_returned,
         has_more=response.has_more,
         cursor=response.cursor,
-        results=result_dict.get("results"),
+        results=analytics_results,
     )
     _record_tool_success(
         "fetch",

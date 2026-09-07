@@ -11,15 +11,16 @@ import urllib.parse
 from typing import Literal
 
 from ..artifact import ContentArtifact, ContentError
-from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
 from ..typed_content import SUPPORTED_TYPED_FORMATS, detect_content_format, render_typed_content
-from ..sanitize import sanitize_markdown
-from ..status_classifier import classify_markdown
+from ...utils.content_classify import classify_markdown
+from ...utils.text_clean import sanitize_markdown
 from ...telemetry import record_content_error, record_content_resolution
 from ...utils.url_canonicalize import canonicalize_url
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_TIMEOUT_SECONDS = 20.0
 
 RAW_TEXT_EXTENSIONS: set[str] = {
     ".md",
@@ -137,22 +138,22 @@ def get_raw_text_type(url: str) -> tuple[Literal["text/markdown", "text/plain"],
 async def fetch_raw_text_markdown(
     url: str,
     *,
-    fetch_options: FetchOptions | None = None,
+    max_response_bytes: int = 5 * 1024 * 1024,
+    include_links: bool = False,
 ) -> ContentArtifact:
     """Fetch raw markdown or text content directly without heavy extraction.
 
     Performs a safe HTTP GET, decodes response text, sanitizes lightly,
     and returns a ContentArtifact.
     """
-    options = fetch_options or FetchOptions()
     content_type, source_type = get_raw_text_type(url)
 
     try:
-        timeout_sec = options.stage_timeout_seconds or 20.0
+        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
         fetched = await safe_fetch_url(
             url,
             timeout_seconds=timeout_sec,
-            max_response_bytes=options.max_response_bytes,
+            max_response_bytes=max_response_bytes,
         )
         raw_text = fetched.text or fetched.body.decode("utf-8", errors="replace")
         raw_text = raw_text.replace("\x00", "")
@@ -194,7 +195,7 @@ async def fetch_raw_text_markdown(
             content_type=fetched.content_type or content_type,
             markdown=clean_text,
             metadata=typed_metadata,
-            links=typed_links if options.include_links else None,
+            links=typed_links if include_links else None,
             word_count=word_count,
             quality_score=1.0 if status == "success" else 0.4,
             error=None

@@ -376,7 +376,7 @@ def _run_prompt(
 
           Structured output is guaranteed on stage 2; stage 1 leans on the
           prompt's `### Output Format` footer plus the 3-tier
-          `_parse_result` salvage (same contract as summary_backend's
+          `_parse_result` salvage (same contract as ai_summary's
           Gemma calls).
 
       (b) FlockMTL `llm_complete` last resort: reached only when BOTH
@@ -509,7 +509,7 @@ _GEMINI_CLIENT_KEY: str | None = None
 def _get_gemini_client() -> Any:
     """Lazily build and cache ONE google-genai Client per API key.
 
-    Mirrors content/summary_backend's shared-client pattern: constructing
+    Mirrors content/ai_summary's shared-client pattern: constructing
     a Client per call wastes setup and churns the underlying HTTP pool.
     Rebuilt automatically if GEMINI_API_KEY changes at runtime.
     """

@@ -1,3 +1,10 @@
+"""AI-powered content summarization using Gemini and Gemma models.
+
+Provides single-URL and batched summarization with structured schema outputs,
+fallback ladders (Gemini 3.5 Flash Lite -> Gemini 3.1 Flash Lite -> Gemma 4),
+token tracking, and OpenTelemetry instrumentation.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,22 +12,22 @@ import json
 import logging
 import os
 import re
-from typing import Any, Sequence
+from typing import Any, Literal, Sequence, cast
 
 from google import genai  # type: ignore[import-untyped]
 from google.genai import types
+from pydantic import BaseModel, Field
 
+from ..prompts.builders import anchor_today
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
 from ..telemetry.usage import extract_llm_usage, llm_usage_fields
-from .summary_models import SummaryError, SummaryMode, SummaryOutput, summary_stub
-
 
 logger = logging.getLogger(__name__)
 
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
 GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
 FALLBACK_MODEL = "gemma-4-26b-a4b-it"
-DEFAULT_MAX_OUTPUT_TOKENS = 1200
+DEFAULT_MAX_OUTPUT_TOKENS = 4096
 SOURCE_TEXT_LIMIT = 60_000
 URL_CONTEXT_TOOL = types.Tool(url_context=types.UrlContext())
 
@@ -37,6 +44,72 @@ _PROVIDER_BY_BACKEND = {
     "gemma-fallback": "gemma",
     "gemma-batch-fallback": "gemma",
 }
+
+SummaryMode = Literal["detailed"]
+
+
+class SummaryError(RuntimeError):
+    pass
+
+
+class SummaryEntity(BaseModel):
+    name: str = Field(description="Entity name preserved from the source.")
+    type: str = Field(description="Entity type such as person, project, or model.")
+    why_relevant: str = Field(
+        description="Short explanation of why the entity matters in the source."
+    )
+
+
+class SummaryOutput(BaseModel):
+    summary: str = Field(description="Concise source-grounded summary text.")
+    key_points: list[str] = Field(default_factory=list, description="Bullet-friendly takeaways.")
+    important_entities: list[SummaryEntity] = Field(
+        default_factory=list, description="Named entities that matter in the source."
+    )
+    verbatim_terms: list[str] = Field(
+        default_factory=list, description="Important exact terms, identifiers, or URLs."
+    )
+    limitations: list[str] = Field(
+        default_factory=list, description="Any gaps, caveats, or missing context."
+    )
+    source_date: str | None = Field(
+        default=None, description="Publication date found in the source, ISO format."
+    )
+
+
+class BatchSummaryItem(BaseModel):
+    url: str = Field(description="The URL this summary corresponds to.")
+    summary: str = Field(description="Concise source-grounded summary text.")
+    key_points: list[str] = Field(default_factory=list, description="Bullet-friendly takeaways.")
+    important_entities: list[SummaryEntity] = Field(
+        default_factory=list, description="Named entities that matter in the source."
+    )
+    verbatim_terms: list[str] = Field(
+        default_factory=list, description="Important exact terms, identifiers, or URLs."
+    )
+    limitations: list[str] = Field(
+        default_factory=list, description="Any gaps, caveats, or missing context."
+    )
+    source_date: str | None = Field(
+        default=None, description="Publication date found in the source, ISO format."
+    )
+
+
+class BatchSummaryOutput(BaseModel):
+    summaries: list[BatchSummaryItem] = Field(
+        default_factory=list, description="One summary per input URL."
+    )
+
+
+def summary_stub(mode: SummaryMode) -> dict[str, Any]:
+    return {
+        "mode": mode,
+        "summary": "",
+        "key_points": [],
+        "important_entities": [],
+        "verbatim_terms": [],
+        "limitations": ["No source text or URL context was available to summarize."],
+    }
 
 
 def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[str, Any]:
@@ -168,8 +241,6 @@ def _build_user_prompt(
     source_text: str,
     use_url_context: bool,
 ) -> str:
-    from ..prompts.builders import anchor_today
-
     focus = focus_query.strip() if focus_query else "None"
     schema = json.dumps(SummaryOutput.model_json_schema(), ensure_ascii=True)
     parts = [
@@ -383,9 +454,6 @@ def _build_batch_user_prompt(
     focus_query: str | None,
     items: Sequence[dict[str, Any]],
 ) -> str:
-    from ..prompts.builders import anchor_today
-    from .summary_models import BatchSummaryOutput
-
     focus = focus_query.strip() if focus_query else "None"
     schema = json.dumps(BatchSummaryOutput.model_json_schema(), ensure_ascii=True)
     parts = [
@@ -437,8 +505,6 @@ def _build_batch_user_prompt(
 def _make_batch_config(
     *, max_output_tokens: int, model_id: str = PRIMARY_MODEL, use_schema: bool = True
 ) -> types.GenerateContentConfig:
-    from .summary_models import BatchSummaryOutput
-
     config: dict[str, Any] = {
         "system_instruction": _system_instruction(use_url_context=False, model_id=model_id),
         "response_mime_type": "application/json",
@@ -644,8 +710,6 @@ async def _summarize_batched(
 
 
 def _parse_batch_summary(raw: str) -> Any:
-    from .summary_models import BatchSummaryOutput
-
     cleaned = _strip_json_fences(raw)
     try:
         return BatchSummaryOutput.model_validate_json(cleaned)
@@ -835,3 +899,63 @@ async def summarize_with_fallback(
     )
     set_span_success(span)
     return payload, model_used, backend
+
+
+async def create_summary(
+    source_text: str,
+    *,
+    ai_summary: bool = False,
+    focus_query: str | None = None,
+    source_urls: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
+    if not ai_summary:
+        return None
+    if not source_text.strip() and not source_urls:
+        return summary_stub("detailed")
+
+    summary, _, _ = await summarize_with_fallback(
+        source_text=source_text,
+        source_urls=source_urls,
+        mode="detailed",
+        focus_query=focus_query,
+    )
+    return summary
+
+
+async def create_batch_summaries(
+    items: Sequence[dict[str, Any]],
+    *,
+    ai_summary: bool = False,
+    focus_query: str | None = None,
+    max_concurrency: int = 4,
+) -> list[dict[str, Any] | None]:
+    if not ai_summary:
+        return [None for _ in items]
+
+    if not items:
+        return []
+
+    return cast(
+        list[dict[str, Any] | None],
+        await summarize_batch_with_fallback(
+            items=items,
+            mode="detailed",
+            focus_query=focus_query,
+            max_concurrency=max_concurrency,
+        ),
+    )
+
+
+__all__ = [
+    "BatchSummaryItem",
+    "BatchSummaryOutput",
+    "SummaryEntity",
+    "SummaryError",
+    "SummaryMode",
+    "SummaryOutput",
+    "create_batch_summaries",
+    "create_summary",
+    "summarize_batch_with_fallback",
+    "summarize_with_fallback",
+    "summary_stub",
+]

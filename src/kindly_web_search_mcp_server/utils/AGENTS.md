@@ -1,42 +1,28 @@
-<!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
-<!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+# utils/
 
-# AGENTS.md - Utils
+Cross-cutting pure helpers shared by search, content, middleware, and tools.
+No FastMCP imports; no network I/O except `ml/embeddings.py` (HTTP client to
+the fastembed service).
 
-Cross-cutting helpers shared across the codebase.
-
-## Key Files
+## Modules
 
 | File | Role |
 |---|---|
-| `http_client.py` | Shared HTTP client lifecycle |
-| `logging.py` | Logging configuration |
-| `async_helpers.py` | Async helpers and task wrappers |
-| `background_tasks.py` | Fire-and-forget task tracking |
-| `singleflight.py` | Request coalescing |
-| `url_canonicalize.py` | URL canonicalization + `extract_domain_from_url` |
-| `paths.py` | Path helpers and defaults |
-| `observability.py` | Observability event helpers |
-| `public_output.py` | Public response serialization |
-| `diagnostics.py` | Diagnostics helpers and env masking |
-| `sqlite_log_handler.py` | SQLite (WAL) process-log handler with FTS5 |
-| `snippet_normalizer.py` | Snippet cleanup helpers |
-| `structured_logging.py` | Structured logging helpers |
+| `text_clean.py` | Query ingress cleaning (`clean_query`, `repair_unicode`) + code-aware markdown hygiene (`sanitize_markdown`, boilerplate/UI-chrome stripping, Jina frontmatter parsing). Merged from former `heuristics/text_clean.py` + `content/sanitize.py` cleaning half. |
+| `query_pipeline.py` | Query shaping: lingua language gate, wordsegment glue segmentation (free role only), parse-once `QueryFeatures`, per-role rendering (`shape_for_branch`). SERP roles keep boolean/engine operators; Sentry-style boolean cleanup after op stripping. |
+| `query_understanding.py` | Deterministic GLiNER-outage fallback: comparison extraction, time sensitivity, embedding-kNN intent with margin abstention (`classify_intent_by_embedding`). No keyword-set intent flipping. |
+| `content_classify.py` | `classify_markdown` (additive phrase scores, HTTP-status precedence, Gopher-style junk ratios), `chrome_ratio`, `wall_from_classification(classified, error)`. |
+| `guidance_messages.py` | Cause-aware guidance strings for web_search middleware (verbatim move from heuristics). |
+| `entity.py` | Entity contracts merged from former `entity/` package: `EntitySpan`/`EntityRelation` models, default label/relation schemas, `postprocess_entities` (validation, dedup, overlap merge). Pure Python; no gateway import. |
+| `text_chunking.py` | `slice_content`/`ContentWindow`/`WindowedContent` (merged from former `content/windowing.py`) + `chunk_text` (from former `entity/chunk.py`), sharing public `find_boundary_index`. |
+| `gliner_client.py` (`ml/gliner_client.py`) | Unified-ml GLiNER2 gateway client (VPS `127.0.0.1:8000` via SSH tunnel): `/classify` + `/ner` for query understanding, `/extract` for transcripts/content. Singleton via `get_gliner_client`; `ml` re-exports the contract. |
+| `embeddings.py` (`ml/embeddings.py`) | fastembed-snowflake client (`snowflake/snowflake-arctic-embed-s`, 384-d, VPS `127.0.0.1:8001`, SSH tunnel). `POST /embed` `{texts}` → `{embeddings, model, dimension}`. No circuit breaker. |
 
 ## Rules
 
-- Keep cross-cutting helpers out of feature packages.
-- Centralize logging, HTTP client reuse, observability, output shaping.
-- Tool lifecycle events are normalized and routed through `utils/observability.py` into typed analytics `tool_calls`; do not resurrect the removed generic `search_events` sink.
-- Provide small reusable primitives (singleflight, snippet cleanup, URL canonicalization).
--- `BatchSQLiteLogHandler.close()` flushes buffered records before marking the handler closed, preserving the final batch on shutdown.
-- Process-log TTL cleanup compares `julianday(recorded_at)` with the cutoff in days — `datetime()` returns NULL for the stored ISO-8601 text and silently disables the DELETE.
-- The external-content FTS5 index is backfilled at schema creation and fed per flush via `INSERT ... RETURNING rowid`; external-content tables never auto-populate.
-- `install_process_logging()` uses `TracebackPreservingQueueHandler`, which keeps formatted exception text across the queue (stdlib `QueueHandler.prepare()` strips `exc_info`/`exc_text`).
-
-## Testing
-
-```bash
-uv run pytest tests/test_async_helpers.py tests/test_scripts_env_loader.py
-```
+- Public surface: `embed_query`, `embed_texts`, `EMBEDDING_DIM`, `reset_client` (from `ml`), plus `GLiNER2Client`, `GatewayAnalysis`, `QueryFeatureAnalysis`, `get_gliner_client`.
+- Exports re-exported: `ml` package exposes the embedding and GLiNER2 gateway contracts formerly at `embeddings` and `entity`.
+- `settings.embedding_endpoint_url` defaults to `http://127.0.0.1:8001`; `settings.intent_classifier_url` defaults to `http://127.0.0.1:8000`. Override both for tunnels.
+- `MAX_TOKEN_LEN = 24` is wordsegment's hard `LIMIT`; tokens >24 chars never segment.
+- `_MIN_PROTECTED_TOKENS` starts empty; add tokens only with fixture evidence.
+- `entity.py` post-processing preserves exact source surface text; chunk boundaries never skip source text.

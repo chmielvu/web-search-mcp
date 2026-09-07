@@ -8,7 +8,7 @@ from typing import Any
 
 from opentelemetry import trace
 
-from ..embeddings import embed_query
+from ..ml import embed_query
 from ..models import WebSearchResult
 from ..prompts.rerank import (
     _normalize_prompt_text,

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from kindly_web_search_mcp_server.entity.default_schema import (
+from kindly_web_search_mcp_server.utils.entity import (
     DEFAULT_CONTENT_LABELS,
     DEFAULT_QUERY_LABELS,
+    EntitySpan,
+    postprocess_entities,
 )
-from kindly_web_search_mcp_server.entity.models import EntitySpan
-from kindly_web_search_mcp_server.entity.chunk import chunk_text
-from kindly_web_search_mcp_server.entity.postprocess import postprocess_entities
+from kindly_web_search_mcp_server.utils.text_chunking import chunk_text
 
 
 def test_label_schema_presence():

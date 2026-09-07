@@ -14,16 +14,16 @@ from typing import Any
 import httpx
 
 from ..artifact import ContentArtifact, ContentError
-from ..options import FetchOptions
 from ..safe_fetch import SafeFetchError, safe_fetch_url
-from ..sanitize import sanitize_markdown
-from ..status_classifier import classify_markdown
+from ...utils.content_classify import classify_markdown
+from ...utils.text_clean import sanitize_markdown
 from ...telemetry import record_content_error, record_content_resolution
 from ...utils.url_canonicalize import canonicalize_url
 from .document import _convert_pdf_to_markdown
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_TIMEOUT_SECONDS = 25.0
 # Standard DOI regex pattern: 10.xxxx/xxxx
 _DOI_RE = re.compile(r"\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)")
 _DOI_ORG_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/.+)$", re.IGNORECASE)
@@ -122,10 +122,9 @@ def render_unpaywall_metadata_markdown(data: dict[str, Any], doi: str, url: str)
 async def fetch_doi_paper_markdown(
     url: str,
     *,
-    fetch_options: FetchOptions | None = None,
+    max_response_bytes: int = 5 * 1024 * 1024,
 ) -> ContentArtifact:
     """Fetch Open Access academic paper full text or metadata by DOI."""
-    options = fetch_options or FetchOptions()
     target = parse_doi_url(url)
     if not target:
         return ContentArtifact(
@@ -148,7 +147,7 @@ async def fetch_doi_paper_markdown(
     unpaywall_api_url = f"https://api.unpaywall.org/v2/{target.doi}?email={email}"
 
     try:
-        timeout_sec = options.stage_timeout_seconds or 25.0
+        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
         async with httpx.AsyncClient(timeout=timeout_sec, follow_redirects=True) as client:
             headers = {"User-Agent": "kindly-web-search-mcp/1.0 (academic-resolver)"}
             resp = await client.get(unpaywall_api_url, headers=headers)
@@ -182,8 +181,7 @@ async def fetch_doi_paper_markdown(
                 try:
                     fetched_pdf = await safe_fetch_url(
                         pdf_url,
-                        timeout_seconds=timeout_sec,
-                        max_response_bytes=options.max_response_bytes,
+                        max_response_bytes=max_response_bytes,
                     )
                     if fetched_pdf.is_pdf:
                         pdf_md = _convert_pdf_to_markdown(fetched_pdf.body, pdf_url)

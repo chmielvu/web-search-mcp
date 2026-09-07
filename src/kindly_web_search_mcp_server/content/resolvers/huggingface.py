@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from ..sanitize import sanitize_markdown
+from ...utils.text_clean import sanitize_markdown
 
 
 class HuggingFaceError(RuntimeError):

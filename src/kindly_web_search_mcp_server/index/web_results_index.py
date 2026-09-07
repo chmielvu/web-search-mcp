@@ -18,16 +18,17 @@ logger = logging.getLogger(__name__)
 
 _web_results_index: WebResultsIndex | None = None
 
-COLLECTION_NAME = "web_results_768d"
+COLLECTION_NAME = "web_results_384d"
 COLLECTION_VECTORS = {
     "dense": models.VectorParams(
-        size=768,
+        size=384,
         distance=models.Distance.COSINE,
     ),
 }
 COLLECTION_SPARSE = {
     "sparse": models.SparseVectorParams(
         index=models.SparseIndexParams(on_disk=False),
+        modifier=models.Modifier.IDF,  # BM25-style IDF weighting on sparse recall
     ),
 }
 

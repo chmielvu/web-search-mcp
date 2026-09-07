@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 import httpx
 
-from ..embeddings import embed_query
+from ..ml import embed_query
 from ..models import WebSearchResponse
 from .contracts import SearchRun, WebSearchRequest
 from .outcomes import submit_search_outcome

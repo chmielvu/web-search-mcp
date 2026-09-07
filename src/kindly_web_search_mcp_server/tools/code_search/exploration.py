@@ -529,9 +529,9 @@ async def code_fetch(
         # build instead of silently degrading to file matches.
         if symbol or (query is None and path is None):
             await manager.wait_for_graph(snapshot)
-        # Use async query with HF semantic fallback (st-codesearch-distilroberta-base)
-        # when FTS+literal yield 0 hits and HF_TOKEN present. Falls back to
-        # sync query for read/tree/graph and when semantic unavailable.
+        # Use async query with semantic fallback via the shared ml/ embedding
+        # client (fastembed-snowflake, Arctic 384-dim) when FTS+literal yield
+        # 0 hits. Falls back to sync query for read/tree/graph.
         if hasattr(manager, "query_async"):
             try:
                 result = await manager.query_async(

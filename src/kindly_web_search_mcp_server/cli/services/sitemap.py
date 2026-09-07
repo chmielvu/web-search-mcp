@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...content.sitemap import generate_sitemap
+from ...content.tavily_map import map_site
 
 
 async def fetch_sitemap_payload(
@@ -18,7 +18,7 @@ async def fetch_sitemap_payload(
     exclude_domains: list[str] | None,
     allow_external: bool,
 ) -> dict[str, Any]:
-    return await generate_sitemap(
+    return await map_site(
         url,
         instructions=instructions,
         max_depth=max_depth,

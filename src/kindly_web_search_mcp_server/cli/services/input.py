@@ -10,7 +10,7 @@ def _url_from_record(record: Any, *, line_number: int) -> str:
     if isinstance(record, str):
         value = record.strip()
     elif isinstance(record, dict):
-        value = str(record.get("url") or record.get("input_url") or "").strip()
+        value = str(record.get("url") or "").strip()
     else:
         value = ""
     if not value:

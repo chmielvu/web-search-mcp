@@ -1,16 +1,80 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urlparse
 
+try:
+    from bs4 import BeautifulSoup  # type: ignore
+except Exception:  # pragma: no cover
+    BeautifulSoup = None  # type: ignore
+
 from ..utils.url_canonicalize import canonicalize_url
 from .safe_fetch import SafeFetchError, safe_fetch_url
-from .html_tools import (
-    extract_html_links,
-    extract_html_metadata,
-    extract_sitemap_links,
-    strip_html_selectors,
-)
+from .stages import _stage_extract_links, _stage_extract_metadata
+
+
+def _soup(html: str):
+    if BeautifulSoup is None:
+        return None
+    return BeautifulSoup(html or "", "html.parser")
+
+
+def _safe_domain(url: str) -> str | None:
+    parsed = urlparse(url)
+    return parsed.netloc.lower() or None
+
+
+def _strip_html_selectors(html: str, selectors: str | None) -> str:
+    if not selectors:
+        return html
+    soup = _soup(html)
+    if soup is None:
+        return html
+    for selector in [part.strip() for part in selectors.split(",") if part.strip()]:
+        for element in soup.select(selector):
+            element.decompose()
+    return str(soup)
+
+
+def _extract_sitemap_links(
+    xml_text: str,
+    *,
+    base_url: str,
+    max_links: int = 100,
+    include_external: bool = True,
+    same_domain_only: bool = False,
+) -> list[dict[str, str | bool]]:
+    base_domain = _safe_domain(base_url)
+    links: list[dict[str, str | bool]] = []
+    seen: set[str] = set()
+    for raw_url in re.findall(r"<loc>\s*(.*?)\s*</loc>", xml_text or "", flags=re.I | re.S):
+        candidate = raw_url.strip()
+        if not candidate:
+            continue
+        parsed = urlparse(candidate)
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        domain = parsed.netloc.lower() or ""
+        internal = bool(base_domain and domain == base_domain)
+        if same_domain_only or not include_external:
+            if not internal:
+                continue
+        normalized_url = parsed._replace(fragment="").geturl()
+        if normalized_url in seen:
+            continue
+        seen.add(normalized_url)
+        links.append(
+            {
+                "url": normalized_url,
+                "text": normalized_url,
+                "domain": domain,
+                "internal": internal,
+            }
+        )
+        if len(links) >= max_links:
+            break
+    return links
 
 
 async def discover_links(
@@ -89,14 +153,14 @@ async def discover_links(
 
     html = fetched.text
     if strip_selectors:
-        html = strip_html_selectors(html, strip_selectors)
+        html = _strip_html_selectors(html, strip_selectors)
 
-    metadata = extract_html_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
+    metadata = _stage_extract_metadata(html, page_url=url, fetched_url=fetched.fetched_url)
     sitemapish = bool("urlset" in html.lower() and "<loc" in html.lower())
     max_links = max(1, max_links)
     link_limit = max_links + 1
     if sitemapish:
-        links = extract_sitemap_links(
+        links = _extract_sitemap_links(
             html,
             base_url=fetched.fetched_url,
             max_links=link_limit,
@@ -105,7 +169,7 @@ async def discover_links(
         )
         source_type = "sitemap"
     else:
-        links = extract_html_links(
+        links = _stage_extract_links(
             html,
             base_url=fetched.fetched_url,
             max_links=link_limit,
