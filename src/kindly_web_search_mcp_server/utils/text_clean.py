@@ -66,7 +66,7 @@ def clean_query(text: str) -> str:
     return " ".join(cleaned.strip().split())
 
 
-def clean_text_for_llm(text: str) -> str:
+def clean_text_for_llm(text: str, role: str = "page") -> str:
     """Post-fetch / pre-LLM light cleanup. Does not re-extract HTML."""
     if not text:
         return ""

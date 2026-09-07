@@ -105,7 +105,7 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     results = data.get("results", [])
     providers = data.get("providers_used", [])
-    urls = [r.get("link", "") for r in results]
+    urls = [r.get("url", "") for r in results]
     next_tools: list[str] = []
     next_prompts: list[str] = ["research_methodology"]
     parts: list[str] = []
@@ -180,26 +180,28 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
 
     if data.get("mode") == "single":
         item = results[0] if results else data
-        source_type = item.get("source_type", "")
         window = item.get("window", {})
         status = item.get("status", "")
         content_len = len(item.get("content") or "")
+        url = str(item.get("url") or "")
+        m = re.match(
+            r"https?://(?:www\.)?(?:raw\.githubusercontent\.com|github\.com)/([^/]+)/([^/]+)", url
+        )
+        if m and ("raw.githubusercontent.com" in url or "/blob/" in url):
+            parts.append(
+                f"GitHub repository file. For line-anchored reads, repo-wide search, or the "
+                f"symbol graph use code_fetch(repository='{m.group(1)}/{m.group(2)}'). "
+                "fetch returns raw text without line numbers or commit provenance."
+            )
+            next_tools.append("code_fetch")
         if window.get("has_more"):
             nxt = window.get("next_offset", 0)
-            parts.append(f"Truncated at {nxt} chars. Continue: fetch(offset={nxt}).")
+            parts.append(f"Truncated at {nxt} chars. Continue: fetch(url='{url}', offset={nxt}).")
             next_tools.append("fetch")
-        if source_type == "github_issue":
+        if content_len < 300 and not window.get("has_more") and status == "success":
             parts.append(
-                "GitHub issue detected. Use composio_similarlinks to find related issues/PRs."
-            )
-            next_tools.append("composio_similarlinks")
-        elif source_type == "wikipedia":
-            parts.append("Wikipedia source. Cross-reference with academic_search or official docs.")
-            next_tools.append("academic_search")
-        typed = source_type in {"json", "jsonl", "csv", "tsv", "rss", "atom", "xml"}
-        if content_len < 300 and not window.get("has_more") and status == "success" and not typed:
-            parts.append(
-                "Very short content (possibly behind login/paywall). Try an alternative source."
+                "Very short content (<300 chars). If it looks like an API/typed payload "
+                "or an access wall, verify against the source or try an alternative."
             )
         if status in {"login", "paywall", "bot", "js_shell"}:
             parts.append(
@@ -218,18 +220,6 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     success_count = sum(1 for item in results if item.get("status") == "success")
     if total_req > 0 and success_count < total_req:
         parts.append(f"{success_count}/{total_req} URLs succeeded in this page.")
-
-    source_types = {
-        str(item.get("source_type") or "") for item in results if item.get("source_type")
-    }
-    if len(source_types) > 1:
-        parts.append("Mixed source_types: " + ", ".join(sorted(source_types)) + ".")
-    elif len(source_types) == 1:
-        parts.append(
-            f"All fetched from {next(iter(source_types))}. Consider adding different source types."
-        )
-        next_tools.append("web_search")
-
     return (" ".join(parts) if parts else "", next_tools, next_prompts)
 
 
@@ -268,6 +258,7 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
 
 GUIDANCE_GENERATORS = {
     "fetch": _guide_fetch,
+    "web_search": _guide_web_search,
     "gemini_search": _guide_gemini_search,
     "quick_web_search": _guide_quick_web_search,
 }

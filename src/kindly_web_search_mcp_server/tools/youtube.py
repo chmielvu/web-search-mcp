@@ -3,14 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
+from pydantic import Field
 
 from ..errors import raise_tool_error
 from ..models import (
+    make_next,
     TokenUsage,
     YouTubeChannelTranscriptionItem,
     YouTubeChannelTranscriptionResponse,
@@ -40,15 +42,15 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def youtube_transcript(
-    video_id_or_url: str,
-    language: str | None = None,
-    translate_to: str | None = None,
-    output_format: Literal["text", "timestamped", "json", "markdown"] = "text",
-    backend: str | None = None,
-    include_summary: bool = False,
-    summary_focus: str | None = None,
-    max_videos: int = 20,
-    page_token: str | None = None,
+    video_id_or_url: Annotated[str, Field(description="YouTube video URL/ID or channel handle/ID/URL (auto-detected).")],
+    language: Annotated[str | None, Field(description="Preferred transcript language code (e.g. 'en').")] = None,
+    translate_to: Annotated[str | None, Field(description="Translate the transcript to this language code.")] = None,
+    output_format: Annotated[Literal["text", "timestamped", "json", "markdown"], Field(description="Output rendering: text, timestamped, json, or markdown.")] = "text",
+    backend: Annotated[str | None, Field(description="Override the transcript backend; default comes from settings.")] = None,
+    include_summary: Annotated[bool, Field(description="Add a source-grounded Gemini summary of the transcript.")] = False,
+    summary_focus: Annotated[str | None, Field(description="Focus the optional summary on this topic or term.")] = None,
+    max_videos: Annotated[int, Field(ge=1, description="Channel mode only: max uploads to transcribe per page")] = 20,
+    page_token: Annotated[str | None, Field(description="Channel mode only: continuation token from next_page_token.")] = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResponse | YouTubeChannelTranscriptionResponse:
     """Extract, analyze, and optionally summarize a YouTube transcript.
@@ -63,18 +65,21 @@ async def youtube_transcript(
     existing summary backend (Gemini 3.5 Flash-Lite with fallbacks).
     """
     if looks_like_channel_target(video_id_or_url):
-        return await _transcribe_channel(
-            video_id_or_url,
-            language=language,
-            translate_to=translate_to,
-            output_format=output_format,
-            backend=backend,
-            include_summary=include_summary,
-            summary_focus=summary_focus,
-            max_videos=max_videos,
-            page_token=page_token,
-            ctx=ctx,
-        )
+        try:
+            return await _transcribe_channel(
+                video_id_or_url,
+                language=language,
+                translate_to=translate_to,
+                output_format=output_format,
+                backend=backend,
+                include_summary=include_summary,
+                summary_focus=summary_focus,
+                max_videos=max_videos,
+                page_token=page_token,
+                ctx=ctx,
+            )
+        except Exception as e:
+            raise_tool_error(e, provider="youtube")
     format = output_format
     from ..content.ai_summary import create_summary
     from ..settings import settings
@@ -389,6 +394,12 @@ async def _transcribe_channel(
     await ctx.report_progress(
         progress=len(videos), total=len(videos), message="Channel transcription complete"
     )
+    if completed == 0 and failed > 0:
+        status = "error"
+    elif (0 < completed < len(videos)) or (failed > 0 and completed > 0):
+        status = "partial"
+    else:
+        status = "ok"
     return YouTubeChannelTranscriptionResponse(
         channel_id=channel_id,
         total_videos=len(videos),
@@ -397,12 +408,13 @@ async def _transcribe_channel(
         items=items,
         next_page_token=next_page_token,
         quota=get_youtube_api_quota_tracker().snapshot(),
+        status=status,
     )
 
 
 async def youtube_search(
     query: str,
-    num_results: int = 5,
+    num_results: Annotated[int, Field(ge=1, le=20, description="Number of results to return (1-20, default 5).")] = 5,
     ctx: Context = CurrentContext(),
 ) -> YouTubeSearchResponse:
     """Find YouTube videos by search query via SearXNG.
@@ -443,11 +455,24 @@ async def youtube_search(
             search_backend=search_backend,
         )
 
+        next_hints = (
+            [
+                make_next(
+                    tool="youtube_transcript",
+                    query={"video_id_or_url": results[0].link},
+                    why="Extract the transcript for the best matching video.",
+                    confidence="medium",
+                )
+            ]
+            if results
+            else None
+        )
         response = YouTubeSearchResponse(
             query=query,
             results=results,
             total_results=len(results),
             search_backend=search_backend,
+            next=next_hints,
         ).model_dump(exclude_none=True)
 
         emit_tool_observability_event(

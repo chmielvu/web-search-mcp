@@ -78,14 +78,14 @@ DEPTH_ALIASES: dict[str, str] = {
 }
 
 
-def _resolve_preset_key(depth: str | None) -> str:
-    """Normalize an input depth string or synonym alias into a preset key."""
+def _resolve_preset_key(depth: str | None) -> str | None:
+    """Normalize an input depth string or synonym alias into a preset key (None if unknown)."""
     if not depth:
         return "standard"
     normalized = depth.strip().lower()
     if normalized in RESEARCH_PRESETS:
         return normalized
-    return DEPTH_ALIASES.get(normalized, "standard")
+    return DEPTH_ALIASES.get(normalized)
 
 
 # ── Response models ────────────────────────────────────────────────────────
@@ -305,6 +305,11 @@ async def deep_research(
 
     # 2. Resolve preset key and final parameters
     preset_key = _resolve_preset_key(depth)
+    if preset_key is None:
+        raise ToolError(
+            f"Unknown depth '{depth}'. Valid presets: quick, standard, deep. "
+            f"Aliases: {sorted(DEPTH_ALIASES)}"
+        )
     preset = RESEARCH_PRESETS[preset_key]
     token_budget = token_budget_override or preset["token_budget"]
     team_size = team_size_override or preset["team_size"]

@@ -47,11 +47,10 @@ def web_search_empty_guidance(
 
     if coding:
         msg = (
-            "Zero results. Specialized code providers may need simpler symbol/repo terms. "
-            "Retry web_search with rewrite=true and a short identifier; "
-            "or gemini_search for a grounded overview."
+            "Zero results for coding intent. Retry with code_search using a short "
+            "symbol/repo term, or gemini_search for a grounded overview."
         )
-        tools.append("gemini_search")
+        tools = ["code_search", "gemini_search"]
     elif social:
         msg = (
             "Zero results. Social/discussion queries often work better with fewer operators "
@@ -76,7 +75,7 @@ def web_search_specialized_gap_guidance(
     """Hints when results exist but specialized code hosts are missing."""
     intent_s = (intent or "").strip()
 
-    urls = [str(r.get("link") or "") for r in results]
+    urls = [str(r.get("url") or "") for r in results]
     titles = " ".join(str(r.get("title") or "") for r in results).casefold()
     queryish = titles
 

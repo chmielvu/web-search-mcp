@@ -52,6 +52,12 @@ from ..telemetry import record_content_resolution
 _CRAWL4AI_SEMAPHORE = asyncio.Semaphore(max(1, settings.web_fetch_workers))
 _CAMOUFOX_SEMAPHORE = asyncio.Semaphore(1)
 LOGGER = logging.getLogger(__name__)
+_RETRYABLE_FETCH_CODES = {"http_408", "http_429", "timeout"}
+
+
+def _safe_fetch_retryable(code: str) -> bool:
+    """Derive retryability from the SafeFetch error code (transient limit/server codes)."""
+    return code in _RETRYABLE_FETCH_CODES or code.startswith("http_5")
 
 
 def _soup(html: str):
@@ -342,7 +348,9 @@ async def _fetch_via_local(
             markdown="",
             word_count=0,
             quality_score=0.0,
-            error=ContentError(code=exc.code, message=str(exc), retryable=False),
+            error=ContentError(
+                code=exc.code, message=str(exc), retryable=_safe_fetch_retryable(exc.code)
+            ),
         )
     except Exception as exc:
         return ContentArtifact(

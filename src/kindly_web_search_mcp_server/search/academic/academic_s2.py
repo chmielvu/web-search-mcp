@@ -161,22 +161,14 @@ async def search_semanticscholar(
     if api_key:
         headers["x-api-key"] = api_key
 
-    try:
-        async with httpx.AsyncClient(timeout=S2_TIMEOUT) as client:
-            resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
-            if resp.status_code == 429:
-                logger.warning(
-                    "Semantic Scholar search rate limited (429); set S2_API_KEY for higher limits"
-                )
-                return []
-            resp.raise_for_status()
-            data = resp.json().get("data", [])
-    except httpx.TimeoutException as e:
-        logger.warning("Semantic Scholar search timed out (configurable via S2_TIMEOUT): %s", e)
-        return []
-    except Exception as e:
-        logger.warning("Semantic Scholar search failed: %s", e)
-        return []
+    async with httpx.AsyncClient(timeout=S2_TIMEOUT) as client:
+        resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
+        if resp.status_code == 429:
+            raise RuntimeError(
+                "Semantic Scholar rate limited (429); set S2_API_KEY for higher limits"
+            )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
 
     papers: list[AcademicPaper] = []
     for item in data:

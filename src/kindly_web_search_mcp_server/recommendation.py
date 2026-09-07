@@ -252,7 +252,7 @@ def _route_for_task(task: str) -> CommandRoute:
                 intent="link_discovery",
                 confidence="high",
                 reason="A known URL with link-discovery intent maps to the current links command.",
-                mcp_tool="discover_links",
+                mcp_tool=None,
                 required_profile="regular",
                 structured_arguments={"--url": url},
                 workflow=["links discover", "content get on promising URLs"],

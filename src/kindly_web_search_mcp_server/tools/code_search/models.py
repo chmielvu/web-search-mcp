@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -23,6 +23,11 @@ FailureKind = Literal[
     "incomplete_index",
     "budget",
 ]
+
+
+_GITHUB_CONVERSATION_URL = re.compile(
+    r"https?://(?:www\.)?github\.com/[^/]+/[^/]+/(?:issues|pull|discussions)/\d+"
+)
 
 
 class Diagnostic(BaseModel):
@@ -176,6 +181,12 @@ class CodeSearchHit(BaseModel):
     source_window: str | None = Field(
         default=None, description="Clean bounded source window (max 100 lines)."
     )
+
+    snippet: str | None = Field(
+        default=None,
+        description="Provider-supplied evidence text (issue metadata, Hub card summary) shown when no source window exists.",
+    )
+
     line_start: int | None = Field(
         default=None, description="One-based start line of the source window."
     )
@@ -327,24 +338,20 @@ class Stats(BaseModel):
         default_factory=list,
         description="Providers that reported partial results due to timeouts or index limits.",
     )
-    dropped_count: int = Field(
-        default=0,
-        description="Number of candidate hits dropped during scope filtering or compaction.",
-    )
     estimated_tokens: int = Field(
         default=0,
         description="Estimated token count of the returned output payload.",
     )
     elapsed_ms: float = Field(default=0.0, description="Total elapsed search time in milliseconds.")
-    rerank_provider: str | None = Field(default=None, exclude=True)
-    rerank_model: str | None = Field(default=None, exclude=True)
-    rerank_status: str | None = Field(default=None, exclude=True)
-    rerank_duration_ms: float | None = Field(default=None, exclude=True)
-    rerank_input_count: int | None = Field(default=None, exclude=True)
-    rerank_output_count: int | None = Field(default=None, exclude=True)
-    rerank_diagnostic_outcome: str | None = Field(default=None, exclude=True)
-    rerank_diagnostic_message: str | None = Field(default=None, exclude=True)
-    rerank_payload: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    rerank_provider: str | None = Field(default=None)
+    rerank_model: str | None = Field(default=None)
+    rerank_status: str | None = Field(default=None)
+    rerank_duration_ms: float | None = Field(default=None)
+    rerank_input_count: int | None = Field(default=None)
+    rerank_output_count: int | None = Field(default=None)
+    rerank_diagnostic_outcome: str | None = Field(default=None)
+    rerank_diagnostic_message: str | None = Field(default=None)
+    rerank_payload: dict[str, Any] = Field(default_factory=dict)
     returned_count: int = Field(
         default=0, description="Number of evidence hits returned to the caller."
     )
@@ -390,7 +397,7 @@ class QueryMetadata(BaseModel):
 
     mode: str = Field(
         default="code",
-        description="Search mode: 'code' (default), 'docs', 'discovery', or 'huggingface' (semantic Hub assets).",
+        description="Search mode: 'code' (default), 'docs', 'discovery', 'issues', or 'huggingface' (semantic Hub assets).",
     )
     backend_channels: list[str] = Field(
         default_factory=list, description="Backend channels selected automatically by the planner."
@@ -424,7 +431,6 @@ class CodeSearchResultType(BaseModel):
     )
     provider_summaries: list[dict[str, Any]] = Field(
         default_factory=list,
-        exclude=True,
         description="Internal provider summaries retained for typed analytics only.",
     )
 
@@ -601,7 +607,7 @@ def to_public_file(hit: CodeSearchHit, *, language: str | None = None) -> CodeSe
     source_window = (
         hit.source_window
         if isinstance(hit.source_window, str) and hit.source_window.strip()
-        else None
+        else (hit.snippet if isinstance(hit.snippet, str) and hit.snippet.strip() else None)
     )
     line_start = hit.line_start
     line_end = hit.line_end
@@ -638,6 +644,7 @@ def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSea
     has_results = bool(result.results)
     has_scoped_qualifiers = bool(plan and plan.qualifiers)
     is_regex = bool(plan and plan.regex_source and plan.local_regex is None)
+    has_regex_drop = any(d.details.get("regex_drop") for d in result.diagnostics)
 
     if has_auth_fail:
         hints.append(
@@ -667,7 +674,22 @@ def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSea
                 message="Regex query returned no results. Verify regex syntax or try a literal/symbol search.",
             )
         )
-    if not has_results and not has_scoped_qualifiers and not is_regex:
+    if not has_results and has_regex_drop:
+        hints.append(
+            CodeSearchPublicHint(
+                code="regex_invalid",
+                message=(
+                    "regexp query failed to compile — no search was executed. "
+                    "Fix the pattern or retry with regexp=false for a literal search."
+                ),
+            )
+        )
+    if (
+        not has_results
+        and not has_scoped_qualifiers
+        and not is_regex
+        and result.query_metadata.mode == "code"
+    ):
         hints.append(
             CodeSearchPublicHint(
                 code="narrow_scope",
@@ -678,21 +700,56 @@ def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSea
 
 
 def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSearchPublicNext]:
-    """Build continuation records for repository searches or exact file fetches."""
+    """Build capped, evidence-routed continuations for follow-up investigation."""
 
-    nexts: list[CodeSearchPublicNext] = []
     if not result.results:
-        return nexts
+        return []
     anchor = ""
     if plan and plan.anchor_terms:
         anchor = plan.anchor_terms[0]
     elif plan and plan.variants:
         anchor = plan.variants[0]
     if not anchor:
-        return nexts
+        return []
+
+    nexts: list[CodeSearchPublicNext] = []
+    seen_urls: set[str] = set()
     seen_repositories: set[str] = set()
     for hit in result.results:
-        if hit.repository:
+        if len(nexts) >= 3:
+            break
+
+        if _GITHUB_CONVERSATION_URL.search(hit.url):
+            if hit.url in seen_urls:
+                continue
+            seen_urls.add(hit.url)
+            nexts.append(
+                CodeSearchPublicNext(
+                    action="read",
+                    tool="fetch",
+                    query={"url": hit.url, "focus_query": anchor},
+                    why="Read the full conversation; issues/discussions are not in repository snapshots.",
+                    confidence="high",
+                )
+            )
+            continue
+
+        if hit.result_kind in {"semantic_page", "documentation"} and hit.url:
+            if hit.url in seen_urls:
+                continue
+            seen_urls.add(hit.url)
+            nexts.append(
+                CodeSearchPublicNext(
+                    action="read",
+                    tool="fetch",
+                    query={"url": hit.url, "focus_query": anchor},
+                    why="Fetch the documentation or semantic page for the full context.",
+                    confidence="low",
+                )
+            )
+            continue
+
+        if hit.repository and "/" in hit.repository:
             if hit.repository in seen_repositories:
                 continue
             seen_repositories.add(hit.repository)
@@ -709,16 +766,6 @@ def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSear
                         "use a hit path for a focused read."
                     ),
                     confidence="high",
-                )
-            )
-        elif hit.url:
-            nexts.append(
-                CodeSearchPublicNext(
-                    action="get_lines",
-                    tool="fetch",
-                    query={"url": hit.url, "focus_query": anchor},
-                    why="Fetch the file with focus_query to resolve exact file:line anchors.",
-                    confidence="low",
                 )
             )
     return nexts
@@ -797,7 +844,7 @@ def to_public_result(
                 asset_id=str(metadata.get("asset_id") or hit.repository or ""),
                 asset_type=str(metadata.get("asset_type") or "unknown"),
                 url=hit.url,
-                summary=hit.source_window or "",
+                summary=hit.source_window or hit.snippet or "",
                 semantic_score=metadata.get("semantic_score"),
                 score_semantics=str(metadata.get("score_semantics") or "provider_similarity"),
                 likes=int(metadata.get("likes") or 0),
@@ -898,9 +945,3 @@ class ProviderResponse:
         if any(diagnostic.outcome == "error" for diagnostic in meaningful):
             return "error"
         return "no_hit"
-
-
-def utc_now_iso() -> str:
-    """Return a compact UTC timestamp for provider metadata."""
-
-    return datetime.now().astimezone().isoformat()

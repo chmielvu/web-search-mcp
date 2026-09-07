@@ -11,7 +11,7 @@ from fastmcp.server.context import Context
 
 from ..analytics.judge_runner import run_judge_evaluation
 from ..errors import raise_tool_error
-from ..models import GeminiSearchResponse, GrokSearchResponse
+from ..models import GeminiSearchResponse, GrokSearchResponse, fetch_next
 from ..search.gemini_search_tool import gemini_search_with_grounding
 from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
@@ -102,11 +102,14 @@ async def gemini_search(
             duration_ms=duration_seconds * 1000,
             error=result.error,
         )
-        _record_tool_success(
-            "gemini_search",
-            input_query=query,
-            output_content=result.answer,
-        )
+        if result.error:
+            _record_tool_failure("gemini_search")
+        else:
+            _record_tool_success(
+                "gemini_search",
+                input_query=query,
+                output_content=result.answer,
+            )
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
             try:
@@ -138,6 +141,26 @@ async def gemini_search(
             except Exception:
                 pass
 
+        next_hints = fetch_next(
+            [
+                u
+                for c in result.url_citations
+                if isinstance(c, dict)
+                for u in [c.get("url")]
+                if isinstance(u, str) and u.strip()
+            ]
+            or [
+                u
+                for s in result.sources
+                if isinstance(s, dict)
+                for u in [s.get("url")]
+                if isinstance(u, str) and u.strip()
+            ],
+            why="Verify the grounded answer against the source text.",
+            confidence="medium",
+        )
+        if next_hints:
+            response["next"] = next_hints
         return GeminiSearchResponse.model_validate(response)
     except Exception as exc:
         duration_seconds = time.time() - start_time
@@ -265,11 +288,14 @@ async def grok_search(
             total_tokens=result.total_tokens,
             duration_ms=duration_seconds * 1000,
         )
-        _record_tool_success(
-            "grok_search",
-            input_query=query,
-            output_content=result.answer,
-        )
+        if result.error:
+            _record_tool_failure("grok_search")
+        else:
+            _record_tool_success(
+                "grok_search",
+                input_query=query,
+                output_content=result.answer,
+            )
 
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
@@ -305,6 +331,19 @@ async def grok_search(
             except Exception:
                 pass
 
+        next_hints = fetch_next(
+            [
+                u
+                for c in result.citations
+                if isinstance(c, dict)
+                for u in [c.get("url")]
+                if isinstance(u, str) and u.strip()
+            ],
+            why="Read the cited sources for full context.",
+            confidence="medium",
+        )
+        if next_hints:
+            response["next"] = next_hints
         return GrokSearchResponse.model_validate(response)
 
     except ValueError as e:

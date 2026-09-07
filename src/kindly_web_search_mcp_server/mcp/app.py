@@ -205,13 +205,15 @@ mcp = FastMCP(
         "\n"
         "Tool routing: quick_web_search/gemini_search -> web_search ->\n"
         "composio_similarlinks -> fetch -> iterate.\n"
-        "Use discover_links to explore link graphs. Use academic_search for\n"
+        "Use academic_search for\n"
         "scholarly questions. Use youtube_search + youtube_transcript for\n"
         "video content.\n"
         "Codebase work: use code_search for public discovery, then code_fetch with\n"
         "repository + query to search the full snapshot — query returns matching\n"
         "lines, so follow hits with path to read whole files. Repository alone returns\n"
         "a map with the file tree. Use path only for focused file reads.\n"
+        "Boundary: known URL one-off → fetch; one repo, many questions →\n"
+        "code_fetch; cross-repo discovery → code_search.\n"
         "\n"
         "For deeper guidance, request the research_methodology prompt.\n"
         "For the tool routing reference card, read docs://workflow."
@@ -310,7 +312,6 @@ mcp.add_middleware(
         tools=[
             "web_search",
             "fetch",
-            "discover_links",
             "gemini_search",
             "grok_search",
             "youtube_search",

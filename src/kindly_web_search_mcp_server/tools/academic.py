@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
+from pydantic import Field
 from ..errors import raise_tool_error
 from ..cache import get_query_cache, provider_cache_key
-from ..models import AcademicSearchResponse
+from ..models import AcademicSearchResponse, fetch_next
 from ..search.normalize import normalize_query
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _academic_search_flight, _record_tool_failure, _record_tool_success
@@ -17,10 +18,27 @@ from ._helpers import _academic_search_flight, _record_tool_failure, _record_too
 LOGGER = logging.getLogger(__name__)
 
 
+def _with_next_hints(response: dict) -> dict:
+    next_hints = fetch_next(
+        [
+            u
+            for p in response.get("results", [])
+            if isinstance(p, dict)
+            for u in [p.get("url") or p.get("pdf_url")]
+            if isinstance(u, str) and u.strip()
+        ],
+        why="Read the paper page or PDF for full text.",
+        confidence="medium",
+    )
+    if next_hints:
+        response["next"] = next_hints
+    return response
+
+
 async def academic_search(
     query: str = "",
-    limit: int = 5,
-    sources: list[str] | None = None,
+    limit: Annotated[int, Field(ge=1, le=20, description="Maximum papers to return (1-20, default 5).")] = 5,
+    sources: Annotated[list[str] | None, Field(description="Restrict providers, e.g. ['arxiv','pubmed']; default: arxiv + semanticscholar + researchgate.")] = None,
     source_type: Literal["general", "polish", "archive"] | None = None,
     year_from: int | None = None,
     year_to: int | None = None,
@@ -66,9 +84,6 @@ async def academic_search(
             When any citation-graph/author filter is set, only providers that
             support it are queried unless `sources` overrides them.
     """
-    limit = max(1, min(limit, 20))
-    if sort not in ("relevance", "citations", "date"):
-        sort = "relevance"
     if not query.strip() and not (cited_by_paper_id or references_paper_id or author_id):
         _record_tool_failure("academic_search")
         raise_tool_error(
@@ -149,7 +164,7 @@ async def academic_search(
                 input_query=query,
                 output_result_count=len(exact_cached.get("results", [])),
             )
-            return exact_cached  # type: ignore[return-value]
+            return _with_next_hints(exact_cached)  # type: ignore[return-value]
     except Exception as e:
         LOGGER.warning("Exact query cache lookup failed for academic search: %s", e)
 
@@ -217,7 +232,7 @@ async def academic_search(
             sources_used=response.get("sources_used", []),
             source_types_used=response.get("source_types_used", []),
         )
-        return response
+        return _with_next_hints(response)  # type: ignore[return-value]
     except Exception as e:
         LOGGER.warning("Academic search failed: %s", e)
         _record_tool_failure("academic_search")

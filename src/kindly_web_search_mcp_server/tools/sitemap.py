@@ -7,7 +7,7 @@ from fastmcp.server.context import Context
 
 from ..content.tavily_map import map_site as _generate_sitemap
 from ..errors import raise_tool_error
-from ..models import SitemapResponse
+from ..models import SitemapResponse, fetch_next
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success
 
@@ -108,7 +108,16 @@ async def generate_sitemap(
             input_url_count=1,
             output_result_count=pages_count,
         )
-        return SitemapResponse.model_validate(result)
+        response = SitemapResponse.model_validate(result)
+        next_hints = fetch_next(
+            response.results,
+            why="Fetch promising sections discovered by the site map.",
+            confidence="low",
+            limit=10,
+        )
+        if next_hints:
+            response.next = next_hints
+        return response
     except Exception as e:
         duration_ms = (time.monotonic() - started) * 1000.0
         LOGGER.warning("generate_sitemap error: %s", e, exc_info=True)

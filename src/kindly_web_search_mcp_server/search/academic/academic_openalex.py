@@ -143,22 +143,18 @@ async def search_openalex(
         filters["is_oa"] = True
 
     def _sync_search() -> list[AcademicPaper]:
-        try:
-            works = pyalex.Works()
-            if filters:
-                works = works.filter(**filters)
-            results = works.search(query).get(per_page=min(limit * 2, 100))
+        works = pyalex.Works()
+        if filters:
+            works = works.filter(**filters)
+        results = works.search(query).get(per_page=min(limit * 2, 100))
 
-            papers: list[AcademicPaper] = []
-            for w in results:
-                paper = _normalize_openalex(w)  # type: ignore[arg-type]
-                if paper is not None:
-                    papers.append(paper)
-                if len(papers) >= limit:
-                    break
-            return papers
-        except Exception as e:
-            logger.warning(f"OpenAlex search failed: {e}")
-            return []
+        papers: list[AcademicPaper] = []
+        for w in results:
+            paper = _normalize_openalex(w)  # type: ignore[arg-type]
+            if paper is not None:
+                papers.append(paper)
+            if len(papers) >= limit:
+                break
+        return papers
 
     return await asyncio.to_thread(_sync_search)

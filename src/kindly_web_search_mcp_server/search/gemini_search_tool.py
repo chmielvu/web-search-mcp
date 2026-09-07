@@ -517,6 +517,26 @@ async def gemini_search_with_grounding(
             findings_text = "\n".join(f"- {f}" for f in findings)
             combined_answer = f"{summary}\n\nKey Findings:\n{findings_text}"
 
+            branch_errors = list(
+                dict.fromkeys(res.error for res in (overview_res, deepdive_res) if res.error)
+            )
+            if branch_errors:
+                merged_error = "; ".join(branch_errors)
+                merged_fallback_chain = list(
+                    dict.fromkeys(overview_res.fallback_chain + deepdive_res.fallback_chain)
+                )
+                merged_fallback_reason = "; ".join(
+                    dict.fromkeys(
+                        r
+                        for r in (overview_res.fallback_reason, deepdive_res.fallback_reason)
+                        if r
+                    )
+                )
+            else:
+                merged_error = None
+                merged_fallback_chain = overview_res.fallback_chain
+                merged_fallback_reason = overview_res.fallback_reason
+
             return GeminiGroundingResult(
                 query=query,
                 mode="dual",
@@ -535,8 +555,9 @@ async def gemini_search_with_grounding(
                 url_citations=merged_citations,
                 search_widget_html=overview_res.search_widget_html
                 or deepdive_res.search_widget_html,
-                fallback_chain=overview_res.fallback_chain,
-                fallback_reason=overview_res.fallback_reason,
+                fallback_chain=merged_fallback_chain,
+                fallback_reason=merged_fallback_reason,
+                error=merged_error,
             )
         except Exception as exc:
             logger.warning(

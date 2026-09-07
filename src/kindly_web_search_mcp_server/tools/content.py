@@ -6,10 +6,11 @@ import hashlib
 import json
 import logging
 import time
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
+from pydantic import Field
 
 from ..cache import get_page_cache
 from ..content.artifact import ContentArtifact, artifact_to_dict
@@ -595,13 +596,13 @@ def _normalize_inputs(
 
 
 async def fetch(
-    url: str | None = None,
-    urls: list[str] | None = None,
-    offset: int = 0,
-    cursor: str | None = None,
-    ai_summary: bool = False,
-    focus_query: str | None = None,
-    include_links: bool = False,
+    url: Annotated[str | None, Field(description="One URL to fetch. Exactly one of url/urls/cursor must be supplied.")] = None,
+    urls: Annotated[list[str] | None, Field(description="URL list; exactly one of url/urls/cursor required; cursor pages the remainder beyond the first wave.")] = None,
+    offset: Annotated[int, Field(ge=0, description="Skip the first N characters of a single-URL result; cannot combine with cursor or urls.")] = 0,
+    cursor: Annotated[str | None, Field(description="Opaque continuation from a previous bulk response's cursor field; mutually exclusive with url/urls/offset.")] = None,
+    ai_summary: Annotated[bool, Field(description="Replace content with a Gemini source-grounded summary (default false = raw content).")] = False,
+    focus_query: Annotated[str | None, Field(description="Bias the ai_summary toward this topic or term.")] = None,
+    include_links: Annotated[bool, Field(description="Also extract outbound links (default false).")] = False,
     ctx: Context = CurrentContext(),
 ) -> FetchResponse:
     """Fetch one URL or multiple URLs through the unified content pipeline.
@@ -610,6 +611,10 @@ async def fetch(
     and returns the remainder. Pipeline limits: 20s per-request timeout, 5 MiB
     response body. Bulk calls use fixed ten-item waves and bounded internal
     concurrency; those resource controls are intentionally not public arguments.
+
+    For GitHub repository work (repo-wide search, line-anchored reads, file
+    trees, symbol graphs) prefer code_fetch; fetch is for one-off URL content,
+    GitHub issue/discussion/PR pages, and non-GitHub sources.
     """
     if offset < 0:
         raise_tool_error(ValueError("offset must be non-negative"), provider="fetch")
@@ -663,21 +668,42 @@ async def fetch(
         )
         analytics_result = _analytics_result(artifact, result, classified)
         if ai_summary:
-            summary_obj = await create_summary(
-                result["content"],
-                ai_summary=True,
-                focus_query=focus_query,
-                source_urls=[result["url"]] if result.get("url") else None,
-            )
-            if isinstance(summary_obj, dict):
-                summary_text = str(summary_obj.get("summary") or "").strip()
-                if summary_text:
-                    result["content"] = summary_text
-                analytics_result["summary"] = summary_obj
-                usage = TokenUsage.from_payload(summary_obj)
-                if usage is not None:
-                    analytics_result["usage"] = usage.model_dump(exclude_none=True)
-                analytics_result["content"] = result["content"]
+            try:
+                summary_obj = await create_summary(
+                    result["content"],
+                    ai_summary=True,
+                    focus_query=focus_query,
+                    source_urls=[result["url"]] if result.get("url") else None,
+                )
+            except Exception as exc:
+                LOGGER.warning("Optional summary failed for %s: %s", result.get("url"), exc)
+                if result.get("diagnostics") is None:
+                    result["diagnostics"] = []
+                result["diagnostics"].append(
+                    {
+                        "code": "summary_failed",
+                        "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[:200],
+                        "retryable": False,
+                    }
+                )
+            else:
+                if isinstance(summary_obj, dict):
+                    summary_text = str(summary_obj.get("summary") or "").strip()
+                    if summary_text:
+                        result["content"] = summary_text
+                        result["window"] = {
+                            "offset": 0,
+                            "length": len(summary_text),
+                            "returned_chars": len(summary_text),
+                            "total_chars": len(summary_text),
+                            "has_more": False,
+                            "next_offset": None,
+                        }
+                    analytics_result["summary"] = summary_obj
+                    usage = TokenUsage.from_payload(summary_obj)
+                    if usage is not None:
+                        analytics_result["usage"] = usage.model_dump(exclude_none=True)
+                    analytics_result["content"] = result["content"]
         try:
             validated = FetchResult.model_validate(result)
         except Exception as exc:
@@ -735,23 +761,47 @@ async def fetch(
         )
 
         if ai_summary and admitted:
-            summaries = await create_batch_summaries(
-                [_summary_input(item) for item in admitted],
-                ai_summary=True,
-                focus_query=focus_query,
-                max_concurrency=workers,
-            )
+            try:
+                summaries = await create_batch_summaries(
+                    [_summary_input(item) for item in admitted],
+                    ai_summary=True,
+                    focus_query=focus_query,
+                    max_concurrency=workers,
+                )
+            except Exception as exc:
+                LOGGER.warning("Optional batch summaries failed: %s", exc)
+                summaries = []
             for index, summary in enumerate(summaries):
                 if not isinstance(summary, dict):
                     continue
-                analytics_admitted[index]["summary"] = summary
-                usage = TokenUsage.from_payload(summary)
-                if usage is not None:
-                    analytics_admitted[index]["usage"] = usage.model_dump(exclude_none=True)
-                summary_text = str(summary.get("summary") or "").strip()
-                if summary_text:
-                    admitted[index]["content"] = summary_text
-                analytics_admitted[index]["content"] = admitted[index]["content"]
+                try:
+                    analytics_admitted[index]["summary"] = summary
+                    usage = TokenUsage.from_payload(summary)
+                    if usage is not None:
+                        analytics_admitted[index]["usage"] = usage.model_dump(exclude_none=True)
+                    summary_text = str(summary.get("summary") or "").strip()
+                    if summary_text:
+                        admitted[index]["content"] = summary_text
+                        admitted[index]["window"] = {
+                            "offset": 0,
+                            "length": len(summary_text),
+                            "returned_chars": len(summary_text),
+                            "total_chars": len(summary_text),
+                            "has_more": False,
+                            "next_offset": None,
+                        }
+                    analytics_admitted[index]["content"] = admitted[index]["content"]
+                except Exception as exc:
+                    LOGGER.warning("Optional summary application failed for item %s: %s", index, exc)
+                    if admitted[index].get("diagnostics") is None:
+                        admitted[index]["diagnostics"] = []
+                    admitted[index]["diagnostics"].append(
+                        {
+                            "code": "summary_failed",
+                            "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[:200],
+                            "retryable": False,
+                        }
+                    )
 
         next_cursor = _encode_cursor(deferred, fingerprint) if deferred else None
         try:

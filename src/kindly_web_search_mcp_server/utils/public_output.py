@@ -140,6 +140,7 @@ def to_public_web_search(
                 "query_variants": query_variants,
                 "citation_base": len(public_hits),
                 "items": overflow,
+                "warnings": [w.model_dump(exclude_none=True) for w in warnings] if warnings else [],
             }
         )
 
@@ -195,6 +196,11 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
     query = str(decoded.get("query") or "")
     intent = decoded.get("intent")
     query_variants = decoded.get("query_variants")
+    rebuilt_warnings = [
+        ProviderWarning.model_validate(item)
+        for item in (decoded.get("warnings") or [])
+        if isinstance(item, dict)
+    ]
     cursor = None
     has_more = None
     remaining = None
@@ -210,15 +216,16 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
                 "query_variants": query_variants,
                 "citation_base": citation_base + len(page),
                 "items": rest,
+                "warnings": [w.model_dump(exclude_none=True) for w in rebuilt_warnings] if rebuilt_warnings else [],
             }
         )
     return WebSearchPublicResponse(
         query=query,
-        status="ok",
+        status="partial" if rebuilt_warnings else "ok",
         results=overflow_hits,
         intent=intent if intent else None,
         query_variants=query_variants if query_variants else None,
-        warnings=None,
+        warnings=rebuilt_warnings or None,
         next=[
             WebSearchNext(
                 action="fetch",

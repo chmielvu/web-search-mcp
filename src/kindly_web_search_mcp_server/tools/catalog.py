@@ -123,11 +123,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         {"regular", "full"},
         version="2.0",
         task=True,
-        description=(
-            "Deep multi-provider search; not reconnaissance (quick_web_search) or "
-            "grounded synthesis (gemini_search). Returns citations plus a mandatory "
-            "fetch continuation; optional cursor pages leftovers from the same run."
-        ),
     ),
     "fetch": _entry("fetch", "Fetch", {"regular", "full"}),
     "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
@@ -143,37 +138,9 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "code_search",
         "Code Search & Repository Discovery",
         {"regular", "full"},
-        description=(
-            "Search public source code, implementation examples, technical documentation, "
-            "and GitHub repositories. Use this for existing implementations, exact "
-            "identifiers, API usage patterns, error-message matches, code snippets, or "
-            "candidate repositories. Backend selection is automatic across lexical, "
-            "symbol, regular-expression, semantic, repository, documentation, and Hugging Face "
-            'semantic Hub asset search. Use mode="huggingface" for models/datasets. '
-            "Use repositories, language, path, filename, extension, or topic to narrow "
-            "the search. Results are grouped by repository (Octocode-style): each group "
-            "contains files with source_window (bounded code context), line_start, "
-            "line_end, symbols, sha, and url. Hints and next continuations guide agents to "
-            "fetch exact line anchors via fetch. Use web_search or fetch for "
-            "general web pages and narrative research."
-        ),
         task=True,
     ),
-    "code_fetch": _entry(
-        "code_fetch",
-        "Code Fetch",
-        {"regular", "full"},
-        description=(
-            "Search and inspect one GitHub repository's current main/default snapshot. "
-            "Pass repository plus query to search all indexed text files — query "
-            "returns match lines; path returns full file content. repository alone "
-            "returns a map with the file tree; path without query reads one file; "
-            "path with query scopes search. Do not pass a commit SHA. Read a line "
-            "window with path + start_line/end_line. Search supports "
-            "language/filename/glob/case filters and cursor pagination. Successful "
-            "responses include resolved_commit and cache_age_seconds."
-        ),
-    ),
+    "code_fetch": _entry("code_fetch", "Code Fetch", {"regular", "full"}),
     "composio_similarlinks": _entry(
         "composio_similarlinks", "Composio Similarlinks", {"regular", "full"}
     ),
@@ -182,13 +149,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "youtube_transcript",
         "YouTube Transcript",
         {"regular", "full"},
-        description=(
-            "Extract, analyze, and optionally summarize a YouTube transcript. Accepts a "
-            "video URL/ID or a channel handle/ID/URL (auto-detected). Channel mode "
-            "transcribes recent uploads with cache-first processing, always-on GLiNER2 "
-            "extraction, optional Gemini summaries, per-video partial-failure reporting, "
-            "and FastMCP background-task support (max_videos, page_token)."
-        ),
         idempotent=False,
         task=True,
         task_poll_interval_seconds=30.0,
@@ -204,13 +164,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "deep_research",
         "Deep Research",
         {"regular", "full"},
-        description=(
-            "Autonomous multi-step web research via the self-hosted node-DeepResearch "
-            "engine. Runs as a background task (SEP-1686) for long investigations. "
-            "Use for multi-source technical investigations, SDK/library comparisons, "
-            "architectural trade-off analysis, or obscure bug fixes across docs and "
-            "forums. Not for local codebase searches or single-fact questions."
-        ),
         expensive=True,
         idempotent=False,
         task=True,
@@ -230,6 +183,7 @@ def tool_kwargs(tool_name: str) -> dict[str, Any]:
         "tags": entry.tags,
         "annotations": entry.annotations,
         "version": entry.version,
+        "title": entry.title,
     }
     if entry.description:
         kwargs["description"] = entry.description

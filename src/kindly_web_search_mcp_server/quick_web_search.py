@@ -12,13 +12,14 @@ from __future__ import annotations
 import logging
 import time
 from uuid import uuid4
-from typing import Any
+from typing import Annotated, Any
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
 from .errors import raise_tool_error
+from .models import WebSearchNext, fetch_next
 from .settings import settings
 from .tools.catalog import tool_kwargs
 from .utils.observability import emit_tool_observability_event
@@ -49,6 +50,7 @@ class QuickWebSearchResponse(BaseModel):
     session_id: str = ""
     warnings: list[dict[str, Any]] | None = None
     usage: list[dict[str, Any]] | None = None
+    next: list[WebSearchNext] | None = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -202,11 +204,8 @@ async def _quick_web_search_impl(
     if advanced_settings:
         search_kwargs["advanced_settings"] = advanced_settings
 
-    try:
-        async with AsyncParallel(api_key=api_key) as client:
-            result = await client.search(**search_kwargs)
-    except Exception as exc:
-        raise RuntimeError(f"Parallel search failed: {exc}") from exc
+    async with AsyncParallel(api_key=api_key) as client:
+        result = await client.search(**search_kwargs)
 
     citations: list[QuickWebSearchCitation] = []
     for item in result.results:
@@ -228,6 +227,11 @@ async def _quick_web_search_impl(
     if result.usage:
         usage = [u.model_dump(exclude_none=True) for u in result.usage]
 
+    next_hints = fetch_next(
+        [c.url for c in citations if c.url],
+        why="Excerpts are teasers; fetch the most relevant URLs for full text.",
+        confidence="medium",
+    )
     return QuickWebSearchResponse(
         search_queries=search_queries,
         citations=citations,
@@ -236,6 +240,7 @@ async def _quick_web_search_impl(
         session_id=result.session_id or "",
         warnings=warnings,
         usage=usage,
+        next=next_hints,
     )
 
 
@@ -247,20 +252,20 @@ def register_quick_web_search(mcp: Any) -> None:
 
     @mcp.tool(**tool_kwargs("quick_web_search"))
     async def quick_web_search(
-        search_queries: list[str],
-        objective: str,
-        max_results: int | None = None,
-        max_chars_total: int | None = None,
-        max_chars_per_result: int | None = None,
-        client_model: str | None = None,
-        session_id: str | None = None,
-        include_domains: list[str] | None = None,
-        exclude_domains: list[str] | None = None,
-        after_date: str | None = None,
-        location: str | None = None,
-        max_age_seconds: int | None = None,
-        timeout_seconds: float | None = None,
-        disable_cache_fallback: bool | None = None,
+        search_queries: Annotated[list[str], Field(description="Concise keyword queries, 3-6 words each. At least one required; max 5.")],
+        objective: Annotated[str, Field(description="Natural-language goal driving the search.")],
+        max_results: Annotated[int | None, Field(description="Upper bound on results to return (default 10).")] = None,
+        max_chars_total: Annotated[int | None, Field(description="Upper bound on total characters across all excerpts.")] = None,
+        max_chars_per_result: Annotated[int | None, Field(description="Upper bound on chars per single result's excerpts.")] = None,
+        client_model: Annotated[str | None, Field(description="Model consuming results; enables Parallel optimizations.")] = None,
+        session_id: Annotated[str | None, Field(description="Identifier for chaining search+extract calls in one task.")] = None,
+        include_domains: Annotated[list[str] | None, Field(description="Restrict results to these domains only.")] = None,
+        exclude_domains: Annotated[list[str] | None, Field(description="Exclude these domains from results.")] = None,
+        after_date: Annotated[str | None, Field(description="Only return content published on/after this date (YYYY-MM-DD).")] = None,
+        location: Annotated[str | None, Field(description="ISO 3166-1 alpha-2 country code for geo-targeting.")] = None,
+        max_age_seconds: Annotated[int | None, Field(description="Max cached-content age before live fetch (min 600).")] = None,
+        timeout_seconds: Annotated[float | None, Field(description="Timeout for live fetch if content needs retrieval.")] = None,
+        disable_cache_fallback: Annotated[bool | None, Field(description="If true, error instead of falling back to stale cache.")] = None,
         ctx: Context = CurrentContext(),
     ) -> QuickWebSearchResponse:
         """Fast reconnaissance search using Parallel AI (advanced mode).

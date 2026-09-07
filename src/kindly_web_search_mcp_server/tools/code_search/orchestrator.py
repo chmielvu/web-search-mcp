@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from .docs import search_docs
+from ...errors import classify_error
 from .exa import search_exa
 from .github import search_github
 from .hydration import hydrate_sources
@@ -32,15 +32,36 @@ from .reranking import RerankProfile, rerank_code_hits
 from .sourcegraph import search_sourcegraph
 
 
+_ERROR_KIND_MAP: dict[str, str] = {
+    "rate_limit": "rate_limit",
+    "auth": "auth",
+    "network": "network",
+    "validation": "validation",
+    "content": "not_found",
+    "config": "provider",
+    "unknown": "provider",
+}
+
+
 def _branch_failure(provider: str, exc: BaseException) -> ProviderResponse:
+    structured = classify_error(exc, provider=provider)
+    kind = _ERROR_KIND_MAP.get(structured.error_type, "provider")
+    details: dict[str, Any] = {"action": structured.action} if structured.action else {}
     return ProviderResponse(
         provider=provider,
         diagnostics=[
             Diagnostic(
                 provider=provider,
                 outcome="error",
-                message=f"{provider} branch failed ({type(exc).__name__})",
-                failure_kind="provider",
+                message=structured.error,
+                failure_kind=kind,  # type: ignore[arg-type]
+                status_code=structured.status_code,
+                retry_after_seconds=(
+                    float(structured.retry_after)
+                    if structured.retry_after is not None
+                    else None
+                ),
+                details=details,
             )
         ],
     )
@@ -166,6 +187,27 @@ async def execute_code_search(
     """Infer and execute retrieval channels, with exclusive Hugging Face asset mode."""
 
     started = time.monotonic()
+    if request.regexp and not plan.regex_source:
+        stats = _stats([], elapsed_ms=(time.monotonic() - started) * 1000)
+        diagnostic = Diagnostic(
+            provider="code_search",
+            outcome="skipped",
+            message="regexp=true but the query is not a valid regular expression; nothing was searched.",
+            failure_kind="validation",
+            query=request.query,
+            details={"regex_drop": True},
+        )
+        return CodeSearchResultType(
+            query=request.query,
+            outcome="no_hit",
+            results=[],
+            repositories=[],
+            diagnostics=[diagnostic],
+            stats=stats,
+            query_metadata=plan.metadata,
+            provider_summaries=[],
+        )
+
     if request.mode == "huggingface":
         response = await _run_provider(
             "huggingface",

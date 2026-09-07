@@ -8,7 +8,7 @@ P2 Pattern: Typed Pydantic output schemas from Brave/Tavily MCP
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -285,11 +285,23 @@ class _PublicWebSearchModel(BaseModel):
 
 
 class WebSearchNext(_PublicWebSearchModel):
-    action: Literal["fetch"]
-    tool: Literal["fetch"]
+    action: str
+    tool: str
     query: dict[str, Any]
     why: str
-    confidence: Literal["high", "medium", "low"]
+    confidence: Literal["exact", "high", "medium", "low"]
+
+
+def make_next(*, tool: str, query: dict[str, Any], why: str, confidence: str = "medium") -> WebSearchNext:
+    return WebSearchNext(action="fetch", tool=tool, query=query, why=why, confidence=confidence)
+
+
+def fetch_next(urls: Sequence[str], *, why: str, confidence: str = "medium", limit: int = 3) -> list[WebSearchNext] | None:
+    cleaned = [u for u in urls if isinstance(u, str) and u.strip()][:limit]
+    if not cleaned:
+        return None
+    query = {"urls": cleaned} if len(cleaned) > 1 else {"url": cleaned[0]}
+    return [make_next(tool="fetch", query=query, why=why, confidence=confidence)]
 
 
 class WebSearchHit(_PublicWebSearchModel):
@@ -443,6 +455,7 @@ class GeminiSearchResponse(BaseModel):
         default=None,
         description="Canonical usage view of the flat counters above.",
     )
+    next: list[WebSearchNext] | None = None
 
 
 class GrokCitation(BaseModel):
@@ -478,6 +491,7 @@ class GrokSearchResponse(BaseModel):
             "Canonical usage view; input_tokens→prompt_tokens, output_tokens→completion_tokens."
         ),
     )
+    next: list[WebSearchNext] | None = None
 
 
 class YouTubeTranscriptQuality(BaseModel):
@@ -557,6 +571,7 @@ class YouTubeChannelTranscriptionResponse(BaseModel):
     next_page_token: str | None = None
     quota: dict[str, Any] | None = None
     error: str | None = None
+    status: Literal["ok", "partial", "error"] | None = None
 
 
 class YouTubeSearchResponse(BaseModel):
@@ -566,6 +581,7 @@ class YouTubeSearchResponse(BaseModel):
     results: list[WebSearchResult] = Field(default_factory=list)
     total_results: int = 0
     search_backend: str | None = None  # "api" or "searxng"
+    next: list[WebSearchNext] | None = None
 
 
 class SitemapResponse(BaseModel):
@@ -578,6 +594,7 @@ class SitemapResponse(BaseModel):
     related_questions: list[str] | None = None
     images: list[str] | None = None
     error: str | None = None
+    next: list[WebSearchNext] | None = None
 
 
 class SimilarLinkResult(BaseModel):
@@ -594,6 +611,7 @@ class SimilarLinksResponse(BaseModel):
     url: str
     results: list[SimilarLinkResult] = Field(default_factory=list)
     total_results: int = 0
+    next: list[WebSearchNext] | None = None
 
 
 class ImageSearchResult(BaseModel):
@@ -654,3 +672,4 @@ class AcademicSearchResponse(BaseModel):
     sources_used: list[str] = Field(default_factory=list)
     source_types_used: list[str] = Field(default_factory=list)
     warnings: list[ProviderWarning] | None = None
+    next: list[WebSearchNext] | None = None

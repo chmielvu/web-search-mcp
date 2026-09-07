@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastmcp.prompts import Message
+from pydantic import Field
 
 
 def web_search_workflow_prompt(
     query: str,
-    num_results: int = 5,
+    num_results: Annotated[int, Field(ge=1, le=10)] = 5,
     depth: Literal["quick", "medium", "deep"] = "medium",
     focus: Literal["code", "academic", "news", "general"] = "general",
 ) -> list[Message]:
@@ -18,6 +19,8 @@ def web_search_workflow_prompt(
         num_results: target number of results (3=fast, 5=standard, 7=broad, max 10).
         depth: quick / medium / deep routing.
         focus: code / academic / news / general bias.
+
+        Errors: invalid arguments fail validation with the constraint named.
     """
     lines = [
         f"Research question: {query!r}",
@@ -33,11 +36,12 @@ def web_search_workflow_prompt(
         lines.append("- MEDIUM: web_search -> fetch on top 2-3 URLs.")
     else:
         lines.append(
-            "- DEEP: web_search(num_results=7) -> fetch with urls -> cross-check with academic_search."
+            "- DEEP: web_search -> fetch with urls -> cross-check with academic_search."
         )
     if focus == "code":
         lines.append(
-            "- CODE: bias toward github.com / stackoverflow.com; use rewrite=false for error hashes."
+            "- CODE: use code_search for public source and code_fetch to read "
+            "repository files; keep web_search for narrative pages."
         )
     elif focus == "academic":
         lines.append(
@@ -136,14 +140,13 @@ def research_methodology_prompt() -> list[Message]:
                     "- Leave rewrite=true for semantic search; set rewrite=false for exact literals",
                     "- Use domain_boost to prioritize authoritative domains (e.g., github.com, docs.rs); omit noisy sources from the final answer",
                     "- composio_similarlinks on your best URL finds related pages via neural similarity",
-                    "- discover_links on a good landing page reveals link-graph connections",
                     "",
                     "## Deep-Reading Phase",
                     "",
                     "Snippets are teasers, not evidence. Always deep-read the best candidates:",
                     "- fetch accepts one URL or urls for a detailed single/bulk read",
                     "- Set focus_query to bias summaries toward what you care about",
-                    "- Check window.has_more — content may be truncated; paginate with char_offset",
+                    "- Check window.has_more — content may be truncated; paginate with offset",
                     "- Prefer sources with concrete dates, author names, and reproducible examples",
                     "",
                     "## Evaluation & Iteration",

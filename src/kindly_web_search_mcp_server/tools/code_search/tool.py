@@ -260,11 +260,14 @@ async def code_search(
         str,
         Field(
             description=(
-                "Search mode: 'code' (default, find source code and implementations), "
-                "'docs' (documentation and API references), 'discovery' "
-                "(find repositories and projects implementing the requested idea), or "
-                "'issues' (search GitHub Issues and Discussions; requires GITHUB_TOKEN)."
-            )
+                "Search mode: 'code' | 'docs' | 'discovery' | 'issues' | 'huggingface'. "
+                "'code' (default) finds source code and implementations; 'docs' finds "
+                "documentation and API references; 'discovery' finds repositories and "
+                "projects implementing the requested idea; 'issues' searches GitHub "
+                "Issues and Discussions (requires GITHUB_TOKEN); 'huggingface' searches "
+                "semantic model and dataset cards through the Hub API."
+            ),
+            examples=["code", "docs", "discovery", "issues", "huggingface"],
         ),
     ] = "code",
     huggingface_type: Annotated[
@@ -315,8 +318,12 @@ async def code_search(
 
     Returns grouped results (Octocode-style): repository → files → source_window,
     line_start, line_end, symbols, sha, and url. Hints and next continuations
-    guide agents to fetch exact line anchors via fetch.
+    route repository code hits to code_fetch and web/semantic URLs to fetch.
     Ranking scores and provider telemetry are omitted.
+
+    Start here for cross-repository discovery; follow the ``next`` field to
+    code_fetch or fetch. Do not use fetch to read GitHub repository files —
+    code_fetch returns line-anchored evidence with commit provenance.
     """
     tool_call_id = str(uuid.uuid4())
     emit_tool_observability_event(

@@ -61,7 +61,6 @@ class DifferentiatedRateLimitMiddleware(Middleware):
         {
             "web_search",
             "fetch",
-            "discover_links",
             "gemini_search",
             "youtube_search",
             "youtube_transcript",
