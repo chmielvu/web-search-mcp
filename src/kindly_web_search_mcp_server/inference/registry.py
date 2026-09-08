@@ -243,10 +243,9 @@ def as_rerank(
     default_timeout: float = 30.0,
 ) -> ProviderConfig:
     """
-    Build a ``ProviderConfig`` for a rerank endpoint (Cohere, Voyage, etc.).
+    Build a ``ProviderConfig`` for a Voyage rerank endpoint.
 
-    Rerank providers are HTTP-based (not OpenAI-compatible) and use a
-    different request/response format.
+    The Voyage adapter uses the official ``voyageai`` client, not OpenAI chat.
     """
     return ProviderConfig(
         model_id=model_id,

@@ -1,4 +1,16 @@
 ## [Unreleased]
+### Changed — Voyage SDK cutover, lite fallback, instruction-first rerank
+- Cross-encoder now uses the official `voyageai` client (`voyageai>=0.5.0,<1`)
+  via `asyncio.to_thread` (`truncation=True`, `max_retries=0`). Raw user query
+  and standing instructions are separate; layout is instruction text, then `Query:`.
+- Chain is `voyage-rerank@voyage` (`rerank-2.5`) then `voyage-rerank-lite@voyage`
+  (`VOYAGE_RERANK_FALLBACK_MODEL`, default `rerank-2.5-lite`). Parse errors no
+  longer retry the same model. Score parser no longer requires `[0, 1]`.
+- Voyage permutation is kept: recency is recorded, not blended or used to
+  re-sort. `build_cross_encoder_query` pipe-join and `_format_voyage_query`
+  removed. Code-search cloud rerank uses the same instruction argument.
+
+
 ### Added — Voyage-only rerank cutover + module restructure
 - Rerank cross-encoder is now Voyage-only (`voyage-rerank@voyage` chain,
   `rerank-2.5`): Cohere and OpenRouter rerank providers, their adapters, and

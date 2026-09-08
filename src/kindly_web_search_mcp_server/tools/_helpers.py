@@ -128,6 +128,7 @@ def _public_settings_snapshot() -> dict[str, object]:
         "models": {
             "openrouter_rerank_model": settings.openrouter_rerank_model,
             "voyage_rerank_model": settings.voyage_rerank_model,
+            "voyage_rerank_fallback_model": settings.voyage_rerank_fallback_model,
             "judge_model": settings.judge_model,
             "rankllm_timeout_seconds": settings.rankllm_timeout_seconds,
             "grok_model": settings.grok_model,

@@ -1,5 +1,4 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
-<!-- Managed by agent: keep sections and order; edit content, not structure -->
 <!-- Last updated: 2026-09-08 | Last verified: 2026-09-08 -->
 
 # AGENTS.md - Reranking
@@ -36,9 +35,14 @@ RANKLLM_ENABLED=false:  → MMR terminal (30 → 15)  [designed funnel terminal,
   alongside provider result lists. No second-stage RRF. RRF itself lives in
   `search/merge.py`.
 - **Bi-encoder**: Runs only for pools above cross-encoder limit.
-- **Cross-encoder**: Voyage `rerank-2.5` only (`voyage-rerank@voyage` chain,
-  timeout `voyage_rerank_timeout`, default 30s). Pre-flight gate: when
-  `VOYAGE_API_KEY` is unset, no HTTP call is attempted — the stage fails open
+- **Cross-encoder**: Voyage `rerank-2.5` primary with `rerank-2.5-lite`
+  fallback (`voyage-rerank@voyage` → `voyage-rerank-lite@voyage`, timeout
+  `voyage_rerank_timeout`, default 30s). Official `voyageai` client via
+  `asyncio.to_thread`, `truncation=True`, `max_retries=0`. Query is the raw
+  user text; standing + intent instructions are a separate `instruction`
+  argument composed as `{instruction}` then `Query: {query}`. Voyage order is
+  kept; recency is recorded, not blended. Pre-flight gate: when
+  `VOYAGE_API_KEY` is unset, no call is attempted — the stage fails open
   immediately and MMR becomes the terminal.
 - **RankLLM**: Gated by `RANKLLM_ENABLED` (default `true`). Receives the full
   labeled query, research goal, intent, caller preference, shared ranking
@@ -63,6 +67,8 @@ RANKLLM_ENABLED=false:  → MMR terminal (30 → 15)  [designed funnel terminal,
 - `RANKLLM_ENABLED` (default `true`) disables the LLM stage cleanly (summary
   status `skipped`; MMR is the terminal).
 - `voyage_rerank_timeout` (default 30.0) configures the Voyage adapter timeout.
+- `VOYAGE_RERANK_FALLBACK_MODEL` (default `rerank-2.5-lite`) is the chain
+  second spec. Transport 429/5xx/timeout advance the chain; parse errors do not.
 - SDK retries disabled (`max_retries=0`); fallback belongs to orchestration.
 - RankLLM uses `gemini-3.5-flash-lite` primary, `gemini-3.1-flash-lite` Google fallback, then OpenRouter.
 - MMR is fail-open: embedding outages skip reorder, they do not fail the search.

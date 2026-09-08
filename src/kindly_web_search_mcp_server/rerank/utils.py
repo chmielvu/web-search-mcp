@@ -99,7 +99,7 @@ def apply_ranked_results(
         candidate = original_candidates[ranked_result.index]
         if stage_name == "cross_encoder":
             recency_score = compute_recency_score(candidate.published_date, half_life_days)
-            final_score = (1.0 - recency_weight) * normalized_score + recency_weight * recency_score
+            final_score = normalized_score
             update = {
                 "cross_encoder_score": float(ranked_result.relevance_score),
                 "recency_score": recency_score,
@@ -115,8 +115,6 @@ def apply_ranked_results(
             (final_score, rank_position, ranked_result.index, candidate.model_copy(update=update))
         )
 
-    if stage_name == "cross_encoder":
-        scored_updates.sort(key=lambda item: (-item[0], item[1]))
     ordered_indices = [item[2] for item in scored_updates]
     updated_by_index = {item[2]: item[3] for item in scored_updates}
     ordered = [updated_by_index[index] for index in ordered_indices]

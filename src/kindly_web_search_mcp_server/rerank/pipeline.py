@@ -13,9 +13,9 @@ from ..ml import embed_query
 from ..models import WebSearchResult
 from ..prompts.rerank import (
     _normalize_prompt_text,
-    build_cross_encoder_query,
     build_rankllm_query,
     build_relevance_query,
+    build_voyage_instruction,
 )
 from ..settings import settings
 from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
@@ -225,8 +225,8 @@ async def rerank_results(
 
         cross_start = time.monotonic()
         cross_outcome = await run_cross_encoder_stage(
-            query=build_cross_encoder_query(
-                query,
+            query=query,
+            instruction=build_voyage_instruction(
                 query_type_hint,
                 research_goal,
                 reranking_instructions=reranking_instructions,

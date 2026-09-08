@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
-from ..inference.engine import is_retryable_error
 from ..models import WebSearchResult
 from ..settings import settings
 from .models import (
@@ -128,20 +127,16 @@ def parse_rerank_response(
         score_float = float(score)
         if not math.isfinite(score_float):
             raise RerankResponseError(f"{provider_name} result {position} has a non-finite score")
-        if not 0.0 <= score_float <= 1.0:
-            raise RerankResponseError(f"{provider_name} result {position} score is outside [0, 1]")
         seen.add(index)
         ranked.append(RerankResult(index=index, relevance_score=score_float))
     return ranked
 
 
-def _is_retryable_rerank_error(exc: Exception) -> bool:
-    return isinstance(exc, RerankResponseError) or is_retryable_error(exc)
-
-
 async def rerank_with_provider_fallback(
     query: str,
     candidates: list[WebSearchResult],
+    *,
+    instruction: str | None = None,
 ) -> RerankProviderOutcome:
     """Run cross-encoder rerank using the unified inference fallback engine."""
     if not candidates:
@@ -166,7 +161,7 @@ async def rerank_with_provider_fallback(
             query=query,
             documents=documents,
             top_n=len(candidates),
-            is_retryable=_is_retryable_rerank_error,
+            instruction=instruction,
             validator=lambda payload: parse_rerank_response(
                 payload,
                 candidate_count=len(candidates),
@@ -197,10 +192,11 @@ async def run_cross_encoder_stage(
     main_span: Any,
     logger: logging.Logger,
     output_limit: int = RANKLLM_INPUT_LIMIT,
+    instruction: str | None = None,
 ) -> RankedStageOutcome:
     del query_type_hint, original_count
     stage_start = time.monotonic()
-    outcome = await rerank_with_provider_fallback(query, candidates)
+    outcome = await rerank_with_provider_fallback(query, candidates, instruction=instruction)
     duration_seconds = time.monotonic() - stage_start
     if not outcome.ranked:
         return _failed_stage(

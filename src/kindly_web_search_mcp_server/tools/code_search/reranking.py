@@ -57,18 +57,16 @@ _BLEND_WEIGHTS: dict[RerankProfile, float] = {
 }
 
 
-def _build_code_search_rerank_query(
-    query: str,
+def _build_code_search_rerank_instruction(
     research_goal: str | None,
     instructions: str,
 ) -> str:
-    """Compose a private code-search signal in the provider-compatible pipe format."""
-    normalized_query = " ".join(query.split()).strip()
+    """Compose Voyage standing instructions for a code-search profile."""
+    parts = [instructions]
     goal = " ".join((research_goal or "").split()).strip()[:500]
-    parts = [normalized_query, f"Instructions: {instructions}"]
-    if goal and goal.casefold() != normalized_query.casefold():
+    if goal:
         parts.append(f"Research goal: {goal}")
-    return " | ".join(parts)
+    return "\n".join(parts)
 
 
 @dataclass(slots=True)
@@ -105,7 +103,7 @@ async def rerank_code_hits(
     max_candidates: int = 100,
     max_results: int = 50,
 ) -> CodeRerankOutcome:
-    """Rerank a bounded pool through Cohere → OpenRouter → Voyage.
+    """Rerank a bounded pool through Voyage.
 
     The cloud score is retained as evidence only. The stable code-search score
     remains the RRF score produced by ``ranking.py`` because fallback providers
@@ -118,12 +116,14 @@ async def rerank_code_hits(
         return CodeRerankOutcome(hits=[], metadata={"status": "empty", "profile": profile})
     temporary = [_temporary_web_result(hit) for hit in candidate_pool]
     try:
-        rerank_query = _build_code_search_rerank_query(
+        outcome = await rerank_with_provider_fallback(
             query,
-            research_goal,
-            _RERANKING_INSTRUCTIONS[profile],
+            temporary,
+            instruction=_build_code_search_rerank_instruction(
+                research_goal,
+                _RERANKING_INSTRUCTIONS[profile],
+            ),
         )
-        outcome = await rerank_with_provider_fallback(rerank_query, temporary)
     except Exception as exc:
         diagnostic = Diagnostic(
             provider="cloud_reranker",

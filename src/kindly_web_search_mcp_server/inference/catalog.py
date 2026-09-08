@@ -270,7 +270,7 @@ def _register_all() -> None:
         "Groq-hosted Qwen text model with multimodal input support.",
     )
     # ─────────────────────────────────────────────────────────────────────
-    # CROSS-ENCODER RERANK: voyage-rerank
+    # CROSS-ENCODER RERANK: voyage-rerank → voyage-rerank-lite
     #   Voyage only (Cohere/OpenRouter rerank providers removed 2026-09).
     # ─────────────────────────────────────────────────────────────────────
     define_model(
@@ -289,7 +289,26 @@ def _register_all() -> None:
             default_timeout=settings.voyage_rerank_timeout,
         ),
     )
-    register_chain("cross_encoder_rerank", ["voyage-rerank@voyage"])
+    define_model(
+        "voyage-rerank-lite",
+        display_name="Voyage Rerank Lite",
+        description="Cross-encoder reranker — Voyage rerank-2.5-lite fallback.",
+        capabilities={ModelCapability.RERANK},
+    )
+    add_provider(
+        "voyage-rerank-lite",
+        "voyage",
+        as_rerank(
+            model_id=settings.voyage_rerank_fallback_model,
+            base_url="https://api.voyageai.com/v1/rerank",
+            api_key_env="VOYAGE_API_KEY",
+            default_timeout=settings.voyage_rerank_timeout,
+        ),
+    )
+    register_chain(
+        "cross_encoder_rerank",
+        ["voyage-rerank@voyage", "voyage-rerank-lite@voyage"],
+    )
 
     # ─────────────────────────────────────────────────────────────────────
     # GOOGLE GEMINI MODELS

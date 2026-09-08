@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-08 | Last verified: 2026-09-08 -->
 
 # AGENTS.md - Unified Inference Subsystem
 
@@ -94,7 +94,7 @@ register_chain(
 | `as_openai()` | Groq, Vercel, OpenRouter (chat) | OpenAI-compatible API |
 | `as_google()` | Gemini | SDK handles endpoint, no base_url |
 | `as_huggingface()` | HuggingFace | sync InferenceClient in thread |
-| `as_rerank()` | Voyage (rerank) | HTTP-based, not OpenAI-compatible |
+| `as_rerank()` | Voyage (rerank) | voyageai SDK via `asyncio.to_thread` |
 | `as_embedding()` | HuggingFace embeddings | feature extraction pipeline |
 
 ### Cross-Provider Model ID Normalization
@@ -178,7 +178,8 @@ engine.execute_with_fallback(chain, operation, **kwargs) → tries primary → e
 - Domain bridges may impose a total chain budget in addition to per-provider
   timeouts; canceled provider tasks must be awaited and drained before failure
   is returned to an MCP tool.
-- Voyage's `/v1/rerank` adapter must send `top_k` and serialize the response's `data` list; `top_n`/`results` are not part of the Voyage contract.
+- Voyage adapter calls `voyageai.Client.rerank` (`truncation=True`, `max_retries=0`)
+  on a worker thread and serializes `{index, relevance_score}` from `results`.
 
 ## Catalog Chains
 
@@ -186,7 +187,7 @@ engine.execute_with_fallback(chain, operation, **kwargs) → tries primary → e
 |---|---|---|
 | `worker_llm` | gpt-oss-120b@groq | @groq:second → @huggingface → @vercel |
 | `classifier_llm` | gpt-oss-20b@groq | @groq:second → @vercel |
-| `cross_encoder_rerank` | voyage-rerank@voyage | — (Voyage only; Cohere/OpenRouter removed 2026-09) |
+| `cross_encoder_rerank` | voyage-rerank@voyage | voyage-rerank-lite@voyage |
 | `gemini_grounding` | gemini-3.1-flash-lite@google:second | gemini-2.5-flash@google → gemini-2.5-flash-lite@google |
 | `rankllm` | gemini-3.5-flash-lite@google:rankllm | gemini-3.1-flash-lite@google:rankllm → rankllm-openrouter@openrouter |
 | `summarization` | gemini-3.5-flash-lite@google | gemini-3.1-flash-lite@google → gemma-4-26b-a4b-it@google |

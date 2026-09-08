@@ -34,6 +34,7 @@ dependencies = [
     "google-genai>=0.3.0",
     "python-dotenv>=1.0.0",
     "openai>=2.36.0",
+    "voyageai>=0.5.0,<1",
     "huggingface-hub>=0.28.0",
     "youtube-transcript-api>=0.6.0",
     "yt-dlp>=2024.0.0",

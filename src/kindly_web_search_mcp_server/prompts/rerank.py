@@ -92,6 +92,45 @@ expertise unless it is visible in Title, Snippet, URL, Domain, Providers,
 or ProviderCount."""
 
 
+VOYAGE_STANDING_INSTRUCTION = (
+    "This is multi-provider web search. Rank by whether Title, Snippet, URL, and "
+    "Domain directly satisfy the research goal. Prefer original sources — official "
+    "pages, firsthand accounts, and canonical publications — over SEO listicles, "
+    "scraped mirrors, and ad-first pages. Never rank an irrelevant official or "
+    "high-authority page above a directly relevant result. Use only visible Title, "
+    "Snippet, URL, Domain, Providers, ProviderCount, and PublishedDate; do not infer "
+    "dates, authority, or document type from style."
+)
+
+VOYAGE_INTENT_INSTRUCTIONS: dict[SearchIntent, str] = {
+    "general": (
+        "Prefer direct primary or official evidence for factual questions; independent "
+        "and community sources for reviews, opinion, and discovery."
+    ),
+    "comparison": (
+        "Cover every named subject and criterion. A one-sided official page is "
+        "supporting evidence, not a complete comparison."
+    ),
+    "social_media": (
+        "Match the requested platform from URL, Domain, and Title. Rank native posts "
+        "first for sentiment or practice; official accounts first for announcements."
+    ),
+    "ai_coding_and_infrastructure": (
+        "Match the requested framework, language, package, API, and version. Official "
+        "docs, specs, repositories, and relevant issues or pull requests outrank "
+        "generic tutorials."
+    ),
+    "digital_humanities": (
+        "Prefer primary scholarly material, peer-reviewed research, and "
+        "methodologically explicit surveys."
+    ),
+    "news": (
+        "Rank by direct relevance to the named event, person, organization, or "
+        "development. Do not treat missing dates as old; do not invent freshness."
+    ),
+}
+
+
 def _normalize_prompt_text(value: str | None, *, cap: int | None = None) -> str:
     normalized = " ".join((value or "").split()).strip()
     return normalized[:cap] if cap is not None else normalized
@@ -119,26 +158,22 @@ def build_relevance_query(user_query: str, research_goal: str) -> str:
     return f"{normalized_query}\nResearch goal: {normalized_goal}"
 
 
-def build_cross_encoder_query(
-    user_query: str,
+def build_voyage_instruction(
     query_type: str | None,
     research_goal: str,
     reranking_instructions: str | None = None,
 ) -> str:
-    """Build the compact pointwise cross-encoder request."""
-    normalized_query, normalized_goal, caller = _prompt_inputs(
-        user_query, research_goal, reranking_instructions
-    )
+    """Build standing Voyage 2.5 instructions; the user query stays separate."""
+    _, normalized_goal, caller = _prompt_inputs("", research_goal, reranking_instructions)
     intent = normalize_intent(query_type)
-    segments = [
-        normalized_query,
+    lines = [
+        VOYAGE_STANDING_INSTRUCTION,
+        VOYAGE_INTENT_INSTRUCTIONS[intent],
         f"Research goal: {normalized_goal}",
-        f"Intent: {intent}",
-        RERANK_INTENT_INSTRUCTIONS[intent],
     ]
     if caller:
-        segments.append(f"Caller preference: {caller}")
-    return " | ".join(segments)
+        lines.append(f"Caller preference: {caller}")
+    return "\n".join(lines)
 
 
 def build_rankllm_query(

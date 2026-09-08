@@ -236,6 +236,9 @@ class Settings:
     )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
+    voyage_rerank_fallback_model: str = os.environ.get(
+        "VOYAGE_RERANK_FALLBACK_MODEL", "rerank-2.5-lite"
+    )
     voyage_rerank_timeout: float = float(os.environ.get("VOYAGE_RERANK_TIMEOUT", "30.0"))
 
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.70"))
