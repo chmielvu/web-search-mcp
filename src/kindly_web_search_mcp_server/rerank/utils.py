@@ -1,13 +1,21 @@
+"""Shared rerank scoring helpers."""
+
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
+from ..analytics.rerank_telemetry import (
+    record_ranked_stage,
+    record_rerank_candidate_rows_async,
+)
 from ..models import WebSearchResult
+from ..settings import settings
 from ..utils.url_canonicalize import canonicalize_url
-from .models import RerankResult
+from .models import RerankResult, RankedStageOutcome
 
 
 def normalize_scores_minmax(scores: list[float]) -> list[float]:
@@ -120,3 +128,123 @@ def apply_ranked_results(
     max_score = max(raw_scores)
     avg_score = sum(raw_scores) / len(raw_scores)
     return ordered, raw_scores, max_score, avg_score
+
+
+def _failed_stage(
+    *,
+    stage_name: str,
+    provider: str,
+    model: str | None,
+    candidates: list[WebSearchResult],
+    output_limit: int,
+    duration_seconds: float,
+    error: Exception | None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    attempted_passes: int = 0,
+    valid_passes: int = 0,
+    failed_passes: int = 0,
+) -> RankedStageOutcome:
+    sliced_candidates = list(candidates[:output_limit])
+    return RankedStageOutcome(
+        candidates=sliced_candidates,
+        provider=provider,
+        model=model,
+        stage_name=stage_name,
+        input_count=len(candidates),
+        output_count=len(sliced_candidates),
+        duration_seconds=duration_seconds,
+        relevance_scores=[],
+        max_score=0.0,
+        avg_score=0.0,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        error=error,
+        full_candidates=list(candidates),
+        attempted_passes=attempted_passes,
+        valid_passes=valid_passes,
+        failed_passes=failed_passes,
+    )
+
+
+async def _apply_ranked_stage(
+    *,
+    stage_name: Literal["cross_encoder", "rankllm"],
+    provider: str,
+    model: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    input_candidates: list[WebSearchResult],
+    ranked_results: list[Any],
+    duration_seconds: float,
+    run_key: str | None,
+    main_span: Any,
+    logger: logging.Logger,
+    output_limit: int | None = None,
+    error: Exception | None = None,
+    attempted_passes: int = 0,
+    valid_passes: int = 0,
+    failed_passes: int = 0,
+) -> RankedStageOutcome:
+    before_candidates = [candidate.model_copy() for candidate in input_candidates]
+    candidates, relevance_scores, max_score, avg_score = apply_ranked_results(
+        list(input_candidates),
+        ranked_results,
+        stage_name=stage_name,
+        recency_weight=(settings.rerank_recency_weight if stage_name == "cross_encoder" else 0.0),
+        half_life_days=settings.rerank_recency_half_life_days,
+    )
+    cross_encoder_scores = None
+    if stage_name == "cross_encoder":
+        cross_encoder_scores = {
+            canonicalize_url(candidate.link): float(candidate.cross_encoder_score)
+            for candidate in candidates
+            if candidate.cross_encoder_score is not None
+        }
+
+    full_candidates = list(candidates)
+    sliced_candidates = (
+        full_candidates[:output_limit] if output_limit is not None else full_candidates
+    )
+    await record_rerank_candidate_rows_async(
+        logger,
+        run_key=run_key,
+        stage=stage_name,
+        before_candidates=before_candidates,
+        after_candidates=sliced_candidates,
+        cross_encoder_scores=cross_encoder_scores,
+    )
+    record_ranked_stage(
+        stage_name=stage_name,
+        provider=provider,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        input_count=len(input_candidates),
+        output_count=len(sliced_candidates),
+        duration_seconds=duration_seconds,
+        relevance_scores=relevance_scores,
+        attempted_passes=attempted_passes,
+        valid_passes=valid_passes,
+        failed_passes=failed_passes,
+        main_span=main_span,
+    )
+    return RankedStageOutcome(
+        candidates=sliced_candidates,
+        provider=provider,
+        model=model,
+        stage_name=stage_name,
+        input_count=len(input_candidates),
+        output_count=len(sliced_candidates),
+        duration_seconds=duration_seconds,
+        relevance_scores=relevance_scores,
+        max_score=float(max_score),
+        avg_score=float(avg_score),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        error=error,
+        full_candidates=full_candidates,
+        attempted_passes=attempted_passes,
+        valid_passes=valid_passes,
+        failed_passes=failed_passes,
+    )

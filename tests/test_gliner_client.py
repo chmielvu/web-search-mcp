@@ -113,7 +113,7 @@ def test_singleton_factory_is_stable(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_extract_transcript_chunk_sends_flat_label_lists(monkeypatch) -> None:
+async def test_extract_transcript_chunk_sends_dict_vocabularies(monkeypatch) -> None:
     from unittest.mock import AsyncMock
 
     client = GLiNER2Client(base_url="http://test.local", timeout=1.0)
@@ -130,7 +130,7 @@ async def test_extract_transcript_chunk_sends_flat_label_lists(monkeypatch) -> N
     args = mocked.call_args
     assert args[0][0] == "/extract"
     payload = args[0][1]
-    assert payload["entities"] == ["person", "organization"]
-    assert payload["relations"] == ["works for"]
+    assert payload["entities"] == {"person": "Person name", "organization": "Company"}
+    assert payload["relations"] == {"works for": "Works for"}
     assert "structures" not in payload
     assert payload["threshold"] == 0.6

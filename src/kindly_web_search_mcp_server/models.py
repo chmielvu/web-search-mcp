@@ -292,11 +292,15 @@ class WebSearchNext(_PublicWebSearchModel):
     confidence: Literal["exact", "high", "medium", "low"]
 
 
-def make_next(*, tool: str, query: dict[str, Any], why: str, confidence: str = "medium") -> WebSearchNext:
+def make_next(
+    *, tool: str, query: dict[str, Any], why: str, confidence: str = "medium"
+) -> WebSearchNext:
     return WebSearchNext(action="fetch", tool=tool, query=query, why=why, confidence=confidence)
 
 
-def fetch_next(urls: Sequence[str], *, why: str, confidence: str = "medium", limit: int = 3) -> list[WebSearchNext] | None:
+def fetch_next(
+    urls: Sequence[str], *, why: str, confidence: str = "medium", limit: int = 3
+) -> list[WebSearchNext] | None:
     cleaned = [u for u in urls if isinstance(u, str) and u.strip()][:limit]
     if not cleaned:
         return None

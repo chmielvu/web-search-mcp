@@ -8,7 +8,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from ..utils.url_canonicalize import canonicalize_url, extract_domain_from_url
+from ...utils.url_canonicalize import canonicalize_url, extract_domain_from_url
 
 
 def expected_tool_called(tool_calls: list[dict[str, object]], tool_name: str) -> float:

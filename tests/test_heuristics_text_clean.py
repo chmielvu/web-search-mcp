@@ -9,7 +9,6 @@ from kindly_web_search_mcp_server.heuristics.text_clean import (
     clean_text_for_llm,
     repair_unicode,
 )
-from kindly_web_search_mcp_server.search.normalize import normalize_query
 
 
 class TestHeuristicsTextClean(unittest.TestCase):
@@ -29,7 +28,7 @@ class TestHeuristicsTextClean(unittest.TestCase):
         repaired = repair_unicode("it\u00e2\u20ac\u2122s")
         self.assertIn("'", repaired)
 
-    def test_normalize_query_delegates(self) -> None:
+    def test_clean_query_idempotent(self) -> None:
         samples = [
             "  a   b  ",
             "\u201chello\u201d world",
@@ -37,7 +36,7 @@ class TestHeuristicsTextClean(unittest.TestCase):
             "",
         ]
         for sample in samples:
-            self.assertEqual(normalize_query(sample), clean_query(sample))
+            self.assertEqual(clean_query(clean_query(sample)), clean_query(sample))
 
     def test_clean_text_for_llm_roles(self) -> None:
         page = clean_text_for_llm("hello   world\n\n\nnext", role="page")

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from kindly_web_search_mcp_server.search.intent_policy import (
+from kindly_web_search_mcp_server.search.intents import (
     resolve_intent_policy,
     _INTENT_POLICIES,
+    normalize_intent,
 )
-from kindly_web_search_mcp_server.search.intents import normalize_intent
 from kindly_web_search_mcp_server.search.options import SearchOptions
 
 
@@ -58,7 +58,7 @@ class TestIntentToCategoryRouting:
 
 
 def test_resolve_intent_policy_merges_configured_goggles(monkeypatch) -> None:
-    import kindly_web_search_mcp_server.search.intent_policy as intent_policy_module
+    import kindly_web_search_mcp_server.search.intents as intent_policy_module
     from kindly_web_search_mcp_server.settings import settings
 
     # Pin the settings object the policy module actually reads so ambient

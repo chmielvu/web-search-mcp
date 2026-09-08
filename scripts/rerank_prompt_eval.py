@@ -26,7 +26,7 @@ from kindly_web_search_mcp_server.prompts.rerank import (
     build_cross_encoder_query,
     build_rankllm_query,
 )
-from kindly_web_search_mcp_server.rerank.llm_rerank import (
+from kindly_web_search_mcp_server.rerank.llm import (
     LLMRerankOutcome,
     _CoordinatorGuardTimeout,
     _get_gemini_coordinator,
@@ -34,7 +34,7 @@ from kindly_web_search_mcp_server.rerank.llm_rerank import (
     _load_rank_llm_openai,
     _run_coordinator,
 )
-from kindly_web_search_mcp_server.rerank.providers import rerank_with_provider_fallback
+from kindly_web_search_mcp_server.rerank.cross_encoder import rerank_with_provider_fallback
 from kindly_web_search_mcp_server.settings import settings
 from kindly_web_search_mcp_server.inference import (
     ChainExhaustedError,

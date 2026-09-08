@@ -42,15 +42,35 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def youtube_transcript(
-    video_id_or_url: Annotated[str, Field(description="YouTube video URL/ID or channel handle/ID/URL (auto-detected).")],
-    language: Annotated[str | None, Field(description="Preferred transcript language code (e.g. 'en').")] = None,
-    translate_to: Annotated[str | None, Field(description="Translate the transcript to this language code.")] = None,
-    output_format: Annotated[Literal["text", "timestamped", "json", "markdown"], Field(description="Output rendering: text, timestamped, json, or markdown.")] = "text",
-    backend: Annotated[str | None, Field(description="Override the transcript backend; default comes from settings.")] = None,
-    include_summary: Annotated[bool, Field(description="Add a source-grounded Gemini summary of the transcript.")] = False,
-    summary_focus: Annotated[str | None, Field(description="Focus the optional summary on this topic or term.")] = None,
-    max_videos: Annotated[int, Field(ge=1, description="Channel mode only: max uploads to transcribe per page")] = 20,
-    page_token: Annotated[str | None, Field(description="Channel mode only: continuation token from next_page_token.")] = None,
+    video_id_or_url: Annotated[
+        str, Field(description="YouTube video URL/ID or channel handle/ID/URL (auto-detected).")
+    ],
+    language: Annotated[
+        str | None, Field(description="Preferred transcript language code (e.g. 'en').")
+    ] = None,
+    translate_to: Annotated[
+        str | None, Field(description="Translate the transcript to this language code.")
+    ] = None,
+    output_format: Annotated[
+        Literal["text", "timestamped", "json", "markdown"],
+        Field(description="Output rendering: text, timestamped, json, or markdown."),
+    ] = "text",
+    backend: Annotated[
+        str | None,
+        Field(description="Override the transcript backend; default comes from settings."),
+    ] = None,
+    include_summary: Annotated[
+        bool, Field(description="Add a source-grounded Gemini summary of the transcript.")
+    ] = False,
+    summary_focus: Annotated[
+        str | None, Field(description="Focus the optional summary on this topic or term.")
+    ] = None,
+    max_videos: Annotated[
+        int, Field(ge=1, description="Channel mode only: max uploads to transcribe per page")
+    ] = 20,
+    page_token: Annotated[
+        str | None, Field(description="Channel mode only: continuation token from next_page_token.")
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResponse | YouTubeChannelTranscriptionResponse:
     """Extract, analyze, and optionally summarize a YouTube transcript.
@@ -414,7 +434,9 @@ async def _transcribe_channel(
 
 async def youtube_search(
     query: str,
-    num_results: Annotated[int, Field(ge=1, le=20, description="Number of results to return (1-20, default 5).")] = 5,
+    num_results: Annotated[
+        int, Field(ge=1, le=20, description="Number of results to return (1-20, default 5).")
+    ] = 5,
     ctx: Context = CurrentContext(),
 ) -> YouTubeSearchResponse:
     """Find YouTube videos by search query via SearXNG.

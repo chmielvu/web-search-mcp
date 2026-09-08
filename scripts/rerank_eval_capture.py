@@ -15,11 +15,11 @@ import httpx
 from kindly_web_search_mcp_server.embeddings.hf_inference import embed_query
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.rerank.bm25 import score_candidates
-from kindly_web_search_mcp_server.rerank.core import rerank_results
+from kindly_web_search_mcp_server.rerank.pipeline import rerank_results
 from kindly_web_search_mcp_server.search.blocklist import filter_blocked_results
 from kindly_web_search_mcp_server.search.contracts import SearchRun, WebSearchRequest
 from kindly_web_search_mcp_server.search.merge import reciprocal_rank_fusion
-from kindly_web_search_mcp_server.search.normalize import canonicalize_url
+from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
 from kindly_web_search_mcp_server.search.planning import plan_search
 from kindly_web_search_mcp_server.search.retrieval import retrieve_branches
 from kindly_web_search_mcp_server.settings import settings

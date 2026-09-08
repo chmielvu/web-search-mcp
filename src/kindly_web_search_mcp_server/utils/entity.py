@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 __all__ = [
     "DEFAULT_CONTENT_LABELS",
     "DEFAULT_CONTENT_RELATIONS",
+    "_GRAPH_RELATIONS",
     "DEFAULT_QUERY_LABELS",
     "DEFAULT_QUERY_RELATIONS",
     "EntityRelation",
@@ -97,6 +98,15 @@ DEFAULT_QUERY_RELATIONS: dict[str, str] = {
 # Content extraction reuses every query label and adds no second vocabulary.
 DEFAULT_CONTENT_LABELS: dict[str, str] = dict(DEFAULT_QUERY_LABELS)
 DEFAULT_CONTENT_RELATIONS: dict[str, str] = dict(DEFAULT_QUERY_RELATIONS)
+
+
+_GRAPH_RELATIONS: tuple[tuple[str, str, str], ...] = (
+    ("works_for", "person", "organization"),
+    ("compares_with", "product", "product"),
+    ("uses", "product", "package"),
+    ("version_of", "version", "package"),
+    ("runs_on", "package", "platform"),
+)
 
 
 # --- Post-processing: validation, deduplication, and overlap merging ---

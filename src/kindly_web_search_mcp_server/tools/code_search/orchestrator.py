@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from ...errors import classify_error
+from .docs import search_docs
 from .exa import search_exa
 from .github import search_github
 from .hydration import hydrate_sources
@@ -57,9 +58,7 @@ def _branch_failure(provider: str, exc: BaseException) -> ProviderResponse:
                 failure_kind=kind,  # type: ignore[arg-type]
                 status_code=structured.status_code,
                 retry_after_seconds=(
-                    float(structured.retry_after)
-                    if structured.retry_after is not None
-                    else None
+                    float(structured.retry_after) if structured.retry_after is not None else None
                 ),
                 details=details,
             )

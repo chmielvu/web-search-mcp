@@ -4,7 +4,7 @@ and per-provider timeout budgets.
 Covers the additive fixes in:
 - search/providers/base.py        (Retry-After parsing, bounded retry, metadata)
 - search/retrieval.py             (warning error contract, per-call timeout cap)
-- search/provider_catalog.py      (resilience metadata on definitions)
+- search/provider_registry.py     (resilience metadata on definitions)
 """
 
 from __future__ import annotations
@@ -387,7 +387,7 @@ def test_warning_budget_exhausted_is_not_retryable() -> None:
 
 
 def test_catalog_carries_resilience_metadata() -> None:
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         PROVIDER_DEFINITIONS_LIST,
     )
     from kindly_web_search_mcp_server.search.provider_registry import (

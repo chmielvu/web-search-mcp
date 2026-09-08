@@ -11,7 +11,7 @@ from pydantic import Field
 from ..errors import raise_tool_error
 from ..cache import get_query_cache, provider_cache_key
 from ..models import AcademicSearchResponse, fetch_next
-from ..search.normalize import normalize_query
+from ..utils.text_clean import clean_query as normalize_query
 from ..utils.observability import emit_tool_observability_event
 from ._helpers import _academic_search_flight, _record_tool_failure, _record_tool_success
 
@@ -37,8 +37,15 @@ def _with_next_hints(response: dict) -> dict:
 
 async def academic_search(
     query: str = "",
-    limit: Annotated[int, Field(ge=1, le=20, description="Maximum papers to return (1-20, default 5).")] = 5,
-    sources: Annotated[list[str] | None, Field(description="Restrict providers, e.g. ['arxiv','pubmed']; default: arxiv + semanticscholar + researchgate.")] = None,
+    limit: Annotated[
+        int, Field(ge=1, le=20, description="Maximum papers to return (1-20, default 5).")
+    ] = 5,
+    sources: Annotated[
+        list[str] | None,
+        Field(
+            description="Restrict providers, e.g. ['arxiv','pubmed']; default: arxiv + semanticscholar + researchgate."
+        ),
+    ] = None,
     source_type: Literal["general", "polish", "archive"] | None = None,
     year_from: int | None = None,
     year_to: int | None = None,

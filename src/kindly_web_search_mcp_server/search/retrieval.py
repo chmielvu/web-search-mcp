@@ -311,7 +311,7 @@ def _record_provider_result(
     )
     # Collect provider_result rows for funnel uplift analytics
     if provider_result_rows is not None:
-        from ..analytics.observability_store import _canonical_result_id as _cri
+        from ..analytics.ids import _canonical_result_id as _cri
 
         for rank, item in enumerate(deduped_results, start=1):
             provider_result_rows.append(

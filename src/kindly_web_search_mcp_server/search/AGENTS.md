@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-03 | Last verified: 2026-09-03 -->
+<!-- Last updated: 2026-09-07 | Last verified: 2026-09-07 -->
 
 # AGENTS.md - Search
 
@@ -19,10 +19,9 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
 | `blocklist.py` | DuckDB-backed URL blocking |
-| `provider_catalog.py` | Provider metadata definitions |
-| `provider_registry.py` | Adapter lookup for 16 providers |
-| `intent_policy.py` | Intent-specific provider arguments, goggles, freshness, options |
-| `keyword_extract.py` | Rake/Keybert keyword extraction |
+| `provider_registry.py` | Provider definitions (16), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
+| `intents.py` | Canonical intents, aliases, normalization + intent-specific provider arguments, goggles, freshness, options (merged `intent_policy.py`) |
+| `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |
 | `providers/` | 19 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
@@ -83,11 +82,11 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 ## Query Understanding Gateway
 
 - Query understanding calls deployed unified-ml `POST /classify` + `POST /ner`. There is no `/v2/query-understanding` on that container. Entity spans must match exact source offsets. `_rewrite_queries` unions `preserved_terms` with grounded entity surfaces into Preserve Exactly.
-- `search/understanding/adapter.py` is the pure normalization boundary. Keep transport handling in `entity/gliner_client.py` and search policy derivation in the adapter.
+- `search/understanding/adapter.py` is the pure normalization boundary. Keep transport handling in `ml/gliner_client.py` and search policy derivation in the adapter.
 
 ## Cold-Start Import Warm-Up
 
-- `keyword_extract.py` keeps `rake_nltk` at module level.
+- `keyword_extract.py` imports `yake` at module level (pure Python, no import-lock risk).
 - `llm/router.py` pre-imports `openai.resources.chat`.
 - `server.py:_warm_heavy_imports()` is called from `main()` before `mcp.run()`.
 - Reason: Prevents Python global import lock from blocking event loop during first stdio tool call.

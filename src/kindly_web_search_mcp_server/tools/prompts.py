@@ -35,9 +35,7 @@ def web_search_workflow_prompt(
     elif depth == "medium":
         lines.append("- MEDIUM: web_search -> fetch on top 2-3 URLs.")
     else:
-        lines.append(
-            "- DEEP: web_search -> fetch with urls -> cross-check with academic_search."
-        )
+        lines.append("- DEEP: web_search -> fetch with urls -> cross-check with academic_search.")
     if focus == "code":
         lines.append(
             "- CODE: use code_search for public source and code_fetch to read "

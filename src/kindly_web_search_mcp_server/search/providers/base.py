@@ -192,8 +192,8 @@ def provider_retry_max_retries(provider_name: str) -> int:
     explicit ``max_retries`` when they need to override the catalog default.
     """
     try:
-        # PROVIDER_DEFINITIONS (name -> definition) is assembled in the
-        # registry; the catalog only exposes PROVIDER_DEFINITIONS_LIST.
+        # PROVIDER_DEFINITIONS (name -> definition) is assembled in the same
+        # registry module that also exposes PROVIDER_DEFINITIONS_LIST.
         from ..provider_registry import PROVIDER_DEFINITIONS
 
         definition = PROVIDER_DEFINITIONS.get(provider_name)

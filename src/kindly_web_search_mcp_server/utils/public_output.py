@@ -14,7 +14,7 @@ from ..models import (
     WebSearchPublicResponse,
     WebSearchResult,
 )
-from ..rerank.limits import FINAL_RESULT_LIMIT
+from ..rerank.models import FINAL_RESULT_LIMIT
 from ..search.contracts import BranchRole, SearchRun
 from ..search.ranking import _build_freshness_signal
 from .snippet_normalizer import normalize_snippet
@@ -216,7 +216,9 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
                 "query_variants": query_variants,
                 "citation_base": citation_base + len(page),
                 "items": rest,
-                "warnings": [w.model_dump(exclude_none=True) for w in rebuilt_warnings] if rebuilt_warnings else [],
+                "warnings": [w.model_dump(exclude_none=True) for w in rebuilt_warnings]
+                if rebuilt_warnings
+                else [],
             }
         )
     return WebSearchPublicResponse(

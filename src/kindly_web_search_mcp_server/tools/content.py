@@ -596,13 +596,41 @@ def _normalize_inputs(
 
 
 async def fetch(
-    url: Annotated[str | None, Field(description="One URL to fetch. Exactly one of url/urls/cursor must be supplied.")] = None,
-    urls: Annotated[list[str] | None, Field(description="URL list; exactly one of url/urls/cursor required; cursor pages the remainder beyond the first wave.")] = None,
-    offset: Annotated[int, Field(ge=0, description="Skip the first N characters of a single-URL result; cannot combine with cursor or urls.")] = 0,
-    cursor: Annotated[str | None, Field(description="Opaque continuation from a previous bulk response's cursor field; mutually exclusive with url/urls/offset.")] = None,
-    ai_summary: Annotated[bool, Field(description="Replace content with a Gemini source-grounded summary (default false = raw content).")] = False,
-    focus_query: Annotated[str | None, Field(description="Bias the ai_summary toward this topic or term.")] = None,
-    include_links: Annotated[bool, Field(description="Also extract outbound links (default false).")] = False,
+    url: Annotated[
+        str | None,
+        Field(description="One URL to fetch. Exactly one of url/urls/cursor must be supplied."),
+    ] = None,
+    urls: Annotated[
+        list[str] | None,
+        Field(
+            description="URL list; exactly one of url/urls/cursor required; cursor pages the remainder beyond the first wave."
+        ),
+    ] = None,
+    offset: Annotated[
+        int,
+        Field(
+            ge=0,
+            description="Skip the first N characters of a single-URL result; cannot combine with cursor or urls.",
+        ),
+    ] = 0,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Opaque continuation from a previous bulk response's cursor field; mutually exclusive with url/urls/offset."
+        ),
+    ] = None,
+    ai_summary: Annotated[
+        bool,
+        Field(
+            description="Replace content with a Gemini source-grounded summary (default false = raw content)."
+        ),
+    ] = False,
+    focus_query: Annotated[
+        str | None, Field(description="Bias the ai_summary toward this topic or term.")
+    ] = None,
+    include_links: Annotated[
+        bool, Field(description="Also extract outbound links (default false).")
+    ] = False,
     ctx: Context = CurrentContext(),
 ) -> FetchResponse:
     """Fetch one URL or multiple URLs through the unified content pipeline.
@@ -792,13 +820,17 @@ async def fetch(
                         }
                     analytics_admitted[index]["content"] = admitted[index]["content"]
                 except Exception as exc:
-                    LOGGER.warning("Optional summary application failed for item %s: %s", index, exc)
+                    LOGGER.warning(
+                        "Optional summary application failed for item %s: %s", index, exc
+                    )
                     if admitted[index].get("diagnostics") is None:
                         admitted[index]["diagnostics"] = []
                     admitted[index]["diagnostics"].append(
                         {
                             "code": "summary_failed",
-                            "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[:200],
+                            "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[
+                                :200
+                            ],
                             "retryable": False,
                         }
                     )

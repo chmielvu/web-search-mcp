@@ -244,7 +244,7 @@ async def test_call_provider_uses_live_budget_not_catalog_snapshot(
     """Advisor: catalog default_timeout_seconds is import-time; clamp must
     re-read settings.search_retrieve_budget_seconds on every call.
     """
-    import kindly_web_search_mcp_server.search.provider_catalog as catalog
+    import kindly_web_search_mcp_server.search.provider_registry as catalog
 
     # Snapshot at import may still hold the original budget.
     snapshot = catalog.PROVIDER_DEFINITIONS_LIST[0].default_timeout_seconds

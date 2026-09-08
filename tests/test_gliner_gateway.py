@@ -104,8 +104,13 @@ def _classify_ner_post(*, intent: str = "comparison", confidence: float = 0.91):
         if path == "/classify":
             return (
                 {
-                    "intent": intent,
-                    "scores": [{"label": intent, "score": confidence}],
+                    "results": {
+                        "intent": {
+                            "label": intent,
+                            "confidence": confidence,
+                            "scores": [{"label": intent, "score": confidence}],
+                        }
+                    }
                 },
                 12.0,
             )
@@ -146,7 +151,15 @@ async def test_query_gateway_calls_classify_and_ner(monkeypatch):
         posts.append((path, payload))
         if path == "/classify":
             return (
-                {"intent": "comparison", "scores": [{"label": "comparison", "score": 0.91}]},
+                {
+                    "results": {
+                        "intent": {
+                            "label": "comparison",
+                            "confidence": 0.91,
+                            "scores": [{"label": "comparison", "score": 0.91}],
+                        }
+                    }
+                },
                 12.0,
             )
         if path == "/ner":

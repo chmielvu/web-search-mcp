@@ -7,7 +7,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from ...models import WebSearchResult
-from ...rerank.providers import rerank_with_provider_fallback
+from ...rerank.cross_encoder import rerank_with_provider_fallback
 from .models import CodeSearchHit, Diagnostic
 
 

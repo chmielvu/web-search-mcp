@@ -372,10 +372,11 @@ def _better(left: CandidateWindow, right: CandidateWindow) -> CandidateWindow:
 
 
 def _merge_candidates(left: CandidateWindow, right: CandidateWindow) -> CandidateWindow:
-    """Collapse containment; union only genuinely overlapping nearby windows."""
+    """Collapse containment; union overlapping or adjacent bounded windows."""
     winner = _better(left, right)
     if left.window.contains(right.window) or right.window.contains(left.window):
-        window = winner.window
+        # Keep the container: it shows every line the inner window shows.
+        window = left.window if left.window.width >= right.window.width else right.window
     else:
         window = left.window.union(right.window)
     visible_lines = tuple(
@@ -403,16 +404,7 @@ def collapse_candidates(candidates: Iterable[CandidateWindow]) -> list[Candidate
             return False
         if left.window.contains(right.window) or right.window.contains(left.window):
             return True
-        if left.window.end < right.window.start or right.window.end < left.window.start:
-            return False
-        if not left.match_lines or not right.match_lines:
-            return False
-        closest_match = min(
-            abs(left_line - right_line)
-            for left_line in left.match_lines
-            for right_line in right.match_lines
-        )
-        return closest_match <= 5 and left.window.union(right.window).width <= _MAX_WINDOW_LINES
+        return left.window.union(right.window).width <= _MAX_WINDOW_LINES
 
     ordered = sorted(
         candidates,
@@ -427,25 +419,92 @@ def collapse_candidates(candidates: Iterable[CandidateWindow]) -> list[Candidate
     buckets: dict[tuple[str, str], list[CandidateWindow]] = {}
     for candidate in ordered:
         bucket = buckets.setdefault(candidate.source.key, [])
-        for index, existing in enumerate(bucket):
-            if not mergeable(existing, candidate):
-                continue
-            bucket[index] = _merge_candidates(existing, candidate)
-            current = bucket[index]
-            cursor = 0
-            while cursor < len(bucket):
-                if cursor == index:
-                    cursor += 1
-                    continue
-                if mergeable(current, bucket[cursor]):
-                    current = _merge_candidates(current, bucket.pop(cursor))
-                    bucket[index] = current
-                else:
-                    cursor += 1
-                break
-            break
-        else:
-            bucket.append(candidate)
+        bucket.append(candidate)
+        changed = True
+        while changed:
+            changed = False
+            merged = True
+            while merged:
+                merged = False
+                for i in range(len(bucket)):
+                    for j in range(i + 1, len(bucket)):
+                        if mergeable(bucket[i], bucket[j]):
+                            bucket[i] = _merge_candidates(bucket[i], bucket[j])
+                            bucket.pop(j)
+                            merged = True
+                            changed = True
+                            break
+                    if merged:
+                        break
+            disjoint = True
+            while disjoint:
+                disjoint = False
+                for left_index in range(len(bucket)):
+                    for right_index in range(left_index + 1, len(bucket)):
+                        left = bucket[left_index]
+                        right = bucket[right_index]
+                        if (
+                            left.window.start > right.window.end
+                            or right.window.start > left.window.end
+                        ):
+                            continue
+                        if left.retrieval_score >= right.retrieval_score:
+                            winner, loser_index = left, right_index
+                        else:
+                            winner, loser_index = right, left_index
+                        loser = bucket[loser_index]
+                        covered = tuple(
+                            line
+                            for line in loser.match_lines
+                            if winner.window.start <= line <= winner.window.end
+                        )
+                        surviving = tuple(
+                            line
+                            for line in loser.match_lines
+                            if line < winner.window.start or line > winner.window.end
+                        )
+                        if covered:
+                            winner_index = left_index if winner is left else right_index
+                            bucket[winner_index] = CandidateWindow(
+                                source=winner.source,
+                                window=winner.window,
+                                match_lines=tuple(sorted(set(winner.match_lines) | set(covered))),
+                                retrieval_score=max(winner.retrieval_score, loser.retrieval_score),
+                            )
+                        if not surviving:
+                            bucket.pop(loser_index)
+                            disjoint = True
+                            changed = True
+                            break
+                        remnants: list[CandidateWindow] = []
+                        left_end = winner.window.start - 1
+                        left_matches = tuple(line for line in surviving if line <= left_end)
+                        if left_matches:
+                            remnants.append(
+                                CandidateWindow(
+                                    source=loser.source,
+                                    window=LineRange(loser.window.start, left_end),
+                                    match_lines=left_matches,
+                                    retrieval_score=loser.retrieval_score,
+                                )
+                            )
+                        right_start = winner.window.end + 1
+                        right_matches = tuple(line for line in surviving if line >= right_start)
+                        if right_matches:
+                            remnants.append(
+                                CandidateWindow(
+                                    source=loser.source,
+                                    window=LineRange(right_start, loser.window.end),
+                                    match_lines=right_matches,
+                                    retrieval_score=loser.retrieval_score,
+                                )
+                            )
+                        bucket[loser_index : loser_index + 1] = remnants
+                        disjoint = True
+                        changed = True
+                        break
+                    if disjoint:
+                        break
 
     collapsed = [item for bucket in buckets.values() for item in bucket]
     collapsed.sort(

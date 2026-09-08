@@ -32,7 +32,13 @@ LOGGER = logging.getLogger(__name__)
 
 async def web_search(
     query: str = "",
-    queries: Annotated[list[str] | None, Field(max_length=4, description="Up to 4 seed queries for multi-query rewriting; all focused on one objective. Alternative to query.")] = None,
+    queries: Annotated[
+        list[str] | None,
+        Field(
+            max_length=4,
+            description="Up to 4 seed queries for multi-query rewriting; all focused on one objective. Alternative to query.",
+        ),
+    ] = None,
     research_goal: str = "",
     rewrite: bool = True,
     date_range: Literal["day", "week", "month", "year"] | None = None,
@@ -42,9 +48,22 @@ async def web_search(
     region: str | None = None,
     gl: str | None = None,
     domain_boost: list[str] | None = None,
-    reranking_instructions: Annotated[str | None, Field(description="Natural-language instructions steering the multi-stage reranker's ordering of results.")] = None,
-    include_undated: Annotated[bool | None, Field(description="Set true to also include results that have no published date.")] = None,
-    cursor: Annotated[str | None, Field(description="Overflow continuation from a previous response's cursor field; pages leftover results, does not re-search.")] = None,
+    reranking_instructions: Annotated[
+        str | None,
+        Field(
+            description="Natural-language instructions steering the multi-stage reranker's ordering of results."
+        ),
+    ] = None,
+    include_undated: Annotated[
+        bool | None,
+        Field(description="Set true to also include results that have no published date."),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description="Overflow continuation from a previous response's cursor field; pages leftover results, does not re-search."
+        ),
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchPublicResponse:
     """Run one validated multi-provider web search across configured backends with RRF ranking.
@@ -137,7 +156,9 @@ async def web_search(
         if queries:
             cleaned_queries = tuple(q.strip() for q in queries if q and q.strip())
             if len(cleaned_queries) > 4:
-                raise ValueError(f"queries supports up to 4 seed queries (received {len(cleaned_queries)})")
+                raise ValueError(
+                    f"queries supports up to 4 seed queries (received {len(cleaned_queries)})"
+                )
             if not cleaned_queries:
                 raise ValueError("queries must contain at least one non-blank string.")
             primary_query = query.strip() if (query and query.strip()) else cleaned_queries[0]
@@ -146,7 +167,9 @@ async def web_search(
             primary_query = query.strip()
             seed_queries = (primary_query,)
         else:
-            raise ValueError(f"Either query or queries must be provided and non-blank. Received: query={query!r}, queries={queries!r}. Pass a non-empty 'query' string, or 1-4 strings in 'queries'.")
+            raise ValueError(
+                f"Either query or queries must be provided and non-blank. Received: query={query!r}, queries={queries!r}. Pass a non-empty 'query' string, or 1-4 strings in 'queries'."
+            )
     except Exception as exc:
         _record_tool_failure("web_search")
         emit_tool_observability_event(

@@ -1,4 +1,4 @@
-"""Regression tests for `_memoize_canonicalize` cache sharing.
+"""Regression tests for `memoize_canonicalize` cache sharing.
 
 Covers repeated raw URL canonicalization within Reciprocal Rank Fusion.
 """
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import kindly_web_search_mcp_server.search.merge as merge_mod
 from kindly_web_search_mcp_server.models import WebSearchResult
 from kindly_web_search_mcp_server.search.merge import (
-    _memoize_canonicalize,
+    memoize_canonicalize,
     reciprocal_rank_fusion,
 )
 from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
@@ -86,7 +86,7 @@ class TestCanonicalizeCaching(unittest.TestCase):
             per_raw[raw] = per_raw.get(raw, 0) + 1
             return canonicalize_url(raw)
 
-        memoized = _memoize_canonicalize(counting)
+        memoized = memoize_canonicalize(counting)
         list_a = [
             _r("https://x.com/p?utm_source=a"),
             _r("https://x.com/p?utm_source=b"),

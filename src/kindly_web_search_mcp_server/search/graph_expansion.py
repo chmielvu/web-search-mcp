@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from ..analytics.graph_store import load_latest_graph_index
-from .normalize import normalize_query
+from ..utils.text_clean import clean_query as normalize_query
 
 
 @dataclass(frozen=True, slots=True)

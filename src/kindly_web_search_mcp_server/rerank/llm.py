@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,8 @@ from typing import Any
 from ..models import WebSearchResult
 from ..prompts.rerank_llm import load_rerank_system_message
 from ..settings import settings
-from .models import RerankResult
+from .models import FINAL_RESULT_LIMIT, RerankResult, RankedStageOutcome
+from .utils import _apply_ranked_stage, _failed_stage
 
 logger = logging.getLogger(__name__)
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "prompts" / "rerank_llm.yaml"
@@ -368,3 +370,76 @@ async def rerank_with_llm(
     from ..inference.bridges.rankllm import rerank_with_rankllm_bridge
 
     return await rerank_with_rankllm_bridge(query, candidates, request_id=request_id)
+
+
+async def run_llm_stage(
+    *,
+    query: str,
+    candidates: list[WebSearchResult],
+    request_id: str | None,
+    query_type_hint: str | None,
+    run_key: str | None,
+    main_span: Any,
+    logger: logging.Logger,
+) -> RankedStageOutcome:
+    del query_type_hint
+    stage_start = time.monotonic()
+    try:
+        outcome = await rerank_with_llm(query, candidates, request_id=request_id)
+    except Exception as exc:
+        outcome = None
+        error = exc
+    else:
+        error = outcome.error
+    duration_seconds = time.monotonic() - stage_start
+
+    if outcome is None or not outcome.ranked:
+        return _failed_stage(
+            stage_name="rankllm",
+            provider=outcome.endpoint_name if outcome else "chain_failed",
+            model=outcome.model if outcome else None,
+            candidates=candidates,
+            output_limit=FINAL_RESULT_LIMIT,
+            duration_seconds=duration_seconds,
+            error=error,
+            input_tokens=outcome.input_tokens if outcome else None,
+            output_tokens=outcome.output_tokens if outcome else None,
+            attempted_passes=outcome.attempted_passes if outcome else 0,
+            valid_passes=outcome.valid_passes if outcome else 0,
+            failed_passes=outcome.failed_passes if outcome else 0,
+        )
+
+    try:
+        return await _apply_ranked_stage(
+            stage_name="rankllm",
+            provider=outcome.endpoint_name,
+            model=outcome.model,
+            input_tokens=outcome.input_tokens,
+            output_tokens=outcome.output_tokens,
+            input_candidates=candidates,
+            ranked_results=outcome.ranked,
+            duration_seconds=duration_seconds,
+            run_key=run_key,
+            main_span=main_span,
+            logger=logger,
+            output_limit=FINAL_RESULT_LIMIT,
+            error=error,
+            attempted_passes=outcome.attempted_passes,
+            valid_passes=outcome.valid_passes,
+            failed_passes=outcome.failed_passes,
+        )
+    except (TypeError, ValueError) as exc:
+        return _failed_stage(
+            stage_name="rankllm",
+            provider=outcome.endpoint_name,
+            model=outcome.model,
+            candidates=candidates,
+            output_limit=FINAL_RESULT_LIMIT,
+            duration_seconds=duration_seconds,
+            error=exc,
+            input_tokens=outcome.input_tokens,
+            output_tokens=outcome.output_tokens,
+            attempted_passes=outcome.attempted_passes,
+            valid_passes=outcome.valid_passes,
+            failed_passes=outcome.failed_passes,
+        )

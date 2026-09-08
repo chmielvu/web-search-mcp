@@ -13,7 +13,7 @@ import duckdb
 from ..settings import settings
 from ..utils.paths import DEFAULT_EXTENSION_DIR
 from .duckdb_store import ensure_store_schema
-from .evals import ensure_eval_tables
+from .eval_schema import ensure_eval_tables
 from .views import build_analytics_view_sql
 
 

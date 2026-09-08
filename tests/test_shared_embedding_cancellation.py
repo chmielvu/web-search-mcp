@@ -55,7 +55,7 @@ async def test_qdrant_cancellation_does_not_cancel_shared_task(
 
     embedding_task = asyncio.create_task(dummy_embed())
 
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         ProviderDefinition,
     )
 
@@ -192,7 +192,7 @@ async def test_cancel_and_drain_tasks_bounds_cancellation_resistant_child() -> N
 async def test_retrieve_budget_uses_bounded_drain_without_cancelling_shared_embedding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         ProviderDefinition,
     )
 
@@ -271,7 +271,7 @@ async def test_retrieve_budget_uses_bounded_drain_without_cancelling_shared_embe
 async def test_retrieve_caller_cancellation_is_reraised_after_bounded_drain(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         ProviderDefinition,
     )
 

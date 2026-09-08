@@ -123,7 +123,7 @@ async def test_rank_and_finalize_canonicalizes_each_distinct_url_once() -> None:
 
     Without sharing, the same `canonicalize_url` is invoked up to 5
     times per distinct raw URL per request. With the shared
-    `_memoize_canonicalize`, each distinct raw URL is canonicalized
+    `memoize_canonicalize`, each distinct raw URL is canonicalized
     exactly once even though the function touches the same links via
     BM25, the single RRF fusion, the `url_occurrences` counter,
     and the per-result loop.

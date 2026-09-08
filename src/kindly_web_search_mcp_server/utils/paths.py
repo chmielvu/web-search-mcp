@@ -29,7 +29,6 @@ EXTENSIONS_DIR = DUCKDB_DATA_DIR / "duckdb_extensions"
 LOGS_DIR = DUCKDB_DATA_DIR / "logs"
 TELEGRAM_DIR = DUCKDB_DATA_DIR / "telegram"
 TRAINING_DIR = DUCKDB_DATA_DIR / "training"
-EXPERIMENTS_DIR = DUCKDB_DATA_DIR / "experiments"
 
 
 def ensure_duckdb_dirs() -> None:
@@ -41,7 +40,6 @@ def ensure_duckdb_dirs() -> None:
         EXTENSIONS_DIR,
         LOGS_DIR,
         TRAINING_DIR,
-        EXPERIMENTS_DIR,
         TELEGRAM_DIR,
     ]:
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -54,5 +52,4 @@ DEFAULT_TRANSCRIPT_CACHE_DB = str(CACHE_DIR / "transcript_cache.sqlite")
 DEFAULT_CODE_FETCH_SNAPSHOT_DB = str(CACHE_DIR / "code_fetch_snapshots.sqlite")
 DEFAULT_PROCESS_LOGS_DB = str(LOGS_DIR / "process_logs.sqlite")
 DEFAULT_QUERY_UNDERSTANDING_JSONL = str(TRAINING_DIR / "query_understanding.jsonl")
-DEFAULT_EXPERIMENTS_YAML = str(EXPERIMENTS_DIR / "experiments.yaml")
 DEFAULT_EXTENSION_DIR = str(EXTENSIONS_DIR)

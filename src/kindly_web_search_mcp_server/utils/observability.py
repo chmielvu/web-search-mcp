@@ -7,7 +7,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
-from ..observability.events import PERSISTED_EVENT_PREFIXES
+
 from .environment import get_int_env
 
 # Context variable to store run_key for the current search pipeline
@@ -970,7 +970,7 @@ def _persist_tool_output_items(
     """Persist output items from tool responses for cross-tool linkage."""
     try:
         from ..analytics.duckdb_store import insert_funnel_uplift_batches
-        from ..analytics.observability_store import _canonical_result_id as _cri
+        from ..analytics.ids import _canonical_result_id as _cri
 
         rows: list[dict[str, Any]] = []
         run_key = get_current_run_key()
@@ -1187,13 +1187,8 @@ def _persist_analytics_event(
     payload: dict[str, Any],
     logger: logging.Logger,
 ) -> None:
-    """Best-effort structured-log side channel only.
+    from ..analytics.events import PERSISTED_EVENT_PREFIXES  # noqa: PLC0415  (lazy: breaks analytics↔utils cycle)
 
-    Typed analytics persistence lives in table-specific writers
-    (``insert_tool_call_event``, ``insert_provider_calls``, search outcome
-    batches, etc.). The legacy ``search_events`` / ``append_event`` sink was
-    removed; non-tool observability events remain log-only by design.
-    """
     del payload  # reserved for a future typed sink; keep signature stable
     if not event.startswith(PERSISTED_EVENT_PREFIXES) or event.startswith("tool."):
         return

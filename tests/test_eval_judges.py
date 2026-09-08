@@ -6,7 +6,7 @@ import json
 
 
 def test_strict_json_parser_handles_pure_and_fenced():
-    from kindly_web_search_mcp_server.evals.judges import _parse_strict_json
+    from kindly_web_search_mcp_server.analytics.evals.judges import _parse_strict_json
 
     pure = '{"score": 0.9, "reason": "good"}'
     assert _parse_strict_json(pure)["score"] == 0.9
@@ -21,7 +21,7 @@ def test_strict_json_parser_handles_pure_and_fenced():
 
 def test_judge_fns_return_score_and_persist_structure(monkeypatch):
     # Patch the llm call and persist to avoid real net/db in unit test
-    from kindly_web_search_mcp_server.evals import judges as jmod
+    from kindly_web_search_mcp_server.analytics.evals import judges as jmod
 
     calls = []
 
@@ -64,7 +64,7 @@ def test_judge_fns_return_score_and_persist_structure(monkeypatch):
 
 def test_judge_metrics_are_the_four_listed():
     # Just surface check the public API
-    from kindly_web_search_mcp_server.evals.judges import (
+    from kindly_web_search_mcp_server.analytics.evals.judges import (
         judge_argument_correctness,
         judge_ranking_quality,
         judge_source_usefulness,

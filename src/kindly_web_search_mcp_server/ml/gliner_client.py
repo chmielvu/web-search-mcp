@@ -16,8 +16,14 @@ from typing import Any
 import httpx
 
 from ..settings import settings
+from ..search.intents import INTENT_ALIASES
 from ..utils.observability import emit_observability_event
-from ..utils.entity import DEFAULT_CONTENT_LABELS, DEFAULT_QUERY_LABELS, EntitySpan
+from ..utils.entity import (
+    DEFAULT_CONTENT_LABELS,
+    DEFAULT_QUERY_LABELS,
+    EntitySpan,
+    _GRAPH_RELATIONS,
+)
 from ..utils.text_chunking import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -26,14 +32,44 @@ _gliner_client: GLiNER2Client | None = None
 _SERVICE_MAX_TEXT_CHARS = 4000
 _CONTENT_CHUNK_OVERLAP = 200
 
-# Transcript chunks are large (3.8k chars) and the hosted service can take
+# Transcript batches include 3.8k-char chunks and the hosted service can take
 # well over the generic intent-classifier timeout; use a dedicated budget.
-_TRANSCRIPT_EXTRACT_TIMEOUT = 30.0
+_TRANSCRIPT_BATCH_TIMEOUT = 60.0
 _CONTENT_EXTRACT_TIMEOUT = 30.0
 # Query NER uses the full label vocabulary on GLiNER2; the generic 3s
 # classifier budget is too small, and parallel classify+ner serialize on
 # unified-ml's blocked event loop.
 _QUERY_NER_TIMEOUT = 15.0
+# GLiNER2.5 classify on 6 CPU cores measured ~0.7-1.4s live; the generic 3s
+# classifier budget leaves no headroom for queue wait behind an /extract job.
+_QUERY_CLASSIFY_TIMEOUT = 20.0
+
+
+def gliner_query_budget_seconds() -> float:
+    """Return the composed timeout budget for classify plus query NER."""
+    return _QUERY_CLASSIFY_TIMEOUT + _QUERY_NER_TIMEOUT + 5.0
+
+
+_SEARCH_INTENT_TASK = "intent"
+
+# Canonical label list derived once from the repo's intent source of truth so
+# the /classify task vocabulary can never drift from SearchIntent.
+_SEARCH_INTENT_LABELS: tuple[str, ...] = tuple(sorted({value for value in INTENT_ALIASES.values()}))
+
+
+def _parse_classify_task(value: Any) -> tuple[str | None, float]:
+    """Extract (label, confidence) from a v2 classify task result."""
+    if isinstance(value, str) and value.strip():
+        return value.strip(), 0.0
+    if not isinstance(value, dict):
+        return None, 0.0
+    label = value.get("label")
+    if not isinstance(label, str) or not label.strip():
+        return None, 0.0
+    confidence = value.get("confidence")
+    if not isinstance(confidence, (int, float)):
+        confidence = 0.0
+    return label.strip(), max(0.0, min(1.0, float(confidence)))
 
 
 def is_entity_extraction_enabled() -> bool:
@@ -80,7 +116,7 @@ class GLiNER2Client:
         self._base_url = (base_url or self._resolve_base_url()).rstrip("/")
         self._timeout = timeout if timeout is not None else self._resolve_timeout()
         self._model_name = os.environ.get(
-            "GLINER_MODEL", getattr(settings, "gliner_model", "fastino/gliner2-multi-v1")
+            "GLINER_MODEL", getattr(settings, "gliner_model", "fastino/gliner2.5-multi-v1")
         )
 
     @staticmethod
@@ -239,7 +275,10 @@ class GLiNER2Client:
         from ..search.understanding.adapter import normalize_query_understanding_response
 
         classify_payload, _ = await self._post(
-            "/classify", {"text": text}, operation="query_understanding_classify"
+            "/classify",
+            {"text": text, "tasks": {_SEARCH_INTENT_TASK: list(_SEARCH_INTENT_LABELS)}},
+            operation="query_understanding_classify",
+            timeout=_QUERY_CLASSIFY_TIMEOUT,
         )
         try:
             ner_payload_pair = await self._post(
@@ -252,19 +291,10 @@ class GLiNER2Client:
         except Exception as ner_exc:
             logger.warning("query NER failed after classify: %s", ner_exc)
             ner_result = ner_exc
-        raw_intent = classify_payload.get("intent")
-        intent = raw_intent.strip() if isinstance(raw_intent, str) and raw_intent.strip() else None
-        confidence = 0.0
-        scores = classify_payload.get("scores")
-        if isinstance(scores, list):
-            values = [
-                float(item["score"])
-                for item in scores
-                if isinstance(item, dict)
-                and item.get("label") == intent
-                and isinstance(item.get("score"), (int, float))
-            ]
-            confidence = max(values, default=0.0)
+        results = classify_payload.get("results", classify_payload)
+        intent, confidence = _parse_classify_task(
+            results.get(_SEARCH_INTENT_TASK) if isinstance(results, dict) else None
+        )
         entities: list[dict[str, Any]] = []
         if not isinstance(ner_result, BaseException):
             ner_payload, _ = ner_result
@@ -317,8 +347,12 @@ class GLiNER2Client:
         classify_result, ner_result = await asyncio.gather(
             self._post(
                 "/classify",
-                {"text": normalized_text},
+                {
+                    "text": normalized_text,
+                    "tasks": {_SEARCH_INTENT_TASK: list(_SEARCH_INTENT_LABELS)},
+                },
                 operation="code_query_classification",
+                timeout=_QUERY_CLASSIFY_TIMEOUT,
             ),
             self._post(
                 "/ner",
@@ -336,19 +370,10 @@ class GLiNER2Client:
             warnings.append(f"classifier-{type(classify_result).__name__}")
         else:
             classify_payload, _ = classify_result
-            raw_intent = classify_payload.get("intent")
-            if isinstance(raw_intent, str) and raw_intent.strip():
-                intent = raw_intent.strip()
-            scores = classify_payload.get("scores")
-            if isinstance(scores, list):
-                values: list[float] = []
-                for item in scores:
-                    if not isinstance(item, dict) or item.get("label") != intent:
-                        continue
-                    score = item.get("score")
-                    if isinstance(score, (int, float)):
-                        values.append(float(score))
-                confidence = max(values, default=0.0)
+            results = classify_payload.get("results", classify_payload)
+            intent, confidence = _parse_classify_task(
+                results.get(_SEARCH_INTENT_TASK) if isinstance(results, dict) else None
+            )
         if isinstance(ner_result, BaseException):
             warnings.append(f"ner-{type(ner_result).__name__}")
         else:
@@ -366,15 +391,15 @@ class GLiNER2Client:
             warnings=tuple(warnings),
         )
 
-    async def extract_transcript_chunk(
+    async def extract_transcripts_batch(
         self,
-        text: str,
+        texts: list[str],
         *,
         entities: dict[str, str] | list[str],
         relations: dict[str, str] | list[str] | None = None,
         threshold: float | None = None,
-    ) -> tuple[dict[str, Any], float]:
-        """Run always-on transcript extraction for one offset-preserving chunk.
+    ) -> tuple[list[dict[str, Any]], float]:
+        """Run always-on transcript extraction for all offset-preserving chunks.
 
         Unlike general content extraction, this method is intentionally not
         gated by ``ENTITY_EXTRACTION_ENABLED``. YouTube transcript analysis is
@@ -382,13 +407,11 @@ class GLiNER2Client:
         a transcript is fetched; failures are handled by the caller as partial
         analysis rather than transcript failure.
         """
-        if not text.strip():
-            return {}, 0.0
-        # /extract (MultiTaskRequest) requires flat ``entities``/``relations`` label
-        # lists; the previous dict plus ``structures`` payload was rejected with 422.
+        if not texts:
+            return [], 0.0
         payload: dict[str, Any] = {
-            "text": text,
-            "entities": list(entities) if isinstance(entities, dict) else list(entities),
+            "texts": texts,
+            "entities": entities,
             "threshold": float(
                 threshold if threshold is not None else getattr(settings, "gliner_threshold", 0.5)
             ),
@@ -396,15 +419,48 @@ class GLiNER2Client:
             "include_spans": True,
         }
         if relations:
-            payload["relations"] = (
-                list(relations) if isinstance(relations, dict) else list(relations)
-            )
-        return await self._post(
-            "/extract",
+            payload["relations"] = relations
+        data, latency_ms = await self._post(
+            "/batch-extract",
             payload,
             operation="youtube_transcript_extraction",
-            timeout=_TRANSCRIPT_EXTRACT_TIMEOUT,
+            timeout=_TRANSCRIPT_BATCH_TIMEOUT,
         )
+        results = data.get("results")
+        if not isinstance(results, list):
+            raise ValueError("GLiNER2 batch extraction returned no results list")
+        return results, latency_ms
+
+    async def extract_relation_graph(
+        self,
+        text: str,
+        *,
+        entities: dict[str, str] | list[str],
+        relations: dict[str, str] | list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Extract a typed relation graph for one short transcript."""
+        if not text.strip():
+            return {}
+        allowed = set(relations) if relations is not None else None
+        relation_specs = [
+            {"name": name, "head": head, "tail": tail}
+            for name, head, tail in _GRAPH_RELATIONS
+            if allowed is None or name in allowed
+        ]
+        payload: dict[str, Any] = {
+            "text": text,
+            "entities": entities,
+            "relations": relation_specs,
+            "optimizer": "greedy",
+            "no_self_loops": True,
+        }
+        data, _latency_ms = await self._post(
+            "/extract-graph",
+            payload,
+            operation="youtube_relation_graph",
+            timeout=_TRANSCRIPT_BATCH_TIMEOUT,
+        )
+        return data
 
     async def extract_entities(
         self,
@@ -426,13 +482,7 @@ class GLiNER2Client:
                 text_len=len(text),
             )
             return []
-
         entity_labels = labels or DEFAULT_CONTENT_LABELS
-        # MultiTaskRequest.entities accepts flat label strings only; label
-        # descriptions in dict vocabularies never reach the wire.
-        entity_request_labels: list[str] = (
-            list(entity_labels.keys()) if isinstance(entity_labels, dict) else list(entity_labels)
-        )
         service_threshold = float(
             threshold if threshold is not None else getattr(settings, "gliner_threshold", 0.5)
         )
@@ -450,7 +500,7 @@ class GLiNER2Client:
             for offset, chunk in chunks:
                 payload = {
                     "text": chunk,
-                    "entities": entity_request_labels,
+                    "entities": entity_labels,
                     "threshold": service_threshold,
                     "include_confidence": True,
                     "include_spans": True,

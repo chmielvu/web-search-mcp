@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ...evals.metrics import assess_candidate_readiness
+from ...analytics.evals.metrics import assess_candidate_readiness
 
 Outcome = Literal["ok", "no_hit", "partial", "error", "skipped"]
 ResultKind = Literal["code_match", "semantic_page", "documentation", "repository"]

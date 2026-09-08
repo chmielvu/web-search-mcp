@@ -12,7 +12,7 @@ from typing import Any
 from kindly_web_search_mcp_server.analytics.search_relevance_judge import SearchRelevanceJudge
 from kindly_web_search_mcp_server.models import WebSearchResult
 
-from kindly_web_search_mcp_server.rerank.diversity import select_diverse_slate
+from kindly_web_search_mcp_server.rerank.mmr import select_mmr_slate
 from rerank_eval_common import intent_stratified_subset, ndcg_from_reference, normalized_host
 
 LAMBDAS = (0.7, 0.8, 0.9)
@@ -53,7 +53,7 @@ def _query_metrics(
     window = record["window"]
     embeddings = [item["embedding"] for item in window]
     urls = [item["url"] for item in window]
-    selection = select_diverse_slate(
+    selection = select_mmr_slate(
         embeddings,
         urls,
         output_size=min(15, len(window)),

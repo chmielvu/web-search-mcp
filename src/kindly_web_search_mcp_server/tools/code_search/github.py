@@ -590,12 +590,17 @@ def _parse_code_items(
         if not isinstance(url, str) or not url.strip():
             url = f"https://github.com/{repository}/blob/{item.get('sha', 'HEAD')}/{path}"
         revision_match = re.search(r"/blob/([^/]+)/", url)
+        revision = (
+            revision_match.group(1)
+            if revision_match and revision_match.group(1).casefold() != "head"
+            else None
+        )
         hits.append(
             CodeSearchHit(
                 repository=repository,
                 path=path,
                 sha=item.get("sha") if isinstance(item.get("sha"), str) else None,
-                commit_oid=revision_match.group(1) if revision_match else None,
+                commit_oid=revision,
                 url=url,
                 provider=provider,
                 query_variant=query_variant,
@@ -605,7 +610,7 @@ def _parse_code_items(
                     repository=repository,
                     path=path,
                     url=url,
-                    revision=revision_match.group(1) if revision_match else None,
+                    revision=revision,
                     match_data_available=True,
                 ),
                 score_components={"provider_score": float(item.get("score") or 0.0)},
@@ -659,14 +664,6 @@ class _RequestGate:
         self.max_per_minute = max_per_minute
         self._lock = asyncio.Lock()
         self._window: deque[float] = deque()
-
-    @property
-    def rate_limited(self) -> bool:
-        """True when the per-minute sliding window is currently full."""
-        now = time.monotonic()
-        while self._window and now - self._window[0] >= 60.0:
-            self._window.popleft()
-        return len(self._window) >= self.max_per_minute
 
     @property
     def budget_exhausted(self) -> bool:
@@ -778,7 +775,7 @@ async def _search_scope_variant(
             per_page=per_page,
             max_results=collection_limit,
         )
-        if scope is None and plan.mode == "discovery":
+        if scope is None and plan.mode in {"discovery", "docs"}:
             page_hits = [hit for hit in page_hits if not _is_low_value_global_discovery_hit(hit)]
         for hit in page_hits:
             hit.source_metadata["repository_scoped"] = scope is not None

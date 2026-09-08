@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import duckdb
 
-from kindly_web_search_mcp_server.search.normalize import canonicalize_url
+from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
 from live_web_search_quality_integrity import analytics_integrity
 from live_web_search_quality_support import (
     EXPORT_TABLES,

@@ -226,18 +226,6 @@ def insert_llm_call_log(*, db_path: str | None = None, **kwargs: Any) -> None:
     _LLM_CALL_LOG_WRITER.dispatch_insert(db_path=db_path, **kwargs)
 
 
-def insert_ab_experiment(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _AB_EXPERIMENT_WRITER
-
-    _AB_EXPERIMENT_WRITER.insert(db_path=db_path, **kwargs)
-
-
-def insert_ab_shadow_run(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _AB_SHADOW_RUN_WRITER
-
-    _AB_SHADOW_RUN_WRITER.insert(db_path=db_path, **kwargs)
-
-
 def insert_search_outcome_batches(
     *,
     search_runs: list[dict[str, Any]],

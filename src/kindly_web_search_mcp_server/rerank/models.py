@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -138,3 +138,30 @@ class RerankOutput(BaseModel):
     )
     terminal_stage: RerankTerminalStage = "rrf"
     funnel_counts: dict[str, int] = Field(default_factory=dict)
+
+
+# =============================================================================
+CROSS_ENCODER_INPUT_LIMIT: Final[int] = 100
+RANKLLM_INPUT_LIMIT: Final[int] = 30
+FINAL_RESULT_LIMIT: Final[int] = 15
+
+
+@dataclass(frozen=True, slots=True)
+class RankedStageOutcome:
+    candidates: list[WebSearchResult]
+    provider: str
+    model: str | None
+    stage_name: str
+    input_count: int
+    output_count: int
+    duration_seconds: float
+    relevance_scores: list[float]
+    max_score: float
+    avg_score: float = 0.0
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    error: Exception | None = None
+    full_candidates: list[WebSearchResult] | None = None
+    attempted_passes: int = 0
+    valid_passes: int = 0
+    failed_passes: int = 0

@@ -1,4 +1,4 @@
-"""Analytics view bootstrap — 18 dashboard, quality-diagnostic, A/B, and eval views.
+"""Analytics view bootstrap — dashboard, quality-diagnostic, and eval views.
 
 Uses CASE labels, ROUND, COALESCE, quantile_cont, and date_trunc.  Quality-diagnostic
 views join llm_judgments to search_runs and final_results; calibration views are
@@ -13,132 +13,12 @@ import duckdb
 
 from .duckdb_store import (
     _db_path,
-    _ensure_ab_assignments,
-    _ensure_ab_experiment_variants,
-    _ensure_ab_experiments,
-    _ensure_ab_results,
-    _ensure_ab_shadow_runs,
     ensure_store_schema,
 )
-from .evals import build_eval_table_sql, build_eval_view_sql
+from .eval_schema import build_eval_table_sql, build_eval_view_sql
 from ..settings import settings
 
 _LOCK = threading.Lock()
-
-
-def _build_ab_view_sql(target: str) -> list[str]:
-    return [
-        f"""
-        CREATE OR REPLACE VIEW {target}.v_ab_experiment_summary AS
-        WITH variant_counts AS (
-            SELECT experiment_id, COUNT(DISTINCT variant_name) AS cnt
-            FROM {target}.ab_experiment_variants
-            GROUP BY experiment_id
-        ),
-        assignment_counts AS (
-            SELECT
-                experiment_id,
-                COUNT(DISTINCT assignment_id) AS cnt,
-                COUNT(DISTINCT run_key) AS unique_runs
-            FROM {target}.ab_assignments
-            GROUP BY experiment_id
-        ),
-        result_agg AS (
-            SELECT
-                experiment_id,
-                AVG(primary_metric) AS avg_primary,
-                AVG(secondary_metric) AS avg_secondary,
-                AVG(duration_ms) AS avg_dur,
-                COUNT(result_id) AS cnt
-            FROM {target}.ab_results
-            GROUP BY experiment_id
-        )
-        SELECT
-            e.experiment_id,
-            e.layer,
-            e.status,
-            e.variant_a,
-            e.variant_b,
-            e.allocation_rate,
-            e.min_sample_size,
-            COALESCE(v.cnt, 0) AS variant_count,
-            COALESCE(a.cnt, 0) AS assignment_count,
-            COALESCE(a.unique_runs, 0) AS unique_run_count,
-            r.avg_primary AS avg_primary_metric,
-            r.avg_secondary AS avg_secondary_metric,
-            r.avg_dur AS avg_duration_ms,
-            COALESCE(r.cnt, 0) AS result_count
-        FROM {target}.ab_experiments e
-        LEFT JOIN variant_counts v ON e.experiment_id = v.experiment_id
-        LEFT JOIN assignment_counts a ON e.experiment_id = a.experiment_id
-        LEFT JOIN result_agg r ON e.experiment_id = r.experiment_id
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.v_ab_variant_comparison AS
-        WITH variant_metrics AS (
-            SELECT
-                r.experiment_id,
-                r.variant,
-                COUNT(DISTINCT r.run_key) AS run_count,
-                AVG(r.primary_metric) AS avg_primary_metric,
-                AVG(r.secondary_metric) AS avg_secondary_metric,
-                AVG(r.duration_ms) AS avg_duration_ms,
-                STDDEV_SAMP(r.primary_metric) AS stddev_primary_metric,
-                COUNT(r.result_id) AS result_count
-            FROM {target}.ab_results r
-            GROUP BY r.experiment_id, r.variant
-        )
-        SELECT
-            e.experiment_id,
-            e.layer,
-            e.status,
-            vm.variant,
-            vm.run_count,
-            vm.avg_primary_metric,
-            vm.avg_secondary_metric,
-            vm.avg_duration_ms,
-            vm.stddev_primary_metric,
-            vm.result_count,
-            e.variant_a,
-            e.variant_b,
-            CASE
-                WHEN vm.variant = e.variant_a THEN 'control'
-                WHEN vm.variant = e.variant_b THEN 'treatment'
-                ELSE 'other'
-            END AS variant_role
-        FROM {target}.ab_experiments e
-        JOIN variant_metrics vm ON e.experiment_id = vm.experiment_id
-        ORDER BY e.experiment_id, vm.variant
-        """,
-        f"""
-        CREATE OR REPLACE VIEW {target}.v_ab_shadow_run_analysis AS
-        SELECT
-            s.run_key,
-            s.recorded_at,
-            s.experiment_id,
-            s.variant,
-            s.layer,
-            s.duration_ms AS shadow_duration_ms,
-            s.judge_score,
-            s.tokens_used,
-            s.cost_usd,
-            s.error_type,
-            e.status AS experiment_status,
-            e.variant_a,
-            e.variant_b,
-            CASE
-                WHEN s.variant = e.variant_a THEN 'control'
-                WHEN s.variant = e.variant_b THEN 'treatment'
-                ELSE 'other'
-            END AS variant_role,
-            AVG(s.duration_ms) OVER (PARTITION BY s.experiment_id, s.variant) AS variant_avg_latency_ms,
-            s.duration_ms - AVG(s.duration_ms) OVER (PARTITION BY s.experiment_id, s.variant) AS latency_delta_ms,
-            AVG(s.judge_score) OVER (PARTITION BY s.experiment_id, s.variant) AS variant_avg_judge_score,
-            s.judge_score - AVG(s.judge_score) OVER (PARTITION BY s.experiment_id, s.variant) AS judge_score_delta
-        FROM {target}.ab_shadow_runs s
-        LEFT JOIN {target}.ab_experiments e ON s.experiment_id = e.experiment_id
-        """,
-    ]
 
 
 def _build_dashboard_view_sql(target: str) -> list[str]:
@@ -1441,20 +1321,11 @@ def ensure_views(*, db_path: str | None = None) -> None:
             # Eval tables
             for statement in build_eval_table_sql("main"):
                 connection.execute(statement)
-            # A/B tables
-            _ensure_ab_experiments(connection)
-            _ensure_ab_experiment_variants(connection)
-            _ensure_ab_assignments(connection)
-            _ensure_ab_results(connection)
-            _ensure_ab_shadow_runs(connection)
             # Dashboard views
             for statement in _build_dashboard_view_sql("main"):
                 connection.execute(statement)
             # Eval views
             for statement in build_eval_view_sql("main"):
-                connection.execute(statement)
-            # A/B views
-            for statement in _build_ab_view_sql("main"):
                 connection.execute(statement)
             # Funnel uplift views
             for statement in _build_funnel_uplift_view_sql("main"):

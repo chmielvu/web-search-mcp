@@ -62,7 +62,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-eval = ["mcpevals"]
 pdf-advanced = [
     "pymupdf-layout>=1.26.6; python_version < '3.14'",
     "pymupdf4llm>=0.2.7; python_version < '3.14'",
@@ -109,7 +108,6 @@ ignore = ["E501"]
 "__init__.py" = ["F401"]
 
 "src/kindly_web_search_mcp_server/analytics/app.py" = ["E402"]
-"tests/test_shadow_runner.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

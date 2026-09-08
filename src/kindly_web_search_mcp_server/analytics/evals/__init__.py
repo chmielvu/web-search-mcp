@@ -35,7 +35,6 @@ from .metrics import (
     provider_survival_rate,
     top_k_domain_hit,
 )
-from .runner import MCPEVAL_AVAILABLE, run_dataset, run_eval_case
 
 __all__ = [
     "CandidateSet",
@@ -67,7 +66,4 @@ __all__ = [
     "judge_argument_correctness",
     "judge_source_usefulness",
     "judge_ranking_quality",
-    "run_eval_case",
-    "run_dataset",
-    "MCPEVAL_AVAILABLE",
 ]

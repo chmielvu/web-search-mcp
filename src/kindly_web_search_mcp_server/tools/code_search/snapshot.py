@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -54,10 +55,9 @@ async def _hf_code_embedding(text: str, *, max_chars: int = 2000) -> list[float]
 
 
 async def _hf_batch_code_embeddings(
-    texts: list[str], *, max_chars: int = 2000, batch_size: int = 16
+    texts: list[str], *, max_chars: int = 2000
 ) -> list[list[float] | None]:
-    """Batch embeddings through the shared ml/ client, 256 per request (service cap)."""
-    del batch_size  # kept for call-site compatibility
+    """Batch embeddings through the shared ml/ client, 64 per request (service cap)."""
     truncated = [t[:max_chars] for t in texts]
     results: list[list[float] | None] = [None] * len(truncated)
     batch_cap = 64
@@ -91,7 +91,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 TTL_SECONDS = settings.code_fetch_snapshot_ttl_seconds
-MAX_ARCHIVE_BYTES = 80 * 1024 * 1024
+MAX_ARCHIVE_BYTES = int(os.environ.get("CODE_FETCH_MAX_ARCHIVE_BYTES", str(256 * 1024 * 1024)))
 MAX_EXTRACTED_BYTES = 120 * 1024 * 1024
 MAX_FILES = 4_000
 MAX_FILE_BYTES = 1_000_000
@@ -146,7 +146,208 @@ _SKIP_SUFFIXES = {
     ".exe",
     ".wasm",
     ".lock",
+    ".pptx",
+    ".docx",
+    ".xlsx",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mp3",
+    ".wav",
+    ".npy",
+    ".npz",
+    ".pth",
+    ".pt",
+    ".onnx",
+    ".safetensors",
+    ".h5",
+    ".parquet",
+    ".tar",
 }
+
+
+def _safe_rmtree(path: Path | str) -> None:
+    """Recursively remove a directory, clearing read-only flags on Windows if needed."""
+    target = Path(path)
+    if not target.exists():
+        return
+    try:
+        import stat
+
+        for p in target.rglob("*"):
+            try:
+                os.chmod(p, stat.S_IWRITE)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    shutil.rmtree(target, ignore_errors=True)
+
+
+_SPARSE_SKIP_PATTERNS = [
+    "/*",
+    "!*.gif",
+    "!*.png",
+    "!*.jpg",
+    "!*.jpeg",
+    "!*.webp",
+    "!*.ico",
+    "!*.pdf",
+    "!*.pptx",
+    "!*.docx",
+    "!*.xlsx",
+    "!*.zip",
+    "!*.tar*",
+    "!*.gz",
+    "!*.tgz",
+    "!*.bin",
+    "!*.exe",
+    "!*.whl",
+    "!*.so",
+    "!*.dll",
+    "!*.dylib",
+    "!*.mp4",
+    "!*.mov",
+    "!*.avi",
+    "!*.mp3",
+    "!*.wav",
+    "!*.npy",
+    "!*.npz",
+    "!*.pth",
+    "!*.pt",
+    "!*.onnx",
+    "!*.safetensors",
+    "!*.h5",
+    "!*.wasm",
+    "!*.parquet",
+    "!docs/images/**",
+    "!tests/testdata/**",
+    "!*testdata*/**",
+]
+
+
+def _clone_sparse_repo(
+    repository: str, branch: str, sha: str, ref: str | None = None
+) -> Path | None:
+    """Fast partial clone: download only commit/tree and <=1MB code/text blobs.
+
+    Uses Git partial clone with sparse-checkout to avoid downloading large media,
+    binary archives, model checkpoints, and documents over the network.
+    """
+    git_bin = shutil.which("git")
+    if not git_bin:
+        return None
+    token = _token()
+    owner, repo = repository.split("/", 1)
+    if token:
+        remote_url = f"https://x-access-token:{token}@github.com/{quote(owner)}/{quote(repo)}.git"
+    else:
+        remote_url = f"https://github.com/{quote(owner)}/{quote(repo)}.git"
+
+    dest = Path(CACHE_DIR) / "code_fetch_extracts" / f"{owner}__{repo}__{sha[:12]}"
+    _safe_rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    target_ref = ref or branch or "HEAD"
+    is_sha = len(target_ref) == 40 and all(c in "0123456789abcdefABCDEF" for c in target_ref)
+
+    try:
+        clone_cmd = [
+            git_bin,
+            "-c",
+            "core.quotepath=false",
+            "clone",
+            "--depth",
+            "1",
+            "--filter=blob:limit=1m",
+            "--sparse",
+        ]
+        if is_sha:
+            clone_cmd.extend([remote_url, str(dest)])
+            res = subprocess.run(clone_cmd, capture_output=True, timeout=60)
+            if res.returncode != 0:
+                _safe_rmtree(dest)
+                dest.mkdir(parents=True, exist_ok=True)
+                subprocess.run([git_bin, "init", str(dest)], capture_output=True, check=True)
+                subprocess.run(
+                    [git_bin, "-C", str(dest), "remote", "add", "origin", remote_url],
+                    capture_output=True,
+                    check=True,
+                )
+                subprocess.run(
+                    [git_bin, "-C", str(dest), "config", "core.quotepath", "false"],
+                    capture_output=True,
+                    check=True,
+                )
+                fetch_res = subprocess.run(
+                    [
+                        git_bin,
+                        "-C",
+                        str(dest),
+                        "fetch",
+                        "--depth",
+                        "1",
+                        "--filter=blob:limit=1m",
+                        "origin",
+                        target_ref,
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                )
+                if fetch_res.returncode != 0:
+                    _safe_rmtree(dest)
+                    return None
+        else:
+            clone_cmd.extend(["--branch", target_ref, remote_url, str(dest)])
+            res = subprocess.run(clone_cmd, capture_output=True, timeout=60)
+            if res.returncode != 0:
+                _safe_rmtree(dest)
+                dest.mkdir(parents=True, exist_ok=True)
+                clone_cmd2 = [
+                    git_bin,
+                    "-c",
+                    "core.quotepath=false",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--filter=blob:limit=1m",
+                    "--sparse",
+                    remote_url,
+                    str(dest),
+                ]
+                res2 = subprocess.run(clone_cmd2, capture_output=True, timeout=60)
+                if res2.returncode != 0:
+                    _safe_rmtree(dest)
+                    return None
+
+        subprocess.run(
+            [
+                git_bin,
+                "-C",
+                str(dest),
+                "sparse-checkout",
+                "set",
+                "--no-cone",
+                *_SPARSE_SKIP_PATTERNS,
+            ],
+            capture_output=True,
+            timeout=30,
+            check=True,
+        )
+        checkout_cmd = [git_bin, "-C", str(dest), "checkout"]
+        if is_sha:
+            checkout_cmd.append(target_ref)
+        co_res = subprocess.run(checkout_cmd, capture_output=True, timeout=30)
+        if co_res.returncode != 0:
+            _safe_rmtree(dest)
+            return None
+        return dest
+    except Exception as exc:
+        LOGGER.warning(
+            "Git sparse clone failed for %s: %s; falling back to tarball", repository, exc
+        )
+        _safe_rmtree(dest)
+        return None
 
 
 @dataclass(slots=True)
@@ -424,7 +625,7 @@ class SnapshotManager:
             snapshot.graph_symbol_count = len(symbols)
             snapshot.graph_edge_count = len(edges)
         self._persist(snapshot, records, symbols, edges)
-        self._remember(snapshot)
+        self._remember(snapshot, key=_repo_key(snapshot))
         return snapshot
 
     def _persist(
@@ -651,7 +852,9 @@ class SnapshotManager:
                 previous.warning = None
                 self._remember(previous, key=key)
                 return previous
-            root = await _download_tarball(repository, sha)
+            root = await asyncio.to_thread(_clone_sparse_repo, repository, branch, sha, ref)
+            if root is None:
+                root = await _download_tarball(repository, sha)
             snapshot = await asyncio.to_thread(
                 self.build_from_directory,
                 repository,
@@ -661,7 +864,7 @@ class SnapshotManager:
                 defer_graph=True,
                 requested_ref=ref or "",
             )
-            shutil.rmtree(root, ignore_errors=True)
+            _safe_rmtree(root)
             self._remember(snapshot, key=key)
             # TreeSitter graph (symbols/edges) is expensive (30-50% of cold time)
             # and only needed for symbol/callers queries. Defer it so the
@@ -827,7 +1030,7 @@ class SnapshotManager:
             graph_hits = self._graph_hits(
                 snapshot, normalized_symbol, limit=limit, context_lines=context
             )
-            hits = _merge_hits(hits, graph_hits, limit)
+            hits = _merge_hits(graph_hits, hits, limit)
         return QueryResult(
             snapshot=snapshot,
             intent="search",
@@ -993,7 +1196,7 @@ class SnapshotManager:
                 continue
         if not candidate_texts:
             return []
-        embeddings = await _hf_batch_code_embeddings(candidate_texts, max_chars=2000, batch_size=16)
+        embeddings = await _hf_batch_code_embeddings(candidate_texts, max_chars=2000)
         scored: list[tuple[float, Path]] = []
         for path, emb in zip(candidate_paths, embeddings):
             if emb is None:
@@ -1180,7 +1383,7 @@ class SnapshotManager:
                     graph_hits = self._graph_hits(
                         snapshot, (symbol or "").strip(), limit=limit, context_lines=context
                     )
-                    hits = _merge_hits(hits, graph_hits, limit)
+                    hits = _merge_hits(graph_hits, hits, limit)
                 return QueryResult(
                     snapshot=snapshot,
                     intent="search",
@@ -1500,29 +1703,37 @@ async def _download_tarball(repository: str, sha: str) -> Path:
     client = await get_http_client()
     owner, repo = repository.split("/", 1)
     url = f"{_GITHUB_API_URL}/repos/{quote(owner)}/{quote(repo)}/tarball/{quote(sha)}"
+    dest = Path(CACHE_DIR) / "code_fetch_extracts" / f"{owner}__{repo}__{sha[:12]}"
+    _safe_rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
     try:
-        response = await client.get(
+        async with client.stream(
+            "GET",
             url,
             headers=_headers(token),
             timeout=settings.search_retrieve_budget_seconds,
             follow_redirects=True,
-        )
+        ) as response:
+            if response.status_code != 200:
+                raise SnapshotError(
+                    f"GitHub tarball returned HTTP {response.status_code}",
+                    retry_after_seconds=_retry_after(response),
+                )
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > MAX_ARCHIVE_BYTES:
+                raise SnapshotError("repository archive exceeds the code_fetch size budget")
+            chunks = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_ARCHIVE_BYTES:
+                    raise SnapshotError("repository archive exceeds the code_fetch size budget")
+                chunks.append(chunk)
+            data = b"".join(chunks)
     except httpx.HTTPError as exc:
         raise SnapshotError(
             f"GitHub tarball download failed: {str(exc) or type(exc).__name__}"
         ) from exc
-    if response.status_code != 200:
-        raise SnapshotError(
-            f"GitHub tarball returned HTTP {response.status_code}",
-            retry_after_seconds=_retry_after(response),
-        )
-    data = response.content
-    if len(data) > MAX_ARCHIVE_BYTES:
-        raise SnapshotError("repository archive exceeds the code_fetch size budget")
-    dest = Path(CACHE_DIR) / "code_fetch_extracts" / f"{owner}__{repo}__{sha[:12]}"
-    if dest.exists():
-        shutil.rmtree(dest, ignore_errors=True)
-    dest.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(_extract_tarball, data, dest)
     return dest
 
@@ -1539,11 +1750,15 @@ def _extract_tarball(data: bytes, dest: Path) -> None:
             relative = Path(*parts[1:]) if len(parts) > 1 else Path()
             if not str(relative) or any(part in _SKIP_DIRS for part in relative.parts):
                 continue
+            if relative.suffix.casefold() in _SKIP_SUFFIXES:
+                continue
             target = dest / relative
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if not member.isfile():
+                continue
+            if int(member.size or 0) > MAX_FILE_BYTES:
                 continue
             files += 1
             if files > MAX_FILES:
@@ -1727,14 +1942,13 @@ def _try_ripgrep_scan(
     exclude_glob: str | None = None,
 ) -> tuple[list[SnapshotHit], bool] | None:
     """Try ripgrep (rg) for literal/regex scan - 10-50x faster than Python loop."""
-    rg_path = shutil.which("rg")
+    rg_path = os.environ.get("CODE_FETCH_RG_PATH")
+    if rg_path and not Path(rg_path).exists():
+        rg_path = None
     if rg_path is None:
-        # Windows fallback
-        win_path = Path(r"C:\Users\Jan\AppData\Local\Programs\Python\Python312\Scripts\rg.EXE")
-        if win_path.exists():
-            rg_path = str(win_path)
-        else:
-            return None
+        rg_path = shutil.which("rg")
+    if rg_path is None:
+        return None
     try:
         search_root = root / path_prefix if path_prefix else root
         if not search_root.exists():
@@ -1767,7 +1981,7 @@ def _try_ripgrep_scan(
         # We only care about "match" lines; context is handled via snippet window
         for line in result.stdout.splitlines():
             try:
-                obj = __import__("json").loads(line)
+                obj = json.loads(line)
             except Exception:
                 continue
             if obj.get("type") != "match":

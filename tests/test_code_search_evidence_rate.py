@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from kindly_web_search_mcp_server.evals.metrics import (
+from kindly_web_search_mcp_server.analytics.evals.metrics import (
     agent_ready_breakdown,
     agent_ready_evidence_rate,
     assess_candidate_readiness,

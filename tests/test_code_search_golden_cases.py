@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kindly_web_search_mcp_server.evals.cases import (
+from kindly_web_search_mcp_server.analytics.evals.cases import (
     EvalCase,
     load_eval_cases,
     load_eval_cases_from_jsonl,
     save_eval_cases_to_jsonl,
 )
-from kindly_web_search_mcp_server.evals.metrics import agent_ready_evidence_rate
+from kindly_web_search_mcp_server.analytics.evals.metrics import agent_ready_evidence_rate
 
 
 def _fixture_path() -> Path:

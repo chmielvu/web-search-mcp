@@ -24,7 +24,6 @@ cli/
 │   ├── ai.py                # AI/synthesis commands
 │   ├── youtube.py           # YouTube commands
 │   ├── analytics.py         # analytics query/report commands
-│   ├── experiments.py       # A/B experiment management
 │   ├── server.py            # server/launch helpers
 │   ├── sitemap.py           # sitemap generate
 │   └── recommend.py         # intent-to-command recommendation
@@ -72,7 +71,6 @@ uv run web-search-cli youtube search <query>
 uv run web-search-cli youtube transcript <video-id>
 uv run web-search-cli analytics query
 uv run web-search-cli analytics report <name>
-uv run web-search-cli experiments list|create|enable|disable|conclude|stats
 uv run web-search-cli sitemap generate <url>
 ```
 

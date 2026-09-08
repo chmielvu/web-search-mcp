@@ -252,20 +252,52 @@ def register_quick_web_search(mcp: Any) -> None:
 
     @mcp.tool(**tool_kwargs("quick_web_search"))
     async def quick_web_search(
-        search_queries: Annotated[list[str], Field(description="Concise keyword queries, 3-6 words each. At least one required; max 5.")],
+        search_queries: Annotated[
+            list[str],
+            Field(
+                description="Concise keyword queries, 3-6 words each. At least one required; max 5."
+            ),
+        ],
         objective: Annotated[str, Field(description="Natural-language goal driving the search.")],
-        max_results: Annotated[int | None, Field(description="Upper bound on results to return (default 10).")] = None,
-        max_chars_total: Annotated[int | None, Field(description="Upper bound on total characters across all excerpts.")] = None,
-        max_chars_per_result: Annotated[int | None, Field(description="Upper bound on chars per single result's excerpts.")] = None,
-        client_model: Annotated[str | None, Field(description="Model consuming results; enables Parallel optimizations.")] = None,
-        session_id: Annotated[str | None, Field(description="Identifier for chaining search+extract calls in one task.")] = None,
-        include_domains: Annotated[list[str] | None, Field(description="Restrict results to these domains only.")] = None,
-        exclude_domains: Annotated[list[str] | None, Field(description="Exclude these domains from results.")] = None,
-        after_date: Annotated[str | None, Field(description="Only return content published on/after this date (YYYY-MM-DD).")] = None,
-        location: Annotated[str | None, Field(description="ISO 3166-1 alpha-2 country code for geo-targeting.")] = None,
-        max_age_seconds: Annotated[int | None, Field(description="Max cached-content age before live fetch (min 600).")] = None,
-        timeout_seconds: Annotated[float | None, Field(description="Timeout for live fetch if content needs retrieval.")] = None,
-        disable_cache_fallback: Annotated[bool | None, Field(description="If true, error instead of falling back to stale cache.")] = None,
+        max_results: Annotated[
+            int | None, Field(description="Upper bound on results to return (default 10).")
+        ] = None,
+        max_chars_total: Annotated[
+            int | None, Field(description="Upper bound on total characters across all excerpts.")
+        ] = None,
+        max_chars_per_result: Annotated[
+            int | None, Field(description="Upper bound on chars per single result's excerpts.")
+        ] = None,
+        client_model: Annotated[
+            str | None,
+            Field(description="Model consuming results; enables Parallel optimizations."),
+        ] = None,
+        session_id: Annotated[
+            str | None,
+            Field(description="Identifier for chaining search+extract calls in one task."),
+        ] = None,
+        include_domains: Annotated[
+            list[str] | None, Field(description="Restrict results to these domains only.")
+        ] = None,
+        exclude_domains: Annotated[
+            list[str] | None, Field(description="Exclude these domains from results.")
+        ] = None,
+        after_date: Annotated[
+            str | None,
+            Field(description="Only return content published on/after this date (YYYY-MM-DD)."),
+        ] = None,
+        location: Annotated[
+            str | None, Field(description="ISO 3166-1 alpha-2 country code for geo-targeting.")
+        ] = None,
+        max_age_seconds: Annotated[
+            int | None, Field(description="Max cached-content age before live fetch (min 600).")
+        ] = None,
+        timeout_seconds: Annotated[
+            float | None, Field(description="Timeout for live fetch if content needs retrieval.")
+        ] = None,
+        disable_cache_fallback: Annotated[
+            bool | None, Field(description="If true, error instead of falling back to stale cache.")
+        ] = None,
         ctx: Context = CurrentContext(),
     ) -> QuickWebSearchResponse:
         """Fast reconnaissance search using Parallel AI (advanced mode).

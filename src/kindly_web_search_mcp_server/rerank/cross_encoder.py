@@ -5,13 +5,21 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
 from ..inference.engine import is_retryable_error
 from ..models import WebSearchResult
-from .models import RerankCandidate, RerankResult
+from ..settings import settings
+from .models import (
+    RANKLLM_INPUT_LIMIT,
+    RerankCandidate,
+    RerankResult,
+    RankedStageOutcome,
+)
+from .utils import _apply_ranked_stage, _failed_stage
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +71,6 @@ def build_rerank_candidates(
 
 
 def _spec_to_provider_id(spec: ModelSpec) -> str:
-    if spec.provider == "cohere":
-        return "cohere_fast"
-    if spec.provider == "openrouter_rerank":
-        return "cohere_fast_openrouter"
     return spec.provider
 
 
@@ -143,6 +147,14 @@ async def rerank_with_provider_fallback(
     if not candidates:
         return RerankProviderOutcome(provider_id="none", model=None, ranked=[])
 
+    if not settings.voyage_api_key:
+        return RerankProviderOutcome(
+            provider_id="none",
+            model=None,
+            ranked=[],
+            error=RuntimeError("VOYAGE_API_KEY not configured; cross-encoder failed open"),
+        )
+
     prepared = build_rerank_candidates(candidates)
     documents = [candidate.document for candidate in prepared]
     chain = get_chain("cross_encoder_rerank")
@@ -172,4 +184,57 @@ async def rerank_with_provider_fallback(
             model=None,
             ranked=[],
             error=last_error,
+        )
+
+
+async def run_cross_encoder_stage(
+    *,
+    query: str,
+    candidates: list[WebSearchResult],
+    query_type_hint: str | None,
+    original_count: int,
+    run_key: str | None,
+    main_span: Any,
+    logger: logging.Logger,
+    output_limit: int = RANKLLM_INPUT_LIMIT,
+) -> RankedStageOutcome:
+    del query_type_hint, original_count
+    stage_start = time.monotonic()
+    outcome = await rerank_with_provider_fallback(query, candidates)
+    duration_seconds = time.monotonic() - stage_start
+    if not outcome.ranked:
+        return _failed_stage(
+            stage_name="cross_encoder",
+            provider=outcome.provider_id or "chain_failed",
+            model=outcome.model,
+            candidates=candidates,
+            output_limit=output_limit,
+            duration_seconds=duration_seconds,
+            error=outcome.error,
+        )
+
+    try:
+        return await _apply_ranked_stage(
+            stage_name="cross_encoder",
+            provider=outcome.provider_id,
+            model=outcome.model,
+            input_tokens=None,
+            output_tokens=None,
+            input_candidates=candidates,
+            ranked_results=outcome.ranked,
+            duration_seconds=duration_seconds,
+            run_key=run_key,
+            main_span=main_span,
+            logger=logger,
+            output_limit=output_limit,
+        )
+    except (TypeError, ValueError) as exc:
+        return _failed_stage(
+            stage_name="cross_encoder",
+            provider=outcome.provider_id,
+            model=outcome.model,
+            candidates=candidates,
+            output_limit=output_limit,
+            duration_seconds=duration_seconds,
+            error=exc,
         )

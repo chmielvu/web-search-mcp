@@ -1,4 +1,4 @@
-"""Relevance-sensitive maximal marginal relevance fallback."""
+"""Relevance-sensitive maximal marginal relevance selection."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from ..settings import settings
-from .stages import normalize_scores_minmax
+from .utils import normalize_scores_minmax
 
 
 def normalized_host(url: str) -> str:

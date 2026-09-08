@@ -380,12 +380,7 @@ def _identifier_permutations(terms: Iterable[str]) -> list[str]:
     )
 
 
-def _query_signals(
-    query: str,
-    terms: list[str],
-    source_tokens: list[tuple[str, str, str, str]],
-    regex_source: str | None,
-) -> tuple[list[str], str | None]:
+def _query_signals(query: str, terms: list[str]) -> tuple[list[str], str | None]:
     words = {item.casefold() for item in re.findall(r"[A-Za-z][A-Za-z0-9_-]*", query)}
     concepts = [
         cleaned
@@ -533,7 +528,7 @@ def build_query_plan(
 
     anchors = _literal_anchors(" ".join(terms) + (" " + regex_source if regex_source else ""))
     source_tokens = _source_shaped_tokens(remaining)
-    concept_terms, structural_kind = _query_signals(remaining, terms, source_tokens, regex_source)
+    concept_terms, structural_kind = _query_signals(remaining, terms)
     variants: list[str] = []
     variant_kinds: list[str] = []
 

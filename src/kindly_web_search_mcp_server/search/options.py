@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 
-from ..search.normalize import normalize_query
+from ..utils.text_clean import clean_query as normalize_query
 from .filters import LocaleSpec, TemporalWindow
 
 

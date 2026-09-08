@@ -527,9 +527,7 @@ async def gemini_search_with_grounding(
                 )
                 merged_fallback_reason = "; ".join(
                     dict.fromkeys(
-                        r
-                        for r in (overview_res.fallback_reason, deepdive_res.fallback_reason)
-                        if r
+                        r for r in (overview_res.fallback_reason, deepdive_res.fallback_reason) if r
                     )
                 )
             else:

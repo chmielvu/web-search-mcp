@@ -19,13 +19,13 @@ from ..models import (
     WebSearchResult,
 )
 from ..rerank.bm25 import score_candidates_async
-from ..rerank.core import rerank_results
+from ..rerank.pipeline import rerank_results
 from ..settings import settings
 from ..telemetry.spans import get_tracer
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
 from .filters import filter_results_by_window, parse_published_date
-from .merge import _memoize_canonicalize, reciprocal_rank_fusion
+from .merge import memoize_canonicalize, reciprocal_rank_fusion
 from .postprocess import apply_domain_boost
 from ..utils.url_canonicalize import canonicalize_url
 
@@ -130,7 +130,7 @@ async def rank_and_finalize(
     rank_started = time.monotonic()
     dc = run.diagnostics
     with tracer.start_as_current_span("search.rank") as span:
-        key_for = _memoize_canonicalize(canonicalize_url)
+        key_for = memoize_canonicalize(canonicalize_url)
         warnings = _stable_warnings(outcomes)
         warnings.extend(
             ProviderWarning(provider="filters", error=message, error_type="filter")

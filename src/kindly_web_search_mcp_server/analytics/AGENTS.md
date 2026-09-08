@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-05 | Last verified: 2026-09-05 -->
+<!-- Last updated: 2026-09-07 | Last verified: 2026-09-07 -->
 
 # AGENTS.md - Analytics & Search Quality
 
@@ -10,7 +10,9 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 
 | File | Role |
 |---|---|
-| `duckdb_store.py` | Thin facade re-exporting writers + schema |
+| `ids.py` | Stable result-ID/candidate-ID hash helpers (`_canonical_result_id`, `_candidate_id`) |
+| `events.py` | `PERSISTED_EVENT_PREFIXES` — persisted event-family allowlist (absorbed from top-level `observability/`) |
+| `eval_schema.py` | Eval fact table/view DDL and `ensure_eval_tables` (renamed from `evals.py` so the `evals/` package can live here) |
 | `writers/schema.py` | DDL for fact tables, provider health, quality, judge, tool-call, and classifier events |
 | `writers/core.py` | `TableWriter` + public insert wrappers |
 | `writers/inserts.py` | Typed SQL insert statements for pipeline entities |
@@ -21,14 +23,14 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `judge_runner.py` | Fire-and-forget judge evaluation |
 | `quality_metrics.py` | Run-level quality scoring |
 | `reports.py` | Named analytics reports, including provider reliability, quality misses, and classifier calibration |
-| `views.py` | Dashboard, quality-diagnostic, calibration, A/B, and eval views |
-| `summaries.py` | Daily aggregate refresh |
-| `app.py` | Rich-based analytics UI |
+| `views.py` | Dashboard, quality-diagnostic, calibration, and eval views |
 | `motherduck_sync.py` | MotherDuck sync helpers |
 | `feedback_labels.py` | Offline LLM judge result-quality materialization into `result_labels` |
 | `graph_feedback.py` | Direct read-only DuckDB observation query, in-memory NetworkX graph computation, and `generate`/`compare` SQLite operations |
 | `graph_store.py` | SQLite WAL persistence, transactional generation publication, ready-generation loading, and path-scoped cache |
 | `graph_replay.py` | Read-only DuckDB run-history replay against SQLite graph artifacts plus control/treatment metrics |
+| `training/` | Write-only query-understanding JSONL sink + TTL session state (moved from top-level `training/`) |
+| `evals/` | Eval case models, deterministic metrics, offline strict-JSON judges (moved from top-level `evals/`; mcpevals runner deleted — no consumers) |
 
 ## Data Flow
 

@@ -270,53 +270,26 @@ def _register_all() -> None:
         "Groq-hosted Qwen text model with multimodal input support.",
     )
     # ─────────────────────────────────────────────────────────────────────
-    # CROSS-ENCODER RERANK: rerank-v4
-    #   Cohere primary, OpenRouter/Voyage fallbacks.
+    # CROSS-ENCODER RERANK: voyage-rerank
+    #   Voyage only (Cohere/OpenRouter rerank providers removed 2026-09).
     # ─────────────────────────────────────────────────────────────────────
     define_model(
-        "rerank-v4",
-        display_name="Cohere Rerank v4",
-        description="Cross-encoder reranker — Cohere primary, OpenRouter/Voyage fallbacks.",
+        "voyage-rerank",
+        display_name="Voyage Rerank",
+        description="Cross-encoder reranker — Voyage rerank-2.5.",
         capabilities={ModelCapability.RERANK},
     )
     add_provider(
-        "rerank-v4",
-        "cohere",
-        as_rerank(
-            model_id=os.environ.get("COHERE_RERANK_MODEL", "rerank-v4.0-fast"),
-            base_url=os.environ.get("COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"),
-            api_key_env="COHERE_API_KEY",
-            default_timeout=settings.cohere_rerank_timeout,
-        ),
-    )
-    add_provider(
-        "rerank-v4",
-        "openrouter_rerank",
-        as_rerank(
-            model_id=settings.openrouter_rerank_model,
-            base_url=settings.openrouter_rerank_base_url,
-            api_key_env="OPENROUTER_API_KEY",
-            default_timeout=settings.openrouter_rerank_timeout,
-        ),
-    )
-    add_provider(
-        "rerank-v4",
+        "voyage-rerank",
         "voyage",
         as_rerank(
             model_id=settings.voyage_rerank_model,
             base_url="https://api.voyageai.com/v1/rerank",
             api_key_env="VOYAGE_API_KEY",
-            default_timeout=30.0,
+            default_timeout=settings.voyage_rerank_timeout,
         ),
     )
-    register_chain(
-        "cross_encoder_rerank",
-        [
-            "rerank-v4@cohere",
-            "rerank-v4@openrouter_rerank",
-            "rerank-v4@voyage",
-        ],
-    )
+    register_chain("cross_encoder_rerank", ["voyage-rerank@voyage"])
 
     # ─────────────────────────────────────────────────────────────────────
     # GOOGLE GEMINI MODELS

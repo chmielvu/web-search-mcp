@@ -17,7 +17,7 @@ from .page_cache import get_page_cache
 
 LOGGER = logging.getLogger(__name__)
 
-CODE_SEARCH_CACHE_VERSION = "code-search-v3"
+CODE_SEARCH_CACHE_VERSION = "code-search-v4"
 _IMMUTABLE_REVISION = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
 
 

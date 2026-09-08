@@ -18,16 +18,15 @@ from ..prompts.query_rewrite import (
 from ..prompts.rerank import build_relevance_query
 from ..settings import settings
 from ..telemetry.spans import get_tracer
-from ..training.query_understanding_jsonl import (
+from ..analytics.training.query_understanding_jsonl import (
     append_query_rewrite_record,
     rewritten_slots_payload,
 )
 from .contracts import BranchRole, QueryBranch, SearchPlan, SearchRun
 from .graph_expansion import GraphExpansionDecision, expand_seed_queries
-from .intent_policy import resolve_intent_policy
-from .intents import SearchIntent, normalize_intent
+from ..utils.text_clean import clean_query as normalize_query
 from .keyword_extract import extract_support_terms
-from .normalize import normalize_query
+from .intents import SearchIntent, normalize_intent, resolve_intent_policy
 from .provider_registry import (
     select_paid_google_provider,
     select_provider_names,
@@ -100,7 +99,8 @@ def _strip_goal(slot: str, goal: str) -> str:
         return slot
     start = folded_slot.find(folded_goal)
     end = start + len(goal)
-    return " ".join((slot[:start] + " " + slot[end:]).split())
+    stripped = " ".join((slot[:start] + " " + slot[end:]).split())
+    return stripped if stripped else slot
 
 
 def _normalize_branch_query(query: str) -> str:
@@ -284,7 +284,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             exact=not request.rewrite,
         )
         goal_text = " ".join((request.research_goal or "").split())
-        fallback = tuple(_strip_goal(slot, goal_text) for slot in fallback)
+        fallback = tuple(_strip_goal(slot, goal_text) or slot for slot in fallback)
 
         seed_values: list[str] = []
         seen_seed_values: set[str] = set()
@@ -375,7 +375,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 dc.rewrite_metadata = rewrite_meta
                 # Per-slot degradation: a blank slot falls back alone.
                 queries = tuple(
-                    normalized_slots[name] if normalized_slots[name].strip() else fb
+                    (normalized_slots[name].strip() or fb.strip() or normalized_query)
                     for name, fb in zip(SLOT_ORDER, fallback)
                 )
                 rewritten_slots = tuple(normalized_slots[name] for name in SLOT_ORDER)
@@ -519,7 +519,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         )
         run.plan = plan
         # Collect query variant rows for funnel uplift analytics
-        from ..analytics.observability_store import _canonical_result_id as _cri
+        from ..analytics.ids import _canonical_result_id as _cri
 
         variant_rows: list[dict[str, Any]] = []
         rewrite_failed = bool(dc.rewrite_metadata and "error" in dc.rewrite_metadata)

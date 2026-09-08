@@ -170,7 +170,7 @@ class TestLangSearchProvider(unittest.TestCase):
         anyio.run(run)
 
     def test_catalog_round_trip(self) -> None:
-        from kindly_web_search_mcp_server.search.provider_catalog import (
+        from kindly_web_search_mcp_server.search.provider_registry import (
             PROVIDER_DEFINITIONS_LIST,
         )
         from kindly_web_search_mcp_server.search.provider_registry import (

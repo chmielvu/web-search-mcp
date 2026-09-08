@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from .core import TableWriter
 from .table_names import (
-    _ABE_TABLE_NAME,
-    _ABS_TABLE_NAME,
     _CE_TABLE_NAME,
     _CF_TABLE_NAME,
     _CO_TABLE_NAME,
@@ -322,31 +320,6 @@ _JUDGE_EVALUATION_COLUMNS = [
     "payload_json",
 ]
 
-_AB_EXPERIMENT_COLUMNS = [
-    "experiment_id",
-    "layer",
-    "variant_a",
-    "variant_b",
-    "allocation_rate",
-    "status",
-    "start_date",
-    "end_date",
-    "min_sample_size",
-    "payload_json",
-]
-
-_AB_SHADOW_RUN_COLUMNS = [
-    "run_key",
-    "experiment_id",
-    "variant",
-    "layer",
-    "duration_ms",
-    "judge_score",
-    "tokens_used",
-    "cost_usd",
-    "error_type",
-    "payload_json",
-]
 
 _LLM_CALL_LOG_COLUMNS = [
     "run_key",
@@ -822,19 +795,6 @@ _JUDGE_EVALUATION_WRITER = TableWriter(
     columns=_JUDGE_EVALUATION_COLUMNS,
     defaults={"status": "success"},
     task_name="analytics.judge_evaluation",
-)
-_AB_EXPERIMENT_WRITER = TableWriter(
-    table_name=_ABE_TABLE_NAME,
-    ensure_name="_ensure_ab_experiments",
-    columns=_AB_EXPERIMENT_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.ab_experiment",
-)
-_AB_SHADOW_RUN_WRITER = TableWriter(
-    table_name=_ABS_TABLE_NAME,
-    ensure_name="_ensure_ab_shadow_runs",
-    columns=_AB_SHADOW_RUN_COLUMNS,
-    task_name="analytics.ab_shadow_run",
 )
 _LLM_CALL_LOG_WRITER = TableWriter(
     table_name=_LLM_CALL_LOG_TABLE_NAME,

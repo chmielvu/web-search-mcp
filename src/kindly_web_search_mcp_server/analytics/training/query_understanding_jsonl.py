@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 import aiofiles
 
-from ..search.understanding.models import QueryUnderstanding
+from ...search.understanding.models import QueryUnderstanding
 
 
 REWRITE_SLOT_ORDER = ("free", "serp1", "serp2", "semantic_tavily", "semantic_exa")

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 class TestObservabilityEventPrefixes(unittest.TestCase):
     def test_persisted_event_prefixes_include_all_analytics_families(self) -> None:
-        from kindly_web_search_mcp_server.observability.events import (
+        from kindly_web_search_mcp_server.analytics.events import (
             PERSISTED_EVENT_PREFIXES,
         )
 

@@ -45,7 +45,7 @@ def test_registry_has_exact_provider_matrix() -> None:
 
 
 def test_brightdata_default_timeout_uses_retrieve_budget() -> None:
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         brightdata_provider_call_timeout_seconds,
     )
     from kindly_web_search_mcp_server.settings import settings

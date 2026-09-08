@@ -40,7 +40,7 @@ class TestHardBudgetTiming(unittest.IsolatedAsyncioTestCase):
             plan.provider_arguments = {}
             run.plan = plan
 
-            from kindly_web_search_mcp_server.search.provider_catalog import (
+            from kindly_web_search_mcp_server.search.provider_registry import (
                 ProviderDefinition,
             )
 

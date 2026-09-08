@@ -189,7 +189,6 @@ schema
  ai gemini|grok
  youtube search|transcript|channel
  analytics query|report
- experiments list|enable|disable|conclude|stats|create
  server [start]
  sitemap generate
 ```
@@ -221,7 +220,7 @@ another checkout may have a different version.
 | Search-run diagnosis | `search inspect` / `search postmortem` | CLI-only |
 
 `reference tools` reports the MCP mapping only; it is not a complete listing of
-CLI-only commands such as `jobs`, `results`, `research`, and experiments.
+CLI-only commands such as `jobs`, `results`, and `research`.
 
 ## Search commands
 
@@ -621,32 +620,6 @@ uv run web-search-cli analytics report `
 error hint. Analytics database paths are read by the command; use the
 repository's read-only database convention for external inspection.
 
-### `experiments`
-
-A/B experiment configuration is loaded from `AB_CONFIG_PATH` or the default
-`duckdb_data/experiments/experiments.yaml`.
-
-```powershell
-uv run web-search-cli experiments list
-uv run web-search-cli experiments stats EXPERIMENT_ID
-uv run web-search-cli experiments enable EXPERIMENT_ID
-uv run web-search-cli experiments disable EXPERIMENT_ID
-uv run web-search-cli experiments conclude EXPERIMENT_ID --winner VARIANT_KEY
-```
-
-`experiments create` is non-interactive by default and therefore expects a JSON
-string in `--config`:
-
-```powershell
-uv run web-search-cli experiments create `
-  --config '{"experiment_id":"rerank-test","layer":"reranking","status":"draft","hypothesis":"Bi-encoder first improves latency","primary_metric":"p95_latency_ms","traffic_pct":10,"variants":[{"variant_key":"control","weight":1,"description":"current pipeline"},{"variant_key":"bi-first","weight":1,"description":"bi-encoder before cross-encoder"}]}'
-```
-
-The mutation commands write the YAML configuration. Valid statuses are
-`draft`, `running`, `paused`, and `concluded`; `conclude` requires an existing
-variant key. The global `--dry-run` flag currently previews feedback mutations,
-not experiment mutations.
-
 ### `inference`
 
 Inspect model/provider/chain registration without making provider calls:
@@ -784,7 +757,6 @@ settings include:
 | Deep research | `DEEP_RESEARCH_URL` |
 | YouTube transcript fallback | `YOUTUBE_TRANSCRIPT_PROXY_URL` |
 | Local job/result store | `WEB_SEARCH_CLI_JOBS_DB` |
-| A/B experiment YAML | `AB_CONFIG_PATH` |
 
 Use `doctor` for local readiness and read the command's structured checks. A
 passing doctor result does not authenticate a remote provider; provider errors

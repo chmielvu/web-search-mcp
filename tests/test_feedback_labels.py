@@ -15,7 +15,7 @@ from kindly_web_search_mcp_server.analytics.feedback_labels import (
     materialize_result_labels,
     parse_result_quality_payload,
 )
-from kindly_web_search_mcp_server.analytics.observability_ids import _canonical_result_id
+from kindly_web_search_mcp_server.analytics.ids import _canonical_result_id
 
 
 class TestFeedbackLabels(unittest.TestCase):

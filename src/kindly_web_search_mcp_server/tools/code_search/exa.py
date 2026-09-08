@@ -400,11 +400,8 @@ async def search_exa(
     plan: QueryPlan,
     request: CodeSearchRequest,
     *,
-    http_client: httpx.AsyncClient | None = None,
+    http_client: httpx.AsyncClient,
 ) -> ProviderResponse:
     """Use Exa's documented Context/Code endpoint for code examples."""
 
-    if http_client is not None:
-        return await _search_context(plan, request, http_client=http_client)
-    async with httpx.AsyncClient() as owned_client:
-        return await _search_context(plan, request, http_client=owned_client)
+    return await _search_context(plan, request, http_client=http_client)

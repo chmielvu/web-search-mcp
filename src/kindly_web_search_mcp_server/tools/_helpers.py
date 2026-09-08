@@ -12,6 +12,7 @@ from ..utils.environment import get_float_env, get_int_env
 
 from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
+from ..ml.gliner_client import gliner_query_budget_seconds
 from ..telemetry import record_mcp_tool_call, record_tool_details
 from ..telemetry.init import shutdown_telemetry
 from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
@@ -134,7 +135,7 @@ def _public_settings_snapshot() -> dict[str, object]:
         },
         "timeouts_seconds": {
             "tool_total": _resolve_tool_total_timeout_seconds(),
-            "query_understanding": settings.query_classifier_timeout_seconds,
+            "query_understanding": gliner_query_budget_seconds(),
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,

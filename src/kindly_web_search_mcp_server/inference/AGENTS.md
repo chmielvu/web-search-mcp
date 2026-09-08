@@ -20,9 +20,7 @@ Centralized LLM, embedding, and reranking model execution through a catalog-driv
 | `adapters/openai.py` | OpenAI-compatible adapter (groq, vercel, openrouter) |
 | `adapters/hf_chat.py` | Hugging Face InferenceClient adapter |
 | `adapters/genai.py` | Google GenAI adapter (with `get_genai_client`) |
-| `adapters/cohere.py` | Cohere rerank provider adapter |
 | `adapters/voyage.py` | Voyage rerank provider adapter |
-| `adapters/openrouter.py` | OpenRouter rerank provider adapter |
 | `bridges/rankllm.py` | RankLLM XML listwise reranker bridge |
 | `bridges/flockmtl.py` | DuckDB FlockMTL secret bridge (NanoGPT subscription endpoint; HF router retired 2026-08-22) |
 
@@ -96,7 +94,7 @@ register_chain(
 | `as_openai()` | Groq, Vercel, OpenRouter (chat) | OpenAI-compatible API |
 | `as_google()` | Gemini | SDK handles endpoint, no base_url |
 | `as_huggingface()` | HuggingFace | sync InferenceClient in thread |
-| `as_rerank()` | Cohere, Voyage, OpenRouter (rerank) | HTTP-based, not OpenAI-compatible |
+| `as_rerank()` | Voyage (rerank) | HTTP-based, not OpenAI-compatible |
 | `as_embedding()` | HuggingFace embeddings | feature extraction pipeline |
 
 ### Cross-Provider Model ID Normalization
@@ -188,7 +186,7 @@ engine.execute_with_fallback(chain, operation, **kwargs) → tries primary → e
 |---|---|---|
 | `worker_llm` | gpt-oss-120b@groq | @groq:second → @huggingface → @vercel |
 | `classifier_llm` | gpt-oss-20b@groq | @groq:second → @vercel |
-| `cross_encoder_rerank` | rerank-v4@cohere | @openrouter_rerank → @voyage |
+| `cross_encoder_rerank` | voyage-rerank@voyage | — (Voyage only; Cohere/OpenRouter removed 2026-09) |
 | `gemini_grounding` | gemini-3.1-flash-lite@google:second | gemini-2.5-flash@google → gemini-2.5-flash-lite@google |
 | `rankllm` | gemini-3.5-flash-lite@google:rankllm | gemini-3.1-flash-lite@google:rankllm → rankllm-openrouter@openrouter |
 | `summarization` | gemini-3.5-flash-lite@google | gemini-3.1-flash-lite@google → gemma-4-26b-a4b-it@google |

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from kindly_web_search_mcp_server.evals.metrics import (
+from kindly_web_search_mcp_server.analytics.evals.metrics import (
     graded_ndcg_at_k,
     mrr_at_k,
     ndcg_at_k,

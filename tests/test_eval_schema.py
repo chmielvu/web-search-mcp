@@ -67,7 +67,7 @@ def test_eval_schema_includes_existing_and_phase_1_2_tables() -> None:
 
 
 def test_eval_case_models_validate_minimum_contract() -> None:
-    from kindly_web_search_mcp_server.evals.cases import (
+    from kindly_web_search_mcp_server.analytics.evals.cases import (
         CandidateSet,
         EvalCase,
         ExpectedToolCall,
@@ -96,7 +96,7 @@ def test_eval_case_models_validate_minimum_contract() -> None:
 
 
 def test_deterministic_eval_metrics() -> None:
-    from kindly_web_search_mcp_server.evals.metrics import (
+    from kindly_web_search_mcp_server.analytics.evals.metrics import (
         expected_tool_called,
         forbidden_tool_not_called,
         latency_within_budget,

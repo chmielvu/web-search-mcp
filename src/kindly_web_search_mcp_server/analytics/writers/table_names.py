@@ -13,7 +13,7 @@ _FR_TABLE_NAME = "final_results"
 _QE_TABLE_NAME = "query_embeddings"
 _CE_TABLE_NAME = "candidate_embeddings"
 
-# Provider health (moved from observability_schema.py — different grain)
+# Provider health (originally in the retired observability_schema.py — different grain)
 _PH_TABLE_NAME = "provider_health_transitions"
 
 # LLM call log
@@ -32,13 +32,6 @@ _SUM_PVD_TABLE_NAME = "summary_provider_daily"
 _SUM_ID_TABLE_NAME = "summary_intent_daily"
 _SUM_RD_TABLE_NAME = "summary_rerank_daily"
 _SUM_QD_TABLE_NAME = "summary_quality_daily"
-
-# A/B experiment tables
-_ABE_TABLE_NAME = "ab_experiments"
-_ABS_TABLE_NAME = "ab_shadow_runs"
-_ABV_TABLE_NAME = "ab_experiment_variants"
-_ABA_TABLE_NAME = "ab_assignments"
-_ABR_TABLE_NAME = "ab_results"
 
 # Quick web search tables
 _QWSR_TABLE_NAME = "quick_web_search_runs"
@@ -98,11 +91,6 @@ __all__ = [
     "_SUM_ID_TABLE_NAME",
     "_SUM_RD_TABLE_NAME",
     "_SUM_QD_TABLE_NAME",
-    "_ABE_TABLE_NAME",
-    "_ABS_TABLE_NAME",
-    "_ABV_TABLE_NAME",
-    "_ABA_TABLE_NAME",
-    "_ABR_TABLE_NAME",
     "_QWSR_TABLE_NAME",
     "_QWSC_TABLE_NAME",
     "_GSR_TABLE_NAME",

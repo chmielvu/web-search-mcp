@@ -25,7 +25,6 @@ else:
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
     DEFAULT_CODE_FETCH_SNAPSHOT_DB,
-    DEFAULT_EXPERIMENTS_YAML,
     DEFAULT_PAGE_CACHE_DB,
     DEFAULT_PROCESS_LOGS_DB,
     DEFAULT_QUERY_UNDERSTANDING_JSONL,
@@ -223,8 +222,7 @@ class Settings:
     embedding_retry_delay_seconds: float = float(
         os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "1.0")
     )
-    # Reranking (Cohere primary, OpenRouter Cohere 4-fast fallback, Voyage last;
-    # listwise LLM reranker stays in the default stack but is tightly bounded)
+    # Reranking (Voyage cross-encoder; RankLLM optional via RANKLLM_ENABLED)
 
     rerank_bi_encoder_timeout_seconds: float = float(
         os.environ.get("RERANK_BI_ENCODER_TIMEOUT_SECONDS", "15.0")
@@ -238,16 +236,7 @@ class Settings:
     )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
-    cohere_api_key: str = os.environ.get("COHERE_API_KEY", "")
-    cohere_rerank_base_url: str = os.environ.get(
-        "COHERE_RERANK_BASE_URL", "https://api.cohere.com/v2/rerank"
-    )
-    cohere_rerank_timeout: float = float(os.environ.get("COHERE_RERANK_TIMEOUT", "5.0"))
-    openrouter_rerank_model: str = os.environ.get("OPENROUTER_RERANK_MODEL", "cohere/rerank-4-fast")
-    openrouter_rerank_base_url: str = os.environ.get(
-        "OPENROUTER_RERANK_BASE_URL", "https://openrouter.ai/api/v1/rerank"
-    )
-    openrouter_rerank_timeout: float = float(os.environ.get("OPENROUTER_RERANK_TIMEOUT", "5.0"))
+    voyage_rerank_timeout: float = float(os.environ.get("VOYAGE_RERANK_TIMEOUT", "30.0"))
 
     mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.70"))
     diversity_max_per_host: int = int(os.environ.get("DIVERSITY_MAX_PER_HOST", "2"))
@@ -263,6 +252,7 @@ class Settings:
     rankllm_window_size: int = int(os.environ.get("RANKLLM_WINDOW_SIZE", "20"))
     rankllm_stride: int = int(os.environ.get("RANKLLM_STRIDE", "10"))
     rankllm_num_passes: int = int(os.environ.get("RANKLLM_NUM_PASSES", "3"))
+    rankllm_enabled: bool = os.environ.get("RANKLLM_ENABLED", "true").lower() == "true"
 
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
     rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
@@ -271,7 +261,7 @@ class Settings:
     entity_extraction_enabled: bool = (
         os.environ.get("ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
     )
-    gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2-multi-v1")
+    gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2.5-multi-v1")
     gliner_threshold: float = float(os.environ.get("GLINER_THRESHOLD", "0.5"))
 
     analytics_enabled: bool = os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
@@ -708,18 +698,6 @@ class Settings:
         default_factory=lambda: _parse_json_dict_env(
             os.environ.get("APIFY_EXTRA_INPUT_JSON", "{}"), {}
         )
-    )
-
-    # =====================================================================
-    # A/B Testing Framework (opt-in, experiment config via YAML)
-    # =====================================================================
-    ab_testing_enabled: bool = os.environ.get("AB_TESTING_ENABLED", "false").lower() == "true"
-    ab_config_path: str = os.environ.get("AB_CONFIG_PATH", DEFAULT_EXPERIMENTS_YAML)
-    ab_shadow_mode_default: bool = (
-        os.environ.get("AB_SHADOW_MODE_DEFAULT", "true").lower() == "true"
-    )
-    ab_assignment_cache_ttl_seconds: int = int(
-        os.environ.get("AB_ASSIGNMENT_CACHE_TTL_SECONDS", "300")
     )
 
     def __post_init__(self) -> None:

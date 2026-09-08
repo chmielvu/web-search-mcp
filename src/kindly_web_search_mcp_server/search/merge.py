@@ -19,7 +19,7 @@ def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearch
     return candidate if len(candidate.snippet or "") > len(base.snippet or "") else base
 
 
-def _memoize_canonicalize(
+def memoize_canonicalize(
     canonicalize: Callable[[str], str],
 ) -> Callable[[str], str]:
     """Return a request-local memoizing wrapper around `canonicalize`.
@@ -62,7 +62,7 @@ def reciprocal_rank_fusion(
     how many lists either side contributes. Defaults to 1.0 for every
     list, which reproduces the classic unweighted formula exactly.
     """
-    key_for = canonicalize if canonicalize is not None else _memoize_canonicalize(canonicalize_url)
+    key_for = canonicalize if canonicalize is not None else memoize_canonicalize(canonicalize_url)
     resolved_weights = list(weights) if weights is not None else [1.0] * len(result_lists)
     if len(resolved_weights) != len(result_lists):
         raise ValueError(

@@ -14,7 +14,7 @@ import uuid
 
 import duckdb
 
-from .observability_ids import _canonical_result_id
+from .ids import _canonical_result_id
 from .graph_store import GraphSnapshot, publish_graph_snapshot
 from .quality_metrics import compute_positional_discount
 from .writers.connection import _db_path

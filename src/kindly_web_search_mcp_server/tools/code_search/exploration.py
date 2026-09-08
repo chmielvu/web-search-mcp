@@ -222,7 +222,6 @@ def _response_from_query(
     )
 
 
-
 def _is_single_file_read_candidate(
     *,
     query: str | None,
@@ -876,9 +875,7 @@ async def code_fetch(
     except Exception as exc:  # pragma: no cover - defensive tool boundary
         LOGGER.exception("code_fetch failed for %s", normalized_repository)
         raise_tool_error(
-            ValueError(
-                f"code_fetch failed: {type(exc).__name__}: {str(exc) or 'no details'}"
-            ),
+            ValueError(f"code_fetch failed: {type(exc).__name__}: {str(exc) or 'no details'}"),
             provider="code_fetch",
         )
 

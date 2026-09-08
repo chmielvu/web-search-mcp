@@ -217,10 +217,10 @@ async def fetch_content_artifact(
         # Entity extraction hook
         if settings.entity_extraction_enabled and artifact.markdown:
             try:
-                from ..search.entity_extractor import extract_entities
+                from ..ml.gliner_client import get_gliner_client
                 from ..utils.observability import emit_observability_event
 
-                ents = await extract_entities(artifact.markdown)
+                ents = await get_gliner_client().extract_entities(artifact.markdown)
                 if ents:
                     artifact = replace(artifact, entities=ents)
                 emit_observability_event(

@@ -1,4 +1,4 @@
-"""Core reranking orchestration pipeline."""
+"""Reranking pipeline orchestration."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 
 from opentelemetry import trace
 
+from ..analytics.rerank_telemetry import emit_rerank_summary, record_bi_encoder_stage
 from ..ml import embed_query
 from ..models import WebSearchResult
 from ..prompts.rerank import (
@@ -20,14 +21,19 @@ from ..settings import settings
 from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
 from ..telemetry import record_rerank_stage
 from ..utils.observability import emit_observability_event
-from .bi_encoder import bi_encoder_rank
-from .conditional_bi import run_conditional_bi_encoder
-from .diversity import select_mmr_slate
-from .models import RerankOverflowItem, RerankOverflowStage, RerankOutput, RerankStageSummary
-from .observability import emit_rerank_summary
-from .reporting import record_bi_encoder_stage
-from .stage_runner import run_cross_encoder_stage, run_llm_stage
-from .limits import CROSS_ENCODER_INPUT_LIMIT, FINAL_RESULT_LIMIT, RANKLLM_INPUT_LIMIT
+from .bi_encoder import bi_encoder_rank, run_conditional_bi_encoder
+from .cross_encoder import run_cross_encoder_stage
+from .llm import run_llm_stage
+from .mmr import select_mmr_slate
+from .models import (
+    CROSS_ENCODER_INPUT_LIMIT,
+    FINAL_RESULT_LIMIT,
+    RANKLLM_INPUT_LIMIT,
+    RerankOverflowItem,
+    RerankOverflowStage,
+    RerankOutput,
+    RerankStageSummary,
+)
 
 logger = logging.getLogger(__name__)
 tracer: Any = trace.get_tracer("web-search-mcp")
@@ -237,13 +243,7 @@ async def rerank_results(
         cross_full = list(cross_outcome.full_candidates or cross_candidates)
         cross_duration = (time.monotonic() - cross_start) * 1000.0
         cross_success = cross_outcome.error is None and bool(cross_outcome.relevance_scores)
-        cross_status = (
-            "success"
-            if cross_success and cross_outcome.provider == "cohere_fast"
-            else "fallback_success"
-            if cross_success
-            else "failed_open"
-        )
+        cross_status = "success" if cross_success else "failed_open"
         stage_summaries.append(
             RerankStageSummary(
                 stage="cross_encoder",
@@ -272,53 +272,75 @@ async def rerank_results(
             reranking_instructions=reranking_instructions,
         )
         normalized_caller = _normalize_prompt_text(reranking_instructions, cap=500)
+        llm_outcome = None
+        llm_candidates: list[WebSearchResult] = []
+        llm_full: list[WebSearchResult] = []
+        rankllm_success = False
         llm_start = time.monotonic()
-        llm_outcome = await run_llm_stage(
-            query=rankllm_query,
-            candidates=cross_candidates,
-            request_id=session_id or run_key,
-            query_type_hint=query_type_hint,
-            run_key=run_key,
-            main_span=main_span,
-            logger=logger,
-        )
-        llm_candidates = list(llm_outcome.candidates[:FINAL_RESULT_LIMIT])
-        llm_full = list(llm_outcome.full_candidates or llm_candidates)
-        llm_duration = (time.monotonic() - llm_start) * 1000.0
-        rankllm_success = bool(llm_outcome.relevance_scores) and llm_outcome.valid_passes > 0
-        llm_status = (
-            "partial"
-            if rankllm_success and llm_outcome.failed_passes
-            else "success"
-            if rankllm_success and llm_outcome.provider == "google"
-            else "fallback_success"
-            if rankllm_success
-            else "failed_open"
-        )
-        stage_summaries.append(
-            RerankStageSummary(
-                stage="rankllm",
-                provider=llm_outcome.provider,
-                model=llm_outcome.model,
-                input_count=len(cross_candidates),
-                output_count=len(llm_candidates),
-                duration_ms=llm_duration,
-                status=llm_status,
-                error_type=type(llm_outcome.error).__name__ if llm_outcome.error else None,
-                max_score=llm_outcome.max_score if rankllm_success else None,
-                avg_score=llm_outcome.avg_score if rankllm_success else None,
-                input_tokens=llm_outcome.input_tokens,
-                output_tokens=llm_outcome.output_tokens,
-                instruction_present=bool(normalized_caller),
-                instruction_length=len(normalized_caller) if normalized_caller else None,
-                query_type_hint=query_type_hint,
-                attempted_passes=llm_outcome.attempted_passes or None,
-                valid_passes=llm_outcome.valid_passes or None,
-                failed_passes=llm_outcome.failed_passes or None,
+        if settings.rankllm_enabled:
+            rankllm_query = build_rankllm_query(
+                query,
+                research_goal,
+                query_type_hint,
+                reranking_instructions=reranking_instructions,
             )
-        )
+            llm_outcome = await run_llm_stage(
+                query=rankllm_query,
+                candidates=cross_candidates,
+                request_id=session_id or run_key,
+                query_type_hint=query_type_hint,
+                run_key=run_key,
+                main_span=main_span,
+                logger=logger,
+            )
+            llm_candidates = list(llm_outcome.candidates[:FINAL_RESULT_LIMIT])
+            llm_full = list(llm_outcome.full_candidates or llm_candidates)
+            rankllm_success = bool(llm_outcome.relevance_scores) and llm_outcome.valid_passes > 0
+        llm_duration = (time.monotonic() - llm_start) * 1000.0
+        if llm_outcome is not None:
+            llm_status = (
+                "partial"
+                if rankllm_success and llm_outcome.failed_passes
+                else "success"
+                if rankllm_success and llm_outcome.provider == "google"
+                else "fallback_success"
+                if rankllm_success
+                else "failed_open"
+            )
+            stage_summaries.append(
+                RerankStageSummary(
+                    stage="rankllm",
+                    provider=llm_outcome.provider,
+                    model=llm_outcome.model,
+                    input_count=len(cross_candidates),
+                    output_count=len(llm_candidates),
+                    duration_ms=llm_duration,
+                    status=llm_status,
+                    error_type=(type(llm_outcome.error).__name__ if llm_outcome.error else None),
+                    max_score=llm_outcome.max_score if rankllm_success else None,
+                    avg_score=llm_outcome.avg_score if rankllm_success else None,
+                    input_tokens=llm_outcome.input_tokens,
+                    output_tokens=llm_outcome.output_tokens,
+                    instruction_present=bool(normalized_caller),
+                    instruction_length=len(normalized_caller) if normalized_caller else None,
+                    query_type_hint=query_type_hint,
+                    attempted_passes=llm_outcome.attempted_passes or None,
+                    valid_passes=llm_outcome.valid_passes or None,
+                    failed_passes=llm_outcome.failed_passes or None,
+                )
+            )
+        else:
+            stage_summaries.append(
+                RerankStageSummary(
+                    stage="rankllm",
+                    input_count=len(cross_candidates),
+                    output_count=0,
+                    duration_ms=0.0,
+                    status="skipped",
+                    query_type_hint=query_type_hint,
+                )
+            )
         funnel_counts["rankllm_output_count"] = len(llm_candidates)
-
         final_provider = llm_outcome.provider if rankllm_success else None
         final_model = llm_outcome.model if rankllm_success else None
         terminal_stage = (

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from kindly_web_search_mcp_server.utils.entity import EntitySpan
 from kindly_web_search_mcp_server.search.understanding.models import QueryUnderstandingResult
-from kindly_web_search_mcp_server.training.query_understanding_jsonl import (
+from kindly_web_search_mcp_server.analytics.training.query_understanding_jsonl import (
     append_query_outcome_record,
     append_query_rewrite_record,
     append_query_understanding_record,

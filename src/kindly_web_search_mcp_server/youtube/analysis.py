@@ -6,12 +6,15 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+import httpx
+
 from ..ml.gliner_client import get_gliner_client
 from ..models import YouTubeTranscriptAnalysis
 from ..search.understanding.adapter import normalize_content_entities
 from ..utils.entity import (
     DEFAULT_CONTENT_LABELS,
     DEFAULT_CONTENT_RELATIONS,
+    _GRAPH_RELATIONS,
     EntityRelation,
     EntitySpan,
     postprocess_entities,
@@ -113,6 +116,52 @@ def _parse_relations(raw: Mapping[str, Any], entities: list[EntitySpan]) -> list
     return relations
 
 
+_GRAPH_RELATION_NAMES = frozenset(name for name, _head, _tail in _GRAPH_RELATIONS)
+
+
+def _parse_graph_relations(
+    raw: Mapping[str, Any], entities: list[EntitySpan]
+) -> list[EntityRelation]:
+    payload = _unwrap_payload(raw)
+    rows = payload.get("relations")
+    if not isinstance(rows, list):
+        return []
+
+    relations: list[EntityRelation] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        relation = str(row.get("relation") or row.get("type") or "")
+        if relation not in _GRAPH_RELATION_NAMES:
+            continue
+        head_raw = row.get("head")
+        tail_raw = row.get("tail")
+        head = _find_entity(
+            entities,
+            head_raw if isinstance(head_raw, Mapping) else {"text": head_raw},
+        )
+        tail = _find_entity(
+            entities,
+            tail_raw if isinstance(tail_raw, Mapping) else {"text": tail_raw},
+        )
+        if head is None or tail is None:
+            continue
+        confidence = row.get("confidence", row.get("score"))
+        try:
+            confidence_value = float(confidence) if confidence is not None else None
+        except (TypeError, ValueError):
+            confidence_value = None
+        relations.append(
+            EntityRelation(
+                relation=relation,
+                head=head,
+                tail=tail,
+                confidence=confidence_value,
+            )
+        )
+    return relations
+
+
 async def analyze_transcript(text: str) -> YouTubeTranscriptAnalysis:
     """Extract entities and structured data from every transcript, fail-open."""
     started = time.perf_counter()
@@ -120,36 +169,77 @@ async def analyze_transcript(text: str) -> YouTubeTranscriptAnalysis:
         return YouTubeTranscriptAnalysis(status="error", warnings=["empty-transcript"])
 
     client = get_gliner_client()
-    chunks = chunk_text(text, chunk_size=3800, overlap=200)
+    chunks = [(0, text)] if len(text) <= 3800 else chunk_text(text, chunk_size=3800, overlap=200)
     entities: list[EntitySpan] = []
     relations: list[EntityRelation] = []
     structured: dict[str, Any] | None = None
     warnings: list[str] = []
     model_version: str | None = None
+    batch_results: list[dict[str, Any]] | None = None
+    batch_chunk_entities: list[list[EntitySpan]] = []
 
-    for offset, chunk in chunks:
+    for attempt in range(2):
         try:
-            raw, _request_latency = await client.extract_transcript_chunk(
-                chunk,
+            batch_results, _request_latency = await client.extract_transcripts_batch(
+                [chunk for _offset, chunk in chunks],
                 entities=DEFAULT_CONTENT_LABELS,
                 relations=DEFAULT_CONTENT_RELATIONS,
             )
-            model_version = str(raw.get("model_version") or raw.get("model") or client._model_name)
-            chunk_entities = normalize_content_entities(raw, chunk)
-            shifted_entities = [
-                entity.model_copy(
-                    update={
-                        "start": entity.start + offset if entity.start is not None else None,
-                        "end": entity.end + offset if entity.end is not None else None,
-                    }
-                )
-                for entity in chunk_entities
-            ]
-            entities.extend(shifted_entities)
-            relations.extend(_parse_relations(raw, chunk_entities))
-            structured = _merge_structured(structured, _structured_data(raw))
+            if len(batch_results) != len(chunks):
+                raise ValueError(f"expected {len(chunks)} batch results, got {len(batch_results)}")
+            break
+        except httpx.TimeoutException as exc:
+            if attempt == 1:
+                batch_results = None
+                warnings.append(f"batch-timeout:{type(exc).__name__}")
         except Exception as exc:  # GLiNER2 is analysis-only and must not fail transcription.
-            warnings.append(f"chunk-{offset}:{type(exc).__name__}:{str(exc)[:160]}")
+            batch_results = None
+            warnings.append(f"batch:{type(exc).__name__}:{str(exc)[:160]}")
+            break
+
+    if batch_results is not None:
+        for (offset, chunk), raw in zip(chunks, batch_results):
+            try:
+                if not isinstance(raw, Mapping):
+                    raise ValueError("batch result is not an object")
+                model_version = str(
+                    raw.get("model_version") or raw.get("model") or client._model_name
+                )
+                chunk_entities = normalize_content_entities(raw, chunk)
+                shifted_entities = [
+                    entity.model_copy(
+                        update={
+                            "start": entity.start + offset if entity.start is not None else None,
+                            "end": entity.end + offset if entity.end is not None else None,
+                        }
+                    )
+                    for entity in chunk_entities
+                ]
+                entities.extend(shifted_entities)
+                batch_chunk_entities.append(chunk_entities)
+                if len(chunks) > 1:
+                    relations.extend(_parse_relations(raw, chunk_entities))
+                structured = _merge_structured(structured, _structured_data(raw))
+            except Exception as exc:  # GLiNER2 is analysis-only and must not fail transcription.
+                warnings.append(f"chunk-{offset}:{type(exc).__name__}:{str(exc)[:160]}")
+
+    if batch_results is not None and len(chunks) == 1:
+        try:
+            graph = await client.extract_relation_graph(
+                text,
+                entities=DEFAULT_CONTENT_LABELS,
+            )
+            graph_entities = normalize_content_entities(graph, text)
+            graph_relations = _parse_graph_relations(graph, graph_entities)
+            if graph_entities and graph_relations:
+                entities = graph_entities
+                relations = graph_relations
+            elif batch_chunk_entities:
+                relations = _parse_relations(batch_results[0], batch_chunk_entities[0])
+        except Exception as exc:  # Graph extraction is an optional precision pass.
+            warnings.append(f"graph-{type(exc).__name__}")
+            if batch_chunk_entities:
+                relations = _parse_relations(batch_results[0], batch_chunk_entities[0])
 
     entities = postprocess_entities(entities)
     status = "success" if not warnings else "partial"

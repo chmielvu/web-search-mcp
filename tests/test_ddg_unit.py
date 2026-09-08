@@ -319,7 +319,7 @@ def test_search_ddg_signature_has_no_freshness_kwarg() -> None:
 
 
 def test_ddg_registered_as_free_peer_provider() -> None:
-    from kindly_web_search_mcp_server.search.provider_catalog import (
+    from kindly_web_search_mcp_server.search.provider_registry import (
         PROVIDER_DEFINITIONS_LIST,
     )
 

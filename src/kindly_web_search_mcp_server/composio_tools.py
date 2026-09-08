@@ -90,7 +90,9 @@ async def _composio_similarlinks_impl(
         why="Fetch the related pages for content.",
         confidence="medium",
     )
-    return SimilarLinksResponse(url=url, results=results, total_results=len(results), next=next_hints)
+    return SimilarLinksResponse(
+        url=url, results=results, total_results=len(results), next=next_hints
+    )
 
 
 def register_composio_tools(mcp: Any) -> None:
@@ -99,11 +101,19 @@ def register_composio_tools(mcp: Any) -> None:
     @mcp.tool(**tool_kwargs("composio_similarlinks"))
     async def composio_similarlinks(
         url: Annotated[str, Field(description="URL to find similar pages for.")],
-        num_results: Annotated[int, Field(description="Maximum number of similar results to return (default 5).")] = 5,
-        search_type: Annotated[str, Field(description="Similarity search type; keep the default 'neural'.")] = "neural",
+        num_results: Annotated[
+            int, Field(description="Maximum number of similar results to return (default 5).")
+        ] = 5,
+        search_type: Annotated[
+            str, Field(description="Similarity search type; keep the default 'neural'.")
+        ] = "neural",
         category: Annotated[str | None, Field(description="Optional category filter.")] = None,
-        include_domains: Annotated[list[str] | None, Field(description="Restrict results to these domains.")] = None,
-        exclude_domains: Annotated[list[str] | None, Field(description="Exclude these domains from results.")] = None,
+        include_domains: Annotated[
+            list[str] | None, Field(description="Restrict results to these domains.")
+        ] = None,
+        exclude_domains: Annotated[
+            list[str] | None, Field(description="Exclude these domains from results.")
+        ] = None,
         ctx: Context = CurrentContext(),
     ) -> SimilarLinksResponse:
         """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.

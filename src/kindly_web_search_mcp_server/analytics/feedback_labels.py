@@ -13,7 +13,7 @@ from typing import Any
 import duckdb
 
 from ..utils.url_canonicalize import canonicalize_url
-from .observability_ids import _canonical_result_id
+from .ids import _canonical_result_id
 from .quality_metrics import compute_positional_discount
 from .writers.connection import _db_path
 from .writers.core import _generate_result_label_id, upsert_materialized_result_labels

@@ -3,7 +3,8 @@
 Clean-cutover redesign: 7 wide fact tables at clear pipeline grains +
 2 embedding tables for vss vector similarity search.  Old ``search_events``
 log and 5 of 6 observability tables are dropped entirely.
-``provider_health_transitions`` moved here from ``observability_schema.py``.
+``provider_health_transitions`` is defined here (originally in the retired
+``observability_schema.py``).
 """
 
 from __future__ import annotations
@@ -1724,13 +1725,6 @@ def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     ensure_store_schema(db_path=db_path)
 
 
-from .ab_schema import (  # noqa: E402
-    _ensure_ab_assignments,  # noqa: F401
-    _ensure_ab_experiment_variants,  # noqa: F401
-    _ensure_ab_experiments,  # noqa: F401
-    _ensure_ab_results,  # noqa: F401
-    _ensure_ab_shadow_runs,  # noqa: F401
-)
 from .summary_schema import (  # noqa: E402
     _ensure_summary_intent_daily,  # noqa: F401
     _ensure_summary_provider_daily,  # noqa: F401

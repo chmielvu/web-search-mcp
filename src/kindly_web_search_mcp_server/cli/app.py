@@ -13,7 +13,6 @@ from .commands import (
     analytics,
     content,
     doctor,
-    experiments,
     getskill,
     jobs,
     inference,
@@ -135,7 +134,6 @@ inference.register(app)
 ai.register(app)
 youtube.register(app)
 analytics.register(app)
-experiments.register(app)
 server.register(app)
 sitemap.register(app)
 

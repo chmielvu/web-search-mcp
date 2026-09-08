@@ -1,4 +1,151 @@
 ## [Unreleased]
+### Added — Voyage-only rerank cutover + module restructure
+- Rerank cross-encoder is now Voyage-only (`voyage-rerank@voyage` chain,
+  `rerank-2.5`): Cohere and OpenRouter rerank providers, their adapters, and
+  their settings removed. New settings: `RANKLLM_ENABLED` (default `true`,
+  behavior-preserving LLM-stage gate) and `VOYAGE_RERANK_TIMEOUT` (default 30s).
+- Rerank module restructured to file-per-stage: `pipeline.py` (ex-`core.py`),
+  `models.py` (+ limits), `bi_encoder.py` (+ conditional_bi), `cross_encoder.py`
+  (ex-`providers.py`), `llm.py` (ex-`llm_rerank.py`), `mmr.py` (ex-`diversity.py`),
+  `bm25.py` (unchanged), `utils.py` (ex-`stages.py` + stage executors). Rerank
+  telemetry consolidated into `analytics/rerank_telemetry.py`; dead
+  `scripts/rerank_eval_calibration.py` removed. MCP tool schemas unchanged.
+
+### Changed — A/B runtime deleted; evals runner deleted; langfuse no-op removed; memoize rename
+- Deleted the unused A/B-testing runtime: `analytics/ab_testing/` (wiring,
+  shadow_runner, assignment, yaml_loader, models — zero production callers),
+  `writers/ab_schema.py`, the `ab_*` DuckDB DDL/table-names/writers/inserts and
+  `_ensure_ab_*`/`insert_ab_*` re-exports, the `v_ab_*` views
+  (`_build_ab_view_sql`), `cli/commands/experiments.py` (+ `app.py` registration),
+  the `AB_TESTING_ENABLED`/`AB_CONFIG_PATH`/`AB_SHADOW_MODE_DEFAULT`/
+  `AB_ASSIGNMENT_CACHE_TTL_SECONDS` settings, the
+  `DEFAULT_EXPERIMENTS_YAML`/`EXPERIMENTS_DIR` path constants, and 7 frozen
+  test files (`test_ab_*`, `test_shadow_runner`).
+- Deleted `analytics/evals/runner.py` (`run_eval_case`/`run_dataset`/
+  `MCPEVAL_AVAILABLE` — no src callers) and the `eval = ["mcpevals"]` optional
+  dependency. `evals/__init__` no longer re-exports the runner names.
+- Removed `evals/judges._send_to_langfuse` and its call site (Langfuse is not a
+  dependency; the function was a guaranteed silent no-op).
+- Renamed `merge._memoize_canonicalize` → `memoize_canonicalize` (public, it was
+  cross-module imported by `ranking.py`); test + docstring references updated.
+
+### Changed — provider_catalog merged into provider_registry
+- Merged `search/provider_catalog.py` (220 ln: `ProviderDefinition` model,
+  `_definition` helper, `brightdata_provider_call_timeout_seconds`,
+  `PROVIDER_DEFINITIONS_LIST` with the 16-provider matrix) into
+  `search/provider_registry.py` (196 ln: adapter wiring, reachability,
+  round-robin selection, diagnostics). The two modules were data/behavior halves
+  of one provider matrix; all production consumers already go through the
+  registry. No shim (clean cutover).
+- Cut over 8 test files (`test_ddg_unit`, `test_hard_budget_timing`,
+  `test_retrieval_budget`, `test_shared_embedding_cancellation`,
+  `test_langsearch_provider`, `test_provider_resilience`,
+  `test_provider_registry`) and 2 docstring references
+  (`search/__init__.py`, `search/providers/__init__.py`).
+- Merged-module `__all__` now includes `PROVIDER_DEFINITIONS_LIST`,
+  `ProviderDefinition`, and `brightdata_provider_call_timeout_seconds`
+  alongside the registry names.
+
+### Changed — search/ shim purge + intents merge
+- Deleted shims: `search/normalize.py` (7-line alias for `utils.text_clean.clean_query`;
+  9 importers re-pointed — planning, options, graph_expansion, understanding/resolver,
+  providers/brave, tools/academic, test, 2 scripts), `search/entity_extractor.py`
+  (pass-through to `ml.gliner_client`; `content/fetch_pipeline.py` calls the client
+  directly), `search/understanding/schema.py` (zero-importer orphan).
+- Merged `search/intent_policy.py` into `search/intents.py` (single consumer
+  `planning.py`; `IntentSearchPolicy`/`resolve_intent_policy`/`_INTENT_POLICIES` keep
+  their names). `tests/test_intent_policy.py` re-pointed.
+- Fixed 2 latent broken imports found during the sweep: both `scripts/`
+  quality-capture files imported `canonicalize_url` from `search.normalize`, which
+  never exported it (now `utils.url_canonicalize`).
+- Kept separate (caller-verified): `blocklist.py` (self-contained subsystem, 2 script
+  consumers), `graph_expansion.py` (consumed by `analytics/graph_replay`),
+  `keyword_extract.py` (distinct YAKE dependency), `postprocess.py` (domain-boost step
+  in ranking), `understanding/` (4 files, distinct consumer sets: adapter→ml/youtube,
+  resolver→planning, models→contracts/training).
+
+### Changed — analytics dead-code purge + observability/ absorbed
+- Deleted the retired observability shim chain: `observability_rows.py` (tombstone),
+  `observability_tables.py` + `observability_store.py` (pure re-exports),
+  `observability_schema.py` (single ensure shim), `observability_inserts.py`
+  (`insert_provider_health_transition` had zero callers; the table DDL remains in
+  `writers/schema.py` bootstrap). Removed the dead
+  `_ensure_provider_health_transitions` re-exports from `duckdb_store` /
+  `writers/__init__`.
+- Renamed `observability_ids.py` → `ids.py` (live `_candidate_id` /
+  `_canonical_result_id` helpers); 7 importers re-pointed.
+- Absorbed the top-level `observability/` package: `events.py` →
+  `analytics/events.py`. The `utils/observability` → `analytics` import cycle is
+  broken by importing `PERSISTED_EVENT_PREFIXES` lazily inside
+  `_persist_analytics_event`.
+- Deleted dead modules: `summaries.py` (`refresh_summary_tables` zero callers),
+  `feedback.py` (drift/SLO/report helpers zero callers; only `compute_ndcg_at_10`
+  survived via a test fixture — `tests/test_feedback_ndcg_fixture.py` deleted with it).
+- Judge-stack audit (no consolidation): `analytics/judges.py` (FlockMTL 6-facet,
+  `llm_judgments`), `search_relevance_judge.py` + `judge_prompt.py` + `judge_runner.py`
+  (live 4-D pipeline judge → `judge_evaluations`), and `evals/judges.py` (offline
+  strict-JSON judges → `eval_judge_calls`/`eval_scores`) are distinct inference paths
+  with distinct persistence. Flagged, unchanged: `judge_prompt.parse_judge_response`
+  is test-only; `evals/judges._send_to_langfuse` is a silent no-op (langfuse not a
+  dependency); `judge_calibration.calibrate_judge` legacy 4-D path is test-only.
+
+### Changed — training/, evals/, ab_testing/ folded into analytics/
+- Moved the three sibling packages under `analytics/`: `training/` (JSONL sink +
+  session state), `evals/` (case models, deterministic metrics, offline judges,
+  mcpevals runner), `ab_testing/` (models, assignment, YAML loader, wiring,
+  shadow runner). Pure moves — no logic changes.
+- Renamed `analytics/evals.py` → `analytics/eval_schema.py` (matches
+  `observability_schema.py` naming) so the incoming `evals/` package does not
+  shadow it; internal importers (`analytics/__init__.py`, `motherduck_sync.py`,
+  `views.py`) re-pointed. `analytics/tabs/evals.py` is unrelated and untouched.
+- Import cutover across 4 src files (`search/outcomes.py`, `search/planning.py`,
+  `search/understanding/resolver.py`, `cli/commands/experiments.py`,
+  `tools/code_search/models.py`) and 12 test files, including dynamic
+  `patch("kindly_web_search_mcp_server.…")` string targets.
+- Audit notes (unchanged code, flagged): `ab_testing/wiring.get_ab_overrides`,
+  `ab_testing/shadow_runner.run_shadow`, and `ab_testing/assignment` have no
+  production callers (documented framework, settings-gated); `evals/runner.py`
+  has no src callers (justified only by the optional `mcpevals` extra). The two
+  judge stacks (`analytics/judges.py` FlockMTL vs `evals/judges.py` offline
+  OpenAI) are distinct inference paths — not consolidated.
+
+
+### Changed — GLiNER2 transcript batching and typed relation graph
+- YouTube transcript analysis now sends all offset-preserving chunks in one `/batch-extract` request, retrying once on gateway timeout.
+- Short transcripts run a typed `/extract-graph` precision pass with fail-open fallback to batch relation parsing; long transcripts retain chunked relation parsing.
+- The public query-understanding timeout snapshot now reports the composed GLiNER classify + NER budget.
+### Changed — code tools refinement: routing clarity, honesty fixes, bulk reads
+- `code_fetch` gains `paths` (1–5 repo files per call, response `files[]`), a
+  routing/cost-aware docstring, and honest `truncated`+warning on 5 MB fast-lane
+  cap hits. Warm-path `paths` reads use one `ensure()` and per-path queries;
+  cold path uses one commit resolution + one `hydrate_sources` call.
+- `code_search`: `next` hints capped at 3 and evidence-kind-routed (conversations
+  → `fetch`, code hits → `code_fetch`, docs/semantic → `fetch`); invalid
+  `regexp=true` queries now return `no_hit` + `regex_invalid` hint with a
+  `regex_drop` diagnostic instead of semantic fail-open; docs mode applies the
+  low-value artifact gate (NEWS.md/TODO.md flood); HF empty results no longer
+  emit code-mode `narrow_scope` hints; HF card summaries and issue/discussion
+  metadata snippets now surface via the new `CodeSearchHit.snippet` (falls back
+  into `source_window`/asset `summary`); `HEAD` blob URLs no longer fabricate
+  an immutable `revision`; symbol hits rank ahead of FTS matches in
+  `query`/`query_async` merges; cache version bumped to `code-search-v4`
+  (previously-excluded rerank/provider telemetry now persists).
+- `windows.collapse_candidates`: true fixpoint merge + overlap resolution —
+  same-file rows are pairwise interval-disjoint, sub-100 unions merge
+  transitively, cap-exceeding overlaps resolve to the high-score window with
+  covered matches folded into `match_lines` (B4).
+- `fetch` on GitHub file URLs now emits `code_fetch` redirect guidance
+  (middleware `_guide_fetch`); `fetch`/`code_search` docstrings teach the
+  boundary; `docs://workflow` gains the `code_search` row, the 1–5-file read
+  row, and a Code Tool Boundary section; server/app instructions gain the
+  boundary sentence.
+- Dead code removed: `utc_now_iso`, `Stats.dropped_count`, unused
+  `_RequestGate.rate_limited`, unused `_query_signals` params, Exa owned-client
+  fallback, stale `batch_size` param, `__import__("json")`, hardcoded
+  `C:\Users\Jan\...rg.EXE` path (now `CODE_FETCH_RG_PATH` env + `shutil.which`).
+- Additive MCP schema only: `code_fetch.paths` added; no param/tool removal.
+
+## [Unreleased]
 ### Changed — Entity package dissolved into `ml/` + `utils/`
 - Deleted `entity/` package. `entity/gliner_client.py` moved to `ml/gliner_client.py` (joins `ml/embeddings.py` as the hosted-gateway-clients package); `ml/__init__.py` now re-exports `GLiNER2Client`, `GatewayAnalysis`, `QueryFeatureAnalysis`, `get_gliner_client` alongside the embedding contract.
 - Entity models, default label/relation schemas, and `postprocess_entities` merged into a single `utils/entity.py` (from former `entity/models.py` + `entity/default_schema.py` + `entity/postprocess.py`). Dead `RelationMention` alias and unused `GLiNER2Client.base_url` property removed.

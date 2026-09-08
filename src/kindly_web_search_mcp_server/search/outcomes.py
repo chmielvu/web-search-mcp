@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
-from ..analytics.observability_store import _candidate_id, _canonical_result_id
+from ..analytics.ids import _candidate_id, _canonical_result_id
 from ..utils.url_canonicalize import extract_domain_from_url
 
 LOGGER = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def persist_search_outcome(run):
         insert_search_run,
     )
     from ..settings import settings
-    from ..training.query_understanding_jsonl import (
+    from ..analytics.training.query_understanding_jsonl import (
         append_query_outcome_record,
         rewritten_slots_payload,
     )

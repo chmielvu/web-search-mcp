@@ -7,10 +7,10 @@ import logging
 from ...ml.gliner_client import GatewayAnalysis, get_gliner_client
 from ...utils.query_understanding import resolve_fallback_understanding
 from ...settings import settings
-from ...training.query_understanding_jsonl import append_query_understanding_record
-from ...training.session_state import get_session_state_store
+from ...analytics.training.query_understanding_jsonl import append_query_understanding_record
+from ...analytics.training.session_state import get_session_state_store
 from ...utils.observability import emit_observability_event
-from ..normalize import normalize_query
+from ...utils.text_clean import clean_query as normalize_query
 from ..intents import SearchIntent
 from .models import QueryUnderstandingResult
 
