@@ -435,3 +435,6 @@ dashboards/
 *.geany
 .geanytags/
 
+# oh-my-pi local agent settings (machine-specific)
+.omp/
+
