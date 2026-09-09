@@ -78,6 +78,14 @@ uv run pytest tests/test_page_content_resolver.py
 uv run pytest tests/test_content_*.py tests/test_sitemap_orchestrator.py
 uv run pytest tests/test_remote_clients.py tests/test_stages.py
 ```
+### Recent Changes (2026-09-09)
+- Jina and Crawl4AI cloud rungs run `polish_prose` (from `utils/text_clean.py`)
+  after classification — same prose surface (unicode fold, chrome-link strip,
+  whitespace tidy) as local extraction, without a second boilerplate pass.
+- `tools/content.py::fetch` with `include_links=true` falls back to extracting
+  links from the returned markdown (`_markdown_links`) when the artifact has no
+  structured links; cache route version bumped to 5 (pre-fix cached markdown
+  re-fetched).
 ### Recent Changes (2026-09-06)
 - The unified fetch path keeps metadata and format details internal to artifacts,
   cache envelopes, and analytics. Public results expose `content` plus the

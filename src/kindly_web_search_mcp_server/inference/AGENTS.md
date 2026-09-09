@@ -81,8 +81,10 @@ register_chain(
     "worker_llm",
     [
         "gpt-oss-120b@groq",
-        "gpt-oss-120b@huggingface",
+        "qwen/qwen3.8-27b@groq",
+        "qwen/qwen3.6-27b@groq",
         "gpt-oss-120b@vercel",
+        "gpt-oss-120b@huggingface",
     ],
 )
 ```
@@ -112,19 +114,20 @@ provides built-in normalization:
 
 ### Live Provider Model Inventory
 
-The 2026-07-25 provider refresh confirmed these active text-output models:
+The 2026-07-25 provider refresh confirmed these active text-output models
+(llama entries removed 2026-09-08 — dropped from Groq's roster; `qwen/qwen3.8-27b`
+added 2026-09-08):
 
 | Provider | Model IDs registered in the catalog |
 |---|---|
-| Groq | `groq/compound`, `groq/compound-mini`, `llama-3.1-8b-instant`, `openai/gpt-oss-20b`, `allam-2-7b`, `llama-3.3-70b-versatile`, `openai/gpt-oss-120b`, `qwen/qwen3.6-27b` |
+| Groq | `groq/compound`, `groq/compound-mini`, `openai/gpt-oss-20b`, `allam-2-7b`, `openai/gpt-oss-120b`, `qwen/qwen3.6-27b`, `qwen/qwen3.8-27b` |
 
 The existing `gpt-oss-120b` and `gpt-oss-20b` entries were corrected to the
 provider-reported GPT OSS names.  Groq's Prompt Guard and GPT OSS Safeguard
 models are intentionally excluded because they are moderation/safety models;
 speech-output Orpheus models and audio-input Whisper transcription models are
 also excluded because the generic OpenAI-compatible adapter exposes chat/text
-generation only.  The live list contained no active Llama 4 model, and both
-known Llama 4 retrieve checks returned 404.
+generation only.
 
 ### Multiple API Keys via Qualified Provider Keys
 

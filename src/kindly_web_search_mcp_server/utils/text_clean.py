@@ -17,6 +17,11 @@ from __future__ import annotations
 
 import re
 
+try:  # imported once at module load; per-call re-import cost 0.18ms/call
+    import ftfy as _ftfy
+except ImportError:  # pragma: no cover - ftfy is a hard dep in practice
+    _ftfy = None
+
 # Fancy punctuation → ASCII (agent/query ingress)
 _FANCY_QUOTES = str.maketrans(
     {
@@ -35,6 +40,11 @@ _FANCY_QUOTES = str.maketrans(
         "\u2013": "-",  # –
         "\u2014": "-",  # —
         "\u2212": "-",  # −
+        "\u2010": "-",  # ‑ (hyphen)
+        "\u2011": "-",  # ‑ non-breaking hyphen
+        "\u2012": "-",  # ‒ figure dash
+        "\u2015": "-",  # ― horizontal bar
+        "\u00ad": "",  # soft hyphen (drop)
         "\u2026": "...",  # …
     }
 )
@@ -46,14 +56,9 @@ _MULTI_BLANK_LINES = re.compile(r"\n{3,}")
 
 def repair_unicode(text: str) -> str:
     """Fix mojibake when ftfy is installed; otherwise return text unchanged."""
-    if not text:
+    if not text or _ftfy is None:
         return text
-    try:
-        import ftfy
-
-        return ftfy.fix_text(text)
-    except Exception:
-        return text
+    return _ftfy.fix_text(text)
 
 
 def clean_query(text: str) -> str:
@@ -81,16 +86,20 @@ def clean_text_for_llm(text: str, role: str = "page") -> str:
 # --- Markdown cleaning (CommonMark fence/indent aware) ---
 #
 
-# Paren-balanced link/image targets: one nesting level of parentheses is
-# tolerated inside the URL (e.g. Wikipedia's ``/wiki/Python_(programming)``).
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)\)")
-_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)(?:\s+\"[^\"]*\")?\)")
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)(?:\s+\"[^\"]*\")?\)")
 _EMPTY_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(\s*\)")
 _SELF_LINK_RE = re.compile(r"\[([^\]\[]+)\]\(\1\)")
 _FRAGMENT_LINK_RE = re.compile(r"\[([^\]]+)\]\(#[^)]*\)")
+
+
 _FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})\s*$")
 _LIST_MARKER_RE = re.compile(r"^(?:[-*+]|\d{1,9}[.)])\s")
+_CHROME_LINK_TEXT_RE = re.compile(
+    r"^(?:permalink|§|¶|#|↩|🔗|anchor|top\s*of\s*page)$",
+    re.IGNORECASE,
+)
 
 _GENERIC_ALTS = frozenset(
     {"image", "img", "logo", "icon", "avatar", "photo", "picture", "screenshot", "banner", "hero"}
@@ -152,12 +161,13 @@ _UI_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"(?i)^(?:accept|allow|reject|decline|manage|customize)(?: all)? (?:cookies?|preferences|privacy)$"
     ),
-    re.compile(r"(?i)^(?:read|learn|view) more$"),
     re.compile(r"(?i)^(?:toggle )?(?:main menu|navigation)$"),
     re.compile(r"^#{1,6}\s*$"),
     re.compile(r"^\s*\d{1,3}\.\s*$"),
+    # Footer copyright lines (2026-09-09 exercise: MDN/simonwillison footers)
+    re.compile(r"(?i)^portions of (?:this|the) content are ©.*$"),
+    re.compile(r"^(?:\s*[*_>]*\s*)?©.*$"),
 )
-
 _BREADCRUMB_ROOT_RE = re.compile(
     r"(?i)^(?:home|start|docs|documentation|wiki|main|root|blog|learn|guides|reference|help|library)$"
 )
@@ -335,26 +345,48 @@ def strip_boilerplate(markdown: str) -> str:
     return "\n".join(_collapse_duplicate_lines(kept))
 
 
-def repair_empty_md_links(markdown: str) -> str:
-    """Drop empty markdown hrefs, keeping the link text."""
-    if not markdown:
-        return markdown
-    return _EMPTY_MD_LINK_RE.sub(r"\1", markdown)
+def _repair_links_line(line: str) -> str:
+    """Apply image-thinning + link-repair substitutions to ONE prose line."""
+    if "](" not in line:
+        return line
+    line = _MD_IMAGE_RE.sub(
+        lambda m: (
+            ""
+            if m.group(2).strip().startswith("data:")
+            else (
+                m.group(1).strip()
+                if m.group(1).strip()
+                and m.group(1).strip().lower() not in _GENERIC_ALTS
+                and len(m.group(1).strip()) > 2
+                else ""
+            )
+        ),
+        line,
+    )
+    line = _EMPTY_MD_LINK_RE.sub(r"\1", line)
+    line = _SELF_LINK_RE.sub(r"\1", line)
+    line = _FRAGMENT_LINK_RE.sub(r"\1", line)
+    line = _MD_LINK_RE.sub(
+        lambda m: "" if _CHROME_LINK_TEXT_RE.match(m.group(1).strip()) else m.group(0),
+        line,
+    )
+    return line
 
 
-def _thin_images(text: str) -> str:
-    """Drop data-URI/base64 images; keep descriptive alt text, drop generic ones."""
+def _repair_links_prose_only(text: str) -> str:
+    """Fence-aware link/image repair (H15).
 
-    def repl(match: re.Match[str]) -> str:
-        alt = match.group(1).strip()
-        src = match.group(2).strip()
-        if src.startswith("data:"):
-            return ""
-        if alt and alt.lower() not in _GENERIC_ALTS and len(alt) > 2:
-            return alt
-        return ""
-
-    return _MD_IMAGE_RE.sub(repl, text)
+    The four substitutions below rewrite markdown-link-shaped text. Applied
+    document-wide they corrupted code examples (verified: a bash fence with
+    ``echo 'see [docs](#anchor)'`` lost its link syntax). Fence/indent-aware
+    segmentation keeps code verbatim.
+    """
+    if "](" not in text:
+        return text
+    return "\n".join(
+        line if is_code else _repair_links_line(line)
+        for is_code, line in _iter_code_aware_lines(text)
+    )
 
 
 def _fold_prose_unicode(text: str) -> str:
@@ -398,6 +430,24 @@ def _tidy_whitespace(text: str) -> str:
     return "\n".join(result)
 
 
+def polish_prose(text: str) -> str:
+    """Prose-only half of the markdown sanitizer, without boilerplate stripping.
+    Applies unicode repair, zero-width strip, fence-aware link/image repair,
+    typographic folding, and whitespace tidying, ending with a full-document
+    strip. Leaves line composition untouched so callers that classify on the
+    raw body can polish after classification without a second boilerplate
+    pass (Jina, Crawl4AI cloud rungs).
+    """
+    if not text:
+        return text
+    cleaned = repair_unicode(text)
+    cleaned = ZERO_WIDTH.sub("", cleaned)
+    cleaned = _repair_links_prose_only(cleaned)
+    cleaned = _fold_prose_unicode(cleaned)
+    cleaned = _tidy_whitespace(cleaned)
+    return cleaned.strip()
+
+
 def sanitize_markdown(markdown: str) -> str:
     """Clean markdown for LLM consumption without re-extracting HTML.
 
@@ -407,23 +457,18 @@ def sanitize_markdown(markdown: str) -> str:
     """
     if not markdown:
         return markdown
-    cleaned = repair_unicode(markdown)
-    cleaned = ZERO_WIDTH.sub("", cleaned)
-    cleaned = _thin_images(cleaned)
-    cleaned = repair_empty_md_links(cleaned)
-    cleaned = _SELF_LINK_RE.sub(r"\1", cleaned)
-    cleaned = _FRAGMENT_LINK_RE.sub(r"\1", cleaned)
-    cleaned = _fold_prose_unicode(cleaned)
-    cleaned = strip_boilerplate(cleaned)
-    cleaned = _tidy_whitespace(cleaned)
-    return cleaned.strip()
+    return strip_boilerplate(polish_prose(markdown))
 
 
 #
 # --- Jina frontmatter envelope ---
 #
 
-_JINA_FRONTMATTER_RE = re.compile(r"(?s)^---\n(?:[^\n]*\n)*?url:[^\n]*\n(?:[^\n]*\n)*?---(?:\n|$)")
+# Envelope body captured as a group (H14): the old ``[3:-5]`` slice assumed a
+# trailing newline inside the match; the Jina client strips trailing
+# whitespace, so EOF envelopes truncated the LAST field's final char
+# (verified: url value "https://example.com" -> "https://example.co").
+_JINA_FRONTMATTER_RE = re.compile(r"(?s)^---\n(?P<body>.*?\n)---(?:\n|$)")
 
 
 def strip_jina_frontmatter(text: str) -> str:
@@ -444,8 +489,8 @@ def parse_jina_frontmatter(text: str) -> dict[str, str]:
     if match is None:
         return {}
     fields: dict[str, str] = {}
-    for line in match.group(0)[3:-5].splitlines():
+    for line in match.group("body").splitlines():
         key, sep, value = line.partition(":")
-        if sep and key.strip().isidentifier():
+        if sep and key.strip():
             fields[key.strip().lower()] = value.strip().strip('"').strip("'")
     return fields

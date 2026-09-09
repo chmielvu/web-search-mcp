@@ -29,6 +29,14 @@ FastMCP middleware stack: rate limits, query guidance, tool protection.
 uv run pytest tests/test_middleware*.py
 uv run pytest tests/test_agent_steering_middleware.py
 ```
+### Recent Changes (2026-09-09)
+- `_append_enrichment` no longer appends `agent_guidance` entries with empty
+  `message` (clean bulk fetches shipped empty-message entries).
+- Round-aware fetch guidance: `DynamicGuidanceMiddleware` counts fetch calls per
+  session (`SessionTracker`, 300s TTL) and `_guide_fetch` prepends an
+  evaluate-then-iterate advisory on every round (`fetch_round=0` keeps legacy
+  empty behavior for direct generator callers).
+
 ### Recent Changes (2026-09-06)
 - Fetch guidance reads public `content`, pagination, and status-based wall
   outcomes; it no longer depends on public cache, backend, wall, or continuation

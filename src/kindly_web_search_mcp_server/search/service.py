@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Sequence
 
 import httpx
 
-from ..ml import embed_query
+from ..ml import embed_query, embed_texts
 from ..models import WebSearchResponse
 from .contracts import SearchRun, WebSearchRequest
 from .outcomes import submit_search_outcome
 from .planning import plan_search
 from .ranking import rank_and_finalize
 from .retrieval import retrieve_branches
+
+LOGGER = logging.getLogger(__name__)
+_INDEX_TASKS: set[asyncio.Task[None]] = set()
 
 
 async def run_search_core(run: SearchRun) -> WebSearchResponse:
@@ -30,11 +34,60 @@ async def run_search_core(run: SearchRun) -> WebSearchResponse:
         outcomes = await retrieve_branches(run, embedding_task=embedding_task)
         response = await rank_and_finalize(run, outcomes, embedding_task=embedding_task)
         run.diagnostics.total_latency_ms = (time.monotonic() - core_started) * 1000.0
+        _schedule_web_results_indexing(run, response)
         return response
     finally:
         if embedding_task is not None and not embedding_task.done():
             embedding_task.cancel()
             await asyncio.gather(embedding_task, return_exceptions=True)
+
+
+def _schedule_web_results_indexing(run: SearchRun, response: WebSearchResponse) -> None:
+    """Fire-and-forget write of final results into the remote Qdrant index.
+
+    Non-fatal by contract: indexing failures never affect the search
+    response. The index feeds the qdrant read provider on later searches.
+    """
+
+    async def _index() -> None:
+        try:
+            from ..index import index_final_results
+
+            results = list(response.results)
+            if not results:
+                return
+            dense = run.diagnostics.candidate_embeddings
+            query_vec = run.diagnostics.query_embedding
+            by_url = {c.get("url", ""): c.get("dense") for c in dense}
+            embeddings = [by_url.get(r.link) or query_vec for r in results]
+            if not embeddings or any(e is None for e in embeddings):
+                embeddings = list(
+                    await embed_texts(
+                        [f"{r.title}\n{r.snippet}".strip() or r.link for r in results],
+                        timeout=20.0,
+                    )
+                )
+            vectors = [list(e) for e in embeddings if e is not None]
+            if len(vectors) != len(results):
+                LOGGER.debug(
+                    "web-results indexing skipped: %d/%d embeddings resolvable",
+                    len(vectors),
+                    len(results),
+                )
+                return
+            await index_final_results(
+                run.request.query,
+                results,
+                vectors,
+                texts=[f"{r.title}\n{r.snippet}".strip() or r.link for r in results],
+                intent=run.diagnostics.intent,
+            )
+        except Exception:
+            LOGGER.debug("web-results indexing failed (non-fatal)", exc_info=True)
+
+    task = asyncio.create_task(_index(), name=f"search.index.{run.run_key}")
+    _INDEX_TASKS.add(task)
+    task.add_done_callback(_INDEX_TASKS.discard)
 
 
 async def execute_web_search(

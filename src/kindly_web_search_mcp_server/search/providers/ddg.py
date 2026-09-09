@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from ...models import WebSearchResult
@@ -17,6 +18,28 @@ from ..options import SearchOptions
 from .base import ProviderRequestError, run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
+
+# DDG engines occasionally merge a "sitelinks" bundle into one row: the title
+# is 2+ distinct page titles joined by "..." (e.g. "Main Paper Title ...Sub
+# Page: Docs ...Another Page Title"). Keep only the first segment — it is the
+# primary hit the href/snippet belong to; trailing segments are other URLs'
+# titles and would fabricate a multi-topic citation.
+_SITELINK_JOIN_RE = re.compile(r"\s*\.{3,}\s*")
+
+
+def _split_sitelink_title(title: str) -> str:
+    """Collapse a sitelink-bundle title to its primary segment.
+
+    A bundle is 2+ segments of 15+ chars each, where every non-final
+    segment lacks a terminal period (real titles rarely end in "..." and
+    a single legitimate title containing "..." inside one sentence is
+    shorter than the bundle threshold). Conservative by design: single-
+    segment titles pass through untouched.
+    """
+    segments = [s.strip() for s in _SITELINK_JOIN_RE.split(title) if s.strip()]
+    if len(segments) < 2 or any(len(s) < 15 for s in segments[:-1]):
+        return title
+    return segments[0]
 
 
 class DDGError(ProviderRequestError):
@@ -156,7 +179,6 @@ def _search_ddg_sync(
 
             link_str = link.strip()
             domain = extract_domain_from_url(link_str)
-
             published_date = item.get("date") or item.get("published")
             source = item.get("source") or item.get("source_engines")
             source_engines = None
@@ -169,7 +191,7 @@ def _search_ddg_sync(
 
             results.append(
                 WebSearchResult(
-                    title=title.strip(),
+                    title=_split_sitelink_title(title.strip()),
                     link=link_str,
                     snippet=snippet.strip(),
                     domain=domain,

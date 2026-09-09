@@ -5,7 +5,11 @@ from urllib.parse import urlparse
 
 
 _GITHUB_HOSTS = {"github.com", "www.github.com"}
-_REPOSITORY = re.compile(r"^[^/\s]+/[^/\s]+$")
+# H16: segment validation — the old ^[^/\s]+/[^/\s]+$ accepted "owner/.."
+# (traversal-looking identity later used verbatim in API paths) and
+# "owner/name#L10" (fragment suffix not stripped on the bare form; identity
+# is owner/name, so a ref suffix is stripped, matching URL-form handling).
+_REPOSITORY = re.compile(r"^(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:#(?P<ref>[\w./-]+))?$")
 
 
 def normalize_github_repository(repository: str) -> str:
@@ -34,9 +38,13 @@ def normalize_github_repository(repository: str) -> str:
     normalized = normalized.strip().strip("/")
     if normalized.casefold().endswith(".git"):
         normalized = normalized[:-4].rstrip("/")
-    if not _REPOSITORY.fullmatch(normalized):
+    match = _REPOSITORY.fullmatch(normalized)
+    if match is None:
         raise ValueError("repository must use the owner/name form")
-    return normalized
+    owner, name = match.group("owner"), match.group("name")
+    if owner == ".." or name == ".." or ".." in (owner, name):
+        raise ValueError("repository must use the owner/name form")
+    return f"{owner}/{name}"
 
 
 __all__ = ["normalize_github_repository"]

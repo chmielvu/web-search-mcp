@@ -20,7 +20,12 @@ from dataclasses import dataclass
 
 from ..content.artifact import ContentStatus
 from ..utils.observability import emit_observability_event
-from ..utils.text_clean import PROSE_UNICODE_MAP, _MD_LINK_RE, strip_jina_frontmatter
+from ..utils.text_clean import (
+    PROSE_UNICODE_MAP,
+    _MD_LINK_RE,
+    _iter_code_aware_lines,
+    strip_jina_frontmatter,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -361,7 +366,17 @@ def _gopher_signals(markdown: str) -> dict[str, float]:
     Digit-normalized duplicate comparison so "2024", "2025" rows collapse to
     one repeated template line.
     """
-    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+    # Gopher's line signals assume prose structure: '#' marks headings,
+    # repeated lines are template junk. Code blocks violate both assumptions
+    # (comments repeat modulo digits; raw '#' is shell/python syntax), and
+    # comment-heavy technical docs were flagged gopher_junk (verified FP).
+    # Compute every line-level signal over prose lines only; word-based
+    # signals stay document-wide.
+    lines = [
+        line.strip()
+        for is_code, line in _iter_code_aware_lines(markdown)
+        if not is_code and line.strip()
+    ]
     if not lines:
         return {
             "avg_word_length": 0.0,
@@ -373,7 +388,8 @@ def _gopher_signals(markdown: str) -> dict[str, float]:
     words = markdown.split()
     n_words = max(len(words), 1)
     avg_word_length = sum(len(w) for w in words) / n_words
-    symbol_count = markdown.count("#") + markdown.count("...")
+    prose = "\n".join(lines)
+    symbol_count = len(re.findall(r"^ {0,3}#{1,6}\s+\S", prose, re.M)) + prose.count("...")
     symbol_word_ratio = symbol_count / n_words
     bullet = sum(1 for line in lines if _LIST_MARKER_LINE_RE.match(line))
     ellipsis = sum(1 for line in lines if line.endswith("...") or line.endswith("…"))

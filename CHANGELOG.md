@@ -1,4 +1,154 @@
 ## [Unreleased]
+### Fixed — fetch cleaning uplift + round-aware agent guidance (2026-09-09)
+- `utils/text_clean.py`: new `polish_prose()` — the prose-only half of
+  `sanitize_markdown` (unicode repair, zero-width strip, fence-aware link/image
+  repair, typographic fold, whitespace tidy, final strip) WITHOUT the boilerplate
+  pass, for backend rungs that classify on the raw body first (Jina, Crawl4AI
+  cloud) so they get the same prose surface without a double strip.
+  `sanitize_markdown` now composes `strip_boilerplate(polish_prose(...))`.
+  `_MD_LINK_RE`/`_MD_IMAGE_RE` tolerate optional `"title"` attributes (Hugo/
+  MkDocs/Jekyll heading anchors emit `[Permalink](abs-url#frag "Permalink")` —
+  previously unmatched); new `_CHROME_LINK_TEXT_RE` drops chrome-labeled links
+  (`Permalink`, `§`, `¶`, `#`, `↩`, `🔗`, `anchor`, `top of page`) in
+  `_repair_links_line` — content links with real labels are untouched.
+- `content/stages.py`: `_fetch_via_jina` and `_fetch_via_crawl4ai` now run
+  `polish_prose` AFTER classification (chrome ratio / word count still see the
+  raw body; verified live: curly quotes folded, leading blank lines stripped,
+  17 heading permalinks removed from the NLP-pipeline fixture, code fences and
+  `* * *` hrs intact).
+- `tools/content.py`: `include_links=true` now works on the Jina/Crawl4AI path —
+  when the artifact has no structured `links` (markdown backends don't parse
+  HTML), links are extracted from the returned markdown surface via
+  `_markdown_links` (same `ContentLink` shape, deduped, internal/external
+  classified, non-http schemes dropped). `_CACHE_ROUTE_VERSION` bumped 4→5 so
+  pre-fix cached markdown is re-fetched under the new cleaning rules.
+- `middleware/query_guidance.py`: `_append_enrichment` no longer appends
+  `agent_guidance` entries with empty `message` (clean bulk fetches shipped
+  `{"source":"dynamic_guidance","message":""}` — pure envelope noise). New
+  round-aware fetch guidance: a per-session `SessionTracker` counts fetch calls
+  and `_guide_fetch` prepends an evaluate-then-iterate advisory ("First fetch
+  round." / "Fetch round N." — evaluate what you have, derive 1-3 more targeted
+  in-depth queries, search again, fetch the best sources; stop when 2-3
+  independent sources agree). `fetch_round=0` keeps legacy empty-message behavior
+  for direct generator callers.
+- Verification (tests frozen — throwaway smoke scripts, not committed): 21/21
+  `text_clean` fixture probes green (incl. permalink-with-title strip, content-link
+  preservation, paren-URL preservation, fence link-syntax preservation,
+  idempotency, pathological-input timing); live 3-URL fetch smoke green under
+  route v5 (0 permalinks / 0 curly quotes / clean leading on all three; links
+  fallback returned 4 deduped links, 0 chrome-labels); middleware smoke green
+  (round counter 1→2→3 per session, web_search untouched, error path unaffected);
+  ruff check+format clean on all touched files.
+### Fixed — utils/ regex & heuristics audit batch (2026-09-09 read-only audit + Jina live exercise)
+- `utils/query_pipeline.py`: **P0 splice corruption fix** — `extract_search_ops` stage 3a
+  is now a general non-overlap union (longest span wins, class-specificity tiebreak,
+  `_CLASS_PRECEDENCE`); the old EXCLUDE-only containment rule let `-lang:python`
+  claim EXCLUDE×ENGINE spans whose sequential right-to-left splice used stale offsets
+  and corrupted shaped queries (`"-lang:python async tutorial"` → `"rial"` on
+  free/semantic roles). `shape_for_branch` re-derives phrase spans and protected
+  ranges from the post-splice surface (protected terms no longer lost to stale
+  offsets); `_BOOL_COLLAPSE` gains NOT entries (`"alpha NOT AND beta"` → `"alpha NOT
+  beta"`, was `"... AND ..."`); `_LANG_TOKEN_PATTERN` captures `c++`/`c#`;
+  `langs_from_text` bare-word branch is a whitelist (`_BARE_LANG_WORDS`) — `go`, `r`,
+  `cs` no longer FP ("how to go about docker deployment" no longer → Go).
+- `utils/query_understanding.py`: `TIME_RECENT` now matches `(this|past|last)
+  (day|week|month|year)` so "past week" → recent (was historical via bare `past` in
+  `TIME_HISTORICAL`); `_PRODUCT_VS_CODE` adds `(?![\w-])` so "vs code-first" is a
+  real comparison (was suppressed); dead `classify_intent_by_embedding` (zero
+  callers, never wired) removed with its exemplar/prototype machinery.
+- `utils/text_clean.py`: `_JINA_FRONTMATTER_RE` captures the envelope body — the old
+  `[3:-5]` slice truncated the last field's final char on EOF envelopes (Jina client
+  strips trailing whitespace; `url: "...com"` → `"...co"`); link/image repair
+  (`_repair_links_prose_only`) is now fence-aware via `_iter_code_aware_lines` —
+  document-wide substitutions previously rewrote markdown-link-shaped text inside
+  code fences; `repair_unicode` hoists the ftfy import to module load (was per-call,
+  0.18ms/call on the query-ingress hot path); `_UI_LINE_PATTERNS` gains
+  footer-copyright lines ("Portions of this content are ©…", bare `©…`).
+- `utils/content_classify.py`: `_gopher_signals` computes ALL line-level signals
+  (symbol ratio, duplicates, bullets, ellipsis) over prose lines only — raw
+  `markdown.count("#")` and digit-normalized duplicate keys flagged comment-heavy
+  technical docs as `gopher_junk` (fenced code comments repeat modulo digits).
+- `utils/text_chunking.py`: `slice_content` falls back to the raw window edge when
+  the boundary cut lands at segment start — zero-progress windows stalled public
+  fetch pagination forever (`next_offset` stuck, `has_more=true`).
+- `utils/github.py`: `normalize_github_repository` validates segments (`owner/..`
+  rejected) and strips `#ref` suffixes on the bare form (identity is `owner/name`;
+  URL-form behavior unchanged).
+- `utils/entity.py`: version validation requires digit-initial or version-shaped
+  values (`"ipv4"` no longer passes).
+- `utils/public_output.py`: absorbs `snippet_normalizer.py` (single caller; module
+  deleted) with audit fixes — HTML-tag strip requires tag shape (`</?[a-zA-Z]…`, was
+  eating `if a < b and c > d` prose); navigation chrome strips only whole-line or
+  bracketed (`Join` in "How to join two tables in SQL" preserved).
+- `content/stages.py::_fetch_via_jina`: strips the frontmatter envelope after
+  parsing `warning` — every Jina artifact previously shipped `---title/url/…---`
+  inside its markdown (verified 11/11 live sites); chrome ratio and classification
+  now see the body only.
+- Deleted dead `utils/diagnostics.py` (zero importers in src/ and tests/).
+- `utils/github.py` merge into `url_canonicalize.py` intentionally skipped: frozen
+  test pins `utils.github.normalize_github_repository` and repo-identity is not URL
+  canonicalization.
+- Verification: 42/42 behavior probes green (throwaway suite, deleted after run);
+  ruff check+format clean on all touched files; full import smoke green.
+### Fixed — QA batch 2: unicode fold, session_id, freshness, sitelinks, slug dedup
+- `utils/text_clean.py` `_FANCY_QUOTES` now folds U+2010/2011/2012/2015 dashes
+  and soft hyphen to ASCII in `clean_query` (U+2011 non-breaking hyphens were
+  leaking from LLM rewrite output into `semantic_exa` branch queries — 2026-09-08 QA).
+- `utils/observability.py`: new `_resolve_session_id()` (FastMCP request-context
+  `session_id`/`client_id`, honest `None` outside a request) and
+  `_insert_tool_call_analytics` now populates `tool_calls.session_id` when the
+  tool wrapper didn't pass one — closes the 100%-null session_id gap
+  (`vw_tool_call_linkage_gaps` QA finding). `fields["session_id"]` still wins.
+- `search/ranking.py::_build_freshness_signal`: 90d boundary now reads new
+  `FRESHNESS_MAX_AGE_DAYS` setting; future-dated pages clamp to `fresh`
+  (spam/bad-clock guard); semantics documented. QA note: the flagged
+  "fresh/dated" inconsistencies were correct for `published_date` — the
+  confusion was updated-dates visible only in snippets, which no provider
+  ships as a field.
+- `search/providers/ddg.py::_split_sitelink_title`: DDG sitelink bundles
+  (2+ page titles joined by "..." in one row) now collapse to the primary
+  segment — kills fabricated multi-topic citations (QA run-5 c1).
+- `utils/url_canonicalize.py::canonicalize_url`: folds slug variants —
+  path-style vs slug-style dates (`/2026/04/16/x` ≡ `/2026-04-16-x` ≡
+  `/2026_04_16-x`) and `_`/`+` separators → `-` — so RRF dedup fuses
+  duplicate citations of the same article (QA tianpan.co consensus inflation).
+  Verified: variant pairs collapse to one fused RRF entry.
+### Fixed — Qdrant web-results index write path restored (collection was empty)
+- Root cause: `index_final_results`/`WebResultsIndex` had **zero production
+  callers** — nothing ever wrote to `web_results_384d` after the 2026-09-07
+  collection rebuild (space telemetry: 2 DELETEs + 1 create since Sep 7,
+  `points_count=0` since), so the `qdrant` read provider returned `empty` on
+  every call for 5+ days (2026-09-08 QA finding).
+- Fix: `service.run_search_core` now calls the new
+  `_schedule_web_results_indexing` after `rank_and_finalize` — fire-and-forget
+  task that upserts the 15 final results (embeddings reused from rerank
+  diagnostics `candidate_embeddings`/`query_embedding`, falling back to one
+  `embed_texts` batch; BM25 sparse encoded locally; failures logged debug,
+  never fatal). Gated by existing `WEB_RESULTS_INDEX_ENABLED` (default true)
+  + `QDRANT_SPACE_URL`.
+- Read path verified healthy end-to-end: seeded 3 docs → `search_qdrant`
+  returned 3 → cross-encoder scored them (0.78/0.77) → funnel competition
+  against 92 real-web candidates explained their absence from top-15 (expected,
+  not a bug). Post-fix E2E: full run indexed +15 points in ~3s; read provider
+  then returned 15 self-indexed results. Auth root note: the HF Space proxy
+  accepts `Authorization: Bearer` only — qdrant-client's `api_key=` sends
+  `api-key:` (404s); both call sites correctly use `auth_token_provider` →
+  BearerAuth. Test probe points cleaned up (collection back to exact
+  production data).
+### Changed — worker_llm rewrite chain: Groq GPT-OSS → Qwen → Vercel → HF
+- Chain is now `gpt-oss-120b@groq` → `qwen/qwen3.8-27b@groq` →
+  `qwen/qwen3.6-27b@groq` → `gpt-oss-120b@vercel` →
+  `gpt-oss-120b@huggingface`. All three Groq tiers run on the primary key
+  (both Qwen models remain registered on both Groq keys); no new settings knobs.
+### Changed — Groq roster: llama models removed, qwen3.8 added
+- Removed `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` from the catalog
+  (dropped from Groq's roster). Added `qwen/qwen3.8-27b` (both Groq keys).
+### Changed — degoog provider disabled by default
+- `DISABLED_PROVIDERS` default is now `serpapi,degoog` — DeGoog removed from
+  branch planning and doctor output (2026-09-08 QA: 25% empty 7-day avg, 10.4s
+  avg latency). Override via env; delete `degoog` from the list to restore.
+
+
 ### Changed — Voyage SDK cutover, lite fallback, instruction-first rerank
 - Cross-encoder now uses the official `voyageai` client (`voyageai>=0.5.0,<1`)
   via `asyncio.to_thread` (`truncation=True`, `max_retries=0`). Raw user query

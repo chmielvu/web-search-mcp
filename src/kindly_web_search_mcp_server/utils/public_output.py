@@ -1,9 +1,14 @@
-"""Public web_search envelope and leftover-overflow cursor codec."""
+"""Public web_search envelope and leftover-overflow cursor codec.
+
+Snippet normalization lives here too (merged from ``snippet_normalizer.py``,
+its only consumer) so the public-output surface is one module.
+"""
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any, Literal
 
 from ..models import (
@@ -17,7 +22,63 @@ from ..models import (
 from ..rerank.models import FINAL_RESULT_LIMIT
 from ..search.contracts import BranchRole, SearchRun
 from ..search.ranking import _build_freshness_signal
-from .snippet_normalizer import normalize_snippet
+from .text_clean import clean_text_for_llm
+
+_OVERFLOW_CURSOR_VERSION = 1
+
+# --- Snippet normalization (merged from snippet_normalizer.py) ---
+
+MAX_SNIPPET_LENGTH = 500
+
+# Patterns to strip entirely. Fixes from the 2026-09-09 audit:
+# - HTML-tag regex requires a tag-shaped payload (letter after optional /):
+#   the old ``<[^>]+>`` ate math prose like "if a < b and c > d" (verified).
+# - Navigation chrome is stripped only when it is a WHOLE LINE or a bracketed
+#   token: the old unanchored inline pattern also matched the common word
+#   "join" mid-prose ("How to join two tables in SQL" -> "How to two tables",
+#   verified twice — word-boundary anchoring alone is insufficient because a
+#   bare word has whitespace on both sides).
+_SNIPPET_STRIP_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"</?[a-zA-Z][^>]*>", re.DOTALL),
+    re.compile(r"data:[a-zA-Z/+]+;base64,[A-Za-z0-9+/=]{50,}"),
+    re.compile(
+        r"^\s*\[?\s*(?:Sign\s*Up|Log\s*In|Join|Subscribe|Download)\s*\]?\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    re.compile(
+        r"\[\s*(?:Sign\s*Up|Log\s*In|Join|Subscribe|Download)\s*\]",
+        re.IGNORECASE,
+    ),
+    re.compile(r"https?://\S{80,}"),
+)
+_SNIPPET_MULTI_WHITESPACE = re.compile(r"[ \t]+")
+_SNIPPET_MULTI_NEWLINES = re.compile(r"\n{3,}")
+
+
+def normalize_snippet(text: str, *, max_length: int = MAX_SNIPPET_LENGTH) -> str:
+    """Clean a raw snippet for MCP tool output.
+
+    1. Strip HTML tags and base64 data URIs
+    2. Remove navigation chrome (Sign Up, Log In, etc.)
+    3. Collapse whitespace
+    4. Truncate to *max_length* with ellipsis
+    """
+    if not text:
+        return ""
+
+    cleaned = clean_text_for_llm(text, role="snippet")
+    for pattern in _SNIPPET_STRIP_PATTERNS:
+        cleaned = pattern.sub(" ", cleaned)
+
+    cleaned = _SNIPPET_MULTI_WHITESPACE.sub(" ", cleaned)
+    cleaned = _SNIPPET_MULTI_NEWLINES.sub("\n\n", cleaned)
+    cleaned = cleaned.strip()
+
+    if len(cleaned) > max_length:
+        cleaned = cleaned[: max_length - 1].rstrip() + "…"
+
+    return cleaned
+
 
 _OVERFLOW_CURSOR_VERSION = 1
 

@@ -44,7 +44,7 @@ RANKLLM_ENABLED=false:  → MMR terminal (30 → 15)  [designed funnel terminal,
   kept; recency is recorded, not blended. Pre-flight gate: when
   `VOYAGE_API_KEY` is unset, no call is attempted — the stage fails open
   immediately and MMR becomes the terminal.
-- **RankLLM**: Gated by `RANKLLM_ENABLED` (default `true`). Receives the full
+- **RankLLM**: Gated by `RANKLLM_ENABLED` (default `false`). Receives the full
   labeled query, research goal, intent, caller preference, shared ranking
   hierarchy, and intent policy. It deep-copies each pass request, validates
   each permutation, aggregates valid passes, and reports partial success when
@@ -64,8 +64,8 @@ RANKLLM_ENABLED=false:  → MMR terminal (30 → 15)  [designed funnel terminal,
 
 - Voyage-only cross-encoder chain; no Cohere/OpenRouter rerank providers.
 - Pre-flight `VOYAGE_API_KEY` gate: fail-open with zero HTTP when unset.
-- `RANKLLM_ENABLED` (default `true`) disables the LLM stage cleanly (summary
-  status `skipped`; MMR is the terminal).
+- `RANKLLM_ENABLED` (default `false`) skips the LLM stage (summary status
+  `skipped`; MMR is the designed terminal). Set `true` to restore RankLLM.
 - `voyage_rerank_timeout` (default 30.0) configures the Voyage adapter timeout.
 - `VOYAGE_RERANK_FALLBACK_MODEL` (default `rerank-2.5-lite`) is the chain
   second spec. Transport 429/5xx/timeout advance the chain; parse errors do not.

@@ -431,3 +431,7 @@ test-results/live-web-search/
 # Keep the directory listed so future re-creation doesn't reintroduce it.
 dashboards/
 
+# Geany IDE project files and tag data (machine-specific)
+*.geany
+.geanytags/
+

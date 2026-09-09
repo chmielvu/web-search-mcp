@@ -51,13 +51,20 @@ def _stable_warnings(outcomes: tuple[BranchOutcome, ...]) -> list[ProviderWarnin
 def _build_freshness_signal(
     published_date: str | None,
 ) -> Literal["fresh", "dated", "unknown"]:
+    """Classify result recency from its published date.
+
+    ``fresh``: published within ``settings.freshness_max_age_days`` (default
+    90). Future-dated pages (bad site clocks / SEO spam) clamp to fresh —
+    they are not stale, and the date is untrustworthy either way.
+    ``dated``: older than the window. ``unknown``: missing or unparseable.
+    """
     if not published_date:
         return "unknown"
     parsed = parse_published_date(published_date)
     if parsed is None:
         return "unknown"
     age_days = (date.today() - parsed).days
-    if age_days <= 90:
+    if age_days <= settings.freshness_max_age_days:
         return "fresh"
     return "dated"
 

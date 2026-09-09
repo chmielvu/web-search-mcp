@@ -5,8 +5,10 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import time
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import urljoin, urlparse
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
@@ -34,9 +36,13 @@ from ._helpers import _record_tool_success
 
 LOGGER = logging.getLogger(__name__)
 
+# Same tolerant pattern as utils/text_clean: markdown links with optional
+# title attributes, used by the include_links markdown-surface fallback.
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)(?:\s+\"[^\"]*\")?\)")
+
 _CURSOR_VERSION = 1
 _CACHE_SCHEMA_VERSION = 4
-_CACHE_ROUTE_VERSION = 4
+_CACHE_ROUTE_VERSION = 5
 
 
 def _cache_key(normalized_url: str) -> str:
@@ -485,6 +491,40 @@ def _classify_status(
     )
 
 
+def _markdown_links(markdown: str, artifact: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Extract links from returned markdown when the artifact has none.
+
+    Jina/Crawl4AI rungs return inline markdown links but never populate the
+    artifact ``links`` field (that requires an HTML parse the markdown
+    backends don't do). ``include_links=true`` should still honor the
+    contract; derive links from the markdown surface instead.
+    """
+    if not markdown:
+        return None
+    base_url = str(artifact.get("fetched_url") or artifact.get("normalized_url") or "")
+    source_domain = urlparse(base_url).netloc.lower() or None
+    seen: set[str] = set()
+    links: list[dict[str, Any]] = []
+    for match in _MD_LINK_RE.finditer(markdown):
+        text, target = match.group(1).strip(), match.group(2).strip()
+        if target.startswith(("mailto:", "javascript:", "tel:", "data:")):
+            continue
+        absolute = urljoin(base_url, target) if base_url else target
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        domain = urlparse(absolute).netloc.lower() or None
+        links.append(
+            {
+                "url": absolute,
+                "text": text,
+                "domain": domain,
+                "internal": source_domain is not None and domain == source_domain,
+            }
+        )
+    return links or None
+
+
 def _result_from_artifact(
     artifact: dict[str, Any],
     *,
@@ -507,7 +547,9 @@ def _result_from_artifact(
         "status": public_status,
         "content": windowed.content,
         "error": error_obj,
-        "links": artifact.get("links") if include_links else None,
+        "links": (artifact.get("links") or _markdown_links(windowed.content, artifact))
+        if include_links
+        else None,
         "window": {
             "offset": windowed.window.offset,
             "length": windowed.window.length,

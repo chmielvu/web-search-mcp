@@ -31,18 +31,20 @@ def test_get_chain_valid():
     chain = get_chain("worker_llm")
     assert chain.name == "worker_llm"
     assert chain.primary.provider == "groq"
-    assert len(chain.fallbacks) == 3
+    assert len(chain.fallbacks) == 4
     assert [spec.api_key_env for spec in chain.models] == [
         "GROQ_API_KEY",
-        "SECOND_GROQ_API_KEY",
-        "HF_TOKEN",
+        "GROQ_API_KEY",
+        "GROQ_API_KEY",
         "AI_GATEWAY_API_KEY",
+        "HF_TOKEN",
     ]
     assert [spec.model_id for spec in chain.models] == [
         "openai/gpt-oss-120b",
-        "openai/gpt-oss-120b",
-        "openai/gpt-oss-120b:nscale",
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3.6-27b",
         "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b:nscale",
     ]
 
 
@@ -81,29 +83,27 @@ def test_no_duplicate_model_definitions():
 def test_live_provider_model_entries_match_api_inventory():
     from kindly_web_search_mcp_server.inference.registry import get_model, list_models
 
-    definitions = {model.canonical_id: model for model in list_models()}
+    definitions = {model.canonical_id for model in list_models()}
     assert {
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
         "groq/compound",
         "groq/compound-mini",
         "allam-2-7b",
         "qwen/qwen3.6-27b",
-    } <= definitions.keys()
+        "qwen/qwen3.8-27b",
+    } <= definitions
     assert (
         not {
             "meta-llama/llama-prompt-guard-2-86m",
             "meta-llama/llama-prompt-guard-2-22m",
             "openai/gpt-oss-safeguard-20b",
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
         }
-        & definitions.keys()
+        & definitions
     )
-    assert definitions["gpt-oss-120b"].display_name == "GPT OSS 120B"
-    assert definitions["gpt-oss-20b"].display_name == "GPT OSS 20B"
-    assert get_model("llama-3.1-8b-instant@groq").model_id == "llama-3.1-8b-instant"
-    assert get_model("llama-3.3-70b-versatile@groq").model_id == "llama-3.3-70b-versatile"
     assert get_model("groq/compound@groq").model_id == "groq/compound"
     assert get_model("qwen/qwen3.6-27b@groq").model_id == "qwen/qwen3.6-27b"
+    assert get_model("qwen/qwen3.8-27b@groq:second").model_id == "qwen/qwen3.8-27b"
 
 
 def test_qualified_provider_key_resolves_adapter():

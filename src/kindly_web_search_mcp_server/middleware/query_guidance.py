@@ -30,6 +30,15 @@ GEMINI_QUERY_ADVISORY = """
 GEMINI SEARCH: Best for quick grounded synthesis. Use a single focused question, include exact API/error/version terms, and add recency hints when freshness matters. Use web_search plus fetch when you need to compare source pages yourself.
 """
 _GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS = 300
+_FETCH_ROUND_ADVISORY = (
+    "Evaluate what you have before moving on: does the fetched content answer the original "
+    "question, or are there gaps (missing specifics, single-source claims, outdated dates, "
+    "unfamiliar terminology)? If this was your first round of research on the question, do "
+    "another round: derive 1-3 more targeted, in-depth queries from what the content revealed "
+    "(exact terms, error codes, API names, section titles you did not know before), search "
+    "again, and fetch the most promising sources. Skip further rounds only when 2-3 "
+    "independent sources already agree on the key claims."
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -64,9 +73,10 @@ def _append_enrichment(
         return result
 
     structured = dict(result.structured_content)
-    ag = list(structured.get("agent_guidance") or [])
-    ag.append({"source": source, "message": message.strip()})
-    structured["agent_guidance"] = ag
+    if message.strip():
+        ag = list(structured.get("agent_guidance") or [])
+        ag.append({"source": source, "message": message.strip()})
+        structured["agent_guidance"] = ag
     if next_tools:
         existing_tools = list(structured.get("suggested_next_tools") or [])
         existing_tools.extend(next_tools)
@@ -160,16 +170,19 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
 
     # Domain concentration
     domains = {_extract_domain(u) for u in urls if u}
-    if len(domains) == 1 and len(results) >= 3:
-        parts.append(f"All results from {list(domains)[0]}.")
-        if gemini_ok:
-            parts.append("Try gemini_search for broader coverage.")
-            next_tools.append("gemini_search")
-
+    top = sorted(
+        {
+            d
+            for d in domains
+            if d and domains and len([u for u in urls if _extract_domain(u) == d]) > 2
+        }
+    )
+    if len(domains) > 0 and len(top) > 0:
+        parts.append(f"Many results from {', '.join(top[:3])}.")
     return (" ".join(parts), next_tools, next_prompts)
 
 
-def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
+def _guide_fetch(data: dict, *, fetch_round: int = 0) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     parts: list[str] = []
     next_tools: list[str] = []
@@ -177,7 +190,10 @@ def _guide_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     results = data.get("results", [])
     if not isinstance(results, list):
         results = []
-
+    if fetch_round == 1:
+        parts.append("First fetch round. " + _FETCH_ROUND_ADVISORY)
+    elif fetch_round > 1:
+        parts.append(f"Fetch round {fetch_round}. " + _FETCH_ROUND_ADVISORY)
     if data.get("mode") == "single":
         item = results[0] if results else data
         window = item.get("window", {})
@@ -276,6 +292,7 @@ class DynamicGuidanceMiddleware(Middleware):
 
     def __init__(self) -> None:
         self._gemini_sessions = SessionTracker(_GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS)
+        self._fetch_sessions = SessionTracker(_GEMINI_GUIDANCE_SESSION_TIMEOUT_SECONDS)
 
     async def on_call_tool(self, context: MiddlewareContext, call_next) -> Any:
         tool_name = context.message.name
@@ -348,7 +365,14 @@ class DynamicGuidanceMiddleware(Middleware):
             return result
 
         if isinstance(result, ToolResult) and isinstance(result.structured_content, dict):
-            msg, next_tools, next_prompts = generator(result.structured_content)
+            if tool_name == "fetch":
+                session_id = get_session_id(context)
+                fetch_round = self._fetch_sessions.increment(session_id, tool_name)
+                msg, next_tools, next_prompts = _guide_fetch(
+                    result.structured_content, fetch_round=fetch_round
+                )
+            else:
+                msg, next_tools, next_prompts = generator(result.structured_content)
             if msg or next_tools or next_prompts:
                 return _append_enrichment(
                     result,

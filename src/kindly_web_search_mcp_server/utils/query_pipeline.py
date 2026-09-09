@@ -183,7 +183,7 @@ def _is_eligible_token(token: str) -> bool:
 # Language token helpers (from query_features.py; public per cutover map)
 # ---------------------------------------------------------------------------
 
-_LANG_TOKEN_PATTERN = re.compile(r"\b(?:lang|language):([A-Za-z0-9+#.]+)\b", re.I)
+_LANG_TOKEN_PATTERN = re.compile(r"\b(?:lang|language):([A-Za-z0-9]+(?:\+\+|#)?)", re.I)
 
 _LANG_ALIASES: dict[str, str] = {
     "ts": "TypeScript",
@@ -222,6 +222,40 @@ _LANG_ALIASES: dict[str, str] = {
     "objective-c": "Objective-C",
     "objc": "Objective-C",
 }
+# Bare words that may be read as language names without an explicit ``lang:``
+# operator. Deliberately excludes ambiguous aliases (go, r, cs, c); add a word
+# here only with fixture evidence it never collides with prose (H13 policy
+# mirrors _MIN_PROTECTED_TOKENS).
+_BARE_LANG_WORDS: frozenset[str] = frozenset(
+    {
+        "python",
+        "typescript",
+        "javascript",
+        "rust",
+        "java",
+        "ruby",
+        "php",
+        "swift",
+        "kotlin",
+        "scala",
+        "shell",
+        "bash",
+        "zsh",
+        "html",
+        "css",
+        "sql",
+        "dart",
+        "elixir",
+        "haskell",
+        "lua",
+        "perl",
+        "golang",
+        "cpp",
+        "cxx",
+        "csharp",
+        "objc",
+    }
+)
 
 
 def _uniq(items) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
@@ -253,25 +287,29 @@ def _normalize_lang(token: str) -> str | None:
 
 
 def langs_from_text(text: str, domain_hints=()) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
-    """Extract canonical language labels from ``lang:`` tokens and bare words."""
+    """Extract canonical language labels from ``lang:`` tokens and bare words.
+
+    Bare words are accepted only for unambiguous language names (H13):
+    ``go``, ``r``, and ``cs`` are excluded because they are common English
+    words/abbreviations first (verified FPs: "how to go about docker
+    deployment" -> Go; "check r/programming threads" -> R). The ``lang:``
+    operator form accepts every alias.
+    """
     found: list[str] = []
     for match in _LANG_TOKEN_PATTERN.finditer(text):
         lang = _normalize_lang(match.group(1))
         if lang:
             found.append(lang)
-    # Bare language words as whole tokens
+    # Bare language words as whole tokens — whitelist only.
     for token in re.findall(r"[A-Za-z0-9+#.]+", text):
-        lang = _normalize_lang(token)
-        if lang and token.casefold() in _LANG_ALIASES:
-            found.append(lang)
+        if token.casefold() in _BARE_LANG_WORDS:
+            lang = _normalize_lang(token)
+            if lang:
+                found.append(lang)
     for hint in domain_hints:
         lang = _normalize_lang(hint)
         if lang:
             found.append(lang)
-        # domain_hints may include "python", "typescript", etc.
-        lower = hint.casefold()
-        if lower in _LANG_ALIASES:
-            found.append(_LANG_ALIASES[lower])
     return _uniq(found)
 
 
@@ -400,6 +438,17 @@ class SearchOpClass:
     ENGINE = "engine"
 
 
+# Tie-breaker for the stage-3a non-overlap union: when two op classes claim
+# identical surface, the more specific/structured class wins.
+_CLASS_PRECEDENCE = {
+    "phrase": 0,
+    "site": 1,
+    "filetype": 2,
+    "exclude": 3,
+    "engine": 4,
+}
+
+
 _PHRASE_RE = re.compile(r'"([^"\n]{1,120})"')
 _SITE_RE = re.compile(r'\bsite:([^\s"]+)', re.I)
 _FILETYPE_RE = re.compile(r'\b(?:filetype|ext):([^\s"]+)', re.I)
@@ -493,20 +542,19 @@ def extract_search_ops(query: str) -> SearchOps:
             if span:
                 found.append(span)
     valid = [span for span in found if _valid_payload(span)]
-    valid.sort(key=lambda s: (s.start, -s.end, s.op_class))
-
-    # Stage 3a — containment suppression: an exclude carrying a structured
-    # prefix (-site:x / -filetype:y) swallows the inner bare-key candidate.
+    # Stage 3a — non-overlap union (H11): when candidates claim the same
+    # surface, the longest span wins; ties break by class specificity. This
+    # subsumes the old EXCLUDE-suppresses-inner-SITE/FILETYPE rule (-site:x,
+    # -filetype:y) and also fixes EXCLUDE×ENGINE claims like ``-lang:python``,
+    # whose overlapping spans previously BOTH survived — then sequential
+    # right-to-left splicing used stale offsets and corrupted the query
+    # (verified: "free" role shaped "-lang:python async tutorial" -> "rial").
+    valid.sort(key=lambda s: (s.start, -s.end, _CLASS_PRECEDENCE.get(s.op_class, 9)))
     kept: list[SearchOpSpan] = []
     for span in valid:
-        contained = any(
-            other.start <= span.start and span.end <= other.end and other is not span
-            for other in valid
-            if other.op_class == SearchOpClass.EXCLUDE
-            and span.op_class in (SearchOpClass.SITE, SearchOpClass.FILETYPE)
-        )
-        if not contained:
-            kept.append(span)
+        if any(span.start < other.end and other.start < span.end for other in kept):
+            continue
+        kept.append(span)
     truncated = len(kept) > _MAX_SPANS
     return SearchOps(spans=tuple(kept[:_MAX_SPANS]), truncated=truncated)
 
@@ -640,12 +688,20 @@ def _inside_any(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
 
 
 # Sentry cleanup_search_query precedence: between two boolean tokens whose
-# filter span was removed, OR wins over AND; identical collapse to the weaker.
+# filter span was removed, OR wins over AND; NOT is never silently dropped —
+# any adjacent pair containing NOT collapses to NOT (negation is the most
+# information-dense operator; verified loss: "alpha NOT AND beta" -> "alpha
+# AND beta").
 _BOOL_COLLAPSE = {
     ("AND", "AND"): "AND",
     ("AND", "OR"): "OR",
     ("OR", "AND"): "OR",
     ("OR", "OR"): "OR",
+    ("NOT", "NOT"): "NOT",
+    ("NOT", "AND"): "NOT",
+    ("NOT", "OR"): "NOT",
+    ("AND", "NOT"): "NOT",
+    ("OR", "NOT"): "NOT",
 }
 _BOOL_TOKEN_RE = re.compile(r"\b(?:AND|OR|NOT)\b")
 
@@ -679,9 +735,7 @@ def _cleanup_boolean_ops(body: str) -> str:
             values = [g.group(0) for g in group]
             collapsed = values[0]
             for nxt in values[1:]:
-                collapsed = _BOOL_COLLAPSE.get((collapsed, nxt), "AND" if collapsed == nxt else nxt)
-                if collapsed not in ("AND", "OR"):
-                    collapsed = "OR"
+                collapsed = _BOOL_COLLAPSE.get((collapsed, nxt), "OR")
             out.append(collapsed)
         cursor = group[-1].end()
         index += 1
@@ -769,19 +823,29 @@ def shape_for_branch(
     kept_phrases = ops.of_class(SearchOpClass.PHRASE)
 
     # Guard: never strip inside a kept phrase or a GLiNER-preserved term.
+    # Ranges here are on ``original`` — same surface the to_strip spans use.
     protected = [(p.start, p.end) for p in kept_phrases]
     protected += _preserved_ranges(original, features.preserved_terms)
     to_strip = [s for s in to_strip if not _inside_any(s.start, s.end, protected)]
 
     body = original
     if to_strip:
+        # H12: stage 3a guarantees non-overlapping spans, so removing them
+        # right-to-left keeps every remaining span's offsets valid.
         for span in sorted(to_strip, key=lambda s: -s.start):
             body = body[: span.start] + body[span.end :]
         body = _cleanup_boolean_ops(body)  # H10: Sentry safety pass
         rules.append("strip.ops")
         meta["ops.stripped"] = ",".join(f"{s.op_class}:{s.value}" for s in to_strip[:8])
+        # Offsets shifted after the splice: re-derive phrase spans on the
+        # post-splice surface so unquoting and budget trims protect the right
+        # regions (fixes stale-protected-range loss: "site:x w1..w11 async
+        # tutorial" previously trimmed to "...async").
+        kept_phrases = extract_search_ops(body).of_class(SearchOpClass.PHRASE)
     elif ops.truncated:
         meta["ops.overflow"] = "truncated"
+    protected = [(p.start, p.end) for p in kept_phrases]
+    protected += _preserved_ranges(body, features.preserved_terms)
 
     if spec.phrases_quoted is False and kept_phrases:
         # H4: unquote ONLY parsed phrase spans via protected-range surgery.

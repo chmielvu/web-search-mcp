@@ -45,7 +45,8 @@ from .types import ModelCapability
 def _register_all() -> None:
     # ─────────────────────────────────────────────────────────────────────
     # WORKER LLM: gpt-oss-120b
-    #   Primary rewrite LLM — Groq first; HF/Nscale fallback; Vercel last.
+    #   Rewrite chain — Groq GPT-OSS first, then Groq Qwen (3.8 → 3.6, both
+    #   on the primary key), then Vercel gateway, then HF/Nscale last.
     # ─────────────────────────────────────────────────────────────────────
     define_model(
         "gpt-oss-120b",
@@ -58,7 +59,6 @@ def _register_all() -> None:
         "groq",
         as_openai(
             model_id=settings.groq_rewrite_model,
-            base_url=settings.groq_base_url,
             api_key_env="GROQ_API_KEY",
             cost_per_1m_input=0.15,
             cost_per_1m_output=0.60,
@@ -70,7 +70,6 @@ def _register_all() -> None:
         "groq:second",
         as_openai(
             model_id=settings.groq_rewrite_model,
-            base_url=settings.groq_base_url,
             api_key_env="SECOND_GROQ_API_KEY",
             cost_per_1m_input=0.15,
             cost_per_1m_output=0.60,
@@ -103,9 +102,10 @@ def _register_all() -> None:
         "worker_llm",
         [
             "gpt-oss-120b@groq",
-            "gpt-oss-120b@groq:second",
-            "gpt-oss-120b@huggingface",
+            "qwen/qwen3.8-27b@groq",
+            "qwen/qwen3.6-27b@groq",
             "gpt-oss-120b@vercel",
+            "gpt-oss-120b@huggingface",
         ],
     )
 
@@ -156,58 +156,6 @@ def _register_all() -> None:
         ),
     )
     # Additional live Groq text models (verified via /openai/v1/models).
-    define_model(
-        "llama-3.1-8b-instant",
-        display_name="Llama 3.1 8B",
-        description="Groq-hosted fast text model for lightweight chat tasks.",
-        capabilities={ModelCapability.CHAT},
-    )
-    add_provider(
-        "llama-3.1-8b-instant",
-        "groq",
-        as_openai(
-            model_id="llama-3.1-8b-instant",
-            base_url=settings.groq_base_url,
-            api_key_env="GROQ_API_KEY",
-            default_timeout=20.0,
-        ),
-    )
-    add_provider(
-        "llama-3.1-8b-instant",
-        "groq:second",
-        as_openai(
-            model_id="llama-3.1-8b-instant",
-            base_url=settings.groq_base_url,
-            api_key_env="SECOND_GROQ_API_KEY",
-            default_timeout=20.0,
-        ),
-    )
-    define_model(
-        "llama-3.3-70b-versatile",
-        display_name="Llama 3.3 70B",
-        description="Groq-hosted general-purpose text model.",
-        capabilities={ModelCapability.CHAT},
-    )
-    add_provider(
-        "llama-3.3-70b-versatile",
-        "groq",
-        as_openai(
-            model_id="llama-3.3-70b-versatile",
-            base_url=settings.groq_base_url,
-            api_key_env="GROQ_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
-    add_provider(
-        "llama-3.3-70b-versatile",
-        "groq:second",
-        as_openai(
-            model_id="llama-3.3-70b-versatile",
-            base_url=settings.groq_base_url,
-            api_key_env="SECOND_GROQ_API_KEY",
-            default_timeout=30.0,
-        ),
-    )
 
     register_chain(
         "classifier_llm",
@@ -267,6 +215,11 @@ def _register_all() -> None:
     _register_groq_text_model(
         "qwen/qwen3.6-27b",
         "Qwen 3.6 27B",
+        "Groq-hosted Qwen text model with multimodal input support.",
+    )
+    _register_groq_text_model(
+        "qwen/qwen3.8-27b",
+        "Qwen 3.8 27B",
         "Groq-hosted Qwen text model with multimodal input support.",
     )
     # ─────────────────────────────────────────────────────────────────────

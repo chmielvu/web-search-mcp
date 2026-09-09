@@ -98,6 +98,12 @@ def slice_content(content: str, *, offset: int, length: int) -> WindowedContent:
         cut_end = total
     else:
         cut_end, _ = find_boundary_index(content, safe_offset, raw_end)
+        if cut_end <= safe_offset:
+            # Boundary at segment start (e.g. content starts "A\n\n" and the
+            # window ends before the next break): zero progress would stall
+            # pagination forever (verified livelock). Fall back to the raw
+            # window edge, mirroring chunk_text's early-cut rejection.
+            cut_end = raw_end
 
     sliced = content[safe_offset:cut_end]
     returned = len(sliced)

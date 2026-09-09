@@ -131,7 +131,9 @@ def _is_valid_for_label(text: str, label: str) -> bool:
     if label == "repo_ref":
         return bool(_REPO_REF_VALID.fullmatch(value))
     if label == "version":
-        return bool(_VERSION_VALID.fullmatch(value)) or bool(re.search(r"\d", value))
+        # A version must be version-shaped or at least digit-INITIAL ("ipv4"
+        # previously passed via the bare re.search fallback).
+        return bool(_VERSION_VALID.fullmatch(value)) or bool(re.match(r"\d", value))
     if label in {"package", "api_function", "error_class", "model_id", "env_var"}:
         return not bool(re.fullmatch(r"[\W_]+", value))
     if label == "file_path":

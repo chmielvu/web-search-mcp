@@ -203,6 +203,7 @@ class Settings:
     query_understanding_model: str = os.environ.get(
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
+    freshness_max_age_days: int = int(os.environ.get("FRESHNESS_MAX_AGE_DAYS", "90"))
     groq_rewrite_model: str = os.environ.get("GROQ_REWRITE_MODEL", "openai/gpt-oss-120b")
     huggingface_rewrite_model: str = os.environ.get(
         "HUGGINGFACE_REWRITE_MODEL", "openai/gpt-oss-120b:nscale"
@@ -255,7 +256,7 @@ class Settings:
     rankllm_window_size: int = int(os.environ.get("RANKLLM_WINDOW_SIZE", "20"))
     rankllm_stride: int = int(os.environ.get("RANKLLM_STRIDE", "10"))
     rankllm_num_passes: int = int(os.environ.get("RANKLLM_NUM_PASSES", "3"))
-    rankllm_enabled: bool = os.environ.get("RANKLLM_ENABLED", "true").lower() == "true"
+    rankllm_enabled: bool = os.environ.get("RANKLLM_ENABLED", "false").lower() == "true"
 
     rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
     rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
@@ -489,7 +490,7 @@ class Settings:
     # to turn off noisy providers like reddit without changing code.
     providers_enabled: bool = os.environ.get("PROVIDERS_ENABLED", "true").lower() == "true"
     disabled_providers: tuple[str, ...] = _parse_csv_env(
-        os.environ.get("DISABLED_PROVIDERS", "serpapi")
+        os.environ.get("DISABLED_PROVIDERS", "serpapi,degoog")
     )
 
     # New SERP providers (Serper, SerpApi, BrightData)

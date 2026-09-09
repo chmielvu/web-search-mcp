@@ -39,6 +39,37 @@ def get_current_tool_call_id() -> str | None:
     return _tool_call_id_context.get()
 
 
+def _resolve_session_id() -> str | None:
+    """Best-effort per-session identifier for typed analytics rows.
+
+    Prefers an explicit ``session_id`` field, then the FastMCP request
+    context (works for HTTP headers and generates a stable per-session
+    UUID for stdio). Returns None outside a request context (CLI, tests)
+    so rows stay honest instead of carrying a fabricated id.
+    """
+    try:
+        from fastmcp.server.dependencies import get_context
+
+        ctx = get_context()
+        if ctx is not None:
+            try:
+                session_id = ctx.session_id
+                if session_id:
+                    return str(session_id)
+            except Exception:
+                pass
+            try:
+                client_id = ctx.client_id
+                if client_id:
+                    return str(client_id)
+            except Exception:
+                pass
+    except Exception:  # noqa: BLE001  # outside a request context
+        pass
+    return None
+
+
+
 try:
     from opentelemetry import trace
 except Exception:  # pragma: no cover - optional observability dependency
@@ -1097,7 +1128,7 @@ def _insert_tool_call_analytics(
             event_id=event_id,
             tool_call_id=tool_call_id,
             run_key=get_current_run_key(),
-            session_id=fields.get("session_id"),
+            session_id=fields.get("session_id") or _resolve_session_id(),
             trace_id=trace_context.get("trace_id"),
             span_id=trace_context.get("span_id"),
             tool_name=tool_name,
@@ -1111,8 +1142,6 @@ def _insert_tool_call_analytics(
             output_count=_tool_output_count(fields),
             duration_ms=fields.get("duration_ms"),
             provider=fields.get("provider") or fields.get("provider_name"),
-            model=fields.get("model") or fields.get("model_used") or fields.get("client_model"),
-            input_tokens=fields.get("input_tokens"),
             output_tokens=fields.get("output_tokens"),
             request_fingerprint=payload.get("request_fingerprint"),
             error_type=fields.get("error_type"),

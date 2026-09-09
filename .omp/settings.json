@@ -1,0 +1,8 @@
+{
+  "llm-wiki": {
+    "taskModel": {
+      "provider": "minimax-code",
+      "id": "MiniMax-M2.7"
+    }
+  }
+}

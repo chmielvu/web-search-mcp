@@ -28,6 +28,7 @@ from .jina_reader import JinaReaderError, fetch_with_jina_reader
 from ..utils.content_classify import chrome_ratio, classify_markdown
 from ..utils.text_clean import (
     parse_jina_frontmatter,
+    polish_prose,
     strip_boilerplate,
     strip_jina_frontmatter,
 )
@@ -253,9 +254,17 @@ async def _fetch_via_jina(
 
     envelope = parse_jina_frontmatter(jina_markdown)
     jina_warning = envelope.get("warning", "")
+    # F1 fix: the envelope was parsed for ``warning`` but never stripped —
+    # every Jina artifact shipped "---title/url/...---" inside its content
+    # (verified on 11/11 live sites). Strip BEFORE chrome/classification so
+    # ratios and word counts see the body only.
+    jina_markdown = strip_jina_frontmatter(jina_markdown)
     pre_chrome = chrome_ratio(jina_markdown)
     jina_markdown = strip_boilerplate(jina_markdown)
     cls = classify_markdown(jina_markdown)
+    # Prose polish AFTER classification so chrome_ratio/word_count see the raw
+    # body; polish_prose excludes the boilerplate pass to avoid a double strip.
+    jina_markdown = polish_prose(jina_markdown)
     word_count = len(jina_markdown.split())
     if jina_warning:
         status = "blocked"
@@ -497,6 +506,10 @@ async def _fetch_via_crawl4ai(
             retryable=False,
         )
     cls = classify_markdown(markdown)
+    # Prose polish AFTER classification (same contract as the Jina rung):
+    # server-side fit filter prunes boilerplate; polish unifies unicode,
+    # chrome links, and whitespace without a second boilerplate pass.
+    markdown = polish_prose(markdown)
     word_count = len(markdown.split())
     record_content_resolution(
         stage="crawl4ai_remote",
