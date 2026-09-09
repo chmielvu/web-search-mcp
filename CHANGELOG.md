@@ -1,4 +1,29 @@
 ## [Unreleased]
+### Added — Google Discovery Engine search provider (2026-09-09)
+- New `google_discovery_engine` adapter (`search/providers/discovery_engine.py`)
+  calls Agent Search `servingConfigs/default_search:search` over OAuth
+  (ADC, else `gcloud auth print-access-token`) with `x-goog-user-project`.
+  `:search` rejects API keys.
+- ``APPS`` maps intents to serving configs. Builtin `search-1` serves
+  `general` and `ai_coding_and_infrastructure` on the original branch.
+  Additional engines are extra `DiscoveryEngineApp` rows, not a second adapter.
+- Settings: `DISCOVERY_ENGINE_QUOTA_PROJECT`, `DISCOVERY_ENGINE_GCLOUD_BIN`.
+  Default RRF weight 1.3. No native date filter (`PROVIDER_TEMPORAL_MODE=none`).
+
+
+### Removed — `recommend_command` routing surface (2026-09-09)
+- Removed the `recommend_command` MCP tool, `web-search-cli recommend` command,
+  deterministic recommendation service, catalog/profile/reference/routing metadata,
+  and dedicated recommendation tests.
+- Removed the stale generated `repomix-output.md` snapshot so deleted tool code is
+  not retained in repository artifacts.
+### Fixed — `code_fetch` single-file routing (2026-09-09)
+- Explicit file-like `path` values such as `README.md` and `src/main.py` now
+  select direct GitHub hydration without initializing the repository snapshot
+  manager; redundant file filters do not force the cold snapshot path.
+- File-like query forms normalize to the same fast lane, while the response
+  guidance sends contents-only follow-ups to `fetch` and repository intelligence
+  to `code_fetch` query/symbol continuations.
 ### Fixed — fetch cleaning uplift + round-aware agent guidance (2026-09-09)
 - `utils/text_clean.py`: new `polish_prose()` — the prose-only half of
   `sanitize_markdown` (unicode repair, zero-width strip, fence-aware link/image

@@ -278,6 +278,15 @@ PROVIDER_DEFINITIONS_LIST: tuple[ProviderDefinition, ...] = (
         max_retries=1,
         cooldown_seconds=10.0,
     ),
+    _definition(
+        "google_discovery_engine",
+        "providers.discovery_engine",
+        "search_google_discovery_engine",
+        "Google Discovery Engine / Agent Search",
+        per_call_timeout=15.0,
+        max_retries=1,
+        cooldown_seconds=10.0,
+    ),
 )
 PROVIDER_DEFINITIONS: Mapping[str, ProviderDefinition] = MappingProxyType(
     {definition.name: definition for definition in PROVIDER_DEFINITIONS_LIST}
@@ -352,6 +361,11 @@ def provider_is_reachable(definition: ProviderDefinition) -> bool:
         return False
     if definition.any_of and not any(os.environ.get(key, "").strip() for key in definition.any_of):
         return False
+    if definition.name == "google_discovery_engine":
+        from .providers.discovery_engine import credentials_available
+
+        if not credentials_available():
+            return False
     return True
 
 

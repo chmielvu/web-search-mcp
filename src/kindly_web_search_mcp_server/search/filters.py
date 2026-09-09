@@ -228,6 +228,7 @@ PROVIDER_TEMPORAL_MODE: dict[str, str] = {
     "gemma": "none",
     "grok": "none",
     "telegram": "none",
+    "google_discovery_engine": "none",
 }
 
 

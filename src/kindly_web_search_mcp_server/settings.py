@@ -485,6 +485,15 @@ class Settings:
     jina_api_key: str = os.environ.get("JINA_API_KEY", "")
     google_cse_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
     google_cse_engine_id: str = "771d303cf528e4b7c"
+    # Google Discovery Engine / Agent Search (OAuth bearer, never an API key).
+    discovery_engine_quota_project: str = os.environ.get(
+        "DISCOVERY_ENGINE_QUOTA_PROJECT",
+        os.environ.get("GOOGLE_CLOUD_PROJECT", "magdalenka-ecosystem"),
+    )
+    discovery_engine_gcloud_bin: str = os.environ.get(
+        "DISCOVERY_ENGINE_GCLOUD_BIN",
+        os.environ.get("AGENT_SEARCH_GCLOUD_BIN", ""),
+    )
 
     # Provider master switch. Keep enabled by default; use DISABLED_PROVIDERS
     # to turn off noisy providers like reddit without changing code.
@@ -552,6 +561,7 @@ class Settings:
             default={
                 "exa": 2.0,
                 "tavily": 1.5,
+                "google_discovery_engine": 1.3,
                 "ddg": 0.8,
                 "qdrant": 0.8,
                 "searxng": 0.8,

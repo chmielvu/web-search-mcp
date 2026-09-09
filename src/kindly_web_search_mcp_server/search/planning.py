@@ -33,13 +33,14 @@ from .provider_registry import (
     select_semantic_tavily_provider,
 )
 from .providers.brave import suggest_brave_queries
+from .providers.discovery_engine import app_for_intent
 from .understanding.resolver import resolve_query_understanding
 
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
 
-_ORIGINAL_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog")
+_ORIGINAL_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog", "google_discovery_engine")
 _FREE_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog")
 _SERP1_CANDIDATES = ("brave",)
 _SERP2_CANDIDATES = ("brightdata", "serper", "search_router")
@@ -262,6 +263,9 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         # --- materialize the six requested provider assignments ---
         original = _branch_names(_ORIGINAL_CANDIDATES, available)
         free = _branch_names(_FREE_CANDIDATES, available)
+        discovery_app = app_for_intent(understanding.intent)
+        if discovery_app is None:
+            original = tuple(name for name in original if name != "google_discovery_engine")
         serp1 = _branch_names(_SERP1_CANDIDATES, available)
         serp2_name = select_paid_google_provider(available)
         serp2 = (serp2_name,) if serp2_name else ()
@@ -506,6 +510,11 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             "queries": list(decision.effective_seed_queries),
             "research_goal": request.research_goal,
         }
+        if discovery_app is not None:
+            provider_arguments["google_discovery_engine"] = {
+                **provider_arguments.get("google_discovery_engine", {}),
+                "serving_config": discovery_app.serving_config,
+            }
         plan = SearchPlan.create(
             normalized_query=normalized_query,
             relevance_query=build_relevance_query(normalized_query, request.research_goal),

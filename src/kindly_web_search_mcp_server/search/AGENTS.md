@@ -4,7 +4,7 @@
 
 # AGENTS.md - Search
 
-Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
+Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 17 providers.
 
 ## Key Files
 
@@ -19,10 +19,10 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 24 providers.
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
 | `blocklist.py` | DuckDB-backed URL blocking |
-| `provider_registry.py` | Provider definitions (16), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
+| `provider_registry.py` | Provider definitions (17), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
 | `intents.py` | Canonical intents, aliases, normalization + intent-specific provider arguments, goggles, freshness, options (merged `intent_policy.py`) |
 | `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |
-| `providers/` | 19 files — one per provider adapter + base |
+| `providers/` | 20 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
 
@@ -78,6 +78,11 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 - The provider receives the request's seed `queries` and `research_goal` through provider arguments; the user prompt labels both values as context/data and explains that `queries` guide complementary decomposition while `research_goal` guides relevance ranking.
 - A successful HTTP response with blank or unparseable assistant content is an invalid provider response, not a successful empty search; preserve the structured `invalid_response` metadata so retrieval analytics distinguish model-contract failures from valid zero-result responses.
 
+## Google Discovery Engine adapter
+
+- Catalog name `google_discovery_engine`. ``APPS`` maps intents to serving configs. Builtin `search-1` covers `general` and `ai_coding_and_infrastructure` on the original branch. A future news engine is another ``APPS`` row, not a new adapter.
+- Auth is OAuth bearer (ADC, else `gcloud auth print-access-token`) plus `x-goog-user-project`. `:search` rejects API keys. Token cache 55 minutes; 401 retries once.
+- Reachability is gcloud-on-disk or `GOOGLE_APPLICATION_CREDENTIALS`. Disable with `DISABLED_PROVIDERS`.
 
 ## Query Understanding Gateway
 
