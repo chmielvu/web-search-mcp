@@ -31,23 +31,69 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def web_search(
-    query: str = "",
+    query: Annotated[
+        str,
+        Field(
+            description="Search query string. Provide this or queries; be specific with keywords, dates, or technical terms."
+        ),
+    ] = "",
     queries: Annotated[
         list[str] | None,
         Field(
             max_length=4,
-            description="Up to 4 seed queries for multi-query rewriting; all focused on one objective. Alternative to query.",
+            description="Up to 4 seed queries for multi-query rewriting; keep all focused on one topic/objective. Alternative to query.",
         ),
     ] = None,
-    research_goal: str = "",
-    rewrite: bool = True,
-    date_range: Literal["day", "week", "month", "year"] | None = None,
-    after_date: str | None = None,
-    before_date: str | None = None,
-    language: str | None = None,
-    region: str | None = None,
-    gl: str | None = None,
-    domain_boost: list[str] | None = None,
+    research_goal: Annotated[
+        str,
+        Field(
+            description="What you intend to learn or accomplish with this search. Used to validate that results serve your actual objective."
+        ),
+    ] = "",
+    rewrite: Annotated[
+        bool,
+        Field(
+            description="When True (default), the query is LLM-rewritten for improved recall and provider coverage. Set False for exact-match searches."
+        ),
+    ] = True,
+    date_range: Annotated[
+        Literal["day", "week", "month", "year"] | None,
+        Field(
+            description="Relative freshness bucket applied across providers (day/week/month/year)."
+        ),
+    ] = None,
+    after_date: Annotated[
+        str | None,
+        Field(
+            description="Only results published on/after this date (YYYY-MM-DD). Wins over date_range when both are supplied."
+        ),
+    ] = None,
+    before_date: Annotated[
+        str | None,
+        Field(
+            description="Only results published on/before this date (YYYY-MM-DD). Wins over date_range when both are supplied."
+        ),
+    ] = None,
+    language: Annotated[
+        str | None,
+        Field(
+            description='Result language boost/filter per provider capability; ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").'
+        ),
+    ] = None,
+    region: Annotated[
+        str | None,
+        Field(description='Country bias/filter (ISO 3166-1 alpha-2, e.g. "PL").'),
+    ] = None,
+    gl: Annotated[
+        str | None,
+        Field(description="Deprecated alias for region; prefer region."),
+    ] = None,
+    domain_boost: Annotated[
+        list[str] | None,
+        Field(
+            description="Domains to prioritize in ranking. Boosts relevance scores without excluding other results."
+        ),
+    ] = None,
     reranking_instructions: Annotated[
         str | None,
         Field(
@@ -66,50 +112,58 @@ async def web_search(
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchPublicResponse:
-    """Run one validated multi-provider web search across configured backends with RRF ranking.
+    """Multi-provider web search with RRF-ranked results across configured backends.
 
-    Multi-query input:
-    - You may pass up to 4 input seed queries via `queries` (e.g. `queries=["query 1", "query 2"]`).
-    - Keep all input queries focused on a single topic/search objective to ensure coherent search planning.
+    WHEN TO USE:
+    - Deep, thorough discovery across multiple search engines at once.
+    - When quick_web_search or gemini_search returned thin or shallow coverage.
+    - When you need date/locale/domain filters or provider-consensus signals
+      (how many engines agree a result is relevant).
 
-    When to use this tool:
-    - For thorough, deep multi-provider search across web engines (Brave, Tavily, SearXNG, etc.).
-    - When you need domain filtering, intent classification, and provider consensus signals.
+    WHEN NOT TO USE:
+    - Quick factual lookups (use gemini_search).
+    - Initial reconnaissance of an unfamiliar topic (use quick_web_search).
+    - Reading full page text (that is fetch's job).
 
-    Selection & Chaining Process:
-    1. Provide a specific search query containing exact terms, error codes, or dates.
-    2. Provide a natural-language research_goal used for intent policy and relevance scoring.
-    3. Ranked evidence is not page text. citation_id is the cite key; url not link.
-       query_variants are dispatched branch queries. status is ok, empty, or partial.
-       next is mandatory evaluate-then-fetch. cursor is optional leftover continuation
-       of this run and must not be used instead of fetch. web_search(cursor=...) does
-       not re-search.
-    4. You MUST call fetch on the URLs in next.query.urls before treating snippets as page text.
+    INPUT: provide `query` or a non-empty `queries` list. Keep seed queries
+    focused on one objective; `queries` takes precedence when both are supplied.
+
+    RETURNS:
+    - status: "ok", "partial", or "empty".
+    - results[]: ranked hits with citation_id, title, url, snippet, domain,
+      published_date, and provider-consensus metadata. Snippets are teasers,
+      not page text — call fetch to read the full pages.
+    - next: suggested follow-up calls, including fetch for the most promising URLs.
+    - cursor/has_more: when has_more is true, pass cursor back to page through
+      leftover results of this same run (it does not re-search).
 
     Args:
         query: Search query string. Be specific — include keywords, dates,
             or technical terms for better recall.
+        queries: Up to 4 seed queries for multi-query rewriting; keep all
+            focused on one topic/objective. Alternative to query.
         research_goal: What you intend to learn or accomplish with this search.
             Used to validate that results serve your actual objective.
         rewrite: When True (default), LLM rewrites the query for improved
             recall and provider coverage. Set False for exact-match searches.
-
+        date_range: Relative freshness bucket applied across providers
+            (day/week/month/year).
+        after_date: Only results published on/after this date (YYYY-MM-DD).
+            Wins over date_range when both are supplied.
+        before_date: Only results published on/before this date (YYYY-MM-DD).
+            Wins over date_range when both are supplied.
+        language: Result language boost/filter per provider capability;
+            ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").
+        region: Country bias/filter (ISO 3166-1 alpha-2, e.g. "PL").
+        gl: Deprecated alias for region; prefer region.
         domain_boost: Domains to prioritize in ranking. Boosts relevance
             scores without excluding other results.
-    Temporal & locale filters:
-        date_range: relative freshness bucket (day/week/month/year).
-        after_date/before_date: absolute ISO YYYY-MM-DD bounds; they win over
-            date_range when both are supplied.
-        language: ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").
-        region / gl: ISO 3166-1 alpha-2 country (gl is a deprecated alias).
-
-    Args:
-        date_range: Relative freshness bucket applied across providers.
-        after_date: Only results published on/after this date (YYYY-MM-DD).
-        before_date: Only results published on/before this date (YYYY-MM-DD).
-        language: Result language boost/filter per provider capability.
-        region: Country bias/filter (alpha-2, e.g. "PL").
-        gl: Deprecated alias for region.
+        reranking_instructions: Natural-language instructions steering the
+            multi-stage reranker's ordering of results.
+        include_undated: Set true to also include results that have no
+            published date.
+        cursor: Overflow continuation from a previous response's cursor field;
+            pages leftover results, does not re-search.
     """
     from ..search.contracts import SearchRun, WebSearchRequest
     from ..search.service import execute_web_search

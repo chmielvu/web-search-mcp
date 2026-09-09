@@ -260,7 +260,8 @@ def register_quick_web_search(mcp: Any) -> None:
         ],
         objective: Annotated[str, Field(description="Natural-language goal driving the search.")],
         max_results: Annotated[
-            int | None, Field(description="Upper bound on results to return (default 10).")
+            int | None,
+            Field(description="Upper bound on results to return (1-20, default 10)."),
         ] = None,
         max_chars_total: Annotated[
             int | None, Field(description="Upper bound on total characters across all excerpts.")
@@ -270,7 +271,7 @@ def register_quick_web_search(mcp: Any) -> None:
         ] = None,
         client_model: Annotated[
             str | None,
-            Field(description="Model consuming results; enables Parallel optimizations."),
+            Field(description="Optional model identifier used to optimize result handling."),
         ] = None,
         session_id: Annotated[
             str | None,
@@ -300,34 +301,47 @@ def register_quick_web_search(mcp: Any) -> None:
         ] = None,
         ctx: Context = CurrentContext(),
     ) -> QuickWebSearchResponse:
-        """Fast reconnaissance search using Parallel AI (advanced mode).
+        """Fast multi-citation reconnaissance search. Fans out short keyword
+        queries and returns citations with excerpts.
 
-        When to use this tool:
-        - As the initial step to scope a complex, broad, or unfamiliar topic.
-        - When you need quick keyword-based discovery before deep reading.
+        WHEN TO USE:
+        - The initial step to scope a complex, broad, or unfamiliar topic.
+        - Quick keyword-based discovery before deep reading.
+        - You want 3-6 word queries fanned out for coverage.
 
-        Key features & Sequencing:
-        - Generates multiple citations with excerpts, publish dates, and usage metadata.
-        - You MUST analyze these citations to identify specific, high-value URLs.
-        - After calling this, you SHOULD call fetch on the most relevant URLs to read their full text.
-        - Do NOT use this if you need deep cross-provider RRF ranking (use web_search instead).
+        WHEN NOT TO USE:
+        - Deep cross-provider RRF ranking (use web_search).
+        - When you need to inspect raw source pages yourself (use web_search + fetch).
+
+        RETURNS:
+        - citations[]: each with title, url, snippet, publish_date, and excerpts[].
+        - total_citations: count.
+        - next: suggested fetch calls for the most promising URLs.
+
+        CHAINING:
+        - Analyze these citations to identify high-value URLs.
+        - Call fetch on the most relevant URLs to read their full text.
 
         Args:
             search_queries: Concise keyword queries, 3-6 words each. At least one
                 required; 2-3 recommended for best results (max 5).
-            objective: Research goal — what you're trying to accomplish.
-           max_results: Max citations to return (1-20, default: 10).
+            objective: Natural-language goal driving the search. What you are
+                trying to accomplish.
+            max_results: Upper bound on results to return (1-20, default 10).
             max_chars_total: Cap on total excerpt characters across all results.
             max_chars_per_result: Cap on characters per single result's excerpts.
-            client_model: Model consuming results for Parallel optimizations.
+            client_model: Model consuming results; enables provider-side
+                optimizations.
             session_id: ID for chaining search+extract calls in one task.
-            include_domains: Restrict to these domains only.
+            include_domains: Restrict results to these domains only.
             exclude_domains: Block these domains.
-            after_date: Only include content published on/after this date (``YYYY-MM-DD``).
-            location: ISO country code for geo-targeted results.
+            after_date: Only include content published on/after this date
+                (YYYY-MM-DD).
+            location: ISO 3166-1 alpha-2 country code for geo-targeting.
             max_age_seconds: Max cached-content age before live fetch (min 600).
             timeout_seconds: Timeout for live fetch when content needs retrieval.
-            disable_cache_fallback: If True, error instead of using stale cache.
+            disable_cache_fallback: If true, error instead of falling back to
+                stale cache.
         """
         started = time.monotonic()
         tool_call_id = str(uuid4())

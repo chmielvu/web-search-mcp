@@ -239,6 +239,42 @@ def _guide_fetch(data: dict, *, fetch_round: int = 0) -> tuple[str, list[str], l
     return (" ".join(parts) if parts else "", next_tools, next_prompts)
 
 
+def _guide_code_fetch(data: dict) -> tuple[str, list[str], list[str]]:
+    data = _unwrap_fastmcp_result(data)
+    if data.get("intent") != "read":
+        return ("", [], [])
+
+    path: str | None = None
+    hits = data.get("hits")
+    if isinstance(hits, list) and len(hits) == 1 and isinstance(hits[0], dict):
+        candidate = hits[0].get("path")
+        if isinstance(candidate, str) and candidate.strip():
+            path = candidate.strip().strip("/")
+    files = data.get("files")
+    if path is None and isinstance(files, list) and len(files) == 1 and isinstance(files[0], dict):
+        candidate = files[0].get("path")
+        if isinstance(candidate, str) and candidate.strip():
+            path = candidate.strip().strip("/")
+
+    repository = data.get("repository")
+    revision = data.get("branch") or data.get("resolved_commit") or "main"
+    fetch_hint = ""
+    if isinstance(repository, str) and repository.strip() and path:
+        fetch_url = f"https://github.com/{repository.strip()}/blob/{revision}/{path}"
+        fetch_hint = f" For contents only, use fetch(url='{fetch_url}') next time."
+    else:
+        fetch_hint = " For contents only, use fetch on the known GitHub file URL next time."
+
+    message = (
+        "Single-file read completed. "
+        + fetch_hint
+        + " If repository intelligence is needed, continue with code_fetch: use "
+        "query for repo-wide FTS/literal search or symbol for callers/callees, "
+        "then follow a returned hit's path."
+    )
+    return (message, ["fetch", "code_fetch"], [])
+
+
 def _guide_gemini_search(data: dict) -> tuple[str, list[str], list[str]]:
     del data
     return (GEMINI_QUERY_ADVISORY, [], ["research_methodology"])
@@ -274,6 +310,7 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
 
 GUIDANCE_GENERATORS = {
     "fetch": _guide_fetch,
+    "code_fetch": _guide_code_fetch,
     "web_search": _guide_web_search,
     "gemini_search": _guide_gemini_search,
     "quick_web_search": _guide_quick_web_search,

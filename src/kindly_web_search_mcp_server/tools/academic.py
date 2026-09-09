@@ -36,7 +36,12 @@ def _with_next_hints(response: dict) -> dict:
 
 
 async def academic_search(
-    query: str = "",
+    query: Annotated[
+        str,
+        Field(
+            description="Academic search query. Use technical terminology for best results. Required unless cited_by_paper_id, references_paper_id, or author_id is provided."
+        ),
+    ] = "",
     limit: Annotated[
         int, Field(ge=1, le=20, description="Maximum papers to return (1-20, default 5).")
     ] = 5,
@@ -46,46 +51,95 @@ async def academic_search(
             description="Restrict providers, e.g. ['arxiv','pubmed']; default: arxiv + semanticscholar + researchgate."
         ),
     ] = None,
-    source_type: Literal["general", "polish", "archive"] | None = None,
-    year_from: int | None = None,
-    year_to: int | None = None,
-    fields_of_study: list[str] | None = None,
-    venue: str | None = None,
-    open_access_only: bool = False,
-    sort: Literal["relevance", "citations", "date"] = "relevance",
-    cited_by_paper_id: str | None = None,
-    references_paper_id: str | None = None,
-    author_id: str | None = None,
+    source_type: Annotated[
+        Literal["general", "polish", "archive"] | None,
+        Field(
+            description="Source group: 'general' (international indexes, default), 'polish' (RAD-on, Biblioteka Nauki, PBN), or 'archive' (Polona, dLibra, RDS, Europeana)."
+        ),
+    ] = None,
+    year_from: Annotated[
+        int | None, Field(description="Filter papers published in or after this year.")
+    ] = None,
+    year_to: Annotated[
+        int | None, Field(description="Filter papers published in or before this year.")
+    ] = None,
+    fields_of_study: Annotated[
+        list[str] | None,
+        Field(
+            description="Filter by academic discipline (e.g. ['Computer Science', 'Biology']); uses Semantic Scholar field taxonomy."
+        ),
+    ] = None,
+    venue: Annotated[
+        str | None,
+        Field(description="Filter by publication venue name (e.g. 'Nature', 'ICML')."),
+    ] = None,
+    open_access_only: Annotated[
+        bool,
+        Field(description="Only return papers with freely available full text."),
+    ] = False,
+    sort: Annotated[
+        Literal["relevance", "citations", "date"],
+        Field(description="Result ordering: 'relevance' (default), 'citations', or 'date'."),
+    ] = "relevance",
+    cited_by_paper_id: Annotated[
+        str | None,
+        Field(
+            description="Return papers citing this work (OpenAlex/S2 ID, DOI, or arXiv ID); routes to citation-graph providers."
+        ),
+    ] = None,
+    references_paper_id: Annotated[
+        str | None,
+        Field(description="Return this work's bibliography (OpenAlex/S2)."),
+    ] = None,
+    author_id: Annotated[
+        str | None,
+        Field(description="Restrict to an author (OpenAlex ID/ORCID or S2 author ID)."),
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> AcademicSearchResponse:
-    """Search scholarly sources with cross-source deduplication.
+    """Search scholarly sources with cross-source deduplication: peer-reviewed
+    papers, citations, and academic literature.
 
-    When to use this tool:
-    - For research questions requiring peer-reviewed papers, scientific citations, or academic literature.
-    - When standard web search produces non-scholarly blog posts or commercial content.
+    WHEN TO USE:
+    - Research questions requiring peer-reviewed papers or scientific citations.
+    - When standard web search returns non-scholarly blog posts or commercial
+      content.
+    - Citation-graph traversal: who cites a paper, a paper's references, an
+      author's works.
 
-    Parameters explained:
-    - sort: Result ordering — "relevance" (default), "citations", or "date".
-    - open_access_only: Set to true if you only want freely available full-text papers.
+    WHEN NOT TO USE:
+    - General web content (use web_search).
+    - Reading full paper text of a known URL (use fetch on pdf_url).
+
+    RETURNS:
+    - results[]: papers with title, authors, abstract, year, venue, citations,
+      url, pdf_url, source, is_open_access, and highlights[].
+    - total_results and sources_used.
+    - next: suggested fetch calls to read open-access full text.
+
+    CHAINING: call fetch on pdf_url or fulltext_url of an open-access paper
+    to read its full text.
 
     Args:
-        query: Academic search query. Use technical terminology for best results.
-            Available: arxiv, semanticscholar, researchgate, openalex, crossref,
-            pubmed, core, radon, bn, pbn, polona, dlibra, rds, europeana.
-            Default: arxiv + semanticscholar + researchgate.
+        query: Academic search query. Use technical terminology for best
+            results. Required unless cited_by_paper_id, references_paper_id,
+            or author_id is provided.
+        limit: Maximum papers to return (1-20, default 5).
+        sources: Restrict providers, e.g. ['arxiv','pubmed']. Default:
+            arxiv + semanticscholar + researchgate.
         source_type: Source group to query — "general" (default; international
             scholarly indexes), "polish" (Polish scholarly sources: RAD-on,
             Biblioteka Nauki, PBN), or "archive" (historical/digital archives:
             Polona, dLibra libraries, RDS Dataverse, Europeana).
         year_from: Filter papers published in or after this year.
         year_to: Filter papers published in or before this year.
-        fields_of_study: Filter by academic discipline (e.g., ["Computer Science",
-            "Biology"]). Uses Semantic Scholar field taxonomy.
+        fields_of_study: Filter by academic discipline (e.g., ["Computer
+            Science", "Biology"]). Uses Semantic Scholar field taxonomy.
         venue: Filter by publication venue name (e.g., "Nature", "ICML").
         open_access_only: Only return papers with freely available full text.
         sort: Result ordering — "relevance" (default), "citations", or "date".
-        cited_by_paper_id: Return papers citing this work (OpenAlex/S2 ID, DOI,
-            or arXiv ID). Routes to citation-graph providers.
+        cited_by_paper_id: Return papers citing this work (OpenAlex/S2 ID,
+            DOI, or arXiv ID). Routes to citation-graph providers.
         references_paper_id: Return this work's bibliography (OpenAlex/S2).
         author_id: Restrict to an author (OpenAlex ID/ORCID or S2 author ID).
             When any citation-graph/author filter is set, only providers that

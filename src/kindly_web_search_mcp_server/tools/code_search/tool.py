@@ -167,11 +167,11 @@ async def code_search(
         str,
         Field(
             description=(
-                "What to find in public code or documentation. Supports exact identifiers, "
-                "symbols ('FastMCP.tool'), error signatures, or natural language descriptions. "
-                "Inline qualifiers are supported: 'repo:owner/repo', 'path:dir/', 'file:name.ext', "
-                "'lang:python', 'rev:tag/commit', '-repo:owner/repo', '-file:test.py', "
-                "and regex tokens '/pattern/i'."
+                "Required non-blank query describing what to find in public code or documentation. "
+                "Supports exact identifiers, symbols ('FastMCP.tool'), error signatures, or natural "
+                "language descriptions. Inline qualifiers: 'repo:owner/repo', 'path:dir/', "
+                "'file:name.ext', 'lang:python', 'rev:tag/commit', '-repo:owner/repo', "
+                "'-file:test.py', and regex tokens '/pattern/i'."
             ),
             examples=[
                 "FastMCP tool registration with annotations",
@@ -304,26 +304,33 @@ async def code_search(
 ) -> CodeSearchPublicResult:
     """Search public code, implementation examples, documentation, and GitHub repositories.
 
-    DSL Cheat Sheet:
-    - Identifiers & Symbols: Exact function/class names (e.g. `parse_remote`, `FastMCP.tool`).
-    - Inline Qualifiers: `repo:owner/repo`, `path:src/`, `file:app.ts`, `lang:Go`, `rev:v1.2.0`.
-    - Negation / Exclusions: `-repo:owner/repo`, `-file:test.py`, `-lang:Java`.
-    - Regular Expressions: `/pattern/i` inside query or `regexp=True`.
-    - Modes:
-      * `code`: Default mode for concrete implementations and code definitions.
-      * `docs`: Focuses on API reference documentation and library tutorials.
-      * `discovery`: Finds active repositories, stars, and implementations.
-      * `issues`: Searches GitHub Issues and Discussions (requires GITHUB_TOKEN).
-      * `huggingface`: Searches semantic model and dataset cards through the Hub API.
+    WHEN TO USE:
+    - Cross-repository discovery: how others implement a feature, call a library,
+      or structure a tool.
+    - Finding API references and library tutorials (mode="docs").
+    - Discovering active repositories implementing an idea (mode="discovery").
+    - Searching GitHub Issues and Discussions (mode="issues"; requires GITHUB_TOKEN).
+    - Searching Hugging Face model/dataset cards (mode="huggingface").
 
-    Returns grouped results (Octocode-style): repository → files → source_window,
-    line_start, line_end, symbols, sha, and url. Hints and next continuations
-    route repository code hits to code_fetch and web/semantic URLs to fetch.
-    Ranking scores and provider telemetry are omitted.
+    WHEN NOT TO USE:
+    - Exploring one specific repository in depth (use code_fetch).
+    - One-off URL reads (use fetch).
 
-    Start here for cross-repository discovery; follow the ``next`` field to
-    code_fetch or fetch. Do not use fetch to read GitHub repository files —
-    code_fetch returns line-anchored evidence with commit provenance.
+    QUERY DSL (inside query):
+    - Identifiers & symbols: exact names, e.g. "parse_remote", "FastMCP.tool".
+    - Inline qualifiers: repo:owner/repo, path:src/, file:app.ts, lang:Go, rev:v1.2.0.
+    - Exclusions: -repo:owner/repo, -file:test.py, -lang:Java.
+    - Regex: /pattern/i inside query, or regexp=true.
+
+    RETURNS:
+    - Grouped results: repository → files → source_window (the matched code),
+      line_start, line_end, symbols, sha, and url.
+    - next: continuation hints routing repository code hits to code_fetch and
+      web/semantic URLs to fetch.
+
+    CHAINING: follow the next field — repository code hits → code_fetch for
+    line-anchored reads with commit provenance; web/semantic URLs → fetch.
+    Do not use fetch to read GitHub repository files.
     """
     tool_call_id = str(uuid.uuid4())
     emit_tool_observability_event(

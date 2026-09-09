@@ -8,15 +8,14 @@ def get_workflow_doc() -> str:
 ## Tool Selection
 | Task | Tool | Key Parameters |
 |---|---|---|
-| Route a natural-language task | recommend_command | task |
 | Fast recon | quick_web_search | objective, search_queries |
 | Grounded synthesis | gemini_search | query, structured_output |
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost |
 | Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
 | Scholarly papers | academic_search | query, sources, year_from, year_to, fields_of_study, venue, sort |
-| Read one or many URLs | fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (for GitHub repo files prefer code_fetch) |
-| Search a cached repository | code_fetch | repository, query, max_matches, language, filename, path_glob, exclude_glob, case_sensitive, cursor |
-| Read 1-5 repo files with line windows | code_fetch | repository, path or paths, start_line, end_line |
+| Read one or many URLs | fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (known URL contents; use code_fetch for repository intelligence) |
+| Search a cached repository | code_fetch | repository, query or symbol, max_matches, language, filename, path_glob, exclude_glob, case_sensitive, cursor |
+| Read 1-5 repo files with line windows | code_fetch | repository, path or paths, start_line, end_line (single-file path uses the direct fast path) |
 | Cross-repo code discovery | code_search | query, repositories, language, path, filename, regexp, mode, deep |
 | Similar pages | composio_similarlinks | url |
 | Find videos | youtube_search | query, num_results |
@@ -29,10 +28,10 @@ def get_workflow_doc() -> str:
 
 ## Pagination
 - fetch: single results use window.next_offset; bulk results use cursor when has_more
-- code_fetch: pass query for repository-wide search — query returns match lines, so follow hits with path to read whole files. When has_more is true, continue with the returned next_cursor. Filters: --language, --filename, --path-glob, --exclude-glob, --case-sensitive. Pass path without query only for focused reads.
+- code_fetch: pass query for repository-wide FTS/literal search — query returns match lines, so follow hits with path to read whole files. Use symbol for callers/callees. When has_more is true, continue with the returned next_cursor. Filters: --language, --filename, --path-glob, --exclude-glob, --case-sensitive. Pass path without query only for focused reads; contents-only known files should use fetch.
 
 ## Code Tool Boundary
-- Known URL, one-off → fetch. One repo, many questions → code_fetch (query → follow hits with path reads → next_cursor). Which repo / how do others implement it → code_search, then follow `next`.
+- Known file URL, contents only → fetch. One repo, repository intelligence → code_fetch (query or symbol → follow returned paths → next_cursor). Cross-repo discovery → code_search, then follow `next`.
 
 ## AI Summaries
 - ai_summary=false: return raw page content only (default)

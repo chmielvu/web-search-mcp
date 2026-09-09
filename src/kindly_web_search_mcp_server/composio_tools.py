@@ -102,7 +102,10 @@ def register_composio_tools(mcp: Any) -> None:
     async def composio_similarlinks(
         url: Annotated[str, Field(description="URL to find similar pages for.")],
         num_results: Annotated[
-            int, Field(description="Maximum number of similar results to return (default 5).")
+            int,
+            Field(
+                description="Maximum similar results to request (default 5; values are clamped to 1-20)."
+            ),
         ] = 5,
         search_type: Annotated[
             str, Field(description="Similarity search type; keep the default 'neural'.")
@@ -112,12 +115,27 @@ def register_composio_tools(mcp: Any) -> None:
             list[str] | None, Field(description="Restrict results to these domains.")
         ] = None,
         exclude_domains: Annotated[
-            list[str] | None, Field(description="Exclude these domains from results.")
+            list[str] | None, Field(description="Exclude results from these domains.")
         ] = None,
         ctx: Context = CurrentContext(),
     ) -> SimilarLinksResponse:
-        """Find pages similar to a known URL via neural similarity. Returns related URLs with match scores.
-        Use fetch on selected links when page text is needed.
+        """Find pages similar to a known URL via neural similarity.
+
+        WHEN TO USE:
+        - You already have one good URL and want related pages on the same topic.
+        - Expanding a source list from a seed document.
+        - Finding alternative coverage, tutorials, or implementations.
+
+        WHEN NOT TO USE:
+        - Keyword-based topic search (use web_search or quick_web_search).
+        - Reading page content (use fetch).
+
+        RETURNS:
+        - results[]: related pages with title, link, and similarity score.
+        - total_results: number of related pages returned.
+        - next: suggested fetch calls for the top results.
+
+        CHAINING: call fetch on selected links when page text is needed.
         """
         started = time.monotonic()
         tool_call_id = str(uuid4())

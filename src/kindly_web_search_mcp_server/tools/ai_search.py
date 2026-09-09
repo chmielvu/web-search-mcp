@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
+from pydantic import Field
+
 
 from ..analytics.judge_runner import run_judge_evaluation
 from ..errors import raise_tool_error
@@ -24,20 +26,44 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def gemini_search(
-    query: str,
-    structured_output: bool = False,
-    research_goal: str | None = None,
+    query: Annotated[str, Field(description="The search query string.")],
+    structured_output: Annotated[
+        bool,
+        Field(
+            description="When true, also return schema-guided structured_data for extraction tasks."
+        ),
+    ] = False,
+    research_goal: Annotated[
+        str | None,
+        Field(
+            description="Optional description of what you intend to learn; focuses the grounded answer."
+        ),
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> GeminiSearchResponse:
-    """AI-powered search synthesis grounded with real-time Google Search results.
+    """AI-powered search synthesis: a Gemini model grounded with real-time Google
+    Search results. One call returns a synthesized answer with inline citations [N].
 
-    When to use this tool:
-    - For quick factual lookups, current event summaries, and direct AI-synthesized answers.
-    - When you need inline grounding citations [N] without manually fetching multiple URLs yourself.
+    WHEN TO USE:
+    - Quick factual lookups, current-event summaries, and direct
+      AI-synthesized answers.
+    - When you need inline grounding citations [N] without manually fetching
+      multiple URLs yourself.
+    - Data-extraction tasks when structured_output=true.
 
-    Key constraints:
-    - Do NOT use when you need to inspect raw source pages yourself (use web_search + fetch).
-    - Do NOT call this tool more than 3 times per question.
+    WHEN NOT TO USE:
+    - When you need to inspect raw source pages yourself (use web_search + fetch).
+    - More than 3 calls per question.
+
+    RETURNS:
+    - answer: the synthesized narrative with inline [N] citations.
+    - structured_data: schema-guided structured output (when structured_output=true).
+    - sources[] / url_citations[]: the grounded sources backing each citation.
+    - model_used, total_tokens, grounding_chunks_count.
+    - next: suggested fetch calls to verify the answer against the source text.
+
+    CHAINING: citations [N] map to sources[] entries. If a claim is critical,
+    verify it by calling fetch on the cited URL.
 
     Args:
         query: The search query string.
@@ -186,20 +212,45 @@ async def gemini_search(
 
 
 async def grok_search(
-    query: str,
-    research_goal: str,
-    num_results: int = 5,
-    model: str | None = None,
-    allowed_domains: list[str] | None = None,
-    excluded_domains: list[str] | None = None,
+    query: Annotated[str, Field(description="The search query string.")],
+    research_goal: Annotated[
+        str, Field(description="What you intend to learn; focuses the AI synthesis.")
+    ],
+    num_results: Annotated[
+        int, Field(description="Target number of web/X results to incorporate (1-10, default 5).")
+    ] = 5,
+    model: Annotated[
+        str | None,
+        Field(description="Optional model override; default is the configured Grok model."),
+    ] = None,
+    allowed_domains: Annotated[
+        list[str] | None, Field(description="Only cite results from these web domains (maximum 5).")
+    ] = None,
+    excluded_domains: Annotated[
+        list[str] | None, Field(description="Exclude results from these web domains (maximum 5).")
+    ] = None,
     ctx: Context = CurrentContext(),
 ) -> GrokSearchResponse:
-    """Search the web and public X posts with native xAI Grok tools.
+    """Search the web and public X posts with xAI Grok, returning an AI-synthesized
+    answer with citations from both web and X.
 
-    Returns an AI-synthesized answer with citations from web and X. This uses
-    the direct xAI Responses API because Vertex's managed Grok Responses
-    endpoint does not currently expose xAI's native search tools. **Expensive
-    tool**: xAI bills server-side web/X tool invocations separately.
+    WHEN TO USE:
+    - Questions where real-time social-media sentiment or X posts are a
+      primary signal.
+    - Cross-referencing web facts with public X discussions.
+
+    WHEN NOT TO USE:
+    - Simple web questions — this is an expensive tool; prefer web_search or
+      gemini_search first.
+    - Local codebase searches (use code_search).
+
+    RETURNS:
+    - answer: the AI-synthesized answer.
+    - citations[]: each with url, title, and snippet.
+    - model: the model used.
+    - usage: token counts.
+
+    CHAINING: call fetch on cited URLs to verify claims against the source text.
 
     Args:
         query: The search query string.

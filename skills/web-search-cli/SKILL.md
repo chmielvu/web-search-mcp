@@ -643,7 +643,6 @@ uv run web-search-cli skills
 uv run web-search-cli skills web-search-cli
 uv run web-search-cli getskill
 uv run web-search-cli getskill --dev
-uv run web-search-cli recommend "Find current official docs for FastMCP middleware"
 ```
 
 - `reference tools` emits the MCP-tool-to-command mapping for a profile.
@@ -655,8 +654,6 @@ uv run web-search-cli recommend "Find current official docs for FastMCP middlewa
 - `skills` with no name returns a JSON catalog; `skills NAME` prints that
   skill's markdown verbatim. `getskill` prints the bundled user skill, or the
   developer skill with `--dev`.
-- `recommend TASK...` returns route/decomposition metadata without executing a
-  command or calling a provider.
 
 ### `feedback`
 

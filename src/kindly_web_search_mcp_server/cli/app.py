@@ -18,7 +18,6 @@ from .commands import (
     inference,
     feedback,
     links,
-    recommend,
     reference,
     research,
     schema,
@@ -124,7 +123,6 @@ doctor.register(app)
 jobs.register(app)
 getskill.register(app)
 results.register(app)
-recommend.register(app)
 reference.register(app)
 research.register(app)
 search.register(app)

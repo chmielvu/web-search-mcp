@@ -19,7 +19,6 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `ai_search.py` | `gemini_search`, `grok_search` |
 | `youtube.py` | `youtube_search`, `youtube_transcript` (video URL/ID **or** channel handle/ID/URL, auto-detected; channel mode adds `max_videos`/`page_token`) |
 | `sitemap.py` | `generate_sitemap` |
-| `recommend.py` | `recommend_command` route recommendation tool |
 | `prompts.py` | Prompt function implementations |
 | `resources.py` | Resource implementations (8 resources) |
 | `status.py` | Server status and provider health tools |
@@ -37,14 +36,13 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 
 | Tool | Returns | Notes |
 |---|---|---|
-| `recommend_command` | Structured route, command, fallbacks, decomposition rules, and optional prompt metadata | Deterministic recommendation only; never executes commands |
 | `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
 | `youtube_search` | YouTube video results | YouTube Data API v3 or SearXNG |
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
 | `code_search` | Typed code/documentation hits, repository candidates, and diagnostics | Backend selects lexical, symbol, regex, semantic, repository, and documentation channels; bounded cloud cross-encoder reranking is always attempted fail-open; `next` hints (≤3) route conversations to `fetch` and code hits to `code_fetch` |
-| `code_fetch` | Search hits, file reads (single or 1–5 via `paths` → `files[]`), tree, map, symbol graph | Prefer search over full-file reads; GitHub file fetches from `fetch` redirect here via middleware guidance |
+| `code_fetch` | Search hits, file reads (single or 1–5 via `paths` → `files[]`), tree, map, symbol graph | Prefer search over full-file reads; an explicit file-like `path` (for example, `*.md` or `*.py`) uses direct hydration; GitHub file fetches from `fetch` redirect here via middleware guidance |
 
 - `fetch` accepts `ai_summary: bool = false`; when enabled the synthesized answer replaces public `content`, while the full summary object remains internal for analytics.
 
@@ -68,7 +66,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 - Aggregate outcome semantics treat `no_hit` and `skipped` diagnostics as clean absence; only `partial` and `error` diagnostics downgrade the public result state.
 - Provider-specific library identifiers may remain in `source_metadata`, while top-level repository fields use canonical `owner/repo` formatting.
 - GitHub uses only legacy REST code-search operators actually supported by `/search/code`; repository discovery uses GraphQL repository search and returns topics, SPDX license, homepage, default-branch name, and head OID. Preserve the distinct blob SHA and indexed commit OID and verify them during hydration.
-- Routing boundary (taught in tool docstrings, `docs://workflow`, and server instructions): known URL one-off → `fetch`; one repo, many questions → `code_fetch`; cross-repo discovery → `code_search`.
+- Routing boundary (taught in tool docstrings, `docs://workflow`, and server instructions): known file URL, contents only → `fetch`; an explicit file-like `path` for one repository file → `code_fetch` fast lane; repository intelligence → `code_fetch` query/symbol; cross-repo discovery → `code_search`.
 - `CodeSearchHit.snippet` carries provider-supplied evidence text (Hub card summaries, issue/discussion metadata) and projects into `source_window` when no window exists; never serialize issue rows as `path_only` without it.
 - `LocationMetadata.revision` must never be a movable ref: `/blob/HEAD/` fallback URLs parse to `revision=None` (branch stays in `ref` when known).
 - Invalid `regexp=true` queries stop before providers: `outcome=no_hit` with a `regex_drop` diagnostic and `regex_invalid` hint; the inline `/token/` malformed case keeps warning-only behavior.
@@ -91,6 +89,7 @@ uv run pytest tests/test_code_search.py
 - `code_fetch` — uncached single-file reads (`path`, no query/symbol) hydrate via
   `hydrate_sources` and skip the tarball snapshot; directories and hydrate misses
   fall through.
+- `code_fetch` — explicit file-like `path` values (including `.md`, `.py`, and known extensionless files) are the single-file fast-lane signal; redundant file filters do not force snapshot materialization, while query/symbol/tree-pagination requests retain repository semantics.
 - `code_fetch` — repository-scoped queries now fall back from strict FTS AND matching
   to per-term candidates, restore valid persisted snapshots across manager lifetimes,
   and return hits/tree/content/map payloads instead of dropping query data. Search

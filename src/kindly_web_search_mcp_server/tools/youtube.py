@@ -73,16 +73,35 @@ async def youtube_transcript(
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResponse | YouTubeChannelTranscriptionResponse:
-    """Extract, analyze, and optionally summarize a YouTube transcript.
+    """Extract a YouTube transcript, with optional analysis and summary.
 
-    Accepts a video URL/ID or a channel handle/ID/URL (auto-detected). Channel
-    mode transcribes recent uploads with cache-first processing, GLiNER2
-    extraction, Gemini summaries, per-video partial-failure reporting, and
-    background-task support (``max_videos``/``page_token`` apply to channels).
+    Accepts a video URL/ID or a channel handle/ID/URL. The target is
+    auto-detected and determines the response shape.
 
-    GLiNER2 VPS extraction is always executed for every successful transcript.
-    ``include_summary`` adds a source-grounded Gemini summary using the
-    existing summary backend (Gemini 3.5 Flash-Lite with fallbacks).
+    WHEN TO USE:
+    - Getting the full text of a video after youtube_search found it.
+    - Analyzing entities and relations mentioned in a video.
+    - Transcribing a channel's recent uploads in bulk.
+
+    WHEN NOT TO USE:
+    - Discovering videos (use youtube_search first).
+
+    RETURNS (video mode):
+    - transcript_text, transcript_segments, language, is_translated,
+      duration_seconds, output_format, and quality diagnostics.
+    - analysis: extracted entities and relations when available.
+    - summary: a source-grounded summary when include_summary=true.
+
+    RETURNS (channel mode):
+    - items[]: per-video results with status (success, cached, failed, or
+      skipped), a transcript on success, or an error message.
+    - status: ok, partial, or error for the batch.
+    - next_page_token: continuation for more uploads; pass it back as
+      page_token.
+
+    CHAINING: in channel mode, max_videos (default 20) and page_token control
+    pagination. In video mode, use output_format, language, translate_to,
+    include_summary, and summary_focus to shape the result.
     """
     if looks_like_channel_target(video_id_or_url):
         try:
@@ -433,21 +452,29 @@ async def _transcribe_channel(
 
 
 async def youtube_search(
-    query: str,
+    query: Annotated[str, Field(description="Search term for YouTube.")],
     num_results: Annotated[
         int, Field(ge=1, le=20, description="Number of results to return (1-20, default 5).")
     ] = 5,
     ctx: Context = CurrentContext(),
 ) -> YouTubeSearchResponse:
-    """Find YouTube videos by search query via SearXNG.
+    """Find YouTube videos by search query.
 
-    When to use this tool:
-    - Use this tool FIRST to search YouTube and discover video targets before calling youtube_transcript.
-    - Returns titles, links, video IDs, and snippets.
+    WHEN TO USE:
+    - FIRST step for YouTube content: discover video targets before calling
+      youtube_transcript.
+    - Searching for video tutorials, talks, or demonstrations.
 
-    Args:
-        query: Search term for YouTube.
-        num_results: Number of results to return (1-20, default 5).
+    WHEN NOT TO USE:
+    - Extracting transcripts (use youtube_transcript with a video ID or URL).
+    - General web search (use web_search).
+
+    RETURNS:
+    - results[]: videos with title, link, video ID, and snippet.
+    - total_results: number of videos returned.
+    - next: a suggested youtube_transcript call for the best matching video.
+
+    CHAINING: pass a video link or ID from results to youtube_transcript.
     """
 
     if num_results < 1:

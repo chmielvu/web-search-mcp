@@ -675,16 +675,40 @@ async def fetch(
     ] = False,
     ctx: Context = CurrentContext(),
 ) -> FetchResponse:
-    """Fetch one URL or multiple URLs through the unified content pipeline.
+    """Fetch one URL or multiple URLs and return their extracted content.
 
-    Content is returned in full by default. ``offset`` skips the first N characters
-    and returns the remainder. Pipeline limits: 20s per-request timeout, 5 MiB
-    response body. Bulk calls use fixed ten-item waves and bounded internal
-    concurrency; those resource controls are intentionally not public arguments.
+    WHEN TO USE:
+    - Reading the full text of URLs discovered by web_search, quick_web_search,
+      gemini_search, code_search, or any other tool.
+    - One-off URL content retrieval: articles, docs, GitHub
+      issue/discussion/PR pages, and non-GitHub sources.
+    - Bulk reading: pass a URL list in urls.
 
-    For GitHub repository work (repo-wide search, line-anchored reads, file
-    trees, symbol graphs) prefer code_fetch; fetch is for one-off URL content,
-    GitHub issue/discussion/PR pages, and non-GitHub sources.
+    WHEN NOT TO USE:
+    - GitHub repository work (repo-wide search, line-anchored reads, file
+      trees, symbol graphs) — use code_fetch, which returns line-anchored
+      evidence with commit provenance.
+    - Cross-repo discovery (use code_search).
+
+    RETURNS:
+    - results[]: one entry per URL, each with url, status ("success" or a typed
+      failure like "blocked", "login", "paywall", "js_shell"), content, and
+      error with category + resolution + retryable flag.
+    - window: pagination metadata (offset, returned_chars, total_chars,
+      has_more, next_offset) for a single-URL fetch.
+    - cursor: continuation for bulk fetches; pass back to page through
+      remaining URLs.
+    - links[]: outbound links (when include_links=true).
+
+    CHAINING:
+    - Single URL: use offset to page through long content.
+    - Bulk: pass cursor back to fetch the next wave of URLs.
+    - ai_summary=true replaces content with a Gemini source-grounded summary;
+      use focus_query to bias the summary.
+
+    ERROR RECOVERY: each failed URL returns a typed FetchError (code,
+    category, message, resolution, retryable). Act on resolution before
+    retrying; retryable=true errors can be retried as-is.
     """
     if offset < 0:
         raise_tool_error(ValueError("offset must be non-negative"), provider="fetch")

@@ -25,7 +25,6 @@ def test_catalog_declares_stable_public_tool_metadata() -> None:
             "youtube_search",
             "youtube_transcript",
             "deep_research",
-            "recommend_command",
         }
     )
 
@@ -66,7 +65,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "generate_sitemap",
             "deep_research",
             "composio_similarlinks",
-            "recommend_command",
         }
     )
     assert tools_for_profile("full") == frozenset(
@@ -84,7 +82,6 @@ def test_profile_membership_matches_visibility_requirements() -> None:
             "web_search",
             "youtube_search",
             "youtube_transcript",
-            "recommend_command",
         }
     )
 

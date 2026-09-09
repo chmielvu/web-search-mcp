@@ -25,8 +25,7 @@ cli/
 │   ├── youtube.py           # YouTube commands
 │   ├── analytics.py         # analytics query/report commands
 │   ├── server.py            # server/launch helpers
-│   ├── sitemap.py           # sitemap generate
-│   └── recommend.py         # intent-to-command recommendation
+│   └── sitemap.py           # sitemap generate
 └── services/                # Shared service adapters
     ├── search_web.py        # Web search
     ├── search_code.py       # Public code/documentation/repository search
@@ -57,7 +56,6 @@ cli/
 ```bash
 uv run web-search-cli schema
 uv run web-search-cli doctor
-uv run web-search-cli recommend "Find current official docs for FastMCP middleware"
 uv run web-search-cli getskill
 uv run web-search-cli skills [name]
 uv run web-search-cli feedback create --message "..." --type bug

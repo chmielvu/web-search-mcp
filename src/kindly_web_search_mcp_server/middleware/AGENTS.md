@@ -37,6 +37,10 @@ uv run pytest tests/test_agent_steering_middleware.py
   evaluate-then-iterate advisory on every round (`fetch_round=0` keeps legacy
   empty behavior for direct generator callers).
 
+- `code_fetch` guidance is result-aware for single-file reads: contents-only
+  follow-ups point to `fetch`, while repository intelligence points to
+  repository-wide `code_fetch` query/symbol continuations.
+
 ### Recent Changes (2026-09-06)
 - Fetch guidance reads public `content`, pagination, and status-based wall
   outcomes; it no longer depends on public cache, backend, wall, or continuation

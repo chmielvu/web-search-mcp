@@ -246,54 +246,92 @@ def _build_report_markdown(
 
 
 async def deep_research(
-    query: str = "",
-    question: str | None = None,
-    topic: str | None = None,
-    prompt: str | None = None,
-    depth: str = "standard",
-    with_images: bool = False,
-    language_code: str | None = None,
+    query: Annotated[
+        str,
+        Field(
+            description="Research topic or explicit technical question. Use this as the primary query."
+        ),
+    ] = "",
+    question: Annotated[
+        str | None,
+        Field(description="Alias for query; used only when query is empty."),
+    ] = None,
+    topic: Annotated[
+        str | None,
+        Field(description="Alias for query; used only when query and question are empty."),
+    ] = None,
+    prompt: Annotated[
+        str | None,
+        Field(description="Alias for query; used only when the other query aliases are empty."),
+    ] = None,
+    depth: Annotated[
+        str,
+        Field(
+            description="Research intensity: quick/fast/brief, standard, or deep/thorough/full. Default: standard."
+        ),
+    ] = "standard",
+    with_images: Annotated[
+        bool,
+        Field(
+            description="Enable visual analysis of images encountered during research. Default: false."
+        ),
+    ] = False,
+    language_code: Annotated[
+        str | None,
+        Field(description="ISO language code for output localization, e.g. 'en', 'es', or 'zh'."),
+    ] = None,
     token_budget_override: Annotated[
-        int | None, Field(ge=1000, description="Override preset token budget (min 1,000).")
+        int | None, Field(ge=1000, description="Override preset token budget (minimum 1,000).")
     ] = None,
     team_size_override: Annotated[
         int | None, Field(ge=1, le=5, description="Override preset worker count (1-5).")
     ] = None,
     endpoint_override: Annotated[
-        str | None,
-        Field(description="Override target self-hosted Deep Research deployment URL."),
+        str | None, Field(description="Optional alternate research endpoint URL.")
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> DeepResearchResponse:
-    """Autonomous multi-step web research via the self-hosted node-DeepResearch engine.
+    """Autonomous multi-step web research: decomposes the question, searches,
+    reads, and synthesizes a cited report.
 
-    PRESET DEPTHS:
-    - 'quick' (or 'fast', 'brief'): 1 worker, 50k token budget (~15s). Fast scoping or basic validation.
-    - 'standard' (DEFAULT): 2 workers, 300k token budget (~45s). Balanced multi-source technical research.
-    - 'deep' (or 'thorough', 'full'): 3 workers, 1M token budget (~120s+). Exhaustive multi-site investigation.
+    DEPTH PRESETS:
+    - 'quick' (or 'fast', 'brief'): 1 worker, 50k token budget (~15s). Fast
+      scoping or basic validation.
+    - 'standard' (DEFAULT): 2 workers, 300k token budget (~45s). Balanced
+      multi-source technical research.
+    - 'deep' (or 'thorough', 'full'): 3 workers, 1M token budget (~120s+).
+      Exhaustive multi-site investigation.
 
     WHEN TO USE:
-    - Multi-source technical investigations, SDK/library comparisons, or architectural trade-off analysis.
+    - Multi-source technical investigations, SDK/library comparisons, or
+      architectural trade-off analysis.
     - Finding obscure bug fixes across developer documentation and forums.
 
     WHEN NOT TO USE:
     - Local codebase searches (use code_search).
     - Simple single-fact questions that basic web_search can answer.
 
-    This tool is background-capable: task-aware clients run it as a background
-    task and poll for progress; other clients run it synchronously.
+    RETURNS:
+    - answer: the synthesized research answer.
+    - references[]: cited sources with url, title, and snippet.
+    - visited_urls / read_urls / all_urls: research trail.
+    - report_markdown: the human-readable report.
 
     Args:
-        query: The research topic or explicit technical question to investigate.
+        query: The research topic or explicit technical question to
+            investigate.
         question: Alias for query.
         topic: Alias for query.
         prompt: Alias for query.
-        depth: Research intensity preset: 'quick' (or 'fast'), 'standard', or 'deep' (or 'full'/'thorough'). Default: 'standard'.
-        with_images: Enable multimodal image/visual analysis during web page visits. Default: False.
-        language_code: ISO language code for output localization (e.g. 'en', 'es', 'zh').
+        depth: Research intensity preset: 'quick' (or 'fast'), 'standard',
+            or 'deep' (or 'full'/'thorough'). Default: 'standard'.
+        with_images: Enable multimodal image/visual analysis during web page
+            visits. Default: False.
+        language_code: ISO language code for output localization (e.g. 'en',
+            'es', 'zh').
         token_budget_override: Override preset token budget (min 1,000).
         team_size_override: Override preset worker count (1-5).
-        endpoint_override: Override target self-hosted Deep Research deployment URL.
+        endpoint_override: Optional alternate research endpoint URL.
     """
     started = time.monotonic()
     tool_call_id = str(uuid4())

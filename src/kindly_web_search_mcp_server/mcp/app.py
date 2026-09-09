@@ -98,7 +98,6 @@ from ..tools.resources import (
     get_workflow_doc_resource,
 )
 from ..tools.search import web_search
-from ..tools.recommend import recommend_command
 from ..tools.sitemap import generate_sitemap
 from ..tools.youtube import youtube_search, youtube_transcript
 from ..utils.logging import configure_logging
@@ -209,10 +208,11 @@ mcp = FastMCP(
         "scholarly questions. Use youtube_search + youtube_transcript for\n"
         "video content.\n"
         "Codebase work: use code_search for public discovery, then code_fetch with\n"
-        "repository + query to search the full snapshot — query returns matching\n"
-        "lines, so follow hits with path to read whole files. Repository alone returns\n"
-        "a map with the file tree. Use path only for focused file reads.\n"
-        "Boundary: known URL one-off → fetch; one repo, many questions →\n"
+        "repository + query for repo-wide FTS/literal search — query returns matching\n"
+        "lines, so follow hits with path to read whole files. Use symbol for callers/\n"
+        "callees. For one known GitHub file where only contents are needed, use fetch;\n"
+        "code_fetch(path=...) uses a direct single-file fast path and returns follow-up\n"
+        "guidance. Boundary: contents-only → fetch; repository intelligence →\n"
         "code_fetch; cross-repo discovery → code_search.\n"
         "\n"
         "For deeper guidance, request the research_methodology prompt.\n"
@@ -347,7 +347,6 @@ mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 mcp.tool(**tool_kwargs("code_search"))(code_search)
 mcp.tool(**tool_kwargs("code_fetch"))(code_fetch)
-mcp.tool(**tool_kwargs("recommend_command"))(recommend_command)
 
 
 # Register resources

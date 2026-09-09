@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
+import re
 from typing import Annotated, Any, Literal
 
 from fastmcp.dependencies import CurrentContext
@@ -222,28 +224,89 @@ def _response_from_query(
     )
 
 
-def _is_single_file_read_candidate(
+_COMMON_SINGLE_FILE_NAMES = frozenset(
+    {
+        "dockerfile",
+        "license",
+        "makefile",
+        "procfile",
+        "readme",
+    }
+)
+_SINGLE_FILE_REQUEST_RE = re.compile(
+    r"^(?:read|fetch|show|open|get|retrieve)\s+"
+    r"(?:the\s+)?(?:contents?\s+(?:of|for)\s+)?[`'\"]?(.+?)[`'\"]?$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_single_file_path(value: str) -> str | None:
+    candidate = value.strip().strip("`'\"").replace("\\", "/").strip("/")
+    if (
+        not candidate
+        or any(char.isspace() for char in candidate)
+        or candidate.casefold().startswith(("http://", "https://"))
+        or candidate.endswith("/")
+    ):
+        return None
+    basename = candidate.rsplit("/", 1)[-1]
+    if basename in {".", ".."}:
+        return None
+    if "." not in basename and basename.casefold() not in _COMMON_SINGLE_FILE_NAMES:
+        return None
+    return candidate
+
+
+def _infer_single_file_path(
     *,
     query: str | None,
     path: str | None,
     symbol: str | None,
+    regexp: bool,
     depth: int | None,
     language: str | None,
     filename: str | None,
     path_glob: str | None,
     exclude_glob: str | None,
     cursor: str | None,
+) -> str | None:
+    if (
+        path
+        or symbol
+        or regexp
+        or depth is not None
+        or language is not None
+        or filename is not None
+        or path_glob is not None
+        or exclude_glob is not None
+        or cursor is not None
+    ):
+        return None
+    candidate = (query or "").strip()
+    if candidate.casefold().startswith("path:"):
+        candidate = candidate[5:].strip()
+    else:
+        match = _SINGLE_FILE_REQUEST_RE.fullmatch(candidate)
+        if match is not None:
+            candidate = match.group(1)
+    return _looks_like_single_file_path(candidate)
+
+
+def _is_single_file_read_candidate(
+    *,
+    query: str | None,
+    path: str | None,
+    symbol: str | None,
+    depth: int | None,
+    cursor: str | None,
 ) -> bool:
+    """Identify explicit file paths that should bypass snapshot materialization."""
     return (
-        bool((path or "").strip().strip("/"))
+        _looks_like_single_file_path(path or "") is not None
         and not (query or "").strip()
         and not (symbol or "").strip()
-        and cursor is None
         and depth is None
-        and language is None
-        and filename is None
-        and path_glob is None
-        and exclude_glob is None
+        and cursor is None
     )
 
 
@@ -257,14 +320,7 @@ async def _try_fast_lane_github_file(
 ) -> CodeFetchResponse | None:
     branch: str | None = ref
     sha: str | None = None
-    try:
-        branch, sha = await _resolve_main_commit(repository, ref=ref)
-    except SnapshotError:
-        branch = ref
-        sha = None
-    except Exception:
-        branch = ref
-        sha = None
+    commit_task = asyncio.create_task(_resolve_main_commit(repository, ref=ref))
 
     try:
         client = await get_http_client()
@@ -286,6 +342,12 @@ async def _try_fast_lane_github_file(
     except Exception:
         LOGGER.debug("code_fetch fast-lane hydrate failed", exc_info=True)
         return None
+    finally:
+        if not commit_task.done():
+            commit_task.cancel()
+        metadata = await asyncio.gather(commit_task, return_exceptions=True)
+        if metadata and isinstance(metadata[0], tuple) and len(metadata[0]) == 2:
+            branch, sha = metadata[0]
 
     source = sources.get((repository.casefold(), path.replace("\\", "/").casefold()))
     if source is None or not source.text:
@@ -322,12 +384,17 @@ async def _try_fast_lane_github_file(
         "code_fetch fast-lane hit",
         extra={"repository": repository, "path": path, "ref": ref},
     )
-    warning = (
-        "file exceeded the fast-lane 5,000,000-char cap; re-read via repository+path "
-        "after snapshot warm-up for full content"
-        if was_truncated
-        else None
-    )
+    warning_parts: list[str] = []
+    if sha is None and not ref:
+        warning_parts.append(
+            "direct single-file hydration completed before immutable commit metadata was available"
+        )
+    if was_truncated:
+        warning_parts.append(
+            "file exceeded the fast-lane 5,000,000-char cap; re-read via repository+path "
+            "after snapshot warm-up for full content"
+        )
+    warning = "; ".join(warning_parts) if warning_parts else None
     return CodeFetchResponse(
         outcome="ok",
         repository=repository,
@@ -485,11 +552,18 @@ async def code_fetch(
     ],
     query: Annotated[
         str | None,
-        Field(description="Identifier, regex, or natural-language query over current main."),
+        Field(
+            description="Identifier, regex, or natural-language query over the selected revision."
+        ),
     ] = None,
     path: Annotated[
         str | None,
-        Field(description="Optional file or directory scope inside the snapshot."),
+        Field(
+            description=(
+                "Optional file or directory scope inside the selected revision. "
+                "A file path such as README.md or src/main.py uses direct GitHub hydration."
+            )
+        ),
     ] = None,
     paths: Annotated[
         list[str] | None,
@@ -513,8 +587,12 @@ async def code_fetch(
         bool,
         Field(description="Treat query as a regular expression."),
     ] = False,
-    max_matches: Annotated[int, Field(description="Maximum returned hits.")] = 25,
-    context_lines: Annotated[int, Field(description="Context lines around each match.")] = 3,
+    max_matches: Annotated[
+        int, Field(description="Maximum returned hits; values are clamped to 1-100.")
+    ] = 25,
+    context_lines: Annotated[
+        int, Field(description="Context lines around each match; values are clamped to 0-8.")
+    ] = 3,
     start_line: Annotated[
         int | None,
         Field(
@@ -557,40 +635,81 @@ async def code_fetch(
     ] = None,
     ctx: Context | None = CurrentContext(),
 ) -> CodeFetchResponse:
-    """Explore a GitHub repository's current main/default branch.
+    """Explore a GitHub repository revision with search, file reads, or symbol inspection.
 
-    GitHub repository exploration tool: prefer query searches and symbol lookups
-    over full-file reads; for one-off non-repo URLs use fetch; for cross-repo
-    discovery use code_search. Materializes a snapshot (TTL from
-    ``CODE_FETCH_SNAPSHOT_TTL_SECONDS``, default 300s), then searches, reads, or
-    graphs it. Callers do not pass a commit SHA. Every successful response
-    includes ``resolved_commit`` and ``cache_age_seconds``.
+    WHEN TO USE:
+    - One repository, many questions: search usages, read files or line windows,
+      or inspect a symbol's callers and callees.
+    - A known repository-relative file needs commit-aware source content.
+    - Following a code_search hit that points to a repository.
+    - A repository overview is needed (file tree and top symbols).
 
-    query returns matching lines with snippets across the snapshot — follow a
-    hit with path (and start_line/end_line) to read whole files, or pass up to 5
-    paths at once for a bulk read (response.files[]). repository alone returns a
-    map with the file tree and top symbols; symbol returns definitions with
-    callers/callees (waits briefly for the symbol graph after a cold clone).
-    Search supports language/filename/glob/case filters and cursor pagination
-    via next_cursor/has_more.
+    WHEN NOT TO USE:
+    - One-off content from a known URL, including one GitHub file URL: use fetch.
+    - Cross-repository discovery: use code_search.
 
-    Approximate token cost: query search ~50-300 tokens/hit; line-window read
-    ~100-500; whole-file read can exceed 10k; repository alone returns the map.
-    Prefer search over full-file reads.
+    OPERATIONS:
+    - repository alone: returns a file map with top symbols.
+    - query: searches the selected revision and returns matching lines with
+      path, line, snippet, and symbol evidence.
+    - path (file): returns one file in content; path (directory) returns tree.
+    - paths (1-5 files): returns file contents in files[].
+    - symbol: returns a definition plus callers and callees.
 
-    The first call for a repository downloads and indexes it (can take 30-90s);
-    later calls within the TTL are fast. ``max_matches`` clamps to [1,100] and
-    ``context_lines`` to [0,8]; ``depth`` filters tree depth only. ``map`` is
-    returned when no query/path/symbol/paths is given; ``tree`` when path is a
-    directory; ``read`` when path is a file; ``files`` when paths is a list.
-    ``truncated`` may reflect the snapshot index budget (``snapshot_truncated``)
-    rather than this query's results.
+    SINGLE-FILE ROUTING:
+    - For one file, pass path="src/example.py" (or paths=["src/example.py"])
+      without query or symbol. An explicit file-like path (for example, a .md
+      or .py path) is the fast-lane signal; redundant file filters do not force
+      snapshot materialization. Uncached reads use direct GitHub hydration and
+      fall back to a snapshot only when hydration misses.
+    - If only file contents are needed, use fetch with the GitHub file URL.
+      If repository intelligence is needed, use query for repo-wide FTS/literal
+      search or symbol for callers/callees, then follow a hit's path.
+
+    RETURNS:
+    - Every response identifies the repository and outcome; snapshot-backed
+      reads include resolved_commit. A direct read may omit resolved_commit when
+      its content arrives before the best-effort commit lookup.
+    - next_cursor and has_more paginate query results.
+    - next suggests a path or symbol follow-up within this repository.
+    - warning reports incomplete metadata, truncation, stale snapshots, or
+      other conditions that affect interpretation.
+
+    FILTERS:
+    Query searches support regexp, language, filename, path_glob, exclude_glob,
+    case_sensitive, max_matches, and context_lines. ref selects a branch,
+    tag, or commit. For file reads, start_line/end_line request a line window.
+
+    PERFORMANCE:
+    Direct single-file reads avoid snapshot cloning/indexing on a cold request.
+    Repository search, tree reads, and symbol inspection may materialize the
+    snapshot; the first snapshot can take 30-90 seconds. Prefer query or
+    symbol when repository intelligence is the goal.
+
+    CHAINING:
+    Follow response.next for the highest-value path or symbol inspection.
+    For a single-file-only task, prefer fetch on the known URL next time.
     """
     try:
         normalized_repository = _normalize_repository(repository)
     except ValueError as exc:
         raise_tool_error(ValueError(str(exc)), provider="code_fetch")
 
+    inferred_path = _infer_single_file_path(
+        query=query,
+        path=path,
+        symbol=symbol,
+        regexp=regexp,
+        depth=depth,
+        language=language,
+        filename=filename,
+        path_glob=path_glob,
+        exclude_glob=exclude_glob,
+        cursor=cursor,
+    )
+    if inferred_path is not None:
+        path = inferred_path
+        query = None
     if paths is not None:
         cleaned_paths = [
             item.strip().strip("/")
@@ -730,28 +849,21 @@ async def code_fetch(
         path=path,
         symbol=symbol,
         depth=depth,
-        language=language,
-        filename=filename,
-        path_glob=path_glob,
-        exclude_glob=exclude_glob,
         cursor=cursor,
     ):
-        key = f"{normalized_repository}@{ref}" if ref else normalized_repository
-        if get_snapshot_manager().live_snapshot(key) is None:
-            fast = await _try_fast_lane_github_file(
-                normalized_repository,
-                (path or "").strip().strip("/"),
-                ref=ref,
-                start_line=start_line,
-                end_line=end_line,
-            )
-            if fast is not None:
-                if ctx is not None:
-                    await ctx.report_progress(
-                        progress=100, total=100, message="GitHub file read complete."
-                    )
-                return fast
-
+        fast = await _try_fast_lane_github_file(
+            normalized_repository,
+            (path or "").strip().strip("/"),
+            ref=ref,
+            start_line=start_line,
+            end_line=end_line,
+        )
+        if fast is not None:
+            if ctx is not None:
+                await ctx.report_progress(
+                    progress=100, total=100, message="GitHub file read complete."
+                )
+            return fast
     if ctx is not None:
         await ctx.report_progress(progress=10, total=100, message="Opening main-branch snapshot...")
 

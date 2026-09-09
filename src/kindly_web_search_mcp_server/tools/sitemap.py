@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Annotated
+
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
+from pydantic import Field
 
 from ..content.tavily_map import map_site as _generate_sitemap
 from ..errors import raise_tool_error
@@ -15,44 +18,92 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def generate_sitemap(
-    url: str,
-    instructions: str | None = None,
-    max_depth: int = 1,
-    max_breadth: int = 20,
-    limit: int = 50,
-    select_paths: list[str] | None = None,
-    select_domains: list[str] | None = None,
-    exclude_paths: list[str] | None = None,
-    exclude_domains: list[str] | None = None,
-    allow_external: bool = False,
+    url: Annotated[
+        str,
+        Field(description="The target website URL to generate a sitemap from."),
+    ],
+    instructions: Annotated[
+        str | None,
+        Field(
+            description="Natural-language mapping guidance (e.g. 'Find all blog posts and documentation pages')."
+        ),
+    ] = None,
+    max_depth: Annotated[
+        int,
+        Field(
+            description="Traversal depth (1-5, default 1). Higher values explore deeper site hierarchies.",
+        ),
+    ] = 1,
+    max_breadth: Annotated[
+        int,
+        Field(
+            description="Per-level breadth limit (default 20). Controls how many sibling pages are explored at each depth."
+        ),
+    ] = 20,
+    limit: Annotated[
+        int,
+        Field(description="Maximum total URLs to return (default 50)."),
+    ] = 50,
+    select_paths: Annotated[
+        list[str] | None,
+        Field(
+            description="Inclusive regex patterns for URL paths to keep (e.g. ['/docs/.*', '/api/.*'])."
+        ),
+    ] = None,
+    select_domains: Annotated[
+        list[str] | None,
+        Field(description="Inclusive regex patterns for domains to keep."),
+    ] = None,
+    exclude_paths: Annotated[
+        list[str] | None,
+        Field(
+            description="Exclusion regex patterns for URL paths to skip (e.g. ['/blog/tag/.*'])."
+        ),
+    ] = None,
+    exclude_domains: Annotated[
+        list[str] | None,
+        Field(description="Exclusion regex patterns for domains to skip."),
+    ] = None,
+    allow_external: Annotated[
+        bool,
+        Field(description="Follow links to external domains when true (default false)."),
+    ] = False,
     ctx: Context = CurrentContext(),
 ) -> SitemapResponse:
-    """Generate a structural sitemap for a website using Tavily Map.
+    """Generate a structural sitemap for a website: its URL hierarchy and page structure.
 
-    When to use this tool:
-    - To map full URL hierarchies and site structures for documentation sites, blogs, or APIs.
-    - When planning deep site crawls with specific path regex filters.
+    WHEN TO USE:
+    - Mapping documentation sites, blogs, or APIs before a deep crawl.
+    - Discovering the URL layout of an unfamiliar site.
+    - Planning targeted crawls with path or domain regex filters.
 
-    Parameters explained:
-    - select_paths: Array of regex strings to include (e.g., ["/docs/.*", "/api/.*"]).
-    - exclude_paths: Array of regex strings to skip (e.g., ["/blog/tag/.*"]).
+    WHEN NOT TO USE:
+    - Reading specific pages (use fetch).
+    - Finding pages similar to a known URL (use composio_similarlinks).
+
+    RETURNS:
+    - results[]: discovered URLs.
+    - related_questions[] and images[] when available.
+    - next: suggested fetch calls for promising sections.
+
+    CHAINING: feed discovered URLs to fetch for content reading.
 
     Args:
-        url: The target website URL to generate a sitemap from.
-        instructions: Natural-language mapping guidance (e.g., "Find all blog
-            posts and documentation pages").
-        max_depth: Traversal depth (1-5, default 1). Higher values explore
+        url: The target website URL to map.
+        instructions: Natural-language mapping guidance, e.g. "Find all blog
+            posts and documentation pages".
+        max_depth: Traversal depth (1-5, default 1); higher values explore
             deeper site hierarchies.
-        max_breadth: Per-level breadth limit (default 20). Controls how many
+        max_breadth: Per-level breadth limit (default 20); controls how many
             sibling pages are explored at each depth.
         limit: Maximum total URLs to return (default 50).
-        select_paths: Inclusive regex patterns for URL paths to keep
-            (e.g., ["/docs/.*", "/blog/.*"]).
+        select_paths: Inclusive regex patterns for URL paths to keep, e.g.
+            [\"/docs/.*\", \"/blog/.*\"].
         select_domains: Inclusive regex patterns for domains to keep.
-        exclude_paths: Exclusion regex patterns for URL paths to skip
-            (e.g., ["/tag/.*", "/category/.*"]).
+        exclude_paths: Exclusion regex patterns for URL paths to skip, e.g.
+            [\"/tag/.*\", \"/category/.*\"].
         exclude_domains: Exclusion regex patterns for domains to skip.
-        allow_external: Follow links to external domains when True.
+        allow_external: Follow links to external domains when true.
     """
     started = time.monotonic()
     emit_tool_observability_event(
