@@ -33,7 +33,7 @@ from .provider_registry import (
     select_semantic_tavily_provider,
 )
 from .providers.brave import suggest_brave_queries
-from .providers.discovery_engine import app_for_intent
+from .providers.discovery_engine import app_for_intent, credentials_available, warm_access_token
 from .understanding.resolver import resolve_query_understanding
 
 
@@ -41,7 +41,7 @@ LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
 
 _ORIGINAL_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog", "google_discovery_engine")
-_FREE_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog")
+_FREE_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog", "google_discovery_engine")
 _SERP1_CANDIDATES = ("brave",)
 _SERP2_CANDIDATES = ("brightdata", "serper", "search_router")
 _SEMANTIC_TAVILY_CANDIDATES = ("tavily", "langsearch")
@@ -244,6 +244,12 @@ async def plan_search(run: SearchRun) -> SearchPlan:
             run_key=run.run_key,
         )
         policy = resolve_intent_policy(understanding.intent)
+        discovery_app = app_for_intent(understanding.intent)
+        token_warm: asyncio.Task[None] | None = None
+        if discovery_app is not None and credentials_available():
+            token_warm = asyncio.create_task(
+                warm_access_token(), name="search.discovery.token_warm"
+            )
         enrichment = await asyncio.gather(
             _bounded(extract_support_terms(request.research_goal)),
             _bounded(suggest_brave_queries(normalized_query, http_client=run.http_client)),
@@ -263,9 +269,14 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         # --- materialize the six requested provider assignments ---
         original = _branch_names(_ORIGINAL_CANDIDATES, available)
         free = _branch_names(_FREE_CANDIDATES, available)
-        discovery_app = app_for_intent(understanding.intent)
+        if token_warm is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(token_warm), timeout=12.0)
+            except TimeoutError:
+                pass
         if discovery_app is None:
             original = tuple(name for name in original if name != "google_discovery_engine")
+            free = tuple(name for name in free if name != "google_discovery_engine")
         serp1 = _branch_names(_SERP1_CANDIDATES, available)
         serp2_name = select_paid_google_provider(available)
         serp2 = (serp2_name,) if serp2_name else ()

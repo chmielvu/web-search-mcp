@@ -2,7 +2,7 @@
 ### Changed — Production analytics dashboard (2026-09-09)
 - Replaced the mock-data runtime path with a read-only, parameterized DuckDB data layer using `ANALYTICS_DUCKDB_PATH` and live schema bounds.
 - Rebuilt all 12 Streamlit pages against current analytics tables and views; fixed Overview empty-period handling, Quality Feedback runtime imports, and Cost Analytics view/query mismatches.
-- Replaced the Analytics Assistant keyword router with a databao agent (`databao-agent>=0.2.0`) answering free-form questions with generated read-only SQL over the live analytics DuckDB via native Gemini (`langchain-google-genai`), with a fallback chain across gemini-3.8/3.7/3.6-flash on `GEMINI_API_KEY` and 3.6-flash on `GEMINI_SECOND_API_KEY`; added `python-dotenv` to dashboard requirements.
+- Overhauled the analytics dashboard from 13 overlapping pages to 8 one-story pages (Overview, Retrieval, Providers and spend, Queries and rewrites, Quality and relevance, Code search, Assistant, Explore); home is now a story index, A/B Testing retired with empty backing tables, and Code search plus bad-case-queue coverage added from previously unsized tables.
 - Refined the Streamlit theme and removed fake mutation controls; stale/frozen repository tests were not modified or run.
 ### Fixed — Discovery Engine token mint vs 15s retrieve cap (2026-09-09)
 - Skip ADC unless `GOOGLE_APPLICATION_CREDENTIALS` or the well-known ADC

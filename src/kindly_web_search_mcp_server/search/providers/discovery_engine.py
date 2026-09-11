@@ -3,14 +3,17 @@
 One adapter, many apps: add a future news engine as another ``APPS`` row.
 Builtin ``search-1`` serves ``general`` and ``ai_coding_and_infrastructure``.
 
-Auth is OAuth, never an API key. ADC if present, else
-``gcloud auth print-access-token``. Every call sends ``x-goog-user-project``.
+Auth is OAuth, never an API key. ADC only when a credentials file is
+present, else ``gcloud auth print-access-token``. Token mint is warmed
+during planning so the 15s retrieve cap is search, not gcloud. Every
+call sends ``x-goog-user-project``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import html
+import logging
 import os
 import re
 import shutil
@@ -44,6 +47,7 @@ _TOKEN_TTL_SECONDS = 55 * 60
 _GCLOUD_TIMEOUT_SECONDS = 15
 _TAG_RE = re.compile(r"<[^>]+>")
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+LOGGER = logging.getLogger(__name__)
 
 
 class DiscoveryEngineError(ProviderRequestError):
@@ -140,6 +144,21 @@ def credentials_available() -> bool:
     return _resolve_gcloud_bin() is not None
 
 
+def _well_known_adc_path() -> Path:
+    if os.name == "nt":
+        return (
+            Path.home() / "AppData" / "Roaming" / "gcloud" / "application_default_credentials.json"
+        )
+    return Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
+
+
+def _adc_credentials_present() -> bool:
+    configured = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if configured:
+        return Path(configured).is_file()
+    return _well_known_adc_path().is_file()
+
+
 def reset_token_cache() -> None:
     global _cached_token, _cached_token_expires_at, _cached_auth_mode
     with _token_lock:
@@ -173,14 +192,20 @@ def _token_from_gcloud() -> str:
             "Discovery Engine auth needs gcloud or Application Default Credentials. "
             "Run `gcloud auth login` (or `gcloud auth application-default login`)."
         )
-    completed = subprocess.run(
-        [binary, "auth", "print-access-token", "--quiet"],
-        capture_output=True,
-        text=True,
-        timeout=_GCLOUD_TIMEOUT_SECONDS,
-        creationflags=_CREATE_NO_WINDOW,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [binary, "auth", "print-access-token", "--quiet"],
+            capture_output=True,
+            text=True,
+            timeout=_GCLOUD_TIMEOUT_SECONDS,
+            creationflags=_CREATE_NO_WINDOW,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DiscoveryEngineConfigError(
+            "gcloud auth print-access-token timed out. Run `gcloud auth login` and retry."
+        ) from exc
     token = (completed.stdout or "").strip()
     if completed.returncode != 0 or not token:
         detail = (completed.stderr or completed.stdout or "gcloud failed").strip()[:300]
@@ -193,25 +218,54 @@ def _token_from_gcloud() -> str:
 def _fetch_token() -> tuple[str, str]:
     global _adc_unavailable
     if not _adc_unavailable:
-        token = _token_from_adc()
-        if token:
-            return token, "adc"
-        _adc_unavailable = True
+        if not _adc_credentials_present():
+            _adc_unavailable = True
+        else:
+            token = _token_from_adc()
+            if token:
+                return token, "adc"
+            _adc_unavailable = True
     return _token_from_gcloud(), "gcloud_user"
 
 
-async def _get_access_token(*, force: bool = False) -> tuple[str, str]:
+def _mint_token(*, force: bool = False) -> tuple[str, str]:
     global _cached_token, _cached_token_expires_at, _cached_auth_mode
-    now = time.monotonic()
     with _token_lock:
-        if not force and _cached_token and _cached_auth_mode and now < _cached_token_expires_at:
+        now = time.monotonic()
+        if (
+            not force
+            and _cached_token
+            and _cached_auth_mode
+            and now < _cached_token_expires_at
+        ):
             return _cached_token, _cached_auth_mode
-    token, mode = await asyncio.to_thread(_fetch_token)
-    with _token_lock:
+        token, mode = _fetch_token()
         _cached_token = token
         _cached_auth_mode = mode
         _cached_token_expires_at = time.monotonic() + _TOKEN_TTL_SECONDS
-    return token, mode
+        return token, mode
+
+
+async def _get_access_token(*, force: bool = False) -> tuple[str, str]:
+    if not force:
+        now = time.monotonic()
+        with _token_lock:
+            if _cached_token and _cached_auth_mode and now < _cached_token_expires_at:
+                return _cached_token, _cached_auth_mode
+    return await asyncio.to_thread(_mint_token, force=force)
+
+
+async def warm_access_token() -> None:
+    """Mint and cache a token outside the retrieve ``wait_for``.
+
+    No-op under pytest so ``plan_search`` tests do not spawn gcloud.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    try:
+        await _get_access_token()
+    except DiscoveryEngineConfigError as exc:
+        LOGGER.warning("Discovery Engine token warm failed: %s", exc)
 
 
 def _parse_results(data: dict[str, Any], *, num_results: int) -> list[WebSearchResult]:

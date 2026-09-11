@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-07 | Last verified: 2026-09-07 -->
+<!-- Last updated: 2026-09-09 | Last verified: 2026-09-09 -->
 
 # AGENTS.md - Search
 
@@ -80,8 +80,12 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 
 ## Google Discovery Engine adapter
 
-- Catalog name `google_discovery_engine`. ``APPS`` maps intents to serving configs. Builtin `search-1` covers `general` and `ai_coding_and_infrastructure` on the original branch. A future news engine is another ``APPS`` row, not a new adapter.
-- Auth is OAuth bearer (ADC, else `gcloud auth print-access-token`) plus `x-goog-user-project`. `:search` rejects API keys. Token cache 55 minutes; 401 retries once.
+- Catalog name `google_discovery_engine`. ``APPS`` maps intents to serving configs. Builtin `search-1` covers `general` and `ai_coding_and_infrastructure` on the original and free branches. A future news engine is another ``APPS`` row, not a new adapter.
+- Auth is OAuth bearer. ADC only when a credentials file exists, else
+  ``gcloud auth print-access-token`` (stdin=DEVNULL). Token is warmed in
+  ``plan_search`` so mint sits outside the 15s retrieve cap; cache 55
+  minutes; 401 retries once. Every call sends ``x-goog-user-project``.
+  `:search` rejects API keys.
 - Reachability is gcloud-on-disk or `GOOGLE_APPLICATION_CREDENTIALS`. Disable with `DISABLED_PROVIDERS`.
 
 ## Query Understanding Gateway

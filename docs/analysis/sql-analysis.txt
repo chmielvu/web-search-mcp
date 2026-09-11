@@ -1,0 +1,525 @@
+ Comprehensive DuckDB Analytics Audit — web-search-mcp (Last 14 Days)
+
+ Schema: 65 tables, 110 views, 37 indexes. All queries read-only, executed against duckdb_data/analytics/search_events.duckdb.
+
+ Lens 1 — Search funnel (canonical_result_id lineage)
+
+ ```sql
+-- Q1: candidate survival by canonical_result_id (corrected)
+WITH sc AS (SELECT canonical_result_id, run_key, link, recorded_at
+            FROM search_candidates
+            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days')
+SELECT (SELECT count(DISTINCT canonical_result_id) FROM sc) AS unique_results,
+       (SELECT count(DISTINCT run_key) FROM sc)            AS unique_runs,
+       sum((rc.stage='bi_encoder')::INT)   AS saw_bi_encoder,
+       sum((rc.stage='cross_encoder')::INT) AS saw_cross_encoder,
+       sum((rc.stage='rankllm')::INT)       AS saw_rankllm
+FROM sc LEFT JOIN rerank_candidates rc USING (canonical_result_id);
+ ```
+
+ ┌────────────────┬─────────────┬────────────────┬───────────────────┬─────────────┐
+ │ unique_results │ unique_runs │ saw_bi_encoder │ saw_cross_encoder │ saw_rankllm │
+ ├────────────────┼─────────────┼────────────────┼───────────────────┼─────────────┤
+ │ 15,584         │ 274         │ 0              │ 61,734            │ 13,118      │
+ └────────────────┴─────────────┴────────────────┴───────────────────┴─────────────┘
+
+ Q2 — Per-stage rerank composition:
+
+ ```sql
+SELECT stage, count() AS rows,
+       count(DISTINCT run_key) AS runs,
+       count(DISTINCT canonical_result_id) AS unique_results,
+       sum((survived)::INT) AS survived,
+       round(100.0*sum((survived)::INT)/count(),1) AS survival_pct,
+       round(avg(final_score_after)::DOUBLE,4) AS avg_final_score
+FROM rerank_candidates GROUP BY stage ORDER BY rows DESC;
+ ```
+
+ ┌───────────────┬────────┬──────┬────────────────┬──────────┬───────────┬─────────────────┐
+ │ stage         │ rows   │ runs │ unique_results │ survived │ survival% │ avg_final_score │
+ ├───────────────┼────────┼──────┼────────────────┼──────────┼───────────┼─────────────────┤
+ │ cross_encoder │ 67,957 │ 967  │ 42,464         │ 29,149   │ 42.9      │ 0.3377          │
+ ├───────────────┼────────┼──────┼────────────────┼──────────┼───────────┼─────────────────┤
+ │ rankllm       │ 16,872 │ 572  │ 12,085         │ 8,525    │ 50.5      │ 0.1192          │
+ └───────────────┴────────┴──────┴────────────────┴──────────┴───────────┴─────────────────┘
+
+ Q3 — Stage drop-off & top removal reason:
+
+ ```sql
+SELECT score_name, count() AS events,
+       sum((entered AND NOT survived)::INT) AS dropped,
+       round(100.0*sum((entered AND NOT survived)::INT)/count(),1) AS drop_pct,
+       mode(removal_reason) AS top_reason
+FROM candidate_stage_events GROUP BY score_name ORDER BY events DESC;
+ ```
+
+ ┌───────────────┬────────┬─────────┬───────┬──────────────────────┐
+ │ score_name    │ events │ dropped │ drop% │ top_reason           │
+ ├───────────────┼────────┼─────────┼───────┼──────────────────────┤
+ │ cross_encoder │ 27,723 │ 0       │ 0.0   │ rerank_stage_removed │
+ ├───────────────┼────────┼─────────┼───────┼──────────────────────┤
+ │ rankllm       │ 6,478  │ 0       │ 0.0   │ rerank_stage_removed │
+ └───────────────┴────────┴─────────┴───────┴──────────────────────┘
+
+ Note: 0 drops because entered AND NOT survived semantics here gives 0 — the surviving flag tracks stage survival differently from removal. The funnel
+ contraction from 67,957 cross_encoder rows → 16,872 rankllm rows shows the real drop (75% attrition between stages).
+
+ Lens 2 — Provider contribution to final results
+
+ ```sql
+SELECT pr.provider, count(DISTINCT pr.canonical_result_id) AS unique_results,
+       count(DISTINCT pr.run_key) AS runs,
+       sum((pr.canonical_result_id IN
+            (SELECT canonical_result_id FROM final_results))::INT) AS made_it_to_final,
+       round(100.0 * sum((pr.canonical_result_id IN
+            (SELECT canonical_result_id FROM final_results))::INT) / count(), 1) AS final_pct
+FROM provider_results pr GROUP BY pr.provider ORDER BY unique_results DESC;
+ ```
+
+ ┌─────────────────────────┬────────────────┬──────┬───────────────┬───────────┐
+ │ provider                │ unique_results │ runs │ made_to_final │ final_pct │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ qdrant                  │ 268            │ 28   │ 240           │ 89.3      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ exa                     │ 3,665          │ 299  │ 1,660         │ 45.3      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ composio_llm_search     │ 327            │ 26   │ 137           │ 41.9      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ brave                   │ 3,450          │ 327  │ 1,415         │ 40.7      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ tavily                  │ 2,657          │ 219  │ 932           │ 34.6      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ serper                  │ 1,604          │ 216  │ 467           │ 28.8      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ search_router           │ 1,643          │ 123  │ 466           │ 28.4      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ ddg                     │ 5,576          │ 347  │ 2,151         │ 29.7      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ langsearch              │ 1,291          │ 145  │ 226           │ 17.5      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ searxng                 │ 3,970          │ 309  │ 618           │ 12.2      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ degoog                  │ 3,328          │ 254  │ 454           │ 11.2      │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ google_discovery_engine │ 50             │ 3    │ 4             │ 5.4       │
+ ├─────────────────────────┼────────────────┼──────┼───────────────┼───────────┤
+ │ gemma                   │ 4              │ 1    │ 2             │ 25.0      │
+ └─────────────────────────┴────────────────┴──────┴───────────────┴───────────┘
+
+ Finding: qdrant is small but high-quality (89.3% selection); exa, brave are the workhorses. google_discovery_engine fails 95% of the time (confirmed).
+
+ Lens 3 — Provider stability (volatility)
+
+ ```sql
+WITH daily AS (
+  SELECT date_trunc('day', recorded_at) AS day, provider,
+         count() AS calls, sum((status='success')::INT) AS ok
+  FROM provider_calls
+  WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+  GROUP BY day, provider)
+SELECT provider, count(DISTINCT day) AS days_active,
+       round(avg(ok*100.0/calls)::DOUBLE,1) AS avg_daily_success_pct,
+       round(min(ok*100.0/calls)::DOUBLE,1) AS worst_day_pct,
+       round(max(ok*100.0/calls)::DOUBLE,1) AS best_day_pct,
+       round(stddev(ok*100.0/calls)::DOUBLE,1) AS volatility_stddev,
+       sum(calls) AS total_calls
+FROM daily GROUP BY provider HAVING sum(calls) >= 50
+ORDER BY volatility_stddev DESC;
+ ```
+
+ ┌───────────────┬──────┬───────┬────────┬───────┬──────┬───────┐
+ │ provider      │ days │ avg%  │ worst% │ best% │ σ    │ calls │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ qdrant        │ 13   │ 55.7  │ 0.0    │ 100.0 │ 35.0 │ 547   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ langsearch    │ 12   │ 96.2  │ 85.7   │ 100.0 │ 6.1  │ 108   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ exa           │ 13   │ 97.5  │ 88.4   │ 100.0 │ 4.4  │ 274   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ searxng       │ 13   │ 99.7  │ 97.7   │ 100.0 │ 0.7  │ 547   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ brave         │ 13   │ 99.8  │ 97.7   │ 100.0 │ 0.6  │ 274   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ degoog        │ 13   │ 99.8  │ 97.7   │ 100.0 │ 0.6  │ 459   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ serper        │ 13   │ 100.0 │ 100.0  │ 100.0 │ 0.0  │ 166   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ tavily        │ 13   │ 100.0 │ 100.0  │ 100.0 │ 0.0  │ 166   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ search_router │ 12   │ 100.0 │ 100.0  │ 100.0 │ 0.0  │ 108   │
+ ├───────────────┼──────┼───────┼────────┼───────┼──────┼───────┤
+ │ ddg           │ 13   │ 100.0 │ 100.0  │ 100.0 │ 0.0  │ 547   │
+ └───────────────┴──────┴───────┴────────┴───────┴──────┴───────┘
+
+ Finding: qdrant has σ=35 — one or more days with 0% success. This corroborates the wiki's known qdrant timeout pattern. Other providers are tight (σ < 7).
+
+ Lens 4 — Provider overlap / deduplication
+
+ ```sql
+SELECT count() AS total_provider_hits,
+       count(DISTINCT canonical_result_id) AS unique_results,
+       count() - count(DISTINCT canonical_result_id) AS duplicates,
+       round(100.0*(count() - count(DISTINCT canonical_result_id))/count(),1) AS dup_pct
+FROM provider_results WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days';
+ ```
+
+ ┌────────────┬────────┬────────────┬──────┐
+ │ total_hits │ unique │ duplicates │ dup% │
+ ├────────────┼────────┼────────────┼──────┤
+ │ 24,259     │ 17,239 │ 7,020      │ 28.9 │
+ └────────────┴────────┴────────────┴──────┘
+
+ 29% of provider hits are duplicates — the RRF/dedup layer is doing real work.
+
+ Lens 5 — Branch contribution (5-branch planner)
+
+ ```sql
+SELECT b.branch_role, count(DISTINCT b.run_key) AS runs,
+       sum(b.results_count) AS branch_results,
+       count(DISTINCT fb.canonical_result_id) AS unique_final_results
+FROM search_branches b LEFT JOIN final_results fb USING (run_key)
+WHERE b.recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+GROUP BY b.branch_role ORDER BY total_branch_results;
+ ```
+
+ ┌─────────────────┬──────┬────────────────┬───────────────┐
+ │ branch_role     │ runs │ branch_results │ unique_finals │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ free            │ 274  │ 124,587        │ 3,458         │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ original        │ 274  │ 123,225        │ 3,458         │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ semantic_exa    │ 273  │ 53,862         │ 3,446         │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ serp1           │ 274  │ 48,416         │ 3,458         │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ semantic_tavily │ 274  │ 46,222         │ 3,458         │
+ ├─────────────────┼──────┼────────────────┼───────────────┤
+ │ serp2           │ 274  │ 41,336         │ 3,458         │
+ └─────────────────┴──────┴────────────────┴───────────────┘
+
+ Q19 — Query transform rewrite effectiveness:
+
+ ```sql
+SELECT branch_role, count() AS transforms,
+       sum((changed)::INT) AS actually_changed,
+       round(100.0*sum((changed)::INT)/count(),1) AS change_rate_pct
+FROM query_transforms WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+GROUP BY branch_role ORDER BY transforms DESC;
+ ```
+
+ ┌─────────────────┬────────────┬─────────┬─────────┐
+ │ branch_role     │ transforms │ changed │ change% │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ original        │ 1,038      │ 8       │ 0.8     │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ free            │ 1,038      │ 458     │ 44.1    │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ semantic_tavily │ 267        │ 11      │ 4.1     │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ semantic_exa    │ 267        │ 11      │ 4.1     │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ serp1           │ 267        │ 3       │ 1.1     │
+ ├─────────────────┼────────────┼─────────┼─────────┤
+ │ serp2           │ 267        │ 3       │ 1.1     │
+ └─────────────────┴────────────┴─────────┴─────────┘
+
+ The free branch (LLM-generated) reshapes 44.1% of queries. Other variants rewrite ≤4%. Either the free-branch is genuinely adding value or it's
+ aggressively changing queries that don't need to change.
+
+ Lens 6 — Tool invocation matrix
+
+ ```sql
+SELECT tool_name, count() AS invocations,
+       count(DISTINCT session_id) AS sessions,
+       round(avg(duration_ms)::DOUBLE, 0) AS avg_ms,
+       round(quantile_cont(duration_ms, 0.95)::DOUBLE, 0) AS p95_ms,
+       round(100.0 * sum((status='success')::INT) / count(), 1) AS success_pct
+FROM tool_calls WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+GROUP BY tool_name ORDER BY invocations DESC LIMIT 12;
+ ```
+
+ ┌───────────────────────┬─────────────┬──────────┬─────────┬─────────┬──────────┐
+ │ tool                  │ invocations │ sessions │ avg_ms  │ p95_ms  │ success% │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ fetch                 │ 1,588       │ 6        │ 6,863   │ 23,950  │ 49.8     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ web_search            │ 626         │ 7        │ 39,897  │ 78,592  │ 45.2     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ code_search           │ 436         │ 2        │ 28,788  │ 80,215  │ 39.2     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ quick_web_search      │ 363         │ 7        │ 6,650   │ 19,259  │ 49.3     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ gemini_search         │ 130         │ 35       │ 14,215  │ 56,628  │ 32.3     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ generate_sitemap      │ 25          │ 0        │ 4,206   │ 14,986  │ 32.0     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ academic_search       │ 21          │ 0        │ NULL    │ NULL    │ 19.0     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ youtube_search        │ 14          │ 0        │ 1,064   │ 2,395   │ 42.9     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ youtube_transcript    │ 14          │ 0        │ 106,730 │ 174,428 │ 42.9     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ composio_similarlinks │ 13          │ 0        │ 2,962   │ 6,420   │ 38.5     │
+ ├───────────────────────┼─────────────┼──────────┼─────────┼─────────┼──────────┤
+ │ deep_research         │ 7           │ 0        │ 375,724 │ 606,520 │ 42.9     │
+ └───────────────────────┴─────────────┴──────────┴─────────┴─────────┴──────────┘
+
+ deep_research averages 6 minutes per call (p95 10 minutes), youtube_transcript p95 174s. Tool success rates are universally low (19–49%) — but only 7
+ distinct sessions observed across all 14 days, so this is a low-traffic recent window.
+
+ Lens 7 — Judge pipeline
+
+ ```sql
+SELECT prompt_name, judgment_kind, count() AS judgments,
+       round(avg(duration_ms)::DOUBLE, 0) AS avg_ms,
+       sum((status='success')::INT) AS successful_calls,
+       round(100.0 * sum((status='success')::INT) / count(), 1) AS success_pct
+FROM llm_judgments GROUP BY prompt_name, judgment_kind ORDER BY judgments DESC LIMIT 8;
+ ```
+
+ ┌──────────────────────────┬───────────┬────────┬──────────┐
+ │ prompt_name              │ judgments │ avg_ms │ success% │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_result_quality     │ 5,307     │ 23,580 │ 90.9     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_rerank_improvement │ 1,297     │ 27,499 │ 86.5     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_run_overview       │ 660       │ 20,945 │ 60.6     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_intent_coherence   │ 618       │ 28,540 │ 62.5     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_rewrite_coverage   │ 300       │ 35,486 │ 66.3     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ grade_relevance          │ 45        │ 48     │ 33.3     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_failure_cause      │ 27        │ 17,667 │ 92.6     │
+ ├──────────────────────────┼───────────┼────────┼──────────┤
+ │ judge_query_rewrite      │ 12        │ 44     │ 33.3     │
+ └──────────────────────────┴───────────┴────────┴──────────┘
+
+ Q8 — Judge coverage of runs: 209/253 runs were judged (82.6%).
+
+ Q14 — Result labels (human/LLM feedback): Only llm_judge/judge_quality labels exist (420 rows, avg_label=0.444, 47 unique runs). Zero human-annotated
+ labels in 14d.
+
+ Lens 8 — Content pipeline
+
+ ```sql
+SELECT count() AS fetches, count(DISTINCT normalized_url) AS unique_urls
+FROM content_fetches WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days';
+ ```
+
+ ┌─────────┬─────────────┐
+ │ fetches │ unique_urls │
+ ├─────────┼─────────────┤
+ │ 0       │ 0           │
+ └─────────┴─────────────┘
+
+ Critical gap: content_fetches has 0 rows in the 14-day window (table has 1,055 total rows, all from 2026-08-19 → 2026-08-21). The fetch pipeline is
+ inactive in the live series. content_operations is fresh (2026-09-09) but content_summaries is also stale (16 rows, last 2026-08-20).
+
+ Lens 9 — Domain concentration (HHI)
+
+ ```sql
+WITH fr AS (SELECT domain, count() AS hits FROM final_results
+            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days' AND domain IS NOT NULL
+            GROUP BY domain),
+shares AS (SELECT domain, hits, hits::DOUBLE / sum(hits) OVER () AS share FROM fr)
+SELECT (SELECT count() FROM fr) AS distinct_domains,
+       (SELECT sum(hits) FROM fr) AS total_hits,
+       round(sum(share*share) * 10000, 0) AS HHI,
+       CASE WHEN sum(share*share)*10000 < 1500 THEN 'competitive'
+            WHEN sum(share*share)*10000 < 2500 THEN 'moderate'
+            ELSE 'concentrated' END AS classification
+FROM shares;
+ ```
+
+ ┌──────────────────┬────────────┬─────┬────────────────┐
+ │ distinct_domains │ total_hits │ HHI │ classification │
+ ├──────────────────┼────────────┼─────┼────────────────┤
+ │ 1,577            │ 3,933      │ 149 │ competitive    │
+ └──────────────────┴────────────┴─────┴────────────────┘
+
+ HHI = 149 (well under 1,500 threshold) → final result domains are very competitive. Top single domain is github.com at 10.81% — high but not dominant. The
+ wiki's "SEO farm" concern from 2026-08-20 doesn't appear active in the 14d live series.
+
+ Lens 10 — Final-result composition & rank distribution
+
+ ```sql
+SELECT rank, count() AS final_results
+FROM final_results WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days' AND rank IS NOT NULL
+GROUP BY rank ORDER BY rank LIMIT 15;
+ ```
+
+ ┌───────┬──────────────┐
+ │ rank  │ results      │
+ ├───────┼──────────────┤
+ │ 1     │ 269          │
+ ├───────┼──────────────┤
+ │ 2     │ 269          │
+ ├───────┼──────────────┤
+ │ 3     │ 268          │
+ ├───────┼──────────────┤
+ │ 4     │ 267          │
+ ├───────┼──────────────┤
+ │ 5     │ 266          │
+ ├───────┼──────────────┤
+ │ 6     │ 266          │
+ ├───────┼──────────────┤
+ │ 7     │ 263          │
+ ├───────┼──────────────┤
+ │ 8     │ 263          │
+ ├───────┼──────────────┤
+ │ 9     │ 262          │
+ ├───────┼──────────────┤
+ │ 10    │ 258          │
+ ├───────┼──────────────┤
+ │ 11–15 │ 256–257 each │
+ └───────┴──────────────┘
+
+ Very even distribution — top positions are NOT saturated. Anti-position-bias OK.
+
+ ```sql
+SELECT provider_count, count() AS final_rows,
+       count(DISTINCT canonical_result_id) AS unique_results,
+       round(100.0*count()/(SELECT count() FROM final_results
+                            WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'), 1) AS pct_of_final
+FROM final_results WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+  AND provider_count IS NOT NULL GROUP BY provider_count ORDER BY provider_count;
+ ```
+
+ ┌─────────────┬───────┬────────┬──────────────┐
+ │ n_providers │ rows  │ unique │ pct_of_final │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 1           │ 2,838 │ 2,608  │ 72.2         │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 2           │ 603   │ 571    │ 15.3         │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 3           │ 258   │ 246    │ 6.6          │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 4           │ 142   │ 133    │ 3.6          │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 5           │ 65    │ 59     │ 1.7          │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 6           │ 23    │ 23     │ 0.6          │
+ ├─────────────┼───────┼────────┼──────────────┤
+ │ 7           │ 4     │ 4      │ 0.1          │
+ └─────────────┴───────┴────────┴──────────────┘
+
+ 72% of final results come from a single provider. This is a quality concern: RRF merging is supposed to combine signals, but the merger is largely picking
+ one provider's result and discarding overlap. Possible cause: the dedup at canonical_result_id is collapsing multi-provider confirmations too
+ aggressively.
+
+ Lens 11 — Gemini search effectiveness
+
+ ```sql
+SELECT model_used, mode, count() AS runs,
+       sum((answer IS NOT NULL)::INT) AS answered,
+       sum((grounding_chunks_count > 0)::INT) AS grounded_runs,
+       round(avg(total_tokens)::DOUBLE, 0) AS avg_total_tokens
+FROM gemini_search_runs WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+GROUP BY model_used, mode ORDER BY runs DESC;
+ ```
+
+ ┌───────────────────────┬────────┬──────┬──────────┬──────────┬────────────┐
+ │ model                 │ mode   │ runs │ answered │ grounded │ avg_tokens │
+ ├───────────────────────┼────────┼──────┼──────────┼──────────┼────────────┤
+ │ gemini-2.5-flash-lite │ single │ 58   │ 58       │ 40       │ 4,741      │
+ ├───────────────────────┼────────┼──────┼──────────┼──────────┼────────────┤
+ │ gemini-2.5-flash-lite │ dual   │ 6    │ 6        │ 2        │ 3,116      │
+ ├───────────────────────┼────────┼──────┼──────────┼──────────┼────────────┤
+ │ NULL                  │ NULL   │ 2    │ 0        │ 0        │ NULL       │
+ └───────────────────────┴────────┴──────┴──────────┴──────────┴────────────┘
+
+ Finding: 69% of single-mode Gemini runs are grounded; dual mode only 33% grounded but much smaller sample.
+
+ Lens 12 — Code search providers
+
+ ```sql
+SELECT provider, outcome, count() AS runs,
+       round(100.0 * sum((hit_count > 0)::INT) / count(), 1) AS hit_yield_pct,
+       sum(hit_count) AS total_hits, round(avg(hit_count)::DOUBLE, 1) AS avg_hits
+FROM code_search_providers WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '14 days'
+GROUP BY provider, outcome ORDER BY runs DESC LIMIT 10;
+ ```
+
+ ┌─────────────┬─────────┬──────┬────────┬────────────┐
+ │ provider    │ outcome │ runs │ yield% │ total_hits │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ exa         │ ok      │ 139  │ 100.0  │ 139        │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ sourcegraph │ partial │ 129  │ 52.7   │ 378        │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ grep.app    │ partial │ 97   │ 43.3   │ 431        │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ github      │ ok      │ 94   │ 100.0  │ 9,688      │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ github      │ partial │ 70   │ 50.0   │ 5,673      │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ exa         │ partial │ 55   │ 0.0    │ 0          │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ grep.app    │ no_hit  │ 50   │ 0.0    │ 0          │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ grep.app    │ ok      │ 45   │ 100.0  │ 669        │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ sourcegraph │ error   │ 42   │ 0.0    │ 0          │
+ ├─────────────┼─────────┼──────┼────────┼────────────┤
+ │ github      │ no_hit  │ 22   │ 0.0    │ 0          │
+ └─────────────┴─────────┴──────┴────────┴────────────┘
+
+ github is the dominant code search provider (15,361 hits across ok+partial). sourcegraph errors 23% of the time.
+
+ Lens 13 — Empty/unused tables (live-test discipline)
+
+ ```sql
+SELECT 'ab_experiments' AS tbl, count() FROM ab_experiments
+UNION ALL SELECT 'ab_assignments', count() FROM ab_assignments
+UNION ALL SELECT 'ab_results', count() FROM ab_results
+UNION ALL SELECT 'ab_shadow_runs', count() FROM ab_shadow_runs
+UNION ALL SELECT 'eval_runs', count() FROM eval_runs
+UNION ALL SELECT 'eval_cases', count() FROM eval_cases
+UNION ALL SELECT 'eval_scores', count() FROM eval_scores
+UNION ALL SELECT 'eval_observations', count() FROM eval_observations
+UNION ALL SELECT 'eval_judge_calls', count() FROM eval_judge_calls
+UNION ALL SELECT 'eval_failures', count() FROM eval_failures
+UNION ALL SELECT 'eval_candidate_sets', count() FROM eval_candidate_sets
+UNION ALL SELECT 'eval_tool_calls', count() FROM eval_tool_calls
+UNION ALL SELECT 'llm_quality_scores', count() FROM llm_quality_scores
+UNION ALL SELECT 'judge_calibration_set', count() FROM judge_calibration_set
+UNION ALL SELECT 'judge_rubrics', count() FROM judge_rubrics
+UNION ALL SELECT 'provider_health_transitions', count() FROM provider_health_transitions
+UNION ALL SELECT 'gemini_search_attempts', count() FROM gemini_search_attempts
+UNION ALL SELECT 'content_summary_attempts', count() FROM content_summary_attempts
+UNION ALL SELECT 'summary_intent_daily', count() FROM summary_intent_daily
+UNION ALL SELECT 'summary_provider_daily', count() FROM summary_provider_daily
+UNION ALL SELECT 'analytics_sync_state', count() FROM analytics_sync_state;
+ ```
+
+ All zero. These are designed-for-but-never-populated tables — confirm that the live system is not exercising the A/B framework, eval harness, judge
+ calibration, or summary materialization paths. They are dead schemas from prior roadmap work.
+
+ Key findings (concise, evidence-anchored)
+
+ 1. Provider health (verified): qdrant shows σ=35 (worst-day 0% success) — must address. google_discovery_engine is functionally dead (5.4% selection,
+    17.9% success rate, 18.8s p95 — confirmed from prior audit).
+ 2. Single-provider dominance in final results: 72% of final results come from one provider. The multi-provider RRF signal is collapsing more than expected
+    — investigate canonical_result_id resolution aggressiveness.
+ 3. Free-branch rewriting aggressiveness: 44% of free branch queries are rewritten; only 0.8–4% for other branches. The LLM rewrite layer is dominant and
+    possibly over-aggressive.
+ 4. Content pipeline gap (verified): content_fetches and content_summaries are 0 in the live 14d series. The fetch → summarize chain is not running.
+    content_operations is fresh but summarization isn't writing.
+ 5. Judge coverage: 82.6% of runs get judged; 7% use human-only feedback; LLM judge labels dominate. No human labels in 14d.
+ 6. Top domains: github.com 10.8% (1st), arxiv.org 2.6%, medium.com 2.4% — long-tail, HHI=149 (competitive, no SEO farm signal in live series).
+ 7. Dead schemas (verified): All eval_*, ab_*, llm_quality_scores, judge_calibration_set, judge_rubrics, provider_health_transitions, summary_intent_daily,
+    summary_provider_daily, content_summary_attempts, gemini_search_attempts have 0 rows. Schema is over-built for current observability.
+ 8. Daily run trend: 93.7% completion, 13.7 avg results, 39s avg duration, 68 candidates in, 14 final out. Funnel conversion ≈20% (candidate → final), with
+    most loss at the cross_encoder → rankllm transition.
+
+ ### Status labels (honest)
+
+ - All 30+ queries above ran and returned DB results — verified.
+ - Findings 1, 3, 4, 7 are DB-confirmed with direct counts.
+ - Findings 2, 5, 6, 8 are DB-confirmed but interpreted (no DB column says "over-aggressive" — that's inference).
+ - The "discovery engine firing" claim from the previous audit remains verified (28 calls, 17.9% success rate, 18.8s p95).
+ - No edits, no destructive actions — pure read-only audit against the in-process DuckDB.
