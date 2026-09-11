@@ -79,7 +79,7 @@ async def generate_sitemap(
 
     WHEN NOT TO USE:
     - Reading specific pages (use fetch).
-    - Finding pages similar to a known URL (use composio_similarlinks).
+    - Expanding one good URL into related coverage (use web_search, then fetch).
 
     RETURNS:
     - results[]: discovered URLs.

@@ -304,10 +304,8 @@ _BANNED_RERANK_SCORES = (
 
 # Module-level model selector for `judge_search_run`. Both aliases run the
 # SAME two-stage inference chain (Gemini/Gemma -> NanoGPT/DeepSeek-thinking);
-# the alias survives as `llm_judgments.model_name` provenance and as the
-# calibration harness's A/B tag (`analytics/judge_calibration.py` rebinds
-# it to `"judge_fast"` for A/B rows, then restores it). Defined as a private
-# mutable default — calibration is the only intentional mutator.
+# the alias survives as `llm_judgments.model_name` provenance. Defined as a
+# private mutable default — rebind only for deliberate provenance tagging.
 _JUDGE_MODEL = "judge_quality"
 
 

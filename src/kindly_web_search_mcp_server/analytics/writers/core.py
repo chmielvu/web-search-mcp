@@ -309,15 +309,6 @@ def insert_gemini_search_sources(rows: list[dict[str, Any]], *, db_path: str | N
     _GEMINI_SEARCH_SOURCES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
 
 
-def insert_gemini_search_attempts(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _GEMINI_SEARCH_ATTEMPTS_WRITER
-
-    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
-    _GEMINI_SEARCH_ATTEMPTS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
 # ---------------------------------------------------------------------------
 # Code Search insert helpers
 # ---------------------------------------------------------------------------
@@ -413,15 +404,6 @@ def insert_content_summaries(rows: list[dict[str, Any]], *, db_path: str | None 
     _CONTENT_SUMMARIES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
 
 
-def insert_content_summary_attempts(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _CONTENT_SUMMARY_ATTEMPTS_WRITER
-
-    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
-    _CONTENT_SUMMARY_ATTEMPTS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
 def insert_quick_web_search_batches(
     *,
     quick_web_search_runs: list[dict[str, Any]] | None = None,
@@ -444,19 +426,58 @@ def insert_quick_web_search_batches(
         _QUICK_WEB_SEARCH_CITATIONS_WRITER.insert_batch(serialized_citations, db_path=db_path)
 
 
+def insert_stage_attempts(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
+    from .inserts import _STAGE_ATTEMPTS_WRITER
+
+    _STAGE_ATTEMPTS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
+def insert_fetch_items(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
+    from .inserts import _FETCH_ITEMS_WRITER
+
+    _FETCH_ITEMS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
+def insert_summary_rungs(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
+    from .inserts import _SUMMARY_RUNGS_WRITER
+
+    _SUMMARY_RUNGS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
+def record_backend_health_probe(
+    backend: str,
+    *,
+    healthy: bool,
+    check_latency_ms: float | None = None,
+    consecutive_failures: int = 0,
+    db_path: str | None = None,
+) -> None:
+    from .inserts import _BACKEND_HEALTH_WRITER
+
+    _BACKEND_HEALTH_WRITER.dispatch_insert(
+        db_path=db_path,
+        backend=backend,
+        checked_at=datetime.now(timezone.utc),
+        healthy=healthy,
+        check_latency_ms=check_latency_ms,
+        consecutive_failures=consecutive_failures,
+    )
+
+
+def insert_table_freshness(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
+    from .inserts import _TABLE_FRESHNESS_WRITER
+
+    _TABLE_FRESHNESS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
 def insert_gemini_search_batches(
     *,
     gemini_search_runs: list[dict[str, Any]] | None = None,
     gemini_search_sources: list[dict[str, Any]] | None = None,
-    gemini_search_attempts: list[dict[str, Any]] | None = None,
     db_path: str | None = None,
 ) -> None:
     """Persist one Gemini search outcome synchronously across child tables."""
-    from .inserts import (
-        _GEMINI_SEARCH_ATTEMPTS_WRITER,
-        _GEMINI_SEARCH_RUNS_WRITER,
-        _GEMINI_SEARCH_SOURCES_WRITER,
-    )
+    from .inserts import _GEMINI_SEARCH_RUNS_WRITER, _GEMINI_SEARCH_SOURCES_WRITER
 
     if gemini_search_runs:
         serialized_runs = [
@@ -469,11 +490,6 @@ def insert_gemini_search_batches(
             _serialize_json_fields(r, ("source_json",)) for r in gemini_search_sources
         ]
         _GEMINI_SEARCH_SOURCES_WRITER.insert_batch(serialized_sources, db_path=db_path)
-    if gemini_search_attempts:
-        serialized_attempts = [
-            _serialize_json_fields(r, ("payload_json",)) for r in gemini_search_attempts
-        ]
-        _GEMINI_SEARCH_ATTEMPTS_WRITER.insert_batch(serialized_attempts, db_path=db_path)
 
 
 def insert_code_search_batches(
@@ -551,7 +567,9 @@ def insert_content_operation_batches(
     content_operations: list[dict[str, Any]] | None = None,
     content_fetches: list[dict[str, Any]] | None = None,
     content_summaries: list[dict[str, Any]] | None = None,
-    content_summary_attempts: list[dict[str, Any]] | None = None,
+    stage_attempts: list[dict[str, Any]] | None = None,
+    fetch_items: list[dict[str, Any]] | None = None,
+    summary_rungs: list[dict[str, Any]] | None = None,
     db_path: str | None = None,
 ) -> None:
     """Persist one content operation outcome synchronously across child tables."""
@@ -559,7 +577,9 @@ def insert_content_operation_batches(
         _CONTENT_FETCHES_WRITER,
         _CONTENT_OPERATIONS_WRITER,
         _CONTENT_SUMMARIES_WRITER,
-        _CONTENT_SUMMARY_ATTEMPTS_WRITER,
+        _FETCH_ITEMS_WRITER,
+        _STAGE_ATTEMPTS_WRITER,
+        _SUMMARY_RUNGS_WRITER,
     )
 
     if content_operations:
@@ -573,11 +593,15 @@ def insert_content_operation_batches(
             _serialize_json_fields(r, ("payload_json",)) for r in content_summaries
         ]
         _CONTENT_SUMMARIES_WRITER.insert_batch(serialized_summaries, db_path=db_path)
-    if content_summary_attempts:
-        serialized_attempts = [
-            _serialize_json_fields(r, ("payload_json",)) for r in content_summary_attempts
+    if stage_attempts:
+        _STAGE_ATTEMPTS_WRITER.insert_batch(stage_attempts, db_path=db_path)
+    if fetch_items:
+        serialized_items = [
+            _serialize_json_fields(r, ("diagnostics_json",)) for r in fetch_items
         ]
-        _CONTENT_SUMMARY_ATTEMPTS_WRITER.insert_batch(serialized_attempts, db_path=db_path)
+        _FETCH_ITEMS_WRITER.insert_batch(serialized_items, db_path=db_path)
+    if summary_rungs:
+        _SUMMARY_RUNGS_WRITER.insert_batch(summary_rungs, db_path=db_path)
 
 
 def insert_funnel_uplift_batches(

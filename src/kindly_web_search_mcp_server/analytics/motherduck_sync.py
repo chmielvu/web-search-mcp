@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from dataclasses import dataclass
@@ -13,7 +12,6 @@ import duckdb
 from ..settings import settings
 from ..utils.paths import DEFAULT_EXTENSION_DIR
 from .duckdb_store import ensure_store_schema
-from .eval_schema import ensure_eval_tables
 from .views import build_analytics_view_sql
 
 
@@ -117,45 +115,6 @@ def build_summary_sql(target: str) -> list[str]:
         FROM {target}.analytics_event_raw
         GROUP BY 1, 2, 3, 4, 5
         """,
-        f"""
-        CREATE OR REPLACE TABLE {target}.eval_quality_daily AS
-        WITH llm_scores AS (
-            SELECT
-                eval_case_id,
-                AVG(score_value) AS avg_llm_score,
-                COUNT(*) AS score_rows
-            FROM {target}.llm_quality_scores
-            GROUP BY 1
-        ),
-        case_scores AS (
-            SELECT
-                eval_case_id,
-                AVG(score) AS avg_observation_score,
-                COUNT(*) FILTER (WHERE verdict = 'pass') AS passes,
-                COUNT(*) FILTER (WHERE verdict = 'fail') AS fails
-            FROM {target}.eval_observations
-            GROUP BY 1
-        )
-        SELECT
-            date_trunc('day', r.created_at) AS day,
-            r.suite_name,
-            c.target_tool,
-            COUNT(DISTINCT c.eval_case_id) AS cases,
-            COUNT(DISTINCT r.eval_run_id) AS runs,
-            SUM(COALESCE(o.passes, 0)) AS passes,
-            SUM(COALESCE(o.fails, 0)) AS fails,
-            AVG(o.avg_observation_score) AS avg_score,
-            SUM(COALESCE(q.score_rows, 0)) AS llm_score_rows,
-            AVG(q.avg_llm_score) AS avg_llm_score
-        FROM {target}.eval_runs AS r
-        LEFT JOIN {target}.eval_cases AS c
-          ON c.eval_run_id = r.eval_run_id
-        LEFT JOIN case_scores AS o
-          ON o.eval_case_id = c.eval_case_id
-        LEFT JOIN llm_scores AS q
-          ON q.eval_case_id = c.eval_case_id
-        GROUP BY 1, 2, 3
-        """,
     ]
 
 
@@ -171,7 +130,6 @@ def sync_once(
         raise FileNotFoundError(f"Analytics DuckDB file does not exist: {source}")
 
     ensure_store_schema(db_path=str(source))
-    ensure_eval_tables(db_path=str(source))
 
     database = _motherduck_database(motherduck_database)
     attach = _attach_name(database)
@@ -186,7 +144,6 @@ def sync_once(
         # search_events table removed; keep analytics_event_raw only if already present.
         # Do not recreate or SELECT from the obsolete local table.
         source_rows = 0
-        last_event_id = None
         before = 0
         after = 0
         try:
@@ -198,40 +155,7 @@ def sync_once(
             # Target table may not exist yet on a fresh MotherDuck schema.
             pass
 
-        for source_table, key_columns in (
-            ("eval_runs", ["eval_run_id"]),
-            ("eval_cases", ["eval_case_id"]),
-            ("eval_observations", ["eval_observation_id"]),
-            ("llm_quality_scores", ["score_id"]),
-        ):
-            _sync_append_only(
-                connection,
-                source_table=source_table,
-                target_table=f"{target}.{source_table}",
-                key_columns=key_columns,
-            )
 
-        sync_payload = json.dumps(
-            {
-                "database": database,
-                "schema": schema,
-                "source_rows": int(source_rows),
-                "target_rows": int(after),
-                "inserted_rows": int(after - before),
-            },
-            ensure_ascii=True,
-            sort_keys=True,
-        )
-        connection.execute(
-            f"DELETE FROM {target}.analytics_sync_state WHERE target_name = ?", [schema]
-        )
-        connection.execute(
-            f"""
-            INSERT INTO {target}.analytics_sync_state
-            VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
-            """,
-            [schema, int(source_rows), int(after), last_event_id, sync_payload],
-        )
     finally:
         connection.close()
 

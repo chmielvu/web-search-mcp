@@ -1,4 +1,37 @@
 ## [Unreleased]
+### Added — Fetch-tool observability schema, views, and producers (2026-09-11)
+- New analytics tables (`content_stage_attempts`, `content_fetch_items`, `content_summary_rungs`, `content_backend_health`, `analytics_table_freshness`) plus writers and ensure hooks.
+- New runtime views `vw_fetch_stage_funnel`, `vw_fetch_backend_quality`, `vw_fetch_followthrough`, `vw_analytics_table_freshness`; heartbeat records latest row count and timestamp per content table.
+- Producers: `fetch_content_artifact` records per-stage attempts (including skipped stages); `_persist_content_analytics` persists stage attempts, shaped per-item errors/quality, and summary-rung logs; per-item fallback now emits rung rows; Camoufox/Crawl4AI stage probes feed backend health.
+
+### Fixed — Discovery Engine provider rewrite (2026-09-11)
+- Rewrote `search/providers/discovery_engine.py` internals (same public
+  symbols and signatures): `credentials_available` now checks the ADC file
+  actually exists instead of trusting a non-empty env var;
+  `reset_token_cache` also clears the ADC-unavailable flag, which previously
+  stuck for the process lifetime after one gcloud fallback.
+- ADC lookup/refresh failures now log a warning and fall back to gcloud
+  instead of silently disabling ADC (lookup) or raising raw transport
+  errors from inside the retrieve budget (refresh).
+- Token mint no longer holds the cache lock across the blocking subprocess /
+  network refresh, so the concurrent original+free branch mints do not
+  serialize; gcloud timeout derives from `SEARCH_RETRIEVE_BUDGET_SECONDS`
+  (capped at 12s to leave headroom inside the 15s per-call cap).
+- Both `:search` POSTs now pass an explicit httpx timeout from
+  `SEARCH_RETRIEVE_BUDGET_SECONDS`, matching the langsearch/degoog/gemma
+  convention; previously they inherited the 30s shared-client default.
+- Request payload: removed the top-level `regionCode` field (not a
+  `SearchRequest` field) in favor of `params.user_country_code` (lowercase),
+  and sends a per-request `userPseudoId` for attribution/personalization.
+  `queryExpansionSpec=AUTO` / `spellCorrectionSpec=AUTO` and the
+  `derivedStructData` title/link/snippets parse were verified live against
+  `search-1` (41 total hits, top `eugeneyan.com/writing/llm-patterns/`).
+### Removed — 24 stale analytics tables, 12 views, eval/summary/judge-calibration code (2026-09-11)
+- Dropped 24 zero-row tables from `search_events.duckdb` (ab_*, eval_*, summary_*_daily, judge_calibration_set, judge_rubrics, llm_quality_scores, provider_health_transitions, analytics_sync_state, content_summary_attempts, gemini_search_attempts) plus 12 dependent views (eval/*, ab/*, provider-health, gemini-fallbacks, summary-attempt/fallback, calibration views).
+- Removed their DDL (`eval_schema.py`, `writers/summary_schema.py`, `_ensure_*` in `writers/schema.py`), writers (`insert_*_attempts`, attempt `TableWriter`s, name constants, package re-exports), view definitions, MotherDuck eval sync, `eval_quality_summary` report, eval NL-query routes, dashboard Evals tab + data, object/tab descriptions, and the never-populated `judge_calibration.py` harness. No live callers existed for any removed writer; dashboard chain (`_fetch_all` → `build_app_ui`) stays consistent.
+### Removed — `code_fetch` and `composio_similarlinks` MCP surface (2026-09-11)
+- Both tools stay registered and importable (CLI `search fetch` / `links similar` unaffected) but are now hidden from MCP clients via `tools.profiles.DISABLED_TOOLS` (`mcp.disable()` after profile selection, per FastMCP last-transform-wins visibility).
+- Client-facing routing text now recommends `fetch` (including GitHub file URLs) instead of `code_fetch`, and `web_search` + `fetch` instead of `composio_similarlinks`; `code_search` `next` hints route repository hits to `fetch`.
 ### Changed — Production analytics dashboard (2026-09-09)
 - Replaced the mock-data runtime path with a read-only, parameterized DuckDB data layer using `ANALYTICS_DUCKDB_PATH` and live schema bounds.
 - Rebuilt all 12 Streamlit pages against current analytics tables and views; fixed Overview empty-period handling, Quality Feedback runtime imports, and Cost Analytics view/query mismatches.

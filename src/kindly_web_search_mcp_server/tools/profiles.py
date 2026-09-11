@@ -11,6 +11,12 @@ ToolProfile = Literal[
 
 ALLOWED_TOOL_PROFILES = frozenset(ToolProfile.__args__)  # type: ignore[attr-defined]
 
+# Tools registered but hidden from MCP clients (tools/list) via an explicit
+# disable() after profile selection (FastMCP: last Visibility transform wins).
+# Implementations stay importable — CLI services call the functions directly
+# and bypass MCP visibility — so this only removes the client-facing surface.
+DISABLED_TOOLS = frozenset({"code_fetch", "composio_similarlinks"})
+
 
 class VisibilityServer(Protocol):
     def enable(self, **kwargs: object) -> "VisibilityServer": ...
@@ -45,4 +51,8 @@ def apply_tool_profile(mcp: VisibilityServer, profile: str) -> VisibilityServer:
     mcp.enable(components={"resource", "template", "prompt"})
     if normalized == "regular":
         mcp.disable(tags={"tool:experimental"}, components={"tool"})
+    # Hide retired tools from every profile. Runs after the profile allowlist so
+    # it wins over the enable() above; the opt-in BM25SearchTransform respects
+    # prior visibility gates, so hidden tools stay out of search as well.
+    mcp.disable(tags={f"tool:{name}" for name in DISABLED_TOOLS}, components={"tool"})
     return mcp

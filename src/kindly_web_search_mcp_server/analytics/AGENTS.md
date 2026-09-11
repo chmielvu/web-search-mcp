@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-07 | Last verified: 2026-09-07 -->
+<!-- Last updated: 2026-09-11 | Last verified: 2026-09-11 -->
 
 # AGENTS.md - Analytics & Search Quality
 
@@ -12,18 +12,16 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 |---|---|
 | `ids.py` | Stable result-ID/candidate-ID hash helpers (`_canonical_result_id`, `_candidate_id`) |
 | `events.py` | `PERSISTED_EVENT_PREFIXES` — persisted event-family allowlist (absorbed from top-level `observability/`) |
-| `eval_schema.py` | Eval fact table/view DDL and `ensure_eval_tables` (renamed from `evals.py` so the `evals/` package can live here) |
-| `writers/schema.py` | DDL for fact tables, provider health, quality, judge, tool-call, and classifier events |
+| `writers/schema.py` | DDL for fact tables, quality, judge, tool-call, and classifier events |
 | `writers/core.py` | `TableWriter` + public insert wrappers |
 | `writers/inserts.py` | Typed SQL insert statements for pipeline entities |
 | `writers/table_names.py` | Canonical DuckDB table name definitions |
 | `writers/connection.py` | `_db_path` + `_LOCK` + FlockMTL resources |
 | `judges.py` | FlockMTL LLM-as-Judge orchestrator (6 facets) |
-| `judge_calibration.py` | Cohen's κ calibration harness |
 | `judge_runner.py` | Fire-and-forget judge evaluation |
 | `quality_metrics.py` | Run-level quality scoring |
 | `reports.py` | Named analytics reports, including provider reliability, quality misses, and classifier calibration |
-| `views.py` | Dashboard, quality-diagnostic, calibration, and eval views |
+| `views.py` | Dashboard and quality-diagnostic views |
 | `motherduck_sync.py` | MotherDuck sync helpers |
 | `feedback_labels.py` | Offline LLM judge result-quality materialization into `result_labels` |
 | `graph_feedback.py` | Direct read-only DuckDB observation query, in-memory NetworkX graph computation, and `generate`/`compare` SQLite operations |
@@ -83,8 +81,6 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - **Cost guard**: `settings.flockmtl_enabled` (default true)
 - **Judge-blindness**: banned reranker score names excluded from the SELECT
   whitelists and enumerated in prompts
-- **Calibration note**: both aliases execute the identical chain; rebinding
-  `_JUDGE_MODEL` changes provenance tagging only (`judge_calibration.py`).
 
 ## Rules
 

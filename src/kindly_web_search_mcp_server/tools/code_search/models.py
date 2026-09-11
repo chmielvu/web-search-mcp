@@ -753,18 +753,14 @@ def _build_next(result: CodeSearchResultType, plan: Any | None) -> list[CodeSear
             if hit.repository in seen_repositories:
                 continue
             seen_repositories.add(hit.repository)
+            if not hit.url:
+                continue
             nexts.append(
                 CodeSearchPublicNext(
-                    action="search",
-                    tool="code_fetch",
-                    query={
-                        "repository": hit.repository,
-                        "query": anchor,
-                    },
-                    why=(
-                        "Search all files in the matched repository snapshot for the anchor; "
-                        "use a hit path for a focused read."
-                    ),
+                    action="read",
+                    tool="fetch",
+                    query={"url": hit.url, "focus_query": anchor},
+                    why=("Fetch the matched file for the full context around the anchor."),
                     confidence="high",
                 )
             )

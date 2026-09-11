@@ -13,8 +13,6 @@ _FR_TABLE_NAME = "final_results"
 _QE_TABLE_NAME = "query_embeddings"
 _CE_TABLE_NAME = "candidate_embeddings"
 
-# Provider health (originally in the retired observability_schema.py — different grain)
-_PH_TABLE_NAME = "provider_health_transitions"
 
 # LLM call log
 _LLM_CALL_LOG_TABLE_NAME = "llm_call_log"
@@ -27,11 +25,6 @@ _QUE_TABLE_NAME = "query_understanding_events"
 _SQS_TABLE_NAME = "search_quality_scores"
 _JE_TABLE_NAME = "judge_evaluations"
 
-# Daily summary tables
-_SUM_PVD_TABLE_NAME = "summary_provider_daily"
-_SUM_ID_TABLE_NAME = "summary_intent_daily"
-_SUM_RD_TABLE_NAME = "summary_rerank_daily"
-_SUM_QD_TABLE_NAME = "summary_quality_daily"
 
 # Quick web search tables
 _QWSR_TABLE_NAME = "quick_web_search_runs"
@@ -40,7 +33,6 @@ _QWSC_TABLE_NAME = "quick_web_search_citations"
 # Gemini search tables
 _GSR_TABLE_NAME = "gemini_search_runs"
 _GSS_TABLE_NAME = "gemini_search_sources"
-_GSA_TABLE_NAME = "gemini_search_attempts"
 
 # Code search tables
 _CSR_TABLE_NAME = "code_search_runs"
@@ -56,7 +48,14 @@ _CSRERANK_TABLE_NAME = "code_search_rerank"
 _CO_TABLE_NAME = "content_operations"
 _CF_TABLE_NAME = "content_fetches"
 _CSUM_TABLE_NAME = "content_summaries"
-_CSUMA_TABLE_NAME = "content_summary_attempts"
+
+# Fetch-tool observability (per-stage attempts, per-item errors, summary rungs,
+# backend probes, table freshness) — see writers/fetch_observability_schema.py
+_CSA_TABLE_NAME = "content_stage_attempts"
+_CFI_TABLE_NAME = "content_fetch_items"
+_CSRUG_TABLE_NAME = "content_summary_rungs"
+_CBH_TABLE_NAME = "content_backend_health"
+_ATF_TABLE_NAME = "analytics_table_freshness"
 
 # Web search funnel uplift tables
 _RC_CAT_TABLE_NAME = "result_catalog"
@@ -81,21 +80,15 @@ __all__ = [
     "_FR_TABLE_NAME",
     "_QE_TABLE_NAME",
     "_CE_TABLE_NAME",
-    "_PH_TABLE_NAME",
     "_LLM_CALL_LOG_TABLE_NAME",
     "_TC_TABLE_NAME",
     "_QUE_TABLE_NAME",
     "_SQS_TABLE_NAME",
     "_JE_TABLE_NAME",
-    "_SUM_PVD_TABLE_NAME",
-    "_SUM_ID_TABLE_NAME",
-    "_SUM_RD_TABLE_NAME",
-    "_SUM_QD_TABLE_NAME",
     "_QWSR_TABLE_NAME",
     "_QWSC_TABLE_NAME",
     "_GSR_TABLE_NAME",
     "_GSS_TABLE_NAME",
-    "_GSA_TABLE_NAME",
     "_CSR_TABLE_NAME",
     "_CSP_TABLE_NAME",
     "_CSD_TABLE_NAME",
@@ -107,7 +100,11 @@ __all__ = [
     "_CO_TABLE_NAME",
     "_CF_TABLE_NAME",
     "_CSUM_TABLE_NAME",
-    "_CSUMA_TABLE_NAME",
+    "_CSA_TABLE_NAME",
+    "_CFI_TABLE_NAME",
+    "_CSRUG_TABLE_NAME",
+    "_CBH_TABLE_NAME",
+    "_ATF_TABLE_NAME",
     "_RC_CAT_TABLE_NAME",
     "_PR_TABLE_NAME",
     "_QV_TABLE_NAME",

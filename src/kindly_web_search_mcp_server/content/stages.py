@@ -182,6 +182,7 @@ async def _stage_retry(
     retries: int = 1,
     base_delay: float = 1.0,
     retryable_exceptions: tuple[type[Exception], ...] | None = None,
+    attempts_made: list[int] | None = None,
 ) -> T:
     """Retry a stage coroutine on transient failures with exponential backoff.
 
@@ -189,9 +190,14 @@ async def _stage_retry(
     ``retryable_exceptions`` for stage-specific semantics (e.g. Crawl4AIClientError).
     """
     last_exc: Exception | None = None
+    tries = 0
     for attempt in range(retries + 1):
+        tries += 1
         try:
-            return await coro_factory()
+            result = await coro_factory()
+            if attempts_made is not None:
+                attempts_made.append(tries)
+            return result
         except (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError) as exc:
             last_exc = exc
         except httpx.HTTPStatusError as exc:
@@ -212,7 +218,39 @@ async def _stage_retry(
             )
             await asyncio.sleep(delay)
     assert last_exc is not None
+    if attempts_made is not None:
+        attempts_made.append(tries)
     raise last_exc
+
+
+_BACKEND_FAILURES: dict[str, int] = {}
+
+
+def _record_probe(backend: str, outcome: str, latency_ms: float | None) -> None:
+    """Fire-and-forget backend liveness probe into ``content_backend_health``.
+
+    ``healthy`` is true for success/partial stage outcomes. Consecutive
+    failures count error outcomes since the last success; the counter is
+    process-local and resets on restart.
+    """
+    healthy = outcome in ("success", "partial")
+    if healthy:
+        _BACKEND_FAILURES[backend] = 0
+    else:
+        _BACKEND_FAILURES[backend] = _BACKEND_FAILURES.get(backend, 0) + 1
+    try:
+        from ..analytics.duckdb_store import record_backend_health_probe
+    except Exception:
+        return
+    try:
+        record_backend_health_probe(
+            backend,
+            healthy=healthy,
+            check_latency_ms=latency_ms,
+            consecutive_failures=_BACKEND_FAILURES[backend],
+        )
+    except Exception:
+        LOGGER.debug("Backend health probe write failed for %s", backend)
 
 
 # ------------------------------------------------------------------
@@ -226,6 +264,7 @@ async def _fetch_via_jina(
     max_response_bytes: int,
     include_links: bool,
     timeout_seconds: float | None = None,
+    attempts_made: list[int] | None = None,
 ) -> ContentArtifact | None:
     """Fetch via Jina Reader (free, no API key).
 
@@ -242,6 +281,7 @@ async def _fetch_via_jina(
                 url,
                 timeout_seconds=timeout_seconds if timeout_seconds is not None else 25.0,
             ),
+            attempts_made=attempts_made,
         )
     except (
         JinaReaderError,
@@ -311,6 +351,7 @@ async def _fetch_via_local(
     max_response_bytes: int,
     include_links: bool,
     timeout_seconds: float | None = None,
+    attempts_made: list[int] | None = None,
 ) -> ContentArtifact:
     """Fetch via local BS4+markdownify (offline, pure HTTP).
 
@@ -344,6 +385,7 @@ async def _fetch_via_local(
                 timeout_seconds=timeout_seconds if timeout_seconds is not None else 20.0,
                 max_response_bytes=max_response_bytes,
             ),
+            attempts_made=attempts_made,
         )
     except SafeFetchError as exc:
         return ContentArtifact(
@@ -484,6 +526,7 @@ async def _fetch_via_crawl4ai(
     max_response_bytes: int,
     include_links: bool,
     timeout_seconds: float | None = None,
+    attempts_made: list[int] | None = None,
 ) -> ContentArtifact:
     """Fetch via Crawl4AI remote POST /md (non-browser cloud markdown).
 
@@ -499,6 +542,7 @@ async def _fetch_via_crawl4ai(
             "crawl4ai_remote",
             lambda: client.fetch_markdown(url, mode="fit"),
             retryable_exceptions=(Crawl4AIClientError,),
+            attempts_made=attempts_made,
         )
     if len(markdown.encode("utf-8")) > max_response_bytes:
         raise Crawl4AIClientError(

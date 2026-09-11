@@ -198,21 +198,6 @@ def _fetch_all(path: Path) -> dict[str, Any]:
             """,
         )
 
-        # ── Evals tab — from vw_eval_provider_quality ──
-        evals_data = _query(
-            con,
-            """
-            SELECT COALESCE(suite_name, '—') AS "Eval Suite",
-                   COALESCE(target_tool, '—') AS "Tool Tested",
-                   COALESCE(cases, 0) AS "Test Cases",
-                   COALESCE(passes, 0) AS "Passes",
-                   COALESCE(fails, 0) AS "Fails",
-                   ROUND(COALESCE(avg_score, 0.0), 3) AS "Avg Score (0-1)"
-            FROM vw_eval_provider_quality
-            ORDER BY "Eval Suite", "Tool Tested"
-            LIMIT 200
-            """,
-        )
 
         # ── Schema tab ────────────────────────────────────────────────────────
         schema_rows: list[dict[str, Any]] = []
@@ -270,6 +255,5 @@ def _fetch_all(path: Path) -> dict[str, Any]:
         "events_data": events_data,
         "providers_data": providers_data,
         "errors_data": errors_data,
-        "evals_data": evals_data,
         "schema_data": schema_rows,
     }

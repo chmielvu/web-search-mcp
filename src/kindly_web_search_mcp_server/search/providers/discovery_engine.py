@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,10 @@ from .base import (
 PROVIDER_NAME = "google_discovery_engine"
 _API_ROOT = "https://discoveryengine.googleapis.com/v1"
 _TOKEN_TTL_SECONDS = 55 * 60
-_GCLOUD_TIMEOUT_SECONDS = 15
+# Upper bound for the blocking gcloud mint so it leaves headroom inside the
+# 15s per-call retrieve cap. Derived from settings at call time, not a copy.
+_GCLOUD_TIMEOUT_CEILING_SECONDS = 12.0
+_GCLOUD_TIMEOUT_FLOOR_SECONDS = 5.0
 _TAG_RE = re.compile(r"<[^>]+>")
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 LOGGER = logging.getLogger(__name__)
@@ -139,9 +143,7 @@ def _resolve_gcloud_bin() -> str | None:
 
 
 def credentials_available() -> bool:
-    if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
-        return True
-    return _resolve_gcloud_bin() is not None
+    return _adc_credentials_present() or _resolve_gcloud_bin() is not None
 
 
 def _well_known_adc_path() -> Path:
@@ -160,11 +162,19 @@ def _adc_credentials_present() -> bool:
 
 
 def reset_token_cache() -> None:
-    global _cached_token, _cached_token_expires_at, _cached_auth_mode
+    global _cached_token, _cached_token_expires_at, _cached_auth_mode, _adc_unavailable
     with _token_lock:
         _cached_token = None
         _cached_token_expires_at = 0.0
         _cached_auth_mode = None
+        _adc_unavailable = False
+
+
+def _gcloud_timeout_seconds() -> float:
+    return max(
+        _GCLOUD_TIMEOUT_FLOOR_SECONDS,
+        min(float(settings.search_retrieve_budget_seconds), _GCLOUD_TIMEOUT_CEILING_SECONDS),
+    )
 
 
 def _token_from_adc() -> str | None:
@@ -172,15 +182,21 @@ def _token_from_adc() -> str | None:
         import google.auth
         from google.auth.transport.requests import Request as GoogleAuthRequest
     except ImportError:
+        LOGGER.debug("Discovery Engine ADC path skipped: google-auth not installed")
         return None
     try:
         credentials, _project = google.auth.default(
             scopes=("https://www.googleapis.com/auth/cloud-platform",)
         )
-    except Exception:
+    except Exception as exc:
+        LOGGER.warning("Discovery Engine ADC lookup failed, falling back to gcloud: %s", exc)
         return None
-    if not getattr(credentials, "valid", False) or not getattr(credentials, "token", None):
-        credentials.refresh(GoogleAuthRequest())
+    try:
+        if not getattr(credentials, "valid", False) or not getattr(credentials, "token", None):
+            credentials.refresh(GoogleAuthRequest())
+    except Exception as exc:
+        LOGGER.warning("Discovery Engine ADC refresh failed, falling back to gcloud: %s", exc)
+        return None
     token = getattr(credentials, "token", None)
     return token if isinstance(token, str) and token.strip() else None
 
@@ -197,7 +213,7 @@ def _token_from_gcloud() -> str:
             [binary, "auth", "print-access-token", "--quiet"],
             capture_output=True,
             text=True,
-            timeout=_GCLOUD_TIMEOUT_SECONDS,
+            timeout=_gcloud_timeout_seconds(),
             creationflags=_CREATE_NO_WINDOW,
             stdin=subprocess.DEVNULL,
             check=False,
@@ -224,22 +240,20 @@ def _fetch_token() -> tuple[str, str]:
             token = _token_from_adc()
             if token:
                 return token, "adc"
-            _adc_unavailable = True
     return _token_from_gcloud(), "gcloud_user"
 
 
 def _mint_token(*, force: bool = False) -> tuple[str, str]:
     global _cached_token, _cached_token_expires_at, _cached_auth_mode
+    if not force:
+        with _token_lock:
+            now = time.monotonic()
+            if _cached_token and _cached_auth_mode and now < _cached_token_expires_at:
+                return _cached_token, _cached_auth_mode
+    # Fetch outside the lock: concurrent branches must not serialize on the
+    # blocking subprocess / network refresh. Last writer wins the cache.
+    token, mode = _fetch_token()
     with _token_lock:
-        now = time.monotonic()
-        if (
-            not force
-            and _cached_token
-            and _cached_auth_mode
-            and now < _cached_token_expires_at
-        ):
-            return _cached_token, _cached_auth_mode
-        token, mode = _fetch_token()
         _cached_token = token
         _cached_auth_mode = mode
         _cached_token_expires_at = time.monotonic() + _TOKEN_TTL_SECONDS
@@ -327,6 +341,7 @@ async def search_google_discovery_engine(
     payload: dict[str, Any] = {
         "query": query,
         "pageSize": page_size,
+        "userPseudoId": f"web-search-mcp-{uuid.uuid4().hex[:16]}",
         "queryExpansionSpec": {"condition": "AUTO"},
         "spellCorrectionSpec": {"mode": "AUTO"},
         "contentSearchSpec": {"snippetSpec": {"returnSnippet": True}},
@@ -335,10 +350,15 @@ async def search_google_discovery_engine(
         if search_options.language:
             payload["languageCode"] = search_options.language
         if search_options.region:
-            payload["regionCode"] = search_options.region.upper()
+            # SearchRequest has no top-level regionCode; website search takes
+            # a lowercase country code via params.user_country_code.
+            payload["params"] = {"user_country_code": search_options.region.strip().lower()}
     quota_project = (
         settings.discovery_engine_quota_project or ""
     ).strip() or "magdalenka-ecosystem"
+    # Same settings var siblings use for per-request httpx timeouts. The
+    # retrieve fan-out's wait_for (per-call 15s cap) still bounds the call.
+    request_timeout = httpx.Timeout(float(settings.search_retrieve_budget_seconds))
 
     async def _do_request(client: httpx.AsyncClient) -> dict[str, Any]:
         token, auth_mode = await _get_access_token()
@@ -351,7 +371,7 @@ async def search_google_discovery_engine(
             "Content-Type": "application/json",
             "x-goog-user-project": quota_project,
         }
-        response = await client.post(url, headers=headers, json=payload)
+        response = await client.post(url, headers=headers, json=payload, timeout=request_timeout)
         if response.status_code == 401:
             reset_token_cache()
             token, auth_mode = await _get_access_token(force=True)
@@ -363,7 +383,9 @@ async def search_google_discovery_engine(
                 )
             )
             headers["Authorization"] = f"Bearer {token}"
-            response = await client.post(url, headers=headers, json=payload)
+            response = await client.post(
+                url, headers=headers, json=payload, timeout=request_timeout
+            )
         response.raise_for_status()
         try:
             data = response.json()

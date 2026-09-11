@@ -166,7 +166,6 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
         special.append("Wikipedia (specialized resolver)")
     if special:
         parts.append("URLs from: " + ", ".join(special) + ".")
-        next_tools.append("composio_similarlinks")
 
     # Domain concentration
     domains = {_extract_domain(u) for u in urls if u}
@@ -205,11 +204,8 @@ def _guide_fetch(data: dict, *, fetch_round: int = 0) -> tuple[str, list[str], l
         )
         if m and ("raw.githubusercontent.com" in url or "/blob/" in url):
             parts.append(
-                f"GitHub repository file. For line-anchored reads, repo-wide search, or the "
-                f"symbol graph use code_fetch(repository='{m.group(1)}/{m.group(2)}'). "
-                "fetch returns raw text without line numbers or commit provenance."
+                "GitHub repository file. fetch returns the file text; page long files with offset."
             )
-            next_tools.append("code_fetch")
         if window.get("has_more"):
             nxt = window.get("next_offset", 0)
             parts.append(f"Truncated at {nxt} chars. Continue: fetch(url='{url}', offset={nxt}).")
@@ -268,11 +264,10 @@ def _guide_code_fetch(data: dict) -> tuple[str, list[str], list[str]]:
     message = (
         "Single-file read completed. "
         + fetch_hint
-        + " If repository intelligence is needed, continue with code_fetch: use "
-        "query for repo-wide FTS/literal search or symbol for callers/callees, "
-        "then follow a returned hit's path."
+        + " For broader repository context, use code_search for discovery, "
+        "then fetch hit URLs."
     )
-    return (message, ["fetch", "code_fetch"], [])
+    return (message, ["fetch"], [])
 
 
 def _guide_gemini_search(data: dict) -> tuple[str, list[str], list[str]]:

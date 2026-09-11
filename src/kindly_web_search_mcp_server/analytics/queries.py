@@ -82,10 +82,6 @@ def _is_error_question(question: str) -> bool:
     )
 
 
-def _is_eval_question(question: str) -> bool:
-    return "eval" in question or "quality score" in question or "suite" in question
-
-
 def _is_recent_events_question(question: str) -> bool:
     return (
         "recent" in question
@@ -113,12 +109,6 @@ def _is_latency_question(question: str) -> bool:
         or "duration" in question
         or "fast" in question
         or "slow" in question
-    )
-
-
-def _is_run_quality_question(question: str) -> bool:
-    return ("quality" in question or "score" in question or "verdict" in question) and (
-        "run" in question or "result" in question or "outcome" in question
     )
 
 
@@ -331,24 +321,6 @@ def build_analytics_query_plan(
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="latency")
 
-    if _is_run_quality_question(q):
-        sql = f"""
-            SELECT
-                suite_name,
-                COUNT(DISTINCT target_tool) AS tools_tested,
-                SUM(cases) AS total_cases,
-                SUM(passes) AS total_passes,
-                SUM(fails) AS total_fails,
-                ROUND(100.0 * SUM(passes) / NULLIF(SUM(cases), 0), 1) AS pass_rate_pct,
-                ROUND(AVG(avg_score), 3) AS avg_score,
-                MIN(avg_score) AS min_score,
-                MAX(avg_score) AS max_score
-            FROM {prefix}vw_eval_provider_quality
-            GROUP BY 1
-            ORDER BY total_cases DESC, suite_name
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="run_quality")
 
     if _is_provider_question(q):
         sql = f"""
@@ -395,20 +367,6 @@ def build_analytics_query_plan(
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="error")
 
-    if _is_eval_question(q):
-        sql = f"""
-            SELECT
-                suite_name,
-                target_tool,
-                COUNT(*) AS cases,
-                COUNT(*) FILTER (WHERE passes > 0) AS cases_with_passes,
-                AVG(avg_score) AS avg_score
-            FROM {prefix}vw_eval_provider_quality
-            GROUP BY 1, 2
-            ORDER BY cases DESC, suite_name, target_tool
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="eval")
 
     if _is_recent_events_question(q):
         sql = f"""

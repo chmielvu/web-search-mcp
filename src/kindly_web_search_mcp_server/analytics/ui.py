@@ -26,7 +26,6 @@ from prefab_ui.rx import Rx
 from .descriptions import _TAB_DESCRIPTIONS
 from .tabs import (
     build_errors_columns,
-    build_evals_columns,
     build_events_columns,
     build_providers_columns,
     build_schema_columns,
@@ -153,15 +152,6 @@ def build_app_ui(data: dict[str, Any]) -> PrefabApp:
                     DataTable(
                         columns=build_errors_columns(),
                         rows=Rx("errors_data"),
-                        search=True,
-                        paginated=True,
-                        page_size=25,
-                    )
-                with Tab("Evals"):
-                    Text(_TAB_DESCRIPTIONS.get("evals", ""))
-                    DataTable(
-                        columns=build_evals_columns(),
-                        rows=Rx("evals_data"),
                         search=True,
                         paginated=True,
                         page_size=25,

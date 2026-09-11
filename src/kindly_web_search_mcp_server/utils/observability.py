@@ -892,6 +892,10 @@ def _persist_content_analytics(
         fetch_rows = []
         summary_rows = []
 
+        stage_attempt_rows = []
+        fetch_item_rows = []
+        summary_rung_rows = []
+
         if tool_name == "fetch":
             items_data = fields.get("results") or payload.get("results") or []
             if not isinstance(items_data, list):
@@ -930,6 +934,34 @@ def _persist_content_analytics(
                         "window_next_offset": window.get("next_offset"),
                         "item_duration_ms": item.get("duration_ms") or fields.get("duration_ms"),
                         "payload_json": item,
+                    }
+                )
+                stage_count = len(fields.get("stage_attempts") or [])
+                diagnostics = item.get("diagnostics") or []
+                raw_error = item.get("error")
+                raw_error = raw_error if isinstance(raw_error, dict) else {}
+                stage_path_parts = [
+                    str(attempt.get("stage"))
+                    for attempt in (fields.get("stage_attempts") or [])
+                    if isinstance(attempt, dict) and attempt.get("stage")
+                ]
+                fetch_item_rows.append(
+                    {
+                        "terminal_event_id": terminal_event_id,
+                        "tool_call_id": tool_call_id,
+                        "item_index": idx,
+                        "error_code": raw_error.get("code"),
+                        "error_category": raw_error.get("category"),
+                        "error_retryable": raw_error.get("retryable"),
+                        "error_http_status": raw_error.get("http_status"),
+                        "error_message": raw_error.get("message"),
+                        "quality_score": item.get("quality_score"),
+                        "title": item.get("title"),
+                        "bytes_downloaded": item.get("bytes_downloaded"),
+                        "redirect_count": item.get("redirect_count"),
+                        "stage_count": stage_count,
+                        "stage_path": " > ".join(stage_path_parts) or None,
+                        "diagnostics_json": diagnostics if isinstance(diagnostics, (dict, list)) else None,
                     }
                 )
                 summary_data = item.get("summary")
@@ -982,10 +1014,60 @@ def _persist_content_analytics(
                         }
                     )
 
+        for rung_order, rung in enumerate(fields.get("summary_rungs") or [], start=1):
+            if not isinstance(rung, dict):
+                continue
+            summary_rung_rows.append(
+                {
+                    "terminal_event_id": terminal_event_id,
+                    "tool_call_id": tool_call_id,
+                    "item_index": rung.get("item_index", 0),
+                    "rung": rung.get("rung"),
+                    "rung_order": rung_order,
+                    "provider": rung.get("provider"),
+                    "model_used": rung.get("model_used"),
+                    "outcome": rung.get("outcome"),
+                    "error_type": rung.get("error_type"),
+                    "input_tokens": rung.get("input_tokens"),
+                    "output_tokens": rung.get("output_tokens"),
+                    "latency_ms": rung.get("latency_ms"),
+                }
+            )
+
+
+        for attempt_order, attempt in enumerate(fields.get("stage_attempts") or [], start=1):
+            if not isinstance(attempt, dict):
+                continue
+            stage_attempt_rows.append(
+                {
+                    "attempt_id": str(uuid4()),
+                    "terminal_event_id": terminal_event_id,
+                    "tool_call_id": tool_call_id,
+                    "item_index": attempt.get("item_index", 0),
+                    "normalized_url": attempt.get("normalized_url"),
+                    "stage": attempt.get("stage"),
+                    "stage_order": attempt.get("stage_order", attempt_order),
+                    "outcome": attempt.get("outcome"),
+                    "error_code": attempt.get("error_code"),
+                    "error_category": attempt.get("error_category"),
+                    "retryable": attempt.get("retryable"),
+                    "http_status": attempt.get("http_status"),
+                    "latency_ms": attempt.get("latency_ms"),
+                    "attempt_count": attempt.get("attempt_count", 1),
+                    "bytes_downloaded": attempt.get("bytes_downloaded"),
+                    "chars_kept": attempt.get("chars_kept"),
+                    "quality_score": attempt.get("quality_score"),
+                    "skipped_reason": attempt.get("skipped_reason"),
+                }
+            )
+
         insert_content_operation_batches(
             content_operations=[op_row],
             content_fetches=fetch_rows,
             content_summaries=summary_rows,
+            stage_attempts=stage_attempt_rows,
+            fetch_items=fetch_item_rows,
+            summary_rungs=summary_rung_rows,
         )
     except Exception as exc:
         logger.debug("Failed to persist content analytics: %s", exc)

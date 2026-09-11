@@ -165,29 +165,6 @@ def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table
     return _run(sql, db_path=db_path)
 
 
-def eval_quality_summary(*, days: int = 30, db_path: str | None = None) -> pa.Table:
-    """Eval quality aggregated per suite/tool from vw_eval_provider_quality."""
-    window = max(1, int(days))
-    sql = f"""
-        SELECT
-            suite_name,
-            target_tool,
-            COUNT(*) AS cases,
-            SUM(passes) AS passes,
-            SUM(fails) AS fails,
-            ROUND(100.0 * SUM(passes) / NULLIF(SUM(passes) + SUM(fails), 0), 1) AS pass_rate_pct,
-            ROUND(AVG(avg_score), 3) AS avg_score
-        FROM vw_eval_provider_quality
-        WHERE eval_run_id IN (
-            SELECT eval_run_id
-            FROM eval_runs
-            WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        )
-        GROUP BY suite_name, target_tool
-        ORDER BY cases DESC, suite_name, target_tool
-    """
-    return _run(sql, db_path=db_path)
-
 
 def latency_breakdown(*, days: int = 7, db_path: str | None = None) -> pa.Table:
     """Per-stage latency waterfall: rewrite → provider → merge → rerank."""
@@ -573,7 +550,6 @@ _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "rewrite-effectiveness": rewrite_effectiveness,
     "error-taxonomy": error_taxonomy,
     "candidate-survival": candidate_survival,
-    "eval-quality-summary": eval_quality_summary,
     "latency-breakdown": latency_breakdown,
     "provider-final-contribution": provider_final_contribution,
     "provider-reliability": provider_reliability,

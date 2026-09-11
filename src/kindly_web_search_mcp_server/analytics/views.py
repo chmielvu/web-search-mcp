@@ -8,6 +8,7 @@ confidence-only and never fabricate human labels.
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 
 import duckdb
 
@@ -15,7 +16,6 @@ from .duckdb_store import (
     _db_path,
     ensure_store_schema,
 )
-from .eval_schema import build_eval_table_sql, build_eval_view_sql
 from ..settings import settings
 
 _LOCK = threading.Lock()
@@ -230,11 +230,6 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
           AND status = 'success'
         GROUP BY ALL
         ORDER BY relevance_grade, quality_tier
-        """,
-        # 9. Provider health
-        f"""
-        CREATE OR REPLACE VIEW {t}.vw_provider_health AS
-        SELECT * FROM provider_health_transitions ORDER BY recorded_at DESC
         """,
         # 10. Judge quality summary
         f"""
@@ -456,50 +451,6 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
             sr.duration_ms AS search_duration_ms
         FROM query_understanding_events q
         LEFT JOIN search_runs sr ON sr.run_key = q.run_key
-        """,
-        # 18. Calibration-safe confidence report. Production rows are unlabeled
-        # unless a human adjudication row is explicitly present.
-        f"""
-        CREATE OR REPLACE VIEW {t}.vw_query_understanding_calibration AS
-        WITH labeled AS (
-            SELECT
-                q.*,
-                cs.human_verdict,
-                CASE
-                    WHEN cs.human_verdict IS NOT NULL THEN 'human'
-                    ELSE 'unlabeled'
-                END AS label_source,
-                CASE
-                    WHEN cs.human_verdict IS NOT NULL
-                    THEN (q.final_intent = cs.human_verdict)
-                    ELSE NULL
-                END AS observed_agreement
-            FROM query_understanding_events q
-            LEFT JOIN judge_calibration_set cs
-                ON cs.run_key = q.run_key AND cs.facet = 'query_understanding'
-        )
-        SELECT
-            CASE
-                WHEN final_confidence < 0.50 THEN '0.00-0.49'
-                WHEN final_confidence < 0.75 THEN '0.50-0.74'
-                WHEN final_confidence < 0.90 THEN '0.75-0.89'
-                ELSE '0.90-1.00'
-            END AS confidence_bucket,
-            decision_path,
-            label_source,
-            COUNT(*) AS event_count,
-            ROUND(AVG(final_confidence), 3) AS avg_confidence,
-            ROUND(AVG(observed_agreement::INTEGER), 3) AS observed_agreement,
-            ROUND(
-                AVG(CASE WHEN label_source = 'human'
-                    THEN POWER(final_confidence - observed_agreement::INTEGER, 2)
-                    ELSE NULL
-                END),
-                4
-            ) AS brier_score
-        FROM labeled
-        GROUP BY ALL
-        ORDER BY confidence_bucket, decision_path, label_source
         """,
         # 19. Quality metrics by intent
         f"""
@@ -725,25 +676,6 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         GROUP BY model_used, mode, status
         ORDER BY total_runs DESC
         """,
-        # 30. Gemini search fallbacks
-        f"""
-        CREATE OR REPLACE VIEW {t}.vw_gemini_search_fallbacks AS
-        SELECT
-            gsr.terminal_event_id,
-            gsr.recorded_at,
-            gsr.query,
-            gsr.model_used AS final_model_used,
-            gsr.fallback_chain,
-            gsr.fallback_reason,
-            CASE
-                WHEN gsr.fallback_chain IS NOT NULL AND len(gsr.fallback_chain) > 0 THEN TRUE
-                ELSE FALSE
-            END AS fallback_occurred,
-            (SELECT COUNT(*) FROM gemini_search_attempts gsa WHERE gsa.tool_call_id = gsr.tool_call_id) AS recorded_attempt_count,
-            'incomplete_attempt_coverage_pre_instrumentation' AS attempt_coverage_status
-        FROM gemini_search_runs gsr
-        ORDER BY gsr.recorded_at DESC
-        """,
         # 31. Gemini search sources
         f"""
         CREATE OR REPLACE VIEW {t}.vw_gemini_search_sources AS
@@ -935,26 +867,6 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         GROUP BY backend, model_used, is_batch, is_stub, status
         ORDER BY total_summaries DESC
         """,
-        # 41. Content summary attempt performance
-        f"""
-        CREATE OR REPLACE VIEW {t}.vw_content_summary_attempt_performance AS
-        SELECT
-            COALESCE(backend, 'unspecified') AS backend,
-            COALESCE(model_used, 'unspecified') AS model_used,
-            is_batch,
-            status,
-            COUNT(*) AS total_attempts,
-            ROUND(AVG(input_chars) FILTER (WHERE input_chars IS NOT NULL), 0) AS avg_input_chars,
-            ROUND(AVG(input_tokens) FILTER (WHERE input_tokens IS NOT NULL), 1) AS avg_input_tokens,
-            ROUND(AVG(output_tokens) FILTER (WHERE output_tokens IS NOT NULL), 1) AS avg_output_tokens,
-            ROUND(AVG(total_tokens) FILTER (WHERE total_tokens IS NOT NULL), 1) AS avg_total_tokens,
-            ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms,
-            ROUND(quantile_cont(duration_ms, 0.95) FILTER (WHERE duration_ms IS NOT NULL), 2) AS p95_duration_ms,
-            COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count
-        FROM content_summary_attempts
-        GROUP BY backend, model_used, is_batch, status
-        ORDER BY total_attempts DESC
-        """,
         # 42. Content summary batch vs single
         f"""
         CREATE OR REPLACE VIEW {t}.vw_content_summary_batch_vs_single AS
@@ -972,27 +884,6 @@ def _build_dashboard_view_sql(target: str) -> list[str]:
         LEFT JOIN content_summaries cs ON co.terminal_event_id = cs.terminal_event_id
         GROUP BY co.tool_name, cs.is_batch
         ORDER BY total_operations DESC
-        """,
-        # 43. Content summary fallbacks
-        f"""
-        CREATE OR REPLACE VIEW {t}.vw_content_summary_fallbacks AS
-        SELECT
-            cs.terminal_event_id,
-            cs.recorded_at,
-            cs.normalized_url,
-            cs.backend,
-            cs.model_used,
-            cs.fallback_attempted,
-            cs.fallback_tier,
-            cs.is_stub,
-            cs.status,
-            (SELECT COUNT(*) FROM content_summary_attempts csa WHERE csa.tool_call_id = cs.tool_call_id) AS recorded_attempt_count,
-            CASE
-                WHEN cs.fallback_attempted = TRUE OR (cs.fallback_tier IS NOT NULL AND cs.fallback_tier > 0) THEN TRUE
-                ELSE FALSE
-            END AS fallback_indicated
-        FROM content_summaries cs
-        ORDER BY cs.recorded_at DESC
         """,
         # 44. Content summary focus comparison
         f"""
@@ -1305,6 +1196,70 @@ def _build_funnel_uplift_view_sql(target: str) -> list[str]:
     ]
 
 
+def _build_fetch_observability_view_sql(target: str) -> list[str]:
+    """Return SQL for fetch-tool stage, backend quality, follow-through, and freshness views."""
+    t = target
+    return [
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_fetch_stage_funnel AS
+        SELECT
+            stage,
+            COUNT(*) AS attempts,
+            SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS successes,
+            SUM(CASE WHEN outcome = 'partial' THEN 1 ELSE 0 END) AS partials,
+            SUM(CASE WHEN outcome = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+            AVG(CASE WHEN outcome IN ('success', 'partial') THEN latency_ms END) AS avg_win_latency_ms,
+            AVG(quality_score) AS avg_quality
+        FROM content_stage_attempts
+        GROUP BY stage
+        """,
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_fetch_backend_quality AS
+        SELECT
+            f.fetch_backend,
+            COUNT(*) AS fetches,
+            AVG(i.quality_score) AS avg_quality,
+            SUM(CASE WHEN f.status = 'success' THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS success_rate,
+            SUM(CASE WHEN i.error_retryable THEN 1 ELSE 0 END) AS retryable_errors
+        FROM content_fetches f
+        LEFT JOIN content_fetch_items i
+            ON f.terminal_event_id = i.terminal_event_id
+            AND f.tool_call_id = i.tool_call_id
+            AND f.item_index = i.item_index
+        GROUP BY f.fetch_backend
+        """,
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_fetch_followthrough AS
+        SELECT
+            f.tool_call_id,
+            f.normalized_url AS fetched_url,
+            f.fetch_backend,
+            f.source_type,
+            f.status AS fetch_status,
+            fr.link AS result_link,
+            fr.domain AS result_domain,
+            fr.rank AS result_rank,
+            fr.run_key AS result_run_key,
+            (fr.link IS NOT NULL) AS was_search_result
+        FROM content_fetches f
+        LEFT JOIN final_results fr
+            ON lower(fr.link) = lower(f.normalized_url)
+        """,
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_analytics_table_freshness AS
+        WITH ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY table_name ORDER BY checked_at DESC) AS rn
+            FROM analytics_table_freshness
+        )
+        SELECT table_name, checked_at, max_recorded_at, row_count
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY table_name
+        """,
+    ]
+
+
 def ensure_views(*, db_path: str | None = None) -> None:
     """Create or replace all analytics views against the local DuckDB store."""
     if not settings.analytics_enabled:
@@ -1318,25 +1273,61 @@ def ensure_views(*, db_path: str | None = None) -> None:
     with _LOCK:
         connection = duckdb.connect(str(path))
         try:
-            # Eval tables
-            for statement in build_eval_table_sql("main"):
-                connection.execute(statement)
             # Dashboard views
             for statement in _build_dashboard_view_sql("main"):
-                connection.execute(statement)
-            # Eval views
-            for statement in build_eval_view_sql("main"):
                 connection.execute(statement)
             # Funnel uplift views
             for statement in _build_funnel_uplift_view_sql("main"):
                 connection.execute(statement)
+            # Fetch observability views
+            for statement in _build_fetch_observability_view_sql("main"):
+                connection.execute(statement)
         finally:
             connection.close()
+    _record_table_freshness(db_path=str(path))
 
 
 def refresh_views(*, db_path: str | None = None) -> None:
     """Recreate all views (useful after schema migrations)."""
     ensure_views(db_path=db_path)
+
+
+
+
+def _record_table_freshness(*, db_path: str) -> None:
+    """Heartbeat the latest recorded timestamp and row count for core tables."""
+    tables = (
+        "content_operations",
+        "content_fetches",
+        "content_summaries",
+        "content_stage_attempts",
+        "content_fetch_items",
+        "content_summary_rungs",
+        "content_backend_health",
+    )
+    rows = []
+    try:
+        connection = duckdb.connect(db_path)
+        try:
+            for table_name in tables:
+                count, latest = connection.execute(
+                    f"SELECT COUNT(*), MAX(recorded_at) FROM {table_name}"
+                ).fetchone()
+                rows.append(
+                    {
+                        "table_name": table_name,
+                        "checked_at": datetime.now(timezone.utc),
+                        "max_recorded_at": latest,
+                        "row_count": int(count or 0),
+                    }
+                )
+        finally:
+            connection.close()
+    except Exception:
+        return
+    from .duckdb_store import insert_table_freshness
+
+    insert_table_freshness(rows, db_path=db_path)
 
 
 def refresh_materialized_summaries(*, db_path: str | None = None) -> None:
@@ -1384,5 +1375,6 @@ def build_analytics_view_sql(schema: str) -> list[str]:
     """Return SQL statements to create analytics views in a remote schema."""
     return [
         *_build_dashboard_view_sql(schema),
-        *build_eval_view_sql(schema),
+        *_build_funnel_uplift_view_sql(schema),
+        *_build_fetch_observability_view_sql(schema),
     ]

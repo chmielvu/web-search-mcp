@@ -153,6 +153,9 @@ def _artifact_from_cache(
     content_type = envelope.get("content_type") or "text/markdown"
     status = envelope.get("status") or "success"
     diagnostics = list(envelope.get("diagnostics") or [])
+    stage_path = envelope.get("stage_path")
+    if isinstance(stage_path, str) and stage_path:
+        diagnostics.append({"code": "cached_stage_path", "stage_path": stage_path})
     entities = envelope.get("entities")
     entities = entities if isinstance(entities, list) else None
     if legacy:
@@ -207,6 +210,7 @@ def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
             "entities": artifact.get("entities"),
             "llms_txt": artifact.get("llms_txt"),
             "diagnostics": artifact.get("diagnostics"),
+            "stage_path": artifact.get("stage_path"),
             "error": artifact.get("error"),
         },
         "metadata": artifact.get("metadata"),
@@ -312,6 +316,7 @@ async def _fetch_one_artifact(
     *,
     fetch_options: FetchOptions,
     llms_probe: LlmsTxtResult | None = None,
+    stage_attempts: list | None = None,
 ) -> dict[str, Any]:
     normalized = canonicalize_url(input_url)
     cache_key = _cache_key(normalized)
@@ -340,7 +345,7 @@ async def _fetch_one_artifact(
 
     try:
         fetched = await asyncio.wait_for(
-            fetch_content_artifact(input_url, fetch_options=fetch_options),
+            fetch_content_artifact(input_url, fetch_options=fetch_options, stage_attempts=stage_attempts),
             timeout=settings.web_fetch_timeout_seconds,
         )
     except asyncio.TimeoutError:
@@ -683,11 +688,10 @@ async def fetch(
     - One-off URL content retrieval: articles, docs, GitHub
       issue/discussion/PR pages, and non-GitHub sources.
     - Bulk reading: pass a URL list in urls.
+    - GitHub file contents: pass the raw.githubusercontent.com or github.com
+      blob file URL directly.
 
     WHEN NOT TO USE:
-    - GitHub repository work (repo-wide search, line-anchored reads, file
-      trees, symbol graphs) — use code_fetch, which returns line-anchored
-      evidence with commit provenance.
     - Cross-repo discovery (use code_search).
 
     RETURNS:
@@ -749,11 +753,12 @@ async def fetch(
         include_links=include_links,
     )
     await ctx.info(f"Fetching {len(pending_urls)} URL(s) with the unified fetch tool...")
-
-    analytics_results: list[dict[str, Any]] = []
+    stage_attempts_all: list = []
+    rung_log: list = []
     if mode == "single":
         await ctx.report_progress(progress=20, total=100, message="Fetching URL...")
-        artifact = await _fetch_one_artifact(pending_urls[0], fetch_options=fetch_options)
+        stage_attempts: list = []
+        artifact = await _fetch_one_artifact(pending_urls[0], fetch_options=fetch_options, stage_attempts=stage_attempts)
         result, classified = _result_from_artifact(
             artifact,
             offset=offset,
@@ -804,9 +809,9 @@ async def fetch(
             raise_tool_error(
                 ValueError(f"Invalid fetch result: {str(exc)[:200]}"), provider="fetch"
             )
+        stage_attempts_all.extend(stage_attempts)
         analytics_results = [analytics_result]
         response = FetchResponse(
-            mode="single",
             results=[validated],
             total_requested=1,
             total_returned=1,
@@ -830,23 +835,23 @@ async def fetch(
         deferred: list[str] = []
         waves_completed = 0
 
-        async def _one(url_value: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        async def _one(url_value: str) -> tuple[dict[str, Any], dict[str, Any], list]:
+            stage_attempts: list = []
             async with semaphore:
-                artifact = await _fetch_one_artifact(url_value, fetch_options=fetch_options)
+                artifact = await _fetch_one_artifact(url_value, fetch_options=fetch_options, stage_attempts=stage_attempts)
                 result, classified = _result_from_artifact(
                     artifact,
                     offset=0,
                     max_chars=0,
                     include_links=include_links,
                 )
-                return result, _analytics_result(artifact, result, classified)
+                return result, _analytics_result(artifact, result, classified), stage_attempts
 
-        wave = pending_urls[:wave_size]
-        wave_results = await asyncio.gather(*(_one(item) for item in wave))
-        waves_completed = 1
-        for public_result, analytics_result in wave_results:
-            admitted.append(public_result)
+        stage_attempts_all: list = []
+        for result, analytics_result, item_stage_attempts in wave_results:
+            admitted.append(result)
             analytics_admitted.append(analytics_result)
+            stage_attempts_all.extend(item_stage_attempts)
         deferred = pending_urls[wave_size:]
         await ctx.report_progress(
             progress=min(95, 10 + int(85 * len(wave) / max(len(pending_urls), 1))),
@@ -861,6 +866,7 @@ async def fetch(
                     ai_summary=True,
                     focus_query=focus_query,
                     max_concurrency=workers,
+                    rung_log=rung_log,
                 )
             except Exception as exc:
                 LOGGER.warning("Optional batch summaries failed: %s", exc)
@@ -932,9 +938,9 @@ async def fetch(
         url_count=response.total_requested,
         result_count=response.total_returned,
         total_chars_returned=response.total_chars_returned,
-        has_more=response.has_more,
-        cursor=response.cursor,
         results=analytics_results,
+        stage_attempts=stage_attempts_all,
+        summary_rungs=rung_log,
     )
     _record_tool_success(
         "fetch",

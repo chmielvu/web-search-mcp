@@ -38,8 +38,8 @@ def web_search_workflow_prompt(
         lines.append("- DEEP: web_search -> fetch with urls -> cross-check with academic_search.")
     if focus == "code":
         lines.append(
-            "- CODE: use code_search for public source and code_fetch to read "
-            "repository files; keep web_search for narrative pages."
+            "- CODE: use code_search for public source and fetch to read "
+            "file URLs; keep web_search for narrative pages."
         )
     elif focus == "academic":
         lines.append(
@@ -137,7 +137,7 @@ def research_methodology_prompt() -> list[Message]:
                     "web_search is the primary deep-discovery tool:",
                     "- Leave rewrite=true for semantic search; set rewrite=false for exact literals",
                     "- Use domain_boost to prioritize authoritative domains (e.g., github.com, docs.rs); omit noisy sources from the final answer",
-                    "- composio_similarlinks on your best URL finds related pages via neural similarity",
+                    "- Expand from your best URL with web_search (refined queries), then fetch the top candidates",
                     "",
                     "## Deep-Reading Phase",
                     "",

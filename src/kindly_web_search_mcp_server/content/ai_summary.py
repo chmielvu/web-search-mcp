@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Literal, Sequence, cast
 
 from google import genai  # type: ignore[import-untyped]
@@ -180,6 +181,41 @@ def _max_output_tokens() -> int:
 def _summary_model_chain() -> tuple[str, ...]:
     primary = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
     return tuple(dict.fromkeys((primary, GEMINI_FALLBACK_MODEL)))
+
+
+def _rung_provider(model_id: str) -> str:
+    return "gemma" if "gemma" in model_id.lower() else "google"
+
+
+def _log_rung(
+    rung_log: list | None,
+    *,
+    rung: str,
+    model_used: str,
+    outcome: str,
+    error_type: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    latency_ms: float | None = None,
+    item_index: int = 0,
+) -> None:
+    """Append one ladder-rung record (row order is stamped by the analytics layer)."""
+    if rung_log is None:
+        return
+    rung_log.append(
+        {
+            "rung": rung,
+            "provider": _rung_provider(model_used),
+            "model_used": model_used,
+            "outcome": outcome,
+            "error_type": error_type,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "latency_ms": latency_ms,
+            "item_index": item_index,
+        }
+    )
+
 
 
 def _summary_length_guidance() -> str:
@@ -547,6 +583,7 @@ async def summarize_batch_with_fallback(
     mode: SummaryMode,
     focus_query: str | None = None,
     max_concurrency: int = 4,
+    rung_log: list | None = None,
 ) -> list[dict[str, Any]]:
     """Summarize many URLs in a single Gemini call using GEMINI_SECOND_API_KEY.
 
@@ -559,7 +596,8 @@ async def summarize_batch_with_fallback(
     if not with_body:
         return list(
             await _fallback_per_item_summaries(
-                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
+                rung_log=rung_log, rung_item_indexes=list(range(len(items))),
             )
         )
 
@@ -571,7 +609,8 @@ async def summarize_batch_with_fallback(
     if not urls:
         return list(
             await _fallback_per_item_summaries(
-                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
+                rung_log=rung_log, rung_item_indexes=list(range(len(items))),
             )
         )
 
@@ -587,14 +626,18 @@ async def summarize_batch_with_fallback(
                 out.append(summary_stub(mode))
         return out
 
+    empty_idx = [index for index, item in enumerate(items) if not str(item.get("page_content") or "").strip()]
     empty_summaries = await _fallback_per_item_summaries(
-        without_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+        without_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
+        rung_log=rung_log, rung_item_indexes=empty_idx,
     )
+    with_idx = [index for index, item in enumerate(items) if str(item.get("page_content") or "").strip()]
     try:
-        batched = await _summarize_batched(with_body, mode=mode, focus_query=focus_query)
+        batched = await _summarize_batched(with_body, mode=mode, focus_query=focus_query, rung_log=rung_log)
     except Exception:
         batched = await _fallback_per_item_summaries(
-            with_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency
+            with_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
+            rung_log=rung_log, rung_item_indexes=with_idx,
         )
     combined = _reorder(batched)
     empty_iter = iter(empty_summaries)
@@ -609,6 +652,7 @@ async def _summarize_batched(
     *,
     mode: SummaryMode,
     focus_query: str | None = None,
+    rung_log: list | None = None,
 ) -> list[dict[str, Any]]:
     urls = [
         item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
@@ -630,6 +674,7 @@ async def _summarize_batched(
     ) as span:
         last_error: Exception | None = None
         for model_id in model_chain:
+            _t0 = time.monotonic()
             try:
                 response, usage = await _generate_batch_summary(
                     model_id=model_id,
@@ -658,6 +703,16 @@ async def _summarize_batched(
                 span.set_attribute("summary.batch_size", len(items))
                 span.set_attribute("summary.returned_summaries", len(mapped))
                 set_span_success(span)
+                _log_rung(
+                    rung_log,
+                    rung=f"batch:{model_id}",
+                    model_used=model_id,
+                    outcome="success",
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                    latency_ms=(time.monotonic() - _t0) * 1000.0,
+                    item_index=-1,
+                )
                 return mapped
             except Exception as exc:
                 last_error = exc
@@ -697,16 +752,27 @@ async def _summarize_batched(
                 model_id=fallback_model,
                 backend=backend,
             )
+            _t0_gemma = time.monotonic()
             span.set_attribute("summary.backend", backend)
             span.set_attribute("summary.batch_size", len(items))
             span.set_attribute("summary.returned_summaries", len(mapped))
             set_span_success(span)
+            _log_rung(
+                rung_log,
+                rung=f"batch:{fallback_model}",
+                model_used=fallback_model,
+                outcome="success",
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
+                item_index=-1,
+            )
             return mapped
         except Exception as exc:
             logger.warning("Batch summary also failed on Gemma fallback: %s", exc)
             if last_error is not None:
                 set_span_error(span, last_error)
-        return await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query)
+        return await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query, rung_log=rung_log, rung_item_indexes=with_idx)
 
 
 def _parse_batch_summary(raw: str) -> Any:
@@ -723,15 +789,19 @@ async def _fallback_per_item_summaries(
     mode: SummaryMode,
     focus_query: str | None,
     max_concurrency: int = 4,
+    rung_log: list | None = None,
+    rung_item_indexes: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Run per-item summaries on the primary GEMINI_API_KEY with bounded concurrency."""
+    item_indexes = list(rung_item_indexes) if rung_item_indexes is not None else list(range(len(items)))
     semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
-    async def _bounded(item: dict[str, Any]) -> dict[str, Any]:
+    async def _bounded(item: dict[str, Any], item_index: int) -> dict[str, Any]:
         async with semaphore:
-            return await _per_item_summary(item, mode=mode, focus_query=focus_query)
+            return await _per_item_summary(item, mode=mode, focus_query=focus_query, rung_log=rung_log, item_index=item_index)
 
-    return list(await asyncio.gather(*(_bounded(item) for item in items)))
+    return list(await asyncio.gather(*(_bounded(item, item_index) for item, item_index in zip(items, item_indexes))))
+
 
 
 def _map_batch_summaries(
@@ -774,14 +844,16 @@ async def _per_item_summary(
     *,
     mode: SummaryMode,
     focus_query: str | None,
+    rung_log: list | None = None,
+    item_index: int = 0,
 ) -> dict[str, Any]:
     source_url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
     if not source_url:
         return summary_stub(mode)
-
     content_text = str(item.get("page_content") or "")
     has_body = bool(content_text.strip())
     for model_id in _summary_model_chain():
+        _t0 = time.monotonic()
         try:
             summary, usage = await _generate_summary(
                 model_id=model_id,
@@ -798,8 +870,27 @@ async def _per_item_summary(
             payload["model_used"] = model_id
             payload["backend"] = "gemini-per-item-fallback"
             payload = _drop_inaccessible_claim(payload, content_text)
+            _log_rung(
+                rung_log,
+                rung=f"per_item:{model_id}",
+                model_used=model_id,
+                outcome="success",
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
+                latency_ms=(time.monotonic() - _t0) * 1000.0,
+                item_index=item_index,
+            )
             return _attach_token_fields(payload, usage, "gemini-per-item-fallback")
         except Exception as exc:
+            _log_rung(
+                rung_log,
+                rung=f"per_item:{model_id}",
+                model_used=model_id,
+                outcome="error",
+                error_type=type(exc).__name__,
+                latency_ms=(time.monotonic() - _t0) * 1000.0,
+                item_index=item_index,
+            )
             logger.warning(
                 "Per-item batch summary failed for %s on %s: %s",
                 source_url,
@@ -928,6 +1019,7 @@ async def create_batch_summaries(
     ai_summary: bool = False,
     focus_query: str | None = None,
     max_concurrency: int = 4,
+    rung_log: list | None = None,
 ) -> list[dict[str, Any] | None]:
     if not ai_summary:
         return [None for _ in items]
@@ -942,6 +1034,7 @@ async def create_batch_summaries(
             mode="detailed",
             focus_query=focus_query,
             max_concurrency=max_concurrency,
+            rung_log=rung_log,
         ),
     )
 

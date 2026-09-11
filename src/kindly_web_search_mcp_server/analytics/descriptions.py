@@ -28,11 +28,6 @@ _TAB_DESCRIPTIONS: dict[str, str] = {
         "A high 'Occurrences' count on one error type means something needs attention. "
         "Click column headers to sort."
     ),
-    "evals": (
-        "Automated benchmark results. Each row is one eval suite run against a specific tool. "
-        "'Passes' = the server met the expected behavior for that test case. "
-        "'Avg Score' is 0.0–1.0 where 1.0 is a perfect result."
-    ),
     "schema": (
         "Every table and view that exists in the analytics DuckDB file. "
         "Each row is one column. Use 'Type' to distinguish raw tables from derived views. "
@@ -44,39 +39,6 @@ _TAB_DESCRIPTIONS: dict[str, str] = {
 
 _OBJECT_DESCRIPTIONS: dict[str, str] = {
     # Raw tables
-    "eval_runs": (
-        "Metadata for each eval suite run — which suite was used, who ran it, "
-        "which dataset, and any notes."
-    ),
-    "eval_cases": (
-        "Individual test cases. Each row is one query with an expected behavior "
-        "and a link to the search run that was evaluated."
-    ),
-    "eval_observations": (
-        "The verdict (pass/fail) and numeric quality score for each test case. "
-        "One observation per case per eval run."
-    ),
-    "llm_quality_scores": (
-        "Quality scores produced by an LLM acting as a judge. "
-        "One row per score dimension per eval case."
-    ),
-    "eval_tool_calls": ("Every tool call made during an eval case execution, with its payload."),
-    "eval_candidate_sets": (
-        "The set of candidate results recorded at each stage of the pipeline during an eval run."
-    ),
-    "eval_scores": ("Numeric metric scores per eval case — precision, recall, etc."),
-    "eval_judge_calls": (
-        "Individual LLM judge invocations. Each row captures the judge model, "
-        "the score it gave, and the full payload."
-    ),
-    "eval_failures": (
-        "Eval cases that failed outright (e.g. the tool threw an exception). "
-        "Each row has a failure code explaining what went wrong."
-    ),
-    "analytics_sync_state": (
-        "Tracks MotherDuck sync state — when the last sync happened and "
-        "how many rows were transferred."
-    ),
     "quick_web_search_runs": (
         "One row per terminal quick_web_search invocation, recording status, duration, "
         "citation totals, parameters, and token usage."
@@ -91,9 +53,6 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     ),
     "gemini_search_sources": (
         "Grounding sources and URL citations returned by Gemini search runs."
-    ),
-    "gemini_search_attempts": (
-        "Individual model invocation attempts across Gemini fallback tiers."
     ),
     "code_search_runs": (
         "One row per terminal code_search execution with query plan parameters, provider counts, "
@@ -135,8 +94,23 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "Structured summary outputs from content summarization, capturing model, tokens, "
         "section counts, and source dates."
     ),
-    "content_summary_attempts": (
-        "Individual model and backend attempts during content summarization fallback ladders."
+    "content_stage_attempts": (
+        "One row per extraction stage attempt per fetch item, including skipped stages. "
+        "Shows the cascade from Tier-1 resolvers through Jina, local HTTP, Crawl4AI, "
+        "Camoufox, and Wayback fallbacks."
+    ),
+    "content_fetch_items": (
+        "Per-fetch-item shaped errors, quality, title, byte counts, redirect/stage-path data, "
+        "and diagnostics. One-to-one with content_fetches on terminal_event_id, tool_call_id, and item_index."
+    ),
+    "content_summary_rungs": (
+        "One row per summarization ladder rung tried, including batch and per-item fallback models."
+    ),
+    "content_backend_health": (
+        "Backend liveness probes for remote fetch backends such as Crawl4AI and Camoufox."
+    ),
+    "analytics_table_freshness": (
+        "Heartbeat rows recording the latest recorded timestamp and row count per analytics table."
     ),
     # Derived views
     "vw_events": (
@@ -182,26 +156,6 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "All error, timeout, and failure events. Includes error type, "
         "HTTP status code if applicable, and the tool/provider that failed."
     ),
-    "vw_eval_case_timeline": (
-        "Each eval test case joined to its search run timeline. "
-        "Shows how many events fired during the evaluated run."
-    ),
-    "vw_eval_candidate_survival": (
-        "How many candidate result URLs survived each stage of the pipeline "
-        "for a given eval case. Useful for spotting where results get dropped."
-    ),
-    "vw_eval_provider_quality": (
-        "Quality metrics for each provider, aggregated per eval suite. "
-        "Shows passes, fails, and average score per tool."
-    ),
-    "vw_eval_fetch_quality": (
-        "Fetch and content quality per eval case — which fetch backend was used, "
-        "whether it succeeded, and how much text was extracted."
-    ),
-    "vw_eval_pass_rate": (
-        "Overall pass rate per eval suite. Also shows how many cases cleared "
-        "the judge's 0.7 quality score threshold."
-    ),
     "vw_tool_call_coverage": (
         "Cross-tool overview of request, response, and error event counts, terminal rates, "
         "and duration percentiles."
@@ -224,7 +178,6 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "Gemini grounded search performance by model, mode, and status: tokens, grounding chunks, "
         "queries, and latencies."
     ),
-    "vw_gemini_search_fallbacks": ("Gemini search fallback occurrences and model transitions."),
     "vw_gemini_search_sources": (
         "Grounding sources and URL citations from Gemini searches grouped by source kind and domain."
     ),
@@ -255,17 +208,25 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     "vw_content_summary_output_signals": (
         "Content summary output shape signals: length, entities, key points, tokens, and model breakdown."
     ),
-    "vw_content_summary_attempt_performance": (
-        "Performance and latency across content summary model attempts and fallback tiers."
-    ),
     "vw_content_summary_batch_vs_single": (
         "Comparison of batch versus single content summarization operations and item yields."
     ),
-    "vw_content_summary_fallbacks": ("Content summary fallback activations and tier transitions."),
     "vw_content_summary_focus_comparison": (
         "Comparison of summary output signals between focused and unfocused extraction."
     ),
     "vw_content_summary_daily_tokens": (
         "Daily token usage rollups across content summary backends and models."
+    ),
+    "vw_fetch_stage_funnel": (
+        "Fetch stage funnel: attempt counts, outcomes, skipped stages, winning latency, and quality by stage."
+    ),
+    "vw_fetch_backend_quality": (
+        "Fetch backend quality and success rate joined to per-item error and quality data."
+    ),
+    "vw_fetch_followthrough": (
+        "Search-to-fetch follow-through: which fetched URLs appeared in prior search results."
+    ),
+    "vw_analytics_table_freshness": (
+        "Latest heartbeat row per analytics table, showing freshness and row count."
     ),
 }

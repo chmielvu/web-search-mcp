@@ -128,6 +128,9 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         {"regular", "full"},
         task=True,
     ),
+    # Hidden from MCP clients via tools.profiles.DISABLED_TOOLS (visibility
+    # disable after profile selection); kept registered so CLI/service imports
+    # and catalog metadata stay stable.
     "code_fetch": _entry("code_fetch", "Code Fetch", {"regular", "full"}),
     "composio_similarlinks": _entry(
         "composio_similarlinks", "Composio Similarlinks", {"regular", "full"}

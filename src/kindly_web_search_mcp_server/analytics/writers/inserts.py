@@ -16,10 +16,13 @@ from .table_names import (
     _CSREPO_TABLE_NAME,
     _CSRERANK_TABLE_NAME,
     _CSR_TABLE_NAME,
-    _CSUMA_TABLE_NAME,
     _CSUM_TABLE_NAME,
+    _CSA_TABLE_NAME,
+    _CFI_TABLE_NAME,
+    _CSRUG_TABLE_NAME,
+    _CBH_TABLE_NAME,
+    _ATF_TABLE_NAME,
     _FR_TABLE_NAME,
-    _GSA_TABLE_NAME,
     _GSR_TABLE_NAME,
     _GSS_TABLE_NAME,
     _JE_TABLE_NAME,
@@ -420,26 +423,6 @@ _GEMINI_SEARCH_SOURCE_COLUMNS = [
     "source_json",
 ]
 
-_GEMINI_SEARCH_ATTEMPT_COLUMNS = [
-    "tool_call_id",
-    "attempt_index",
-    "branch_name",
-    "model_requested",
-    "model_used",
-    "fallback_tier",
-    "fallback_reason",
-    "prompt_tokens",
-    "completion_tokens",
-    "total_tokens",
-    "grounding_chunk_count",
-    "web_search_query_count",
-    "status",
-    "duration_ms",
-    "error_type",
-    "error_message",
-    "payload_json",
-]
-
 # ---------------------------------------------------------------------------
 # Code Search column lists
 # ---------------------------------------------------------------------------
@@ -687,27 +670,69 @@ _CONTENT_SUMMARY_COLUMNS = [
     "duration_ms",
     "payload_json",
 ]
-
-_CONTENT_SUMMARY_ATTEMPT_COLUMNS = [
+_STAGE_ATTEMPT_COLUMNS = [
+    "attempt_id",
+    "terminal_event_id",
     "tool_call_id",
     "item_index",
-    "attempt_index",
-    "is_batch",
-    "batch_size",
-    "backend",
-    "model_requested",
+    "normalized_url",
+    "stage",
+    "stage_order",
+    "outcome",
+    "error_code",
+    "error_category",
+    "retryable",
+    "http_status",
+    "latency_ms",
+    "attempt_count",
+    "bytes_downloaded",
+    "chars_kept",
+    "quality_score",
+    "skipped_reason",
+]
+_FETCH_ITEM_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "item_index",
+    "error_code",
+    "error_category",
+    "error_retryable",
+    "error_http_status",
+    "error_message",
+    "quality_score",
+    "title",
+    "bytes_downloaded",
+    "redirect_count",
+    "stage_count",
+    "stage_path",
+    "diagnostics_json",
+]
+_SUMMARY_RUNG_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "item_index",
+    "rung",
+    "rung_order",
+    "provider",
     "model_used",
-    "fallback_tier",
-    "source_url_count",
-    "input_chars",
+    "outcome",
+    "error_type",
     "input_tokens",
     "output_tokens",
-    "total_tokens",
-    "duration_ms",
-    "status",
-    "error_type",
-    "error_message",
-    "payload_json",
+    "latency_ms",
+]
+_BACKEND_HEALTH_COLUMNS = [
+    "backend",
+    "checked_at",
+    "healthy",
+    "check_latency_ms",
+    "consecutive_failures",
+]
+_TABLE_FRESHNESS_COLUMNS = [
+    "table_name",
+    "checked_at",
+    "max_recorded_at",
+    "row_count",
 ]
 
 
@@ -834,13 +859,6 @@ _GEMINI_SEARCH_SOURCES_WRITER = TableWriter(
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.gemini_search_sources",
 )
-_GEMINI_SEARCH_ATTEMPTS_WRITER = TableWriter(
-    table_name=_GSA_TABLE_NAME,
-    ensure_name="_ensure_gemini_search_attempts",
-    columns=_GEMINI_SEARCH_ATTEMPT_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.gemini_search_attempts",
-)
 _CODE_SEARCH_RUNS_WRITER = TableWriter(
     table_name=_CSR_TABLE_NAME,
     ensure_name="_ensure_code_search_runs",
@@ -918,12 +936,41 @@ _CONTENT_SUMMARIES_WRITER = TableWriter(
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.content_summaries",
 )
-_CONTENT_SUMMARY_ATTEMPTS_WRITER = TableWriter(
-    table_name=_CSUMA_TABLE_NAME,
-    ensure_name="_ensure_content_summary_attempts",
-    columns=_CONTENT_SUMMARY_ATTEMPT_COLUMNS,
+_STAGE_ATTEMPTS_WRITER = TableWriter(
+    table_name=_CSA_TABLE_NAME,
+    ensure_name="_ensure_content_stage_attempts",
+    columns=_STAGE_ATTEMPT_COLUMNS,
+    defaults={"attempt_count": 1},
     on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.content_summary_attempts",
+    task_name="analytics.content_stage_attempts",
+)
+_FETCH_ITEMS_WRITER = TableWriter(
+    table_name=_CFI_TABLE_NAME,
+    ensure_name="_ensure_content_fetch_items",
+    columns=_FETCH_ITEM_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_fetch_items",
+)
+_SUMMARY_RUNGS_WRITER = TableWriter(
+    table_name=_CSRUG_TABLE_NAME,
+    ensure_name="_ensure_content_summary_rungs",
+    columns=_SUMMARY_RUNG_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_summary_rungs",
+)
+_BACKEND_HEALTH_WRITER = TableWriter(
+    table_name=_CBH_TABLE_NAME,
+    ensure_name="_ensure_content_backend_health",
+    columns=_BACKEND_HEALTH_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_backend_health",
+)
+_TABLE_FRESHNESS_WRITER = TableWriter(
+    table_name=_ATF_TABLE_NAME,
+    ensure_name="_ensure_analytics_table_freshness",
+    columns=_TABLE_FRESHNESS_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.table_freshness",
 )
 
 # ---------------------------------------------------------------------------

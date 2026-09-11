@@ -313,7 +313,6 @@ async def code_search(
     - Searching Hugging Face model/dataset cards (mode="huggingface").
 
     WHEN NOT TO USE:
-    - Exploring one specific repository in depth (use code_fetch).
     - One-off URL reads (use fetch).
 
     QUERY DSL (inside query):
@@ -325,12 +324,11 @@ async def code_search(
     RETURNS:
     - Grouped results: repository → files → source_window (the matched code),
       line_start, line_end, symbols, sha, and url.
-    - next: continuation hints routing repository code hits to code_fetch and
-      web/semantic URLs to fetch.
+    - next: continuation hints routing repository code hits and
+      web/semantic URLs to fetch for full context.
 
-    CHAINING: follow the next field — repository code hits → code_fetch for
-    line-anchored reads with commit provenance; web/semantic URLs → fetch.
-    Do not use fetch to read GitHub repository files.
+    CHAINING: follow the next field — fetch the hit URL for the full context
+    of repository code hits, issues, and documentation alike.
     """
     tool_call_id = str(uuid.uuid4())
     emit_tool_observability_event(

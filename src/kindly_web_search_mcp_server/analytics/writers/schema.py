@@ -3,8 +3,8 @@
 Clean-cutover redesign: 7 wide fact tables at clear pipeline grains +
 2 embedding tables for vss vector similarity search.  Old ``search_events``
 log and 5 of 6 observability tables are dropped entirely.
-``provider_health_transitions`` is defined here (originally in the retired
-``observability_schema.py``).
+Stale ab_*/eval_*/summary_*_daily/judge/provider-health/attempt tables
+were removed (2026-09-11); their ``_ensure_*`` constructors are gone.
 """
 
 from __future__ import annotations
@@ -22,6 +22,13 @@ from .connection import (
     ensure_flockmtl_loaded,
     ensure_flockmtl_resources,
 )
+from .fetch_observability_schema import (
+    _ensure_analytics_table_freshness,
+    _ensure_content_backend_health,
+    _ensure_content_fetch_items,
+    _ensure_content_stage_attempts,
+    _ensure_content_summary_rungs,
+)
 from .table_names import (
     _CE_TABLE_NAME,
     _CF_TABLE_NAME,
@@ -35,16 +42,13 @@ from .table_names import (
     _CSREPO_TABLE_NAME,
     _CSRERANK_TABLE_NAME,
     _CSR_TABLE_NAME,
-    _CSUMA_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
-    _GSA_TABLE_NAME,
     _GSR_TABLE_NAME,
     _GSS_TABLE_NAME,
     _JE_TABLE_NAME,
     _LLM_CALL_LOG_TABLE_NAME,
     _PC_TABLE_NAME,
-    _PH_TABLE_NAME,
     _PR_TABLE_NAME,
     _QE_TABLE_NAME,
     _QUE_TABLE_NAME,
@@ -554,35 +558,6 @@ def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
 
 
 # ---------------------------------------------------------------------------
-# provider_health_transitions — moved from observability_schema.py
-# ---------------------------------------------------------------------------
-def _ensure_provider_health_transitions(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    _create_table(
-        connection,
-        _PH_TABLE_NAME,
-        """
-        provider VARCHAR NOT NULL,
-        transition VARCHAR NOT NULL,
-        run_key VARCHAR,
-        tool_call_id VARCHAR,
-        recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        status VARCHAR,
-        consecutive_failures INTEGER,
-        cooldown_seconds DOUBLE,
-        cooldown_remaining_s DOUBLE,
-        total_successes INTEGER,
-        total_failures INTEGER,
-        error_type VARCHAR,
-        is_rate_limit BOOLEAN,
-        circuit_state VARCHAR,
-        payload_json JSON
-        """,
-    )
-
-
-# ---------------------------------------------------------------------------
 # 10. llm_call_log — unified cost tracking across all LLM calls
 # ---------------------------------------------------------------------------
 def _ensure_llm_call_log(connection: duckdb.DuckDBPyConnection) -> None:
@@ -649,45 +624,6 @@ def _ensure_llm_judgments(connection: duckdb.DuckDBPyConnection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_llm_judgments_kind ON llm_judgments(judgment_kind)"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Judge rubric catalog + calibration set (populated by judge_calibration.py)
-# ---------------------------------------------------------------------------
-def _ensure_judge_rubrics(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        "judge_rubrics",
-        """
-        rubric_version VARCHAR NOT NULL,
-        facet          VARCHAR NOT NULL,
-        model_name     VARCHAR NOT NULL,
-        prompt_name    VARCHAR NOT NULL,
-        fewshot_json   JSON,
-        is_active      BOOLEAN NOT NULL DEFAULT true,
-        kappa_score    DOUBLE,
-        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-        PRIMARY KEY (rubric_version, facet, model_name)
-        """,
-    )
-
-
-def _ensure_judge_calibration_set(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        "judge_calibration_set",
-        """
-        run_key        VARCHAR NOT NULL,
-        facet          VARCHAR NOT NULL,
-        model_name     VARCHAR NOT NULL,
-        human_verdict  VARCHAR,
-        judge_verdict  VARCHAR,
-        adjudicator    VARCHAR,
-        adjudicated_at TIMESTAMPTZ,
-        rubric_version VARCHAR NOT NULL,
-        PRIMARY KEY (run_key, facet, model_name)
-        """,
     )
 
 
@@ -882,36 +818,6 @@ def _ensure_gemini_search_sources(connection: duckdb.DuckDBPyConnection) -> None
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_gss_tool_call_id ON gemini_search_sources(tool_call_id)"
-    )
-
-
-def _ensure_gemini_search_attempts(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _GSA_TABLE_NAME,
-        """
-        tool_call_id            VARCHAR NOT NULL,
-        attempt_index           INTEGER NOT NULL,
-        branch_name             VARCHAR,
-        model_requested         VARCHAR,
-        model_used              VARCHAR,
-        fallback_tier           INTEGER,
-        fallback_reason         VARCHAR,
-        prompt_tokens           INTEGER,
-        completion_tokens       INTEGER,
-        total_tokens            INTEGER,
-        grounding_chunk_count   INTEGER,
-        web_search_query_count  INTEGER,
-        status                  VARCHAR,
-        duration_ms             DOUBLE,
-        error_type              VARCHAR,
-        error_message           VARCHAR,
-        payload_json            JSON,
-        PRIMARY KEY (tool_call_id, attempt_index)
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_gsa_tool_call_id ON gemini_search_attempts(tool_call_id)"
     )
 
 
@@ -1259,39 +1165,6 @@ def _ensure_content_summaries(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def _ensure_content_summary_attempts(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSUMA_TABLE_NAME,
-        """
-        tool_call_id       VARCHAR NOT NULL,
-        item_index         INTEGER,
-        attempt_index      INTEGER NOT NULL,
-        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-        is_batch           BOOLEAN,
-        batch_size         INTEGER,
-        backend            VARCHAR,
-        model_requested    VARCHAR,
-        model_used         VARCHAR,
-        fallback_tier      INTEGER,
-        source_url_count   INTEGER,
-        input_chars        INTEGER,
-        input_tokens       INTEGER,
-        output_tokens      INTEGER,
-        total_tokens       INTEGER,
-        duration_ms        DOUBLE,
-        status             VARCHAR,
-        error_type         VARCHAR,
-        error_message      VARCHAR,
-        payload_json       JSON,
-        PRIMARY KEY (tool_call_id, attempt_index)
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_csuma_tool_call_id ON content_summary_attempts(tool_call_id)"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Web search funnel uplift tables
 # ---------------------------------------------------------------------------
@@ -1621,7 +1494,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_final_results(connection)
             _ensure_query_embeddings(connection)
             _ensure_candidate_embeddings(connection)
-            _ensure_provider_health_transitions(connection)
             _ensure_llm_call_log(connection)
             _ensure_tool_calls(connection)
             _ensure_query_understanding_events(connection)
@@ -1637,8 +1509,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                     "context_shown": "JSON",
                 },
             )
-            _ensure_judge_rubrics(connection)
-            _ensure_judge_calibration_set(connection)
             _ensure_search_quality_scores(connection)
             _ensure_judge_evaluations(connection)
             _ensure_columns(
@@ -1673,15 +1543,10 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 "tool_calls",
                 {"run_key": "VARCHAR"},
             )
-            _ensure_summary_intent_daily(connection)
-            _ensure_summary_provider_daily(connection)
-            _ensure_summary_quality_daily(connection)
-            _ensure_summary_rerank_daily(connection)
             _ensure_quick_web_search_runs(connection)
             _ensure_quick_web_search_citations(connection)
             _ensure_gemini_search_runs(connection)
             _ensure_gemini_search_sources(connection)
-            _ensure_gemini_search_attempts(connection)
             _ensure_code_search_runs(connection)
             _ensure_code_search_providers(connection)
             _ensure_code_search_diagnostics(connection)
@@ -1701,7 +1566,11 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 },
             )
             _ensure_content_summaries(connection)
-            _ensure_content_summary_attempts(connection)
+            _ensure_content_stage_attempts(connection)
+            _ensure_content_fetch_items(connection)
+            _ensure_content_summary_rungs(connection)
+            _ensure_content_backend_health(connection)
+            _ensure_analytics_table_freshness(connection)
             # Phase 2: Web search funnel uplift tables
             _ensure_result_catalog(connection)
             _ensure_provider_results(connection)
@@ -1725,9 +1594,3 @@ def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     ensure_store_schema(db_path=db_path)
 
 
-from .summary_schema import (  # noqa: E402
-    _ensure_summary_intent_daily,  # noqa: F401
-    _ensure_summary_provider_daily,  # noqa: F401
-    _ensure_summary_quality_daily,  # noqa: F401
-    _ensure_summary_rerank_daily,  # noqa: F401
-)
