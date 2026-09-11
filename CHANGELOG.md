@@ -1,12 +1,26 @@
 ## [Unreleased]
+### Changed — Production analytics dashboard (2026-09-09)
+- Replaced the mock-data runtime path with a read-only, parameterized DuckDB data layer using `ANALYTICS_DUCKDB_PATH` and live schema bounds.
+- Rebuilt all 12 Streamlit pages against current analytics tables and views; fixed Overview empty-period handling, Quality Feedback runtime imports, and Cost Analytics view/query mismatches.
+- Replaced the Analytics Assistant keyword router with a databao agent (`databao-agent>=0.2.0`) answering free-form questions with generated read-only SQL over the live analytics DuckDB via native Gemini (`langchain-google-genai`), with a fallback chain across gemini-3.8/3.7/3.6-flash on `GEMINI_API_KEY` and 3.6-flash on `GEMINI_SECOND_API_KEY`; added `python-dotenv` to dashboard requirements.
+- Refined the Streamlit theme and removed fake mutation controls; stale/frozen repository tests were not modified or run.
+### Fixed — Discovery Engine token mint vs 15s retrieve cap (2026-09-09)
+- Skip ADC unless `GOOGLE_APPLICATION_CREDENTIALS` or the well-known ADC
+  file exists (avoids a ~4s `DefaultCredentialsError` on every cold mint).
+- Warm the OAuth token during `plan_search` so gcloud is not charged to
+  the 15s retrieve `wait_for`. Parallel original/free mints serialize on
+  one lock. `gcloud` is spawned with `stdin=DEVNULL`.
+
 ### Added — Google Discovery Engine search provider (2026-09-09)
 - New `google_discovery_engine` adapter (`search/providers/discovery_engine.py`)
   calls Agent Search `servingConfigs/default_search:search` over OAuth
   (ADC, else `gcloud auth print-access-token`) with `x-goog-user-project`.
   `:search` rejects API keys.
 - ``APPS`` maps intents to serving configs. Builtin `search-1` serves
-  `general` and `ai_coding_and_infrastructure` on the original branch.
-  Additional engines are extra `DiscoveryEngineApp` rows, not a second adapter.
+  `general` and `ai_coding_and_infrastructure` on the original and free
+  branches. Additional engines are extra `DiscoveryEngineApp` rows, not a
+  second adapter. The intent/app gate strips the provider from both
+  branches when no ``APPS`` row matches.
 - Settings: `DISCOVERY_ENGINE_QUOTA_PROJECT`, `DISCOVERY_ENGINE_GCLOUD_BIN`.
   Default RRF weight 1.3. No native date filter (`PROVIDER_TEMPORAL_MODE=none`).
 
