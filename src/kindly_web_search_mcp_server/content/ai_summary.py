@@ -1,8 +1,9 @@
 """AI-powered content summarization using Gemini and Gemma models.
 
-Provides single-URL and batched summarization with structured schema outputs,
-fallback ladders (Gemini 3.5 Flash Lite -> Gemini 3.1 Flash Lite -> Gemma 4),
-token tracking, and OpenTelemetry instrumentation.
+Summarizes already-fetched content through a per-item fallback ladder
+(Gemini 3.5 Flash Lite -> Gemini 3.1 Flash Lite -> Gemma 4), records each
+attempt in an optional rung log for analytics, and instruments calls with
+OpenTelemetry spans.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Literal, Sequence, cast
+from typing import Any, Sequence
 
 from google import genai  # type: ignore[import-untyped]
 from google.genai import types
@@ -37,16 +38,15 @@ _INACCESSIBLE_CLAIM_RE = re.compile(
     r"could not access the content",
     re.IGNORECASE,
 )
-_PROVIDER_BY_BACKEND = {
-    "gemini-api": "google",
-    "gemini-api-fallback": "google",
-    "gemini-batch-api": "google",
-    "gemini-per-item-fallback": "google",
-    "gemma-fallback": "gemma",
-    "gemma-batch-fallback": "gemma",
-}
+MODE = "detailed"
 
-SummaryMode = Literal["detailed"]
+
+BODY_RULE = (
+    "Summarize only SOURCE_TEXT. Do not fetch URLs. Do not claim the page is "
+    "inaccessible, blocked, or unreadable if SOURCE_TEXT is non-empty. "
+    "If SOURCE_TEXT is nav/captions/chrome, say so in limitations."
+)
+JSON_ONLY_RULE = "Return valid JSON only. No markdown fences, no prose wrapper."
 
 
 class SummaryError(RuntimeError):
@@ -78,39 +78,21 @@ class SummaryOutput(BaseModel):
     )
 
 
-class BatchSummaryItem(BaseModel):
-    url: str = Field(description="The URL this summary corresponds to.")
-    summary: str = Field(description="Concise source-grounded summary text.")
-    key_points: list[str] = Field(default_factory=list, description="Bullet-friendly takeaways.")
-    important_entities: list[SummaryEntity] = Field(
-        default_factory=list, description="Named entities that matter in the source."
-    )
-    verbatim_terms: list[str] = Field(
-        default_factory=list, description="Important exact terms, identifiers, or URLs."
-    )
-    limitations: list[str] = Field(
-        default_factory=list, description="Any gaps, caveats, or missing context."
-    )
-    source_date: str | None = Field(
-        default=None, description="Publication date found in the source, ISO format."
-    )
-
-
-class BatchSummaryOutput(BaseModel):
-    summaries: list[BatchSummaryItem] = Field(
-        default_factory=list, description="One summary per input URL."
-    )
-
-
-def summary_stub(mode: SummaryMode) -> dict[str, Any]:
+def summary_stub() -> dict[str, Any]:
     return {
-        "mode": mode,
+        "mode": MODE,
         "summary": "",
         "key_points": [],
         "important_entities": [],
         "verbatim_terms": [],
         "limitations": ["No source text or URL context was available to summarize."],
     }
+
+
+def _item_source_url(item: dict[str, Any]) -> str | None:
+    """Best URL for an item: fetched URL first, falling back to input forms."""
+    url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+    return url or None
 
 
 def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[str, Any]:
@@ -132,28 +114,17 @@ def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[
     return updated
 
 
-def _attach_token_fields(
-    payload: dict[str, Any], usage: Any | None, backend: str
-) -> dict[str, Any]:
-    input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
-    output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
-    if input_tokens is not None:
-        payload["input_tokens"] = input_tokens
-        payload["prompt_tokens"] = input_tokens
-    completion = output_tokens
-    if completion is None and str(payload.get("summary") or "").strip():
-        completion = 0
-    if output_tokens is not None:
-        payload["output_tokens"] = output_tokens
-    if completion is not None:
-        payload["completion_tokens"] = completion
-    provider = _PROVIDER_BY_BACKEND.get(backend)
-    if provider:
-        payload["provider"] = provider
-    return payload
-
-
 _client: Any | None = None
+
+
+def _get_client() -> Any:
+    global _client
+    if _client is None:
+        api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+        if not api_key:
+            raise SummaryError("GEMINI_API_KEY is required for summary generation")
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 
 def _normalize_urls(source_urls: Sequence[str] | None) -> list[str]:
@@ -217,21 +188,15 @@ def _log_rung(
     )
 
 
-
 def _summary_length_guidance() -> str:
     return "2 to 4 short paragraphs, 5 to 7 key points."
 
 
 def _system_instruction(*, use_url_context: bool, model_id: str = PRIMARY_MODEL) -> str:
-    body_rule = (
-        "Summarize only SOURCE_TEXT. Do not fetch URLs. Do not claim the page is "
-        "inaccessible, blocked, or unreadable if SOURCE_TEXT is non-empty. "
-        "If SOURCE_TEXT is nav/captions/chrome, say so in limitations."
-    )
     context_rule = (
         "Use the URL context tool to inspect the supplied URLs directly."
         if use_url_context
-        else body_rule
+        else BODY_RULE
     )
     return (
         "<role>\n"
@@ -271,7 +236,6 @@ def _system_instruction(*, use_url_context: bool, model_id: str = PRIMARY_MODEL)
 
 def _build_user_prompt(
     *,
-    mode: SummaryMode,
     focus_query: str | None,
     source_urls: Sequence[str] | None,
     source_text: str,
@@ -281,7 +245,7 @@ def _build_user_prompt(
     schema = json.dumps(SummaryOutput.model_json_schema(), ensure_ascii=True)
     parts = [
         "<summary_request>",
-        f"<summary_mode>{mode}</summary_mode>",
+        f"<summary_mode>{MODE}</summary_mode>",
         f"<focus_query>{focus}</focus_query>",
         f"<today>{anchor_today()}</today>",
         "<few_shot_example>",
@@ -327,20 +291,13 @@ def _build_user_prompt(
             ]
         )
     else:
-        body_instructions = (
-            "Summarize only SOURCE_TEXT. Do not fetch URLs. Do not claim the page is "
-            "inaccessible, blocked, or unreadable if SOURCE_TEXT is non-empty. "
-            "If SOURCE_TEXT is nav/captions/chrome, say so in limitations."
-            if has_body
-            else "Summarize only the provided source text. Do not invent missing details."
-        )
         parts.extend(
             [
                 "<source_text>",
                 source_text[:SOURCE_TEXT_LIMIT],
                 "</source_text>",
                 "<instructions>",
-                body_instructions,
+                BODY_RULE if has_body else "Summarize only the provided source text. Do not invent missing details.",
                 "</instructions>",
             ]
         )
@@ -359,7 +316,7 @@ def _build_user_prompt(
     parts.extend(
         [
             "<constraints>",
-            "Return valid JSON only. No markdown fences, no prose wrapper.",
+            JSON_ONLY_RULE,
             f"Length: {_summary_length_guidance()}",
             inaccessible_constraint,
             "Do not invent missing details.",
@@ -368,30 +325,6 @@ def _build_user_prompt(
         ]
     )
     return "\n".join(parts)
-
-
-def _get_client() -> Any:
-    global _client
-    if _client is None:
-        api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-        if not api_key:
-            raise SummaryError("GEMINI_API_KEY is required for summary generation")
-        _client = genai.Client(api_key=api_key)
-    return _client
-
-
-_batch_client: Any | None = None
-
-
-def _get_batch_client() -> Any:
-    """Dedicated client for batch summaries, using the paid GEMINI_SECOND_API_KEY."""
-    global _batch_client
-    if _batch_client is None:
-        api_key = (os.environ.get("GEMINI_SECOND_API_KEY") or "").strip()
-        if not api_key:
-            raise SummaryError("GEMINI_SECOND_API_KEY is required for batch summary generation")
-        _batch_client = genai.Client(api_key=api_key)
-    return _batch_client
 
 
 def _response_text(response: Any) -> str:
@@ -418,17 +351,12 @@ def _response_text(response: Any) -> str:
     raise SummaryError("Gemini response did not contain usable text")
 
 
-def _strip_json_fences(raw: str) -> str:
+def _parse_summary(raw: str) -> SummaryOutput:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
         if cleaned.lower().startswith("json"):
             cleaned = cleaned[4:].strip()
-    return cleaned
-
-
-def _parse_summary(raw: str) -> SummaryOutput:
-    cleaned = _strip_json_fences(raw)
     try:
         return SummaryOutput.model_validate_json(cleaned)
     except Exception as exc:
@@ -457,7 +385,6 @@ async def _generate_summary(
     model_id: str,
     source_text: str,
     source_urls: Sequence[str] | None,
-    mode: SummaryMode,
     focus_query: str | None,
     use_url_context: bool,
     client: Any | None = None,
@@ -469,7 +396,6 @@ async def _generate_summary(
         model_id=model_id,
     )
     contents = _build_user_prompt(
-        mode=mode,
         focus_query=focus_query,
         source_urls=source_urls,
         source_text=source_text,
@@ -484,371 +410,47 @@ async def _generate_summary(
     return _parse_summary(_response_text(response)), extract_llm_usage(response)
 
 
-def _build_batch_user_prompt(
+def _finalize_payload(
+    summary: SummaryOutput,
     *,
-    mode: SummaryMode,
-    focus_query: str | None,
-    items: Sequence[dict[str, Any]],
-) -> str:
-    focus = focus_query.strip() if focus_query else "None"
-    schema = json.dumps(BatchSummaryOutput.model_json_schema(), ensure_ascii=True)
-    parts = [
-        "<batch_summary_request>",
-        f"<summary_mode>{mode}</summary_mode>",
-        f"<focus_query>{focus}</focus_query>",
-        f"<today>{anchor_today()}</today>",
-        f"<summary_length>{_summary_length_guidance()}</summary_length>",
-        "<items>",
-    ]
-    for item in items:
-        url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url") or ""
-        text = str(item.get("page_content") or "")[:SOURCE_TEXT_LIMIT]
-        parts.extend(
-            [
-                "<item>",
-                f"<url>{url}</url>",
-                "<source_text>",
-                text,
-                "</source_text>",
-                "</item>",
-            ]
-        )
-    parts.extend(
-        [
-            "</items>",
-            "<instructions>",
-            "Summarize only SOURCE_TEXT. Do not fetch URLs. Do not claim the page is "
-            "inaccessible, blocked, or unreadable if SOURCE_TEXT is non-empty. "
-            "If SOURCE_TEXT is nav/captions/chrome, say so in limitations.",
-            "Return a JSON object matching the schema below with one summary entry for every item.",
-            "Each entry must include the exact URL it corresponds to in the 'url' field.",
-            "Do not invent missing details.",
-            "</instructions>",
-            "<schema>",
-            schema,
-            "</schema>",
-            "<constraints>",
-            "Return valid JSON only. No markdown fences, no prose wrapper.",
-            "Preserve every named entity, number, date, version string, error message, "
-            "code identifier, URL, and stated uncertainty from each source.",
-            "</constraints>",
-            "</batch_summary_request>",
-        ]
-    )
-    return "\n".join(parts)
-
-
-def _make_batch_config(
-    *, max_output_tokens: int, model_id: str = PRIMARY_MODEL, use_schema: bool = True
-) -> types.GenerateContentConfig:
-    config: dict[str, Any] = {
-        "system_instruction": _system_instruction(use_url_context=False, model_id=model_id),
-        "response_mime_type": "application/json",
-        "temperature": 1.0,
-        "max_output_tokens": max_output_tokens,
-    }
-    if use_schema:
-        config["response_json_schema"] = BatchSummaryOutput.model_json_schema()
-    return types.GenerateContentConfig(**config)
-
-
-async def _generate_batch_summary(
-    *,
+    source_text: str,
     model_id: str,
-    items: Sequence[dict[str, Any]],
-    mode: SummaryMode,
-    focus_query: str | None,
-) -> tuple[Any, Any | None]:
-    client = _get_batch_client()
-    max_output_tokens = _max_output_tokens()
-    scaled_max = min(max_output_tokens * max(len(items), 1), 12_000)
-    config = _make_batch_config(max_output_tokens=scaled_max, model_id=model_id)
-    contents = _build_batch_user_prompt(
-        mode=mode,
-        focus_query=focus_query,
-        items=items,
-    )
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=model_id,
-        contents=contents,
-        config=config,
-    )
-    return response, extract_llm_usage(response)
-
-
-async def summarize_batch_with_fallback(
-    *,
-    items: Sequence[dict[str, Any]],
-    mode: SummaryMode,
-    focus_query: str | None = None,
-    max_concurrency: int = 4,
-    rung_log: list | None = None,
-) -> list[dict[str, Any]]:
-    """Summarize many URLs in a single Gemini call using GEMINI_SECOND_API_KEY.
-
-    Items with a non-empty body go through one batched SOURCE_TEXT call; items
-    without a body are summarized per-item (URL-context enabled there).
-    Falls back to per-item summaries on the primary GEMINI_API_KEY if the batch call fails.
-    """
-    with_body = [item for item in items if str(item.get("page_content") or "").strip()]
-    without_body = [item for item in items if not str(item.get("page_content") or "").strip()]
-    if not with_body:
-        return list(
-            await _fallback_per_item_summaries(
-                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
-                rung_log=rung_log, rung_item_indexes=list(range(len(items))),
-            )
-        )
-
-    urls = [
-        item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
-        for item in with_body
-    ]
-    urls = [url for url in urls if url]
-    if not urls:
-        return list(
-            await _fallback_per_item_summaries(
-                items, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
-                rung_log=rung_log, rung_item_indexes=list(range(len(items))),
-            )
-        )
-
-    def _reorder(batched: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Interleave batched results back into the original item order."""
-        out: list[dict[str, Any]] = []
-        cursor = 0
-        for item in items:
-            if str(item.get("page_content") or "").strip():
-                out.append(batched[cursor])
-                cursor += 1
-            else:
-                out.append(summary_stub(mode))
-        return out
-
-    empty_idx = [index for index, item in enumerate(items) if not str(item.get("page_content") or "").strip()]
-    empty_summaries = await _fallback_per_item_summaries(
-        without_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
-        rung_log=rung_log, rung_item_indexes=empty_idx,
-    )
-    with_idx = [index for index, item in enumerate(items) if str(item.get("page_content") or "").strip()]
-    try:
-        batched = await _summarize_batched(with_body, mode=mode, focus_query=focus_query, rung_log=rung_log)
-    except Exception:
-        batched = await _fallback_per_item_summaries(
-            with_body, mode=mode, focus_query=focus_query, max_concurrency=max_concurrency,
-            rung_log=rung_log, rung_item_indexes=with_idx,
-        )
-    combined = _reorder(batched)
-    empty_iter = iter(empty_summaries)
-    return [
-        next(empty_iter) if not str(item.get("page_content") or "").strip() else combined[index]
-        for index, item in enumerate(items)
-    ]
-
-
-async def _summarize_batched(
-    items: Sequence[dict[str, Any]],
-    *,
-    mode: SummaryMode,
-    focus_query: str | None = None,
-    rung_log: list | None = None,
-) -> list[dict[str, Any]]:
-    urls = [
-        item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
-        for item in items
-    ]
-    urls = [url for url in urls if url]
-    model_chain = _summary_model_chain()
-    primary_model = model_chain[0]
-    with create_llm_operation_span(
-        "summarize_batch",
-        system="gemini",
-        attributes={
-            "llm.model_name": primary_model,
-            "summary.mode": mode,
-            "summary.focus_query": (focus_query or "")[:500],
-            "summary.source_url_count": len(urls),
-            "summary.batch": True,
-        },
-    ) as span:
-        last_error: Exception | None = None
-        for model_id in model_chain:
-            _t0 = time.monotonic()
-            try:
-                response, usage = await _generate_batch_summary(
-                    model_id=model_id,
-                    items=items,
-                    mode=mode,
-                    focus_query=focus_query,
-                )
-                backend = "gemini-batch-api"
-                raw_text = _response_text(response)
-                batch = _parse_batch_summary(raw_text)
-                mapped = _map_batch_summaries(
-                    items,
-                    batch.summaries,
-                    mode=mode,
-                    model_id=model_id,
-                    backend=backend,
-                )
-                if usage:
-                    if usage.input_tokens is not None:
-                        span.set_attribute("llm.token_count.prompt", usage.input_tokens)
-                    if usage.output_tokens is not None:
-                        span.set_attribute("llm.token_count.completion", usage.output_tokens)
-                    if usage.total_tokens is not None:
-                        span.set_attribute("llm.token_count.total", usage.total_tokens)
-                span.set_attribute("summary.backend", backend)
-                span.set_attribute("summary.batch_size", len(items))
-                span.set_attribute("summary.returned_summaries", len(mapped))
-                set_span_success(span)
-                _log_rung(
-                    rung_log,
-                    rung=f"batch:{model_id}",
-                    model_used=model_id,
-                    outcome="success",
-                    input_tokens=usage.input_tokens if usage else None,
-                    output_tokens=usage.output_tokens if usage else None,
-                    latency_ms=(time.monotonic() - _t0) * 1000.0,
-                    item_index=-1,
-                )
-                return mapped
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "Batch summary failed on %s, trying next summary tier: %s",
-                    model_id,
-                    exc,
-                )
-
-        if last_error is not None:
-            set_span_error(span, last_error)
-        # Try Gemma as a batch model before falling back to per-item summaries.
-        fallback_model = (os.environ.get("SUMMARY_GEMMA_FALLBACK_MODEL") or FALLBACK_MODEL).strip()
-        try:
-            _t0_gemma = time.monotonic()
-            # Gemma does not support response_json_schema; call with use_schema=False.
-            max_output_tokens = _max_output_tokens()
-            scaled_max = min(max_output_tokens * max(len(items), 1), 12_000)
-            config = _make_batch_config(
-                max_output_tokens=scaled_max, model_id=fallback_model, use_schema=False
-            )
-            contents = _build_batch_user_prompt(mode=mode, focus_query=focus_query, items=items)
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=fallback_model,
-                contents=contents,
-                config=config,
-            )
-            usage = extract_llm_usage(response)
-            backend = "gemma-batch-fallback"
-            raw_text = _response_text(response)
-            batch = _parse_batch_summary(raw_text)
-            mapped = _map_batch_summaries(
-                items,
-                batch.summaries,
-                mode=mode,
-                model_id=fallback_model,
-                backend=backend,
-            )
-            span.set_attribute("summary.backend", backend)
-            span.set_attribute("summary.batch_size", len(items))
-            span.set_attribute("summary.returned_summaries", len(mapped))
-            set_span_success(span)
-            _log_rung(
-                rung_log,
-                rung=f"batch:{fallback_model}",
-                model_used=fallback_model,
-                outcome="success",
-                input_tokens=usage.input_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-                latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
-                item_index=-1,
-            )
-            return mapped
-        except Exception as exc:
-            logger.warning("Batch summary also failed on Gemma fallback: %s", exc)
-            if last_error is not None:
-                set_span_error(span, last_error)
-        return await _fallback_per_item_summaries(items, mode=mode, focus_query=focus_query, rung_log=rung_log, rung_item_indexes=with_idx)
-
-
-def _parse_batch_summary(raw: str) -> Any:
-    cleaned = _strip_json_fences(raw)
-    try:
-        return BatchSummaryOutput.model_validate_json(cleaned)
-    except Exception as exc:
-        raise SummaryError(f"Batch summary response was not valid JSON: {exc}") from exc
-
-
-async def _fallback_per_item_summaries(
-    items: Sequence[dict[str, Any]],
-    *,
-    mode: SummaryMode,
-    focus_query: str | None,
-    max_concurrency: int = 4,
-    rung_log: list | None = None,
-    rung_item_indexes: Sequence[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Run per-item summaries on the primary GEMINI_API_KEY with bounded concurrency."""
-    item_indexes = list(rung_item_indexes) if rung_item_indexes is not None else list(range(len(items)))
-    semaphore = asyncio.Semaphore(max(1, max_concurrency))
-
-    async def _bounded(item: dict[str, Any], item_index: int) -> dict[str, Any]:
-        async with semaphore:
-            return await _per_item_summary(item, mode=mode, focus_query=focus_query, rung_log=rung_log, item_index=item_index)
-
-    return list(await asyncio.gather(*(_bounded(item, item_index) for item, item_index in zip(items, item_indexes))))
-
-
-
-def _map_batch_summaries(
-    items: Sequence[dict[str, Any]],
-    summaries: Sequence[Any],
-    mode: SummaryMode,
-    model_id: str,
-    backend: str = "gemini-batch-api",
-) -> list[dict[str, Any]]:
-    """Map returned summaries back to original items by URL, preserving order for missing entries."""
-    by_url: dict[str, dict[str, Any]] = {}
-    for entry in summaries:
-        url = getattr(entry, "url", None)
-        if not url:
-            continue
-        payload = {
-            **entry.model_dump(),
-            "mode": mode,
-            "model": model_id,
-            "model_used": model_id,
-            "backend": backend,
-        }
-        by_url[url] = payload
-    results: list[dict[str, Any]] = []
-    for item in items:
-        url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
-        source_text = str(item.get("page_content") or "")
-        if url and url in by_url:
-            payload = _drop_inaccessible_claim(by_url[url], source_text)
-            results.append(payload)
-        else:
-            stub = summary_stub(mode)
-            stub["limitations"] = ["No summary returned for this URL in the batch response."]
-            results.append(stub)
-    return results
+    backend: str,
+    usage: Any | None,
+) -> dict[str, Any]:
+    """Assemble the public summary payload with tokens, provider, and model fields."""
+    payload = summary.model_dump()
+    payload["mode"] = MODE
+    payload["model"] = model_id
+    payload["model_used"] = model_id
+    payload["backend"] = backend
+    payload = _drop_inaccessible_claim(payload, source_text)
+    usage_fields = llm_usage_fields(model_used=model_id, usage=usage)
+    payload.update(usage_fields)
+    if usage is not None:
+        input_tokens = getattr(usage, "input_tokens", None)
+        output_tokens = getattr(usage, "output_tokens", None)
+        if input_tokens is not None:
+            payload["prompt_tokens"] = input_tokens
+        completion = output_tokens
+        if completion is None and str(payload.get("summary") or "").strip():
+            completion = 0
+        if completion is not None:
+            payload["completion_tokens"] = completion
+        payload["provider"] = _rung_provider(model_id)
+    return payload
 
 
 async def _per_item_summary(
     item: dict[str, Any],
     *,
-    mode: SummaryMode,
     focus_query: str | None,
     rung_log: list | None = None,
     item_index: int = 0,
 ) -> dict[str, Any]:
-    source_url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+    source_url = _item_source_url(item)
     if not source_url:
-        return summary_stub(mode)
+        return summary_stub()
     content_text = str(item.get("page_content") or "")
     has_body = bool(content_text.strip())
     for model_id in _summary_model_chain():
@@ -858,17 +460,10 @@ async def _per_item_summary(
                 model_id=model_id,
                 source_text=content_text[:SOURCE_TEXT_LIMIT],
                 source_urls=[source_url],
-                mode=mode,
                 focus_query=focus_query,
                 use_url_context=not has_body,
                 client=_get_client(),
             )
-            payload = summary.model_dump()
-            payload["mode"] = mode
-            payload["model"] = model_id
-            payload["model_used"] = model_id
-            payload["backend"] = "gemini-per-item-fallback"
-            payload = _drop_inaccessible_claim(payload, content_text)
             _log_rung(
                 rung_log,
                 rung=f"per_item:{model_id}",
@@ -879,7 +474,13 @@ async def _per_item_summary(
                 latency_ms=(time.monotonic() - _t0) * 1000.0,
                 item_index=item_index,
             )
-            return _attach_token_fields(payload, usage, "gemini-per-item-fallback")
+            return _finalize_payload(
+                summary,
+                source_text=content_text,
+                model_id=model_id,
+                backend="gemini-per-item-fallback",
+                usage=usage,
+            )
         except Exception as exc:
             _log_rung(
                 rung_log,
@@ -891,34 +492,35 @@ async def _per_item_summary(
                 item_index=item_index,
             )
             logger.warning(
-                "Per-item batch summary failed for %s on %s: %s",
+                "Per-item summary failed for %s on %s: %s",
                 source_url,
                 model_id,
                 exc,
             )
-    return summary_stub(mode)
+    return summary_stub()
 
 
 async def summarize_with_fallback(
     *,
     source_text: str,
     source_urls: Sequence[str] | None,
-    mode: SummaryMode,
     focus_query: str | None = None,
     rung_log: list | None = None,
 ) -> tuple[dict[str, Any], str, str]:
+    """Summarize one already-fetched source through the model fallback ladder."""
     source_urls_list = _normalize_urls(source_urls)
     model_chain = _summary_model_chain()
     primary_model = model_chain[0]
-    fallback_model = (os.environ.get("SUMMARY_GEMMA_FALLBACK_MODEL") or FALLBACK_MODEL).strip()
+    fallback_model = FALLBACK_MODEL
     max_tokens = _max_output_tokens()
+    use_url_context = bool(source_urls_list) and not source_text.strip()
 
     with create_llm_operation_span(
         "summarize",
         system="gemini",
         attributes={
             "llm.model_name": primary_model,
-            "summary.mode": mode,
+            "summary.mode": MODE,
             "summary.focus_query": (focus_query or "")[:500],
             "summary.input_chars": len(source_text),
             "summary.source_url_count": len(source_urls_list),
@@ -928,6 +530,7 @@ async def summarize_with_fallback(
         summary: SummaryOutput | None = None
         usage: Any | None = None
         model_used = primary_model
+        backend = "gemini-api"
         for index, model_id in enumerate(model_chain):
             _t0 = time.monotonic()
             try:
@@ -935,9 +538,8 @@ async def summarize_with_fallback(
                     model_id=model_id,
                     source_text=source_text,
                     source_urls=source_urls_list or None,
-                    mode=mode,
                     focus_query=focus_query,
-                    use_url_context=bool(source_urls_list) and not source_text.strip(),
+                    use_url_context=use_url_context,
                 )
                 model_used = model_id
                 backend = "gemini-api" if index == 0 else "gemini-api-fallback"
@@ -973,7 +575,6 @@ async def summarize_with_fallback(
                     model_id=fallback_model,
                     source_text=source_text,
                     source_urls=source_urls_list or None,
-                    mode=mode,
                     focus_query=focus_query,
                     use_url_context=False,
                 )
@@ -1000,31 +601,29 @@ async def summarize_with_fallback(
                 set_span_error(span, fallback_exc)
                 raise
 
-    assert summary is not None
-    payload = summary.model_dump()
-    payload["mode"] = mode
-    payload["model"] = model_used
-    payload["model_used"] = model_used
-    payload["backend"] = backend
-    payload = _drop_inaccessible_claim(payload, source_text)
-    payload = _attach_token_fields(payload, usage, backend)
-    payload.update(llm_usage_fields(model_used=model_used, usage=usage))
-    span.set_attribute("llm.model_name", model_used)
-    if usage:
-        if usage.input_tokens is not None:
-            span.set_attribute("llm.token_count.prompt", usage.input_tokens)
-        if usage.output_tokens is not None:
-            span.set_attribute("llm.token_count.completion", usage.output_tokens)
-        if usage.total_tokens is not None:
-            span.set_attribute("llm.token_count.total", usage.total_tokens)
-    span.set_attribute("summary.backend", backend)
-    span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
-    span.set_attribute(
-        "summary.important_entities_count",
-        len(payload.get("important_entities", [])),
-    )
-    set_span_success(span)
-    return payload, model_used, backend
+        payload = _finalize_payload(
+            summary,
+            source_text=source_text,
+            model_id=model_used,
+            backend=backend,
+            usage=usage,
+        )
+        span.set_attribute("llm.model_name", model_used)
+        if usage:
+            if usage.input_tokens is not None:
+                span.set_attribute("llm.token_count.prompt", usage.input_tokens)
+            if usage.output_tokens is not None:
+                span.set_attribute("llm.token_count.completion", usage.output_tokens)
+            if usage.total_tokens is not None:
+                span.set_attribute("llm.token_count.total", usage.total_tokens)
+        span.set_attribute("summary.backend", backend)
+        span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
+        span.set_attribute(
+            "summary.important_entities_count",
+            len(payload.get("important_entities", [])),
+        )
+        set_span_success(span)
+        return payload, model_used, backend
 
 
 async def create_summary(
@@ -1038,12 +637,11 @@ async def create_summary(
     if not ai_summary:
         return None
     if not source_text.strip() and not source_urls:
-        return summary_stub("detailed")
+        return summary_stub()
 
     summary, _, _ = await summarize_with_fallback(
         source_text=source_text,
         source_urls=source_urls,
-        mode="detailed",
         focus_query=focus_query,
         rung_log=rung_log,
     )
@@ -1058,34 +656,30 @@ async def create_batch_summaries(
     max_concurrency: int = 4,
     rung_log: list | None = None,
 ) -> list[dict[str, Any] | None]:
+    """Summarize many items through bounded-concurrency per-item ladder runs."""
     if not ai_summary:
         return [None for _ in items]
 
     if not items:
         return []
 
-    return cast(
-        list[dict[str, Any] | None],
-        await summarize_batch_with_fallback(
-            items=items,
-            mode="detailed",
-            focus_query=focus_query,
-            max_concurrency=max_concurrency,
-            rung_log=rung_log,
-        ),
-    )
+    semaphore = asyncio.Semaphore(max(1, max_concurrency))
+
+    async def _bounded(item_index: int, item: dict[str, Any]) -> dict[str, Any]:
+        async with semaphore:
+            return await _per_item_summary(
+                item, focus_query=focus_query, rung_log=rung_log, item_index=item_index
+            )
+
+    return list(await asyncio.gather(*(_bounded(i, item) for i, item in enumerate(items))))
 
 
 __all__ = [
-    "BatchSummaryItem",
-    "BatchSummaryOutput",
     "SummaryEntity",
     "SummaryError",
-    "SummaryMode",
     "SummaryOutput",
     "create_batch_summaries",
     "create_summary",
-    "summarize_batch_with_fallback",
     "summarize_with_fallback",
     "summary_stub",
 ]
