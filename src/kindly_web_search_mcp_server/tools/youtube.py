@@ -120,7 +120,7 @@ async def youtube_transcript(
         except Exception as e:
             raise_tool_error(e, provider="youtube")
     format = output_format
-    from ..content.ai_summary import create_summary
+    from ..content.ai_summary import summarize
     from ..settings import settings
     from ..youtube.analysis import analyze_transcript
     from ..youtube.quality import normalize_transcript_segments, truncate_segments
@@ -177,7 +177,7 @@ async def youtube_transcript(
                 progress=65, total=100, message="Generating Gemini summary..."
             )
             try:
-                summary = await create_summary(
+                summary = await summarize(
                     full_text,
                     ai_summary=True,
                     focus_query=summary_focus,

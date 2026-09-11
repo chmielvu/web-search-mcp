@@ -1,9 +1,8 @@
 """AI-powered content summarization using Gemini and Gemma models.
 
-Summarizes already-fetched content through a per-item fallback ladder
-(Gemini 3.5 Flash Lite -> Gemini 3.1 Flash Lite -> Gemma 4), records each
-attempt in an optional rung log for analytics, and instruments calls with
-OpenTelemetry spans.
+Summarizes already-fetched content: one source per call, trying models in
+order (SUMMARY_GEMINI_MODEL -> gemini-3.1-flash-lite -> Gemma) until one
+succeeds. Every attempt is logged to an optional rung list for analytics.
 """
 
 from __future__ import annotations
@@ -38,8 +37,8 @@ _INACCESSIBLE_CLAIM_RE = re.compile(
     r"could not access the content",
     re.IGNORECASE,
 )
-MODE = "detailed"
 
+MODE = "detailed"
 
 BODY_RULE = (
     "Summarize only SOURCE_TEXT. Do not fetch URLs. Do not claim the page is "
@@ -89,13 +88,8 @@ def summary_stub() -> dict[str, Any]:
     }
 
 
-def _item_source_url(item: dict[str, Any]) -> str | None:
-    """Best URL for an item: fetched URL first, falling back to input forms."""
-    url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
-    return url or None
-
-
 def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[str, Any]:
+    """Neutralize 'page inaccessible' claims when body text was actually provided."""
     if len(source_text.strip()) < 400:
         return summary
     limitations = summary.get("limitations") or []
@@ -104,14 +98,15 @@ def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[
     blob = f"{summary.get('summary') or ''} {' '.join(str(item) for item in limitations)}"
     if not _INACCESSIBLE_CLAIM_RE.search(blob):
         return summary
-    updated = dict(summary)
-    updated["summary"] = "Source text was present but the model failed to summarize it."
-    updated["key_points"] = []
-    updated["limitations"] = [
-        *(str(item) for item in limitations),
-        "model_claimed_inaccessible_with_body",
-    ]
-    return updated
+    return {
+        **summary,
+        "summary": "Source text was present but the model failed to summarize it.",
+        "key_points": [],
+        "limitations": [
+            *(str(item) for item in limitations),
+            "model_claimed_inaccessible_with_body",
+        ],
+    }
 
 
 _client: Any | None = None
@@ -127,18 +122,6 @@ def _get_client() -> Any:
     return _client
 
 
-def _normalize_urls(source_urls: Sequence[str] | None) -> list[str]:
-    seen: set[str] = set()
-    normalized: list[str] = []
-    for raw in source_urls or []:
-        url = raw.strip()
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        normalized.append(url)
-    return normalized
-
-
 def _max_output_tokens() -> int:
     raw = (os.environ.get("SUMMARY_MAX_TOKENS") or "").strip()
     if not raw:
@@ -149,9 +132,14 @@ def _max_output_tokens() -> int:
         return DEFAULT_MAX_OUTPUT_TOKENS
 
 
-def _summary_model_chain() -> tuple[str, ...]:
+def _model_attempts() -> list[tuple[str, str]]:
+    """(model_id, backend) pairs in fallback order: primary, secondary, Gemma."""
     primary = (os.environ.get("SUMMARY_GEMINI_MODEL") or PRIMARY_MODEL).strip()
-    return tuple(dict.fromkeys((primary, GEMINI_FALLBACK_MODEL)))
+    attempts = [(primary, "gemini-api")]
+    if primary != GEMINI_FALLBACK_MODEL:
+        attempts.append((GEMINI_FALLBACK_MODEL, "gemini-api-fallback"))
+    attempts.append((FALLBACK_MODEL, "gemma-fallback"))
+    return attempts
 
 
 def _rung_provider(model_id: str) -> str:
@@ -161,7 +149,6 @@ def _rung_provider(model_id: str) -> str:
 def _log_rung(
     rung_log: list | None,
     *,
-    rung: str,
     model_used: str,
     outcome: str,
     error_type: str | None = None,
@@ -170,12 +157,12 @@ def _log_rung(
     latency_ms: float | None = None,
     item_index: int = 0,
 ) -> None:
-    """Append one ladder-rung record (row order is stamped by the analytics layer)."""
+    """Append one attempt record (row order is stamped by the analytics layer)."""
     if rung_log is None:
         return
     rung_log.append(
         {
-            "rung": rung,
+            "rung": model_used,
             "provider": _rung_provider(model_used),
             "model_used": model_used,
             "outcome": outcome,
@@ -192,7 +179,7 @@ def _summary_length_guidance() -> str:
     return "2 to 4 short paragraphs, 5 to 7 key points."
 
 
-def _system_instruction(*, use_url_context: bool, model_id: str = PRIMARY_MODEL) -> str:
+def _system_instruction(*, use_url_context: bool, model_id: str) -> str:
     context_rule = (
         "Use the URL context tool to inspect the supplied URLs directly."
         if use_url_context
@@ -342,8 +329,7 @@ def _response_text(response: Any) -> str:
     candidates = getattr(response, "candidates", None) or []
     if candidates:
         content = getattr(candidates[0], "content", None)
-        parts = getattr(content, "parts", None) or []
-        for part in parts:
+        for part in getattr(content, "parts", None) or []:
             part_text = getattr(part, "text", None)
             if isinstance(part_text, str) and part_text.strip():
                 return part_text.strip()
@@ -363,9 +349,7 @@ def _parse_summary(raw: str) -> SummaryOutput:
         raise SummaryError(f"Summary response was not valid JSON: {exc}") from exc
 
 
-def _make_config(
-    *, use_url_context: bool, max_output_tokens: int, model_id: str = PRIMARY_MODEL
-) -> types.GenerateContentConfig:
+def _make_config(*, use_url_context: bool, model_id: str) -> types.GenerateContentConfig:
     config: dict[str, Any] = {
         "system_instruction": _system_instruction(
             use_url_context=use_url_context, model_id=model_id
@@ -373,41 +357,11 @@ def _make_config(
         "response_mime_type": "application/json",
         "response_json_schema": SummaryOutput.model_json_schema(),
         "temperature": 1.0,
-        "max_output_tokens": max_output_tokens,
+        "max_output_tokens": _max_output_tokens(),
     }
     if use_url_context:
         config["tools"] = [URL_CONTEXT_TOOL]
     return types.GenerateContentConfig(**config)
-
-
-async def _generate_summary(
-    *,
-    model_id: str,
-    source_text: str,
-    source_urls: Sequence[str] | None,
-    focus_query: str | None,
-    use_url_context: bool,
-    client: Any | None = None,
-) -> tuple[SummaryOutput, Any | None]:
-    client_obj: Any = client or _get_client()
-    config = _make_config(
-        use_url_context=use_url_context,
-        max_output_tokens=_max_output_tokens(),
-        model_id=model_id,
-    )
-    contents = _build_user_prompt(
-        focus_query=focus_query,
-        source_urls=source_urls,
-        source_text=source_text,
-        use_url_context=use_url_context,
-    )
-    response = await asyncio.to_thread(
-        client_obj.models.generate_content,
-        model=model_id,
-        contents=contents,
-        config=config,
-    )
-    return _parse_summary(_response_text(response)), extract_llm_usage(response)
 
 
 def _finalize_payload(
@@ -418,15 +372,14 @@ def _finalize_payload(
     backend: str,
     usage: Any | None,
 ) -> dict[str, Any]:
-    """Assemble the public summary payload with tokens, provider, and model fields."""
+    """Build the public summary payload with model, backend, and token fields."""
     payload = summary.model_dump()
     payload["mode"] = MODE
     payload["model"] = model_id
     payload["model_used"] = model_id
     payload["backend"] = backend
     payload = _drop_inaccessible_claim(payload, source_text)
-    usage_fields = llm_usage_fields(model_used=model_id, usage=usage)
-    payload.update(usage_fields)
+    payload.update(llm_usage_fields(model_used=model_id, usage=usage))
     if usage is not None:
         input_tokens = getattr(usage, "input_tokens", None)
         output_tokens = getattr(usage, "output_tokens", None)
@@ -441,214 +394,107 @@ def _finalize_payload(
     return payload
 
 
-async def _per_item_summary(
-    item: dict[str, Any],
-    *,
-    focus_query: str | None,
-    rung_log: list | None = None,
-    item_index: int = 0,
-) -> dict[str, Any]:
-    source_url = _item_source_url(item)
-    if not source_url:
-        return summary_stub()
-    content_text = str(item.get("page_content") or "")
-    has_body = bool(content_text.strip())
-    for model_id in _summary_model_chain():
-        _t0 = time.monotonic()
-        try:
-            summary, usage = await _generate_summary(
-                model_id=model_id,
-                source_text=content_text[:SOURCE_TEXT_LIMIT],
-                source_urls=[source_url],
-                focus_query=focus_query,
-                use_url_context=not has_body,
-                client=_get_client(),
-            )
-            _log_rung(
-                rung_log,
-                rung=f"per_item:{model_id}",
-                model_used=model_id,
-                outcome="success",
-                input_tokens=usage.input_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-                latency_ms=(time.monotonic() - _t0) * 1000.0,
-                item_index=item_index,
-            )
-            return _finalize_payload(
-                summary,
-                source_text=content_text,
-                model_id=model_id,
-                backend="gemini-per-item-fallback",
-                usage=usage,
-            )
-        except Exception as exc:
-            _log_rung(
-                rung_log,
-                rung=f"per_item:{model_id}",
-                model_used=model_id,
-                outcome="error",
-                error_type=type(exc).__name__,
-                latency_ms=(time.monotonic() - _t0) * 1000.0,
-                item_index=item_index,
-            )
-            logger.warning(
-                "Per-item summary failed for %s on %s: %s",
-                source_url,
-                model_id,
-                exc,
-            )
-    return summary_stub()
-
-
-async def summarize_with_fallback(
-    *,
-    source_text: str,
-    source_urls: Sequence[str] | None,
-    focus_query: str | None = None,
-    rung_log: list | None = None,
-) -> tuple[dict[str, Any], str, str]:
-    """Summarize one already-fetched source through the model fallback ladder."""
-    source_urls_list = _normalize_urls(source_urls)
-    model_chain = _summary_model_chain()
-    primary_model = model_chain[0]
-    fallback_model = FALLBACK_MODEL
-    max_tokens = _max_output_tokens()
-    use_url_context = bool(source_urls_list) and not source_text.strip()
-
-    with create_llm_operation_span(
-        "summarize",
-        system="gemini",
-        attributes={
-            "llm.model_name": primary_model,
-            "summary.mode": MODE,
-            "summary.focus_query": (focus_query or "")[:500],
-            "summary.input_chars": len(source_text),
-            "summary.source_url_count": len(source_urls_list),
-            "summary.max_tokens": max_tokens,
-        },
-    ) as span:
-        summary: SummaryOutput | None = None
-        usage: Any | None = None
-        model_used = primary_model
-        backend = "gemini-api"
-        for index, model_id in enumerate(model_chain):
-            _t0 = time.monotonic()
-            try:
-                summary, usage = await _generate_summary(
-                    model_id=model_id,
-                    source_text=source_text,
-                    source_urls=source_urls_list or None,
-                    focus_query=focus_query,
-                    use_url_context=use_url_context,
-                )
-                model_used = model_id
-                backend = "gemini-api" if index == 0 else "gemini-api-fallback"
-                _log_rung(
-                    rung_log,
-                    rung=f"single:{model_id}",
-                    model_used=model_id,
-                    outcome="success",
-                    input_tokens=usage.input_tokens if usage else None,
-                    output_tokens=usage.output_tokens if usage else None,
-                    latency_ms=(time.monotonic() - _t0) * 1000.0,
-                )
-                break
-            except Exception as exc:
-                _log_rung(
-                    rung_log,
-                    rung=f"single:{model_id}",
-                    model_used=model_id,
-                    outcome="error",
-                    error_type=type(exc).__name__,
-                    latency_ms=(time.monotonic() - _t0) * 1000.0,
-                )
-                logger.warning(
-                    "Gemini summary failed for model %s: %s",
-                    model_id,
-                    exc,
-                )
-
-        if summary is None:
-            _t0_gemma = time.monotonic()
-            try:
-                summary, usage = await _generate_summary(
-                    model_id=fallback_model,
-                    source_text=source_text,
-                    source_urls=source_urls_list or None,
-                    focus_query=focus_query,
-                    use_url_context=False,
-                )
-                backend = "gemma-fallback"
-                model_used = fallback_model
-                _log_rung(
-                    rung_log,
-                    rung=f"single:{fallback_model}",
-                    model_used=fallback_model,
-                    outcome="success",
-                    input_tokens=usage.input_tokens if usage else None,
-                    output_tokens=usage.output_tokens if usage else None,
-                    latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
-                )
-            except Exception as fallback_exc:
-                _log_rung(
-                    rung_log,
-                    rung=f"single:{fallback_model}",
-                    model_used=fallback_model,
-                    outcome="error",
-                    error_type=type(fallback_exc).__name__,
-                    latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
-                )
-                set_span_error(span, fallback_exc)
-                raise
-
-        payload = _finalize_payload(
-            summary,
-            source_text=source_text,
-            model_id=model_used,
-            backend=backend,
-            usage=usage,
-        )
-        span.set_attribute("llm.model_name", model_used)
-        if usage:
-            if usage.input_tokens is not None:
-                span.set_attribute("llm.token_count.prompt", usage.input_tokens)
-            if usage.output_tokens is not None:
-                span.set_attribute("llm.token_count.completion", usage.output_tokens)
-            if usage.total_tokens is not None:
-                span.set_attribute("llm.token_count.total", usage.total_tokens)
-        span.set_attribute("summary.backend", backend)
-        span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
-        span.set_attribute(
-            "summary.important_entities_count",
-            len(payload.get("important_entities", [])),
-        )
-        set_span_success(span)
-        return payload, model_used, backend
-
-
-async def create_summary(
+async def summarize(
     source_text: str,
     *,
     ai_summary: bool = False,
     focus_query: str | None = None,
     source_urls: Sequence[str] | None = None,
     rung_log: list | None = None,
+    item_index: int = 0,
 ) -> dict[str, Any] | None:
+    """Summarize one already-fetched source, trying each model in order.
+
+    Returns the payload dict, or None when ai_summary is disabled, or a stub
+    when there is nothing to summarize.
+    """
     if not ai_summary:
         return None
     if not source_text.strip() and not source_urls:
         return summary_stub()
 
-    summary, _, _ = await summarize_with_fallback(
-        source_text=source_text,
-        source_urls=source_urls,
-        focus_query=focus_query,
-        rung_log=rung_log,
-    )
-    return summary
+    use_url_context = bool(source_urls) and not source_text.strip()
+    with create_llm_operation_span(
+        "summarize",
+        system="gemini",
+        attributes={
+            "llm.model_name": _model_attempts()[0][0],
+            "summary.mode": MODE,
+            "summary.focus_query": (focus_query or "")[:500],
+            "summary.input_chars": len(source_text),
+            "summary.source_url_count": len(source_urls or []),
+            "summary.max_tokens": _max_output_tokens(),
+        },
+    ) as span:
+        last_error: Exception | None = None
+        for model_id, backend in _model_attempts():
+            _t0 = time.monotonic()
+            try:
+                contents = _build_user_prompt(
+                    focus_query=focus_query,
+                    source_urls=source_urls,
+                    source_text=source_text,
+                    use_url_context=use_url_context and model_id != FALLBACK_MODEL,
+                )
+                response = await asyncio.to_thread(
+                    _get_client().models.generate_content,
+                    model=model_id,
+                    contents=contents,
+                    config=_make_config(
+                        use_url_context=use_url_context and model_id != FALLBACK_MODEL,
+                        model_id=model_id,
+                    ),
+                )
+                summary = _parse_summary(_response_text(response))
+                usage = extract_llm_usage(response)
+            except Exception as exc:
+                _log_rung(
+                    rung_log,
+                    model_used=model_id,
+                    outcome="error",
+                    error_type=type(exc).__name__,
+                    latency_ms=(time.monotonic() - _t0) * 1000.0,
+                    item_index=item_index,
+                )
+                last_error = exc
+                logger.warning("Summary failed on %s: %s", model_id, exc)
+                continue
+            _log_rung(
+                rung_log,
+                model_used=model_id,
+                outcome="success",
+                input_tokens=getattr(usage, "input_tokens", None) if usage else None,
+                output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+                latency_ms=(time.monotonic() - _t0) * 1000.0,
+                item_index=item_index,
+            )
+            payload = _finalize_payload(
+                summary,
+                source_text=source_text,
+                model_id=model_id,
+                backend=backend,
+                usage=usage,
+            )
+            if usage is not None:
+                if usage.input_tokens is not None:
+                    span.set_attribute("llm.token_count.prompt", usage.input_tokens)
+                if usage.output_tokens is not None:
+                    span.set_attribute("llm.token_count.completion", usage.output_tokens)
+            span.set_attribute("llm.model_name", model_id)
+            span.set_attribute("summary.backend", backend)
+            span.set_attribute("summary.key_points_count", len(payload.get("key_points", [])))
+            span.set_attribute(
+                "summary.important_entities_count",
+                len(payload.get("important_entities", [])),
+            )
+            set_span_success(span)
+            return payload
+        error = SummaryError(f"All summary models failed: {last_error}")
+        set_span_error(span, error)
+        raise error
 
 
-async def create_batch_summaries(
+async def summarize_batch(
     items: Sequence[dict[str, Any]],
     *,
     ai_summary: bool = False,
@@ -656,30 +502,39 @@ async def create_batch_summaries(
     max_concurrency: int = 4,
     rung_log: list | None = None,
 ) -> list[dict[str, Any] | None]:
-    """Summarize many items through bounded-concurrency per-item ladder runs."""
+    """Summarize many items with bounded concurrency; failures get a stub."""
     if not ai_summary:
         return [None for _ in items]
-
     if not items:
         return []
-
     semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
-    async def _bounded(item_index: int, item: dict[str, Any]) -> dict[str, Any]:
-        async with semaphore:
-            return await _per_item_summary(
-                item, focus_query=focus_query, rung_log=rung_log, item_index=item_index
-            )
+    async def _one(item_index: int, item: dict[str, Any]) -> dict[str, Any]:
+        url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
+        if not url:
+            return summary_stub()
+        try:
+            async with semaphore:
+                payload = await summarize(
+                    str(item.get("page_content") or ""),
+                    ai_summary=True,
+                    focus_query=focus_query,
+                    source_urls=[url],
+                    rung_log=rung_log,
+                    item_index=item_index,
+                )
+            return payload if payload is not None else summary_stub()
+        except SummaryError:
+            return summary_stub()
 
-    return list(await asyncio.gather(*(_bounded(i, item) for i, item in enumerate(items))))
+    return list(await asyncio.gather(*(_one(i, item) for i, item in enumerate(items))))
 
 
 __all__ = [
     "SummaryEntity",
     "SummaryError",
     "SummaryOutput",
-    "create_batch_summaries",
-    "create_summary",
-    "summarize_with_fallback",
+    "summarize",
+    "summarize_batch",
     "summary_stub",
 ]

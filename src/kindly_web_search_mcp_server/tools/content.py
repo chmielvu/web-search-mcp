@@ -16,7 +16,7 @@ from pydantic import Field
 
 from ..cache import get_page_cache
 from ..content.artifact import ContentArtifact, artifact_to_dict
-from ..content.ai_summary import create_batch_summaries, create_summary
+from ..content.ai_summary import summarize, summarize_batch
 from ..errors import raise_tool_error
 from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.llms_txt import LlmsTxtResult, check_llms_txt
@@ -768,7 +768,7 @@ async def fetch(
         analytics_result = _analytics_result(artifact, result, classified)
         if ai_summary:
             try:
-                summary_obj = await create_summary(
+                summary_obj = await summarize(
                     result["content"],
                     ai_summary=True,
                     focus_query=focus_query,
@@ -868,7 +868,7 @@ async def fetch(
 
         if ai_summary and admitted:
             try:
-                summaries = await create_batch_summaries(
+                summaries = await summarize_batch(
                     [_summary_input(item) for item in admitted],
                     ai_summary=True,
                     focus_query=focus_query,
