@@ -936,14 +936,19 @@ def _persist_content_analytics(
                         "payload_json": item,
                     }
                 )
-                stage_count = len(fields.get("stage_attempts") or [])
+                item_stage_attempts = [
+                    attempt
+                    for attempt in (fields.get("stage_attempts") or [])
+                    if isinstance(attempt, dict) and attempt.get("item_index", 0) == idx
+                ]
+                stage_count = len(item_stage_attempts)
                 diagnostics = item.get("diagnostics") or []
                 raw_error = item.get("error")
                 raw_error = raw_error if isinstance(raw_error, dict) else {}
                 stage_path_parts = [
                     str(attempt.get("stage"))
-                    for attempt in (fields.get("stage_attempts") or [])
-                    if isinstance(attempt, dict) and attempt.get("stage")
+                    for attempt in item_stage_attempts
+                    if attempt.get("stage")
                 ]
                 fetch_item_rows.append(
                     {
@@ -1070,7 +1075,7 @@ def _persist_content_analytics(
             summary_rungs=summary_rung_rows,
         )
     except Exception as exc:
-        logger.debug("Failed to persist content analytics: %s", exc)
+        logger.warning("Failed to persist content analytics: %s", exc)
 
 
 def _persist_tool_output_items(

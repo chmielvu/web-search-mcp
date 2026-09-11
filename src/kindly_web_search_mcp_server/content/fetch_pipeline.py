@@ -93,6 +93,7 @@ def _note_stage(
     stage_order: int,
     outcome: str,
     normalized_url: str,
+    item_index: int = 0,
     error_code: str | None = None,
     latency_ms: float | None = None,
     attempt_count: int = 1,
@@ -105,6 +106,7 @@ def _note_stage(
         return
     attempts.append(
         {
+            "item_index": item_index,
             "stage": stage,
             "stage_order": stage_order,
             "outcome": outcome,

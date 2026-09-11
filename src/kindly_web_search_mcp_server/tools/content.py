@@ -773,6 +773,7 @@ async def fetch(
                     ai_summary=True,
                     focus_query=focus_query,
                     source_urls=[result["url"]] if result.get("url") else None,
+                    rung_log=rung_log,
                 )
             except Exception as exc:
                 LOGGER.warning("Optional summary failed for %s: %s", result.get("url"), exc)
@@ -848,15 +849,21 @@ async def fetch(
                 return result, _analytics_result(artifact, result, classified), stage_attempts
 
         stage_attempts_all: list = []
-        for result, analytics_result, item_stage_attempts in wave_results:
-            admitted.append(result)
-            analytics_admitted.append(analytics_result)
-            stage_attempts_all.extend(item_stage_attempts)
-        deferred = pending_urls[wave_size:]
+        for wave_start in range(0, len(pending_urls), wave_size):
+            wave = pending_urls[wave_start : wave_start + wave_size]
+            wave_results = await asyncio.gather(*(_one(item) for item in wave))
+            waves_completed += 1
+            for result, analytics_result, item_stage_attempts in wave_results:
+                admitted.append(result)
+                analytics_admitted.append(analytics_result)
+                for attempt in item_stage_attempts:
+                    attempt["item_index"] = len(admitted) - 1
+                stage_attempts_all.extend(item_stage_attempts)
+        deferred = pending_urls[len(admitted):]
         await ctx.report_progress(
-            progress=min(95, 10 + int(85 * len(wave) / max(len(pending_urls), 1))),
+            progress=min(95, 10 + int(85 * len(admitted) / max(len(pending_urls), 1))),
             total=100,
-            message=f"Fetched {len(wave)}/{len(pending_urls)} URLs...",
+            message=f"Fetched {len(admitted)}/{len(pending_urls)} URLs...",
         )
 
         if ai_summary and admitted:

@@ -727,8 +727,8 @@ async def _summarize_batched(
         # Try Gemma as a batch model before falling back to per-item summaries.
         fallback_model = (os.environ.get("SUMMARY_GEMMA_FALLBACK_MODEL") or FALLBACK_MODEL).strip()
         try:
+            _t0_gemma = time.monotonic()
             # Gemma does not support response_json_schema; call with use_schema=False.
-            client = _get_batch_client()
             max_output_tokens = _max_output_tokens()
             scaled_max = min(max_output_tokens * max(len(items), 1), 12_000)
             config = _make_batch_config(
@@ -752,7 +752,6 @@ async def _summarize_batched(
                 model_id=fallback_model,
                 backend=backend,
             )
-            _t0_gemma = time.monotonic()
             span.set_attribute("summary.backend", backend)
             span.set_attribute("summary.batch_size", len(items))
             span.set_attribute("summary.returned_summaries", len(mapped))
@@ -906,6 +905,7 @@ async def summarize_with_fallback(
     source_urls: Sequence[str] | None,
     mode: SummaryMode,
     focus_query: str | None = None,
+    rung_log: list | None = None,
 ) -> tuple[dict[str, Any], str, str]:
     source_urls_list = _normalize_urls(source_urls)
     model_chain = _summary_model_chain()
@@ -928,8 +928,8 @@ async def summarize_with_fallback(
         summary: SummaryOutput | None = None
         usage: Any | None = None
         model_used = primary_model
-        backend = "gemini-api"
         for index, model_id in enumerate(model_chain):
+            _t0 = time.monotonic()
             try:
                 summary, usage = await _generate_summary(
                     model_id=model_id,
@@ -941,8 +941,25 @@ async def summarize_with_fallback(
                 )
                 model_used = model_id
                 backend = "gemini-api" if index == 0 else "gemini-api-fallback"
+                _log_rung(
+                    rung_log,
+                    rung=f"single:{model_id}",
+                    model_used=model_id,
+                    outcome="success",
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                    latency_ms=(time.monotonic() - _t0) * 1000.0,
+                )
                 break
             except Exception as exc:
+                _log_rung(
+                    rung_log,
+                    rung=f"single:{model_id}",
+                    model_used=model_id,
+                    outcome="error",
+                    error_type=type(exc).__name__,
+                    latency_ms=(time.monotonic() - _t0) * 1000.0,
+                )
                 logger.warning(
                     "Gemini summary failed for model %s: %s",
                     model_id,
@@ -950,6 +967,7 @@ async def summarize_with_fallback(
                 )
 
         if summary is None:
+            _t0_gemma = time.monotonic()
             try:
                 summary, usage = await _generate_summary(
                     model_id=fallback_model,
@@ -961,7 +979,24 @@ async def summarize_with_fallback(
                 )
                 backend = "gemma-fallback"
                 model_used = fallback_model
+                _log_rung(
+                    rung_log,
+                    rung=f"single:{fallback_model}",
+                    model_used=fallback_model,
+                    outcome="success",
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                    latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
+                )
             except Exception as fallback_exc:
+                _log_rung(
+                    rung_log,
+                    rung=f"single:{fallback_model}",
+                    model_used=fallback_model,
+                    outcome="error",
+                    error_type=type(fallback_exc).__name__,
+                    latency_ms=(time.monotonic() - _t0_gemma) * 1000.0,
+                )
                 set_span_error(span, fallback_exc)
                 raise
 
@@ -998,6 +1033,7 @@ async def create_summary(
     ai_summary: bool = False,
     focus_query: str | None = None,
     source_urls: Sequence[str] | None = None,
+    rung_log: list | None = None,
 ) -> dict[str, Any] | None:
     if not ai_summary:
         return None
@@ -1009,6 +1045,7 @@ async def create_summary(
         source_urls=source_urls,
         mode="detailed",
         focus_query=focus_query,
+        rung_log=rung_log,
     )
     return summary
 
