@@ -402,6 +402,8 @@ async def summarize(
     source_urls: Sequence[str] | None = None,
     rung_log: list | None = None,
     item_index: int = 0,
+    client: Any | None = None,
+    models: Sequence[tuple[str, str]] | None = None,
 ) -> dict[str, Any] | None:
     """Summarize one already-fetched source, trying each model in order.
 
@@ -412,13 +414,13 @@ async def summarize(
         return None
     if not source_text.strip() and not source_urls:
         return summary_stub()
-
+    attempts = list(models) if models is not None else _model_attempts()
     use_url_context = bool(source_urls) and not source_text.strip()
     with create_llm_operation_span(
         "summarize",
         system="gemini",
         attributes={
-            "llm.model_name": _model_attempts()[0][0],
+            "llm.model_name": attempts[0][0],
             "summary.mode": MODE,
             "summary.focus_query": (focus_query or "")[:500],
             "summary.input_chars": len(source_text),
@@ -427,7 +429,7 @@ async def summarize(
         },
     ) as span:
         last_error: Exception | None = None
-        for model_id, backend in _model_attempts():
+        for model_id, backend in attempts:
             _t0 = time.monotonic()
             try:
                 contents = _build_user_prompt(
@@ -437,7 +439,7 @@ async def summarize(
                     use_url_context=use_url_context and model_id != FALLBACK_MODEL,
                 )
                 response = await asyncio.to_thread(
-                    _get_client().models.generate_content,
+                    (client or _get_client()).models.generate_content,
                     model=model_id,
                     contents=contents,
                     config=_make_config(
@@ -494,35 +496,55 @@ async def summarize(
         raise error
 
 
+_batch_client: Any | None = None
+
+
+def _get_batch_client() -> Any:
+    """Client for bulk summaries, using the second GEMINI_SECOND_API_KEY quota."""
+    global _batch_client
+    if _batch_client is None:
+        api_key = (os.environ.get("GEMINI_SECOND_API_KEY") or "").strip()
+        if not api_key:
+            raise SummaryError("GEMINI_SECOND_API_KEY is required for bulk summary generation")
+        _batch_client = genai.Client(api_key=api_key)
+    return _batch_client
+
+
 async def summarize_batch(
     items: Sequence[dict[str, Any]],
     *,
     ai_summary: bool = False,
     focus_query: str | None = None,
-    max_concurrency: int = 4,
     rung_log: list | None = None,
 ) -> list[dict[str, Any] | None]:
-    """Summarize many items with bounded concurrency; failures get a stub."""
+    """Summarize many items concurrently on the second API key.
+
+    Bulk traffic uses GEMINI_SECOND_API_KEY and the gemini-3.1-flash-lite
+    model (with Gemma fallback); failures get a stub.
+    """
     if not ai_summary:
         return [None for _ in items]
     if not items:
         return []
-    semaphore = asyncio.Semaphore(max(1, max_concurrency))
+
+    client = _get_batch_client()
+    batch_models = [(GEMINI_FALLBACK_MODEL, "gemini-api"), (FALLBACK_MODEL, "gemma-fallback")]
 
     async def _one(item_index: int, item: dict[str, Any]) -> dict[str, Any]:
         url = item.get("fetched_url") or item.get("normalized_url") or item.get("input_url")
         if not url:
             return summary_stub()
         try:
-            async with semaphore:
-                payload = await summarize(
-                    str(item.get("page_content") or ""),
-                    ai_summary=True,
-                    focus_query=focus_query,
-                    source_urls=[url],
-                    rung_log=rung_log,
-                    item_index=item_index,
-                )
+            payload = await summarize(
+                str(item.get("page_content") or ""),
+                ai_summary=True,
+                focus_query=focus_query,
+                source_urls=[url],
+                rung_log=rung_log,
+                item_index=item_index,
+                client=client,
+                models=batch_models,
+            )
             return payload if payload is not None else summary_stub()
         except SummaryError:
             return summary_stub()

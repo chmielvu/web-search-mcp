@@ -872,7 +872,6 @@ async def fetch(
                     [_summary_input(item) for item in admitted],
                     ai_summary=True,
                     focus_query=focus_query,
-                    max_concurrency=workers,
                     rung_log=rung_log,
                 )
             except Exception as exc:

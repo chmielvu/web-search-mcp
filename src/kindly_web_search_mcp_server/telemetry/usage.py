@@ -78,7 +78,12 @@ def extract_llm_usage(source: Any) -> LLMUsage | None:
     )
     output_tokens = _first_int(
         mapping,
-        ("output_tokens", "completion_tokens", "response_token_count"),
+        (
+            "output_tokens",
+            "completion_tokens",
+            "candidates_token_count",
+            "response_token_count",
+        ),
     )
     total_tokens = _first_int(mapping, ("total_tokens", "total_token_count"))
 
