@@ -40,8 +40,8 @@ from .understanding.resolver import resolve_query_understanding
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
 
-_ORIGINAL_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog", "google_discovery_engine")
 _FREE_CANDIDATES = ("ddg", "qdrant", "searxng", "degoog", "google_discovery_engine")
+_ORIGINAL_CANDIDATES = _FREE_CANDIDATES
 _SERP1_CANDIDATES = ("brave",)
 _SERP2_CANDIDATES = ("brightdata", "serper", "search_router")
 _SEMANTIC_TAVILY_CANDIDATES = ("tavily", "langsearch")
@@ -223,8 +223,8 @@ async def _rewrite_queries(
         "prompt_version": REWRITE_PROMPT_VERSION,
         "prompt": f"query={query!r}\nresearch_goal={research_goal!r}\nintent={intent!r}",
     }
-    if len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
-        _REWRITE_CACHE.clear()
+    while len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
+        del _REWRITE_CACHE[next(iter(_REWRITE_CACHE))]
     _REWRITE_CACHE[cache_key] = (parsed, metadata)
     return parsed, metadata
 

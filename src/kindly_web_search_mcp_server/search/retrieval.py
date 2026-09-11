@@ -303,8 +303,6 @@ def _record_provider_result(
             deduped_results.append(item)
     provider_ranked_results_list.append(
         ProviderRankedResults(
-            branch_index=branch_index,
-            branch_role=branch.role,
             provider_name=name,
             results=tuple(deduped_results),
         )
@@ -365,7 +363,6 @@ def _assemble_branch_outcome(
     branch: QueryBranch,
     *,
     assigned_names: tuple[str, ...],
-    skipped: tuple[str, ...],
     attempted: tuple[str, ...],
     rows: OrderedDict[str, WebSearchResult],
     warnings_by_name: dict[str, ProviderWarning],
@@ -377,7 +374,6 @@ def _assemble_branch_outcome(
     return BranchOutcome(
         branch=branch,
         attempted_provider_names=attempted,
-        skipped_provider_names=skipped,
         results=tuple(rows.values()),
         warnings=warnings,
         elapsed_seconds=elapsed_seconds,
@@ -594,7 +590,6 @@ async def retrieve_branches(
                 _assemble_branch_outcome(
                     branch,
                     assigned_names=branch_assigned[branch_index],
-                    skipped=(),
                     attempted=tuple(branch_attempted[branch_index]),
                     rows=branch_rows[branch_index],
                     warnings_by_name=branch_warnings[branch_index],

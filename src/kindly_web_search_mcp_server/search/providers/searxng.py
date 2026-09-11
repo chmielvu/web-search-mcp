@@ -92,11 +92,11 @@ def _looks_like_url(url: str) -> bool:
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
-def _reciprocal_rank_fusion_by_engine(
+def _engine_consensus_rrf_scores(
     results: list[WebSearchResult],
     k: int = 60,
 ) -> dict[str, float]:
-    """Apply RRF fusion grouped by SearXNG internal engines.
+    """Score URLs by RRF over SearXNG internal-engine rankings.
 
     Args:
         results: List of SearXNG results (each has source_engines field).
@@ -181,10 +181,22 @@ async def search_searxng(
     url = f"{base_url}/search"
 
     params: dict[str, Any] = {"q": query, "format": "json"}
+    # SearXNG instance tuning comes from environment variables; the generic
+    # locale fields refine language/region when the caller supplies them.
+    # Temporal: SearXNG supports day/month/year only (no week); unsupported
+    # buckets fall through to the pipeline post-filter.
+    for env_key, param_key in (
+        ("SEARXNG_LANGUAGE", "language"),
+        ("SEARXNG_CATEGORIES", "categories"),
+        ("SEARXNG_ENGINES", "engines"),
+        ("SEARXNG_TIME_RANGE", "time_range"),
+        ("SEARXNG_SAFESEARCH", "safesearch"),
+    ):
+        value = (os.environ.get(env_key) or "").strip()
+        if value:
+            params[param_key] = value
     if search_options is not None:
-        if search_options.searxng_language:
-            params["language"] = search_options.searxng_language
-        elif search_options.language:
+        if search_options.language:
             # Generic locale: SearXNG accepts BCP-47-ish codes ("pl", "pt-BR").
             if search_options.region:
                 params["language"] = (
@@ -192,60 +204,14 @@ async def search_searxng(
                 )
             else:
                 params["language"] = search_options.language
-        else:
-            env_language = settings.searxng_language.strip()
-            if env_language:
-                params["language"] = env_language
-
-        if search_options.searxng_categories:
-            params["categories"] = ",".join(search_options.searxng_categories)
-        else:
-            env_categories = (os.environ.get("SEARXNG_CATEGORIES") or "").strip()
-            if env_categories:
-                params["categories"] = env_categories
-
-        if search_options.searxng_engines:
-            params["engines"] = ",".join(search_options.searxng_engines)
-        else:
-            env_engines = (os.environ.get("SEARXNG_ENGINES") or "").strip()
-            if env_engines:
-                params["engines"] = env_engines
-
-        # Temporal window: SearXNG supports day/month/year only (no week);
-        # unsupported buckets fall through to the pipeline post-filter.
         temporal_bucket = (
             search_options.temporal.bucket
             if search_options.temporal is not None and not search_options.temporal.is_empty
             else None
         )
-        native_range = searxng_time_range(temporal_bucket) or search_options.searxng_time_range
+        native_range = searxng_time_range(temporal_bucket)
         if native_range:
             params["time_range"] = native_range
-        elif not (temporal_bucket == "week" and search_options.searxng_time_range):
-            env_time_range = (os.environ.get("SEARXNG_TIME_RANGE") or "").strip()
-            if env_time_range:
-                params["time_range"] = env_time_range
-
-        if search_options.searxng_safesearch is not None:
-            params["safesearch"] = search_options.searxng_safesearch
-        else:
-            env_safesearch = settings.searxng_safesearch.strip()
-            if env_safesearch:
-                params["safesearch"] = env_safesearch
-
-        if search_options.searxng_pageno > 1:
-            params["pageno"] = search_options.searxng_pageno
-    else:
-        for env_key, param_key in (
-            ("SEARXNG_LANGUAGE", "language"),
-            ("SEARXNG_CATEGORIES", "categories"),
-            ("SEARXNG_ENGINES", "engines"),
-            ("SEARXNG_TIME_RANGE", "time_range"),
-            ("SEARXNG_SAFESEARCH", "safesearch"),
-        ):
-            value = (os.environ.get(env_key) or "").strip()
-            if value:
-                params[param_key] = value
 
     headers = _build_headers()
     timeout_seconds = _get_request_timeout_seconds()
@@ -370,7 +336,7 @@ async def search_searxng(
                 break
 
         if results:
-            engine_rrf_scores = _reciprocal_rank_fusion_by_engine(results, k=60)
+            engine_rrf_scores = _engine_consensus_rrf_scores(results, k=60)
             results = _apply_engine_consensus_bonus(results, bonus_per_engine=0.05)
 
             for idx, result in enumerate(results):

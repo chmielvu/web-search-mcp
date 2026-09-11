@@ -134,7 +134,7 @@ earch_branches`, `provider_calls`, `final_results`, `llm_call_log`, `llm_judgmen
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (12010 symbols, 20187 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (12025 symbols, 20204 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -175,3 +175,104 @@ This project is indexed by GitNexus as **web-search-mcp** (12010 symbols, 20187 
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Python Coding Standards
+
+### Tooling
+
+Formatting and linting are handled by `ruff`; types by `mypy`. Configure once, let the tools decide style debates.
+
+```toml
+# pyproject.toml
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+]
+ignore = ["E501"]  # line length is the formatter's job
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+```
+
+Run before calling anything done:
+
+```bash
+ruff check --fix .
+ruff format .
+mypy .
+```
+
+### Naming
+
+PEP 8, with clarity valued over brevity:
+
+- **Files/modules**: descriptive `snake_case` (`entity_lookup.py`, not `ent_lk.py`)
+- **Classes**: `PascalCase`; acronyms stay uppercase (`HTTPClient`, not `HttpClient`)
+- **Functions/variables**: `snake_case`
+- **Constants**: `SCREAMING_SNAKE_CASE` (`MAX_RETRY_ATTEMPTS = 3`)
+
+### Imports
+
+Group in order — standard library, third-party, local — and use absolute imports only:
+
+```python
+# Standard library
+import os
+from collections.abc import Callable
+from typing import Any
+
+# Third-party packages
+import httpx
+from pydantic import BaseModel
+
+# Local imports
+from wikidata_cli.models import Entity
+```
+
+### Type Annotations
+
+All public APIs get type hints. Modern builtin generics only (`list[str]`, `X | None`), no `typing.List`/`Optional`.
+
+### Docstrings
+
+Google-style docstrings on all public classes, methods, and functions. One-liner for the simple stuff; full `Args` / `Returns` / `Raises` / `Example` sections when the signature actually warrants it. Docstrings live next to the code they describe and get updated with it, not left to rot.
+
+```python
+def get_entity(entity_id: str) -> Entity | None:
+    """Retrieve an entity by its Wikidata ID.
+
+    Args:
+        entity_id: Wikidata entity identifier, e.g. "Q42".
+
+    Returns:
+        The matching entity, or None if it does not exist.
+
+    Raises:
+        APIError: If the Wikidata API request fails.
+    """
+```
+
+### Formatting
+
+- Line length 120 characters — break long signatures across lines for readability
+- Double quotes, space indentation (enforced by `ruff format`)

@@ -128,27 +128,6 @@ def web_cmd(
             help="Instructions for cross-encoder & LLM rerankers specifying what sites/sources to prioritize or demote.",
         ),
     ] = None,
-    searxng_category: Annotated[
-        list[str] | None,
-        typer.Option("--searxng-category"),
-    ] = None,
-    searxng_engine: Annotated[
-        list[str] | None,
-        typer.Option("--searxng-engine"),
-    ] = None,
-    searxng_language: Annotated[
-        str | None,
-        typer.Option("--searxng-language"),
-    ] = None,
-    searxng_pageno: Annotated[int, typer.Option("--searxng-pageno")] = 1,
-    searxng_time_range: Annotated[
-        str | None,
-        typer.Option("--searxng-time-range"),
-    ] = None,
-    searxng_safesearch: Annotated[
-        int | None,
-        typer.Option("--searxng-safesearch"),
-    ] = None,
     date_range: Annotated[
         str | None,
         typer.Option("--date-range", help="Relative freshness: day, week, month, or year."),
@@ -209,12 +188,6 @@ def web_cmd(
                 rewrite=rewrite,
                 research_goal=research_goal,
                 reranking_instructions=reranking_instructions,
-                searxng_categories=searxng_category,
-                searxng_engines=searxng_engine,
-                searxng_language=searxng_language,
-                searxng_pageno=searxng_pageno,
-                searxng_time_range=searxng_time_range,
-                searxng_safesearch=searxng_safesearch,
                 domain_boost=domain_boost,
                 date_range=date_range,
                 after_date=after_date,

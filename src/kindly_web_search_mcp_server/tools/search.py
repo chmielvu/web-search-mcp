@@ -14,7 +14,7 @@ from pydantic import Field
 from ..errors import raise_tool_error
 from ..models import ProviderWarning, WebSearchPublicResponse, WebSearchResponse
 from ..search.filters import FilterValidationError, normalize_locale, resolve_window
-from ..search.options import build_search_options
+from ..search.options import SearchOptions
 from ..telemetry import (
     create_chain_span,
     record_search_request,
@@ -261,11 +261,11 @@ async def web_search(
     if temporal_window.clamped_to_today:
         filter_warnings.append("before_date clamped to today.")
     filter_warnings.extend(locale_spec.warnings)
-
-    search_options = build_search_options(
-        locale_spec=locale_spec if (locale_spec.language or locale_spec.region) else None,
-        temporal_window=temporal_window if not temporal_window.is_empty else None,
-    )
+    search_options = SearchOptions(
+        temporal=temporal_window if not temporal_window.is_empty else None,
+        language=(locale_spec.language if locale_spec else None),
+        region=(locale_spec.region if locale_spec else None),
+    ).validate()
     effective_research_goal = (
         research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
     )

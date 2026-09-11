@@ -145,45 +145,58 @@ async def rank_and_finalize(
         )
         filter_stats: FilterStats | None = None
 
-        # Collapse per-branch provider lists into one list per distinct
-        # provider before fusion. Branches like "original" and "free" query
-        # the same provider set (e.g. ddg, qdrant, searxng, degoog), so a
-        # provider queried from multiple branches must contribute exactly
-        # one fused list -- otherwise it gets counted (and RRF-boosted)
-        # once per branch, rewarding branch volume instead of independent
-        # provider evidence. Each URL keeps its best (lowest) rank across
-        # every branch that surfaced it.
-        provider_hit_ranks: dict[str, dict[str, tuple[int, WebSearchResult]]] = {}
-        provider_order: list[str] = []
+        # RRF voters are the per-(branch, provider) ranked lists exactly as
+        # the providers returned them: one list per independent retrieval,
+        # never re-ranked or re-enumerated before fusion. Cross-branch and
+        # cross-provider agreement therefore both accumulate through the RRF
+        # sum itself, which is the signal the multi-rewrite branch fan-out
+        # exists to produce.
+        #
+        # Duplicate-vote guard: identical (provider, query) pairs -- the same
+        # engine re-issued the same rewritten query text, e.g. when a rewrite
+        # slot collapses back to the normalized query -- return one
+        # information-free duplicate list. Only those exact pairs are dropped;
+        # lists from distinct query texts all vote independently.
+        #
+        # Weight splitting: a provider queried from N distinct branches
+        # contributes N lists whose weights sum to the provider's configured
+        # weight (settings.rrf_provider_weights). This preserves the
+        # per-provider total influence those weights were tuned for while
+        # bounding any single URL's maximum contribution from that provider
+        # at weight / (rrf_k + 1), independent of branch count. Lists are
+        # ordered deterministically by (branch_index, provider_name) so fused
+        # scores are reproducible across runs with identical retrieval output.
+        rrf_result_lists: list[list[WebSearchResult]] = []
+        rrf_list_weights: list[float] = []
+        seen_call_queries: set[tuple[str, str]] = set()
+        duplicate_lists_dropped = 0
+        call_lists: list[tuple[str, list[WebSearchResult]]] = []
         for outcome in outcomes:
             for prr in outcome.provider_ranked_results:
+                call_key = (prr.provider_name, outcome.branch.query)
+                if call_key in seen_call_queries:
+                    duplicate_lists_dropped += 1
+                    continue
+                seen_call_queries.add(call_key)
                 filtered = filter_blocked_results(list(prr.results))
                 if not filtered:
                     continue
-                bucket = provider_hit_ranks.setdefault(prr.provider_name, {})
-                if prr.provider_name not in provider_order:
-                    provider_order.append(prr.provider_name)
-                for rank, result in enumerate(filtered, start=1):
-                    url_key = key_for(result.link)
-                    existing = bucket.get(url_key)
-                    if existing is None or rank < existing[0]:
-                        bucket[url_key] = (rank, result)
+                call_lists.append((prr.provider_name, filtered))
 
-        provider_result_lists: list[list[WebSearchResult]] = []
-        provider_list_weights: list[float] = []
-        for provider_name in provider_order:
-            ordered = sorted(provider_hit_ranks[provider_name].values(), key=lambda pair: pair[0])
-            provider_result_lists.append([result for _, result in ordered])
-            provider_list_weights.append(settings.rrf_provider_weights.get(provider_name, 1.0))
+        lists_per_provider: Counter[str] = Counter(provider_name for provider_name, _ in call_lists)
+        for provider_name, filtered in call_lists:
+            provider_weight = settings.rrf_provider_weights.get(provider_name, 1.0)
+            rrf_result_lists.append(filtered)
+            rrf_list_weights.append(provider_weight / lists_per_provider[provider_name])
 
         merged: list[WebSearchResult] = []
         rrf_k = settings.rrf_k
         bm25_scores: list[float] = []
         overlap_rate = 0.0
-        if provider_result_lists:
+        if rrf_result_lists:
             # Track overlap rate across providers
             url_occurrences: Counter[str] = Counter(
-                key_for(result.link) for results in provider_result_lists for result in results
+                key_for(result.link) for results in rrf_result_lists for result in results
             )
             overlap_rate = (
                 sum(count > 1 for count in url_occurrences.values()) / len(url_occurrences)
@@ -191,12 +204,13 @@ async def rank_and_finalize(
                 else 0.0
             )
 
-            # 1. Compute BM25 independently on all raw provider results
-            #    (deduplicated by canonical URL, keeping best snippet).
-            #    BM25 acts as a complementary lexical signal alongside
-            #    the semantic/dense retrieval from providers.
+            # 1. BM25 corpus: one entry per canonical URL, best variant =
+            #    longest snippet (the same policy reciprocal_rank_fusion
+            #    applies when lists disagree about a URL). BM25 acts as a
+            #    complementary lexical signal alongside the semantic/dense
+            #    retrieval from providers.
             raw_by_url: dict[str, WebSearchResult] = {}
-            for results in provider_result_lists:
+            for results in rrf_result_lists:
                 for result in results:
                     url_key = key_for(result.link)
                     existing = raw_by_url.get(url_key)
@@ -218,15 +232,15 @@ async def rank_and_finalize(
             )
             bm25_order = [all_raw_results[idx] for idx in bm25_order_indices]
 
-            # 2. Single RRF: fuse provider result lists + BM25 as an
+            # 2. Single RRF: fuse the per-call provider lists + BM25 as an
             #    additional independent ranking signal. BM25 contributes
-            #    lexical relevance; providers contribute semantic/dense
+            #    lexical relevance; provider calls contribute semantic/dense
             #    relevance. RRF naturally surfaces documents that perform
-            #    well across both modalities. Each list is weighted so a
-            #    scarce, strong signal counts for more than a high-volume,
-            #    weaker one, independent of how many lists it contributes.
-            fused_lists = list(provider_result_lists)
-            fused_weights = list(provider_list_weights)
+            #    well across modalities and across independent query
+            #    rewrites, with per-provider total influence governed by the
+            #    configured provider weights.
+            fused_lists = list(rrf_result_lists)
+            fused_weights = list(rrf_list_weights)
             if bm25_order:
                 fused_lists.append(bm25_order)
                 fused_weights.append(settings.rrf_bm25_weight)
@@ -288,7 +302,7 @@ async def rank_and_finalize(
                 )
 
         dc.merged_candidates = list(merged)
-        span.set_attribute("search.merge_algorithm", "provider_rrf_with_bm25")
+        span.set_attribute("search.merge_algorithm", "branch_call_rrf_with_bm25")
 
         providers_used_set: set[str] = set()
         for outcome in outcomes:
@@ -326,7 +340,6 @@ async def rank_and_finalize(
             is_task_or_future = isinstance(embedding_task, (asyncio.Task, asyncio.Future))
             if is_task_or_future and embedding_task.done() and embedding_task.cancelled():
                 logger.warning("Shared embedding task was cancelled; continuing without it")
-            else:
                 try:
                     vec = await asyncio.shield(embedding_task)
                     dc.query_embedding = list(vec)
@@ -339,12 +352,13 @@ async def rank_and_finalize(
                     logger.warning("Failed to retrieve query embedding: %s", exc)
         run.rerank_metadata.update(
             {
-                "merge_algorithm": "provider_rrf_with_bm25",
+                "merge_algorithm": "branch_call_rrf_with_bm25",
                 "effective_rrf_k": rrf_k,
-                "provider_list_count": len(provider_result_lists),
+                "provider_list_count": len(rrf_result_lists),
                 "overlap_rate": overlap_rate,
-                "zero_list_degradation": len(provider_result_lists) == 0,
-                "single_list_degradation": len(provider_result_lists) == 1,
+                "zero_list_degradation": len(rrf_result_lists) == 0,
+                "single_list_degradation": len(rrf_result_lists) == 1,
+                "duplicate_lists_dropped": duplicate_lists_dropped,
                 "bm25_scores": tuple(bm25_scores),
                 "reranker_provider": rerank_provider,
                 "reranker_model": rerank_model,

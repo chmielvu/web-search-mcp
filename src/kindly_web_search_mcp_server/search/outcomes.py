@@ -11,16 +11,6 @@ LOGGER = logging.getLogger(__name__)
 _OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
 
 
-def _validate_embedding(vec, label):
-    from ..settings import settings
-
-    expected = settings.embedding_dim
-    if len(vec) == expected:
-        return vec
-    LOGGER.warning("Embedding %s dim=%d expected %d", label, len(vec), expected)
-    return vec
-
-
 async def persist_search_outcome(run):
     from ..analytics.async_writes import dispatch_duckdb_write
     from ..analytics.duckdb_store import (
@@ -239,7 +229,7 @@ async def persist_search_outcome(run):
                 "max_results": b.max_results,
                 "assigned_providers": list(b.provider_names),
                 "attempted_providers": list(ob.attempted_provider_names),
-                "skipped_providers": list(ob.skipped_provider_names),
+                "skipped_providers": [],
                 "results_count": len(ob.results),
                 "latency_ms": ob.elapsed_seconds * 1000.0,
                 "payload_json": {},
@@ -313,7 +303,7 @@ async def persist_search_outcome(run):
                 }
             )
     if dc.query_embedding is not None:
-        v = _validate_embedding(dc.query_embedding, "query")
+        v = dc.query_embedding
         writes.append(
             {
                 "_w": insert_query_embeddings,
@@ -324,7 +314,7 @@ async def persist_search_outcome(run):
             }
         )
     for c in dc.candidate_embeddings:
-        v = _validate_embedding(c.get("dense", []), "cand:" + c.get("url", ""))
+        v = c.get("dense", [])
         t = (c.get("text") or "").split("\n", 1)[0] if c.get("text") else ""
         writes.append(
             {

@@ -243,7 +243,7 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
                 max_results=branch.max_results,
                 assigned_providers=branch.provider_names,
                 attempted_providers=outcome.attempted_provider_names,
-                skipped_providers=outcome.skipped_provider_names,
+                skipped_providers=(),
                 results_count=len(outcome.results),
                 latency_ms=outcome.elapsed_seconds * 1000.0,
                 provider_calls=(),
@@ -337,8 +337,6 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
             names.update(b.provider_names)
         selected = tuple(sorted(names))
     skipped: set[str] = set()
-    for outcome in run.outcomes:
-        skipped.update(outcome.skipped_provider_names)
     if isinstance(dc.enrichment, dict):
         for name in dc.enrichment.get("skipped_providers") or []:
             if isinstance(name, str):
@@ -371,7 +369,7 @@ def branch_outcome_preview(outcome: BranchOutcome) -> dict[str, Any]:
         "support_terms": list(outcome.branch.support_terms),
         "max_results": outcome.branch.max_results,
         "attempted_providers": list(outcome.attempted_provider_names),
-        "skipped_providers": list(outcome.skipped_provider_names),
+        "skipped_providers": [],
         "results_count": len(outcome.results),
         "latency_ms": outcome.elapsed_seconds * 1000.0,
         "provider_calls": [],

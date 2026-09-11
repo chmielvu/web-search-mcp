@@ -66,10 +66,7 @@ class BlocklistIndex:
 
 
 def _resolve_db_path() -> Path:
-    configured = getattr(settings, "blocklist_sqlite_path", None) or getattr(
-        settings, "blocklist_duckdb_path", ""
-    )
-    configured = configured.strip()
+    configured = (getattr(settings, "blocklist_sqlite_path", None) or "").strip()
     return Path(configured) if configured else Path("data") / "blocklist.sqlite"
 
 

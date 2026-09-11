@@ -6,7 +6,7 @@ from typing import Any, cast
 from ...models import WebSearchResponse
 from ...search.contracts import SearchRun, WebSearchRequest
 from ...search.diagnostics import build_diagnostics
-from ...search.options import build_search_options
+from ...search.options import SearchOptions
 from ...search.service import execute_web_search
 from ...utils.http_client import get_http_client
 
@@ -27,7 +27,6 @@ async def fetch_web_search_payload(
     include_undated: bool | None = None,
     diagnostics: bool = False,
     cursor: str | None = None,
-    **_obsolete_options: object,
 ) -> dict[str, Any]:
     if cursor and str(cursor).strip():
         from ...utils.public_output import (
@@ -63,11 +62,11 @@ async def fetch_web_search_payload(
         locale_spec = normalize_locale(language=language, region=region, gl=gl)
     except FilterValidationError as exc:
         raise ValueError(str(exc)) from exc
-
-    search_options = build_search_options(
-        locale_spec=locale_spec if (locale_spec.language or locale_spec.region) else None,
-        temporal_window=temporal_window if not temporal_window.is_empty else None,
-    )
+    search_options = SearchOptions(
+        temporal=temporal_window if not temporal_window.is_empty else None,
+        language=(locale_spec.language if locale_spec else None),
+        region=(locale_spec.region if locale_spec else None),
+    ).validate()
     request = WebSearchRequest(
         query=primary_query,
         queries=seed_queries,

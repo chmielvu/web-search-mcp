@@ -571,7 +571,6 @@ class Settings:
         )
     )
     rrf_bm25_weight: float = float(os.environ.get("RRF_BM25_WEIGHT", "1.0"))
-    blocklist_duckdb_path: str = ""
 
     # Remote web results index (Qdrant on HF Space)
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.

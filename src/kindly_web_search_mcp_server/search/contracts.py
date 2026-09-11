@@ -103,8 +103,6 @@ class SearchPlan:
 
 @dataclass(frozen=True, slots=True)
 class ProviderRankedResults:
-    branch_index: int
-    branch_role: BranchRole
     provider_name: str
     results: tuple[WebSearchResult, ...]
 
@@ -113,7 +111,6 @@ class ProviderRankedResults:
 class BranchOutcome:
     branch: QueryBranch
     attempted_provider_names: tuple[str, ...] = ()
-    skipped_provider_names: tuple[str, ...] = ()
     results: tuple[WebSearchResult, ...] = ()
     warnings: tuple[ProviderWarning, ...] = ()
     elapsed_seconds: float = 0.0

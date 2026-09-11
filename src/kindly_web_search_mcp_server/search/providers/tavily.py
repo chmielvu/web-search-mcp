@@ -142,10 +142,6 @@ async def search_tavily(
                         payload["start_date"] = temporal.start.isoformat()
                     if temporal.end is not None:
                         payload["end_date"] = temporal.end.isoformat()
-            elif search_options.searxng_time_range:
-                payload["time_range"] = search_options.searxng_time_range
-        elif search_options.searxng_time_range:
-            payload["time_range"] = search_options.searxng_time_range
         # Locale: Tavily boosts by language (ISO 639-1) and, for general topic,
         # accepts full lowercase country names — map alpha-2 via a small table.
         if search_options.language:
