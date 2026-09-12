@@ -10,13 +10,13 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import httpx
 
 from ..models import WebSearchResult
 from ..settings import settings
 from .api_quota import get_youtube_api_quota_tracker
+from .url_parser import extract_video_id
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +72,9 @@ def _format_duration(seconds: float) -> str:
 
 
 def _extract_video_id_from_link(link: str) -> str | None:
-    """Extract video ID from a YouTube watch URL."""
+    """Extract a video ID from a URL, or None when not a video URL."""
     try:
-        parsed = urlparse(link)
-        params = parse_qs(parsed.query)
-        vid = params.get("v", [None])[0]
-        return vid if isinstance(vid, str) and vid.strip() else None
+        return extract_video_id(link)
     except Exception:
         return None
 

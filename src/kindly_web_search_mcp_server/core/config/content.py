@@ -11,4 +11,3 @@ class ContentSettings(BaseSettings):
     crawl4ai_timeout_seconds: float = Field(default=30.0)
     camoufox_timeout_seconds: float = Field(default=35.0)
     local_extract_timeout_seconds: float = Field(default=20.0)
-    youtube_transcript_languages: list[str] = Field(default_factory=lambda: ["en"])

@@ -97,6 +97,7 @@ earch_branches`, `provider_calls`, `final_results`, `llm_call_log`, `llm_judgmen
 | `src/kindly_web_search_mcp_server/cli/AGENTS.md` | CLI commands, services, reserved flags |
 | `src/kindly_web_search_mcp_server/tools/AGENTS.md` | MCP tool metadata, profiles, catalog |
 | `src/kindly_web_search_mcp_server/cache/AGENTS.md` | In-memory LRU + DuckDB page/transcript caches |
+| `src/kindly_web_search_mcp_server/youtube/AGENTS.md` | Transcript cascade, cobalt/Cloudflare/Space ASR tiers, Data API v3 |
 | `src/kindly_web_search_mcp_server/inference/AGENTS.md` | Model & provider registry, fallback engine, adapters |
 | `src/kindly_web_search_mcp_server/middleware/AGENTS.md` | FastMCP middleware (rate limits, guidance, protection) |
 | `src/kindly_web_search_mcp_server/prompts/AGENTS.md` | Prompt templates and registry |
@@ -134,7 +135,7 @@ earch_branches`, `provider_calls`, `final_results`, `llm_call_log`, `llm_judgmen
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (12025 symbols, 20204 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (12158 symbols, 20368 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

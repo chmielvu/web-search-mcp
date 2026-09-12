@@ -12,7 +12,6 @@ from typing import Any
 
 from openai import OpenAI
 
-from ..eval_schema import ensure_eval_tables
 from ...inference.router import build_classifier_router
 from ...settings import settings
 
@@ -232,7 +231,6 @@ def _persist_judge_call(
 ) -> None:
     """Persist to DuckDB eval_judge_calls (and also eval_scores for unified metric)."""
     try:
-        ensure_eval_tables()
         import duckdb
         from pathlib import Path
 

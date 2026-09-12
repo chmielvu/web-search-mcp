@@ -19,13 +19,13 @@ from typing import Any
 from ..settings import settings
 from .models import YouTubeError, TranscriptBackendError
 from .transcript import fetch_transcript_data, calculate_total_duration
-from .cf_whisper import CfWhisperError, _transcribe_sync
+from .whisper import CfWhisperError, WhisperClientError, fetch_cloudflare_transcript_sync, fetch_hf_space_transcript_sync
 from .yt_dlp_backend import ytdlp_extract_subtitles
 from .quality import normalize_transcript_segments
 
 logger = logging.getLogger(__name__)
 
-_VALID_BACKENDS = ("auto", "ytdlp", "vps_whisper", "cf_whisper", "whisper", "api")
+_VALID_BACKENDS = ("auto", "ytdlp", "cf_whisper", "whisper", "api")
 
 
 def fetch_transcript_cascade(
@@ -42,7 +42,7 @@ def fetch_transcript_cascade(
         language: Preferred language code
         translate_to: Target language for translation
         backend: "auto" (cascade), "ytdlp" (yt-dlp only), "cf_whisper" (Cloudflare only),
-                 "api" (legacy only)
+                 "whisper" (HF Space only; currently unreachable — see cascade layers), "api" (legacy only)
 
     Returns:
         Tuple of (segments, backend_used).
@@ -75,27 +75,6 @@ def fetch_transcript_cascade(
             errors.append(f"yt-dlp: {type(exc).__name__}: {exc}")
             logger.debug("yt-dlp unexpected error for %s: %s", video_id, exc)
 
-    # --- Layer 2: Whisper VPS Service (if WHISPER_VPS_URL configured) ---
-    if backend in ("auto", "vps_whisper"):
-        vps_url = settings.whisper_vps_url.strip()
-        if vps_url:
-            try:
-                from .vps_whisper import fetch_vps_whisper_transcript_sync, VpsWhisperError
-
-                segments = fetch_vps_whisper_transcript_sync(
-                    video_id,
-                    language=language,
-                    task="translate" if translate_to else "transcribe",
-                )
-                if segments:
-                    return segments, "vps_whisper"
-                if backend == "vps_whisper":
-                    raise VpsWhisperError(f"VPS Whisper returned empty for {video_id}")
-            except Exception as exc:
-                errors.append(f"vps_whisper: {exc}")
-                logger.debug("VPS Whisper failed for %s: %s", video_id, exc)
-        elif backend == "vps_whisper":
-            raise YouTubeError("WHISPER_VPS_URL must be configured")
 
     # --- Layer 2: Cloudflare Workers AI Whisper ---
     if backend in ("auto", "cf_whisper"):
@@ -103,7 +82,7 @@ def fetch_transcript_cascade(
         cf_token = settings.cf_whisper_api_token.strip()
         if cf_id and cf_token:
             try:
-                segments = _transcribe_sync(
+                segments = fetch_cloudflare_transcript_sync(
                     video_id,
                     language=language,
                     task="translate" if translate_to else "transcribe",
@@ -150,12 +129,8 @@ def _try_whisper(
 ) -> tuple[list[str], list[dict[str, Any]] | None]:
     """Try Whisper ASR backend. Returns (updated_errors, segments_or_none)."""
     try:
-        from .whisper_client import fetch_whisper_transcript_sync
-        from .whisper_client import WhisperClientError
-
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
-        segments = fetch_whisper_transcript_sync(
-            video_url,
+        segments = fetch_hf_space_transcript_sync(
+            video_id,
             timeout_seconds=settings.whisper_space_timeout_seconds,
         )
         if segments:

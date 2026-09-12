@@ -48,7 +48,7 @@ def transcript_cmd(
     ] = "text",
     backend: Annotated[
         str | None,
-        typer.Option("--backend", help="Transcript backend: auto, ytdlp, api."),
+        typer.Option("--backend", help="Transcript backend: auto, ytdlp, cf_whisper, whisper, api."),
     ] = None,
     include_summary: Annotated[
         bool,

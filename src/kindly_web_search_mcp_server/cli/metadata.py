@@ -19,7 +19,10 @@ _PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
 
 
 def cli_version() -> str:
@@ -101,20 +104,21 @@ def rules_full() -> list[dict[str, Any]]:
 
 @functools.lru_cache(maxsize=None)
 def skill_catalog() -> list[dict[str, Any]]:
-    skills: list[dict[str, Any]] = [
-        {
-            "name": "web-search-cli",
-            "path": str(USER_SKILL_PATH.relative_to(_REPO_ROOT)),
-            "description": _frontmatter_description(USER_SKILL_PATH),
-            "command": "web-search-cli getskill",
-        },
-        {
-            "name": "web-search-cli-dev",
-            "path": str(DEV_SKILL_PATH.relative_to(_REPO_ROOT)),
-            "description": _frontmatter_description(DEV_SKILL_PATH),
-            "command": "web-search-cli getskill --dev",
-        },
-    ]
+    skills: list[dict[str, Any]] = []
+    for name, path, command in (
+        ("web-search-cli", USER_SKILL_PATH, "web-search-cli getskill"),
+        ("web-search-cli-dev", DEV_SKILL_PATH, "web-search-cli getskill --dev"),
+    ):
+        if not path.exists():
+            continue
+        skills.append(
+            {
+                "name": name,
+                "path": str(path.relative_to(_REPO_ROOT)),
+                "description": _frontmatter_description(path),
+                "command": command,
+            }
+        )
     if AGENT_SKILLS_DIR.exists():
         for path in sorted(AGENT_SKILLS_DIR.glob("*.md")):
             name = path.stem

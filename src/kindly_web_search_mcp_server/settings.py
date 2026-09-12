@@ -420,17 +420,19 @@ class Settings:
         os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
     )
 
-    # YouTube Transcript Backend (auto|ytdlp|api)
+    # YouTube Transcript Backend (auto|ytdlp|cf_whisper|whisper|api)
     youtube_transcript_backend: str = os.environ.get("YOUTUBE_TRANSCRIPT_BACKEND", "auto")
 
     # Whisper ASR (HF Space) for videos without captions
     whisper_space_url: str = os.environ.get("WHISPER_SPACE_URL", "")
+    whisper_space_id: str = os.environ.get("WHISPER_SPACE_ID", "")
     whisper_space_timeout_seconds: float = float(
         os.environ.get("WHISPER_SPACE_TIMEOUT_SECONDS", "300")
     )
-    # Whisper VPS Service (Unified ML / VPS ASR service)
-    whisper_vps_url: str = os.environ.get("WHISPER_VPS_URL", "")
-    whisper_vps_timeout_seconds: float = float(os.environ.get("WHISPER_VPS_TIMEOUT_SECONDS", "300"))
+    # Self-hosted cobalt audio fetcher (audio bytes for ASR; bypasses the
+    # local 1 MiB per-stream CDN cap). Empty -> tier skipped.
+    cobalt_base_url: str = os.environ.get("COBALT_BASE_URL", "")
+    cobalt_timeout_seconds: float = float(os.environ.get("COBALT_TIMEOUT_SECONDS", "120"))
 
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
@@ -444,7 +446,9 @@ class Settings:
 
     # Cloudflare Workers AI Whisper (ASR for captionless videos, replaces HF Space)
     cf_whisper_account_id: str = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-    cf_whisper_api_token: str = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+    cf_whisper_api_token: str = os.environ.get(
+        "CLOUDFLARE_API_TOKEN", ""
+    ) or os.environ.get("CLOUDFLARE_API_KEY", "")
     cf_whisper_max_audio_seconds: int = int(os.environ.get("CF_WHISPER_MAX_AUDIO_SECONDS", "600"))
     cf_whisper_api_base_url: str = os.environ.get(
         "CF_WHISPER_API_BASE_URL", "https://api.cloudflare.com/client/v4"
@@ -528,6 +532,7 @@ class Settings:
     searxng_user_agent: str = os.environ.get("SEARXNG_USER_AGENT", "")
     searxng_language: str = os.environ.get("SEARXNG_LANGUAGE", "")
     searxng_safesearch: str = os.environ.get("SEARXNG_SAFESEARCH", "")
+    searxng_timeout_seconds: str = os.environ.get("SEARXNG_TIMEOUT_SECONDS", "")
 
     # DeGoog search aggregator (self-hosted)
     degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")

@@ -195,10 +195,11 @@ def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 10,
+        "js_runtimes": {"node": {}},
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # pyright: ignore[reportArgumentType]
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
         logger.debug("yt-dlp metadata extraction failed for %s: %s", video_id, exc)

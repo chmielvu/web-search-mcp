@@ -11,7 +11,6 @@ Also provides SearXNG result metadata enhancement and channel handle resolution.
 from __future__ import annotations
 
 import html as html_lib
-import os
 import re
 import logging
 import random
@@ -126,7 +125,7 @@ async def search_youtube_videos(
 
     num_results = min(num_results, 20)
 
-    base_url = os.environ.get("SEARXNG_BASE_URL", "").strip()
+    base_url = settings.searxng_base_url.strip()
     if not base_url:
         raise YouTubeSearchError(
             "SEARXNG_BASE_URL is not configured. YouTube search requires SearXNG instance."
@@ -143,24 +142,21 @@ async def search_youtube_videos(
         "engines": engine,
     }
 
-    language = (os.environ.get("SEARXNG_LANGUAGE") or "").strip()
+    language = settings.searxng_language.strip()
     if language:
         params["language"] = language
 
-    safesearch = (os.environ.get("SEARXNG_SAFESEARCH") or "").strip()
+    safesearch = settings.searxng_safesearch.strip()
     if safesearch:
         params["safesearch"] = safesearch
 
     headers = {
-        "User-Agent": os.environ.get(
-            "SEARXNG_USER_AGENT",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        ).strip(),
+        "User-Agent": (settings.searxng_user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36").strip(),
         "Accept": "application/json",
     }
 
     timeout_seconds = 30.0
-    raw_timeout = (os.environ.get("SEARXNG_TIMEOUT_SECONDS") or "").strip()
+    raw_timeout = settings.searxng_timeout_seconds.strip()
     if raw_timeout:
         try:
             timeout_seconds = float(raw_timeout)
@@ -442,172 +438,3 @@ async def search_youtube_html_scrape(
             html = await _fetch(client)
 
     return await _extract_and_parse(html)
-
-
-# ---------------------------------------------------------------------------
-# Channel Handle Resolution
-# ---------------------------------------------------------------------------
-
-
-async def resolve_channel_handle(
-    handle: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Resolve a YouTube channel handle (@handle) to a channel ID (UC...).
-
-    Strategy 1: HTML scrape the @handle page for channelId.
-    Strategy 2: YouTube Data API search.list with type=channel (if API key set).
-
-    Args:
-        handle: Channel handle with or without @ prefix.
-        http_client: Optional httpx.AsyncClient for connection reuse.
-
-    Returns:
-        Channel ID string (e.g. "UC...").
-
-    Raises:
-        YouTubeSearchError: If channel cannot be resolved.
-    """
-    handle = handle.lstrip("@").strip()
-    if not handle:
-        raise YouTubeSearchError("Empty channel handle")
-
-    # Strategy 1: HTML scrape @handle page
-    channel_id = await _resolve_channel_via_html(handle, http_client=http_client)
-    if channel_id:
-        return channel_id
-
-    # Strategy 2: YouTube Data API
-    if settings.youtube_api_key.strip():
-        channel_id = await _resolve_channel_via_api(handle, http_client=http_client)
-        if channel_id:
-            return channel_id
-
-    raise YouTubeSearchError(
-        f"Could not resolve channel handle @{handle} (HTML scrape and API both failed)"
-    )
-
-
-async def _resolve_channel_via_html(
-    handle: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str | None:
-    """Resolve channel handle by scraping the @handle page HTML."""
-    url = f"https://www.youtube.com/@{handle}"
-
-    headers = {
-        "User-Agent": random.choice(_USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-
-    channel_id_re = re.compile(r'"channelId"\s*:\s*"(UC[a-zA-Z0-9_-]+)"')
-
-    async def _do_fetch(client: httpx.AsyncClient) -> str | None:
-        try:
-            resp = await client.get(url, headers=headers, timeout=15.0, follow_redirects=True)
-            resp.raise_for_status()
-            html = resp.text
-            match = channel_id_re.search(html)
-            if match:
-                return match.group(1)
-            return None
-        except Exception as exc:
-            LOGGER.debug("Channel handle HTML scrape failed for @%s: %s", handle, exc)
-            return None
-
-    if http_client is not None:
-        return await _do_fetch(http_client)
-    async with httpx.AsyncClient() as client:
-        return await _do_fetch(client)
-
-
-async def _resolve_channel_via_api(
-    handle: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str | None:
-    """Resolve channel handle using YouTube Data API search.list."""
-    api_key = settings.youtube_api_key.strip()
-    if not api_key:
-        return None
-
-    url = "https://www.googleapis.com/youtube/v3/search"
-    params: dict[str, Any] = {
-        "part": "snippet",
-        "type": "channel",
-        "q": handle,
-        "key": api_key,
-        "maxResults": 1,
-    }
-
-    headers = {"Accept": "application/json"}
-
-    async def _do_request(client: httpx.AsyncClient) -> str | None:
-        try:
-            resp = await client.get(
-                url,
-                params=params,
-                headers=headers,
-                timeout=settings.youtube_api_timeout_seconds,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("items", [])
-            if items:
-                channel_id = items[0].get("id", {}).get("channelId")
-                if channel_id:
-                    return channel_id
-            return None
-        except Exception as exc:
-            LOGGER.debug("Channel API resolution failed for @%s: %s", handle, exc)
-            return None
-
-    if http_client is not None:
-        return await _do_request(http_client)
-    async with httpx.AsyncClient() as client:
-        return await _do_request(client)
-
-
-async def search_channel_videos(
-    channel_id: str,
-    *,
-    max_results: int = 20,
-    http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
-    """Search for videos from a specific channel.
-
-    Uses the channel's uploads playlist (UU + channel_id[2:]).
-
-    Args:
-        channel_id: YouTube channel ID (UC...).
-        max_results: Maximum results to return (1-50).
-        http_client: Optional httpx.AsyncClient.
-
-    Returns:
-        List of WebSearchResult items.
-    """
-    if not channel_id or not channel_id.startswith("UC"):
-        raise YouTubeSearchError(f"Invalid channel ID: {channel_id}")
-
-    max_results = min(max_results, 50)
-
-    # Uploads playlist ID = UU + channel_id without the "UC" prefix
-    uploads_playlist_id = "UU" + channel_id[2:]
-
-    # Use SearXNG to search for videos from this channel
-    search_query = f"channel_id:{channel_id}"
-    try:
-        results = await search_youtube_videos(
-            search_query, num_results=max_results, http_client=http_client
-        )
-        return results
-    except Exception as exc:
-        LOGGER.debug("Channel video search via SearXNG failed for %s: %s", channel_id, exc)
-
-    # Fallback: use the uploads playlist URL
-    playlist_url = f"https://www.youtube.com/playlist?list={uploads_playlist_id}"
-    LOGGER.debug("Falling back to playlist URL for channel %s: %s", channel_id, playlist_url)
-
-    return []
