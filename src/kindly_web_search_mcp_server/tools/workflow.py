@@ -8,7 +8,7 @@ def get_workflow_doc() -> str:
 ## Tool Selection
 | Task | Tool | Key Parameters |
 |---|---|---|
-| Fast recon | quick_web_search | objective, search_queries |
+| Fast recon (web/YouTube/docs) | quick_web_search | mode, objective, search_queries, query, num_results, repo_url, question |
 | Grounded synthesis | gemini_search | query, structured_output |
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost |
 | Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
@@ -16,7 +16,6 @@ def get_workflow_doc() -> str:
 | Read one or many URLs | fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (known URL contents, including GitHub file URLs) |
 | Read a GitHub file | fetch | url (raw.githubusercontent.com or github.com blob URL), offset |
 | Cross-repo code discovery | code_search | query, repositories, language, path, filename, regexp, mode, deep |
-| Find videos | youtube_search | query, num_results |
 | Extract captions | youtube_transcript | video_id_or_url, language, translate_to, output_format, backend |
 | Site map | generate_sitemap | url, instructions, max_depth, max_breadth, limit, select_paths, exclude_paths, allow_external |
 

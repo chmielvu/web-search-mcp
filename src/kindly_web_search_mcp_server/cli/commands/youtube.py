@@ -14,26 +14,6 @@ from ..services.files import write_json_atomic
 youtube_app = typer.Typer(no_args_is_help=True)
 
 
-@youtube_app.command("search")
-def search_cmd(
-    query: Annotated[str, typer.Option("--query", help="Search query text.")],
-    num_results: Annotated[int, typer.Option("--num-results")] = 5,
-) -> None:
-    from ..services.youtube import fetch_youtube_search_payload
-
-    try:
-        payload = run_cli_async(fetch_youtube_search_payload(query, num_results=num_results))
-    except Exception as exc:
-        raise CliError(
-            kind="tool_error",
-            message=str(exc),
-            hint="Check the SearXNG configuration and retry.",
-            exit_code=ExitCode.PROVIDER_ERROR,
-            context={"command": "youtube search"},
-        ) from exc
-    emit_json(payload, command="youtube search")
-
-
 @youtube_app.command("transcript")
 def transcript_cmd(
     video_id_or_url: Annotated[

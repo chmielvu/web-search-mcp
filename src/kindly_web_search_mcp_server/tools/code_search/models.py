@@ -278,8 +278,6 @@ def build_location_metadata(
 
 _PROVIDER_RESULT_KINDS: dict[str, ResultKind] = {
     "exa": "semantic_page",
-    "deepwiki": "documentation",
-    "context7": "documentation",
 }
 
 
@@ -397,7 +395,7 @@ class QueryMetadata(BaseModel):
 
     mode: str = Field(
         default="code",
-        description="Search mode: 'code' (default), 'docs', 'discovery', 'issues', or 'huggingface' (semantic Hub assets).",
+        description="Search mode: 'code' (default), 'discovery', 'issues', or 'huggingface' (semantic Hub assets).",
     )
     backend_channels: list[str] = Field(
         default_factory=list, description="Backend channels selected automatically by the planner."
@@ -407,7 +405,7 @@ class QueryMetadata(BaseModel):
     )
     resolution_hints: dict[str, str] = Field(
         default_factory=dict,
-        description="High-confidence hosted-entity hints used for documentation/repository resolution.",
+        description="High-confidence hosted-entity hints used for repository resolution.",
     )
 
 
@@ -693,7 +691,7 @@ def _build_hints(result: CodeSearchResultType, plan: Any | None) -> list[CodeSea
         hints.append(
             CodeSearchPublicHint(
                 code="narrow_scope",
-                message="No code matches found. Try specific function/class identifier names, or use mode='docs' or mode='discovery'.",
+                message="No code matches found. Try specific function/class identifier names, or use mode='discovery'. For library documentation, use quick_web_search mode='docs'.",
             )
         )
     return hints

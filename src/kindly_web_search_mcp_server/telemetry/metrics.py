@@ -64,7 +64,6 @@ _gemini_counter: metrics.Counter | None = None
 
 # YouTube metrics
 _youtube_transcript_counter: metrics.Counter | None = None
-_youtube_search_counter: metrics.Counter | None = None
 
 # Query quality metrics (Phase 2)
 _query_length_histogram: metrics.Histogram | None = None
@@ -408,10 +407,10 @@ def get_gemini_metrics() -> metrics.Counter:
     return _gemini_counter
 
 
-def get_youtube_metrics() -> tuple[metrics.Counter, metrics.Counter]:
-    """Get YouTube metrics."""
+def get_youtube_metrics() -> metrics.Counter:
+    """Get YouTube transcript metrics."""
     meter = get_meter()
-    global _youtube_transcript_counter, _youtube_search_counter
+    global _youtube_transcript_counter
 
     if _youtube_transcript_counter is None:
         _youtube_transcript_counter = meter.create_counter(
@@ -420,14 +419,7 @@ def get_youtube_metrics() -> tuple[metrics.Counter, metrics.Counter]:
             unit="1",
         )
 
-    if _youtube_search_counter is None:
-        _youtube_search_counter = meter.create_counter(
-            name="mcp_youtube_search_details",
-            description="YouTube search specifics",
-            unit="1",
-        )
-
-    return _youtube_transcript_counter, _youtube_search_counter
+    return _youtube_transcript_counter
 
 
 def get_query_quality_metrics() -> tuple[metrics.Histogram, metrics.Histogram]:

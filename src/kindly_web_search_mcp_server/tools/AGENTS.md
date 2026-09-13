@@ -17,7 +17,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `code_search/` | Agent-oriented public-code search with automatic backend channel selection |
 | `code_search/filters.py` | Provider-neutral validation of repository, path, filename, extension, and language scopes |
 | `ai_search.py` | `gemini_search`, `grok_search` |
-| `youtube.py` | `youtube_search`, `youtube_transcript` (video URL/ID **or** channel handle/ID/URL, auto-detected; channel mode adds `max_videos`/`page_token`) |
+| `youtube.py` | `youtube_transcript` (video URL/ID **or** channel handle/ID/URL, auto-detected; channel mode adds `max_videos`/`page_token`). Video discovery lives in `quick_web_search` mode='youtube' |
 | `sitemap.py` | `generate_sitemap` |
 | `prompts.py` | Prompt function implementations |
 | `resources.py` | Resource implementations (8 resources) |
@@ -39,9 +39,8 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
-| `youtube_search` | YouTube video results | YouTube Data API v3 or SearXNG |
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
-| `code_search` | Typed code/documentation hits, repository candidates, and diagnostics | Backend selects lexical, symbol, regex, semantic, repository, and documentation channels; bounded cloud cross-encoder reranking is always attempted fail-open; `next` hints (≤3) route conversations to `fetch` and code hits to `code_fetch` |
+| `code_search` | Typed code hits, repository candidates, and diagnostics | Modes `code`, `discovery`, `issues`, `huggingface`; backend selects lexical, symbol, regex, semantic, and repository channels; bounded cloud cross-encoder reranking is always attempted fail-open; `next` hints (≤3) route conversations to `fetch` and code hits to `code_fetch`. Library documentation lives in `quick_web_search` mode='docs' |
 | `code_fetch` | Search hits, file reads (single or 1–5 via `paths` → `files[]`), tree, map, symbol graph | Prefer search over full-file reads; an explicit file-like `path` (for example, `*.md` or `*.py`) uses direct hydration; GitHub file fetches from `fetch` redirect here via middleware guidance |
 
 - `fetch` accepts `ai_summary: bool = false`; when enabled the synthesized answer replaces public `content`, while the full summary object remains internal for analytics.
@@ -54,7 +53,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 - `emit_tool_observability_event` assigns one stable `tool_call_id` per invocation and writes bounded typed lifecycle rows to analytics `tool_calls`; request/response/error events must reuse that ID.
 - Tool telemetry payloads exclude credential-like fields and classify response rows as `success`, `empty`, `partial`, or `error` from explicit status/error/result counts.
 - `code_search/` keeps its typed `CodeSearchHit`/`CodeSearchResultType` boundary separate from `WebSearchResult`; provider adapters must not mutate the existing search providers.
-- `code_search` supports explicit modes: `code`, `docs`, `discovery`, exclusive `huggingface` semantic Hub asset search, and exclusive `issues` (GitHub Issues + Discussions via authenticated GraphQL `search(type: ISSUE/DISCUSSION)`, ported from the retired web-search GitHub adapter; requires GITHUB_TOKEN/GH_TOKEN, skips code hydration/reranking, and records compiled conversation queries in query metadata). Hugging Face mode uses the public librarian-bots API, preserves asset metadata and semantic-score semantics, and does not run GitHub/code providers.
+- `code_search` supports explicit modes: `code`, `discovery`, exclusive `huggingface` semantic Hub asset search, and exclusive `issues` (GitHub Issues + Discussions via authenticated GraphQL `search(type: ISSUE/DISCUSSION)`, ported from the retired web-search GitHub adapter; requires GITHUB_TOKEN/GH_TOKEN, skips code hydration/reranking, and records compiled conversation queries in query metadata). Hugging Face mode uses the public librarian-bots API, preserves asset metadata and semantic-score semantics, and does not run GitHub/code providers.
 - Natural, concept-heavy code queries are enriched privately by the existing GLiNER2 `/classify` + `/ner` service and `worker_llm` chain. An optional `research_goal` is passed separately to query rewriting and reranking, never compiled into provider syntax; exact identifiers, regexes, and repository-scoped queries skip LLM rewriting; all model output is validated as engine-neutral terms before deterministic provider compilation.
 - Sourcegraph receives native `content:`, `sym:`, `repo:`, `file:`, and `lang:` syntax. GitHub, grep.app, and Exa must enforce the same explicit repository/path/language scopes; `filters.py` applies the provider-neutral post-filter before ranking.
 - grep.app uses its stateless JSON-RPC `tools/call` SSE contract directly, with the literal `searchGitHub` arguments and bounded retry behavior used by established grep.app clients; REST remains a diagnostic fallback.
@@ -108,3 +107,9 @@ uv run pytest tests/test_code_search.py
 - `fetch` now returns a compact public `FetchResult` with typed errors and
   status-based access-wall outcomes. Internal artifact, cache, summary, and
   analytics fields remain private to the tool pipeline.
+- `fetch` single-item responses populate `mode="single"` and summary failures
+  no longer emit success telemetry while silently returning raw content.
+
+### Recent Changes (2026-09-12)
+- `youtube_transcript` projects summary payloads to semantic fields only;
+  provider, model, and token-usage metadata stay internal.

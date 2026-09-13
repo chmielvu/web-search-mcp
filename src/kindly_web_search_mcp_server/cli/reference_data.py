@@ -62,12 +62,6 @@ TOOL_COVERAGE: tuple[dict[str, object], ...] = (
         "required": ["url"],
     },
     {
-        "tool": "youtube_search",
-        "command": "youtube search",
-        "profiles": ["default", "media", "experimental", "full"],
-        "required": ["query"],
-    },
-    {
         "tool": "youtube_transcript",
         "command": "youtube transcript",
         "profiles": ["default", "media", "experimental", "full"],

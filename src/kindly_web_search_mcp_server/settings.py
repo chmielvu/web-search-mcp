@@ -396,7 +396,6 @@ class Settings:
         os.environ.get("ANTIGRAVITY_POLL_INTERVAL_SECONDS", "5")
     )
 
-    # Gemini summaries for the unified fetch tool
     # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
     web_fetch_workers: int = int(os.environ.get("KINDLY_WEB_FETCH_WORKERS", "4"))
     web_fetch_wave_size: int = int(os.environ.get("KINDLY_WEB_FETCH_WAVE_SIZE", "10"))
@@ -406,12 +405,6 @@ class Settings:
     web_fetch_max_body_bytes: int = int(
         os.environ.get("KINDLY_WEB_FETCH_MAX_BODY_BYTES", str(5 * 1024 * 1024))
     )
-
-    summary_gemini_model: str = os.environ.get("SUMMARY_GEMINI_MODEL", "gemini-3.5-flash-lite")
-    summary_gemma_fallback_model: str = os.environ.get(
-        "SUMMARY_GEMMA_FALLBACK_MODEL", "gemma-4-26b-a4b-it"
-    )
-    summary_max_tokens: int = int(os.environ.get("SUMMARY_MAX_TOKENS", "1200"))
 
     # YouTube Transcript
     youtube_transcript_proxy_url: str = os.environ.get("YOUTUBE_TRANSCRIPT_PROXY_URL", "")
@@ -446,9 +439,9 @@ class Settings:
 
     # Cloudflare Workers AI Whisper (ASR for captionless videos, replaces HF Space)
     cf_whisper_account_id: str = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-    cf_whisper_api_token: str = os.environ.get(
-        "CLOUDFLARE_API_TOKEN", ""
-    ) or os.environ.get("CLOUDFLARE_API_KEY", "")
+    cf_whisper_api_token: str = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get(
+        "CLOUDFLARE_API_KEY", ""
+    )
     cf_whisper_max_audio_seconds: int = int(os.environ.get("CF_WHISPER_MAX_AUDIO_SECONDS", "600"))
     cf_whisper_api_base_url: str = os.environ.get(
         "CF_WHISPER_API_BASE_URL", "https://api.cloudflare.com/client/v4"
@@ -557,6 +550,9 @@ class Settings:
 
     # Parallel AI Search API
     parallel_api_key: str = os.environ.get("PARALLEL_API_KEY", "")
+
+    # Context7 documentation API (optional bearer; anonymous works with limits)
+    context7_api_key: str = os.environ.get("CONTEXT7_API_KEY", "")
 
     # RRF tuning
     rrf_k: int = int(os.environ.get("RRF_K", "60"))

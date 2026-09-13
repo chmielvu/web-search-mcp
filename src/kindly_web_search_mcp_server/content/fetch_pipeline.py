@@ -65,7 +65,7 @@ def _is_binary_target(url: str) -> bool:
 _content_tracer = trace.get_tracer("kindly_web_search_mcp_server.content.fetch_pipeline")
 
 _STAGE_TIMEOUTS: dict[str, float] = {
-    "jina": 25.0,
+    "jina": 60.0,
     "local": 20.0,
     "crawl4ai": 30.0,
     "camoufox": 35.0,

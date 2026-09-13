@@ -1,4 +1,142 @@
 ## [Unreleased]
+
+### Changed — quick search package layout
+- Moved the three `quick_web_search` implementation modules from the package root into `search/quick/` and updated their internal and external imports without changing runtime behavior or tool contracts.
+
+### Fixed — Fetch AI-summary response and failure fidelity (2026-09-12)
+- Single-URL `fetch` responses now include the required `mode` field, so a
+  successful Gemini summary reaches the caller instead of failing response
+  validation after generation.
+- Summary-generation failures now downgrade affected results to `partial`,
+  preserve the fetched content, and record failed tool telemetry; exhausted
+  bulk summaries no longer look like successful raw-content fetches.
+
+### Changed — AI summary grounding, limits, and public payloads (2026-09-12)
+- Removed the application-level summary output-token cap and source-text
+  truncation. Provider/model context and hard output limits still apply.
+- Removed duplicated JSON schema and fabricated few-shot content from the
+  prompt. The prompt now preserves negation, qualifiers, attribution, and
+  source limitations while treating source text as untrusted data.
+- Public YouTube summary responses now expose semantic summary fields only;
+  model, backend, provider, and token-usage metadata remain internal.
+
+### Changed — quick_web_search absorbs YouTube discovery and library docs (2026-09-12)
+- `quick_web_search` gains `mode`: `web` (default, unchanged Parallel contract), `youtube` (new `query`/`num_results`, Data API → SearXNG → HTML cascade ported from `prototypes/quick_web_search_v2.py` into `quick_web_search_youtube.py`), and `docs` (new `repo_url`/`question`/`context7_library_id`, Context7 + DeepWiki merge ported into `quick_web_search_docs.py`). All modes return the same citations[] shape; `mode` is recorded in analytics `payload_json` with zero schema change. New setting: `CONTEXT7_API_KEY`.
+- Removed: `youtube_search` tool + `youtube/search.py`, `api_search.py`, `api_enrichment.py` backends, `YouTubeSearchError`/`YouTubeSearchResponse`/`record_youtube_search`/search metrics counter, CLI `youtube search`, and code_search `mode='docs'` + `tools/code_search/docs.py` + the `documentation` rerank profile. `code_search` keeps `code`/`discovery`/`issues`/`huggingface`; `youtube_transcript` now points discovery at `quick_web_search mode='youtube'`.
+
+### Added — DOM-routed Jina extraction profiles (2026-09-12)
+- New `content/dom_detector.py` classifies raw HTML into `agent`, `research`, `readerlm-v2`, `readerlm-research`, `research+browser-timing`, or `browser` using jusText link-density bands, ketch script-to-text gates (3x/8x plus hydration markers), Lighthouse DOM budgets, and corroborated table shapes. Verified iteratively against 17 real sites (docs, papers, indexes, SPA homeshells, long prose).
+- `content/jina_reader.py` is now route-driven with no string-path API: each route owns its engine, preset, render timing, and timeout (ReaderLM 60s). ReaderLM routes require `JINA_API_KEY`; `browser` is a first-class decision owned downstream by Camoufox. `content/stages.py` runs a bounded preflight through `dom_detector` and skips Jina on `browser` decisions; `fetch_pipeline.py` raises the Jina stage budget to 60s for ReaderLM latency.
+
+### Changed — Pythonic quick search v2 prototype cleanup (2026-09-12)
+- `prototypes/quick_web_search_v2.py` now validates and strips request text at the Pydantic boundary, centralizes text normalization, streams YouTube renderer traversal, and shares the fallback-attempt runner without changing provider payload contracts.
+
+### Changed — General Jina fetch preset and response handling (2026-09-12)
+- Generic Jina Reader requests now use the documented `agent` preset for
+  day-to-day web fetching, request the JSON transport envelope, and extract
+  only its Markdown content before classification. The existing public
+  `content: str` contract is unchanged.
+- The authenticated 429 escalation requests ReaderLM-v2 over Server-Sent
+  Events and unwraps its optional outer Markdown fence. Markdown cleanup now
+  normalizes nested links such as `[[edit](...)]` without modifying fenced or
+  indented code.
+
+### Added — self-hosted cobalt audio tier for YouTube ASR (2026-09-12)
+- `youtube/whisper.py::_download_audio` now tries the self-hosted cobalt
+  instance first when `COBALT_BASE_URL` is set (new setting,
+  `COBALT_TIMEOUT_SECONDS` default 120): `_download_audio_via_cobalt` POSTs
+  to cobalt, follows the `tunnel`/`redirect` URL (or the audio tunnel in
+  `local-processing` responses), and writes the bytes for the Cloudflare
+  upload. Any `CobaltAudioError` logs a warning and falls back to local
+  yt-dlp, so behavior without cobalt is unchanged. Rationale: the local ISP
+  CDN edge caps every media stream at 1 MiB (verified), which made ASR on
+  caption-less videos impossible locally; cobalt on the VPS has no such cap
+  (verified 3.3 MB MP3 fetch). YouTube itself returns `error.api.youtube.login`
+  from the VPS IP: a live client matrix with freshly minted poTokens showed
+  `LOGIN_REQUIRED` for WEB/MWEB/TVHTML5 and a deprecated
+  `WEB_EMBEDDED_PLAYER`, i.e. datacenter-IP reputation is the blocker, not
+  the token. Session stack now deployed: `bgutil-provider` behind a
+  Content-Type fix-up `session-adapter` (cobalt POSTs `/get_pot` without a
+  Content-Type; bgutil 2.x 415s that; yt-session-generator only serves
+  `GET /token`, incompatible with cobalt 11.7.1 by design). Unblocking
+  YouTube requires cookies (`COOKIE_PATH`) or residential egress
+  (`HTTPS_PROXY`) — see `youtube/AGENTS.md`. Follow-up: cookies were
+  deployed (`COOKIE_PATH`, user-exported via the Get cookies.txt LOCALLY
+  extension) and cobalt loads them, but live probes confirm the account
+  session itself is challenged from a datacenter IP — WEB client + auth
+  cookies + poToken + visitorData still yield `LOGIN_REQUIRED`. The
+  unblock now requires residential/mobile egress on both cobalt and the
+  poToken minting path. The 1 MiB local CDN cap persists with or without
+  authentication, so full-length ASR needs the proxy route.
+
+### Changed — Cloudflare token alias + yt-dlp JS runtime (2026-09-12)
+
+### Fixed — CLI crash on missing skills files; YouTube Space stub tier (2026-09-12)
+- `cli/metadata.py` now tolerates missing `skills/web-search-cli*/SKILL.md`:
+  `_read_text` returns empty on `FileNotFoundError` and `skill_catalog()`
+  skips absent entries. Previously every JSON-emitting CLI command (incl.
+  `doctor`) crashed twice — once in the command, again in the error path —
+  when the skills directory was absent.
+- New Space stub tier in `youtube/whisper.py`: `WHISPER_SPACE_ID` routes a
+  YouTube-URL transcription through `gradio_client` to a public Space
+  (auto-detects URL-parameter endpoints, e.g. `/process_yt_transcribe`);
+  `WHISPER_SPACE_URL` keeps the self-hosted `/api/predict` POST. Unconfigured
+  → clean `WhisperClientError` and the cascade falls through. Public Spaces
+  remain best-effort — YouTube bot-blocks their downloaders (verified live);
+  the reliable ASR fallback is Cloudflare (token alias fixed this session,
+  API verified 200 with segments/VTT response).
+- `_download_audio` no longer masks yt-dlp failures with a 0-byte
+  placeholder: the reserved temp file is unlinked before download and a
+  missing output raises a descriptive `CfWhisperError`.
+- `settings.cf_whisper_api_token` now falls back to `CLOUDFLARE_API_KEY`
+  when `CLOUDFLARE_API_TOKEN` is unset (matches the .env var name).
+- yt-dlp opt dicts (audio download in `youtube/whisper.py`, metadata
+  extraction in `youtube/yt_dlp_backend.py`) pass
+  `js_runtimes={"node": {}}` for the 2026 EJS media-extraction requirement.
+
+### Removed — dead code, `mcp/` twin, whisper module consolidation (2026-09-11)
+
+### Fixed — `server.py` import broken by stale `eval_schema` import (2026-09-11)
+- The analytics-tables cleanup deleted `analytics/eval_schema.py` but missed
+  its last importer: `analytics/evals/judges.py` called
+  `ensure_eval_tables()` at persistence time. `_persist_judge_call` already
+  runs idempotent `CREATE TABLE IF NOT EXISTS` DDL for the two tables it
+  writes (`eval_judge_calls`, `eval_scores`), so the dead import and
+  redundant call were removed. Verified: `server.py`, `analytics.evals`,
+  and `tools.code_search.models` import again; judge persistence round-trips
+  two rows into both tables on a fresh DuckDB file.
+- Deleted the stale `mcp/` package (`app.py` 605-line near-copy of
+  `server.py`, last co-edited months ago): every entry point
+  (`pyproject.toml [project.scripts]`, `__main__.py`, CLI `server` command)
+  binds to `server.py`; zero inbound references existed.
+- Merged `cf_whisper.py` + `whisper_client.py` into a single
+  `youtube/whisper.py` (Cloudflare Workers AI + HF Space sections); deleted
+  the async twins `transcribe_async` / `fetch_whisper_transcript` that had
+  no callers (cascade runs sync backends in `asyncio.to_thread`).
+- Removed dead `resolve_channel_handle` (+ its HTML/API helpers) and
+  `search_channel_videos` from `youtube/search.py` — zero production
+  callers; the API strategy also used the wrong endpoint
+  (`search.list type=channel`, 100 units) superseded by
+  `channels.list?forHandle` (1 unit) in `channel_api.py`.
+- Deduplication: `_extract_video_id_from_link` now delegates to
+  `url_parser.extract_video_id`; `youtube/search.py` SEARXNG reads routed
+  through `settings.searxng_*` (new `searxng_timeout_seconds` field) instead
+  of raw `os.environ`; removed unused `youtube_transcript_languages`
+  config field; stale backend help/doc strings updated.
+- Package `__init__.py` exports pruned accordingly; live re-smoke of the
+  cascade (cache/ytdlp/api/refusal paths) passed after the cutover.
+
+### Removed — VPS Whisper transcript backend (2026-09-11)
+- Deleted `youtube/vps_whisper.py` (service client for the retired self-hosted
+  VPS ASR service) and its cascade layer: the service is gone, so
+  `WHISPER_VPS_URL` / `WHISPER_VPS_TIMEOUT_SECONDS` settings,
+  `vps_whisper` from `_VALID_BACKENDS`, and the
+  `VpsWhisperError` / `fetch_vps_whisper_transcript[_sync]` package exports
+  are removed with it. The remaining cascade is
+  ytdlp → cf_whisper → whisper (HF Space, auto mode only) → legacy api,
+  cache-first via `fetch_transcript_with_cache`.
+- Removed the frozen `tests/test_vps_whisper.py` with the module it covered.
+
 ### Added — Fetch-tool observability schema, views, and producers (2026-09-11)
 - New analytics tables (`content_stage_attempts`, `content_fetch_items`, `content_summary_rungs`, `content_backend_health`, `analytics_table_freshness`) plus writers and ensure hooks.
 - New runtime views `vw_fetch_stage_funnel`, `vw_fetch_backend_quality`, `vw_fetch_followthrough`, `vw_analytics_table_freshness`; heartbeat records latest row count and timestamp per content table.

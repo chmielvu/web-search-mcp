@@ -162,8 +162,6 @@ class QueryPlan:
         channels.update(self.variant_kinds)
         if self.regex_source:
             channels.add("regex")
-        if self.mode == "docs":
-            channels.add("documentation")
         if self.mode == "discovery":
             channels.add("repository")
         if self.mode == "issues":
@@ -557,7 +555,7 @@ def build_query_plan(
         compact = " ".join(dict.fromkeys(concept_terms[:3])) if len(concept_terms) >= 2 else ""
         if compact and compact != search_text:
             add_variant(compact, "lexical")
-        if structural_kind or (mode == "docs" and not qualified_source_tokens):
+        if structural_kind:
             for identifier in _identifier_permutations(concept_terms):
                 add_variant(identifier, "symbol")
     if deep and anchors:

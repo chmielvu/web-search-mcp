@@ -32,7 +32,7 @@ from ..settings import settings
 from ..utils.text_chunking import slice_content
 from ..utils.observability import emit_tool_observability_event
 from ..utils.url_canonicalize import canonicalize_url
-from ._helpers import _record_tool_success
+from ._helpers import _record_tool_failure, _record_tool_success
 
 LOGGER = logging.getLogger(__name__)
 
@@ -345,7 +345,9 @@ async def _fetch_one_artifact(
 
     try:
         fetched = await asyncio.wait_for(
-            fetch_content_artifact(input_url, fetch_options=fetch_options, stage_attempts=stage_attempts),
+            fetch_content_artifact(
+                input_url, fetch_options=fetch_options, stage_attempts=stage_attempts
+            ),
             timeout=settings.web_fetch_timeout_seconds,
         )
     except asyncio.TimeoutError:
@@ -616,6 +618,31 @@ def _summary_input(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _mark_summary_failure(
+    result: dict[str, Any],
+    message: str,
+    *,
+    analytics_result: dict[str, Any] | None = None,
+) -> None:
+    """Expose summary-generation failures without discarding fetched content."""
+    if result.get("status") == "success":
+        result["status"] = "partial"
+    diagnostics = result.get("diagnostics")
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+        result["diagnostics"] = diagnostics
+    diagnostics.append(
+        {
+            "code": "summary_failed",
+            "message": message[:200],
+            "retryable": False,
+        }
+    )
+    if analytics_result is not None:
+        analytics_result["status"] = result["status"]
+        analytics_result["diagnostics"] = diagnostics
+
+
 def _normalize_inputs(
     url: str | None,
     urls: list[str] | None,
@@ -755,10 +782,13 @@ async def fetch(
     await ctx.info(f"Fetching {len(pending_urls)} URL(s) with the unified fetch tool...")
     stage_attempts_all: list = []
     rung_log: list = []
+    summary_failed = False
     if mode == "single":
         await ctx.report_progress(progress=20, total=100, message="Fetching URL...")
         stage_attempts: list = []
-        artifact = await _fetch_one_artifact(pending_urls[0], fetch_options=fetch_options, stage_attempts=stage_attempts)
+        artifact = await _fetch_one_artifact(
+            pending_urls[0], fetch_options=fetch_options, stage_attempts=stage_attempts
+        )
         result, classified = _result_from_artifact(
             artifact,
             offset=offset,
@@ -777,14 +807,11 @@ async def fetch(
                 )
             except Exception as exc:
                 LOGGER.warning("Optional summary failed for %s: %s", result.get("url"), exc)
-                if result.get("diagnostics") is None:
-                    result["diagnostics"] = []
-                result["diagnostics"].append(
-                    {
-                        "code": "summary_failed",
-                        "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[:200],
-                        "retryable": False,
-                    }
+                summary_failed = True
+                _mark_summary_failure(
+                    result,
+                    f"Optional summary failed: {type(exc).__name__}: {exc}",
+                    analytics_result=analytics_result,
                 )
             else:
                 if isinstance(summary_obj, dict):
@@ -799,11 +826,27 @@ async def fetch(
                             "has_more": False,
                             "next_offset": None,
                         }
+                    else:
+                        summary_failed = True
+                        _mark_summary_failure(
+                            result,
+                            "Optional summary returned no usable text.",
+                            analytics_result=analytics_result,
+                        )
                     analytics_result["summary"] = summary_obj
                     usage = TokenUsage.from_payload(summary_obj)
                     if usage is not None:
                         analytics_result["usage"] = usage.model_dump(exclude_none=True)
                     analytics_result["content"] = result["content"]
+                else:
+                    summary_failed = True
+                    _mark_summary_failure(
+                        result,
+                        "Optional summary returned no usable payload.",
+                        analytics_result=analytics_result,
+                    )
+        analytics_result["status"] = result["status"]
+        analytics_result["content"] = result["content"]
         try:
             validated = FetchResult.model_validate(result)
         except Exception as exc:
@@ -813,6 +856,7 @@ async def fetch(
         stage_attempts_all.extend(stage_attempts)
         analytics_results = [analytics_result]
         response = FetchResponse(
+            mode="single",
             results=[validated],
             total_requested=1,
             total_returned=1,
@@ -839,7 +883,9 @@ async def fetch(
         async def _one(url_value: str) -> tuple[dict[str, Any], dict[str, Any], list]:
             stage_attempts: list = []
             async with semaphore:
-                artifact = await _fetch_one_artifact(url_value, fetch_options=fetch_options, stage_attempts=stage_attempts)
+                artifact = await _fetch_one_artifact(
+                    url_value, fetch_options=fetch_options, stage_attempts=stage_attempts
+                )
                 result, classified = _result_from_artifact(
                     artifact,
                     offset=0,
@@ -859,7 +905,7 @@ async def fetch(
                 for attempt in item_stage_attempts:
                     attempt["item_index"] = len(admitted) - 1
                 stage_attempts_all.extend(item_stage_attempts)
-        deferred = pending_urls[len(admitted):]
+        deferred = pending_urls[len(admitted) :]
         await ctx.report_progress(
             progress=min(95, 10 + int(85 * len(admitted) / max(len(pending_urls), 1))),
             total=100,
@@ -867,6 +913,7 @@ async def fetch(
         )
 
         if ai_summary and admitted:
+            summary_failure_message = "Optional summary returned no usable payload."
             try:
                 summaries = await summarize_batch(
                     [_summary_input(item) for item in admitted],
@@ -876,9 +923,20 @@ async def fetch(
                 )
             except Exception as exc:
                 LOGGER.warning("Optional batch summaries failed: %s", exc)
+                summary_failed = True
+                summary_failure_message = (
+                    f"Optional batch summary failed: {type(exc).__name__}: {exc}"
+                )
                 summaries = []
-            for index, summary in enumerate(summaries):
+            for index in range(len(admitted)):
+                summary = summaries[index] if index < len(summaries) else None
                 if not isinstance(summary, dict):
+                    summary_failed = True
+                    _mark_summary_failure(
+                        admitted[index],
+                        summary_failure_message,
+                        analytics_result=analytics_admitted[index],
+                    )
                     continue
                 try:
                     analytics_admitted[index]["summary"] = summary
@@ -896,21 +954,24 @@ async def fetch(
                             "has_more": False,
                             "next_offset": None,
                         }
+                    else:
+                        summary_failed = True
+                        _mark_summary_failure(
+                            admitted[index],
+                            "Optional summary returned no usable text.",
+                            analytics_result=analytics_admitted[index],
+                        )
                     analytics_admitted[index]["content"] = admitted[index]["content"]
+                    analytics_admitted[index]["status"] = admitted[index]["status"]
                 except Exception as exc:
                     LOGGER.warning(
                         "Optional summary application failed for item %s: %s", index, exc
                     )
-                    if admitted[index].get("diagnostics") is None:
-                        admitted[index]["diagnostics"] = []
-                    admitted[index]["diagnostics"].append(
-                        {
-                            "code": "summary_failed",
-                            "message": f"Optional summary failed: {type(exc).__name__}: {exc}"[
-                                :200
-                            ],
-                            "retryable": False,
-                        }
+                    summary_failed = True
+                    _mark_summary_failure(
+                        admitted[index],
+                        f"Optional summary failed: {type(exc).__name__}: {exc}",
+                        analytics_result=analytics_admitted[index],
                     )
 
         next_cursor = _encode_cursor(deferred, fingerprint) if deferred else None
@@ -948,9 +1009,12 @@ async def fetch(
         stage_attempts=stage_attempts_all,
         summary_rungs=rung_log,
     )
-    _record_tool_success(
-        "fetch",
-        input_url_count=response.total_requested,
-        output_result_count=response.total_returned,
-    )
+    if summary_failed:
+        _record_tool_failure("fetch")
+    else:
+        _record_tool_success(
+            "fetch",
+            input_url_count=response.total_requested,
+            output_result_count=response.total_returned,
+        )
     return response

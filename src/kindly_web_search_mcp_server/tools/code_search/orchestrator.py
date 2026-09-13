@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 
 from ...errors import classify_error
-from .docs import search_docs
 from .exa import search_exa
 from .github import search_github
 from .hydration import hydrate_sources
@@ -140,8 +139,6 @@ def _select_rerank_profile(
     request: CodeSearchRequest,
 ) -> RerankProfile:
     """Select the internal code-search rerank instructions for this mode."""
-    if request.mode == "docs":
-        return "documentation"
     if request.mode == "discovery":
         return "hybrid"
     return "code"
@@ -303,14 +300,6 @@ async def execute_code_search(
         *(_run_provider(name, operation) for name, operation in operations),
         return_exceptions=False,
     )
-    if (
-        request.mode == "docs"
-        or request.repo_name
-        or request.library_name
-        or plan.repository_hint
-        or plan.library_hint
-    ):
-        responses.extend(await search_docs(plan, request, http_client=http_client))
     for response in responses:
         response.hits, scope_diagnostic = filter_scoped_hits(plan, request, response.hits)
         if scope_diagnostic is not None:
@@ -405,7 +394,8 @@ async def execute_code_search(
             )
         elif plan.mode == "code":
             guidance_parts.append(
-                "Try searching with specific function/class identifier names, or use mode='docs'/'discovery'."
+                "Try searching with specific function/class identifier names, or use mode='discovery'. "
+                "For library documentation, use quick_web_search mode='docs'."
             )
         diagnostics.append(
             Diagnostic(

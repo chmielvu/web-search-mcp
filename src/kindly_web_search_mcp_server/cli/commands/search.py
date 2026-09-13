@@ -16,6 +16,10 @@ search_app = typer.Typer(no_args_is_help=True)
 
 @search_app.command("quick")
 def quick_cmd(
+    mode: Annotated[
+        Literal["web", "youtube", "docs"],
+        typer.Option("--mode", help="Discovery mode: web, youtube, or docs."),
+    ] = "web",
     search_query: Annotated[
         list[str] | None,
         typer.Option(
@@ -25,7 +29,7 @@ def quick_cmd(
     ] = None,
     query: Annotated[
         list[str] | None,
-        typer.Option("--query", help="Alias for --search-query."),
+        typer.Option("--query", help="Alias for --search-query (web), or video search term (youtube)."),
     ] = None,
     objective: Annotated[
         str | None,
@@ -37,6 +41,19 @@ def quick_cmd(
         str | None,
         typer.Option("--research-goal", help="Alias for --objective."),
     ] = None,
+    repo_url: Annotated[
+        str | None,
+        typer.Option("--repo-url", help="Public GitHub repository URL (docs mode)."),
+    ] = None,
+    question: Annotated[
+        str | None,
+        typer.Option("--question", help="Documentation question (docs mode)."),
+    ] = None,
+    context7_library_id: Annotated[
+        str | None,
+        typer.Option("--context7-library-id", help="Explicit Context7 library ID (docs mode)."),
+    ] = None,
+    num_results: Annotated[int | None, typer.Option("--num-results")] = None,
     max_results: Annotated[int | None, typer.Option("--max-results")] = None,
     max_chars_total: Annotated[int | None, typer.Option("--max-chars-total")] = None,
     max_chars_per_result: Annotated[int | None, typer.Option("--max-chars-per-result")] = None,
@@ -50,8 +67,81 @@ def quick_cmd(
     timeout_seconds: Annotated[float | None, typer.Option("--timeout-seconds")] = None,
     disable_cache_fallback: Annotated[bool, typer.Option("--disable-cache-fallback")] = False,
 ) -> None:
-    """Run the Parallel AI-backed quick web search path."""
-    from ..services.quick_search import fetch_quick_web_search_payload
+    """Run the quick discovery path (web, YouTube, or library docs)."""
+    from ..services.quick_search import (
+        fetch_quick_docs_payload,
+        fetch_quick_web_search_payload,
+        fetch_quick_youtube_payload,
+    )
+
+    if mode == "youtube":
+        term = (query or [None])[0]
+        if not term or not term.strip():
+            raise CliError(
+                kind="usage_error",
+                message="--query must be provided in youtube mode.",
+                hint="Pass --query 'search terms' with --mode youtube.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "search quick"},
+            )
+        try:
+            payload = run_cli_async(
+                fetch_quick_youtube_payload(
+                    term,
+                    num_results=num_results,
+                    max_chars_total=max_chars_total,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+        except Exception as exc:
+            raise CliError(
+                kind="tool_error",
+                message=str(exc),
+                hint="Check GOOGLE_API_KEY or SEARXNG_BASE_URL and retry.",
+                exit_code=ExitCode.PROVIDER_ERROR,
+                context={"command": "search quick", "exception_type": type(exc).__name__},
+            ) from exc
+        emit_json(payload, command="search quick")
+        return
+
+    if mode == "docs":
+        if not repo_url or not repo_url.strip():
+            raise CliError(
+                kind="usage_error",
+                message="--repo-url must be provided in docs mode.",
+                hint="Pass --repo-url https://github.com/owner/repo with --mode docs.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "search quick"},
+            )
+        if not question or not question.strip():
+            raise CliError(
+                kind="usage_error",
+                message="--question must be provided in docs mode.",
+                hint="Pass --question '...' with --mode docs.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "search quick"},
+            )
+        try:
+            payload = run_cli_async(
+                fetch_quick_docs_payload(
+                    repo_url,
+                    question,
+                    context7_library_id=context7_library_id,
+                    max_results=max_results,
+                    max_chars_total=max_chars_total,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+        except Exception as exc:
+            raise CliError(
+                kind="tool_error",
+                message=str(exc),
+                hint="Check the repository URL and provider connectivity, then retry.",
+                exit_code=ExitCode.PROVIDER_ERROR,
+                context={"command": "search quick", "exception_type": type(exc).__name__},
+            ) from exc
+        emit_json(payload, command="search quick")
+        return
 
     queries = (search_query or []) + (query or [])
     goal = objective or research_goal or ""
@@ -338,18 +428,18 @@ def code_cmd(
         int | None, typer.Option("--huggingface-max-param-count")
     ] = None,
     mode: Annotated[
-        Literal["code", "docs", "discovery", "huggingface"],
-        typer.Option("--mode", help="Search mode: code, docs, discovery, or huggingface."),
+        Literal["code", "discovery", "huggingface"],
+        typer.Option("--mode", help="Search mode: code, discovery, or huggingface."),
     ] = "code",
 ) -> None:
-    """Search public code, documentation, GitHub repositories, or Hub assets."""
+    """Search public code, GitHub repositories, or Hub assets."""
     from ..services.search_code import fetch_code_search_payload
 
     if not query.strip():
         raise CliError(
             kind="usage_error",
             message="--query must be a non-blank string.",
-            hint="Provide a code, documentation, repository, or Hub asset search query.",
+            hint="Provide a code, repository, or Hub asset search query.",
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "search code", "query": query},
         )

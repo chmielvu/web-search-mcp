@@ -2,26 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...youtube import search_youtube
-
 
 class _CliContext:
     async def report_progress(self, **_: Any) -> None:
         return None
-
-
-async def fetch_youtube_search_payload(
-    query: str,
-    *,
-    num_results: int,
-) -> dict[str, Any]:
-    results, search_backend = await search_youtube(query, num_results=num_results)
-    return {
-        "query": query,
-        "results": [result.model_dump(exclude_none=True) for result in results],
-        "total_results": len(results),
-        "search_backend": search_backend,
-    }
 
 
 async def fetch_youtube_transcript_payload(

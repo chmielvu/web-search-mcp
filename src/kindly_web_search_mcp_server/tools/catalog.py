@@ -16,7 +16,6 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "fetch",
         "gemini_search",
         "generate_sitemap",
-        "youtube_search",
         "youtube_transcript",
         "deep_research",
     }
@@ -135,7 +134,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     "composio_similarlinks": _entry(
         "composio_similarlinks", "Composio Similarlinks", {"regular", "full"}
     ),
-    "youtube_search": _entry("youtube_search", "YouTube Search", {"regular", "full"}),
     "youtube_transcript": _entry(
         "youtube_transcript",
         "YouTube Transcript",

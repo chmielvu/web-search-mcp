@@ -87,7 +87,7 @@ def _needs_worker(plan: QueryPlan, request: CodeSearchRequest) -> bool:
         return False
     if plan.source_tokens:
         return False
-    return request.mode in {"docs", "discovery"}
+    return request.mode in {"discovery"}
 
 
 def _rewrite_user_message(query: str, research_goal: str | None) -> str:

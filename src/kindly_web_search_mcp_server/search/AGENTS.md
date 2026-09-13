@@ -24,6 +24,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 17 providers.
 | `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |
 | `providers/` | 20 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
+| `quick/` | Quick web search modes: Parallel web, YouTube discovery, and library documentation |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
 
 ## Contracts

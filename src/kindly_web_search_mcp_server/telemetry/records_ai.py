@@ -6,13 +6,11 @@ from .attributes import (
     GEMINI_GROUNDING_CHUNKS,
     GEMINI_GROUNDING_QUERIES,
     GEMINI_STRUCTURED_OUTPUT,
-    SEARCH_NUM_RESULTS_RETURNED,
     YOUTUBE_BACKEND_USED,
     YOUTUBE_DURATION_SECONDS,
     YOUTUBE_FORMAT,
     YOUTUBE_IS_TRANSLATED,
     YOUTUBE_LANGUAGE,
-    YOUTUBE_SEARCH_BACKEND,
 )
 from .metrics import (
     get_gemini_metrics,
@@ -46,7 +44,7 @@ def record_youtube_transcript(
     backend_used: str = "api",
 ) -> None:
     """Record YouTube transcript specifics."""
-    transcript_counter, _ = get_youtube_metrics()
+    transcript_counter = get_youtube_metrics()
     transcript_counter.add(
         1,
         {
@@ -59,24 +57,8 @@ def record_youtube_transcript(
     )
 
 
-def record_youtube_search(
-    num_results: int,
-    duration_seconds: float | None = None,
-    search_backend: str = "searxng",
-) -> None:
-    """Record YouTube search specifics."""
-    _, search_counter = get_youtube_metrics()
-    search_counter.add(
-        1,
-        {
-            SEARCH_NUM_RESULTS_RETURNED: num_results,
-            YOUTUBE_SEARCH_BACKEND: search_backend,
-        },
-    )
-
 
 __all__ = [
     "record_gemini_search",
-    "record_youtube_search",
     "record_youtube_transcript",
 ]

@@ -124,7 +124,6 @@ YOUTUBE_LANGUAGE = "youtube.language"
 YOUTUBE_IS_TRANSLATED = "youtube.is_translated"
 YOUTUBE_DURATION_SECONDS = "youtube.duration_seconds"
 YOUTUBE_BACKEND_USED = "youtube.backend_used"
-YOUTUBE_SEARCH_BACKEND = "youtube.search_backend"
 
 
 # --- Span Status Values ---
@@ -256,5 +255,4 @@ __all__ = [
     "YOUTUBE_FORMAT",
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_LANGUAGE",
-    "YOUTUBE_SEARCH_BACKEND",
 ]

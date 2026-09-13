@@ -57,7 +57,6 @@ __all__ = [
     # Tool-specific metrics (NEW)
     "record_gemini_search",
     "record_youtube_transcript",
-    "record_youtube_search",
     "record_tool_details",
     # Query quality metrics (Phase 2)
     "record_query_length",
@@ -164,7 +163,6 @@ __all__ = [
     "YOUTUBE_IS_TRANSLATED",
     "YOUTUBE_DURATION_SECONDS",
     "YOUTUBE_BACKEND_USED",
-    "YOUTUBE_SEARCH_BACKEND",
     "STATUS_SUCCESS",
     "STATUS_ERROR",
     "STATUS_TIMEOUT",

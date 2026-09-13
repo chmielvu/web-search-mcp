@@ -66,7 +66,7 @@ import logging
 
 from .composio_tools import register_composio_tools
 from .deep_research import register_deep_research
-from .quick_web_search import register_quick_web_search
+from .search.quick.quick_web_search import register_quick_web_search
 from .settings import settings
 from .tools._helpers import (
     _app_lifespan,
@@ -99,7 +99,7 @@ from .tools.resources import (
 )
 from .tools.search import web_search
 from .tools.sitemap import generate_sitemap
-from .tools.youtube import youtube_search, youtube_transcript
+from .tools.youtube import youtube_transcript
 from .utils.logging import configure_logging
 from .utils.observability import emit_observability_event
 
@@ -205,8 +205,9 @@ mcp = FastMCP(
         "Tool routing: quick_web_search/gemini_search -> web_search ->\n"
         "fetch -> iterate.\n"
         "Use academic_search for\n"
-        "scholarly questions. Use youtube_search + youtube_transcript for\n"
-        "video content.\n"
+        "scholarly questions. Use quick_web_search mode='youtube' to find videos,\n"
+        "then youtube_transcript for captions. Use quick_web_search mode='docs'\n"
+        "for library documentation questions.\n"
         "Codebase work: use code_search for public discovery, then fetch hit\n"
         "URLs for full context. For one known GitHub file, use fetch directly\n"
         "on the file URL.\n"
@@ -310,7 +311,6 @@ mcp.add_middleware(
             "fetch",
             "gemini_search",
             "grok_search",
-            "youtube_search",
             "youtube_transcript",
             "generate_sitemap",
             "academic_search",
@@ -338,7 +338,6 @@ mcp.tool(**tool_kwargs("fetch"))(fetch)
 mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
-mcp.tool(**tool_kwargs("youtube_search"))(youtube_search)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
 mcp.tool(**tool_kwargs("code_search"))(code_search)

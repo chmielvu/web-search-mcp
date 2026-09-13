@@ -17,12 +17,6 @@ class TranscriptBackendError(RuntimeError):
     pass
 
 
-class YouTubeSearchError(RuntimeError):
-    """Custom error for YouTube search failures."""
-
-    pass
-
-
 class YouTubeApiError(RuntimeError):
     """Custom error for YouTube Data API v3 failures."""
 

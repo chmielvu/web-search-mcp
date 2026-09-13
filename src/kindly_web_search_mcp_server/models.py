@@ -536,7 +536,6 @@ class YouTubeTranscriptResponse(BaseModel):
     backend_used: str | None = None
     output_format: Literal["text", "timestamped", "json", "markdown"] | None = None
     summary: dict[str, Any] | None = None
-    usage: TokenUsage | None = None
     analysis: YouTubeTranscriptAnalysis | None = None
     quality: YouTubeTranscriptQuality | None = None
     error: str | None = None
@@ -576,16 +575,6 @@ class YouTubeChannelTranscriptionResponse(BaseModel):
     quota: dict[str, Any] | None = None
     error: str | None = None
     status: Literal["ok", "partial", "error"] | None = None
-
-
-class YouTubeSearchResponse(BaseModel):
-    """Response from youtube_search tool."""
-
-    query: str
-    results: list[WebSearchResult] = Field(default_factory=list)
-    total_results: int = 0
-    search_backend: str | None = None  # "api" or "searxng"
-    next: list[WebSearchNext] | None = None
 
 
 class SitemapResponse(BaseModel):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Annotated, Literal
+from typing import Any, Annotated, Literal
 from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
@@ -12,24 +12,18 @@ from pydantic import Field
 
 from ..errors import raise_tool_error
 from ..models import (
-    make_next,
-    TokenUsage,
     YouTubeChannelTranscriptionItem,
     YouTubeChannelTranscriptionResponse,
-    YouTubeSearchResponse,
     YouTubeTranscriptResponse,
 )
-from ..telemetry import record_youtube_search, record_youtube_transcript
+from ..telemetry import record_youtube_transcript
 from ..youtube import (
-    YouTubeApiError,
     YouTubeError,
-    YouTubeSearchError,
     calculate_total_duration,
     fetch_transcript_with_cache,
     format_transcript_text,
     format_transcript_timestamped,
     parse_youtube_url,
-    search_youtube,
     list_channel_videos,
     looks_like_channel_target,
 )
@@ -79,12 +73,12 @@ async def youtube_transcript(
     auto-detected and determines the response shape.
 
     WHEN TO USE:
-    - Getting the full text of a video after youtube_search found it.
+    - Getting the full text of a video found via quick_web_search mode='youtube'.
     - Analyzing entities and relations mentioned in a video.
     - Transcribing a channel's recent uploads in bulk.
 
     WHEN NOT TO USE:
-    - Discovering videos (use youtube_search first).
+    - Discovering videos (use quick_web_search mode='youtube' first).
 
     RETURNS (video mode):
     - transcript_text, transcript_segments, language, is_translated,
@@ -120,7 +114,7 @@ async def youtube_transcript(
         except Exception as e:
             raise_tool_error(e, provider="youtube")
     format = output_format
-    from ..content.ai_summary import summarize
+    from ..content.ai_summary import public_summary, summarize
     from ..settings import settings
     from ..youtube.analysis import analyze_transcript
     from ..youtube.quality import normalize_transcript_segments, truncate_segments
@@ -170,14 +164,13 @@ async def youtube_transcript(
         )
         analysis = await analyze_transcript(full_text)
 
-        summary: dict[str, object] | None = None
-        usage = None
+        summary_payload: dict[str, Any] | None = None
         if include_summary:
             await ctx.report_progress(
                 progress=65, total=100, message="Generating Gemini summary..."
             )
             try:
-                summary = await summarize(
+                summary_payload = await summarize(
                     full_text,
                     ai_summary=True,
                     focus_query=summary_focus,
@@ -185,14 +178,14 @@ async def youtube_transcript(
                 )
             except Exception as exc:
                 LOGGER.warning("YouTube summary failed for %s: %s", video_id, exc)
-                summary = {
+                summary_payload = {
                     "summary": "",
                     "key_points": [],
                     "important_entities": [],
                     "verbatim_terms": [],
                     "limitations": [f"Summary unavailable: {type(exc).__name__}"],
                 }
-            usage = TokenUsage.from_payload(summary)
+        summary = public_summary(summary_payload)
 
         metadata: dict[str, object] = {}
         if format == "markdown" or (language is None and not translate_to):
@@ -274,7 +267,6 @@ async def youtube_transcript(
             summary=summary,
             analysis=analysis,
             quality=quality,
-            usage=usage,
             error=None,
         ).model_dump(exclude_none=True)
 
@@ -449,130 +441,3 @@ async def _transcribe_channel(
         quota=get_youtube_api_quota_tracker().snapshot(),
         status=status,
     )
-
-
-async def youtube_search(
-    query: Annotated[str, Field(description="Search term for YouTube.")],
-    num_results: Annotated[
-        int, Field(ge=1, le=20, description="Number of results to return (1-20, default 5).")
-    ] = 5,
-    ctx: Context = CurrentContext(),
-) -> YouTubeSearchResponse:
-    """Find YouTube videos by search query.
-
-    WHEN TO USE:
-    - FIRST step for YouTube content: discover video targets before calling
-      youtube_transcript.
-    - Searching for video tutorials, talks, or demonstrations.
-
-    WHEN NOT TO USE:
-    - Extracting transcripts (use youtube_transcript with a video ID or URL).
-    - General web search (use web_search).
-
-    RETURNS:
-    - results[]: videos with title, link, video ID, and snippet.
-    - total_results: number of videos returned.
-    - next: a suggested youtube_transcript call for the best matching video.
-
-    CHAINING: pass a video link or ID from results to youtube_transcript.
-    """
-
-    if num_results < 1:
-        num_results = 5
-    num_results = min(num_results, 20)
-
-    start_time = time.time()
-    tool_call_id = str(uuid4())
-    emit_tool_observability_event(
-        LOGGER,
-        "youtube_search",
-        "request",
-        tool_call_id=tool_call_id,
-        query=query,
-        num_results=num_results,
-    )
-
-    try:
-        await ctx.report_progress(progress=20, total=100, message="Searching YouTube...")
-        results, search_backend = await search_youtube(query, num_results=num_results)
-        duration_seconds = time.time() - start_time
-
-        # Record YouTube search telemetry
-        record_youtube_search(
-            num_results=len(results),
-            duration_seconds=duration_seconds,
-            search_backend=search_backend,
-        )
-
-        next_hints = (
-            [
-                make_next(
-                    tool="youtube_transcript",
-                    query={"video_id_or_url": results[0].link},
-                    why="Extract the transcript for the best matching video.",
-                    confidence="medium",
-                )
-            ]
-            if results
-            else None
-        )
-        response = YouTubeSearchResponse(
-            query=query,
-            results=results,
-            total_results=len(results),
-            search_backend=search_backend,
-            next=next_hints,
-        ).model_dump(exclude_none=True)
-
-        emit_tool_observability_event(
-            LOGGER,
-            "youtube_search",
-            "response",
-            tool_call_id=tool_call_id,
-            query=query,
-            results=results,
-            output_count=len(results),
-            provider=search_backend,
-            duration_ms=(time.time() - start_time) * 1000,
-        )
-
-        await ctx.report_progress(progress=100, total=100, message="Done")
-        return response  # type: ignore[return-value]
-
-    except (YouTubeSearchError, YouTubeApiError) as e:
-        duration_seconds = time.time() - start_time
-        record_youtube_search(
-            num_results=0,
-            duration_seconds=duration_seconds,
-            search_backend="error",
-        )
-        emit_tool_observability_event(
-            LOGGER,
-            "youtube_search",
-            "error",
-            tool_call_id=tool_call_id,
-            query=query,
-            error_type=type(e).__name__,
-            error_message=str(e),
-            duration_ms=duration_seconds * 1000,
-        )
-        raise_tool_error(e, provider="youtube")
-
-    except Exception as e:
-        duration_seconds = time.time() - start_time
-        record_youtube_search(
-            num_results=0,
-            duration_seconds=duration_seconds,
-        )
-        LOGGER.warning("YouTube search unexpected error: %s", e)
-        emit_tool_observability_event(
-            LOGGER,
-            "youtube_search",
-            "error",
-            tool_call_id=tool_call_id,
-            query=query,
-            error_type=type(e).__name__,
-            error_message=str(e),
-            duration_ms=duration_seconds * 1000,
-        )
-        raise_tool_error(e, provider="youtube")

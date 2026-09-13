@@ -3,7 +3,7 @@
 No orchestration here; fetch_pipeline.py owns availability ordering.
 
 Stages:
-  - _fetch_via_jina      : Jina Reader (free, no API key)
+  - _fetch_via_jina      : DOM-routed Jina Reader (agent/research/readerlm/browser profiles)
   - _fetch_via_local     : BS4+markdownify (offline, pure HTTP)
   - _fetch_via_crawl4ai  : Crawl4AI remote POST /md (cloud markdown)
   - _fetch_via_camoufox  : Camoufox sidecar (stealth-Firefox, returns raw HTML -> markdown)
@@ -23,8 +23,9 @@ except Exception:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
 
 from .artifact import ContentArtifact, ContentError
+from .dom_detector import RouteDecision, analyze_html
 from .resolvers.document import fetch_document_markdown
-from .jina_reader import JinaReaderError, fetch_with_jina_reader
+from .jina_reader import JinaReaderError, fetch_with_jina_reader_response
 from ..utils.content_classify import chrome_ratio, classify_markdown
 from ..utils.text_clean import (
     parse_jina_frontmatter,
@@ -258,6 +259,34 @@ def _record_probe(backend: str, outcome: str, latency_ms: float | None) -> None:
 # ------------------------------------------------------------------
 
 
+async def _decide_jina_route(url: str, timeout_seconds: float | None) -> RouteDecision:
+    """Classify the target with a bounded HTML preflight before any Jina call.
+
+    Preflight failures fall back to the fast ``agent`` route instead of
+    failing the stage; non-HTML targets skip signal extraction the same way.
+    """
+    try:
+        preflight_timeout = 8.0
+        if timeout_seconds is not None:
+            preflight_timeout = max(1.0, min(8.0, timeout_seconds / 3))
+        fetched = await safe_fetch_url(
+            url,
+            timeout_seconds=preflight_timeout,
+            max_response_bytes=1_500_000,
+        )
+    except Exception as exc:
+        LOGGER.debug("Jina preflight unavailable for %s: %s", url, exc)
+        return analyze_html("", status=200)
+    content_type = (fetched.content_type or "").split(";")[0].strip().lower()
+    if fetched.is_pdf or fetched.doc_type or content_type not in (
+        "",
+        "text/html",
+        "application/xhtml+xml",
+    ):
+        return analyze_html("", status=200)
+    return analyze_html(fetched.text or "", status=fetched.status_code)
+
+
 async def _fetch_via_jina(
     url: str,
     *,
@@ -266,23 +295,32 @@ async def _fetch_via_jina(
     timeout_seconds: float | None = None,
     attempts_made: list[int] | None = None,
 ) -> ContentArtifact | None:
-    """Fetch via Jina Reader (free, no API key).
+    """Fetch via the DOM-routed Jina Reader profile.
 
-    Returns ``None`` on transport failure (unavailable). Returns a
-    ``ContentArtifact`` on success or low-quality response.
+    The ``browser`` decision skips Jina entirely so the Camoufox stage owns
+    JS shells and challenges. Every other route flows through the shared
+    Markdown quality checks with its engine recorded in metadata.
     """
     try:
         if timeout_seconds is not None and timeout_seconds < 1.0:
             LOGGER.debug("Jina stage skipped: remaining budget too small (%s)", timeout_seconds)
             return None
-        jina_markdown = await _stage_retry(
-            "jina_reader",
-            lambda: fetch_with_jina_reader(
+
+        decision = await _decide_jina_route(url, timeout_seconds)
+        if decision.route == "browser":
+            LOGGER.debug("Jina stage skipped: DOM route is browser (%s)", decision.reasons)
+            return None
+        jina_response = await _stage_retry(
+            f"jina_{decision.route}",
+            lambda: fetch_with_jina_reader_response(
                 url,
+                route=decision.route,
                 timeout_seconds=timeout_seconds if timeout_seconds is not None else 25.0,
             ),
+            retries=0 if decision.route.startswith("readerlm") else 1,
             attempts_made=attempts_made,
         )
+        jina_markdown = jina_response.content
     except (
         JinaReaderError,
         httpx.TimeoutException,
@@ -293,7 +331,7 @@ async def _fetch_via_jina(
         return None
 
     envelope = parse_jina_frontmatter(jina_markdown)
-    jina_warning = envelope.get("warning", "")
+    jina_warning = jina_response.warning or envelope.get("warning", "")
     # F1 fix: the envelope was parsed for ``warning`` but never stripped —
     # every Jina artifact shipped "---title/url/...---" inside its content
     # (verified on 11/11 live sites). Strip BEFORE chrome/classification so
@@ -326,22 +364,37 @@ async def _fetch_via_jina(
         url=url,
         success=status == "success",
         word_count=word_count,
-        extraction_method="jina_reader",
+        extraction_method=f"jina_{decision.route}",
     )
-    artifact = ContentArtifact(
-        input_url=url,
-        normalized_url=canonicalize_url(url),
-        fetched_url=url,
-        status=status,
-        source_type="html",
-        fetch_backend="jina_reader",
-        content_type="text/markdown",
-        markdown=jina_markdown,
-        word_count=word_count,
-        quality_score=0.9 if status == "success" else 0.5,
-        error=error,
+    metadata: dict[str, Any] = {
+        "jina_route": decision.route,
+        "jina_engine": jina_response.engine,
+        "jina_response_format": jina_response.response_format,
+        "jina_reasons": list(decision.reasons),
+    }
+    if jina_response.description:
+        metadata["description"] = jina_response.description
+    if jina_response.usage:
+        metadata["usage"] = jina_response.usage
+    if jina_response.chunks:
+        metadata["chunks"] = list(jina_response.chunks)
+    return relabel_typed_artifact(
+        ContentArtifact(
+            input_url=url,
+            normalized_url=canonicalize_url(url),
+            fetched_url=jina_response.fetched_url or envelope.get("url") or url,
+            status=status,
+            source_type="html",
+            fetch_backend="jina_reader",
+            content_type="text/markdown",
+            markdown=jina_markdown,
+            title=jina_response.title or envelope.get("title") or None,
+            metadata=metadata,
+            word_count=word_count,
+            quality_score=0.9 if status == "success" else 0.5,
+            error=error,
+        )
     )
-    return relabel_typed_artifact(artifact)
 
 
 # ------------------------------------------------------------------

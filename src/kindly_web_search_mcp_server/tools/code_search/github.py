@@ -775,7 +775,7 @@ async def _search_scope_variant(
             per_page=per_page,
             max_results=collection_limit,
         )
-        if scope is None and plan.mode in {"discovery", "docs"}:
+        if scope is None and plan.mode in {"discovery"}:
             page_hits = [hit for hit in page_hits if not _is_low_value_global_discovery_hit(hit)]
         for hit in page_hits:
             hit.source_metadata["repository_scoped"] = scope is not None

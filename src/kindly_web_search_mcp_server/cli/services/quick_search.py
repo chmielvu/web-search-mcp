@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...quick_web_search import _quick_web_search_impl
+from ...search.quick.quick_web_search import (
+    _quick_docs_impl,
+    _quick_web_search_impl,
+    _quick_youtube_impl,
+)
 
 
 async def fetch_quick_web_search_payload(
@@ -37,5 +41,41 @@ async def fetch_quick_web_search_payload(
         max_age_seconds=max_age_seconds,
         timeout_seconds=timeout_seconds,
         disable_cache_fallback=disable_cache_fallback,
+    )
+    return response.model_dump(exclude_none=True)
+
+
+async def fetch_quick_youtube_payload(
+    query: str,
+    *,
+    num_results: int | None = None,
+    max_chars_total: int | None = None,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    response = await _quick_youtube_impl(
+        query=query,
+        num_results=num_results,
+        max_chars_total=max_chars_total,
+        timeout_seconds=timeout_seconds,
+    )
+    return response.model_dump(exclude_none=True)
+
+
+async def fetch_quick_docs_payload(
+    repo_url: str,
+    question: str,
+    *,
+    context7_library_id: str | None = None,
+    max_results: int | None = None,
+    max_chars_total: int | None = None,
+    timeout_seconds: float | None = None,
+) -> dict[str, Any]:
+    response = await _quick_docs_impl(
+        repo_url=repo_url,
+        question=question,
+        context7_library_id=context7_library_id,
+        max_results=max_results,
+        max_chars_total=max_chars_total,
+        timeout_seconds=timeout_seconds,
     )
     return response.model_dump(exclude_none=True)

@@ -49,8 +49,11 @@ def _normalize_mode(mode: str) -> str:
     normalized = (mode or "code").strip().casefold()
     aliases = {"hf": "huggingface", "hf_semantic": "huggingface"}
     normalized = aliases.get(normalized, normalized)
-    if normalized not in {"code", "docs", "discovery", "issues", *_HUGGINGFACE_MODES}:
-        raise ValueError("mode must be one of: code, docs, discovery, issues, huggingface.")
+    if normalized not in {"code", "discovery", "issues", *_HUGGINGFACE_MODES}:
+        raise ValueError(
+            "mode must be one of: code, discovery, issues, huggingface. "
+            "For library documentation, use quick_web_search mode='docs'."
+        )
     return normalized
 
 
@@ -247,7 +250,7 @@ async def code_search(
     library_name: Annotated[
         str | None,
         Field(
-            description="Optional library or package name to bias documentation and implementation discovery."
+            description="Optional library or package name to bias repository and implementation discovery."
         ),
     ] = None,
     topic: Annotated[
@@ -260,14 +263,15 @@ async def code_search(
         str,
         Field(
             description=(
-                "Search mode: 'code' | 'docs' | 'discovery' | 'issues' | 'huggingface'. "
-                "'code' (default) finds source code and implementations; 'docs' finds "
-                "documentation and API references; 'discovery' finds repositories and "
-                "projects implementing the requested idea; 'issues' searches GitHub "
-                "Issues and Discussions (requires GITHUB_TOKEN); 'huggingface' searches "
-                "semantic model and dataset cards through the Hub API."
+                "Search mode: 'code' | 'discovery' | 'issues' | 'huggingface'. "
+                "'code' (default) finds source code and implementations; "
+                "'discovery' finds repositories and projects implementing the "
+                "requested idea; 'issues' searches GitHub Issues and Discussions "
+                "(requires GITHUB_TOKEN); 'huggingface' searches semantic model "
+                "and dataset cards through the Hub API. For library documentation, "
+                "use quick_web_search mode='docs'."
             ),
-            examples=["code", "docs", "discovery", "issues", "huggingface"],
+            examples=["code", "discovery", "issues", "huggingface"],
         ),
     ] = "code",
     huggingface_type: Annotated[
@@ -302,18 +306,18 @@ async def code_search(
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> CodeSearchPublicResult:
-    """Search public code, implementation examples, documentation, and GitHub repositories.
+    """Search public code, implementation examples, and GitHub repositories.
 
     WHEN TO USE:
     - Cross-repository discovery: how others implement a feature, call a library,
       or structure a tool.
-    - Finding API references and library tutorials (mode="docs").
     - Discovering active repositories implementing an idea (mode="discovery").
     - Searching GitHub Issues and Discussions (mode="issues"; requires GITHUB_TOKEN).
     - Searching Hugging Face model/dataset cards (mode="huggingface").
 
     WHEN NOT TO USE:
     - One-off URL reads (use fetch).
+    - Library/API documentation (use quick_web_search mode="docs").
 
     QUERY DSL (inside query):
     - Identifiers & symbols: exact names, e.g. "parse_remote", "FastMCP.tool".
@@ -328,7 +332,7 @@ async def code_search(
       web/semantic URLs to fetch for full context.
 
     CHAINING: follow the next field — fetch the hit URL for the full context
-    of repository code hits, issues, and documentation alike.
+    of repository code hits and issues alike.
     """
     tool_call_id = str(uuid.uuid4())
     emit_tool_observability_event(
