@@ -1,6 +1,8 @@
-"""Content acquisition, extraction, and conversion to LLM-ready Markdown.
+"""Content acquisition, rendering, and finalization to LLM-ready Markdown.
 
-Two-tier pipeline:
-- Tier 1: Specialized resolvers (StackExchange, GitHub Issues/Discussions, Wikipedia, arXiv, Telegram) in content/resolvers/
-- Tier 2: Generic extraction stages (Jina -> Crawl4AI /md -> local BS4 -> Camoufox last-resort)
+Pipeline:
+- Resolver registry (content/resolver_registry.py): deterministic platform
+  resolvers return neutral RawDocument candidates first.
+- Generic cascade: Jina Reader -> Crawl4AI -> browser (Camoufox) -> Wayback archive.
+- Shared MarkdownProcessor evaluation + sole finalize_artifact constructor.
 """

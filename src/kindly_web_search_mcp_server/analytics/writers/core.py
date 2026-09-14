@@ -596,9 +596,7 @@ def insert_content_operation_batches(
     if stage_attempts:
         _STAGE_ATTEMPTS_WRITER.insert_batch(stage_attempts, db_path=db_path)
     if fetch_items:
-        serialized_items = [
-            _serialize_json_fields(r, ("diagnostics_json",)) for r in fetch_items
-        ]
+        serialized_items = [_serialize_json_fields(r, ("diagnostics_json",)) for r in fetch_items]
         _FETCH_ITEMS_WRITER.insert_batch(serialized_items, db_path=db_path)
     if summary_rungs:
         _SUMMARY_RUNGS_WRITER.insert_batch(summary_rungs, db_path=db_path)

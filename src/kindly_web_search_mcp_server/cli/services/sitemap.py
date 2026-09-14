@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...content.tavily_map import map_site
+from ...content.link_discovery import map_site
 
 
 async def fetch_sitemap_payload(

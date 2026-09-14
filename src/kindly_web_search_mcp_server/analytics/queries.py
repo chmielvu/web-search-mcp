@@ -321,7 +321,6 @@ def build_analytics_query_plan(
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="latency")
 
-
     if _is_provider_question(q):
         sql = f"""
             SELECT
@@ -366,7 +365,6 @@ def build_analytics_query_plan(
             LIMIT {limit}
         """
         return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="error")
-
 
     if _is_recent_events_question(q):
         sql = f"""

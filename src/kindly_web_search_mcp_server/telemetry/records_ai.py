@@ -57,7 +57,6 @@ def record_youtube_transcript(
     )
 
 
-
 __all__ = [
     "record_gemini_search",
     "record_youtube_transcript",

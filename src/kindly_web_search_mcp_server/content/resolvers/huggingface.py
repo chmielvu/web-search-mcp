@@ -1,7 +1,4 @@
-"""Specialized resolver for Hugging Face models and datasets (https://huggingface.co/<model_or_dataset>).
-
-Fetches model card metadata and raw README markdown directly from the Hugging Face Hub API.
-"""
+"""Hugging Face Hub specialized resolver returning RawDocument candidates."""
 
 from __future__ import annotations
 
@@ -9,9 +6,23 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
 
-from ...utils.text_clean import sanitize_markdown
+from ..models import (
+    AcquisitionError,
+    Diagnostic,
+    FetchContext,
+    ParsedURL,
+    RawDocument,
+    RepositoryDocument,
+    ResolverTarget,
+)
+from ..documents import (
+    _as_dict,
+    _as_list,
+    _as_str,
+    build_repository_document,
+)
+from ..http_utils import fetch_json, fetch_text
 
 
 class HuggingFaceError(RuntimeError):
@@ -24,132 +35,170 @@ class HuggingFaceTarget:
     is_dataset: bool
 
 
-_HF_EXCLUDED_PATHS = {
-    "models",
-    "datasets",
-    "spaces",
-    "docs",
-    "blog",
-    "pricing",
-    "login",
-    "join",
-    "settings",
-}
+_HF_HOSTS = frozenset({"huggingface.co", "www.huggingface.co"})
+_HF_EXCLUDED_PATHS = frozenset(
+    {"models", "datasets", "spaces", "docs", "blog", "pricing", "login", "join", "settings"}
+)
 
 
 def parse_huggingface_url(url: str) -> HuggingFaceTarget | None:
-    """Parse a Hugging Face model or dataset URL."""
     try:
         parsed = urllib.parse.urlparse(url)
         host = (parsed.hostname or "").lower()
-        if host not in ("huggingface.co", "www.huggingface.co"):
+        if host not in _HF_HOSTS:
             return None
-
-        path_parts = [p for p in (parsed.path or "").strip("/").split("/") if p]
-        if not path_parts:
+        parts = [p for p in (parsed.path or "").strip("/").split("/") if p]
+        if not parts:
             return None
-
-        if path_parts[0] == "datasets" and len(path_parts) >= 2:
-            target_id = "/".join(path_parts[1:3])
-            return HuggingFaceTarget(target_id=target_id, is_dataset=True)
-
-        if path_parts[0] in _HF_EXCLUDED_PATHS:
+        if parts[0] == "datasets" and len(parts) >= 2:
+            return HuggingFaceTarget(target_id="/".join(parts[1:3]), is_dataset=True)
+        if parts[0] in _HF_EXCLUDED_PATHS:
             return None
-
-        # Model URL format: /owner/model or /model
-        target_id = "/".join(path_parts[:2])
-        return HuggingFaceTarget(target_id=target_id, is_dataset=False)
+        return HuggingFaceTarget(target_id="/".join(parts[:2]), is_dataset=False)
     except Exception:
         return None
 
 
-def render_huggingface_markdown(
-    metadata: dict[str, Any],
+def match_huggingface(parsed: ParsedURL) -> ResolverTarget | None:
+    target = parse_huggingface_url(parsed.url)
+    if target is None:
+        return None
+    kind = "dataset" if target.is_dataset else "model"
+    return ResolverTarget(
+        url=parsed.url,
+        kind=f"hf_{kind}",
+        values={
+            "target_id": target.target_id,
+            "kind": "dataset" if target.is_dataset else "model",
+        },
+    )
+
+
+async def fetch_huggingface_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire Hugging Face metadata and README; return a :class:`RawDocument`."""
+
+    payload = await fetch_huggingface_payload(ctx, target)
+    readme_text, readme_format = await fetch_huggingface_readme(ctx, target, payload)
+    repo_doc: RepositoryDocument = huggingface_repository_document(
+        payload, target, readme_text, readme_format
+    )
+    diagnostics = (
+        Diagnostic(
+            phase="acquisition",
+            code="hf_fetched",
+            message=f"Hugging Face {target.values.get('kind', 'model')} {repo_doc.name}",
+        ),
+    )
+    metadata: dict[str, Any] = {
+        "registry": "huggingface",
+        "kind": target.values.get("kind", "model"),
+        "name": repo_doc.name,
+        "links": list(repo_doc.links),
+    }
+    return RawDocument(
+        input_url=target.url,
+        fetched_url=target.url,
+        source_type="huggingface_hub",
+        fetch_backend="hf_api",
+        body=repo_doc,
+        title=repo_doc.name,
+        metadata=metadata,
+        links=repo_doc.links,
+        diagnostics=diagnostics,
+        complete=bool(repo_doc.readme.text or repo_doc.files),
+        scope="full",
+    )
+
+
+__all__ = [
+    "HuggingFaceError",
+    "HuggingFaceTarget",
+    "parse_huggingface_url",
+    "match_huggingface",
+    "fetch_huggingface_raw",
+]
+
+
+async def fetch_huggingface_payload(ctx: FetchContext, target: ResolverTarget) -> dict[str, Any]:
+    target_id = target.values.get("target_id") or target.values.get("name")
+    kind = target.values.get("kind") or "model"
+    if not target_id:
+        raise AcquisitionError(code="bad_target", message="HF target missing target_id")
+    endpoint = (
+        f"https://huggingface.co/api/datasets/{target_id}"
+        if kind == "dataset"
+        else f"https://huggingface.co/api/models/{target_id}"
+    )
+    headers = {"Accept": "application/json"}
+    data = await fetch_json(ctx, endpoint, what="Hugging Face Hub API", headers=headers)
+    if not isinstance(data, dict):
+        raise AcquisitionError(code="huggingface_shape", message="Hub payload was not an object.")
+    return data
+
+
+async def fetch_huggingface_readme(
+    ctx: FetchContext, target: ResolverTarget, payload: dict[str, Any]
+) -> tuple[str, str]:
+    siblings = _as_list(payload.get("siblings"))
+    readme_name = ""
+    for sibling in siblings:
+        if not isinstance(sibling, dict):
+            continue
+        filename = _as_str(sibling.get("rfilename")) or ""
+        if filename.lower() in {"readme.md", "readme.markdown"}:
+            readme_name = filename
+            break
+    target_id = target.values.get("target_id") or target.values.get("name") or ""
+    kind = target.values.get("kind") or "model"
+    branch = "main"
+    if isinstance(payload.get("sha"), str):
+        branch = payload["sha"]
+    if not readme_name:
+        return "", "text/plain"
+    headers = {"Accept": "text/markdown"}
+    raw_url = f"https://huggingface.co/{kind}s/{target_id}/resolve/{branch}/{readme_name}"
+    text = await fetch_text(ctx, raw_url, what="Hugging Face README", headers=headers)
+    if not text:
+        return "", "text/plain"
+    return text, "text/markdown"
+
+
+def huggingface_repository_document(
+    payload: dict[str, Any],
+    target: ResolverTarget,
     readme_text: str,
-    target: HuggingFaceTarget,
-    url: str,
-) -> str:
-    """Render Hugging Face model/dataset card to structured Markdown."""
-    target_type = "Dataset" if target.is_dataset else "Model"
-    name = metadata.get("id") or target.target_id
-    pipeline_tag = metadata.get("pipeline_tag") or ""
-    author = metadata.get("author") or ""
-    downloads = metadata.get("downloads", 0)
-    likes = metadata.get("likes", 0)
-    tags = metadata.get("tags") or []
-    license_tag = next((t.replace("license:", "") for t in tags if t.startswith("license:")), None)
-
-    lines: list[str] = [
-        f"# Hugging Face {target_type}: {name}",
-        f"**Source:** {url}",
-    ]
-
-    meta_parts: list[str] = []
-    if pipeline_tag:
-        meta_parts.append(f"**Task:** `{pipeline_tag}`")
-    if author:
-        meta_parts.append(f"**Author:** {author}")
-    if license_tag:
-        meta_parts.append(f"**License:** `{license_tag}`")
-    if downloads:
-        meta_parts.append(f"**Downloads:** {downloads:,}")
-    if likes:
-        meta_parts.append(f"**Likes:** {likes:,}")
-    if meta_parts:
-        lines.append(" | ".join(meta_parts))
-
-    if tags:
-        clean_tags = [t for t in tags if not t.startswith("license:")][:10]
-        if clean_tags:
-            lines.append("\n**Tags:** " + ", ".join(f"`{t}`" for t in clean_tags))
-
-    if readme_text.strip():
-        lines.append("\n## Model Card & Documentation\n")
-        lines.append(sanitize_markdown(readme_text.strip()))
-
-    return "\n".join(lines).strip() + "\n"
-
-
-async def fetch_huggingface_markdown(
-    url: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Fetch Hugging Face model/dataset metadata and README, returning clean Markdown."""
-    target = parse_huggingface_url(url)
-    if not target:
-        raise HuggingFaceError(f"URL is not a recognized Hugging Face model or dataset URL: {url}")
-
-    api_path = (
-        f"/api/datasets/{target.target_id}"
-        if target.is_dataset
-        else f"/api/models/{target.target_id}"
+    readme_format: str,
+) -> RepositoryDocument:
+    target_id = str(payload.get("modelId") or target.values.get("target_id") or "model")
+    pipeline_tag = _as_str(payload.get("pipeline_tag"))
+    tags = _as_list(payload.get("tags"))
+    card_data = _as_dict(payload.get("cardData"))
+    links: list[dict[str, Any]] = []
+    if isinstance(card_data, dict):
+        for key in ("project_page", "paper", "repository", "demo", "model_zoo"):
+            value = card_data.get(key)
+            if isinstance(value, str) and value:
+                links.append({"label": key, "href": value})
+    metadata = {
+        "pipeline_tag": pipeline_tag,
+        "tags": [tag for tag in tags if isinstance(tag, str)],
+        "library": payload.get("library_name"),
+        "downloads": payload.get("downloads"),
+        "likes": payload.get("likes"),
+    }
+    files: list[str] = []
+    for sibling in _as_list(payload.get("siblings")):
+        if not isinstance(sibling, dict):
+            continue
+        filename = _as_str(sibling.get("rfilename"))
+        if filename:
+            files.append(filename)
+    return build_repository_document(
+        name=target_id,
+        url=target.url,
+        readme_text=readme_text,
+        readme_format=readme_format,
+        files=tuple(files),
+        links=tuple(links),
+        metadata=metadata,
     )
-    api_url = f"https://huggingface.co{api_path}"
-
-    raw_readme_path = (
-        f"/datasets/{target.target_id}/raw/main/README.md"
-        if target.is_dataset
-        else f"/{target.target_id}/raw/main/README.md"
-    )
-    readme_url = f"https://huggingface.co{raw_readme_path}"
-
-    async def _run(client: httpx.AsyncClient) -> str:
-        headers = {"User-Agent": "kindly-web-search-mcp/1.0 (hf-resolver)"}
-        meta_resp = await client.get(api_url, headers=headers)
-        if meta_resp.status_code == 404:
-            raise HuggingFaceError(f"Hugging Face item '{target.target_id}' not found (404).")
-        if meta_resp.status_code != 200:
-            raise HuggingFaceError(f"Hugging Face API returned HTTP {meta_resp.status_code}")
-        metadata = meta_resp.json()
-
-        # Fetch README
-        readme_resp = await client.get(readme_url, headers=headers)
-        readme_text = readme_resp.text if readme_resp.status_code == 200 else ""
-
-        return render_huggingface_markdown(metadata, readme_text, target, url)
-
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            return await _run(client)
-    return await _run(http_client)

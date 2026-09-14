@@ -17,6 +17,7 @@ async def fetch_payload(
     ai_summary: bool = False,
     focus_query: str | None = None,
     include_links: bool = False,
+    processing_mode: str = "agent",
 ) -> dict[str, Any]:
     """Call the unified fetch tool without exposing resource tuning knobs."""
     mock_ctx = AsyncMock()
@@ -34,6 +35,7 @@ async def fetch_payload(
         ai_summary=ai_summary,
         focus_query=focus_query,
         include_links=include_links,
+        processing_mode=processing_mode,
         ctx=mock_ctx,
     )
     return (

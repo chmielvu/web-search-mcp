@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-import html
-import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-import anyio
-import httpx
+
+from ..http_utils import raise_for_status, request_with_redirect_validation
+from ..models import (
+    AcquisitionError,
+    Diagnostic,
+    FetchContext,
+    ParsedURL,
+    RawDocument,
+    ResolverTarget,
+    ThreadDocument,
+    ThreadMessage,
+)
+from ..documents import build_thread_document
 
 
 STACKEXCHANGE_API_BASE_URL = "https://api.stackexchange.com/2.3"
@@ -80,207 +88,152 @@ def parse_stackexchange_url(url: str) -> StackExchangeTarget:
     raise StackExchangeError("URL is not a recognized StackExchange question/answer URL.")
 
 
-def _stackexchange_params(site: str, *, filter_id: str) -> dict[str, str]:
-    params: dict[str, str] = {"site": site, "filter": filter_id}
-    key = os.environ.get("STACKEXCHANGE_KEY", "").strip()
-    if key:
-        params["key"] = key
-    return params
+# ---------------------------------------------------------------------------
+# Raw producer entry points (registry-facing).
+# ---------------------------------------------------------------------------
 
 
-def _ensure_dict_json(resp: httpx.Response) -> dict[str, Any]:
-    data = resp.json()
-    if not isinstance(data, dict):
-        raise StackExchangeError("StackExchange API response was not a JSON object.")
-    return data
-
-
-def _epoch_to_iso(ts: Any) -> str:
+def match_stackexchange(parsed: ParsedURL) -> ResolverTarget | None:
     try:
-        return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
-    except Exception:
-        return ""
+        target = parse_stackexchange_url(parsed.url)
+    except StackExchangeError:
+        return None
+    values: dict[str, str] = {"site": target.site}
+    if target.question_id is not None:
+        values["question_id"] = str(target.question_id)
+    if target.answer_id is not None:
+        values["answer_id"] = str(target.answer_id)
+    return ResolverTarget(url=parsed.url, kind="stackexchange", values=values)
 
 
-def render_thread_markdown(question: dict[str, Any], answers: list[dict[str, Any]]) -> str:
-    """Render a StackExchange Q&A thread to deterministic Markdown."""
+async def fetch_stackexchange_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Fetch a StackExchange thread and return a :class:`RawDocument` with a thread body."""
 
-    def post_body_markdown(post: dict[str, Any]) -> str:
-        # Prefer `body_markdown` (raw Markdown); fall back to `body` (HTML) and convert.
-        body_md = post.get("body_markdown")
-        if isinstance(body_md, str) and body_md.strip():
-            return html.unescape(body_md)
-
-        body_html = post.get("body")
-        if not isinstance(body_html, str) or not body_html.strip():
-            return ""
-
-        raw_html = html.unescape(body_html)
-        try:
-            from markdownify import markdownify as _markdownify  # type: ignore
-
-            return _markdownify(raw_html)
-        except Exception:
-            # As a last resort return HTML; better than empty content.
-            return raw_html
-
-    title = html.unescape(question.get("title") or "")
-    link = question.get("link") or ""
-    score = question.get("score")
-    _q_owner_raw = question.get("owner")
-    owner = _q_owner_raw if isinstance(_q_owner_raw, dict) else {}
-    owner_link = owner.get("link") or ""
-    owner_name = html.unescape(str(owner.get("display_name") or ""))
-    created = _epoch_to_iso(question.get("creation_date"))
-    body_md = post_body_markdown(question)
-
-    lines: list[str] = []
-    lines.append("# Question")
-    lines.append(f"Question: {title}".strip())
-    lines.append(
-        f"Link: {link} Author: {owner_name} ({owner_link}) Date: {created} Score: {score}".strip()
-    )
-    lines.append("")
-    lines.append(body_md)
-    lines.append("")
-    lines.append("# Answers")
-
-    def sort_key(a: dict[str, Any]) -> tuple[int, int]:
-        accepted = bool(a.get("is_accepted"))
-        score_val = a.get("score")
-        try:
-            score_int = int(score_val)  # type: ignore[arg-type]
-        except Exception:
-            score_int = 0
-        # accepted first, then higher scores first
-        return (0 if accepted else 1, -score_int)
-
-    sorted_answers = sorted(answers, key=sort_key)
-    for idx, ans in enumerate(sorted_answers, start=1):
-        accepted = bool(ans.get("is_accepted"))
-        _a_owner_raw = ans.get("owner")
-        ans_owner = _a_owner_raw if isinstance(_a_owner_raw, dict) else {}
-        ans_author = html.unescape(str(ans_owner.get("display_name") or ""))
-        ans_created = _epoch_to_iso(ans.get("creation_date"))
-        ans_score = ans.get("score")
-        ans_body = post_body_markdown(ans)
-
-        header = f"## Answer {idx}"
-        if accepted:
-            header += " (Accepted Solution)"
-        lines.append(header)
-        meta = f"Score: {ans_score}"
-        if accepted:
-            meta += " | ✅ Marked as Correct"
-        meta += f" Author: {ans_author} Date: {ans_created}"
-        lines.append(meta.strip())
-        lines.append("")
-        lines.append(ans_body)
-        lines.append("")
-
-    return "\n".join(lines).strip() + "\n"
-
-
-class StackExchangeApiClient:
-    def __init__(self, *, http_client: httpx.AsyncClient) -> None:
-        self._http = http_client
-        self._filter = (
-            os.environ.get("STACKEXCHANGE_FILTER", DEFAULT_STACKEXCHANGE_FILTER).strip()
-            or DEFAULT_STACKEXCHANGE_FILTER
+    site = target.values.get("site")
+    if not site:
+        raise AcquisitionError(code="bad_target", message="StackExchange target missing site")
+    question_id = target.values.get("question_id")
+    answer_id = target.values.get("answer_id")
+    if not question_id and not answer_id:
+        raise AcquisitionError(
+            code="bad_target", message="StackExchange target missing question/answer id"
         )
 
-    async def _get(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
-        url = f"{STACKEXCHANGE_API_BASE_URL}{path}"
-        resp = await self._http.get(url, params=params)
-        resp.raise_for_status()
-        data = _ensure_dict_json(resp)
-        backoff = data.get("backoff")
-        if isinstance(backoff, int) and backoff > 0:
-            await anyio.sleep(backoff)
-        return data
+    params: dict[str, Any] = {"site": site, "filter": DEFAULT_STACKEXCHANGE_FILTER}
+    if question_id:
+        questions_url = f"{STACKEXCHANGE_API_BASE_URL}/questions/{question_id}"
+    else:
+        # For answer-only URLs we look up the parent question id first.
+        questions_url = (
+            f"{STACKEXCHANGE_API_BASE_URL}/answers/{answer_id}"
+            if answer_id
+            else f"{STACKEXCHANGE_API_BASE_URL}/questions/{question_id}"
+        )
+    if answer_id and not question_id:
+        params["filter"] += ";answerId"
 
-    async def resolve_question_id_from_answer(self, target: StackExchangeTarget) -> int:
-        if target.answer_id is None:
-            raise StackExchangeError("No answer_id to resolve.")
-        params = _stackexchange_params(target.site, filter_id=self._filter)
-        data = await self._get(f"/answers/{target.answer_id}/questions", params=params)
-        items = data.get("items", [])
-        if not isinstance(items, list) or not items:
-            raise StackExchangeError("No parent question found for answer.")
-        q = items[0]
-        qid = q.get("question_id")
-        if not isinstance(qid, int):
-            raise StackExchangeError("Invalid parent question_id in response.")
-        return qid
+    response = await request_with_redirect_validation(
+        ctx,
+        questions_url,
+        params=params,
+        follow_redirects=True,
+    )
+    raise_for_status(response, what="StackExchange API")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise AcquisitionError(
+            code="json_parse_error", message="StackExchange payload not an object"
+        )
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        raise AcquisitionError(code="empty_response", message="StackExchange returned no items")
+    question_payload = items[0]
+    if not isinstance(question_payload, dict):
+        raise AcquisitionError(
+            code="bad_question", message="StackExchange question payload missing"
+        )
 
-    async def fetch_question(self, target: StackExchangeTarget) -> dict[str, Any]:
-        qid = target.question_id
-        if qid is None and target.answer_id is not None:
-            qid = await self.resolve_question_id_from_answer(target)
-        if qid is None:
-            raise StackExchangeError("Missing question id.")
-        params = _stackexchange_params(target.site, filter_id=self._filter)
-        data = await self._get(f"/questions/{qid}", params=params)
-        items = data.get("items", [])
-        if not isinstance(items, list) or not items:
-            raise StackExchangeError("Question not found.")
-        q = items[0]
-        if not isinstance(q, dict):
-            raise StackExchangeError("Invalid question payload.")
-        return q
-
-    async def fetch_all_answers(
-        self, target: StackExchangeTarget, *, max_pages: int = 10
-    ) -> list[dict[str, Any]]:
-        qid = target.question_id
-        if qid is None and target.answer_id is not None:
-            qid = await self.resolve_question_id_from_answer(target)
-        if qid is None:
-            raise StackExchangeError("Missing question id.")
-
-        max_pages = max(1, max_pages)
-        page = 1
-        answers: list[dict[str, Any]] = []
-        while page <= max_pages:
-            params: dict[str, Any] = _stackexchange_params(target.site, filter_id=self._filter)
-            params.update(
-                {
-                    "page": page,
-                    "pagesize": 100,
-                    "order": "desc",
-                    "sort": "votes",
-                }
-            )
-            data = await self._get(f"/questions/{qid}/answers", params=params)
-            items = data.get("items", [])
-            if isinstance(items, list):
-                answers.extend([a for a in items if isinstance(a, dict)])
-
-            has_more = data.get("has_more")
-            if has_more is True:
-                page += 1
+    messages: list[ThreadMessage] = []
+    root_id = f"q_{question_payload.get('question_id') or question_id}"
+    title = str(question_payload.get("title") or f"StackExchange {question_id or answer_id}")
+    messages.append(
+        ThreadMessage(
+            id=root_id,
+            role="question",
+            body=str(question_payload.get("body") or ""),
+            body_format="html",
+            author=str(question_payload.get("owner", {}).get("display_name"))
+            if isinstance(question_payload.get("owner"), dict)
+            else None,
+            created_at=str(question_payload.get("creation_date") or "") or None,
+            score=question_payload.get("score")
+            if isinstance(question_payload.get("score"), int)
+            else None,
+            accepted=bool(question_payload.get("accepted_answer_id")),
+            permalink=str(question_payload.get("link") or "") or None,
+            parent_id=None,
+        )
+    )
+    answers = question_payload.get("answers") or []
+    if isinstance(answers, list):
+        for answer in answers:
+            if not isinstance(answer, dict):
                 continue
-            break
+            aid = f"a_{answer.get('answer_id')}"
+            body_text = str(answer.get("body") or "")
+            if not body_text:
+                continue
+            messages.append(
+                ThreadMessage(
+                    id=aid,
+                    role="answer" if answer.get("is_accepted") else "comment",
+                    body=body_text,
+                    body_format="html",
+                    author=str(answer.get("owner", {}).get("display_name"))
+                    if isinstance(answer.get("owner"), dict)
+                    else None,
+                    created_at=str(answer.get("creation_date") or "") or None,
+                    score=answer.get("score") if isinstance(answer.get("score"), int) else None,
+                    accepted=bool(answer.get("is_accepted")),
+                    permalink=str(answer.get("share_link") or "") or None,
+                    parent_id=root_id,
+                )
+            )
 
-        return answers
-
-
-async def fetch_stackexchange_thread_markdown(
-    url: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Fetch a StackExchange thread as Markdown (question + all answers)."""
-    target = parse_stackexchange_url(url)
-
-    async def _run(client: httpx.AsyncClient) -> str:
-        api = StackExchangeApiClient(http_client=client)
-        question = await api.fetch_question(target)
-        answers = await api.fetch_all_answers(target)
-        return render_thread_markdown(question=question, answers=answers)
-
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            return await _run(client)
-
-    return await _run(http_client)
+    thread: ThreadDocument = build_thread_document(
+        title=title,
+        url=target.url,
+        messages=tuple(messages),
+        metadata={
+            "site": site,
+            "question_id": question_id,
+            "answer_id": answer_id,
+            "answer_count": len(
+                [m for m in messages if m.role in {"answer", "comment"} and m.id.startswith("a_")]
+            ),
+        },
+    )
+    diagnostics = (
+        Diagnostic(
+            phase="acquisition",
+            code="stackexchange_fetched",
+            message=f"StackExchange {site} q={question_id or '-'} a={answer_id or '-'} ({len(messages)} messages)",
+        ),
+    )
+    return RawDocument(
+        input_url=target.url,
+        fetched_url=target.url,
+        source_type="stackexchange",
+        fetch_backend="stackexchange_api",
+        body=thread,
+        title=title,
+        metadata={
+            "site": site,
+            "question_id": question_id,
+            "answer_id": answer_id,
+            "answer_count": thread.metadata.get("answer_count"),
+        },
+        diagnostics=diagnostics,
+        complete=bool(messages),
+        scope="full",
+    )

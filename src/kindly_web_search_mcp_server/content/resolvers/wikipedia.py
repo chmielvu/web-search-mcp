@@ -10,8 +10,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 import anyio
 import httpx
 
-from ..html_extract import extract_html_as_markdown
-from ...utils.text_clean import sanitize_markdown
+from ..html_tools import html_to_markdown as extract_html_as_markdown, soup_from_html
+
+
+from ..models import FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ._bridge import bridge_text_producer
 
 
 class WikipediaError(RuntimeError):
@@ -125,10 +128,8 @@ def _strip_wikipedia_html_noise(html: str) -> str:
     - remove citation superscripts
     - remove navboxes
     """
-    try:
-        from bs4 import BeautifulSoup  # type: ignore
-
-        soup = BeautifulSoup(html, "html.parser")
+    soup = soup_from_html(html)
+    if soup is not None:
         for sup in soup.select("sup.reference"):
             sup.decompose()
         for el in soup.select("table.navbox, div.navbox, div.navbox-styles"):
@@ -136,11 +137,10 @@ def _strip_wikipedia_html_noise(html: str) -> str:
         for el in soup.select("div#mw-navigation, div.vector-header, div#p-personal"):
             el.decompose()
         return str(soup)
-    except Exception:
-        # Regex fallback (not perfect, but avoids extra deps).
-        html = re.sub(r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL)
-        html = re.sub(r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL)
-        return html
+    # Regex fallback (not perfect, but avoids extra deps).
+    html = re.sub(r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL)
+    html = re.sub(r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL)
+    return html
 
 
 def _looks_like_disambiguation(html: str) -> bool:
@@ -149,28 +149,22 @@ def _looks_like_disambiguation(html: str) -> bool:
 
 
 def _extract_disambiguation_links(html: str, *, max_links: int = 25) -> list[tuple[str, str]]:
-    """
-    Best-effort extraction of options from a disambiguation page.
-    Returns list of (text, href).
-    """
-    try:
-        from bs4 import BeautifulSoup  # type: ignore
-
-        soup = BeautifulSoup(html, "html.parser")
-        out: list[tuple[str, str]] = []
-        for a in soup.select(".mw-parser-output a[href^='/wiki/']"):
-            href = str(a.get("href") or "")
-            text = a.get_text(" ", strip=True)
-            if not href or not text:
-                continue
-            if href.startswith("/wiki/Help:") or href.startswith("/wiki/Special:"):
-                continue
-            out.append((text, href))
-            if len(out) >= max_links:
-                break
-        return out
-    except Exception:
+    """Best-effort extraction of disambiguation options; returns (text, href) pairs."""
+    soup = soup_from_html(html)
+    if soup is None:
         return []
+    out: list[tuple[str, str]] = []
+    for a in soup.select(".mw-parser-output a[href^='/wiki/']"):
+        href = str(a.get("href") or "")
+        text = a.get_text(" ", strip=True)
+        if not href or not text:
+            continue
+        if href.startswith("/wiki/Help:") or href.startswith("/wiki/Special:"):
+            continue
+        out.append((text, href))
+        if len(out) >= max_links:
+            break
+    return out
 
 
 def render_wikipedia_markdown(
@@ -232,14 +226,15 @@ class WikipediaApiClient:
         return data
 
 
-async def fetch_wikipedia_article_markdown(
+async def fetch_wikipedia_article_raw(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
-) -> str:
+) -> dict[str, object]:
+    """Fetch a Wikipedia article's parsed HTML and return the raw pieces."""
     target = parse_wikipedia_url(url)
 
-    async def _run(client: httpx.AsyncClient) -> str:
+    async def _run(client: httpx.AsyncClient) -> dict[str, object]:
         api = WikipediaApiClient(http_client=client)
         data = await api.fetch_parsed_html(target)
         parse_obj = data.get("parse")
@@ -277,24 +272,56 @@ async def fetch_wikipedia_article_markdown(
             lines.append("")
             # Drop large buffers before returning.
             html = ""
-            return "\n".join(lines).strip() + "\n"
+            return {
+                "title": title,
+                "markdown": "\n".join(lines).strip() + "\n",
+                "complete": True,
+                "coverage": {"page_kind": "disambiguation"},
+            }
 
         cleaned_html = _strip_wikipedia_html_noise(html)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
         md = await anyio.to_thread.run_sync(partial(extract_html_as_markdown, cleaned_html))  # type: ignore[attr-defined]
         cleaned_html = ""
-        md = sanitize_markdown(md)
 
-        return render_wikipedia_markdown(
+        rendered = render_wikipedia_markdown(
             title=title,
             canonical_url=target.canonical_url,
             host=target.host,
             body_markdown=md,
         )
+        return {
+            "title": title,
+            "markdown": rendered,
+            "complete": True,
+            "coverage": {"page_kind": "article"},
+        }
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             return await _run(client)
 
     return await _run(http_client)
+
+
+async def fetch_wikipedia_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire a Wikipedia article via the API adapter."""
+    return await bridge_text_producer(
+        target,
+        ctx,
+        "wikipedia",
+        lambda url: fetch_wikipedia_article_raw(url, http_client=ctx.http_client),
+    )
+
+
+def match_wikipedia(parsed: ParsedURL) -> ResolverTarget | None:
+    host = (parsed.parts.hostname or "").lower()
+    if host.endswith("wikipedia.org") and "/wiki/" in (parsed.parts.path or ""):
+        return ResolverTarget(
+            url=parsed.url,
+            kind="wikipedia",
+            values={"url": parsed.url},
+            allow_generic=False,
+        )
+    return None

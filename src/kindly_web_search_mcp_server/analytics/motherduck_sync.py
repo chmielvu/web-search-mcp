@@ -155,7 +155,6 @@ def sync_once(
             # Target table may not exist yet on a fresh MotherDuck schema.
             pass
 
-
     finally:
         connection.close()
 

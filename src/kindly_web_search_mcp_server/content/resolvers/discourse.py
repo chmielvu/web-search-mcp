@@ -10,10 +10,19 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
-from ..html_extract import extract_html_as_markdown
-from ...utils.text_clean import sanitize_markdown
+from ..html_tools import html_to_markdown as extract_html_as_markdown
+from ..http_utils import request_with_redirect_validation
+from ..models import (
+    AcquisitionError,
+    Diagnostic,
+    FetchContext,
+    ParsedURL,
+    RawDocument,
+    ResolverTarget,
+    ThreadDocument,
+    ThreadMessage,
+)
+from ..documents import build_thread_document
 
 
 class DiscourseError(RuntimeError):
@@ -46,101 +55,144 @@ def parse_discourse_url(url: str) -> DiscourseTarget | None:
         return None
 
 
-def render_discourse_markdown(data: dict[str, Any], url: str) -> str:
-    """Render Discourse topic JSON to structured Markdown."""
-    title = data.get("title") or "Discourse Topic"
-    views = data.get("views", 0)
-    posts_count = data.get("posts_count", 0)
-    like_count = data.get("like_count", 0)
-    created_at = (data.get("created_at") or "")[:10]
-    tags = data.get("tags") or []
-
-    lines: list[str] = [
-        f"# {title}",
-        f"**Source:** {url}",
-    ]
-
-    meta_parts: list[str] = []
-    if created_at:
-        meta_parts.append(f"**Date:** {created_at}")
-    if views:
-        meta_parts.append(f"**Views:** {views:,}")
-    if posts_count:
-        meta_parts.append(f"**Posts:** {posts_count}")
-    if like_count:
-        meta_parts.append(f"**Likes:** {like_count}")
-    if meta_parts:
-        lines.append(" | ".join(meta_parts))
-
-    if tags:
-        lines.append("\n**Tags:** " + ", ".join(f"`{t}`" for t in tags[:8]))
-
-    post_stream = data.get("post_stream", {})
-    posts = post_stream.get("posts", [])
-
-    if posts:
-        # Original post
-        op = posts[0]
-        op_author = op.get("username") or op.get("name") or "author"
-        op_body = op.get("raw") or ""
-        if not op_body and op.get("cooked"):
-            op_body = extract_html_as_markdown(op["cooked"])
-
-        lines.append("\n## Original Post")
-        lines.append(f"**Author:** @{op_author}\n")
-        lines.append(sanitize_markdown(op_body.strip()))
-        lines.append("")
-
-        # Replies
-        replies = posts[1:]
-        if replies:
-            lines.append("## Replies\n")
-            for p in replies[:20]:
-                author = p.get("username") or p.get("name") or "anonymous"
-                post_num = p.get("post_number", "")
-                p_likes = p.get("score", 0)
-                accepted = " [Accepted Answer]" if p.get("accepted_answer") else ""
-
-                p_body = p.get("raw") or ""
-                if not p_body and p.get("cooked"):
-                    p_body = extract_html_as_markdown(p["cooked"])
-
-                lines.append(f"### #{post_num} by @{author}{accepted} (Score: {p_likes})")
-                lines.append(sanitize_markdown(p_body.strip()))
-                lines.append("")
-
-            if len(replies) > 20:
-                lines.append(f"_... and {len(replies) - 20} more replies_")
-
-    return "\n".join(lines).strip() + "\n"
+# ---------------------------------------------------------------------------
+# Raw producer.
+# ---------------------------------------------------------------------------
 
 
-async def fetch_discourse_topic_markdown(
-    url: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Fetch Discourse topic JSON and return clean Markdown."""
-    target = parse_discourse_url(url)
-    if not target:
-        raise DiscourseError(f"URL is not a recognized Discourse topic URL: {url}")
+def match_discourse(parsed: ParsedURL) -> ResolverTarget | None:
+    target = parse_discourse_url(parsed.url)
+    if target is None:
+        return None
+    return ResolverTarget(
+        url=parsed.url,
+        kind="discourse",
+        values={
+            "base_url": target.base_url,
+            "topic_id": target.topic_id,
+            "slug": target.slug or "",
+        },
+    )
 
-    api_url = f"{target.base_url}/t/{target.topic_id}.json"
 
-    async def _run(client: httpx.AsyncClient) -> str:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kindly-web-search/1.0",
-            "Accept": "application/json",
-        }
-        resp = await client.get(api_url, headers=headers)
-        if resp.status_code == 404:
-            raise DiscourseError(f"Discourse topic '{target.topic_id}' not found (404).")
-        if resp.status_code != 200:
-            raise DiscourseError(f"Discourse API returned HTTP {resp.status_code}")
-        data = resp.json()
-        return render_discourse_markdown(data, url)
+async def fetch_discourse_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    base_url = target.values.get("base_url")
+    topic_id = target.values.get("topic_id")
+    if not base_url or not topic_id:
+        raise AcquisitionError(
+            code="bad_target", message="Discourse target missing base_url or topic_id"
+        )
+    api_url = f"{base_url}/t/{topic_id}.json"
+    response = await request_with_redirect_validation(ctx, api_url, follow_redirects=True)
+    if response.status_code == 404:
+        raise AcquisitionError(
+            code="not_found", message=f"Discourse topic {topic_id} not found", retryable=False
+        )
+    if response.status_code >= 400:
+        raise AcquisitionError(
+            code=f"http_{response.status_code}",
+            message=f"Discourse returned HTTP {response.status_code}",
+            status="error",
+            retryable=False,
+        )
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise AcquisitionError(
+            code="json_parse_error", message=str(exc), status="error", retryable=False
+        ) from exc
+    if not isinstance(data, dict):
+        raise AcquisitionError(
+            code="bad_payload",
+            message="Discourse payload not an object",
+            status="error",
+            retryable=False,
+        )
+    title = str(data.get("title") or f"Discourse {topic_id}").strip()
+    posts = (
+        data.get("post_stream", {}).get("posts")
+        if isinstance(data.get("post_stream"), dict)
+        else None
+    )
+    if not isinstance(posts, list) or not posts:
+        raise AcquisitionError(
+            code="no_posts", message="Discourse topic has no posts", status="error", retryable=False
+        )
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            return await _run(client)
-    return await _run(http_client)
+    messages: list[ThreadMessage] = []
+    post_by_index: dict[int, dict[str, Any]] = {}
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        post_index = post.get("post_number") if isinstance(post.get("post_number"), int) else None
+        if post_index is not None:
+            post_by_index[post_index] = post
+
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        pid = str(post.get("id") or "")
+        if not pid:
+            continue
+        cooked = str(post.get("cooked") or "")
+        text_body = extract_html_as_markdown(cooked, url=target.url) if cooked else ""
+        reply_to = (
+            post.get("reply_to_post_number")
+            if isinstance(post.get("reply_to_post_number"), int)
+            else None
+        )
+        parent_pid: str | None = None
+        if reply_to is not None and reply_to in post_by_index:
+            parent_pid = str(post_by_index[reply_to].get("id") or "") or None
+        role = "question" if post.get("post_number") == 1 else "comment"
+        username = None
+        if isinstance(post.get("username"), str):
+            username = post["username"]
+        messages.append(
+            ThreadMessage(
+                id=pid,
+                role=role,
+                body=text_body,
+                body_format="markdown",
+                author=username,
+                created_at=str(post.get("created_at") or "") or None,
+                parent_id=parent_pid,
+                permalink=str(post.get("post_url") or "") or None,
+            )
+        )
+
+    thread: ThreadDocument = build_thread_document(
+        title=title,
+        url=target.url,
+        messages=tuple(messages),
+        metadata={
+            "base_url": base_url,
+            "topic_id": topic_id,
+            "views": data.get("views"),
+            "like_count": data.get("like_count"),
+        },
+    )
+    diagnostics = (
+        Diagnostic(
+            phase="acquisition",
+            code="discourse_fetched",
+            message=f"Discourse {base_url} topic {topic_id} ({len(messages)} posts)",
+        ),
+    )
+    return RawDocument(
+        input_url=target.url,
+        fetched_url=target.url,
+        source_type="discourse_topic",
+        fetch_backend="discourse_json",
+        body=thread,
+        title=title,
+        metadata={
+            "base_url": base_url,
+            "topic_id": topic_id,
+            "views": data.get("views"),
+            "post_count": len(messages),
+        },
+        diagnostics=diagnostics,
+        complete=bool(messages),
+        scope="full",
+    )

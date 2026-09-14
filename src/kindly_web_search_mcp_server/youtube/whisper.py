@@ -156,9 +156,15 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
         try:
             return _download_audio_via_cobalt(video_id, tmp_path, max_seconds)
         except CobaltAudioError as exc:
-            logger.warning("cobalt audio fetch failed for %s: %s; falling back to yt-dlp", video_id, exc)
+            logger.warning(
+                "cobalt audio fetch failed for %s: %s; falling back to yt-dlp", video_id, exc
+            )
         except Exception as exc:
-            logger.warning("cobalt audio fetch unexpected error for %s: %s; falling back to yt-dlp", video_id, exc)
+            logger.warning(
+                "cobalt audio fetch unexpected error for %s: %s; falling back to yt-dlp",
+                video_id,
+                exc,
+            )
 
     try:
         ydl_opts = {
@@ -195,9 +201,12 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
         # Read the downloaded file; yt-dlp may have used a different extension
         base = tmp_path.replace(".mp3", "")
         mp3_path = next(
-            (candidate for ext in [".mp3", ".m4a", ".webm", ".opus", ".ogg"]
-             for candidate in [base + ext]
-             if os.path.exists(candidate)),
+            (
+                candidate
+                for ext in [".mp3", ".m4a", ".webm", ".opus", ".ogg"]
+                for candidate in [base + ext]
+                if os.path.exists(candidate)
+            ),
             None,
         )
         if mp3_path is None:
@@ -305,7 +314,9 @@ def _download_audio_via_cobalt(video_id: str, dest_path: str, max_seconds: int) 
     except CobaltAudioError:
         raise
     except httpx.TimeoutException as exc:
-        raise CobaltAudioError(f"cobalt request timed out after {settings.cobalt_timeout_seconds}s") from exc
+        raise CobaltAudioError(
+            f"cobalt request timed out after {settings.cobalt_timeout_seconds}s"
+        ) from exc
     except Exception as exc:
         raise CobaltAudioError(f"cobalt request failed: {type(exc).__name__}: {exc}") from exc
 
@@ -396,6 +407,7 @@ def fetch_cloudflare_transcript_sync(
 # youtube-URL transcribe endpoint and gradio-client will be used when
 # installed (pip install gradio_client).
 # ---------------------------------------------------------------------------
+
 
 class WhisperClientError(RuntimeError):
     """Raised when the Whisper Space call fails."""
@@ -508,7 +520,9 @@ def _call_space_via_client(space_id: str, video_id: str, timeout: float) -> list
     except WhisperClientError:
         raise
     except Exception as exc:
-        raise WhisperClientError(f"Space {space_id} call failed: {type(exc).__name__}: {exc}") from exc
+        raise WhisperClientError(
+            f"Space {space_id} call failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _result_to_segments(result: Any) -> list[dict[str, Any]]:

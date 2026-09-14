@@ -96,8 +96,8 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     ),
     "content_stage_attempts": (
         "One row per extraction stage attempt per fetch item, including skipped stages. "
-        "Shows the cascade from Tier-1 resolvers through Jina, local HTTP, Crawl4AI, "
-        "Camoufox, and Wayback fallbacks."
+        "Shows the cascade from registry resolvers (including the markdown-twin and "
+        "llms.txt probes) through Jina, Crawl4AI, Camoufox, and Wayback fallbacks."
     ),
     "content_fetch_items": (
         "Per-fetch-item shaped errors, quality, title, byte counts, redirect/stage-path data, "

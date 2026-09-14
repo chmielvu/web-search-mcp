@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -36,6 +36,16 @@ def fetch_cmd(
         bool,
         typer.Option("--include-links/--no-include-links"),
     ] = False,
+    processing_mode: Annotated[
+        Literal["agent", "index"],
+        typer.Option(
+            "--processing-mode",
+            help=(
+                "agent (default): ephemeral one-shot fetch; index: persist selected "
+                "markdown under REPO_ROOT/outputs and surface per-result output_path."
+            ),
+        ),
+    ] = "agent",
     output: Annotated[str | None, typer.Option("--output")] = None,
 ) -> None:
     """Fetch one or multiple URLs through the unified fetch pipeline."""
@@ -52,6 +62,7 @@ def fetch_cmd(
                 ai_summary=ai_summary,
                 focus_query=focus_query,
                 include_links=include_links,
+                processing_mode=processing_mode,
             )
         )
     except ValueError as exc:
@@ -70,6 +81,19 @@ def fetch_cmd(
             exit_code=ExitCode.INTERNAL_ERROR,
             context={"command": "content fetch", "exception_type": type(exc).__name__},
         ) from exc
+
+    # Index mode persists via finalize_artifact; surface the artifact's output_path
+    # alongside the user's --output so callers can distinguish their copy from the
+    # canonical finalized artifact written under REPO_ROOT/outputs.
+    index_output_paths: list[str] = []
+    results = payload.get("results") or []
+    for item in results if isinstance(results, list) else []:
+        if isinstance(item, dict):
+            path = item.get("output_path")
+            if isinstance(path, str) and path:
+                index_output_paths.append(path)
+    if processing_mode == "index" and index_output_paths:
+        payload["index_output_paths"] = index_output_paths
 
     if output:
         if payload.get("mode") == "single" and payload.get("results"):

@@ -65,7 +65,9 @@ _LI_RE = re.compile(r"(?is)<li\b")
 _IFRAME_RE = re.compile(r"(?is)<iframe\b")
 _BUTTON_RE = re.compile(r"(?is)<button\b")
 _FORM_RE = re.compile(r"(?is)<form\b")
-_INTERACTIVE_RE = re.compile(r"(?is)<(?:input|select|textarea)\b|aria-expanded\s*=\s*[\"']true[\"']")
+_INTERACTIVE_RE = re.compile(
+    r"(?is)<(?:input|select|textarea)\b|aria-expanded\s*=\s*[\"']true[\"']"
+)
 _LAZY_RE = re.compile(
     r"(?i)(?:data-(?:src|lazy|load)|loading\s*=|aria-expanded\s*=|load more|transcript)"
 )
@@ -237,9 +239,7 @@ def extract_dom_signals(
     tables = _table_shapes(source)
     shell_ids = tuple(
         dict.fromkeys(
-            value
-            for value in _ID_RE.findall(source)
-            if value.strip().lower() in _SHELL_IDS
+            value for value in _ID_RE.findall(source) if value.strip().lower() in _SHELL_IDS
         )
     )
     has_spa, has_client = _marker_hits(lower)
@@ -281,16 +281,12 @@ def extract_dom_signals(
 
 def _data_tables(signals: DomSignals) -> tuple[TableShape, ...]:
     """Tables large enough to be relational data rather than layout."""
-    return tuple(
-        shape for shape in signals.tables if shape.rows >= 3 and shape.cells >= 9
-    )
+    return tuple(shape for shape in signals.tables if shape.rows >= 3 and shape.cells >= 9)
 
 
 def _large_tables(signals: DomSignals) -> tuple[TableShape, ...]:
     """Tables large enough to dominate extraction quality when genuine."""
-    return tuple(
-        shape for shape in signals.tables if shape.rows >= 5 and shape.cells >= 15
-    )
+    return tuple(shape for shape in signals.tables if shape.rows >= 5 and shape.cells >= 15)
 
 
 def classify_route(signals: DomSignals) -> RouteDecision:

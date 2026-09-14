@@ -11,20 +11,13 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
-from ..artifact import ContentArtifact, ContentError
-from ..safe_fetch import SafeFetchError, safe_fetch_url
-from ...utils.content_classify import classify_markdown
-from ...utils.text_clean import sanitize_markdown
-from ...telemetry import record_content_error, record_content_resolution
-from ...utils.url_canonicalize import canonicalize_url
-from .document import _convert_pdf_to_markdown
+from ..http_utils import SafeFetchError, safe_fetch_url
+from ..models import AcquisitionError, FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ._bridge import _text_document
+from .files import convert_pdf_to_markdown
 
 LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT_SECONDS = 25.0
-# Standard DOI regex pattern: 10.xxxx/xxxx
 _DOI_RE = re.compile(r"\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)")
 _DOI_ORG_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/.+)$", re.IGNORECASE)
 
@@ -119,149 +112,58 @@ def render_unpaywall_metadata_markdown(data: dict[str, Any], doi: str, url: str)
     return "\n".join(lines).strip() + "\n"
 
 
-async def fetch_doi_paper_markdown(
-    url: str,
-    *,
-    max_response_bytes: int = 5 * 1024 * 1024,
-) -> ContentArtifact:
-    """Fetch Open Access academic paper full text or metadata by DOI."""
-    target = parse_doi_url(url)
-    if not target:
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=url,
-            status="error",
-            source_type="doi",
-            fetch_backend="unpaywall_api",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(
-                code="invalid_doi", message="Could not parse DOI from URL", retryable=False
-            ),
-        )
+async def fetch_doi_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire a DOI paper via Unpaywall/OA PDF or metadata fallback."""
 
-    email = "academic_researcher@kindly.ai"
-    unpaywall_api_url = f"https://api.unpaywall.org/v2/{target.doi}?email={email}"
-
+    url = target.values.get("url") or target.url
+    parsed = parse_doi_url(url)
+    if parsed is None:
+        raise AcquisitionError(code="invalid_doi", message="Could not parse DOI from URL.")
+    api_url = f"https://api.unpaywall.org/v2/{parsed.doi}?email=academic_researcher@kindly.ai"
     try:
-        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
-        async with httpx.AsyncClient(timeout=timeout_sec, follow_redirects=True) as client:
-            headers = {"User-Agent": "kindly-web-search-mcp/1.0 (academic-resolver)"}
-            resp = await client.get(unpaywall_api_url, headers=headers)
-            if resp.status_code != 200:
-                # If Unpaywall has no record, return error so generic cascade can try publisher page
-                return ContentArtifact(
-                    input_url=url,
-                    normalized_url=canonicalize_url(url),
-                    fetched_url=url,
-                    status="error",
-                    source_type="doi",
-                    fetch_backend="unpaywall_api",
-                    content_type=None,
-                    markdown="",
-                    word_count=0,
-                    quality_score=0.0,
-                    error=ContentError(
-                        code="unpaywall_not_found",
-                        message=f"Unpaywall returned HTTP {resp.status_code} for DOI {target.doi}",
-                        retryable=False,
-                    ),
-                )
-
-            data = resp.json()
-            meta_md = render_unpaywall_metadata_markdown(data, target.doi, url)
-            best_oa = data.get("best_oa_location") or {}
-            pdf_url = best_oa.get("url_for_pdf")
-
-            # Try to fetch and extract the full-text PDF if OA PDF exists
-            if pdf_url:
-                try:
-                    fetched_pdf = await safe_fetch_url(
-                        pdf_url,
-                        max_response_bytes=max_response_bytes,
-                    )
-                    if fetched_pdf.is_pdf:
-                        pdf_md = _convert_pdf_to_markdown(fetched_pdf.body, pdf_url)
-                        full_content = (
-                            f"{meta_md}\n\n---\n\n## Full Text (Open Access PDF)\n\n{pdf_md}"
-                        )
-                        clean_text = sanitize_markdown(full_content)
-                        cls = classify_markdown(clean_text)
-                        word_count = len(clean_text.split())
-
-                        record_content_resolution(
-                            stage="unpaywall_pdf",
-                            url=url,
-                            success=True,
-                            size_bytes=len(clean_text.encode("utf-8")),
-                            word_count=word_count,
-                            extraction_method="unpaywall_pdf_extract",
-                        )
-
-                        return ContentArtifact(
-                            input_url=url,
-                            normalized_url=canonicalize_url(url),
-                            fetched_url=pdf_url,
-                            status=cls.status,
-                            source_type="academic_doi",
-                            fetch_backend="unpaywall_pdf_extract",
-                            content_type="text/markdown",
-                            markdown=clean_text,
-                            word_count=word_count,
-                            quality_score=1.0 if cls.status == "success" else 0.7,
-                            error=None,
-                        )
-                except Exception as pdf_exc:
-                    LOGGER.debug("Failed fetching OA PDF %s: %s", pdf_url, pdf_exc)
-
-            # Fallback to rich bibliographic metadata
-            clean_meta = sanitize_markdown(meta_md)
-            cls = classify_markdown(clean_meta)
-            word_count = len(clean_meta.split())
-
-            return ContentArtifact(
-                input_url=url,
-                normalized_url=canonicalize_url(url),
-                fetched_url=url,
-                status="success" if word_count >= 15 else cls.status,
-                source_type="academic_doi",
-                fetch_backend="unpaywall_metadata",
-                content_type="text/markdown",
-                markdown=clean_meta,
-                word_count=word_count,
-                quality_score=0.8,
-                error=None,
-            )
-    except SafeFetchError as exc:
-        record_content_error(stage="unpaywall", url=url, error_type=exc.code)
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=url,
-            status="error",
-            source_type="academic_doi",
-            fetch_backend="unpaywall_api",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(code=exc.code, message=str(exc), retryable=False),
+        response = await ctx.http_client.get(
+            api_url,
+            headers={"User-Agent": "kindly-web-search-mcp/1.0 (academic-resolver)"},
+            timeout=ctx.timeout(25.0),
         )
     except Exception as exc:
-        record_content_error(stage="unpaywall", url=url, error_type=type(exc).__name__)
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=url,
-            status="error",
-            source_type="academic_doi",
-            fetch_backend="unpaywall_api",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(code=type(exc).__name__, message=str(exc)[:500], retryable=True),
+        raise AcquisitionError(code="unpaywall_transport", message=str(exc)[:300]) from exc
+    if response.status_code != 200:
+        raise AcquisitionError(
+            code="unpaywall_not_found",
+            message=f"Unpaywall returned HTTP {response.status_code}.",
+            http_status=response.status_code,
         )
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise AcquisitionError(code="unpaywall_shape", message=str(exc)[:300]) from exc
+    if not isinstance(data, dict):
+        raise AcquisitionError(
+            code="unpaywall_shape", message="Unpaywall payload was not an object."
+        )
+    meta_md = render_unpaywall_metadata_markdown(data, parsed.doi, url)
+    pdf_url = (data.get("best_oa_location") or {}).get("url_for_pdf")
+    if pdf_url:
+        try:
+            fetched_pdf = await safe_fetch_url(pdf_url, max_response_bytes=ctx.max_response_bytes)
+        except SafeFetchError as exc:
+            raise AcquisitionError(code=exc.code, message=str(exc)) from exc
+        if fetched_pdf.is_pdf:
+            pdf_md = convert_pdf_to_markdown(fetched_pdf.body, pdf_url)
+            return _text_document(
+                url,
+                "doi",
+                f"{meta_md}\n\n---\n\n## Full Text (Open Access PDF)\n\n{pdf_md}",
+                fetched_url=fetched_pdf.fetched_url or pdf_url,
+                scope="full",
+                complete=True,
+            )
+    return _text_document(url, "doi", meta_md, scope="excerpt", complete=None)
+
+
+def match_doi(parsed: ParsedURL) -> ResolverTarget | None:
+    path = parsed.parts.path or ""
+    if re.search(r"10\.\d{4,9}/", path):
+        return ResolverTarget(url=parsed.url, kind="doi", values={"url": parsed.url})
+    return None

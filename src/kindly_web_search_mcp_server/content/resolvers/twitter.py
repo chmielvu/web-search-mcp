@@ -14,8 +14,9 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
 from ..remote_clients import get_apify_client
-from ...utils.text_clean import sanitize_markdown
+from ._bridge import bridge_text_producer
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def _render_tweet_item(item: dict[str, Any]) -> str | None:
         header += f" by @{handle}"
 
     lines = [header, ""]
-    lines.extend(sanitize_markdown(text).split("\n"))
+    lines.extend(text.split("\n"))
     lines.append("")
 
     stats: list[str] = []
@@ -137,8 +138,8 @@ def _render_tweet_item(item: dict[str, Any]) -> str | None:
     return "\n".join(lines).strip() + "\n"
 
 
-async def fetch_twitter_markdown(url: str) -> str:
-    """Fetch an X/Twitter status or profile timeline as LLM-ready markdown."""
+async def fetch_twitter_raw_content(url: str) -> dict[str, object]:
+    """Fetch an X/Twitter status or profile timeline and return raw pieces."""
     target = parse_twitter_url(url)
 
     client = get_apify_client()
@@ -176,5 +177,34 @@ async def fetch_twitter_markdown(url: str) -> str:
 
     if target.screen_name:
         body = "\n---\n\n".join(rendered)
-        return f"# X/Timeline @{target.screen_name}\n\n{body}"
-    return rendered[0]
+        markdown = f"# X/Timeline @{target.screen_name}\n\n{body}"
+        title = f"X/Timeline @{target.screen_name}"
+    else:
+        markdown = rendered[0]
+        title = f"X/Status {target.tweet_id or url}"
+    return {
+        "title": title,
+        "markdown": markdown,
+        "complete": bool(target.tweet_id),
+        "coverage": {
+            "tweet_count": len(rendered),
+            "timeline": bool(target.screen_name),
+        },
+    }
+
+
+async def fetch_twitter_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire an X/Twitter status or timeline via the configured provider."""
+    return await bridge_text_producer(
+        target,
+        ctx,
+        "twitter",
+        fetch_twitter_raw_content,
+    )
+
+
+def match_twitter(parsed: ParsedURL) -> ResolverTarget | None:
+    host = (parsed.parts.hostname or "").lower()
+    if host in {"twitter.com", "www.twitter.com", "x.com", "www.x.com"}:
+        return ResolverTarget(url=parsed.url, kind="twitter", values={"url": parsed.url})
+    return None

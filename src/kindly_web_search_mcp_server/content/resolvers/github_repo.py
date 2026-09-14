@@ -1,16 +1,28 @@
+"""GitHub repository producer returning RawDocument candidates."""
+
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from typing import Any
 from urllib.parse import urlparse
 
-import httpx
-
-from ...utils.text_clean import sanitize_markdown
 from ...utils.github import normalize_github_repository
-
-GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
+from ..github_api import (
+    fetch_readme_markdown,
+    github_graphql,
+    repo_values,
+    resolve_github_token,
+    rest_get,
+)
+from ..models import (
+    AcquisitionError,
+    Diagnostic,
+    FetchContext,
+    ParsedURL,
+    RawDocument,
+    RepositoryDocument,
+    ResolverTarget,
+)
+from ..documents import build_repository_document
 
 
 class GitHubRepoError(RuntimeError):
@@ -25,199 +37,185 @@ class GitHubRepoTarget:
     path: str | None = None
 
 
-_EXCLUDED_SUBPATHS = {
-    "issues",
-    "pull",
-    "pulls",
-    "discussions",
-    "releases",
-    "actions",
-    "settings",
-    "commits",
-    "commit",
-    "wiki",
-    "projects",
-    "security",
-    "insights",
-}
+_GH_HOSTS = frozenset({"github.com", "www.github.com"})
 
 
 def parse_github_repo_url(url: str) -> GitHubRepoTarget:
     """Parse a GitHub repository URL or SSH repository specification."""
+
     value = url.strip()
     if value.casefold().startswith("git@github.com:"):
-        try:
-            normalized = normalize_github_repository(value)
-        except ValueError as exc:
-            raise GitHubRepoError("URL is not a recognized GitHub repository URL.") from exc
-        owner, repo = normalized.split("/", 1)
+        suffix = value.split(":", 1)[1]
+        if suffix.endswith(".git"):
+            suffix = suffix[:-4]
+        owner, _, repo = suffix.partition("/")
         return GitHubRepoTarget(owner=owner, repo=repo)
-
-    parsed = urlparse(value)
+    parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    if host not in {"github.com", "www.github.com"}:
+    if host not in _GH_HOSTS:
         raise GitHubRepoError(f"Unsupported GitHub host: {host or '(missing)'}")
-
-    path_parts = [p for p in (parsed.path or "").split("/") if p]
-    if len(path_parts) < 2:
-        raise GitHubRepoError("URL is not a recognized GitHub repository URL.")
-
+    parts = [p for p in (parsed.path or "").strip("/").split("/") if p]
+    if len(parts) < 2:
+        raise GitHubRepoError("GitHub repo URL requires /<owner>/<repo>")
+    owner, repo = parts[0], parts[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    ref: str | None = None
+    path: str | None = None
+    if len(parts) >= 4 and parts[2] == "tree":
+        ref = parts[3]
+        path = "/".join(parts[4:]) or None
+    elif len(parts) >= 4 and parts[2] == "blob":
+        ref = parts[3]
+        path = "/".join(parts[4:]) or None
     try:
-        normalized = normalize_github_repository("/".join(path_parts[:2]))
-    except ValueError as exc:
-        raise GitHubRepoError("URL is not a recognized GitHub repository URL.") from exc
-    owner, repo = normalized.split("/", 1)
-
-    if len(path_parts) > 2:
-        first_sub = path_parts[2].lower()
-        if first_sub in _EXCLUDED_SUBPATHS:
-            raise GitHubRepoError(f"URL points to a sub-resource ({first_sub}), not a repo root.")
-
-        if first_sub == "tree" and len(path_parts) >= 4:
-            ref = path_parts[3]
-            subpath = "/".join(path_parts[4:]) if len(path_parts) > 4 else None
-            return GitHubRepoTarget(owner=owner, repo=repo, ref=ref, path=subpath)
-
-    return GitHubRepoTarget(owner=owner, repo=repo)
+        normalized = normalize_github_repository(f"{owner}/{repo}")
+        owner, repo = normalized.split("/", 1)
+    except Exception:
+        pass
+    return GitHubRepoTarget(owner=owner, repo=repo, ref=ref, path=path)
 
 
-def render_repo_markdown(*, metadata: dict[str, Any], readme_text: str | None = None) -> str:
-    owner = metadata.get("owner", "")
-    repo = metadata.get("name", "")
-    desc = str(metadata.get("description") or "").strip()
-    stars = metadata.get("stargazerCount", 0)
-    forks = metadata.get("forkCount", 0)
-    lang = metadata.get("primaryLanguage")
-    license_info = metadata.get("licenseInfo")
-    branch = metadata.get("defaultBranch")
-    topics = metadata.get("topics", [])
-
-    lines: list[str] = [f"# Repository: {owner}/{repo}"]
-    meta_parts = []
-    if desc:
-        meta_parts.append(f"Description: {desc}")
-    meta_parts.append(f"Stars: {stars}")
-    meta_parts.append(f"Forks: {forks}")
-    if lang:
-        meta_parts.append(f"Language: {lang}")
-    if license_info:
-        meta_parts.append(f"License: {license_info}")
-    if branch:
-        meta_parts.append(f"Default Branch: {branch}")
-    if topics:
-        meta_parts.append(f"Topics: {', '.join(topics)}")
-
-    lines.append(" | ".join(meta_parts))
-    lines.append("")
-
-    if readme_text and readme_text.strip():
-        lines.append("## README")
-        lines.append(sanitize_markdown(readme_text).strip())
-    else:
-        lines.append("_No README found in repository._")
-
-    return "\n".join(lines).strip() + "\n"
+def match_github_repo(parsed: ParsedURL) -> ResolverTarget | None:
+    try:
+        target = parse_github_repo_url(parsed.url)
+    except GitHubRepoError:
+        return None
+    values: dict[str, str] = {"owner": target.owner, "repo": target.repo}
+    if target.ref:
+        values["ref"] = target.ref
+    if target.path:
+        values["path"] = target.path
+    return ResolverTarget(url=parsed.url, kind="github_repo", values=values)
 
 
-async def fetch_github_repo_markdown(
-    url: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    target = parse_github_repo_url(url)
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
+_REPO_GRAPHQL = """
+query ($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    description
+    owner { login }
+    stargazers { totalCount }
+    forks { totalCount }
+    licenseInfo { name }
+    updatedAt
+    languages(first: 10) { nodes { name } }
+  }
+}
+"""
 
-    async def _run(client: httpx.AsyncClient) -> str:
-        headers = {"User-Agent": "kindly-web-search/1.0"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
 
-        # Attempt GraphQL if token is provided
-        if token:
-            try:
-                gql_query = """
-                query ($owner: String!, $name: String!) {
-                  repository(owner: $owner, name: $name) {
-                    description
-                    stargazerCount
-                    forkCount
-                    primaryLanguage { name }
-                    licenseInfo { name spdxId }
-                    defaultBranchRef { name }
-                    repositoryTopics(first: 10) { nodes { topic { name } } }
-                    readme: object(expression: "HEAD:README.md") { ... on Blob { text } }
-                  }
-                }
-                """
-                gql_resp = await client.post(
-                    GITHUB_GRAPHQL_URL,
-                    json={
-                        "query": gql_query,
-                        "variables": {"owner": target.owner, "name": target.repo},
-                    },
-                    headers=headers,
-                )
-                if gql_resp.status_code == 200:
-                    data = gql_resp.json()
-                    repo_data = data.get("data", {}).get("repository")
-                    if repo_data:
-                        lang_obj = repo_data.get("primaryLanguage") or {}
-                        lic_obj = repo_data.get("licenseInfo") or {}
-                        branch_obj = repo_data.get("defaultBranchRef") or {}
-                        topics_nodes = (repo_data.get("repositoryTopics") or {}).get("nodes", [])
-                        topics = [
-                            t.get("topic", {}).get("name")
-                            for t in topics_nodes
-                            if t.get("topic", {}).get("name")
-                        ]
-                        readme_obj = repo_data.get("readme") or {}
-                        readme_text = readme_obj.get("text")
+async def fetch_github_repo_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    owner, repo, ref = repo_values(target)
+    token = resolve_github_token()
+    if not token:
+        raise AcquisitionError(
+            code="unauthorized",
+            message="GITHUB_TOKEN not configured for GitHub repository fetch",
+            status="blocked",
+            retryable=False,
+        )
 
-                        meta = {
-                            "owner": target.owner,
-                            "name": target.repo,
-                            "description": repo_data.get("description"),
-                            "stargazerCount": repo_data.get("stargazerCount", 0),
-                            "forkCount": repo_data.get("forkCount", 0),
-                            "primaryLanguage": lang_obj.get("name"),
-                            "licenseInfo": lic_obj.get("spdxId") or lic_obj.get("name"),
-                            "defaultBranch": branch_obj.get("name"),
-                            "topics": topics,
-                        }
-                        return render_repo_markdown(metadata=meta, readme_text=readme_text)
-            except Exception:
-                pass  # Fallback to REST
+    data = await github_graphql(
+        ctx,
+        query=_REPO_GRAPHQL,
+        variables={"owner": owner, "name": repo},
+        token=token,
+    )
+    repo_node = data.get("repository") if isinstance(data, dict) else None
+    if not isinstance(repo_node, dict):
+        raise AcquisitionError(
+            code="graphql_data_missing", message=f"GitHub repo {owner}/{repo} missing"
+        )
 
-        # REST API Fallback
-        repo_url = f"https://api.github.com/repos/{target.owner}/{target.repo}"
-        resp = await client.get(repo_url, headers=headers)
-        if resp.status_code != 200:
-            raise GitHubRepoError(f"Repository not found or private (HTTP {resp.status_code}).")
+    readme_text = ""
+    try:
+        readme_text = await fetch_readme_markdown(ctx, owner=owner, repo=repo, token=token)
+    except AcquisitionError:
+        readme_text = ""
 
-        repo_info = resp.json()
-        license_obj = repo_info.get("license") or {}
-        meta = {
-            "owner": target.owner,
-            "name": target.repo,
-            "description": repo_info.get("description"),
-            "stargazerCount": repo_info.get("stargazers_count", 0),
-            "forkCount": repo_info.get("forks_count", 0),
-            "primaryLanguage": repo_info.get("language"),
-            "licenseInfo": license_obj.get("spdx_id") or license_obj.get("name"),
-            "defaultBranch": repo_info.get("default_branch"),
-            "topics": repo_info.get("topics", []),
-        }
+    files: tuple[str, ...] = ()
+    try:
+        tree = await rest_get(
+            ctx,
+            path=f"repos/{owner}/{repo}/contents",
+            token=token,
+            params={"ref": ref} if ref else None,
+        )
+        if isinstance(tree, list):
+            names: list[str] = []
+            for item in tree:
+                if not isinstance(item, dict):
+                    continue
+                name = item.get("name")
+                if isinstance(name, str) and name:
+                    names.append(name)
+            files = tuple(names)
+    except AcquisitionError:
+        files = ()
 
-        readme_text = None
-        readme_url = f"https://api.github.com/repos/{target.owner}/{target.repo}/readme"
-        raw_headers = {**headers, "Accept": "application/vnd.github.raw+json"}
-        readme_resp = await client.get(readme_url, headers=raw_headers)
-        if readme_resp.status_code == 200:
-            readme_text = readme_resp.text
+    metadata_payload = {
+        "owner": owner,
+        "name": repo,
+        "description": repo_node.get("description"),
+        "stargazers": (repo_node.get("stargazers") or {}).get("totalCount")
+        if isinstance(repo_node.get("stargazers"), dict)
+        else None,
+        "forks": (repo_node.get("forks") or {}).get("totalCount")
+        if isinstance(repo_node.get("forks"), dict)
+        else None,
+        "license": (repo_node.get("licenseInfo") or {}).get("name")
+        if isinstance(repo_node.get("licenseInfo"), dict)
+        else None,
+        "updated_at": repo_node.get("updatedAt"),
+        "languages": [
+            node.get("name")
+            for node in (repo_node.get("languages") or {}).get("nodes") or []
+            if isinstance(node, dict) and isinstance(node.get("name"), str)
+        ],
+        "ref": ref,
+    }
 
-        return render_repo_markdown(metadata=meta, readme_text=readme_text)
+    repo_doc: RepositoryDocument = build_repository_document(
+        name=f"{owner}/{repo}",
+        url=target.url,
+        readme_text=readme_text,
+        readme_format="text/markdown",
+        files=files,
+        links=(),
+        metadata={k: v for k, v in metadata_payload.items() if v is not None},
+    )
 
-    if http_client is None:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            return await _run(client)
-    return await _run(http_client)
+    diagnostics = (
+        Diagnostic(
+            phase="acquisition",
+            code="github_repo_fetched",
+            message=f"GitHub {owner}/{repo}",
+        ),
+    )
+    return RawDocument(
+        input_url=target.url,
+        fetched_url=target.url,
+        source_type="github_repo",
+        fetch_backend="github_graphql",
+        body=repo_doc,
+        title=f"{owner}/{repo}",
+        metadata={
+            "owner": owner,
+            "repo": repo,
+            "ref": ref,
+            "stargazers": metadata_payload["stargazers"],
+            "forks": metadata_payload["forks"],
+        },
+        diagnostics=diagnostics,
+        complete=bool(readme_text or files),
+        scope="full",
+    )
+
+
+__all__ = [
+    "GitHubRepoError",
+    "GitHubRepoTarget",
+    "parse_github_repo_url",
+    "match_github_repo",
+    "fetch_github_repo_raw",
+]

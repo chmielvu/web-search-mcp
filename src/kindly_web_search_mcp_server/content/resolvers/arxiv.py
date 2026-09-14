@@ -10,6 +10,12 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
+from ...utils.environment import get_int_env
+
+
+from ..models import FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ._bridge import bridge_text_producer
+
 
 class ArxivError(RuntimeError):
     pass
@@ -117,13 +123,6 @@ def _default_user_agent() -> str:
     return (
         os.environ.get("ARXIV_USER_AGENT", "").strip() or "web-search-mcp/0.0.1 (arXiv retriever)"
     )
-
-
-def _get_int_env(name: str, default: int) -> int:
-    """Read an integer env var with safe fallback."""
-    from ...utils.environment import get_int_env as _env_int
-
-    return _env_int(name, default)
 
 
 def _parse_arxiv_atom_xml(xml_text: str, *, arxiv_id: str) -> ArxivMetadata:
@@ -324,66 +323,19 @@ def _pdf_bytes_to_markdown_best_effort(
         doc.close()
 
 
-def render_arxiv_paper_markdown(
-    *,
-    meta: ArxivMetadata,
-    full_text_markdown: str,
-    source_url: str,
-    truncated: bool,
-    truncation_reason: str | None,
-) -> str:
-    lines: list[str] = ["# arXiv Paper", "", "## Metadata"]
-    if meta.title:
-        lines.append(f"- Title: {meta.title}")
-    if meta.authors:
-        lines.append(f"- Authors: {', '.join(meta.authors)}")
-    lines.append(f"- arXiv ID: {meta.arxiv_id}")
-    lines.append(f"- URL (abs): {meta.abs_url}")
-    lines.append(f"- URL (pdf): {meta.pdf_url}")
-    if meta.primary_category:
-        lines.append(f"- Primary category: {meta.primary_category}")
-    if meta.categories:
-        lines.append(f"- Categories: {', '.join(meta.categories)}")
-    if meta.published:
-        lines.append(f"- Published: {meta.published}")
-    if meta.updated:
-        lines.append(f"- Updated: {meta.updated}")
-    if meta.entry_id:
-        lines.append(f"- API entry id: {meta.entry_id}")
-
-    lines.extend(
-        [
-            "",
-            "## Abstract",
-            "",
-            meta.abstract or "_No abstract available._",
-            "",
-            "## Full Text (PDF)",
-            "",
-        ]
-    )
-    lines.append(full_text_markdown or "_No PDF text extracted._")
-
-    if truncated:
-        reason = truncation_reason or "output limits"
-        lines.extend(["", f"_Truncated due to {reason}._", "", f"Source: {source_url}", ""])
-
-    return "\n".join(lines).strip() + "\n"
-
-
-async def fetch_arxiv_paper_markdown(
+async def fetch_arxiv_paper_raw(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Fetch an arXiv paper (metadata + PDF full text) and render Markdown."""
+) -> dict[str, object]:
+    """Fetch an arXiv paper's metadata and rendered PDF Markdown parts."""
     arxiv_id = parse_arxiv_url(url)
 
-    max_pages = _get_int_env("ARXIV_MAX_PAGES", 0)
+    max_pages = get_int_env("ARXIV_MAX_PAGES", 0)
     if max_pages < 0:
         max_pages = 0
 
-    async def _run(client: httpx.AsyncClient) -> str:
+    async def _run(client: httpx.AsyncClient) -> dict[str, object]:
         meta = await _fetch_arxiv_metadata(arxiv_id, http_client=client)
         pdf_bytes = await _download_pdf_bytes(meta.pdf_url, http_client=client)
         pdf_md = _pdf_bytes_to_markdown_best_effort(pdf_bytes, max_pages=max_pages)
@@ -391,20 +343,71 @@ async def fetch_arxiv_paper_markdown(
 
         truncated = pdf_md.page_count > pdf_md.pages_rendered
         trunc_reason = f"page cap ({pdf_md.pages_rendered})" if truncated else None
-        # Drop large intermediate buffers as soon as possible (best-effort). The output Markdown is
-        # the only remaining large payload we intend to return.
+        coverage = {
+            "page_count": pdf_md.page_count,
+            "pages_rendered": pdf_md.pages_rendered,
+        }
+        # Drop large intermediate buffers as soon as possible (best-effort).
         pdf_bytes = b""
         pdf_md = PdfMarkdown(markdown="", page_count=0, pages_rendered=0)
 
-        return render_arxiv_paper_markdown(
-            meta=meta,
-            full_text_markdown=full_text,
-            source_url=url,
-            truncated=truncated,
-            truncation_reason=trunc_reason,
-        )
+        metadata_lines = ["# arXiv Paper", "", "## Metadata"]
+        if meta.title:
+            metadata_lines.append(f"- Title: {meta.title}")
+        if meta.authors:
+            metadata_lines.append(f"- Authors: {', '.join(meta.authors)}")
+        metadata_lines.append(f"- arXiv ID: {meta.arxiv_id}")
+        metadata_lines.append(f"- URL (abs): {meta.abs_url}")
+        metadata_lines.append(f"- URL (pdf): {meta.pdf_url}")
+        if meta.primary_category:
+            metadata_lines.append(f"- Primary category: {meta.primary_category}")
+        if meta.categories:
+            metadata_lines.append(f"- Categories: {', '.join(meta.categories)}")
+        if meta.published:
+            metadata_lines.append(f"- Published: {meta.published}")
+        if meta.updated:
+            metadata_lines.append(f"- Updated: {meta.updated}")
+
+        body_lines = [
+            *metadata_lines,
+            "",
+            "## Abstract",
+            "",
+            meta.abstract or "_No abstract available._",
+            "",
+            "## Full Text (PDF)",
+            "",
+            full_text or "_No PDF text extracted._",
+        ]
+        if truncated:
+            reason = trunc_reason or "output limits"
+            body_lines.extend(["", f"_Truncated due to {reason}._", "", f"Source: {url}", ""])
+
+        return {
+            "title": meta.title or f"arXiv {meta.arxiv_id}",
+            "markdown": "\n".join(body_lines).strip() + "\n",
+            "complete": not truncated,
+            "coverage": dict(coverage),
+        }
 
     if http_client is None:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             return await _run(client)
     return await _run(http_client)
+
+
+async def fetch_arxiv_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire an arXiv paper via the existing converter."""
+    return await bridge_text_producer(
+        target,
+        ctx,
+        "arxiv",
+        lambda url: fetch_arxiv_paper_raw(url, http_client=ctx.http_client),
+    )
+
+
+def match_arxiv(parsed: ParsedURL) -> ResolverTarget | None:
+    host = (parsed.parts.hostname or "").lower()
+    if host in {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}:
+        return ResolverTarget(url=parsed.url, kind="arxiv", values={"url": parsed.url})
+    return None

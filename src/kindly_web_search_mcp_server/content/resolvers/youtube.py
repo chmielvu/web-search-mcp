@@ -11,10 +11,12 @@ import asyncio
 import logging
 from typing import Any
 
-from ...youtube.url_parser import parse_youtube_url, YouTubeTarget
+from ...youtube.url_parser import parse_youtube_url
 from ...youtube.cascade import fetch_transcript_cascade
 from ...youtube.yt_dlp_backend import ytdlp_extract_metadata
 from ...youtube.models import YouTubeError, TranscriptBackendError
+from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
+from ._bridge import bridge_text_producer
 
 logger = logging.getLogger(__name__)
 
@@ -104,19 +106,19 @@ def _render_youtube_markdown(
     return "\n".join(lines).strip() + "\n"
 
 
-async def fetch_youtube_content_markdown(
+async def fetch_youtube_content_raw(
     url: str,
     *,
     http_client: Any = None,  # Unused, kept for API compatibility
-) -> str:
-    """Fetch YouTube video content as rich markdown.
+) -> dict[str, object]:
+    """Fetch YouTube metadata and transcript pieces without final rendering.
 
     Args:
         url: YouTube video URL (all formats supported by parse_youtube_url).
         http_client: Unused, kept for API compatibility.
 
     Returns:
-        Markdown string with video metadata and transcript.
+        Dict with title, rendered markdown body, completeness, and coverage.
 
     Raises:
         YoutubeResolverError: If resolution fails completely.
@@ -149,12 +151,31 @@ async def fetch_youtube_content_markdown(
     if not metadata and not transcript_segments:
         raise YoutubeResolverError(f"Could not fetch any content for YouTube video {video_id}")
 
-    return _render_youtube_markdown(video_id, metadata, transcript_segments)
+    title = str(metadata.get("title") or f"YouTube {video_id}")
+    markdown = _render_youtube_markdown(video_id, metadata, transcript_segments)
+    return {
+        "title": title,
+        "markdown": markdown,
+        "complete": transcript_segments is not None,
+        "coverage": {
+            "transcript_available": transcript_segments is not None,
+            "segment_count": len(transcript_segments) if transcript_segments else 0,
+        },
+    }
 
 
-def parse_youtube_content_url(url: str) -> YouTubeTarget | None:
-    """Parse YouTube URL for content resolver. Returns None if not a YouTube URL."""
-    try:
-        return parse_youtube_url(url)
-    except YouTubeError:
-        return None
+async def fetch_youtube_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire YouTube metadata plus transcript cascade output."""
+    return await bridge_text_producer(
+        target,
+        ctx,
+        "youtube",
+        fetch_youtube_content_raw,
+    )
+
+
+def match_youtube(parsed: ParsedURL) -> ResolverTarget | None:
+    host = (parsed.parts.hostname or "").lower()
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}:
+        return ResolverTarget(url=parsed.url, kind="youtube", values={"url": parsed.url})
+    return None

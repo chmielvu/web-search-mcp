@@ -29,7 +29,9 @@ def quick_cmd(
     ] = None,
     query: Annotated[
         list[str] | None,
-        typer.Option("--query", help="Alias for --search-query (web), or video search term (youtube)."),
+        typer.Option(
+            "--query", help="Alias for --search-query (web), or video search term (youtube)."
+        ),
     ] = None,
     objective: Annotated[
         str | None,

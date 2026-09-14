@@ -198,7 +198,6 @@ def _fetch_all(path: Path) -> dict[str, Any]:
             """,
         )
 
-
         # ── Schema tab ────────────────────────────────────────────────────────
         schema_rows: list[dict[str, Any]] = []
         objects = _query(

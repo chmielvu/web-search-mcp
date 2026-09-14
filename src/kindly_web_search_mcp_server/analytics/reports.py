@@ -165,7 +165,6 @@ def candidate_survival(*, days: int = 7, db_path: str | None = None) -> pa.Table
     return _run(sql, db_path=db_path)
 
 
-
 def latency_breakdown(*, days: int = 7, db_path: str | None = None) -> pa.Table:
     """Per-stage latency waterfall: rewrite → provider → merge → rerank."""
     window = max(1, int(days))

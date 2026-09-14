@@ -1,7 +1,8 @@
-"""Fixed repository root paths for DuckDB data storage.
+"""Fixed repository root paths for storage.
 
-All analytics, cache, and experiment data stored under repo_root/duckdb_data/
-to avoid creating .kindly folders everywhere.
+All analytics, cache, and experiment data live under ``repo_root/duckdb_data/``
+to avoid creating ``.kindly`` folders everywhere. Index-mode content artifacts
+persist under ``repo_root/outputs/`` (see :mod:`content.constructor`).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ def _find_repo_root() -> Path:
 
 REPO_ROOT = _find_repo_root()
 DUCKDB_DATA_DIR = REPO_ROOT / "duckdb_data"
+OUTPUTS_DIR = REPO_ROOT / "outputs"
 
 # Subdirectories
 ANALYTICS_DIR = DUCKDB_DATA_DIR / "analytics"

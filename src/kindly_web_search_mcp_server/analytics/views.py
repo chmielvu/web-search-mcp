@@ -1292,8 +1292,6 @@ def refresh_views(*, db_path: str | None = None) -> None:
     ensure_views(db_path=db_path)
 
 
-
-
 def _record_table_freshness(*, db_path: str) -> None:
     """Heartbeat the latest recorded timestamp and row count for core tables."""
     tables = (

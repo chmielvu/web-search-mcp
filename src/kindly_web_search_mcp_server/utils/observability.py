@@ -69,7 +69,6 @@ def _resolve_session_id() -> str | None:
     return None
 
 
-
 try:
     from opentelemetry import trace
 except Exception:  # pragma: no cover - optional observability dependency
@@ -960,13 +959,15 @@ def _persist_content_analytics(
                         "error_retryable": raw_error.get("retryable"),
                         "error_http_status": raw_error.get("http_status"),
                         "error_message": raw_error.get("message"),
-                        "quality_score": item.get("quality_score"),
+                        "quality_score": (item.get("quality") or {}).get("score"),
                         "title": item.get("title"),
                         "bytes_downloaded": item.get("bytes_downloaded"),
                         "redirect_count": item.get("redirect_count"),
                         "stage_count": stage_count,
                         "stage_path": " > ".join(stage_path_parts) or None,
-                        "diagnostics_json": diagnostics if isinstance(diagnostics, (dict, list)) else None,
+                        "diagnostics_json": diagnostics
+                        if isinstance(diagnostics, (dict, list))
+                        else None,
                     }
                 )
                 summary_data = item.get("summary")
@@ -1038,7 +1039,6 @@ def _persist_content_analytics(
                     "latency_ms": rung.get("latency_ms"),
                 }
             )
-
 
         for attempt_order, attempt in enumerate(fields.get("stage_attempts") or [], start=1):
             if not isinstance(attempt, dict):

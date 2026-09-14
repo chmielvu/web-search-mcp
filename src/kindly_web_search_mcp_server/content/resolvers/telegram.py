@@ -11,7 +11,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
+from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
+from ._bridge import bridge_text_producer
 
 logger = logging.getLogger(__name__)
 
@@ -82,8 +85,8 @@ def parse_telegram_url(url: str) -> TelegramTarget:
     )
 
 
-async def fetch_telegram_markdown(url: str) -> str:
-    """Fetch Telegram content as LLM-ready markdown.
+async def fetch_telegram_raw_content(url: str) -> dict[str, object]:
+    """Fetch Telegram messages and return raw pieces without final rendering.
 
     Uses Telethon to resolve the entity and fetch messages.
     Returns markdown with sender info, timestamps, view counts, and reply threading.
@@ -116,14 +119,35 @@ async def fetch_telegram_markdown(url: str) -> str:
                     entity, reply_to=target.comment_thread_id, limit=100
                 )
             ]
-            return _render_comment_thread(entity, msg, replies)
+            title = getattr(entity, "title", None) or "Unknown"
+            markdown = _render_comment_thread(entity, msg, replies)
+            return {
+                "title": f"{title} — Comment Thread",
+                "markdown": markdown,
+                "complete": True,
+                "coverage": {"reply_count": len(replies)},
+            }
 
-        return _render_single_message(entity, msg)
+        title = getattr(entity, "title", None) or getattr(entity, "username", "Unknown")
+        markdown = _render_single_message(entity, msg)
+        return {
+            "title": title,
+            "markdown": markdown,
+            "complete": True,
+            "coverage": {"message_id": msg.id},
+        }
 
     # No specific message — fetch recent messages
     messages = await client.get_messages(entity, limit=50)
     full = await client(functions.channels.GetFullChannelRequest(entity))
-    return _render_channel_overview(entity, full, messages)
+    title = getattr(entity, "title", None) or "Unknown"
+    markdown = _render_channel_overview(entity, full, messages)
+    return {
+        "title": title,
+        "markdown": markdown,
+        "complete": True,
+        "coverage": {"message_count": len(messages)},
+    }
 
 
 def _render_single_message(entity, msg) -> str:
@@ -184,3 +208,20 @@ def _render_channel_overview(entity, full, messages) -> str:
         lines.append(f"- **{sender}** ({date}{views}): {msg.text[:200]}")
 
     return "\n".join(lines)
+
+
+async def fetch_telegram_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Acquire Telegram messages via the MTProto adapter."""
+    return await bridge_text_producer(
+        target,
+        ctx,
+        "telegram",
+        fetch_telegram_raw_content,
+    )
+
+
+def match_telegram(parsed: ParsedURL) -> ResolverTarget | None:
+    host = (parsed.parts.hostname or "").lower()
+    if host in {"t.me", "telegram.me"}:
+        return ResolverTarget(url=parsed.url, kind="telegram", values={"url": parsed.url})
+    return None

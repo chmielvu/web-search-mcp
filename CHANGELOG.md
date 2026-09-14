@@ -1,4 +1,175 @@
 ## [Unreleased]
+### Fixed — Camoufox client retries transient 502 (2026-09-14)
+- `CamoufoxClient.fetch_html` now retries HTTP 502 alongside 503 (up to
+  3 attempts, exponential backoff) — the cold-start / transient-gateway
+  502s observed against the camoufox-cobalt sidecar no longer fail the
+  browser stage immediately.
+
+### Changed — DOM-routed Jina Reader restored (2026-09-14)
+- Restored the DOM route classification removed in the fetch overhaul:
+  `content/dom_detector.py` is back (static-HTML signal extraction plus
+  `classify_route` — agent / research / readerlm-v2 / readerlm-research /
+  research+browser-timing / browser, with the jusText/ketch/Lighthouse-
+  derived thresholds and the evidence trail in `RouteDecision.reasons`).
+- `content/jina_reader.py` is again route-driven: per-route engine, preset,
+  and timeout tables; the six per-route header sets (including the key-free
+  `agent` tier that never spends paid quota); JSON/SSE/frontmatter decode;
+  frontmatter envelopes parsed into metadata and stripped from the body.
+  The opt-in `JinaFetchOptions` profile gate is gone — routes are chosen by
+  the DOM preflight, and the `browser` route defers to the Camoufox stage.
+- Pipeline integration: the Jina stage runs a bounded HTML preflight
+  (≤1.5 MB / ≤8 s) before any Jina call, records `dom_route:<route>` in the
+  attempt log, and carries `jina_route`/`jina_engine`/`jina_reasons` in
+  artifact metadata. Verified live: example.com → `agent` route success;
+  SPA/challenge fixtures → `browser` route at unit level.
+
+### Fixed — raw_text resolver revived and scoped; module renames (2026-09-14)
+- Fixed a cutover regression: `resolvers/raw_text.py` self-imported its own
+  constants through a stale registry-era path, so every `match_raw_text`
+  call raised `ModuleNotFoundError` (swallowed at DEBUG) and the spec was
+  silently dead. The constants import at module top is restored.
+- Trimmed `raw_text` claims: `.csv`/`.tsv` dropped (the `files` resolver
+  owns them), `github/gitlab /blob/` HTML views excluded (they are not raw
+  files), and `llms.txt`/`llms-full.txt` excluded so the `llms_txt`
+  resolver keeps its URLs.
+- Renamed `content/artifact.py` → `content/constructor.py` and
+  `content/typed_content.py` → `content/machine_readable.py` (importers
+  updated; public function names and the `fetch_backend="typed_content"`
+  analytics label unchanged).
+- Removed orphaned telemetry constants `CONTENT_STAGE_{ARXIV,GITHUB,
+  WIKIPEDIA,HTTP_EXTRACT,STACKEXCHANGE,CAMOUFOX,CRAWL4AI}` (no emitters
+  remain); refreshed the fetch-observability schema docstring and the
+  `content_stage_attempts` analytics description.
+- Note: during the renames an LSP `rename_file` operation lost the working
+  copies of both modules; they were reconstructed from session transcripts
+  and the `.pyc`/git-blob ground truth, then verified by compiled-bytecode
+  comparison and live behavior probes.
+
+### Fixed — Crawl4AI bearer token support (2026-09-14)
+- New `crawl4ai_token` settings field reads `CRAWL4AI_TOKEN` and the
+  Crawl4AI client sends it as `Authorization: Bearer <token>` on every
+  request (the server rejects `x-api-key`; verified live against
+  `unclecode/crawl4ai:0.9.3`). With the token set, the pipeline's Crawl4AI
+  stage authenticates instead of failing with HTTP 401.
+
+### Changed — content fetch fallbacks always on (2026-09-14)
+- Removed the browser (Camoufox) and Wayback archive opt-in gates: the
+  `KINDLY_FETCH_BROWSER_OPT_IN` / `KINDLY_FETCH_ARCHIVE_OPT_IN` env vars and
+  the `fetch_browser_opt_in` / `fetch_archive_opt_in` settings fields no
+  longer exist. Both branches now run whenever nothing has been accepted
+  yet (Wayback still requires an available snapshot; Camoufox and Crawl4AI
+  still require their clients to be configured). Crawl4AI was already
+  unconditional. Attempt labels `browser_optional` / `archive_optional`
+  are unchanged (analytics string contract).
+
+### Changed — resolver-adapter cutover: producers dissolved, modules renamed (2026-09-14)
+- `content/producers/` dissolved: every fetch producer now lives in its
+  resolver module as `fetch_*_raw` (`resolvers/wayback.py`, `llms_txt.py`,
+  `files.py` — renamed from `document.py` — and the text resolvers via the
+  shared `resolvers/_bridge.py` scaffolding). `resolver_registry.py` is a
+  pure ordered `ResolverSpec` list; the `match_*` stubs moved out of the
+  registry into their resolvers. Registry spec names are unchanged
+  (23 specs — telemetry contract).
+- Pipeline llms stage removed: `match_llms_txt` claims root URLs and explicit
+  `/llms.txt` paths (the explicit-path branch previously never fired);
+  `_llms_txt_candidate`, `_safe_llms_probe`, and `_is_root_url` deleted;
+  `_STAGE_ORDER` keeps the `llms_txt` key for historical analytics rows.
+- `content_utils.py` split into `http_utils.py` (transport; two deliberate
+  layers: borrowed-context vs standalone SSRF-guarded fetch) and
+  `html_tools.py` (HTML tooling); `safe_domain` renamed `url_hostname`.
+  `check_llms_txt` moved to `resolvers/llms_txt.py`.
+- `threads.py` + `packages.py` merged into `documents.py`, keeping only the
+  genuinely shared builders (thread reducers with 7 resolver consumers,
+  `build_package_document` with 3, `build_repository_document` with 2);
+  per-registry payload fetchers/builders moved into their single-consumer
+  resolvers (pypi, npm, crates, huggingface) for locality.
+- `_github_client.py` renamed `github_api.py`; `graphql` → `github_graphql`,
+  `resolve_token` → `resolve_github_token`; the github resolvers import the
+  real names instead of `shared_*` aliases.
+- Predicate/URL renames: `_binary_target` → `_is_binary_target`,
+  `_browser_opt_in` → `_browser_opt_in_enabled`, `_archive_opt_in` →
+  `_archive_opt_in_enabled`, `_clean_hn_html` → `_hn_html_to_text`;
+  document converters made public (`convert_pdf_to_markdown`,
+  `convert_ipynb_to_markdown`, `convert_office_with_markitdown`,
+  `detect_doc_type`).
+
+### Changed — content/ file consolidation: 24 → 18 files, shared `content_utils.py` (2026-09-14)
+- Merged six modules into three with identical public function names
+  (import paths only): `_http.py` + `safe_fetch.py` + `html_convert.py` +
+  `llms_txt.py` → new `content/content_utils.py` (borrowed-context
+  transport, standalone SSRF-guarded `safe_fetch_url`, HTML tooling,
+  llms.txt probe); `format_renderers.py` → `typed_content.py`
+  (detection + rendering); `tavily_map.py` → `link_discovery.py`
+  (URL discovery incl. `map_site`). Deleted the empty
+  `resolvers/wayback.py` placeholder. Consumers updated:
+  `tools/sitemap.py`, `cli/services/{sitemap,link_tools}.py`, and all
+  in-package importers. The `tavily_map` telemetry provider label in
+  `tools/sitemap.py` is unchanged (analytics string contract).
+- Dead code removed: `extract_map_urls`, `TavilyMapConfigError`,
+  `paginate_rest` + `fetch_raw_blob` + `_next_link`, `build_resolver_target`,
+  `SUPPORTED_TYPED_FORMATS`, `is_raw_text_url` + `NON_RAW_TEXT_EXTENSIONS`,
+  `_rendered_markdown`, `_FENCE_MARKER_RE`, `_ORIGIN_BLOCK_STATUSES`, and
+  the pass-through `_clean_html_to_text` shim.
+- Duplication extracted: `_AttemptLog.record_outcome` (9 attempt sites),
+  `graphql_paginate_comments` (issues/pulls/discussions), `thread_values`,
+  `bridge_text_producer` + `_bridge_document` (5 Markdown-returning
+  producers), `_content_type_allowed` (deduped curl_cffi/httpx gate), and
+  Wikipedia bs4 fallbacks now use the shared `soup_from_html`.
+- Inline imports hoisted to module top across `producers/`, the pipeline,
+  and resolvers; the arXiv `_get_int_env` shim replaced by a direct
+  `get_int_env` import.
+
+### Added — Markdown-twin resolver (`.md` sibling probe) (2026-09-14)
+- New `content/resolvers/md_twin.py`: pages served at a `page.md` sibling
+  (pydantic.dev, Mintlify-hosted docs, ...) are probed with one bounded GET
+  before the generic cascade. Strict validation (media type whitelist +
+  HTML sniff); success produces an accepted `md_twin` candidate whose
+  `complete=True` short-circuits Jina/Crawl4AI/browser/archive entirely;
+  a miss records one failed attempt and the cascade continues unchanged.
+- Fixed a pre-existing `MarkdownProcessor` false positive: fence-collision
+  (MD070) token scanning mis-flagged every consecutive pair of info-tagged
+  code fences because markdown-it emits one `fence` token per block.
+  Detection now belongs to rumdl MD070 alone; malformed-table gates are
+  unchanged.
+
+### Changed — pipeline conformance: shared renderers, rejection-ordered ladder, coverage contracts (2026-09-14)
+- `content/renderers.py` is the single boundary converting neutral
+  `RawDocument` payloads (threads, packages, repositories, declared
+  HTML/literal text) to Markdown before `MarkdownProcessor` evaluation;
+  structured bodies (threads, packages, repositories) no longer collapse to
+  title-only text and `TextDocument(format="html")` is converted, not passed
+  through.
+- `fetch_content_artifact` defaults to `resolver_registry.REGISTRY`; accepted
+  registry candidates skip Jina, and Crawl4AI/browser/archive run only after a
+  rejected or failed generic attempt. Origin transport facts (401/403/429/5xx)
+  are enforced at selection and finalization, so challenge bodies that parse
+  as Markdown can never become `success`.
+- `RawDocument.coverage`, `ContentArtifact.coverage`, `Candidate.failure`,
+  and `ContentError.status` added; failure status flows through
+  `finalize_artifact` to the public mapping without reclassification. Stage
+  attempts carry measured `chars_kept` + `quality_score` and outcomes map
+  into the analytics CHECK domain. `PROCESSING_POLICY_VERSION` bumped to
+  `markdown-source-v2` (older cache envelopes reject as misses).
+- Deleted dead code: `utils/content_classify.py` and the
+  `utils/text_clean.py` markdown-hygiene block (`sanitize_markdown`,
+  `strip_boilerplate`, `polish_prose`, `strip_jina_frontmatter`,
+  `parse_jina_frontmatter`). Legacy `fetch_*_markdown` renderers replaced by
+  raw fetchers in arXiv, Wikipedia, YouTube, Telegram, and Twitter resolvers.
+
+### Changed — candidate-only content acquisition overhaul (2026-09-13)
+- Producers return `RawDocument` candidates; one shared `MarkdownProcessor`
+  (markdown-it-py source maps, rumdl stdin diagnostics, measured quality,
+  index-only mdformat+GFM) evaluates each candidate once.
+- Jina uses a single faithful profile (`Accept: application/json`,
+  `X-Respond-With: frontmatter`, retain links/images `all`, `X-Base: final`);
+  ReaderLM/browser are explicit opt-ins. No local HTML ladder, DOM-routing
+  bypass, regex fallback, or provider-constant quality scores.
+- `fetch_content_artifact` selects Jina → Crawl4AI → optional browser/archive
+  on measured quality and `finalize_artifact` is the sole `ContentArtifact`
+  constructor (selected-document enrichment, versioned cache restore, failure
+  paths). `fetch` gains `processing_mode: agent|index`; index persists the
+  selected Markdown under `REPO_ROOT/outputs` and surfaces `output_path`.
+
 
 ### Changed — quick search package layout
 - Moved the three `quick_web_search` implementation modules from the package root into `search/quick/` and updated their internal and external imports without changing runtime behavior or tool contracts.

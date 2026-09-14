@@ -1,9 +1,10 @@
 """Fetch-tool observability tables (new tables only, no migrations).
 
 Mirrors ``duckdb_data/reports/1109analysis/fetch_observability_schema.sql``.
-Producers: ``content/fetch_pipeline.py`` (stage attempts),
-``utils/observability.py`` (fetch items, summary rungs),
-``content/stages.py`` (backend probes), ``analytics/views.py`` (freshness).
+Producers: ``content/fetch_pipeline.py`` (stage attempts) and
+``utils/observability.py`` (fetch items, summary rungs). The
+``content_backend_health`` table has a schema and writer but no live
+producer.
 """
 
 from __future__ import annotations

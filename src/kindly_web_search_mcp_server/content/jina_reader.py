@@ -3,13 +3,34 @@
 Every request carries an explicit :class:`JinaRoute` from
 :mod:`kindly_web_search_mcp_server.content.dom_detector`. Route selection
 owns engine choice, preset choice, and render timing; this module only
-translates the decision into Jina protocol headers and normalizes the
-ReaderLM JSON/SSE transports into one response model.
+translates the decision into Jina protocol headers, normalizes the
+ReaderLM JSON/SSE transports into one response model, and adapts the
+result to the pipeline's :class:`RawDocument` contract.
+
+Per-route header sets (restored design):
+
+- ``agent``                  plain Reader, frontmatter, key-free tier even
+                             when a key is configured (paid quota is
+                             reserved for research/readerlm/browser).
+- ``research``               Reader + ``X-Preset: research``, link summary,
+                             Bearer key.
+- ``readerlm-v2``            ReaderLM model engine, JSON, Bearer key.
+- ``readerlm-research``      ReaderLM + link summary + h3 chunking.
+- ``research+browser-timing`` browser engine + research preset + render
+                             timing (``mutation-idle``).
+- ``browser``                browser engine, agent preset, render timing;
+                             the orchestrator normally defers this route to
+                             the Camoufox stage entirely.
+
+Frontmatter responses keep their envelope out of the body: the envelope
+fields are parsed into metadata and stripped so downstream evaluation sees
+content only.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -18,7 +39,8 @@ from typing import Any, Literal
 import httpx
 
 from ..settings import get_env_value, settings
-from .dom_detector import JinaRoute
+from .dom_detector import JinaRoute, RouteDecision
+from .models import FetchContext, RawDocument, TextDocument
 
 JinaEngine = Literal["reader", "readerlm-v2", "browser"]
 JinaResponseFormat = Literal["frontmatter", "json", "sse", "plain"]
@@ -40,6 +62,10 @@ _ROUTE_TIMEOUTS: dict[JinaRoute, float] = {
     "research+browser-timing": 40.0,
     "browser": 40.0,
 }
+
+_JINA_ENDPOINT = "https://r.jina.ai/"
+
+_JINA_FRONTMATTER_RE = re.compile(r"(?s)^---\n(?P<body>.*?\n)---(?:\n|$)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +113,6 @@ class _JinaCircuit:
 
 
 _CIRCUIT = _JinaCircuit()
-_JINA_ENDPOINT = "https://r.jina.ai/"
 
 
 def _api_key() -> str:
@@ -366,6 +391,10 @@ async def fetch_with_jina_reader_response(
 
     Returns:
         Normalized :class:`JinaReaderResponse` for the pipeline.
+
+    Raises:
+        JinaReaderError: When the circuit is open, a key-gated route has no
+            key, or Jina returns an unusable response.
     """
     if _CIRCUIT.is_open():
         raise JinaReaderError("Jina Reader circuit breaker is open")
@@ -418,3 +447,95 @@ async def fetch_with_jina_reader_response(
     ):
         _CIRCUIT.record_failure()
         raise
+
+
+def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Split a frontmatter envelope into ``(fields, body)``; body is ``text`` when absent."""
+    match = _JINA_FRONTMATTER_RE.match(text)
+    if match is None:
+        return {}, text
+    fields: dict[str, str] = {}
+    for line in match.group("body").splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip():
+            fields[key.strip().lower()] = value.strip().strip('"').strip("'")
+    return fields, text[match.end() :]
+
+
+async def fetch_raw_document(
+    url: str,
+    *,
+    ctx: FetchContext,
+    decision: RouteDecision,
+    timeout_seconds: float | None = None,
+) -> RawDocument:
+    """Acquire one URL through the DOM-routed Jina Reader as a RawDocument.
+
+    Args:
+        url: Target page URL.
+        ctx: Borrowed transport and deadline from the orchestrator.
+        decision: Route decision from :func:`dom_detector.analyze_html`; the
+            caller skips Jina entirely for the ``browser`` route.
+        timeout_seconds: Ceiling override; defaults to the per-route timeout
+            bounded by the context deadline.
+
+    Returns:
+        RawDocument carrying the route, engine, and response format in
+        metadata so selection and analytics can see the evidence.
+    """
+    route = decision.route
+    route_ceiling = (
+        timeout_seconds if timeout_seconds is not None else default_timeout_for_route(route)
+    )
+    try:
+        ceiling = ctx.timeout(maximum=route_ceiling)
+    except TimeoutError:
+        ceiling = min(route_ceiling, 10.0)
+    response = await fetch_with_jina_reader_response(
+        url,
+        route=route,
+        timeout_seconds=ceiling,
+    )
+
+    markdown = response.content
+    fields: dict[str, str] = {}
+    if response.response_format == "frontmatter":
+        fields, markdown = _parse_frontmatter(markdown)
+        markdown = markdown.strip()
+    title = response.title or fields.get("title")
+    description = response.description or fields.get("description")
+    fetched_url = response.fetched_url or fields.get("url")
+    warning = response.warning or fields.get("warning")
+
+    metadata: dict[str, Any] = {
+        "jina_route": response.route,
+        "jina_engine": response.engine,
+        "jina_response_format": response.response_format,
+        "jina_reasons": list(decision.reasons),
+    }
+    if description:
+        metadata["description"] = description
+    if response.usage:
+        metadata["usage"] = response.usage
+    if response.chunks:
+        metadata["chunks"] = list(response.chunks)
+    if warning:
+        metadata["warning"] = warning
+
+    return RawDocument(
+        input_url=url,
+        fetched_url=fetched_url or url,
+        source_type="html",
+        fetch_backend="jina_reader",
+        body=TextDocument(text=markdown, format="markdown"),
+        content_type="text/markdown",
+        title=title,
+        metadata=metadata,
+        http_status=None,
+        response_headers={},
+        complete=True,
+        scope="full",
+        bytes_downloaded=None,
+        redirect_count=None,
+        diagnostics=(),
+    )

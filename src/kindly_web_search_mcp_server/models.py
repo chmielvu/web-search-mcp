@@ -403,6 +403,13 @@ class FetchResult(BaseModel):
     window: FetchWindow = Field(default_factory=FetchWindow)
     entities: list[EntitySpan] | None = None
     diagnostics: list[dict[str, Any]] | None = None
+    output_path: str | None = Field(
+        default=None,
+        description=(
+            "Absolute file path under REPO_ROOT/outputs when processing_mode='index' persisted "
+            "the finalized markdown; None in agent mode."
+        ),
+    )
 
 
 class FetchResponse(BaseModel):

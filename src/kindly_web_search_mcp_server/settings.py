@@ -663,6 +663,9 @@ class Settings:
     # Crawl4AI remote server (Docker on VPS)
     # =====================================================================
     crawl4ai_base_url: str = os.environ.get("CRAWL4AI_BASE_URL", "")
+    # Bearer token for the Crawl4AI server (server-side CRAWL4AI_API_TOKEN);
+    # sent as `Authorization: Bearer <token>` on every request when set.
+    crawl4ai_token: str = os.environ.get("CRAWL4AI_TOKEN", "")
     # When set (e.g. http://vps-ip:11235), all Crawl4AI calls go remote.
     # When empty, Crawl4AI is skipped; fallback to Jina Reader.
 

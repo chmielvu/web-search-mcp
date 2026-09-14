@@ -1,30 +1,30 @@
-"""Specialized resolver for Reddit threads with multi-layer resilience.
-
-Resolves Reddit threads through:
-1. Direct Reddit JSON API (via curl_cffi with browser impersonation or httpx)
-2. old.reddit.com HTML extraction
-3. Arctic Shift / Pullpush public Reddit archive API
-"""
+"""Reddit thread producer returning RawDocument candidates."""
 
 from __future__ import annotations
 
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
 from urllib.parse import urlparse
-import functools
 
-import httpx
-
-from ...utils.text_clean import sanitize_markdown
-from ..remote_clients import get_apify_client
-
-LOGGER = logging.getLogger(__name__)
+from ..http_utils import raise_for_status, request_with_redirect_validation
+from ..models import (
+    AcquisitionError,
+    Diagnostic,
+    FetchContext,
+    ParsedURL,
+    RawDocument,
+    ResolverTarget,
+    ThreadDocument,
+)
+from ..documents import build_thread_document, thread_messages_from_dict
 
 
 class RedditError(RuntimeError):
-    pass
+    """Legacy Reddit parse error retained for non-registry callers."""
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -60,341 +60,85 @@ def parse_reddit_url(url: str) -> RedditTarget:
     return RedditTarget(subreddit=subreddit, post_id=post_id)
 
 
-def _render_reddit_comments(
-    children: list[dict[str, Any]], depth: int = 0, max_depth: int = 3
-) -> list[str]:
-    lines: list[str] = []
-    if depth > max_depth or not children:
-        return lines
-
-    indent = "  " * depth
-    for item in children:
-        if not isinstance(item, dict) or item.get("kind") != "t1":
-            continue
-        data = item.get("data")
-        if not isinstance(data, dict):
-            continue
-
-        body = str(data.get("body") or "").strip()
-        if not body or body in {"[deleted]", "[removed]"}:
-            continue
-
-        author = str(data.get("author") or "anonymous").strip()
-        score = data.get("score", 0)
-
-        header_prefix = "#" * min(depth + 3, 6)
-        lines.append(f"{header_prefix} {indent}Comment by u/{author} (Score: {score})".strip())
-
-        sanitized_body = sanitize_markdown(body)
-        for text_line in sanitized_body.split("\n"):
-            lines.append(f"{indent}{text_line}".rstrip())
-        lines.append("")
-
-        replies = data.get("replies")
-        if isinstance(replies, dict):
-            rep_data = replies.get("data")
-            if isinstance(rep_data, dict):
-                rep_children = rep_data.get("children")
-                if isinstance(rep_children, list) and rep_children:
-                    lines.extend(
-                        _render_reddit_comments(rep_children, depth=depth + 1, max_depth=max_depth)
-                    )
-
-    return lines
-
-
-def render_reddit_markdown(
-    *, post_data: dict[str, Any], comments_data: list[dict[str, Any]]
-) -> str:
-    title = str(post_data.get("title") or "Reddit Post").strip()
-    subreddit = str(post_data.get("subreddit") or "").strip()
-    author = str(post_data.get("author") or "anonymous").strip()
-    score = post_data.get("score", 0)
-    upvote_ratio = post_data.get("upvote_ratio")
-    num_comments = post_data.get("num_comments", 0)
-    selftext = str(post_data.get("selftext") or "").strip()
-    url = str(post_data.get("url") or "").strip()
-    permalink = str(post_data.get("permalink") or "").strip()
-
-    lines: list[str] = [f"# Reddit: {title} (r/{subreddit})"]
-    meta_parts = []
-    if permalink:
-        full_url = f"https://www.reddit.com{permalink}"
-        meta_parts.append(f"Link: {full_url}")
-    elif url:
-        meta_parts.append(f"Link: {url}")
-
-    meta_parts.append(f"Author: u/{author}")
-    meta_parts.append(f"Score: {score}")
-    if upvote_ratio is not None:
-        try:
-            meta_parts.append(f"Upvoted: {int(float(upvote_ratio) * 100)}%")
-        except Exception:
-            pass
-    meta_parts.append(f"Comments: {num_comments}")
-
-    lines.append(" | ".join(meta_parts))
-    lines.append("")
-
-    if selftext and selftext not in {"[deleted]", "[removed]"}:
-        lines.append(sanitize_markdown(selftext).strip())
-        lines.append("")
-
-    if comments_data:
-        lines.append("## Top Comments")
-        lines.extend(_render_reddit_comments(comments_data, depth=0))
-
-    return "\n".join(lines).strip() + "\n"
-
-
-async def _fetch_reddit_direct_json(target: RedditTarget) -> str:
-    """Fetch Reddit JSON via curl_cffi or httpx."""
-    json_url = f"https://www.reddit.com/r/{target.subreddit}/comments/{target.post_id}.json?limit=50&sort=confidence"
-    if target.subreddit == "auto":
-        json_url = f"https://www.reddit.com/comments/{target.post_id}.json?limit=50&sort=confidence"
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-    }
-
+def match_reddit(parsed: ParsedURL) -> ResolverTarget | None:
     try:
-        from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found,import-untyped]
-
-        async with AsyncSession(impersonate="chrome124", follow_redirects=True) as session:
-            resp = await session.get(json_url, headers=headers, timeout=12)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list) and len(data) >= 2:
-                    post_listing = data[0].get("data", {}).get("children", [])
-                    if post_listing and isinstance(post_listing[0], dict):
-                        post_data = post_listing[0].get("data", {})
-                        comments_data = data[1].get("data", {}).get("children", [])
-                        return render_reddit_markdown(
-                            post_data=post_data, comments_data=comments_data
-                        )
-    except Exception as exc:
-        LOGGER.debug("curl_cffi direct Reddit JSON failed: %s", exc)
-
-    # httpx fallback
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        resp = await client.get(json_url, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, list) and len(data) >= 2:
-                post_listing = data[0].get("data", {}).get("children", [])
-                if post_listing and isinstance(post_listing[0], dict):
-                    post_data = post_listing[0].get("data", {})
-                    comments_data = data[1].get("data", {}).get("children", [])
-                    return render_reddit_markdown(post_data=post_data, comments_data=comments_data)
-        raise RedditError(f"Direct Reddit JSON returned HTTP {resp.status_code}")
-
-
-def _parse_old_reddit_html(html: str, target: RedditTarget) -> str:
-    """Extract post and comments from old.reddit.com HTML."""
-    from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, "html.parser")
-    title_elem = soup.find("a", class_="title")
-    title = title_elem.get_text().strip() if title_elem else "Reddit Post"
-
-    author_elem = soup.find("a", class_="author")
-    author = author_elem.get_text().strip() if author_elem else "anonymous"
-
-    score_elem = soup.find("div", class_="score unvoted") or soup.find("span", class_="score")
-    score = score_elem.get_text().strip() if score_elem else "0"
-
-    selftext_elem = soup.find("div", class_="usertext-body")
-    selftext = selftext_elem.get_text().strip() if selftext_elem else ""
-
-    lines = [
-        f"# Reddit: {title} (r/{target.subreddit})",
-        f"**Author:** u/{author} | **Score:** {score} | **Link:** https://www.reddit.com/r/{target.subreddit}/comments/{target.post_id}/",
-        "",
-    ]
-    if selftext:
-        lines.append(sanitize_markdown(selftext))
-        lines.append("")
-
-    comments = soup.find_all("div", class_="comment")
-    if comments:
-        lines.append("## Top Comments")
-        for c in comments[:20]:
-            c_author_elem = c.find("a", class_="author")
-            c_author = c_author_elem.get_text().strip() if c_author_elem else "anonymous"
-            c_body_elem = c.find("div", class_="usertext-body")
-            c_body = c_body_elem.get_text().strip() if c_body_elem else ""
-            if c_body and c_body not in ("[deleted]", "[removed]"):
-                lines.append(f"### Comment by u/{c_author}")
-                lines.append(sanitize_markdown(c_body))
-                lines.append("")
-
-    return "\n".join(lines).strip() + "\n"
-
-
-async def _fetch_old_reddit_html(target: RedditTarget) -> str:
-    """Fetch and parse old.reddit.com via curl_cffi."""
-    old_url = f"https://old.reddit.com/r/{target.subreddit}/comments/{target.post_id}/"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-
-    try:
-        from curl_cffi.requests import AsyncSession  # type: ignore[import-not-found,import-untyped]
-
-        async with AsyncSession(impersonate="chrome124", follow_redirects=True) as session:
-            resp = await session.get(old_url, headers=headers, timeout=12)
-            if resp.status_code == 200 and resp.text:
-                return _parse_old_reddit_html(resp.text, target)
-    except Exception as exc:
-        LOGGER.debug("old.reddit curl_cffi fetch failed: %s", exc)
-
-    raise RedditError("old.reddit HTML fetch failed")
-
-
-async def _fetch_reddit_arctic_shift(target: RedditTarget) -> str:
-    """Fetch Reddit thread data from Arctic Shift public API."""
-    api_url = f"https://arctic-shift.photon-reddit.com/api/posts/ids?ids={target.post_id}"
-    headers = {"User-Agent": "kindly-web-search-mcp/1.0 (reddit-fallback)"}
-
-    async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-        resp = await client.get(api_url, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            posts = data.get("data", [])
-            if posts and isinstance(posts[0], dict):
-                p = posts[0]
-                post_data = {
-                    "title": p.get("title"),
-                    "subreddit": p.get("subreddit") or target.subreddit,
-                    "author": p.get("author"),
-                    "score": p.get("score", 0),
-                    "upvote_ratio": p.get("upvote_ratio"),
-                    "num_comments": p.get("num_comments", 0),
-                    "selftext": p.get("selftext", ""),
-                    "permalink": p.get("permalink", ""),
-                }
-                return render_reddit_markdown(post_data=post_data, comments_data=[])
-    raise RedditError("Arctic Shift API fetch failed")
-
-
-def _apify_item_to_post_data(item: dict[str, Any], target: RedditTarget) -> dict[str, Any] | None:
-    """Map one Apify Reddit item into the ``render_reddit_markdown`` post shape.
-
-    Returns None when the item clearly is not the thread post (no title and no
-    id/permalink match).
-    """
-    item_id = str(item.get("id") or item.get("postId") or item.get("post_id") or "")
-    permalink = str(item.get("permalink") or "")
-    title = str(item.get("title") or "").strip()
-    tail_id = permalink.rstrip("/").rsplit("/", 1)[-1]
-    if not title and target.post_id not in {item_id, tail_id}:
+        target = parse_reddit_url(parsed.url)
+    except RedditError:
         return None
-    return {
-        "title": title or "Reddit Post",
-        "subreddit": str(item.get("subreddit") or target.subreddit),
-        "author": str(item.get("author") or item.get("username") or "anonymous"),
-        "score": item.get("score", item.get("upvotes", 0)),
-        "upvote_ratio": item.get("upvoteRatio", item.get("upvote_ratio")),
-        "num_comments": item.get("numComments", item.get("num_comments", 0)),
-        "selftext": str(item.get("selftext") or item.get("text") or ""),
-        "url": str(item.get("url") or ""),
-        "permalink": permalink if permalink.startswith("/") else "",
-    }
-
-
-def _apify_items_to_comment_children(
-    items: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Flatten Actor comment items into Reddit-API ``t1`` children for rendering."""
-    children: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        body = str(item.get("body") or item.get("commentText") or item.get("text") or "").strip()
-        if not body or body in {"[deleted]", "[removed]"}:
-            continue
-        children.append(
-            {
-                "kind": "t1",
-                "data": {
-                    "body": body,
-                    "author": str(item.get("author") or item.get("username") or "anonymous"),
-                    "score": item.get("score", item.get("upvotes", 0)),
-                    "replies": None,
-                },
-            }
-        )
-    return children
-
-
-async def _fetch_reddit_via_apify(target: RedditTarget, url: str) -> str:
-    """Resolve a Reddit thread through the pinned pay-per-event Apify Actor."""
-    client = get_apify_client()
-    if client is None:
-        raise RedditError("Apify layer unavailable: APIFY_API_TOKEN is not configured")
-
-    from ...settings import settings
-
-    run_input = {"urls": [url], "includeComments": True}
-    items = await client.run_sync_get_dataset_items(settings.apify_reddit_actor, run_input)
-
-    post_data: dict[str, Any] | None = None
-    remaining: list[dict[str, Any]] = []
-    for item in items:
-        candidate = _apify_item_to_post_data(item, target)
-        if post_data is None and candidate is not None:
-            post_data = candidate
-        else:
-            remaining.append(item)
-
-    if post_data is None:
-        raise RedditError(f"Apify actor returned no matching post item for {url}")
-
-    comments_children = _apify_items_to_comment_children(remaining)
-    return render_reddit_markdown(post_data=post_data, comments_data=comments_children)
-
-
-async def fetch_reddit_thread_markdown(
-    url: str,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> str:
-    """Fetch Reddit thread markdown with multi-layer fallback cascade.
-
-    Layer order: three free layers first by default; set APIFY_REDDIT_FIRST=1
-    to try the paid Apify actor before them. Every failure logs at debug level
-    and falls through to the next layer.
-    """
-    from ...settings import settings
-
-    target = parse_reddit_url(url)
-
-    free_layers = [
-        ("direct JSON", _fetch_reddit_direct_json),
-        ("old.reddit HTML", _fetch_old_reddit_html),
-        ("Arctic Shift archive", _fetch_reddit_arctic_shift),
-    ]
-    apify_layer = (
-        "Apify pay-per-event actor",
-        functools.partial(_fetch_reddit_via_apify, url=url),
+    return ResolverTarget(
+        url=parsed.url,
+        kind="reddit",
+        values={"subreddit": target.subreddit, "post_id": target.post_id},
     )
 
-    layers = [apify_layer, *free_layers]
-    if not settings.apify_reddit_first:
-        layers = [*free_layers, apify_layer]
 
-    for label, layer in layers:
-        try:
-            return await layer(target)
-        except Exception as exc:
-            LOGGER.debug("Reddit layer %s failed for %s: %s", label, url, exc)
-
-    raise RedditError(f"All specialized Reddit resolution layers failed for {url}")
+async def fetch_reddit_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    subreddit = target.values.get("subreddit")
+    post_id = target.values.get("post_id")
+    if not subreddit or not post_id:
+        raise AcquisitionError(
+            code="bad_target", message="Reddit target missing subreddit or post_id"
+        )
+    if subreddit == "auto":
+        api_url = f"https://www.reddit.com/comments/{post_id}.json?limit=50&sort=confidence"
+    else:
+        api_url = (
+            f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json?limit=50&sort=confidence"
+        )
+    headers = {
+        "User-Agent": "kindly-web-search/1.0 (reddit resolver)",
+        "Accept": "application/json, text/plain, */*",
+    }
+    response = await request_with_redirect_validation(
+        ctx, api_url, headers=headers, follow_redirects=True
+    )
+    raise_for_status(response, what="Reddit JSON")
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise AcquisitionError(
+            code="json_parse_error", message=str(exc), status="error", retryable=False
+        ) from exc
+    if not isinstance(data, list) or len(data) < 2:
+        raise AcquisitionError(code="empty_response", message="Reddit returned no listing data")
+    post_listing = data[0].get("data", {}).get("children", []) if isinstance(data[0], dict) else []
+    if not post_listing or not isinstance(post_listing[0], dict):
+        raise AcquisitionError(code="empty_response", message="Reddit post data missing")
+    post_data = post_listing[0].get("data") or {}
+    comments_data = data[1].get("data", {}).get("children", []) if isinstance(data[1], dict) else []
+    messages = thread_messages_from_dict(post=post_data, comments=comments_data)
+    title = str(post_data.get("title") or f"Reddit {post_id}")
+    thread: ThreadDocument = build_thread_document(
+        title=title,
+        url=target.url,
+        messages=messages,
+        metadata={
+            "subreddit": subreddit,
+            "post_id": post_id,
+            "score": post_data.get("score"),
+            "permalink": str(post_data.get("permalink") or "") or None,
+        },
+    )
+    diagnostics = (
+        Diagnostic(
+            phase="acquisition",
+            code="reddit_fetched",
+            message=f"Reddit {subreddit}/{post_id} ({len(messages)} messages)",
+        ),
+    )
+    return RawDocument(
+        input_url=target.url,
+        fetched_url=target.url,
+        source_type="reddit",
+        fetch_backend="reddit_json",
+        body=thread,
+        title=title,
+        metadata={
+            "subreddit": subreddit,
+            "post_id": post_id,
+            "comment_count": len([m for m in messages if m.role != "post"]),
+        },
+        diagnostics=diagnostics,
+        complete=bool(messages),
+        scope="full",
+    )

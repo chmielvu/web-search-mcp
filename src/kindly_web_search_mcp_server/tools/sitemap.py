@@ -8,7 +8,7 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
-from ..content.tavily_map import map_site as _generate_sitemap
+from ..content.link_discovery import map_site as _generate_sitemap
 from ..errors import raise_tool_error
 from ..models import SitemapResponse, fetch_next
 from ..utils.observability import emit_tool_observability_event

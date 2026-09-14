@@ -50,14 +50,17 @@ class Crawl4AIClient:
         *,
         timeout: float = 60.0,
         health_cache_seconds: float = 30.0,
+        token: str = "",
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._health_cache_seconds = health_cache_seconds
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=httpx.Timeout(timeout, connect=10.0),
             follow_redirects=True,
+            headers=headers,
         )
         self._health_cache: tuple[float, bool] | None = None
 
@@ -168,7 +171,8 @@ class CamoufoxClient:
     async def fetch_html(self, url: str, *, max_bytes: int | None = None) -> str:
         """POST /content -> raw HTML string.
 
-        Retries once on HTTP 503 (cold-start browser init) after a 2s backoff.
+        Retries on HTTP 502/503 (cold-start browser init / transient gateway
+        errors) with exponential backoff, up to 3 attempts.
         """
         payload = {"url": url, "gotoOptions": {"waitUntil": "networkidle", "timeout": 15000}}
         for attempt in range(1, 4):
@@ -180,11 +184,11 @@ class CamoufoxClient:
                 raise CamoufoxClientError(
                     f"Camoufox connection failed: {exc}", retryable=True
                 ) from exc
-            if resp.status_code == 503:
+            if resp.status_code in (502, 503):
                 if attempt < 3:
                     await asyncio.sleep(2.0**attempt)
                     continue
-                raise CamoufoxClientError("Camoufox 503 after 3 retries", retryable=True)
+                raise CamoufoxClientError("Camoufox 502/503 after 3 retries", retryable=True)
             if resp.status_code != 200:
                 raise CamoufoxClientError(
                     f"Camoufox returned HTTP {resp.status_code}",
@@ -247,6 +251,7 @@ def get_crawl4ai_client() -> Crawl4AIClient | None:
             settings.crawl4ai_base_url,
             timeout=settings.crawl4ai_timeout_seconds,
             health_cache_seconds=settings.crawl4ai_health_cache_seconds,
+            token=settings.crawl4ai_token,
         )
         LOGGER.info(
             "Crawl4AI client initialized: %s (timeout=%ss)",
@@ -394,11 +399,3 @@ def get_apify_client() -> ApifyClient | None:
         )
         LOGGER.info("Apify client initialized (timeout=%ss)", settings.apify_timeout_seconds)
     return _apify_client
-
-
-async def close_apify_client() -> None:
-    """Cleanup the singleton Apify client on shutdown."""
-    global _apify_client
-    if _apify_client is not None:
-        await _apify_client.close()
-        _apify_client = None

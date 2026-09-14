@@ -8,19 +8,19 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
-from typing import Literal
 
-from ..artifact import ContentArtifact, ContentError
-from ..safe_fetch import SafeFetchError, safe_fetch_url
-from ..typed_content import SUPPORTED_TYPED_FORMATS, detect_content_format, render_typed_content
-from ...utils.content_classify import classify_markdown
-from ...utils.text_clean import sanitize_markdown
-from ...telemetry import record_content_error, record_content_resolution
-from ...utils.url_canonicalize import canonicalize_url
+from ..http_utils import SafeFetchError, safe_fetch_url
+from ..models import (
+    AcquisitionError,
+    FetchContext,
+    RawDocument,
+    ResolverTarget,
+    TextDocument,
+    ParsedURL,
+)
+from ..machine_readable import detect_content_format, render_typed_content
 
 LOGGER = logging.getLogger(__name__)
-
-_DEFAULT_TIMEOUT_SECONDS = 20.0
 
 RAW_TEXT_EXTENSIONS: set[str] = {
     ".md",
@@ -45,8 +45,6 @@ RAW_TEXT_EXTENSIONS: set[str] = {
     ".srt",
     ".svg",
     ".xml",
-    ".csv",
-    ".tsv",
     ".py",
     ".ts",
     ".js",
@@ -59,179 +57,97 @@ RAW_TEXT_EXTENSIONS: set[str] = {
     ".sh",
 }
 RAW_TEXT_HOSTS: set[str] = {"raw.githubusercontent.com", "gist.githubusercontent.com"}
-NON_RAW_TEXT_EXTENSIONS: set[str] = {
-    ".pdf",
-    ".docx",
-    ".pptx",
-    ".xlsx",
-    ".doc",
-    ".ppt",
-    ".xls",
-    ".epub",
-    ".ipynb",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".ico",
-    ".zip",
-    ".tar",
-    ".gz",
-    ".7z",
-    ".bz2",
-    ".xz",
-    ".exe",
-    ".bin",
-    ".dylib",
-    ".so",
-    ".dll",
-    ".mp3",
-    ".mp4",
-    ".wav",
-    ".mov",
-    ".avi",
-}
 
 
-def is_raw_text_url(url: str) -> bool:
-    """Recognize if a URL points to a raw markdown/text file or raw text host.
-
-    Matches URLs whose path extension is a recognized raw text extension,
-    whose host is raw.githubusercontent.com / gist.githubusercontent.com,
-    or whose path contains /raw/ on GitHub / GitLab, excluding binary
-    and document formats like .pdf, .docx, .ipynb, etc.
-    """
+async def fetch_raw_text_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocument:
+    """Fetch a matched raw-text URL into a RawDocument candidate."""
+    url = target.values.get("url") or target.url
     try:
-        parsed = urllib.parse.urlparse(url)
-        host = (parsed.hostname or "").lower()
-        path = parsed.path.lower()
-        for non_ext in NON_RAW_TEXT_EXTENSIONS:
-            if path.endswith(non_ext):
-                return False
-        for ext in RAW_TEXT_EXTENSIONS:
-            if path.endswith(ext):
-                return True
-        if host in RAW_TEXT_HOSTS:
-            return True
-        if ("github.com" in host or "gitlab.com" in host) and "/raw/" in path:
-            return True
-        return False
-    except Exception:
-        return False
-
-
-def get_raw_text_type(url: str) -> tuple[Literal["text/markdown", "text/plain"], str]:
-    """Return (content_type, source_type) based on URL extension or host."""
-    try:
-        parsed = urllib.parse.urlparse(url)
-        path = parsed.path.lower()
-        if path.endswith((".md", ".markdown", ".mdown", ".mkdn")):
-            return "text/markdown", "markdown_file"
-        if path.endswith((".txt", ".text", ".rst", ".org", ".log")):
-            return "text/plain", "text_file"
-    except Exception:
-        pass
-    return "text/markdown", "raw_text"
-
-
-async def fetch_raw_text_markdown(
-    url: str,
-    *,
-    max_response_bytes: int = 5 * 1024 * 1024,
-    include_links: bool = False,
-) -> ContentArtifact:
-    """Fetch raw markdown or text content directly without heavy extraction.
-
-    Performs a safe HTTP GET, decodes response text, sanitizes lightly,
-    and returns a ContentArtifact.
-    """
-    content_type, source_type = get_raw_text_type(url)
-
-    try:
-        timeout_sec = _DEFAULT_TIMEOUT_SECONDS
         fetched = await safe_fetch_url(
             url,
-            timeout_seconds=timeout_sec,
-            max_response_bytes=max_response_bytes,
-        )
-        raw_text = fetched.text or fetched.body.decode("utf-8", errors="replace")
-        raw_text = raw_text.replace("\x00", "")
-        typed_format = detect_content_format(url, fetched.content_type, raw_text)
-        typed_metadata: dict[str, object] | None = None
-        typed_links: list[dict[str, object]] | None = None
-        if typed_format in SUPPORTED_TYPED_FORMATS:
-            raw_text, typed_metadata, typed_links = render_typed_content(
-                typed_format,
-                raw_text,
-                fetched.fetched_url or url,
-            )
-            source_type = typed_format
-        fetch_backend = "typed_content" if typed_format else "raw_text_fetch"
-        clean_text = sanitize_markdown(raw_text)
-
-        cls = classify_markdown(clean_text)
-        word_count = len(clean_text.split())
-
-        status = (
-            "success" if clean_text.strip() and cls.status in ("success", "partial") else cls.status
-        )
-
-        record_content_resolution(
-            stage="raw_text",
-            url=url,
-            success=status == "success",
-            size_bytes=len(clean_text.encode("utf-8")),
-            word_count=word_count,
-            extraction_method="safe_fetch_raw",
-        )
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=fetched.fetched_url or url,
-            status=status,
-            source_type=source_type,
-            fetch_backend=fetch_backend,
-            content_type=fetched.content_type or content_type,
-            markdown=clean_text,
-            metadata=typed_metadata,
-            links=typed_links if include_links else None,
-            word_count=word_count,
-            quality_score=1.0 if status == "success" else 0.4,
-            error=None
-            if status == "success"
-            else ContentError(
-                code=cls.reason or "raw_text_partial",
-                message=cls.reason or "partial raw text",
-            ),
+            timeout_seconds=ctx.timeout(20.0),
+            max_response_bytes=ctx.max_response_bytes,
         )
     except SafeFetchError as exc:
-        record_content_error(stage="raw_text", url=url, error_type=exc.code)
-        return ContentArtifact(
+        raise AcquisitionError(code=exc.code, message=str(exc)) from exc
+    text = fetched.text or fetched.body.decode("utf-8", errors="replace")
+    if not text.strip():
+        raise AcquisitionError(code="empty_content", message="Raw text response was empty.")
+    typed_format = detect_content_format(url, fetched.content_type, text)
+    if typed_format is not None:
+        rendered, meta, typed_links = render_typed_content(typed_format, text, url)
+        return RawDocument(
             input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=url,
-            status="error",
-            source_type=source_type,
-            fetch_backend="raw_text_fetch",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(code=exc.code, message=str(exc), retryable=False),
+            fetched_url=fetched.fetched_url or url,
+            source_type=typed_format,
+            fetch_backend="typed_content",
+            body=TextDocument(text=rendered, format="markdown"),
+            content_type=fetched.content_type,
+            title=None,
+            metadata=dict(meta),
+            links=tuple(typed_links),
+            diagnostics=(),
+            http_status=fetched.status_code,
+            response_headers=dict(fetched.response_headers or {}),
+            complete=True,
+            scope="full",
+            bytes_downloaded=len(fetched.body),
+            redirect_count=None,
         )
-    except Exception as exc:
-        record_content_error(stage="raw_text", url=url, error_type=type(exc).__name__)
-        return ContentArtifact(
-            input_url=url,
-            normalized_url=canonicalize_url(url),
-            fetched_url=url,
-            status="error",
-            source_type=source_type,
-            fetch_backend="raw_text_fetch",
-            content_type=None,
-            markdown="",
-            word_count=0,
-            quality_score=0.0,
-            error=ContentError(code=type(exc).__name__, message=str(exc)[:500], retryable=True),
+    lowered_path = urllib.parse.urlparse(url).path.lower()
+    is_markdown = lowered_path.endswith((".md", ".markdown", ".mdown", ".mkdn"))
+    lowered_type = (fetched.content_type or "").split(";", 1)[0].strip().lower()
+    if not is_markdown and lowered_type not in {"", "text/markdown", "text/x-markdown"}:
+        body = _unsupported_format_text(
+            lowered_type or "text/plain", url, text, fetched.content_type
         )
+    else:
+        body = TextDocument(text=text, format="markdown" if is_markdown else "text")
+    return RawDocument(
+        input_url=url,
+        fetched_url=fetched.fetched_url or url,
+        source_type="raw_text",
+        fetch_backend="raw_text_fetch",
+        body=body,
+        content_type=fetched.content_type,
+        title=None,
+        metadata={},
+        links=(),
+        diagnostics=(),
+        http_status=fetched.status_code,
+        response_headers=dict(fetched.response_headers or {}),
+        complete=True,
+        scope="full",
+        bytes_downloaded=len(fetched.body),
+        redirect_count=None,
+    )
+
+
+def _unsupported_format_text(
+    declared: str, source_url: str, text: str, content_type: str | None
+) -> TextDocument:
+    """Preserve an unsupported declared syntax as labeled literal content."""
+    header = f"Unsupported declared format `{declared}` from {source_url}"
+    if content_type:
+        header += f" ({content_type})"
+    return TextDocument(text=f"{header}\n\n```text\n{text.strip()}\n```", format="text")
+
+
+def match_raw_text(parsed: ParsedURL) -> ResolverTarget | None:
+    """Claim raw-text URLs, yielding to resolvers that own specific shapes.
+
+    Excluded: ``/blob/`` views (github/gitlab serve rendered HTML there, not
+    the file) and ``llms.txt``/``llms-full.txt`` documents, which the
+    ``llms_txt`` resolver owns.
+    """
+    host = (parsed.parts.hostname or "").lower()
+    path = (parsed.parts.path or "").lower()
+    if host in RAW_TEXT_HOSTS:
+        return ResolverTarget(url=parsed.url, kind="raw_text", values={"url": parsed.url})
+    if path.endswith(tuple(RAW_TEXT_EXTENSIONS)):
+        if "/blob/" in path or path.rsplit("/", 1)[-1] in {"llms.txt", "llms-full.txt"}:
+            return None
+        return ResolverTarget(url=parsed.url, kind="raw_text", values={"url": parsed.url})
+    if ("github.com" in host or "gitlab.com" in host) and "/raw/" in path:
+        return ResolverTarget(url=parsed.url, kind="raw_text", values={"url": parsed.url})
+    return None

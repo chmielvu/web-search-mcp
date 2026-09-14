@@ -1,0 +1,14 @@
+# NOTE: gradio/huggingface_hub/spaces are platform-managed — do NOT pin them here.
+# CPU torch: default wheels run fine on CPU (bigger download, no CUDA needed).
+torch
+transformers
+accelerate
+safetensors
+pillow
+httpx
+beautifulsoup4
+lxml
+markdownify
+rs-trafilatura>=0.1.0
+pulpie[markdown]
+mineru_html

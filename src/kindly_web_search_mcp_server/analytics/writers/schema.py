@@ -1592,5 +1592,3 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 def ensure_search_quality_tables(*, db_path: str | None = None) -> None:
     """Ensure all tables needed by quality scoring and judge writes exist."""
     ensure_store_schema(db_path=db_path)
-
-

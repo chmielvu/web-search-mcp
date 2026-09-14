@@ -1,365 +1,163 @@
 from __future__ import annotations
 
+import dataclasses
+
 import asyncio
 import base64
 import hashlib
 import json
 import logging
-import re
 import time
 from typing import Annotated, Any, Literal, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
 from ..cache import get_page_cache
-from ..content.artifact import ContentArtifact, artifact_to_dict
 from ..content.ai_summary import summarize, summarize_batch
-from ..errors import raise_tool_error
-from ..content.fetch_pipeline import fetch_content_artifact
-from ..content.llms_txt import LlmsTxtResult, check_llms_txt
-from ..content.fetch_pipeline import FetchOptions
-from ..utils.content_classify import (
-    ClassificationResult,
-    classify_markdown,
-    wall_from_classification,
+from ..content.constructor import (
+    ContentArtifact,
+    artifact_to_dict,
+    finalize_artifact,
+    rehydrate_cached_artifact,
 )
-from ..content.typed_content import SUPPORTED_TYPED_FORMATS
+from ..content.fetch_pipeline import fetch_content_artifact
+from ..content.models import (
+    PROCESSING_POLICY_VERSION,
+    ContentError,
+    FetchOptions,
+)
+from ..errors import raise_tool_error
 from ..models import FetchError, FetchResponse, FetchResult, PublicStatus, TokenUsage
 from ..settings import settings
-from ..utils.text_chunking import slice_content
 from ..utils.observability import emit_tool_observability_event
+from ..utils.text_chunking import slice_content
 from ..utils.url_canonicalize import canonicalize_url
 from ._helpers import _record_tool_failure, _record_tool_success
 
 LOGGER = logging.getLogger(__name__)
 
-# Same tolerant pattern as utils/text_clean: markdown links with optional
-# title attributes, used by the include_links markdown-surface fallback.
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^()]*\))+)(?:\s+\"[^\"]*\")?\)")
-
 _CURSOR_VERSION = 1
-_CACHE_SCHEMA_VERSION = 4
-_CACHE_ROUTE_VERSION = 5
+# Cache is keyed by normalized URL + policy version + processing mode; the
+# envelope stores the complete artifact payload and a version stamp so any
+# schema change forces a fresh fetch instead of replaying stale shapes.
+_CACHE_POLICY_VERSION = PROCESSING_POLICY_VERSION
+
+# ---------------------------------------------------------------------------
+# Cache envelope (versioned; sole consumer of get_page_cache)
+# ---------------------------------------------------------------------------
 
 
-def _cache_key(normalized_url: str) -> str:
-    """Isolate fetch results from caches created under older route rules."""
-    return f"web-fetch-route-v{_CACHE_ROUTE_VERSION}:{normalized_url}"
+def _cache_key(normalized_url: str, *, processing_mode: str) -> str:
+    """Identity-shaped cache key isolates mode+policy writes from each other."""
+    return f"web-fetch:{_CACHE_POLICY_VERSION}:{processing_mode}:{normalized_url}"
 
 
-def _error_dict(exc: Exception) -> dict[str, Any]:
-    retryable = isinstance(exc, (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError))
+def _cache_envelope(artifact: ContentArtifact) -> dict[str, Any]:
+    """Wrap a finalized artifact for versioned round-trip through page_cache."""
     return {
-        "code": type(exc).__name__,
-        "message": str(exc)[:500],
-        "retryable": retryable,
+        "policy_version": _CACHE_POLICY_VERSION,
+        "processing_mode": artifact.processing_mode,
+        "artifact": artifact_to_dict(artifact),
     }
 
 
-# Internal: cache envelope only; public FetchResult omits content format.
-def _content_format(source_type: str, content_type: str | None) -> str:
-    lowered = (content_type or "").split(";", 1)[0].strip().lower()
-    if source_type in SUPPORTED_TYPED_FORMATS or source_type == "llms_txt":
-        return source_type
-    if "json" in lowered:
-        return "json"
-    if "rss" in lowered:
-        return "rss"
-    if "atom" in lowered:
-        return "atom"
-    if "csv" in lowered:
-        return "csv"
-    if "pdf" in lowered or source_type == "pdf":
-        return "pdf"
-    return "markdown"
-
-
-def _apply_status_error_invariant(artifact: dict[str, Any]) -> dict[str, Any]:
-    if artifact.get("status") == "success":
-        artifact["error"] = None
-    return artifact
-
-
-def _request_fingerprint(
-    *,
-    fetch_options: FetchOptions,
-    focus_query: str | None,
-    ai_summary: bool,
-) -> str:
-    payload = {
-        "fetch_options": fetch_options.cache_fingerprint(),
-        "focus_query": focus_query or "",
-        "ai_summary": ai_summary,
-    }
-    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-
-
-def _encode_cursor(urls: list[str], fingerprint: str) -> str:
-    payload = {
-        "version": _CURSOR_VERSION,
-        "mode": "bulk",
-        "urls": urls,
-        "fingerprint": fingerprint,
-    }
-    return base64.urlsafe_b64encode(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii")
-
-
-def _decode_cursor(cursor: str) -> dict[str, Any]:
-    try:
-        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
-    except Exception:
-        raise_tool_error(ValueError("Invalid fetch cursor"), provider="fetch")
-    if not isinstance(decoded, dict) or decoded.get("version") != _CURSOR_VERSION:
-        raise_tool_error(ValueError("Unsupported fetch cursor version"), provider="fetch")
-    if decoded.get("mode") != "bulk" or not isinstance(decoded.get("urls"), list):
-        raise_tool_error(ValueError("Invalid bulk fetch cursor"), provider="fetch")
-    urls = [item.strip() for item in decoded["urls"] if isinstance(item, str) and item.strip()]
-    if not urls:
-        raise_tool_error(ValueError("Fetch cursor contains no pending URLs"), provider="fetch")
-    decoded["urls"] = list(dict.fromkeys(urls))
-    return decoded
-
-
-def _artifact_from_cache(
-    input_url: str, normalized_url: str, cached: dict[str, Any]
-) -> dict[str, Any]:
-    stored = cached.get("metadata")
-    stored = stored if isinstance(stored, dict) else {}
-    envelope = stored.get("__web_fetch__")
-    envelope = envelope if isinstance(envelope, dict) else {}
-    legacy = (
-        not envelope
-        or envelope.get("schema_version") != _CACHE_SCHEMA_VERSION
-        or envelope.get("route_version") != _CACHE_ROUTE_VERSION
-    )
-
-    metadata = (
-        envelope.get("metadata")
-        if isinstance(envelope.get("metadata"), dict)
-        else stored.get("metadata")
-    )
-    links = (
-        envelope.get("links") if isinstance(envelope.get("links"), list) else stored.get("links")
-    )
-    origin_backend = envelope.get("origin_backend") or cached.get("extraction_method") or "cache"
-    source_type = envelope.get("source_type") or ("cache_legacy" if legacy else "html")
-    fetched_url = envelope.get("fetched_url") or cached.get("url_canonical") or normalized_url
-    content_type = envelope.get("content_type") or "text/markdown"
-    status = envelope.get("status") or "success"
-    diagnostics = list(envelope.get("diagnostics") or [])
-    stage_path = envelope.get("stage_path")
-    if isinstance(stage_path, str) and stage_path:
-        diagnostics.append({"code": "cached_stage_path", "stage_path": stage_path})
-    entities = envelope.get("entities")
-    entities = entities if isinstance(entities, list) else None
-    if legacy:
-        diagnostics.append(
-            {
-                "code": "legacy_cache_entry",
-                "cache_schema_version": envelope.get("schema_version", 0),
-                "cache_route_version": envelope.get("route_version", 0),
-            }
-        )
-
-    artifact = {
-        "input_url": input_url,
-        "normalized_url": str(envelope.get("normalized_url") or normalized_url),
-        "fetched_url": str(fetched_url) if fetched_url else None,
-        "status": str(status),
-        "source_type": str(source_type),
-        "fetch_backend": "cache",
-        "origin_backend": str(origin_backend),
-        "cached": True,
-        "content_type": str(content_type) if content_type else None,
-        "markdown": str(cached.get("page_content") or ""),
-        "metadata": metadata if isinstance(metadata, dict) else None,
-        "links": links if isinstance(links, list) else None,
-        "error": envelope.get("error") if isinstance(envelope.get("error"), dict) else None,
-        "entities": entities,
-        "llms_txt": (
-            envelope.get("llms_txt") if isinstance(envelope.get("llms_txt"), dict) else None
-        ),
-        "diagnostics": diagnostics,
-    }
-    return _apply_status_error_invariant(artifact)
-
-
-def _cache_metadata(artifact: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "__web_fetch__": {
-            "schema_version": _CACHE_SCHEMA_VERSION,
-            "route_version": _CACHE_ROUTE_VERSION,
-            "input_url": artifact["input_url"],
-            "normalized_url": artifact["normalized_url"],
-            "fetched_url": artifact.get("fetched_url"),
-            "status": artifact.get("status"),
-            "source_type": artifact.get("source_type"),
-            "content_type": artifact.get("content_type"),
-            "format": _content_format(
-                str(artifact.get("source_type", "")), artifact.get("content_type")
-            ),
-            "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
-            "metadata": artifact.get("metadata"),
-            "links": artifact.get("links"),
-            "entities": artifact.get("entities"),
-            "llms_txt": artifact.get("llms_txt"),
-            "diagnostics": artifact.get("diagnostics"),
-            "stage_path": artifact.get("stage_path"),
-            "error": artifact.get("error"),
-        },
-        "metadata": artifact.get("metadata"),
-        "links": artifact.get("links"),
-        "origin_backend": artifact.get("origin_backend") or artifact.get("fetch_backend"),
-        "status_code": 200,
-    }
-
-
-async def _store_cache(artifact: dict[str, Any]) -> None:
-    status = artifact.get("status")
-    if status not in {"success", "partial", "blocked", "error"} or not artifact.get("markdown"):
+async def _store_cache(artifact: ContentArtifact) -> None:
+    """Persist the complete artifact envelope keyed by policy+mode+identity."""
+    if artifact.status not in {"success", "partial"} or not artifact.markdown.strip():
         return
     try:
         await get_page_cache().astore(
-            canonical_url=_cache_key(artifact["normalized_url"]),
-            page_content=artifact["markdown"],
-            extraction_method=artifact.get("origin_backend")
-            or artifact.get("fetch_backend")
-            or "unknown",
-            metadata=_cache_metadata(artifact),
+            canonical_url=_cache_key(
+                artifact.normalized_url, processing_mode=artifact.processing_mode
+            ),
+            page_content=artifact.markdown,
+            extraction_method=artifact.fetch_backend or "cache",
+            metadata=_cache_envelope(artifact),
         )
     except Exception as exc:  # pragma: no cover - cache isolation
         LOGGER.warning("Page cache store failed: %s", exc)
 
 
-def _artifact_from_llms(input_url: str, probe: LlmsTxtResult) -> dict[str, Any]:
-    content = probe.content or ""
-    classification = classify_markdown(content)
-    status = "success" if classification.status in {"success", "partial"} else classification.status
-    normalized = canonicalize_url(input_url)
-    llms_meta = {"available": True, "used": True, "url": probe.url}
-    return {
-        "input_url": input_url,
-        "normalized_url": normalized,
-        "fetched_url": probe.url,
-        "status": status,
-        "source_type": "llms_txt",
-        "fetch_backend": "llms_txt",
-        "origin_backend": "llms_txt",
-        "cached": False,
-        "content_type": probe.content_type or "text/plain",
-        "markdown": content,
-        "metadata": {"source": "llms.txt", "url": probe.url},
-        "links": [],
-        "error": (
-            None
-            if status == "success"
-            else {
-                "code": classification.reason or "partial",
-                "message": classification.reason or "partial",
-                "retryable": False,
-            }
-        ),
-        "entities": None,
-        "llms_txt": llms_meta,
-        "diagnostics": None,
-    }
+async def _lookup_cache(normalized_url: str, *, processing_mode: str) -> ContentArtifact | None:
+    """Return a version-compatible cached artifact or ``None`` on miss/mismatch."""
+    try:
+        cached = await get_page_cache().alookup(
+            _cache_key(normalized_url, processing_mode=processing_mode)
+        )
+    except Exception as exc:  # pragma: no cover - cache isolation
+        LOGGER.warning("Page cache lookup failed: %s", exc)
+        return None
+    if not cached:
+        return None
+    envelope = (cached.get("metadata") or {}) if isinstance(cached, dict) else {}
+    return rehydrate_cached_artifact(envelope, normalized_url)
 
 
-def _artifact_from_content(input_url: str, fetched: ContentArtifact) -> dict[str, Any]:
-    artifact = artifact_to_dict(fetched)
-    artifact["input_url"] = input_url
-    return artifact
-
-
-def _artifact_from_exception(
-    input_url: str, exc: Exception, *, timeout: bool = False
-) -> dict[str, Any]:
-    normalized = canonicalize_url(input_url)
-    if timeout:
-        error = {
-            "code": "timeout",
-            "message": f"Fetch exceeded the {int(settings.web_fetch_timeout_seconds)} second request budget.",
-            "retryable": True,
-        }
-        backend = "timeout"
-    else:
-        error = _error_dict(exc)
-        backend = "exception"
-    return {
-        "input_url": input_url,
-        "normalized_url": normalized,
-        "fetched_url": None,
-        "status": "error",
-        "source_type": "unknown",
-        "fetch_backend": backend,
-        "origin_backend": backend,
-        "cached": False,
-        "content_type": None,
-        "markdown": "",
-        "metadata": None,
-        "links": None,
-        "error": error,
-        "entities": None,
-        "llms_txt": None,
-        "diagnostics": None,
-    }
+# ---------------------------------------------------------------------------
+# Single-URL orchestration boundary: cache lookup → pipeline → sole cache store
+# ---------------------------------------------------------------------------
 
 
 async def _fetch_one_artifact(
     input_url: str,
     *,
     fetch_options: FetchOptions,
-    llms_probe: LlmsTxtResult | None = None,
     stage_attempts: list | None = None,
-) -> dict[str, Any]:
+) -> ContentArtifact:
+    """Return the sole finalized artifact for one URL via the candidate path."""
     normalized = canonicalize_url(input_url)
-    cache_key = _cache_key(normalized)
-    probe = llms_probe
-    if probe is None:
-        try:
-            probe = await check_llms_txt(
-                input_url,
-                timeout_seconds=5.0,
-                max_response_bytes=fetch_options.max_response_bytes,
-            )
-        except Exception:
-            probe = LlmsTxtResult(available=False)
-    if probe.available:
-        artifact = _artifact_from_llms(input_url, probe)
-        await _store_cache(artifact)
-        return artifact
 
-    try:
-        cached = await get_page_cache().alookup(cache_key)
-    except Exception as exc:  # pragma: no cover - cache isolation
-        LOGGER.warning("Page cache lookup failed: %s", exc)
-        cached = None
-    if cached:
-        return _artifact_from_cache(input_url, normalized, cached)
+    cached = await _lookup_cache(normalized, processing_mode=fetch_options.processing_mode)
+    if cached is not None:
+        return cached
 
+    artifact: ContentArtifact
     try:
-        fetched = await asyncio.wait_for(
+        artifact = await asyncio.wait_for(
             fetch_content_artifact(
-                input_url, fetch_options=fetch_options, stage_attempts=stage_attempts
+                input_url,
+                fetch_options=fetch_options,
+                stage_attempts=stage_attempts,
             ),
             timeout=settings.web_fetch_timeout_seconds,
         )
     except asyncio.TimeoutError:
-        return _artifact_from_exception(input_url, TimeoutError(), timeout=True)
+        artifact = await finalize_artifact(
+            input_url,
+            None,
+            options=fetch_options,
+            failure=ContentError(
+                "timeout",
+                f"Fetch exceeded the {int(settings.web_fetch_timeout_seconds)} second request budget.",
+                retryable=True,
+                status="error",
+            ),
+            failure_status="error",
+        )
     except Exception as exc:
-        return _artifact_from_exception(input_url, exc)
+        artifact = await finalize_artifact(
+            input_url,
+            None,
+            options=fetch_options,
+            failure=ContentError(
+                type(exc).__name__,
+                str(exc)[:500],
+                retryable=False,
+                status="error",
+            ),
+            failure_status="error",
+        )
 
-    artifact = _apply_status_error_invariant(_artifact_from_content(input_url, fetched))
-    if probe is not None and probe.url:
-        artifact["llms_txt"] = {"available": False, "used": False, "url": probe.url}
     await _store_cache(artifact)
     return artifact
+
+
+# ---------------------------------------------------------------------------
+# Error shaping
+# ---------------------------------------------------------------------------
 
 
 def _error_http_status(code: str) -> int | None:
@@ -425,14 +223,18 @@ def _error_resolution(
     return "Verify the source and retry the request."
 
 
-def _shape_fetch_error(artifact: dict[str, Any]) -> dict[str, Any]:
-    raw_error = artifact.get("error")
-    raw_error = raw_error if isinstance(raw_error, dict) else {}
-    code = str(raw_error.get("code") or artifact.get("status") or "fetch_error")
+def _shape_fetch_error(artifact: ContentArtifact) -> dict[str, Any]:
+    error = artifact.error
+    raw_error: dict[str, Any] = (
+        dataclasses.asdict(error) if error is not None else {}
+    )
+    code = str(raw_error.get("code") or artifact.status or "fetch_error")
     message = str(raw_error.get("message") or "The fetch could not complete.")
     retryable = bool(raw_error.get("retryable", False))
     raw_http_status = raw_error.get("http_status")
-    http_status = raw_http_status if isinstance(raw_http_status, int) else _error_http_status(code)
+    http_status = (
+        int(raw_http_status) if isinstance(raw_http_status, int) else _error_http_status(code)
+    )
     category = _error_category(code, retryable=retryable, http_status=http_status)
     expected_format = raw_error.get("expected_format")
     if not isinstance(expected_format, dict) and category == "validation":
@@ -449,7 +251,7 @@ def _shape_fetch_error(artifact: dict[str, Any]) -> dict[str, Any]:
             retryable=retryable,
             http_status=http_status,
         )
-    stage = raw_error.get("stage") or artifact.get("fetch_backend")
+    stage = raw_error.get("stage") or artifact.fetch_backend
     shaped: dict[str, Any] = {
         "code": code,
         "category": category,
@@ -463,31 +265,15 @@ def _shape_fetch_error(artifact: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in shaped.items() if value is not None}
 
 
-def _access_signal_from_artifact(
-    artifact: dict[str, Any],
-    classified: ClassificationResult,
-) -> str | None:
-    wall = wall_from_classification(
-        classified,
-        artifact.get("error") if isinstance(artifact.get("error"), dict) else None,
-    )
-    if isinstance(wall, dict):
-        kind = wall.get("kind")
-        if kind in {"login", "paywall", "bot", "js_shell"}:
-            return cast(str, kind)
-    return None
-
-
 def _classify_status(
-    artifact: dict[str, Any],
+    artifact: ContentArtifact,
     raw_status: str,
     access_signal: str | None,
 ) -> tuple[PublicStatus, dict[str, Any] | None]:
     """Collapse internal status and wall classification into the public outcome."""
     if access_signal in {"login", "paywall", "bot", "js_shell"}:
         return cast(PublicStatus, access_signal), None
-    raw_error = artifact.get("error")
-    if isinstance(raw_error, dict) and raw_status in {"", "error"}:
+    if artifact.error is not None and raw_status in {"", "error"}:
         return "error", FetchError.model_validate(_shape_fetch_error(artifact)).model_dump(
             exclude_none=True
         )
@@ -498,65 +284,81 @@ def _classify_status(
     )
 
 
-def _markdown_links(markdown: str, artifact: dict[str, Any]) -> list[dict[str, Any]] | None:
-    """Extract links from returned markdown when the artifact has none.
+def _access_signal_from_artifact(artifact: ContentArtifact) -> str | None:
+    """Derive login/paywall/bot from finalizer evidence, not reclassification."""
+    lowered_flags = {str(flag).lower() for flag in artifact.quality.flags}
+    code = str(artifact.error.code).lower() if artifact.error else ""
+    if "login_wall" in lowered_flags or code.startswith("login_wall"):
+        return "login"
+    if "paywall" in lowered_flags or code.startswith("paywall"):
+        return "paywall"
+    if (
+        "access_blocked" in lowered_flags
+        or "bot_challenge" in lowered_flags
+        or code.startswith("access_blocked")
+        or "captcha" in f"{lowered_flags} {code}"
+        or "challenge" in f"{lowered_flags} {code}"
+    ):
+        return "bot"
+    return None
 
-    Jina/Crawl4AI rungs return inline markdown links but never populate the
-    artifact ``links`` field (that requires an HTML parse the markdown
-    backends don't do). ``include_links=true`` should still honor the
-    contract; derive links from the markdown surface instead.
-    """
-    if not markdown:
+
+def _public_links(artifact: ContentArtifact, content_window: str) -> list[dict[str, Any]] | None:
+    """Return the structured links the finalizer captured; no regex fallback."""
+    raw_links: list[dict[str, Any]] = []
+    for entry in artifact.links or ():
+        if isinstance(entry, dict):
+            raw_links.append(entry)
+    if not raw_links and not content_window:
         return None
-    base_url = str(artifact.get("fetched_url") or artifact.get("normalized_url") or "")
+    base_url = artifact.fetched_url or artifact.normalized_url
     source_domain = urlparse(base_url).netloc.lower() or None
-    seen: set[str] = set()
-    links: list[dict[str, Any]] = []
-    for match in _MD_LINK_RE.finditer(markdown):
-        text, target = match.group(1).strip(), match.group(2).strip()
-        if target.startswith(("mailto:", "javascript:", "tel:", "data:")):
+    out: list[dict[str, Any]] = []
+    for entry in raw_links:
+        url = str(entry.get("url") or entry.get("href") or "").strip()
+        if not url:
             continue
-        absolute = urljoin(base_url, target) if base_url else target
-        if absolute in seen:
-            continue
-        seen.add(absolute)
-        domain = urlparse(absolute).netloc.lower() or None
-        links.append(
+        domain = urlparse(url).netloc.lower() or None
+        out.append(
             {
-                "url": absolute,
-                "text": text,
+                "url": url,
+                "text": str(entry.get("text") or entry.get("title") or ""),
                 "domain": domain,
-                "internal": source_domain is not None and domain == source_domain,
+                "internal": bool(source_domain and domain == source_domain),
             }
         )
-    return links or None
+    return out or None
 
 
 def _result_from_artifact(
-    artifact: dict[str, Any],
+    artifact: ContentArtifact,
     *,
     offset: int,
     max_chars: int,
     include_links: bool,
-) -> tuple[dict[str, Any], ClassificationResult]:
-    artifact = _apply_status_error_invariant(dict(artifact))
-    full_markdown = str(artifact.get("markdown") or "")
+) -> dict[str, Any]:
+    full_markdown = artifact.markdown or ""
     windowed = slice_content(full_markdown, offset=max(0, offset), length=max_chars)
-    raw_status = str(artifact.get("status") or "").strip().lower()
-    classified = classify_markdown(
-        full_markdown,
-        source_type=artifact.get("source_type") or None,
-    )
-    access_signal = _access_signal_from_artifact(artifact, classified)
+    raw_status = (artifact.status or "").strip().lower()
+    access_signal = _access_signal_from_artifact(artifact)
     public_status, error_obj = _classify_status(artifact, raw_status, access_signal)
+    diagnostics_payload = (
+        [dataclasses.asdict(d) for d in artifact.diagnostics]
+        if artifact.diagnostics
+        else None
+    )
+    entities_payload = None
+    if artifact.entities is not None:
+        entities_payload = [
+            entity.model_dump(exclude_none=True) if hasattr(entity, "model_dump") else dict(entity)
+            for entity in artifact.entities
+        ]
     result = {
-        "url": artifact.get("fetched_url") or artifact.get("normalized_url") or "",
+        "url": artifact.fetched_url or artifact.normalized_url,
         "status": public_status,
         "content": windowed.content,
         "error": error_obj,
-        "links": (artifact.get("links") or _markdown_links(windowed.content, artifact))
-        if include_links
-        else None,
+        "links": _public_links(artifact, windowed.content) if include_links else None,
         "window": {
             "offset": windowed.window.offset,
             "length": windowed.window.length,
@@ -565,45 +367,86 @@ def _result_from_artifact(
             "has_more": windowed.window.has_more,
             "next_offset": windowed.window.next_offset,
         },
-        "entities": artifact.get("entities"),
-        "diagnostics": artifact.get("diagnostics"),
+        "entities": entities_payload,
+        "diagnostics": diagnostics_payload,
+        "output_path": artifact.output_path,
     }
-    return result, classified
+    return result
 
 
-def _analytics_result(
-    artifact: dict[str, Any],
+def _analytics_wall(artifact: ContentArtifact) -> dict[str, object] | None:
+    """Project access-wall metadata from finalizer evidence."""
+    signal = _access_signal_from_artifact(artifact)
+    if signal in {"login", "paywall", "bot"}:
+        return {"kind": signal, "confidence": "high", "retryable": False}
+    return None
+
+
+def _analytics_payload(
+    artifact: ContentArtifact,
     public_result: dict[str, Any],
-    classified: ClassificationResult,
 ) -> dict[str, Any]:
-    full_markdown = str(artifact.get("markdown") or "")
-    internal = dict(public_result)
-    internal.update(
-        {
-            "input_url": artifact.get("input_url"),
-            "normalized_url": artifact.get("normalized_url"),
-            "fetched_url": artifact.get("fetched_url") or public_result.get("url"),
-            "source_type": artifact.get("source_type"),
-            "fetch_backend": artifact.get("fetch_backend"),
-            "origin_backend": artifact.get("origin_backend"),
-            "cached": bool(artifact.get("cached", False)),
-            "page_content": full_markdown,
-            "content_format": _content_format(
-                str(artifact.get("source_type", "")), artifact.get("content_type")
+    """Project the complete finalizer payload for downstream analytics writers."""
+    full_markdown = artifact.markdown or ""
+    error_payload: dict[str, Any] | None = None
+    if artifact.error is not None:
+        error_payload = {
+            "code": artifact.error.code,
+            "category": _error_category(
+                artifact.error.code,
+                retryable=artifact.error.retryable,
+                http_status=artifact.error.http_status,
             ),
-            "content_type": artifact.get("content_type"),
-            "metadata": artifact.get("metadata"),
-            "content_word_count": len(full_markdown.split()),
-            "page_char_count": len(public_result.get("content") or ""),
-            "word_count": len(str(public_result.get("content") or "").split()),
-            "wall": wall_from_classification(
-                classified,
-                artifact.get("error") if isinstance(artifact.get("error"), dict) else None,
-            ),
-            "llms_txt": artifact.get("llms_txt"),
+            "message": artifact.error.message,
+            "retryable": artifact.error.retryable,
+            "http_status": artifact.error.http_status,
         }
-    )
-    return internal
+    quality_payload = {
+        "accepted": artifact.quality.accepted,
+        "score": artifact.quality.score,
+        "word_count": artifact.quality.word_count,
+        "heading_count": artifact.quality.heading_count,
+        "code_blocks": artifact.quality.code_blocks,
+        "tables": artifact.quality.tables,
+        "duplicate_ratio": artifact.quality.duplicate_ratio,
+        "boilerplate_hits": artifact.quality.boilerplate_hits,
+        "malformed_tables": artifact.quality.malformed_tables,
+        "fence_errors": artifact.quality.fence_errors,
+        "flags": list(artifact.quality.flags),
+    }
+    stage_path = []
+    for transform in artifact.transforms or ():
+        if transform and transform not in stage_path:
+            stage_path.append(transform)
+    selection_reason = artifact.transforms[0] if artifact.transforms else artifact.fetch_backend
+    return {
+        **public_result,
+        "input_url": artifact.input_url,
+        "normalized_url": artifact.normalized_url,
+        "fetched_url": artifact.fetched_url or public_result.get("url"),
+        "source_type": artifact.source_type,
+        "fetch_backend": artifact.fetch_backend,
+        "cached": bool(artifact.cached),
+        "processing_mode": artifact.processing_mode,
+        "policy_version": artifact.policy_version,
+        "complete": artifact.complete,
+        "scope": artifact.scope,
+        "bytes_downloaded": artifact.bytes_downloaded,
+        "redirect_count": artifact.redirect_count,
+        "page_content": full_markdown,
+        "content_type": artifact.content_type,
+        "title": artifact.title,
+        "metadata": artifact.metadata,
+        "content_word_count": artifact.quality.word_count,
+        "page_char_count": len(full_markdown),
+        "word_count": artifact.quality.word_count,
+        "quality": quality_payload,
+        "selection_reason": selection_reason,
+        "stage_path": " > ".join(stage_path) or None,
+        "wall": _analytics_wall(artifact),
+        "error": error_payload,
+        "coverage": artifact.coverage,
+    }
 
 
 def _summary_input(item: dict[str, Any]) -> dict[str, Any]:
@@ -641,6 +484,52 @@ def _mark_summary_failure(
     if analytics_result is not None:
         analytics_result["status"] = result["status"]
         analytics_result["diagnostics"] = diagnostics
+
+
+def _request_fingerprint(
+    *,
+    fetch_options: FetchOptions,
+    focus_query: str | None,
+    ai_summary: bool,
+    processing_mode: str,
+) -> str:
+    payload = {
+        "policy_version": _CACHE_POLICY_VERSION,
+        "fetch_options": fetch_options.cache_fingerprint(),
+        "focus_query": focus_query or "",
+        "ai_summary": ai_summary,
+        "processing_mode": processing_mode,
+    }
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _encode_cursor(urls: list[str], fingerprint: str) -> str:
+    payload = {
+        "version": _CURSOR_VERSION,
+        "mode": "bulk",
+        "urls": urls,
+        "fingerprint": fingerprint,
+    }
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+
+
+def _decode_cursor(cursor: str) -> dict[str, Any]:
+    try:
+        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+    except Exception:
+        raise_tool_error(ValueError("Invalid fetch cursor"), provider="fetch")
+    if not isinstance(decoded, dict) or decoded.get("version") != _CURSOR_VERSION:
+        raise_tool_error(ValueError("Unsupported fetch cursor version"), provider="fetch")
+    if decoded.get("mode") != "bulk" or not isinstance(decoded.get("urls"), list):
+        raise_tool_error(ValueError("Invalid bulk fetch cursor"), provider="fetch")
+    urls = [item.strip() for item in decoded["urls"] if isinstance(item, str) and item.strip()]
+    if not urls:
+        raise_tool_error(ValueError("Fetch cursor contains no pending URLs"), provider="fetch")
+    decoded["urls"] = list(dict.fromkeys(urls))
+    return decoded
 
 
 def _normalize_inputs(
@@ -705,6 +594,12 @@ async def fetch(
     include_links: Annotated[
         bool, Field(description="Also extract outbound links (default false).")
     ] = False,
+    processing_mode: Annotated[
+        Literal["agent", "index"],
+        Field(
+            description="agent (default): ephemeral fetch for tool consumers; index: persist selected markdown under REPO_ROOT/outputs and surface output_path per result.",
+        ),
+    ] = "agent",
     ctx: Context = CurrentContext(),
 ) -> FetchResponse:
     """Fetch one URL or multiple URLs and return their extracted content.
@@ -730,12 +625,15 @@ async def fetch(
     - cursor: continuation for bulk fetches; pass back to page through
       remaining URLs.
     - links[]: outbound links (when include_links=true).
+    - output_path: populated per result when processing_mode="index".
 
     CHAINING:
     - Single URL: use offset to page through long content.
     - Bulk: pass cursor back to fetch the next wave of URLs.
     - ai_summary=true replaces content with a Gemini source-grounded summary;
       use focus_query to bias the summary.
+    - processing_mode="index" persists the finalized markdown under
+      REPO_ROOT/outputs and reports the absolute path per result.
 
     ERROR RECOVERY: each failed URL returns a typed FetchError (code,
     category, message, resolution, retryable). Act on resolution before
@@ -756,11 +654,13 @@ async def fetch(
     wave_size = max(1, settings.web_fetch_wave_size)
     fetch_options = FetchOptions(
         max_response_bytes=max(1, settings.web_fetch_max_body_bytes),
+        processing_mode=processing_mode,
     )
     fingerprint = _request_fingerprint(
         fetch_options=fetch_options,
         focus_query=focus_query,
         ai_summary=ai_summary,
+        processing_mode=processing_mode,
     )
     if cursor_payload and cursor_payload.get("fingerprint") != fingerprint:
         raise_tool_error(
@@ -778,6 +678,7 @@ async def fetch(
         ai_summary=ai_summary,
         focus_query=focus_query,
         include_links=include_links,
+        processing_mode=processing_mode,
     )
     await ctx.info(f"Fetching {len(pending_urls)} URL(s) with the unified fetch tool...")
     stage_attempts_all: list = []
@@ -789,13 +690,13 @@ async def fetch(
         artifact = await _fetch_one_artifact(
             pending_urls[0], fetch_options=fetch_options, stage_attempts=stage_attempts
         )
-        result, classified = _result_from_artifact(
+        result = _result_from_artifact(
             artifact,
             offset=offset,
             max_chars=0,
             include_links=include_links,
         )
-        analytics_result = _analytics_result(artifact, result, classified)
+        analytics_result = _analytics_payload(artifact, result)
         if ai_summary:
             try:
                 summary_obj = await summarize(
@@ -886,13 +787,13 @@ async def fetch(
                 artifact = await _fetch_one_artifact(
                     url_value, fetch_options=fetch_options, stage_attempts=stage_attempts
                 )
-                result, classified = _result_from_artifact(
+                result = _result_from_artifact(
                     artifact,
                     offset=0,
                     max_chars=0,
                     include_links=include_links,
                 )
-                return result, _analytics_result(artifact, result, classified), stage_attempts
+                return result, _analytics_payload(artifact, result), stage_attempts
 
         stage_attempts_all: list = []
         for wave_start in range(0, len(pending_urls), wave_size):
@@ -1005,6 +906,7 @@ async def fetch(
         url_count=response.total_requested,
         result_count=response.total_returned,
         total_chars_returned=response.total_chars_returned,
+        processing_mode=processing_mode,
         results=analytics_results,
         stage_attempts=stage_attempts_all,
         summary_rungs=rung_log,

@@ -19,7 +19,12 @@ from typing import Any
 from ..settings import settings
 from .models import YouTubeError, TranscriptBackendError
 from .transcript import fetch_transcript_data, calculate_total_duration
-from .whisper import CfWhisperError, WhisperClientError, fetch_cloudflare_transcript_sync, fetch_hf_space_transcript_sync
+from .whisper import (
+    CfWhisperError,
+    WhisperClientError,
+    fetch_cloudflare_transcript_sync,
+    fetch_hf_space_transcript_sync,
+)
 from .yt_dlp_backend import ytdlp_extract_subtitles
 from .quality import normalize_transcript_segments
 
@@ -74,7 +79,6 @@ def fetch_transcript_cascade(
         except Exception as exc:
             errors.append(f"yt-dlp: {type(exc).__name__}: {exc}")
             logger.debug("yt-dlp unexpected error for %s: %s", video_id, exc)
-
 
     # --- Layer 2: Cloudflare Workers AI Whisper ---
     if backend in ("auto", "cf_whisper"):
