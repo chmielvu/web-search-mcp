@@ -40,7 +40,7 @@ import httpx
 
 from ..settings import get_env_value, settings
 from .dom_detector import JinaRoute, RouteDecision
-from .models import FetchContext, RawDocument, TextDocument
+from .models import Diagnostic, FetchContext, RawDocument, TextDocument
 
 JinaEngine = Literal["reader", "readerlm-v2", "browser"]
 JinaResponseFormat = Literal["frontmatter", "json", "sse", "plain"]
@@ -142,20 +142,30 @@ def _request_headers(
     with_shadow_dom: bool,
 ) -> dict[str, str]:
     engine = _ROUTE_ENGINES[route]
+    # Per-route option bundles. SOTA posture per the Jina Reader header
+    # reference: readability-filtered frontmatter for agent/research,
+    # no links-summary footer (links are exposed separately by the
+    # pipeline), explicit image retention, and deterministic Turndown
+    # style knobs so renderer defaults never leak into content.
     if route == "readerlm-research":
         headers = {
             "Accept": accept or "application/json",
             "X-Engine": "readerlm-v2",
             "X-Base": "final",
             "X-Retain-Links": "text",
+            "X-Retain-Images": "alt",
             "X-Markdown-Chunking": markdown_chunking or "h3",
-            "X-With-Links-Summary": "true",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
         }
     elif route == "readerlm-v2":
         headers = {
             "Accept": accept or "application/json",
             "X-Engine": "readerlm-v2",
             "X-Base": "final",
+            "X-Retain-Images": "none",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
         }
     elif route == "research":
         headers = {
@@ -163,8 +173,10 @@ def _request_headers(
             "X-Respond-With": "frontmatter",
             "X-Preset": "research",
             "X-Retain-Links": "text",
-            "X-With-Links-Summary": "true",
+            "X-Retain-Images": "alt",
             "X-Base": "final",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
         }
     elif route == "research+browser-timing":
         headers = {
@@ -173,8 +185,10 @@ def _request_headers(
             "X-Respond-With": "frontmatter",
             "X-Preset": "research",
             "X-Retain-Links": "text",
-            "X-With-Links-Summary": "true",
+            "X-Retain-Images": "alt",
             "X-Base": "final",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
             "X-Respond-Timing": respond_timing or "mutation-idle",
         }
     elif route == "browser":
@@ -186,6 +200,8 @@ def _request_headers(
             "X-Retain-Links": "all",
             "X-Retain-Images": "none",
             "X-Base": "final",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
             "X-Respond-Timing": respond_timing or "mutation-idle",
         }
     else:
@@ -196,18 +212,20 @@ def _request_headers(
             "X-Retain-Links": "all",
             "X-Retain-Images": "none",
             "X-Base": "final",
+            "X-Md-Hr": "---",
+            "X-Md-Em-Delimiter": "*",
         }
 
     if engine == "readerlm-v2":
         if not api_key:
             raise JinaReaderError(f"Route {route!r} requires JINA_API_KEY")
         headers["Authorization"] = f"Bearer {api_key}"
-    elif route == "agent":
-        # Agent stays on the key-free tier even when a key is configured;
-        # paid quota is reserved for research/readerlm/browser profiles.
-        headers.pop("Authorization", None)
-    elif api_key and route in {"research", "research+browser-timing", "browser"}:
-        headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        # The free key tier raises the Reader rate limit from 20 RPM to
+        # 500 RPM per Jina's rate-limit table, so every route benefits
+        # from sending it when configured.
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
     if target_selector:
         headers["X-Target-Selector"] = target_selector
     if wait_for_selector:
@@ -491,10 +509,20 @@ async def fetch_raw_document(
         ceiling = ctx.timeout(maximum=route_ceiling)
     except TimeoutError:
         ceiling = min(route_ceiling, 10.0)
+    # Link-heavy preflight signals site chrome that survives readability
+    # (GitHub mega-menu, Django theme rows, Guardian rails). Strip the
+    # conventional chrome containers server-side per the Reader cookbook's
+    # "known template" recipe.
+    remove_selector = (
+        "nav, footer, aside, .cookie-banner, .newsletter, .social-share"
+        if decision.signals.link_count > 150 or decision.signals.link_density > 0.25
+        else None
+    )
     response = await fetch_with_jina_reader_response(
         url,
         route=route,
         timeout_seconds=ceiling,
+        remove_selector=remove_selector,
     )
 
     markdown = response.content
@@ -522,6 +550,21 @@ async def fetch_raw_document(
     if warning:
         metadata["warning"] = warning
 
+    # A Reader warning means the fetch was degraded (partial render,
+    # engine fallback); the document must not claim complete coverage.
+    complete = not bool(warning)
+    diagnostics: tuple[Diagnostic, ...] = ()
+    if not complete:
+        diagnostics = (
+            Diagnostic(
+                code="jina_warning",
+                message=f"Jina Reader reported: {warning}",
+                severity="warning",
+                source="jina_reader",
+                phase="acquire",
+            ),
+        )
+
     return RawDocument(
         input_url=url,
         fetched_url=fetched_url or url,
@@ -533,9 +576,9 @@ async def fetch_raw_document(
         metadata=metadata,
         http_status=None,
         response_headers={},
-        complete=True,
+        complete=complete,
         scope="full",
         bytes_downloaded=None,
         redirect_count=None,
-        diagnostics=(),
+        diagnostics=diagnostics,
     )

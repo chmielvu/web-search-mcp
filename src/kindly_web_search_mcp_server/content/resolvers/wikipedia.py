@@ -120,13 +120,16 @@ def _default_user_agent() -> str:
     ).strip()
 
 
-def _strip_wikipedia_html_noise(html: str) -> str:
+def _strip_wikipedia_html_noise(html: str, *, host: str) -> str:
     """
-    Best-effort cleanup of common Wikipedia HTML noise before HTML→Markdown conversion.
+    Best-effort cleanup of common Wikipedia HTML noise before HTML→Markdown
+    conversion.
 
     We keep this conservative to avoid breaking content:
     - remove citation superscripts
     - remove navboxes
+    - absolutize relative /wiki/, /w/, and /static/ URLs so the converted
+      Markdown carries resolvable links regardless of the consumer's base
     """
     soup = soup_from_html(html)
     if soup is not None:
@@ -136,10 +139,18 @@ def _strip_wikipedia_html_noise(html: str) -> str:
             el.decompose()
         for el in soup.select("div#mw-navigation, div.vector-header, div#p-personal"):
             el.decompose()
+        for el in soup.find_all(href=True):
+            href = str(el.get("href") or "")
+            if href.startswith("//"):
+                el["href"] = f"https:{href}"
+            elif href.startswith("/"):
+                el["href"] = f"https://{host}{href}"
         return str(soup)
     # Regex fallback (not perfect, but avoids extra deps).
     html = re.sub(r"<sup[^>]*class=\"reference\"[^>]*>.*?</sup>", "", html, flags=re.DOTALL)
     html = re.sub(r"<table[^>]*class=\"navbox\"[^>]*>.*?</table>", "", html, flags=re.DOTALL)
+    html = re.sub(r"(href=\")(//)", r"\1https:\2", html)
+    html = re.sub(r'(href=")(/[^/])', rf"\1https://{host}\2", html)
     return html
 
 
@@ -171,12 +182,11 @@ def render_wikipedia_markdown(
     *,
     title: str,
     canonical_url: str,
-    host: str,
     body_markdown: str,
 ) -> str:
     lines: list[str] = []
-    lines.append("# Wikipedia Article")
-    lines.append(f"Title: {title} Link: {canonical_url} Source: {host}".strip())
+    lines.append(f"# {title}")
+    lines.append(f"Source: {canonical_url}")
     lines.append("")
     lines.append(body_markdown.strip())
     lines.append("")
@@ -279,16 +289,14 @@ async def fetch_wikipedia_article_raw(
                 "coverage": {"page_kind": "disambiguation"},
             }
 
-        cleaned_html = _strip_wikipedia_html_noise(html)
+        cleaned_html = _strip_wikipedia_html_noise(html, host=target.host)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
         md = await anyio.to_thread.run_sync(partial(extract_html_as_markdown, cleaned_html))  # type: ignore[attr-defined]
         cleaned_html = ""
-
         rendered = render_wikipedia_markdown(
             title=title,
             canonical_url=target.canonical_url,
-            host=target.host,
             body_markdown=md,
         )
         return {

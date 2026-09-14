@@ -116,13 +116,16 @@ async def _fetch_one_artifact(
 
     artifact: ContentArtifact
     try:
-        artifact = await asyncio.wait_for(
-            fetch_content_artifact(
-                input_url,
-                fetch_options=fetch_options,
-                stage_attempts=stage_attempts,
-            ),
-            timeout=settings.web_fetch_timeout_seconds,
+        # The pipeline owns its own deadline (max(60s, configured fetch
+        # timeout)) so the resolver cascade, Jina, Crawl4AI, browser, and
+        # archive fallbacks each get their share of the budget. Wrapping
+        # it in an outer wait_for equal to the per-request HTTP timeout
+        # would kill the cascade before any slow-but-working backend
+        # completes and lose the stage attempt log.
+        artifact = await fetch_content_artifact(
+            input_url,
+            fetch_options=fetch_options,
+            stage_attempts=stage_attempts,
         )
     except asyncio.TimeoutError:
         artifact = await finalize_artifact(
@@ -225,9 +228,7 @@ def _error_resolution(
 
 def _shape_fetch_error(artifact: ContentArtifact) -> dict[str, Any]:
     error = artifact.error
-    raw_error: dict[str, Any] = (
-        dataclasses.asdict(error) if error is not None else {}
-    )
+    raw_error: dict[str, Any] = dataclasses.asdict(error) if error is not None else {}
     code = str(raw_error.get("code") or artifact.status or "fetch_error")
     message = str(raw_error.get("message") or "The fetch could not complete.")
     retryable = bool(raw_error.get("retryable", False))
@@ -343,9 +344,7 @@ def _result_from_artifact(
     access_signal = _access_signal_from_artifact(artifact)
     public_status, error_obj = _classify_status(artifact, raw_status, access_signal)
     diagnostics_payload = (
-        [dataclasses.asdict(d) for d in artifact.diagnostics]
-        if artifact.diagnostics
-        else None
+        [dataclasses.asdict(d) for d in artifact.diagnostics] if artifact.diagnostics else None
     )
     entities_payload = None
     if artifact.entities is not None:

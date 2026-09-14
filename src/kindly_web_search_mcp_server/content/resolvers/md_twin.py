@@ -15,6 +15,8 @@ The match is pure URL shaping; no network happens before ``fetch``.
 
 from __future__ import annotations
 
+import re
+
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -131,7 +133,37 @@ async def fetch_md_twin_raw(target: ResolverTarget, ctx: FetchContext) -> RawDoc
             retryable=False,
         )
 
+    # Some sites publish stub or preview twins (a TOC fragment, the first
+    # paragraph) at the .md path. A twin that is plausibly truncated —
+    # mid-token end or below a minimal floor — is still served, but it
+    # must not claim complete coverage or it will outrank a fuller
+    # generic cascade candidate.
+    stripped_end = text.rstrip()
+    truncated = (
+        len(text) < 400
+        or stripped_end.endswith(("-", ",", ";", ":", "(", "["))
+        or re.search(r"\]\([^)]{0,256}$", stripped_end) is not None
+    )
+
     fetched_url = str(response.url) if str(response.url) != md_url else md_url
+    diagnostics: list[Diagnostic] = [
+        Diagnostic(
+            code="md_twin_used",
+            message=f"Content served from the Markdown twin {fetched_url}",
+            source="md_twin",
+            phase="acquire",
+        ),
+    ]
+    if truncated:
+        diagnostics.append(
+            Diagnostic(
+                code="md_twin_truncated",
+                message="Markdown twin looks truncated; coverage marked partial",
+                severity="warning",
+                source="md_twin",
+                phase="acquire",
+            ),
+        )
     return RawDocument(
         input_url=source_url,
         fetched_url=fetched_url,
@@ -142,17 +174,10 @@ async def fetch_md_twin_raw(target: ResolverTarget, ctx: FetchContext) -> RawDoc
         title=None,
         metadata={"md_twin": True, "requested_url": md_url},
         links=(),
-        diagnostics=(
-            Diagnostic(
-                code="md_twin_used",
-                message=f"Content served from the Markdown twin {fetched_url}",
-                source="md_twin",
-                phase="acquire",
-            ),
-        ),
+        diagnostics=tuple(diagnostics),
         http_status=response.status_code,
         response_headers=dict(response.headers),
-        complete=True,
+        complete=not truncated,
         scope="full",
         bytes_downloaded=len(body),
         redirect_count=None,

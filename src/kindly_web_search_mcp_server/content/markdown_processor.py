@@ -29,6 +29,7 @@ copy only, so downstream consumers keep the cleaned source unchanged.
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import importlib.util
 import json
 import logging
@@ -53,17 +54,36 @@ LOGGER = logging.getLogger(__name__)
 
 
 # Rule identifiers rumdl is asked to enable. Contract fixed.
+# Table/fence rules catch structural corruption; the link/image/heading
+# rules catch scraped-site junk that survives extraction (empty links,
+# alt-less images, inline HTML, broken emphasis, duplicate or multiple
+# H1 headings from resolver envelopes). Severity defaults make
+# MD024/MD025/MD042/MD045 error-class findings — exactly the
+# functional-quality signals the score must react to.
 RUMLDL_ENABLED_RULES: tuple[str, ...] = (
     "MD056",  # table column count
     "MD075",  # table row count
     "MD070",  # fence marker collision
     "MD031",  # fences-blank-lines (style; QA only)
     "MD058",  # blank-lines-around-tables (style; QA only)
+    "MD024",  # duplicate headings (anchor collisions)
+    "MD025",  # multiple H1 (broken document outline)
+    "MD033",  # inline HTML leakage
+    "MD037",  # spaces around emphasis markers
+    "MD038",  # spaces inside code spans
+    "MD036",  # emphasis used as heading
+    "MD040",  # fenced code without language
+    "MD042",  # empty links
+    "MD045",  # images without alt text
+    "MD057",  # relative links that do not resolve
+    "MD059",  # non-descriptive link text
+    "MD090",  # horizontal rule immediately before a heading
 )
 
 # Rule identifiers whose affected characters DO degrade the quality
 # score. MD031/MD058 are stylistic and surface in flags/diagnostics
-# but never count toward ``union_affected_chars``.
+# but never count toward ``union_affected_chars``. The scraped-junk
+# rules above all count: they mark content an LLM cannot use cleanly.
 STYLE_RULES: frozenset[str] = frozenset({"MD031", "MD058"})
 
 # Rule identifiers that gate mdformat canonicalization in index mode.
@@ -275,6 +295,56 @@ def _apply_descending_edits(text: str, edits: Iterable[_Edit]) -> str:
     return "".join(chars)
 
 
+# --- Whitespace-in-link repair -------------------------------------------------
+
+
+# Pretty-printed HTML converts to ``[\n  Anchor\n](url)`` — whitespace
+# inside the bracket pair breaks the link when rendered and reads as
+# junk to an LLM. The fix belongs before validation: trim the interior
+# whitespace runs to a single space, then drop the space pair entirely.
+_WS_LINK_RE = re.compile(r"\[\s+(?P<text>\S(?:.*?\S)?)\s+\]\(", re.DOTALL)
+
+
+def _repair_whitespace_links(text: str) -> tuple[str, bool]:
+    """Trim whitespace runs inside ``[ text ](`` link-text brackets.
+
+    WebcrawlerAPI's production lesson: pretty-printed HTML puts the
+    anchor's newlines inside the bracket pair, and every renderer then
+    breaks on the link. Collapse the interior to the bare anchor text.
+    Protected ranges are irrelevant here — this only rewrites the
+    bracket interior of syntactically malformed links, which markdown-it
+    itself treats as plain text.
+    """
+    repaired = _WS_LINK_RE.sub(lambda m: f"[{m.group(1)}](", text)
+    return repaired, repaired != text
+
+
+# --- Error-page gate -----------------------------------------------------------
+
+
+# Content-shaped error pages (404 renders, bot walls) arrive with HTTP
+# 200 and otherwise-plausible markdown. Selection must not accept them.
+_ERROR_PAGE_TITLE_RE = re.compile(
+    r"^#\s+(?:404\s*[-–]?\s*)?(?:page\s+)?(?:not\s+found|404)\b[^\n]{0,80}\n",
+    re.IGNORECASE,
+)
+_ERROR_PAGE_BODY_RE = re.compile(
+    r"^\s*(?:404|error|page\s+not\s+found)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _looks_like_error_page(text: str) -> bool:
+    """True when the document opens like a 404/error render."""
+    if not text:
+        return False
+    head = text[:512]
+    if _ERROR_PAGE_TITLE_RE.match(head):
+        return True
+    first_lines = [line.strip() for line in head.splitlines() if line.strip()][:3]
+    return len(first_lines) <= 2 and all(_ERROR_PAGE_BODY_RE.match(line) for line in first_lines)
+
+
 # --- Protected-set computation (one freeze) -----------------------------------
 
 
@@ -472,24 +542,33 @@ def _collapse_excessive_blanks(text: str) -> tuple[str, bool]:
 
 
 def _resolve_rumdl_argv() -> list[str] | None:
-    """Return the rumdl argv or None when no binary/module is available.
+    """Return the rumdl argv or None when no executable is available.
 
     Order:
 
-    1. Bare binary on PATH (``shutil.which`` only; no double check).
-    2. ``python -m rumdl`` via the importable module detection
-       (``importlib.util.find_spec``); uses ``sys.executable`` so the
-       same interpreter owns the validator.
-    3. None — caller emits ``validator_unavailable``.
+    1. Bare binary on PATH (``shutil.which``; installs via cargo/brew/winget).
+    2. The PyPI wheel's compiled binary under ``rumdl-<ver>.data/scripts/``
+       — the wheel ships the Rust binary there (maturin ``bindings = bin``),
+       and ``python -m rumdl`` only resolves ``target/release`` inside a
+       cargo checkout, so the wheel path is the reliable in-venv option.
+    3. ``python -m rumdl`` via the importable module detection; works only
+       for development checkouts built with cargo.
+    4. None — caller emits ``validator_unavailable``.
 
     The no-shell guarantee holds because ``create_subprocess_exec``
-    takes argv directly. ``shutil.which`` already accepts plain names
-    and returns the first match; no second ``which`` is needed.
+    takes argv directly.
     """
     binary = shutil.which("rumdl") or shutil.which("rumdl.exe")
     if binary:
         return [binary]
     if importlib.util.find_spec("rumdl") is not None:
+        wheel_binary = importlib.metadata.files("rumdl")
+        for entry in wheel_binary or ():
+            path = entry.locate()
+            name = str(path.name).lower()
+            if not path.is_file() or name not in {"rumdl", "rumdl.exe"}:
+                continue
+            return [str(path)]
         return [sys.executable, "-m", "rumdl"]
     return None
 
@@ -1006,7 +1085,13 @@ class MarkdownProcessor:
             transforms.append("removed-empty-headings")
             transforms.append("stripped-suppression-directives")
 
-        # 4. Adjacent-duplicate and excessive-blank passes.
+        # 4. Whitespace-in-link repair (pre-validation; the bracket
+        # interior is never a protected range).
+        cleaned, mutated = _repair_whitespace_links(cleaned)
+        if mutated:
+            transforms.append("repaired-whitespace-links")
+
+        # 5. Adjacent-duplicate and excessive-blank passes.
         cleaned, mutated = _collapse_adjacent_duplicates(cleaned)
         if mutated:
             transforms.append("deduped-adjacent-blocks")
@@ -1014,11 +1099,11 @@ class MarkdownProcessor:
         if mutated:
             transforms.append("collapsed-excessive-blanks")
 
-        # 5. Substantive char count is the post-envelope denominator;
+        # 6. Substantive char count is the post-envelope denominator;
         # it is held constant across pre/post format scoring.
         substantive = _substantive_chars(cleaned)
 
-        # 6. Validator copy: suppression-neutralized, same-length.
+        # 7. Validator copy: suppression-neutralized, same-length.
         def _neutralize(src: str) -> str:
             def _replace(match: re.Match[str]) -> str:
                 return " " * len(match.group(0))
@@ -1027,7 +1112,22 @@ class MarkdownProcessor:
 
         validator_copy = _neutralize(cleaned)
 
-        # 7. Validation: rumdl + parser structural checks.
+        # 8. Error-page gate: a 404-shaped render arriving with HTTP 200
+        # must not be accepted as usable content. The flag routes through
+        # selection's blocking set, so a challenge/404 render loses to
+        # any usable candidate.
+        if _looks_like_error_page(cleaned):
+            diagnostics.append(
+                Diagnostic(
+                    code="error_page",
+                    message="Document opens like an error page (404/bot wall), not article content",
+                    severity="error",
+                    source="pipeline",
+                    phase=_PHASE_VALIDATE,
+                ),
+            )
+
+        # 9. Validation: rumdl + parser structural checks.
         rumdl_findings, validator_diag = await _run_rumdl(validator_copy)
         if validator_diag is not None:
             diagnostics.append(validator_diag)
@@ -1059,7 +1159,7 @@ class MarkdownProcessor:
         affected_chars = _line_union_chars(cleaned, affected_line_ranges)
         pre_format_score = _score_from_affected(substantive, affected_chars)
 
-        # 8. Index mode canonicalization, defect-gated.
+        # 10. Index mode canonicalization, defect-gated.
         final_text = cleaned
         if mode == "index":
             skip_format = structural.malformed_tables > 0 or any(
@@ -1096,7 +1196,7 @@ class MarkdownProcessor:
                         if record is not None:
                             diagnostics.append(record)
 
-        # 9. Quality report on the returned text. When canonicalization
+        # 11. Quality report on the returned text. When canonicalization
         # succeeded, recompute on the formatted text; otherwise the
         # pre-format score holds.
         if mode == "index" and final_text is not cleaned:
