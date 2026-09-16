@@ -210,7 +210,7 @@ def web_cmd(
     research_goal: Annotated[
         str,
         typer.Option("--research-goal", help="Required search objective."),
-    ] = ...,
+    ] = ...,  # ty: ignore[invalid-parameter-default] - Typer's required-option form
     reranking_instructions: Annotated[
         str | None,
         typer.Option(

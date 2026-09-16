@@ -80,9 +80,10 @@ def _record_table_freshness(*, db_path: str) -> None:
         connection = duckdb.connect(db_path)
         try:
             for table_name in tables:
-                count, latest = connection.execute(
+                row = connection.execute(
                     f"SELECT COUNT(*), MAX(recorded_at) FROM {table_name}"
                 ).fetchone()
+                count, latest = row if row else (0, None)
                 rows.append(
                     {
                         "table_name": table_name,

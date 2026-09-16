@@ -296,7 +296,11 @@ class WebSearchNext(_PublicWebSearchModel):
 
 
 def make_next(
-    *, tool: str, query: dict[str, Any], why: str, confidence: str = "medium"
+    *,
+    tool: str,
+    query: dict[str, Any],
+    why: str,
+    confidence: Literal["exact", "high", "medium", "low"] = "medium",
 ) -> WebSearchNext:
     return WebSearchNext(action="fetch", tool=tool, query=query, why=why, confidence=confidence)
 

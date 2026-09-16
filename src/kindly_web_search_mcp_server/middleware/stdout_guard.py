@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import contextlib
 import sys
-from collections.abc import Awaitable, Callable
-from typing import Any
 
-from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools.tool import ToolResult
+from mcp import types as mt
 
 
 class StdoutGuardMiddleware(Middleware):
@@ -44,9 +44,9 @@ class StdoutGuardMiddleware(Middleware):
 
     async def on_call_tool(
         self,
-        context: MiddlewareContext,
-        call_next: Callable[[MiddlewareContext], Awaitable[Any]],
-    ) -> object:
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+    ) -> ToolResult:
         with contextlib.redirect_stdout(sys.stderr):
             return await call_next(context)
 
