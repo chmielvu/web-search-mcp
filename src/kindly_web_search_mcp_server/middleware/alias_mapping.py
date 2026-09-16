@@ -42,42 +42,62 @@ class ArgumentAliasingMiddleware(Middleware):
             new_args = dict(args)
             modified = False
 
-            # 1. Apply tool-specific aliases
-            tool_specific = TOOL_ALIASES.get(tool_name, {})
-            for canonical, alternatives in tool_specific.items():
-                if canonical not in new_args:
-                    for alt in alternatives:
-                        if alt in new_args:
-                            new_args[canonical] = new_args.pop(alt)
-                            modified = True
-                            logger.info(
-                                "Rewrote tool-specific alias '%s' -> '%s' for tool '%s'",
-                                alt,
-                                canonical,
-                                tool_name,
-                            )
-                            break
-
-            # 2. Apply global aliases
-            for canonical, alternatives in GLOBAL_ALIASES.items():
-                if canonical not in new_args:
-                    for alt in alternatives:
-                        if alt in new_args:
-                            new_args[canonical] = new_args.pop(alt)
-                            modified = True
-                            logger.info(
-                                "Rewrote global alias '%s' -> '%s' for tool '%s'",
-                                alt,
-                                canonical,
-                                tool_name,
-                            )
-                            break
+            # 1. Apply tool-specific aliases, then the global set.
+            modified |= _apply_aliases(
+                new_args,
+                TOOL_ALIASES.get(tool_name, {}),
+                scope="tool-specific",
+                tool_name=tool_name,
+            )
+            modified |= _apply_aliases(
+                new_args, GLOBAL_ALIASES, scope="global", tool_name=tool_name
+            )
 
             if modified:
                 new_message = context.message.model_copy(update={"arguments": new_args})
                 context = context.copy(message=new_message)
 
         return await call_next(context)
+
+
+def _apply_aliases(
+    args: dict[str, Any],
+    aliases: dict[str, list[str]],
+    *,
+    scope: str,
+    tool_name: str,
+) -> bool:
+    """Rewrite alias keys to their canonical name; return whether anything changed.
+
+    The canonical value always wins: when a caller sends both names, the alias is
+    dropped rather than forwarded, because an unknown keyword argument makes the
+    tool call fail validation.
+    """
+    modified = False
+    for canonical, alternatives in aliases.items():
+        for alias in alternatives:
+            if alias not in args:
+                continue
+            value = args.pop(alias)
+            modified = True
+            if canonical in args:
+                logger.info(
+                    "Dropped redundant %s alias '%s' for tool '%s' (canonical '%s' already set)",
+                    scope,
+                    alias,
+                    tool_name,
+                    canonical,
+                )
+                continue
+            args[canonical] = value
+            logger.info(
+                "Rewrote %s alias '%s' -> '%s' for tool '%s'",
+                scope,
+                alias,
+                canonical,
+                tool_name,
+            )
+    return modified
 
 
 def create_argument_aliasing_middleware() -> ArgumentAliasingMiddleware:

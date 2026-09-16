@@ -129,16 +129,21 @@ def _validate_kind(result_kind: str) -> None:
         raise ValueError(f"Unsupported result kind {result_kind!r}; expected one of: {allowed}.")
 
 
+def _delete_expired(connection: sqlite3.Connection, *, now: int | None = None) -> int:
+    """Delete expired MCP/CLI rows on an existing connection; return the count removed."""
+    with connection:
+        cursor = connection.execute(
+            "DELETE FROM results WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now if now is not None else _now_epoch(),),
+        )
+    return cursor.rowcount
+
+
 def cleanup_expired_results(*, db_path: str | Path | None = None, now: int | None = None) -> int:
     """Delete expired MCP/CLI rows and return the number removed."""
     connection = _connect(db_path)
     try:
-        with connection:
-            cursor = connection.execute(
-                "DELETE FROM results WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                (now if now is not None else _now_epoch(),),
-            )
-        return cursor.rowcount
+        return _delete_expired(connection, now=now)
     finally:
         connection.close()
 
@@ -162,6 +167,9 @@ def store_result(
     search_text = _searchable_text(source, result_kind, payload_json)
     connection = _connect(db_path)
     try:
+        # Retention must not depend on read traffic: a workload that only stores
+        # results would otherwise keep expired rows forever.
+        _delete_expired(connection, now=created)
         with connection:
             cursor = connection.execute(
                 """
@@ -255,11 +263,7 @@ def search_results(
     safe_limit = max(1, min(limit, _MAX_LIMIT))
     connection = _connect(db_path)
     try:
-        with connection:
-            connection.execute(
-                "DELETE FROM results WHERE expires_at IS NOT NULL AND expires_at <= ?",
-                (now if now is not None else _now_epoch(),),
-            )
+        _delete_expired(connection, now=now)
 
         clauses: list[str] = []
         params: list[Any] = []

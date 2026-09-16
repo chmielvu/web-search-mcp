@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractContextManager
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
@@ -60,7 +61,7 @@ def create_search_span(
     query: str,
     num_results: int,
     providers_requested: list[str] | None,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for search operation with semantic conventions.
 
     Use as context manager:
@@ -69,7 +70,7 @@ def create_search_span(
             span.set_attribute(SEARCH_NUM_RESULTS_RETURNED, len(results))
     """
     tracer = get_tracer()
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         "web_search",
         kind=trace.SpanKind.INTERNAL,
         attributes={
@@ -89,7 +90,7 @@ def create_provider_span(
     query: str,
     num_results: int,
     url: str,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for provider call with HTTP semantic conventions.
 
     Use as context manager:
@@ -104,7 +105,7 @@ def create_provider_span(
 
     parsed = urlparse(url)
 
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"provider.{provider}",
         kind=trace.SpanKind.CLIENT,
         attributes={
@@ -125,7 +126,7 @@ def create_llm_operation_span(
     *,
     system: str,
     attributes: Mapping[str, Any] | None = None,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create a client span for an LLM or AI-search operation.
 
     Use this for outbound model calls that should appear as first-class
@@ -163,7 +164,7 @@ def create_llm_operation_span(
             span_attributes[INPUT_MIME_TYPE] = "text/plain"
     if LLM_MODEL_NAME not in span_attributes:
         raise ValueError(f"{operation} span requires {LLM_MODEL_NAME}")
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"ai.{system}.{operation}",
         kind=trace.SpanKind.CLIENT,
         attributes=span_attributes,
@@ -174,7 +175,7 @@ def create_chain_span(
     name: str,
     *,
     attributes: Mapping[str, Any] | None = None,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create a chain/root span for end-to-end orchestration."""
     tracer = get_tracer()
     span_attributes: dict[str, Any] = {
@@ -188,7 +189,7 @@ def create_chain_span(
             if query_like is not None:
                 span_attributes[INPUT_VALUE] = str(query_like)[:500]
                 span_attributes[INPUT_MIME_TYPE] = "text/plain"
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         name,
         kind=trace.SpanKind.SERVER,
         attributes=span_attributes,
@@ -199,7 +200,7 @@ def create_mcp_tool_span(
     tool_name: str,
     method: str = "tools/call",
     session_id: str | None = None,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for MCP tool invocation.
 
     Use at server entry point for each tool call.
@@ -217,7 +218,7 @@ def create_mcp_tool_span(
     if session_id:
         attributes[MCP_SESSION_ID] = session_id
 
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"{method} {tool_name}",
         kind=trace.SpanKind.SERVER,
         attributes=attributes,
@@ -227,13 +228,13 @@ def create_mcp_tool_span(
 def create_content_span(
     stage: str,
     url: str,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for content resolution stage."""
     tracer = get_tracer()
 
     parsed = urlparse(url)
 
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"content.{stage}",
         kind=trace.SpanKind.CLIENT,
         attributes={
@@ -247,10 +248,10 @@ def create_content_span(
     )
 
 
-def create_merge_span(input_lists: int, total_input: int) -> trace.Span:
+def create_merge_span(input_lists: int, total_input: int) -> AbstractContextManager[trace.Span]:
     """Create span for RRF merge operation."""
     tracer = get_tracer()
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         "rrf_merge",
         kind=trace.SpanKind.INTERNAL,
         attributes={
@@ -264,10 +265,10 @@ def create_merge_span(input_lists: int, total_input: int) -> trace.Span:
 def create_query_rewrite_span(
     query: str,
     policy: str,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for query rewrite operation."""
     tracer = get_tracer()
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         "query.rewrite",
         kind=trace.SpanKind.INTERNAL,
         attributes={
@@ -283,7 +284,7 @@ def create_query_rewrite_span(
 def create_rerank_span(
     stage: str,
     input_count: int,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for reranking stage.
 
     Args:
@@ -291,7 +292,7 @@ def create_rerank_span(
         input_count: Number of candidates to rerank
     """
     tracer = get_tracer()
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"rerank.{stage}",
         kind=trace.SpanKind.INTERNAL,
         attributes={
@@ -306,10 +307,10 @@ def create_rerank_span(
 def create_circuit_breaker_span(
     provider: str,
     state: str,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for circuit breaker state change."""
     tracer = get_tracer()
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"circuit.{provider}",
         kind=trace.SpanKind.INTERNAL,
         attributes={
@@ -324,7 +325,7 @@ def create_cache_span(
     cache_type: str,
     query: str | None = None,
     url: str | None = None,
-) -> trace.Span:
+) -> AbstractContextManager[trace.Span]:
     """Create span for cache operation."""
     tracer = get_tracer()
     attributes = {
@@ -336,7 +337,7 @@ def create_cache_span(
     if url:
         attributes[URL_FULL] = url[:500]
 
-    return tracer.start_as_current_span(  # type: ignore[return-value]
+    return tracer.start_as_current_span(
         f"cache.{cache_type}",
         kind=trace.SpanKind.INTERNAL,
         attributes=attributes,
