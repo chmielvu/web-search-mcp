@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from collections.abc import Callable
 
 import duckdb
 
@@ -128,8 +128,8 @@ def _store_judgment_row(
     duration: float,
     parsed: dict | None,
     context_columns: list[dict[str, object]],
-    build_verdict: Any,
-    build_reasoning: Any,
+    build_verdict: Callable[[dict], str],
+    build_reasoning: Callable[[dict], str],
 ) -> None:
     """Store one judgment row (success inserts parsed values; error persists raw truncated text).
 

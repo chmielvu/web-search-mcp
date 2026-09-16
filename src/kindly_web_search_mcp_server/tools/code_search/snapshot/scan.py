@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
+from typing import Iterator
 
 from ..tree_sitter_evidence import language_for_path
 from .models import MAX_SNIPPET_CHARS, SnapshotHit, _SKIP_DIRS, _SKIP_SUFFIXES
@@ -18,7 +19,7 @@ def _read_text(path: Path) -> str:
     return path.read_bytes().decode("utf-8", errors="replace")
 
 
-def _iter_files(root: Path, path_prefix: str | None) -> "list[Path] | object":
+def _iter_files(root: Path, path_prefix: str | None) -> Iterator[Path]:
     base = root / path_prefix if path_prefix else root
     if base.is_file():
         yield base

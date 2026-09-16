@@ -297,6 +297,7 @@ def _insert_tool_call_analytics(
 
         if tool_name == "quick_web_search":
             _persist_quick_web_search_analytics(
+                terminal_event_id=event_id,
                 tool_call_id=tool_call_id,
                 fields=fields,
                 payload=payload,
@@ -375,6 +376,16 @@ def emit_tool_observability_event(
     level: int = logging.INFO,
     **fields: Any,
 ) -> None:
+    """Log an MCP tool lifecycle event and persist it to the tool-call sink.
+
+    The event name is derived as ``tool.<tool_name>.<phase>`` (for example
+    ``tool.web_search.request``). ``tool_call_id`` comes from the explicit
+    field when present, otherwise from the context variable, otherwise a fresh
+    uuid4 — and it is written back to the context so later events in the same
+    call share the id. Trace context and the serialized field set travel both
+    into the log record and into the persisted ``tool_calls`` row; persistence
+    failures are reported on ``logger`` without aborting the caller.
+    """
     event = f"tool.{tool_name}.{phase}"
     trace_context = current_trace_context()
     explicit_tool_call_id = fields.get("tool_call_id")
@@ -415,6 +426,14 @@ def emit_observability_event(
     level: int = logging.INFO,
     **fields: Any,
 ) -> None:
+    """Log a structured observability event and persist it to the event sink.
+
+    ``fields`` are normalized twice: verbatim-for-JSON into the log record
+    (``_normalize_for_body``) and column-typed for the persisted row
+    (``_normalize_for_analytics``). When the caller omits ``run_key``, the
+    current context run key is injected into both payloads so events correlate
+    with the surrounding search run.
+    """
     trace_context = current_trace_context()
     payload = {"event": event}
     payload.update(trace_context)
