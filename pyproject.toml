@@ -96,6 +96,7 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.0",
+    "ty>=0.0.81",
 ]
 
 [tool.ruff]
@@ -128,6 +129,24 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 filterwarnings = [
     "ignore::DeprecationWarning:pytest.*",
+]
+
+[tool.ty]
+# Type checking: ty is the checker that CI runs. See AGENTS.md → "Type checking".
+
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.12"
+root = ["./src"]
+
+[tool.ty.analysis]
+# Modules that are optional at runtime — installed by hand or by an optional
+# extra, never by `uv sync`. Every other unresolved import is a real error.
+allowed-unresolved-imports = [
+    "curl_cffi.**",  # TLS-impersonating HTTP client (stealth fetch tier)
+    "fitz",  # legacy module name for PyMuPDF
+    "gradio_client.**",  # Hugging Face Space ASR tier
+    "opentelemetry.exporter.prometheus",  # optional OTEL exporter
 ]
 
 [tool.pyright]

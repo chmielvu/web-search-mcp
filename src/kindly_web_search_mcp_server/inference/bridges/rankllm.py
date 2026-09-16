@@ -8,7 +8,7 @@ from typing import Any
 
 from ...models import WebSearchResult
 from ...settings import settings
-from ...rerank.llm_rerank import (
+from ...rerank.llm import (
     LLMRerankOutcome,
     _build_request,
     _get_gemini_coordinator,

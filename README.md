@@ -241,6 +241,14 @@ uv run ruff check src/
 uv run ruff format --check src/
 ```
 
+### Type check
+
+```bash
+uv run ty check src/
+```
+
+`ty` is configured in `[tool.ty]`. The tree is mid-burn-down, so the CI step is currently advisory — see `AGENTS.md` → "Type checking".
+
 ### Run MCP server locally
 
 ```bash

@@ -68,6 +68,7 @@ Every code comment must stand alone for a reader without access to the authoring
 | Install | `uv sync` | ~5s |
 | Lint | `uv run ruff check src/` | <1s |
 | Format Check | `uv run ruff format --check src/` | <1s |
+| Type Check | `uv run ty check src` | ~2s |
 | Run MCP Server | `uv run web-search-cli server` | foreground |
 | CLI Doctor | `uv run web-search-cli doctor` | ~8s |
 
@@ -181,9 +182,9 @@ This project is indexed by GitNexus as **web-search-mcp** (10603 symbols, 17956 
 
 ### Tooling
 
-Formatting and linting are handled by `ruff`; types by `pyright`. Configure once, let the tools decide style debates.
+Formatting and linting are handled by `ruff`; types by `ty` (Astral's Rust type checker, the same family as `ruff` and `uv`). Configure once, let the tools decide style debates.
 
-The enforced configuration lives in `pyproject.toml` and is kept deliberately narrow so the whole tree passes clean:
+The enforced configuration lives in `pyproject.toml`:
 
 ```toml
 # pyproject.toml (enforced)
@@ -199,9 +200,10 @@ ignore = ["E501"]  # line length is the formatter's job
 quote-style = "double"
 indent-style = "space"
 
-[tool.pyright]
-typeCheckingMode = "basic"
-pythonVersion = "3.12"
+[tool.ty.environment]
+python = ".venv"
+python-version = "3.12"
+root = ["./src"]
 ```
 
 Run before calling anything done:
@@ -209,9 +211,35 @@ Run before calling anything done:
 ```bash
 uv run ruff check src/
 uv run ruff format --check src/
+uv run ty check src
 ```
 
-Widening the lint set (`I`, `B`, `C4`, `UP`, `SIM`) or moving `pyright` to `standard`/`strict` is a deliberate, standalone change: both need a repo-wide fix pass, so they are not smuggled into unrelated edits.
+Widening the ruff rule set (`I`, `B`, `C4`, `UP`, `SIM`) is a deliberate, standalone change: it needs a repo-wide fix pass, so it is not smuggled into unrelated edits.
+
+### Type checking
+
+`ty` is the type checker. A full-tree run costs ~2–4s, so there is no reason to skip it:
+
+```bash
+uv run ty check src                  # whole tree
+uv run ty check src/path/to/file.py  # one file while iterating
+```
+
+> If an MCP client is running the server from `.venv`, `uv run` cannot replace the locked
+> `Scripts/web-search-mcp.exe` and aborts before checking. Use
+> `uv run --no-sync ty check src` in that case — `ty` is already installed in the venv.
+
+Configuration is the `[tool.ty]` table in `pyproject.toml`:
+
+- `[tool.ty.environment]` pins the interpreter to `.venv` and the target to Python 3.12.
+- `[tool.ty.analysis].allowed-unresolved-imports` lists modules that are genuinely optional at runtime (`curl_cffi`, `fitz`, `gradio_client`, the OTEL Prometheus exporter). **Never add an entry there to silence a real resolution failure** — that rule is what exposed the stale `rerank.llm_rerank` import that had been silently disabling the LLM rerank stage.
+
+Rules for agents:
+
+- **Do not add new diagnostics.** When you touch a file, fix the `ty` errors it already has.
+- Suppress narrowly at the site with `# ty: ignore[rule-name]`; never relax a rule globally to make a file pass. Existing `# type: ignore[...]` comments are still honoured (`respect-type-ignore-comments` defaults to true).
+- The repo is mid-burn-down: as of 2026-09-16 `uv run ty check src` reports 182 diagnostics (170 errors, 12 warnings), concentrated in `content/constructor.py`, `search/outcomes.py`, and `tools/code_search/`. The CI step is therefore **advisory** (`continue-on-error: true` in `.github/workflows/ci.yml`). Delete that flag once the count reaches zero.
+- `[tool.pyright]` stays in `pyproject.toml` for editor integrations (Pylance); `ty` is what the command line and CI enforce.
 
 ### Naming
 

@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint (ruff)
+    name: Lint (ruff) and types (ty)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,15 @@ jobs:
         run: uv run --with ruff --no-sync ruff check src
       - name: Format check
         run: uv run --with ruff --no-sync ruff format --check src
+      - name: Sync environment
+        # ty resolves imports against the project environment, so it needs a real sync.
+        run: uv sync --python "3.12"
+      - name: Type check (ty)
+        # Advisory while the pre-existing backlog is burned down: on 2026-09-16 this
+        # reports 182 diagnostics (170 errors). Remove `continue-on-error` once
+        # `uv run ty check src` is clean — see AGENTS.md → "Type checking".
+        continue-on-error: true
+        run: uv run --no-sync ty check src
 
   smoke:
     name: Import and CLI smoke (Python ${{ matrix.python-version }})
