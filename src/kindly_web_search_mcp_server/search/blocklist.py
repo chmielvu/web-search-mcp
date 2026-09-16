@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 
 from ..models import WebSearchResult
 from ..settings import settings
+from ..utils.paths import DEFAULT_BLOCKLIST_DB
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,9 @@ class BlocklistIndex:
 
 
 def _resolve_db_path() -> Path:
-    configured = (getattr(settings, "blocklist_sqlite_path", None) or "").strip()
-    return Path(configured) if configured else Path("data") / "blocklist.sqlite"
+    """Resolve the blocklist store, defaulting to the repository copy."""
+    configured = (settings.blocklist_sqlite_path or "").strip()
+    return Path(configured) if configured else Path(DEFAULT_BLOCKLIST_DB)
 
 
 def _translate_ublacklist_to_regex(pattern: str) -> str:

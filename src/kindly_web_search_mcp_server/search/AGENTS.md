@@ -18,7 +18,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 17 providers.
 | `ranking.py` | Blocklist, weighted RRF merge, BM25/rerank, final response |
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
-| `blocklist.py` | DuckDB-backed URL blocking |
+| `blocklist.py` | SQLite-backed URL blocking |
 | `provider_registry.py` | Provider definitions (17), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
 | `intents.py` | Canonical intents, aliases, normalization + intent-specific provider arguments, goggles, freshness, options (merged `intent_policy.py`) |
 | `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |

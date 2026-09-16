@@ -26,6 +26,7 @@ OUTPUTS_DIR = REPO_ROOT / "outputs"
 
 # Subdirectories
 ANALYTICS_DIR = DUCKDB_DATA_DIR / "analytics"
+BLOCKLIST_DIR = DUCKDB_DATA_DIR / "blocklist"
 CACHE_DIR = DUCKDB_DATA_DIR / "cache"
 EXTENSIONS_DIR = DUCKDB_DATA_DIR / "duckdb_extensions"
 LOGS_DIR = DUCKDB_DATA_DIR / "logs"
@@ -38,6 +39,7 @@ def ensure_duckdb_dirs() -> None:
     for dir_path in [
         DUCKDB_DATA_DIR,
         ANALYTICS_DIR,
+        BLOCKLIST_DIR,
         CACHE_DIR,
         EXTENSIONS_DIR,
         LOGS_DIR,
@@ -49,6 +51,7 @@ def ensure_duckdb_dirs() -> None:
 
 # Default file paths (fixed locations)
 DEFAULT_ANALYTICS_DB = str(ANALYTICS_DIR / "search_events.duckdb")
+DEFAULT_BLOCKLIST_DB = str(BLOCKLIST_DIR / "blocklist.sqlite")
 DEFAULT_PAGE_CACHE_DB = str(CACHE_DIR / "page_cache.sqlite")
 DEFAULT_TRANSCRIPT_CACHE_DB = str(CACHE_DIR / "transcript_cache.sqlite")
 DEFAULT_CODE_FETCH_SNAPSHOT_DB = str(CACHE_DIR / "code_fetch_snapshots.sqlite")

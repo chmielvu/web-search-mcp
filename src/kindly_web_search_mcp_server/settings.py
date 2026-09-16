@@ -24,6 +24,7 @@ else:
 
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
+    DEFAULT_BLOCKLIST_DB,
     DEFAULT_CODE_FETCH_SNAPSHOT_DB,
     DEFAULT_PAGE_CACHE_DB,
     DEFAULT_PROCESS_LOGS_DB,
@@ -327,6 +328,12 @@ class Settings:
     transcript_cache_sqlite_path: str = os.environ.get(
         "TRANSCRIPT_CACHE_SQLITE_PATH",
         DEFAULT_TRANSCRIPT_CACHE_DB,
+    )
+
+    # Blocklist store (uBlacklist-style globs filtered out of every web search)
+    blocklist_sqlite_path: str = os.environ.get(
+        "BLOCKLIST_SQLITE_PATH",
+        DEFAULT_BLOCKLIST_DB,
     )
 
     # Code-search cache tiers. Search results are short-lived; immutable

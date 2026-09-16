@@ -289,7 +289,6 @@ future-plans/
 # Local analytics data (binary DuckDB files)
 .kindly/
 duckdb_data/
-data/blocklist.duckdb
 
 # DuckDB binary extensions (platform-specific)
 .duckdb_extensions/
@@ -394,8 +393,6 @@ test-results/live-web-search/
 # Scratch/report files at repo root (non-source)
 /agent/
 /agent
-/data/
-/data/
 /reports/
 /0.4.8
 /WATCHDOG.yml
