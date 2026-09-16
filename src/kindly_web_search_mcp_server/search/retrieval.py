@@ -438,6 +438,7 @@ async def retrieve_branches(
                 async def _invoke(
                     b: QueryBranch = branch,
                     n: str = name,
+                    i: int = branch_index,
                 ) -> tuple[
                     str,
                     Sequence[WebSearchResult] | BaseException,
@@ -446,7 +447,7 @@ async def retrieve_branches(
                     float,
                 ]:
                     call_started = time.monotonic()
-                    started_at[(branch_index, name)] = call_started
+                    started_at[(i, n)] = call_started
                     provider_name, value, metadata, request_query = await _call_provider(
                         run,
                         b,

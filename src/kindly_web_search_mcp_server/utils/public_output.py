@@ -80,8 +80,6 @@ def normalize_snippet(text: str, *, max_length: int = MAX_SNIPPET_LENGTH) -> str
     return cleaned
 
 
-_OVERFLOW_CURSOR_VERSION = 1
-
 _PAGE1_FETCH_WHY = (
     "Evaluate these results first. Then call fetch on the URLs you need; "
     "snippets are not page text."

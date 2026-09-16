@@ -615,7 +615,8 @@ def register_provider_alias(alias: str, target: str) -> None:
     """
     if target not in _PROVIDER_ADAPTERS:
         raise KeyError(f"Cannot alias '{alias}' to unknown provider '{target}'")
-    _PROVIDER_ADAPTERS[alias] = _PROVIDER_ADAPTERS[target]
+    with _LOCK:
+        _PROVIDER_ADAPTERS[alias] = _PROVIDER_ADAPTERS[target]
     logger.debug("Registered provider alias '%s' -> '%s'", alias, target)
 
 

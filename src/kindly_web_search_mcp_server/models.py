@@ -112,7 +112,7 @@ class WebSearchFetchHint(BaseModel):
         default=None,
         description="Explanation of why this result warrants fetching.",
     )
-    confidence: str | None = Field(
+    confidence: Literal["high", "medium", "low"] | None = Field(
         default=None,
         description="Continuation confidence: 'high', 'medium', or 'low'.",
     )

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, NoReturn
 
 import asyncio
+import json
 
 import httpx
 
@@ -116,21 +117,24 @@ def classify_error(
             provider=provider,
         )
 
+    # Content/parsing errors. This branch must precede the generic ValueError
+    # check below: `json.JSONDecodeError` subclasses `ValueError`, so a
+    # provider returning malformed JSON would otherwise be reported as a
+    # caller-side parameter problem.
+    if isinstance(error, json.JSONDecodeError) or "Parse" in error_name:
+        return StructuredToolError(
+            error=f"Content parsing error: {str(error)[:80]}",
+            error_type="content",
+            action="The server returned unexpected content format. The service may be misconfigured.",
+            provider=provider,
+        )
+
     # Input and parameter validation errors
     if isinstance(error, ValueError) or "ValidationError" in error_name:
         return StructuredToolError(
             error=f"Invalid parameter: {str(error)}",
             error_type="validation",
             action="Check input parameters and format.",
-            provider=provider,
-        )
-
-    # Content/parsing errors
-    if "Parse" in error_name or "JSON" in error_name:
-        return StructuredToolError(
-            error=f"Content parsing error: {str(error)[:80]}",
-            error_type="content",
-            action="The server returned unexpected content format. The service may be misconfigured.",
             provider=provider,
         )
 

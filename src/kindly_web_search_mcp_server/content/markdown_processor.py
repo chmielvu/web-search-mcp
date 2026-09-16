@@ -1081,11 +1081,12 @@ def _check_structures(text: str) -> _StructuralFindings:
                     if current_row:
                         row_counts.append(current_row)
                         current_row = 0
+            malformed = False
             if row_counts:
                 head = row_counts[0]
                 body = row_counts[1:]
                 if body and any(count != head for count in body):
-                    malformed_tables += 1
+                    malformed = True
                     table_range = _as_line_range(outer.map)
                     if table_range is not None and table_range not in affected_ranges:
                         affected_ranges.append(table_range)
@@ -1097,11 +1098,10 @@ def _check_structures(text: str) -> _StructuralFindings:
             if source_rows is not None:
                 head, body = source_rows
                 if body and any(count != head for count in body):
+                    malformed = True
                     source_range = _as_line_range(outer.map)
                     if source_range is not None and source_range not in affected_ranges:
                         affected_ranges.append(source_range)
-                    if "malformed_table" not in flag_codes:
-                        malformed_tables += 1
                     if any(count > head for count in body):
                         if "MD056" not in flag_codes:
                             flag_codes.append("MD056")
@@ -1109,6 +1109,8 @@ def _check_structures(text: str) -> _StructuralFindings:
                         flag_codes.append("MD075")
                     if "malformed_table" not in flag_codes:
                         flag_codes.append("malformed_table")
+            if malformed:
+                malformed_tables += 1
             index = block_end + 1
             continue
         index += 1
