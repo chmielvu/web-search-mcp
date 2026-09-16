@@ -1,0 +1,117 @@
+[project]
+name = "vgi-search"
+version = "0.1.0"
+description = "Unified web search as VGI DuckDB SQL functions, behind one pluggable provider surface (for RAG / retrieval)"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Query Farm LLC", email = "hello@query.farm" }]
+keywords = [
+    "vgi",
+    "duckdb",
+    "web-search",
+    "search",
+    "rag",
+    "retrieval",
+    "brave",
+    "tavily",
+    "exa",
+    "searxng",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Typing :: Typed",
+]
+dependencies = [
+    "vgi-python>=0.30.0",
+    "httpx>=0.27",
+    "pyarrow",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pydoclint>=0.5",
+]
+# HTTP transport: the worker can serve over HTTP (`search_worker.py --http`, and
+# the SQL-E2E mock launcher `scripts/mock_worker.py --http`) in addition to
+# stdio/AF_UNIX. That path needs vgi-python's `http` extra (waitress). CI's http
+# transport leg installs this via `uv sync --extra http`.
+http = [
+    "vgi-python[http]>=0.30.0",
+]
+# HTTP-serving extra installed by the Docker image (`pip install '.[serve]'`).
+# Alias of `http` — same waitress-backed HTTP transport, named to match the
+# fleet-wide container convention (`vgi-serve ... --http`).
+serve = [
+    "vgi-python[http]>=0.30.0",
+]
+
+[project.scripts]
+# Console entry the container's stdio transport and bin/vgi-search-worker exec.
+vgi-search-worker = "vgi_search.worker:main"
+
+[project.urls]
+Homepage = "https://query.farm"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vgi_search"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "live: hits a real provider over the network (DDG Instant Answer, no key); gated, not in CI",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "D"]
+
+[tool.ruff.lint.per-file-ignores]
+# Docstrings (D) are enforced on the worker package/script (product code), not tests.
+"tests/**" = ["D"]
+# The PEP 723 inline-script headers wrap dependency pins that should stay one-per-line.
+"search_worker.py" = ["E501"]
+"serve.py" = ["E501"]
+# The worker module keeps a few metadata/agent-task strings (JSON blobs, prompts)
+# on one line for readability; wrapping them would fragment the literals.
+"vgi_search/worker.py" = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pydoclint]
+# Docstring consistency gate (complements ruff's D rules: ruff checks docstring
+# shape, pydoclint checks documented args/returns/attrs match the code).
+style = "google"
+arg_type_hints_in_docstring = false
+check_return_types = false
+check_yield_types = false
+check_class_attributes = true
+skip_checking_raises = true
+allow_init_docstring = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true

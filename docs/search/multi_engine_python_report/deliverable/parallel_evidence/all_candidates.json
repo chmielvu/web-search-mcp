@@ -1,0 +1,499 @@
+{
+  "queries": [
+    "language:python \"Tavily\" \"Brave\" MCP",
+    "language:python search MCP server stdio",
+    "language:python reciprocal rank fusion RRF",
+    "language:python SearXNG MCP",
+    "language:python hybrid search rerank fusion",
+    "language:python web search aggregator 2025",
+    "language:python multi search tool aggregator",
+    "language:python metasearch",
+    "language:python \"weighted RRF\"",
+    "language:python multi source RRF rerank",
+    "language:python searxng multi engine",
+    "language:python Brave Tavily Exa hybrid"
+  ],
+  "total_unique": 60,
+  "repos": [
+    {
+      "query": "language:python \"Tavily\" \"Brave\" MCP",
+      "repo": "SK-DEV-AI/websearch",
+      "stars": 1,
+      "description": "Multi-engine web search + fetch MCP server (DDG, Brave, Tavily, Google AI Mode) with consensus-merge dedup, local cross-encoder reranking, and Groq synthesis",
+      "url": "https://github.com/SK-DEV-AI/websearch",
+      "pushed_at": "2026-09-14T08:22:59Z"
+    },
+    {
+      "query": "language:python \"Tavily\" \"Brave\" MCP",
+      "repo": "dhruv-anand-aintech/anysearch",
+      "stars": 4,
+      "description": "One interface for every web search API (Exa, Tavily, Brave, SerpAPI, and 16 providers) \u2014 Python/TS SDKs + MCP server.",
+      "url": "https://github.com/dhruv-anand-aintech/anysearch",
+      "pushed_at": "2026-07-28T13:11:53Z"
+    },
+    {
+      "query": "language:python \"Tavily\" \"Brave\" MCP",
+      "repo": "Quantaus/product-researcher-mcp",
+      "stars": 0,
+      "description": "MCP server that gives Claude Code web search and product research capabilities. Supports Tavily, Brave, and Serper.",
+      "url": "https://github.com/Quantaus/product-researcher-mcp",
+      "pushed_at": "2026-03-30T05:34:02Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "freyajeffers/filesystem-rag-mcp",
+      "stars": 0,
+      "description": "Local filesystem RAG MCP server: vector + full-text search over your files. Streamable HTTP + stdio, OAuth 2.1 with dynamic client registration, compliant with MCP spec 2026-07-28.",
+      "url": "https://github.com/freyajeffers/filesystem-rag-mcp",
+      "pushed_at": "2026-09-14T21:03:47Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "kawaii-snafy/mcp-yandex-tracker",
+      "stars": 1,
+      "description": "Stdio MCP server for Yandex Tracker \u2014 read, search, create, update, comment on, and transition issues",
+      "url": "https://github.com/kawaii-snafy/mcp-yandex-tracker",
+      "pushed_at": "2026-09-15T11:02:17Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "ssevera1/Qlik-Cloud-MCP-Server",
+      "stars": 0,
+      "description": "Agent 2: MCP Server providing governed access to Qlik Cloud via 4 tools \u2014 search, sheet details, hypercube data, and sheet creation. Supports stdio and SSE transports.",
+      "url": "https://github.com/ssevera1/Qlik-Cloud-MCP-Server",
+      "pushed_at": "2026-09-13T16:43:14Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "FI-Mihej/text_file_read_and_refactor_mcp",
+      "stars": 1,
+      "description": "Token-efficient Python stdio MCP server exposing safe text-file search, reading, and refactoring tools. Tools automatically resolve the file BOM and codepage; edit tools save files with their original encoding and BOM.",
+      "url": "https://github.com/FI-Mihej/text_file_read_and_refactor_mcp",
+      "pushed_at": "2026-09-13T16:16:23Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "stevenmichiels/yt-mcp",
+      "stars": 0,
+      "description": "A local stdio MCP server for YouTube Music search, song radio, and private playlist creation.",
+      "url": "https://github.com/stevenmichiels/yt-mcp",
+      "pushed_at": "2026-09-13T13:04:27Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "ChHsiching/agent-web-search",
+      "stars": 4,
+      "description": "A free, uncapped stdio MCP server that searches the web via DuckDuckGo/ddgs and returns page-body extracts. Ships as a single self-contained binary. Works with Claude Code, ZCode, and any MCP client.",
+      "url": "https://github.com/ChHsiching/agent-web-search",
+      "pushed_at": "2026-09-07T17:25:33Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "deXterbed/ollama-web-search",
+      "stars": 0,
+      "description": "MCP stdio server exposing Ollama's hosted web search and web fetch APIs as tools for any MCP client.",
+      "url": "https://github.com/deXterbed/ollama-web-search",
+      "pushed_at": "2026-09-07T12:46:38Z"
+    },
+    {
+      "query": "language:python search MCP server stdio",
+      "repo": "kbjama8/kortex-search",
+      "stars": 0,
+      "description": "Unified web-search & research MCP server: fuses 18 sources (web, social, code, video, academic) via weighted RRF, re-ranks with a cross-encoder, MMR-diversifies, freshness-filters, Redis-caches \u2014 then synthesizes cited answers with DeepSeek. stdio/HTTP, lazy models. Client-agnostic: Works with Claude Code, OpenCode or any other MCP host.",
+      "url": "https://github.com/kbjama8/kortex-search",
+      "pushed_at": "2026-09-06T19:10:58Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "Naveenkumaar/ET_Hackathon_main",
+      "stars": 0,
+      "description": "Hybrid GraphRAG for industrial maintenance \u2014 knowledge graph + vector search fused via Reciprocal Rank Fusion (RRF) to trace failure chains across documents that share no keywords. ET AI Hackathon 2.0, Problem #8.",
+      "url": "https://github.com/Naveenkumaar/ET_Hackathon_main",
+      "pushed_at": "2026-09-16T06:43:40Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "pranjal-2218/rag-robustness-research",
+      "stars": 0,
+      "description": "Evaluates the robustness of compact Retrieval-Augmented Generation (RAG) models under structured multi-category web noise, utilizing hybrid Reciprocal Rank Fusion (RRF) and FAISS/BM25 benchmarks.",
+      "url": "https://github.com/pranjal-2218/rag-robustness-research",
+      "pushed_at": "2026-09-15T17:06:34Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "Pouyops/HybridRAG",
+      "stars": 1,
+      "description": "This project features multi-strategy document chunking, hybrid retrieval (Dense + Sparse) with Reciprocal Rank Fusion (RRF), Cross-Encoder reranking, and a comprehensive automated evaluation suite using an LLM-as-a-Judge.",
+      "url": "https://github.com/Pouyops/HybridRAG",
+      "pushed_at": "2026-09-15T12:53:46Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "yigitkeskin-hash/open-webui",
+      "stars": 0,
+      "description": "Optimized Open WebUI fork featuring Milvus multitenancy, Binary Quantization (BQ), and Reciprocal Rank Fusion (RRF) hybrid search with an automated RAG evaluation framework.",
+      "url": "https://github.com/yigitkeskin-hash/open-webui",
+      "pushed_at": "2026-09-14T15:23:38Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "Alpha-Park/genpark-hybrid-rerank-fusion-retriever-skill",
+      "stars": 7,
+      "description": "Reciprocal Rank Fusion (RRF) and hybrid search rank fusion engine",
+      "url": "https://github.com/Alpha-Park/genpark-hybrid-rerank-fusion-retriever-skill",
+      "pushed_at": "2026-09-14T04:31:16Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "alphaparkinc/genpark-hybrid-rerank-fusion-retriever-skill",
+      "stars": 8,
+      "description": "Reciprocal Rank Fusion (RRF) and hybrid search rank fusion engine",
+      "url": "https://github.com/alphaparkinc/genpark-hybrid-rerank-fusion-retriever-skill",
+      "pushed_at": "2026-09-14T04:30:47Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "rakeshbhol199990-byte/enterprise-hybrid-rag",
+      "stars": 0,
+      "description": "Enterprise-grade Hybrid RAG System using Qdrant Vector DB, Parent-Child Chunking, Matryoshka Representation Learning (MRL -75% memory savings), BM25 Sparse Search, and Reciprocal Rank Fusion (RRF).",
+      "url": "https://github.com/rakeshbhol199990-byte/enterprise-hybrid-rag",
+      "pushed_at": "2026-09-13T15:12:48Z"
+    },
+    {
+      "query": "language:python reciprocal rank fusion RRF",
+      "repo": "sohamkhore/enterprise_ai_assistant",
+      "stars": 0,
+      "description": "Production-grade Enterprise AI Assistant & Hybrid RAG platform featuring PostgreSQL (pgvector) dense search, native Full-Text lexical search, Reciprocal Rank Fusion (RRF), Cross-Encoder reranking, and SSE streaming.",
+      "url": "https://github.com/sohamkhore/enterprise_ai_assistant",
+      "pushed_at": "2026-09-12T15:46:37Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "gefsikatsinelou/MetaSearchMCP",
+      "stars": 56,
+      "description": "Open-source metasearch backend, MCP server, and AI search API for LLM agents. Python FastAPI search gateway with Google search via SerpBase and Serper, multi-engine search aggregation, structured JSON output, provider fallback, deduplication, and SearXNG alternative architecture for agent workflows.",
+      "url": "https://github.com/gefsikatsinelou/MetaSearchMCP",
+      "pushed_at": "2026-09-16T07:59:33Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "brunogcar/agent",
+      "stars": 1,
+      "description": "Local-first Cognitive Execution Platform for Multi-LLM Orchestration, Autonomous Workflows, Persistent Memory & Offline Learning",
+      "url": "https://github.com/brunogcar/agent",
+      "pushed_at": "2026-09-16T01:07:59Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "n24q02m/web-core",
+      "stars": 3,
+      "description": "Shared web infrastructure package for search, scraping, HTTP security, and stealth browsers. Used by wet-mcp and downstream applications.",
+      "url": "https://github.com/n24q02m/web-core",
+      "pushed_at": "2026-09-16T00:45:02Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "codeprimate/searxng_docker",
+      "stars": 3,
+      "description": "A preconfigured searxng docker instance and mcp server",
+      "url": "https://github.com/codeprimate/searxng_docker",
+      "pushed_at": "2026-09-15T22:18:07Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "Korrnals/bathys",
+      "stars": 0,
+      "description": "Unified local deep-research search service for AI agents \u2014 one pipeline (search \u2192 extraction \u2192 query distillation \u2192 cache), SearXNG/Crawl4AI as swappable engines, zero cloud quotas. MCP stdio.",
+      "url": "https://github.com/Korrnals/bathys",
+      "pushed_at": "2026-09-15T21:25:09Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "brunowinter8192/websearch",
+      "stars": 0,
+      "description": null,
+      "url": "https://github.com/brunowinter8192/websearch",
+      "pushed_at": "2026-09-15T21:23:09Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "ptrken01/searxng-mcp-scraper",
+      "stars": 0,
+      "description": "MCP server (search + fetch + scrape_blog + deep_scrape) over a local SearXNG instance, with a keyless Firecrawl fallback for JS-rendered pages",
+      "url": "https://github.com/ptrken01/searxng-mcp-scraper",
+      "pushed_at": "2026-09-15T18:30:08Z"
+    },
+    {
+      "query": "language:python SearXNG MCP",
+      "repo": "Ahmetshbzz/web-search-mcp",
+      "stars": 0,
+      "description": "Ajanlar i\u00e7in \u00e7ok sa\u011flay\u0131c\u0131l\u0131 web arama ve i\u00e7erik \u00e7\u0131karma MCP sunucusu: 13 arama sa\u011flay\u0131c\u0131s\u0131, sayfa \u00e7\u0131karma, headless render, derin ara\u015ft\u0131rma, site ke\u015ffi ve Firecrawl CLI ara\u00e7lar\u0131.",
+      "url": "https://github.com/Ahmetshbzz/web-search-mcp",
+      "pushed_at": "2026-09-15T12:39:05Z"
+    },
+    {
+      "query": "language:python hybrid search rerank fusion",
+      "repo": "arpen1802/doc-search-lab",
+      "stars": 0,
+      "description": "Document retrieval built one measurable stage at a time \u2014 BM25, dense, hybrid fusion, cross-encoder reranking \u2014 each scored against real relevance judgments. Bring your own corpus.",
+      "url": "https://github.com/arpen1802/doc-search-lab",
+      "pushed_at": "2026-09-14T10:10:08Z"
+    },
+    {
+      "query": "language:python hybrid search rerank fusion",
+      "repo": "siddharthgaur1/rag-hybrid-search",
+      "stars": 0,
+      "description": "Hybrid RAG pipeline: dense + BM25 fusion, cross-encoder reranking, cited generation with LLM-judge citation verification",
+      "url": "https://github.com/siddharthgaur1/rag-hybrid-search",
+      "pushed_at": "2026-09-13T14:05:28Z"
+    },
+    {
+      "query": "language:python hybrid search rerank fusion",
+      "repo": "itsapexdanav/RAG_WITH_Hybrid_Search_and_Reranking",
+      "stars": 0,
+      "description": "Hybrid Search / RAG system using BM25, dense embeddings, RRF fusion, cross-encoder reranking, and NDCG@10 evaluation on FiQA.",
+      "url": "https://github.com/itsapexdanav/RAG_WITH_Hybrid_Search_and_Reranking",
+      "pushed_at": "2026-09-13T09:41:32Z"
+    },
+    {
+      "query": "language:python hybrid search rerank fusion",
+      "repo": "namanchawda/RAG",
+      "stars": 0,
+      "description": "A general-purpose RAG (Retrieval-Augmented Generation) system for querying any PDF/HTML document. Features hybrid search (dense + BM25 via Reciprocal Rank Fusion), cross-encoder reranking, and 4 selectable chunking strategies \u2014 with a documented, reproducible bug found and fixed using real evidence.",
+      "url": "https://github.com/namanchawda/RAG",
+      "pushed_at": "2026-09-13T08:40:57Z"
+    },
+    {
+      "query": "language:python hybrid search rerank fusion",
+      "repo": "Vaishnav1313-png/verity",
+      "stars": 0,
+      "description": "A production-oriented document intelligence workspace using Hybrid RAG with vector search, BM25 keyword retrieval, Reciprocal Rank Fusion, CrossEncoder reranking, and grounded LLM generation.",
+      "url": "https://github.com/Vaishnav1313-png/verity",
+      "pushed_at": "2026-09-12T18:59:18Z"
+    },
+    {
+      "query": "language:python multi search tool aggregator",
+      "repo": "p1s4/mcp-search-proxy",
+      "stars": 5,
+      "description": "Search-first MCP proxy for tool-heavy aggregators: 4 fixed tools (search/describe/call/refresh) instead of hundreds of full schemas per turn. Multi-upstream, sticky sessions, local BM25.",
+      "url": "https://github.com/p1s4/mcp-search-proxy",
+      "pushed_at": "2026-09-15T19:52:10Z"
+    },
+    {
+      "query": "language:python multi search tool aggregator",
+      "repo": "alex-zagorianos/Zaggregate",
+      "stars": 0,
+      "description": "Wide-net job search aggregator - multi-source scraping, match scoring, BYO-AI setup, resume tooling, and an application tracker. Local-first, no telemetry.",
+      "url": "https://github.com/alex-zagorianos/Zaggregate",
+      "pushed_at": "2026-07-08T06:14:26Z"
+    },
+    {
+      "query": "language:python multi search tool aggregator",
+      "repo": "n-oost/omni-job-searcher",
+      "stars": 0,
+      "description": "A comprehensive, multi-engine job search tool (CLI & GUI) that aggregates results from Tavily, Exa, and Brave.",
+      "url": "https://github.com/n-oost/omni-job-searcher",
+      "pushed_at": "2025-12-23T20:13:08Z"
+    },
+    {
+      "query": "language:python multi search tool aggregator",
+      "repo": "Amanjhamat4/Sentient-AGI-Research-Assistant",
+      "stars": 0,
+      "description": "This project is a multi-agent system called Sentient AGI Research Assistant, which uses ROMA to perform deep research on AGI-related topics. It breaks down complex queries into subtasks, executes them using tools like web search, aggregates results, and verifies the output for accuracy.",
+      "url": "https://github.com/Amanjhamat4/Sentient-AGI-Research-Assistant",
+      "pushed_at": "2025-10-27T20:43:49Z"
+    },
+    {
+      "query": "language:python multi search tool aggregator",
+      "repo": "solaceai-evidence/multi-source-research-aggregator",
+      "stars": 0,
+      "description": "A Python tool that aggregates research papers and documents from multiple academic and health-related sources with semantic search capabilities",
+      "url": "https://github.com/solaceai-evidence/multi-source-research-aggregator",
+      "pushed_at": "2025-07-15T14:11:00Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "Kerberos255/searxng-windows",
+      "stars": 2,
+      "description": "Windows SearXNG deployment scripts and OpenClaw integration notes.",
+      "url": "https://github.com/Kerberos255/searxng-windows",
+      "pushed_at": "2026-09-16T06:50:48Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "rayborg/meteorite-meta-search",
+      "stars": 0,
+      "description": "Meteorite active for sale metasearch",
+      "url": "https://github.com/rayborg/meteorite-meta-search",
+      "pushed_at": "2026-09-16T05:23:29Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "tiekoettercom/searxng",
+      "stars": 34,
+      "description": "SearXNG is a free internet metasearch engine which aggregates results from various search services and databases. Users are neither tracked nor profiled. This is a fork of SearXNG used by searx.tiekoetter.com | Mirror of tiekoetter/searxng",
+      "url": "https://github.com/tiekoettercom/searxng",
+      "pushed_at": "2026-09-15T22:00:10Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "westfreund/LR-CompanionSuite",
+      "stars": 0,
+      "description": "A companion suite for Adobe Lightroom Classic: LR-FolderCraft reorganises folder trees without losing the catalog connection, LR-MetaSearch searches across every library you own. Mirror of gitlab.com/andy-freund/LR-CompanionSuite",
+      "url": "https://github.com/westfreund/LR-CompanionSuite",
+      "pushed_at": "2026-09-15T19:55:43Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "hermes-labs-ai/supersearch",
+      "stars": 2,
+      "description": "Deadline-bounded local search fan-out with source-explicit JSON receipts for agents and engineers.",
+      "url": "https://github.com/hermes-labs-ai/supersearch",
+      "pushed_at": "2026-09-15T18:45:00Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "ActuallyTaylor/searxng",
+      "stars": 0,
+      "description": "SearXNG is a free internet metasearch engine which aggregates results from various search services and databases. Users are neither tracked nor profiled.",
+      "url": "https://github.com/ActuallyTaylor/searxng",
+      "pushed_at": "2026-09-15T15:30:13Z"
+    },
+    {
+      "query": "language:python metasearch",
+      "repo": "taxueseek/argo",
+      "stars": 130,
+      "description": "\u4e13\u95e8\u4e3a agent \u6253\u9020\u7684\u5f00\u6e90 agent \u641c\u7d22\u5de5\u5177\uff0c\u5177\u5907 200+\u7684\u641c\u7d22\u6e90\u53ca\u591a\u8bed\u8a00\u641c\u7d22\u80fd\u529b\uff0c\u8986\u76d6\u4e2d\u6587/\u82f1\u6587/\u5b66\u672f/\u4ee3\u7801/\u8d2d\u7269/\u91d1\u878d/\u65b0\u95fb/\u767e\u79d1\u3002",
+      "url": "https://github.com/taxueseek/argo",
+      "pushed_at": "2026-09-15T14:58:07Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "chusito27/PortfolioOrlandoJesusAI",
+      "stars": 0,
+      "description": "Hybrid RAG over .NET documentation: pgvector + Postgres full-text, weighted RRF, LLM re-ranking, validated citations, and an evaluation harness measuring recall, grounding and refusal.",
+      "url": "https://github.com/chusito27/PortfolioOrlandoJesusAI",
+      "pushed_at": "2026-09-15T17:30:38Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "metu-dm/focus-demo",
+      "stars": 0,
+      "description": "FOCUS: Interactive visual search with user-defined object importance, CLIP/DINOv2 image embeddings, configurable YOLO detection, and weighted/RRF fusion on Elasticsearch.",
+      "url": "https://github.com/metu-dm/focus-demo",
+      "pushed_at": "2026-09-14T20:42:29Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "xfloukiex-lab/magpie-search",
+      "stars": 28,
+      "description": "Federated, local-first search for an AI \u2014 one query across transcripts, files, knowledge graph, vector store, and the web, fused by trust-weighted RRF. Apache-2.0.",
+      "url": "https://github.com/xfloukiex-lab/magpie-search",
+      "pushed_at": "2026-09-09T23:22:58Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "asfm2003/ResearchPilot",
+      "stars": 0,
+      "description": "Evidence-grounded scientific literature RAG chatbot using hybrid dense + BM25 retrieval, weighted RRF, cross-encoder reranking, and citation-grounded LLM generation.",
+      "url": "https://github.com/asfm2003/ResearchPilot",
+      "pushed_at": "2026-09-09T17:13:32Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "sarat863/NexusRAG-Enterprise",
+      "stars": 0,
+      "description": "Autonomous Enterprise RAG Platform featuring Corrective RAG (CRAG), SQLite ACID persistence, Hybrid Dense+BM25 with Weighted RRF, Multi-Turn Memory with Coreference Resolution, Multi-Tenant RBAC, AST Math Reasoning, and Real-Time SSE Token Streaming.",
+      "url": "https://github.com/sarat863/NexusRAG-Enterprise",
+      "pushed_at": "2026-08-27T21:27:05Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "desilva23/ragingoa-api",
+      "stars": 0,
+      "description": "Voice-enabled RAG over MSMARCO-XI in 5 Indic languages + English. Hybrid retrieval (BM25 + dense, weighted RRF), 5 guardrail layers, 4-rung LLM fallback ladder, and a published latency ledger \u2014 every number regenerated by scripts.",
+      "url": "https://github.com/desilva23/ragingoa-api",
+      "pushed_at": "2026-08-22T18:46:29Z"
+    },
+    {
+      "query": "language:python \"weighted RRF\"",
+      "repo": "Kartikeya-trivedi/atlas",
+      "stars": 0,
+      "description": "Permission-aware hybrid RAG over Slack, Notion, Drive, GitHub and Jira. Dense + BM25 fused by weighted RRF, with the caller's ACLs applied inside the retrieval scan.",
+      "url": "https://github.com/Kartikeya-trivedi/atlas",
+      "pushed_at": "2026-08-21T12:59:33Z"
+    },
+    {
+      "query": "language:python multi source RRF rerank",
+      "repo": "Moinak07/docmind-ai",
+      "stars": 1,
+      "description": "Conversational multi-format RAG chatbot built with Streamlit and LangChain, featuring hybrid dense+sparse retrieval, RRF fusion, Cross-Encoder reranking, Groq-powered generation, and page/row-level source citations.",
+      "url": "https://github.com/Moinak07/docmind-ai",
+      "pushed_at": "2026-09-07T12:21:13Z"
+    },
+    {
+      "query": "language:python multi source RRF rerank",
+      "repo": "pjbrav/Enterprise-level-Hybrid-RAG-chatbot-system.",
+      "stars": 0,
+      "description": "Hybrid RAG system combining FTS5 lexical search, entity knowledge graph retrieval, RRF fusion, and cross-encoder reranking with smart partition routing for multi-source enterprise data. Evaluated on 500 questions across 1.9M chunks.",
+      "url": "https://github.com/pjbrav/Enterprise-level-Hybrid-RAG-chatbot-system.",
+      "pushed_at": "2026-09-03T06:55:31Z"
+    },
+    {
+      "query": "language:python multi source RRF rerank",
+      "repo": "VirensinIITBHU/Viren_RAG_LAB",
+      "stars": 0,
+      "description": "VirenRAGLab is a production-oriented Hybrid RAG system that combines Dense Retrieval, BM25, RRF Fusion, and Cross-Encoder Reranking to deliver high-quality document-grounded answers. The platform supports multi-collection document management, conversational search, source attribution, retrieval analytics, and evaluation benchmarking on custom datas",
+      "url": "https://github.com/VirensinIITBHU/Viren_RAG_LAB",
+      "pushed_at": "2026-07-01T15:41:02Z"
+    },
+    {
+      "query": "language:python multi source RRF rerank",
+      "repo": "rahul-alhan/company-brain-rag",
+      "stars": 0,
+      "description": "Multi-source RAG with hybrid BM25+dense retrieval (RRF fusion), principal-based ACL filtering, and time-decay recency reranking",
+      "url": "https://github.com/rahul-alhan/company-brain-rag",
+      "pushed_at": "2026-06-08T05:17:52Z"
+    },
+    {
+      "query": "language:python searxng multi engine",
+      "repo": "GentelZole/deepsearch",
+      "stars": 0,
+      "description": "Keyless-first multi-engine web search CLI: 14 engines in parallel, Reciprocal Rank Fusion, self-hosted SearXNG config. Live-tested 2026.",
+      "url": "https://github.com/GentelZole/deepsearch",
+      "pushed_at": "2026-09-09T12:31:29Z"
+    },
+    {
+      "query": "language:python searxng multi engine",
+      "repo": "iamrichmack111/richmack-search",
+      "stars": 2,
+      "description": "A self-hosted SearXNG-based metasearch and research platform for Richmack OS with private multi-engine search, custom search workflows, Docker deployment, and programmable information retrieval.",
+      "url": "https://github.com/iamrichmack111/richmack-search",
+      "pushed_at": "2026-08-22T16:50:23Z"
+    },
+    {
+      "query": "language:python searxng multi engine",
+      "repo": "hec-ovi/websearch-skill",
+      "stars": 8,
+      "description": "Keyless, uv-native web search + read for AI agents: ddgs multi-engine search with de-correlated rank fusion, Trafilatura extraction to paginated Markdown, keyless arxiv and github search. Self-hosted SearXNG without Docker, an optional Tor layer for .onion search and fetch, NordVPN/SOCKS5 egress, one-call init, and a doctor.",
+      "url": "https://github.com/hec-ovi/websearch-skill",
+      "pushed_at": "2026-08-13T14:14:18Z"
+    },
+    {
+      "query": "language:python searxng multi engine",
+      "repo": "Arezki-Cherfouh/Scraper",
+      "stars": 2,
+      "description": "Advanced Python web scraper with anti-bot bypass capabilities. Features multi-search engine support (SearXNG, DuckDuckGo, Brave, Google), Wikipedia integration, Cloudflare bypass, Selenium fallback, and beautiful HTML report generation. Includes smart theming, responsive design, and local storage. Perfect for research and data collection.",
+      "url": "https://github.com/Arezki-Cherfouh/Scraper",
+      "pushed_at": "2026-02-14T18:39:34Z"
+    },
+    {
+      "query": "language:python searxng multi engine",
+      "repo": "DarshanCHMSR/search-engine",
+      "stars": 0,
+      "description": "A modern, privacy-focused search engine built with Flutter frontend and Node.js backend, using SearXNG as the search provider. \ud83c\udf1f Features Search Engine      Multi-category search: All, Images, Videos, News, Maps, Books, Scholar     SearXNG integration: Privacy-focused meta-search engine     Google-like UI: Clean, intuitive interface     Responsive",
+      "url": "https://github.com/DarshanCHMSR/search-engine",
+      "pushed_at": "2025-10-21T13:58:59Z"
+    }
+  ]
+}

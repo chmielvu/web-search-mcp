@@ -1,0 +1,87 @@
+[project]
+name = "rivalsearchmcp"
+version = "1.0.0"
+description = "Advanced web research and content discovery MCP server"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.25.0",
+    "lxml>=4.9.0",
+    "pillow>=10.0.0",
+    "websockets>=11.0.0",
+    "requests>=2.31.0",
+    "aiohttp>=3.9.0",
+    "typing-extensions>=4.8.0",
+    "pydantic>=2.5.0",
+    "pytrends==4.9.2",
+    "pandas>=2.2.0",
+    "urllib3<2.0.0",
+    "python-dotenv>=1.0.0",
+    "fastmcp>=3.2.0,<4",
+    "markdown>=3.5.0",
+    "feedparser>=6.0.12",
+    "pypdf>=6.6.0",
+    "python-docx>=1.2.0",
+    "easyocr>=1.7.2",
+    # Scrapling provides a browser-TLS-impersonating HTTP client (Fetcher /
+    # AsyncFetcher) plus adaptive CSS selectors. Used by the search engines
+    # to slip past Cloudflare/Akamai TLS fingerprinting on Bing, DuckDuckGo,
+    # and Yahoo -- and by the Bing News RSS source -- without shelling out
+    # to `curl` or running a headless browser. The `fetchers` extra pulls in
+    # just the HTTP stack (playwright types are imported but not executed).
+    "scrapling[fetchers]>=0.3.0",
+    # markdownify converts fetched HTML to clean markdown. Used by the
+    # shared Scrapling client (rival_search_mcp/utils/scrapling_client.py). ~30KB pure
+    # Python -- more reliable than our previous custom BeautifulSoup
+    # converter which silently returned empty output on some modern sites
+    # (Wikipedia article pages, for example).
+    "markdownify>=0.11",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "isort>=5.12.0",
+    "ruff>=0.0.285",
+    # CI's `uv run pre-commit` needs the binary on PATH via the project's
+    # venv. Without it declared here, the hook step fails with
+    # "Failed to spawn: pre-commit, No such file or directory".
+    "pre-commit>=3.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rival_search_mcp"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+
+[tool.bandit]
+# `assert` is idiomatic in pytest; skip B101 in tests. Tests also exercise
+# request-shaping paths (hardcoded fixtures, localhost binds) that trip low-
+# severity rules with no real security impact.
+exclude_dirs = ["tests", ".venv", "venv"]
+skips = ["B101"]

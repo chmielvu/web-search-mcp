@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import asyncio
+import copy
+import functools
+import hashlib
+import json
+import os
+import threading
+import time
+from typing import Any
+
+import httpx
+
+CACHE_TTL = 120
+MAX_RESULTS = 20
+GOOGLE_AI_URL = "https://www.google.com/search"
+GNEWS_RSS = "https://news.google.com/rss/search"
+HELIUM_CDP = "http://127.0.0.1:9222"
+
+NV_KEY = os.environ.get("NV_KEY", "")
+NV_BASE = "https://integrate.api.nvidia.com/v1"
+NV_EMBED_MODEL = "nvidia/llama-nemotron-embed-1b-v2"
+
+
+class _KeyRotator:
+    """Thread-safe round-robin key rotator for API keys."""
+
+    def __init__(self, env_var: str, fallback_var: str = ""):
+        raw = os.environ.get(env_var) or os.environ.get(fallback_var, "")
+        self._keys: list[str] = [k.strip() for k in raw.split(",") if k.strip()] if raw else []
+        self._idx = 0
+        self._lock = asyncio.Lock()
+
+    async def next(self) -> str | None:
+        if not self._keys:
+            return None
+        async with self._lock:
+            k = self._keys[self._idx % len(self._keys)]
+            self._idx = (self._idx + 1) % len(self._keys)
+            return k
+
+    @property
+    def first(self) -> str:
+        return self._keys[0] if self._keys else ""
+
+    @property
+    def has_keys(self) -> bool:
+        return bool(self._keys)
+
+
+TAVILY_KEYS = [k.strip() for k in os.environ.get("TAVILY_KEYS", "").split(",") if k.strip()]
+_tavily_idx = 0
+
+def _next_tavily_key() -> str:
+    global _tavily_idx
+    if not TAVILY_KEYS:
+        return ""
+    key = TAVILY_KEYS[_tavily_idx % len(TAVILY_KEYS)]
+    _tavily_idx += 1
+    return key
+
+
+TINYFISH_KEYS = [k.strip() for k in os.environ.get("TINYFISH_KEYS", "").split(",") if k.strip()]
+
+GROQ_API_KEYS = [k.strip() for k in os.environ.get("GROQ_API_KEYS", "").split(",") if k.strip()]
+RERANKER_MODEL = os.environ.get("RERANKER_MODEL", "Alibaba-NLP/gte-reranker-modernbert-base")
+
+# ── steal-theme config (C2/E2/B1/A2/ghost-tier/C3) ─────────────
+QUALITY_FLOOR = float(os.environ.get("QUALITY_FLOOR", "0.35"))
+SIX_SIGNAL_ENABLED = os.environ.get("SIX_SIGNAL_ENABLED", "true") == "true"
+STEALTH_INJECT_ENABLED = os.environ.get("STEALTH_INJECT_ENABLED", "false") == "true"
+STEALTH_HEADERS_ENABLED = os.environ.get("STEALTH_HEADERS_ENABLED", "false") == "true"
+TIER_SKIP_THRESHOLD = float(os.environ.get("TIER_SKIP_THRESHOLD", "0.30"))
+TIER_MIN_TRIES = int(os.environ.get("TIER_MIN_TRIES", "10"))
+MINERU_DEVICE = os.environ.get("MINERU_DEVICE", "cpu")
+MINERU_ENABLED = os.environ.get("MINERU_ENABLED", "false") == "true"
+FAST_PATHS_ENABLED = os.environ.get("FAST_PATHS_ENABLED", "true") == "true"
+ROBOTS_POLITENESS = os.environ.get("ROBOTS_POLITENESS", "true") == "true"
+EXTRACT_METADATA_ENABLED = os.environ.get("EXTRACT_METADATA_ENABLED", "true") == "true"
+
+
+_cache: dict[str, tuple[float, Any]] = {}
+_MAX_CACHE = 500
+_CACHE_TTL: dict[str, int] = {"emb": 600, "search": 90, "fetch": 120}
+_cache_lock = asyncio.Lock()
+
+
+async def _cached(key: str) -> Any | None:
+    async with _cache_lock:
+        entry = _cache.get(key)
+        if entry and time.monotonic() - entry[0] < _CACHE_TTL.get(key.split(":")[0], 300):
+            return entry[1]
+    return None
+
+
+async def _set_cache(key: str, val: Any):
+    async with _cache_lock:
+        _cache[key] = (time.monotonic(), val)
+        if len(_cache) > _MAX_CACHE:
+            sorted_keys = sorted(_cache, key=lambda k: _cache[k][0])
+            evict_count = max(1, len(sorted_keys) // 4)
+            for k in sorted_keys[:evict_count]:
+                _cache.pop(k, None)
+
+
+def cached(ttl: int = CACHE_TTL):
+    def deco(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kw):
+            raw = json.dumps([args, kw], sort_keys=True, default=str)
+            key = f"{fn.__name__}:{hashlib.md5(raw.encode()).hexdigest()}"
+            now = time.monotonic()
+            async with _cache_lock:
+                entry = _cache.get(key)
+                if entry and now - entry[0] < ttl:
+                    return copy.deepcopy(entry[1])
+            result = await fn(*args, **kw)
+            async with _cache_lock:
+                _cache[key] = (now, result)
+                if len(_cache) > _MAX_CACHE:
+                    cutoff = now - 300
+                    stale = [k for k, (t, _) in _cache.items()
+                             if now - t > _CACHE_TTL.get(k.split(":")[0], 300)]
+                    for k in stale:
+                        del _cache[k]
+            return result
+        return wrapper
+    return deco
+
+
+# ── Shared HTTP client pool ───────────────────────────────────────
+
+_http_client: httpx.AsyncClient | None = None
+_http_client_lock = threading.Lock()
+
+
+class _PoolStream(httpx.AsyncByteStream):
+    """Adapt an httpcore response stream to httpx's stream interface."""
+    def __init__(self, stream) -> None:
+        self._stream = stream
+
+    async def __aiter__(self):
+        async for chunk in self._stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
+class _PinningTransport(httpx.AsyncBaseTransport):
+    """httpx transport with DNS-rebinding pinning, built on public APIs only.
+    Owns an httpcore pool with our backend instead of poking
+    ``transport._pool`` (private — silently breaks on httpx upgrades,
+    taking the DNS pin with it)."""
+    def __init__(self, limits: httpx.Limits) -> None:
+        from security import PinningNetworkBackend
+        import httpcore
+        self._pool = httpcore.AsyncConnectionPool(
+            network_backend=PinningNetworkBackend(),
+            max_keepalive_connections=limits.max_keepalive_connections,
+            max_connections=limits.max_connections)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        import httpcore
+        req = httpcore.Request(
+            method=request.method,
+            url=str(request.url),
+            headers=request.headers.multi_items(),
+            content=request.stream,
+            extensions=request.extensions)
+        resp = await self._pool.handle_async_request(req)
+        return httpx.Response(
+            status_code=resp.status,
+            headers=resp.headers,
+            stream=_PoolStream(resp.stream),
+            extensions=resp.extensions)
+
+    async def aclose(self) -> None:
+        await self._pool.aclose()
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Return a shared httpx.AsyncClient with connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        with _http_client_lock:
+            if _http_client is None or _http_client.is_closed:
+                limits = httpx.Limits(
+                    max_keepalive_connections=10, max_connections=20)
+                _http_client = httpx.AsyncClient(
+                    timeout=30.0,
+                    follow_redirects=True,
+                    transport=_PinningTransport(limits),
+                )
+    return _http_client
+
+
+async def close_http_client():
+    """Close the shared httpx client on server shutdown."""
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None

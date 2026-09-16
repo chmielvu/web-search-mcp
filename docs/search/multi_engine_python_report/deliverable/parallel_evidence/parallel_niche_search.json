@@ -1,0 +1,284 @@
+[
+  {
+    "search_id": "search_e2a3a1c99526de761e32b36be5628e21",
+    "results": [
+      {
+        "url": "https://pypi.org/project/mcp-tavily/",
+        "title": "mcp-tavily \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# mcp-tavily 0.1.10\nA Model Context Protocol server that provides AI-powered web search capabilities using Tavily's search API\npip install mcp-tavily Copy PIP instructions\n* Description\n* Download files\n* Release history\n\n...\n\n# Tavily MCP Server\n## Installation\n### Option 1: Using pip or uv\n```\n# With pip \npip install mcp-tavily\n\n # Or with uv (recommended) \nuv add mcp-tavily\n```\nYou should see output similar to:\n```\nResolved packages: mcp-tavily, mcp, pydantic, python-dotenv, tavily-python [...]\nSuccessfully installed mcp-tavily-0.1.4 mcp-1.0.0 [...]\n```\n\n### Option 2: From source\n```\n# Clone the repository \ngit clone https://github.com/RamXX/mcp-tavily.git\n cd mcp-tavily\n\n # Create a virtual environment (optional but recommended) \npython -m venv .venv\n source .venv/bin/activate # On Windows: .venv\\Scripts\\activate \n\n # Install dependencies and build \n```\n\n...\n\n## Testing\n### Test Output Example\n```\n-------------------------------------------------------\nsrc/mcp_server_tavily/__init__.py      16      2    88%\nsrc/mcp_server_tavily/__main__.py       2      2     0%\nsrc/mcp_server_tavily/server.py       149     16    89%\n-------------------------------------------------------\n```\n\n...\n\n## Contributing\nFor examples of other MCP servers and implementation patterns, see: https://github.com/modelcontextprotocol/servers\n\n...\n\n## Download files\n### Source Distribution\n[mcp_tavily-0.1.10.tar.gz](https://files.pythonhosted.org/packages/44/88/b53caec2e195889e62dcd89d837aa997c20a7d1f3602163c4131ab28b63e/mcp_tavily-0.1.10.tar.gz) (21.5 kB view details )\nUploaded Jun 24, 2025 `Source`"
+        ]
+      },
+      {
+        "url": "https://github.com/tavily-ai/tavily-mcp",
+        "title": "GitHub - tavily-ai/tavily-mcp: Production ready MCP server ...",
+        "publish_date": null,
+        "excerpts": [
+          "# tavily-ai/tavily-mcp\n- Page: GitHub repository\n- URL: https://github.com/tavily-ai/tavily-mcp\n- Description: Production ready MCP server with real-time search, extract, map & crawl. - tavily-ai/tavily-mcp\n- Stars: 2,380\n- Forks: 298\n- License: MIT license\n- Default branch: main\n- Created: 2025-01-27T16:56:37.000Z\n- Commits: 233\n\n...\n\n# Tavily MCP Server\n* search, extract, map, crawl tools\n* Real-time web search capabilities through the tavily-search tool\n* Intelligent data extraction from web pages via the tavily-extract tool\n* Powerful web mapping tool that creates a structured map of website\n* Web crawler that systematically explores websites\n\n...\n\n## Connect to Cursor\n[Install MCP Server](https://cursor.com/en/install-mcp?name=tavily-remote-mcp&config=eyJjb21tYW5kIjoibnB4IC15IG1jcC1yZW1vdGUgaHR0cHM6Ly9tY3AudGF2aWx5LmNvbS9tY3AvP3RhdmlseUFwaUtleT08eW91ci1hcGkta2V5PiIsImVudiI6e319)\n\n...\n\n### Step 3\nYou will then be redirected to your `mcp.json` file where you have to add `your-api-key` .\n```json\n{\n  \"mcpServers\": {\n    \"tavily-remote-mcp\": {\n      \"command\": \"npx -y mcp-remote https://mcp.tavily.com/mcp/?tavilyApiKey=<your-api-key>\",\n      \"env\": {}\n    }\n  }\n}\n```\n\n...\n\n### Remote MCP Server OAuth Flow\n#### How to Set Up OAuth Authentication\nYou can configure your MCP client to use OAuth without including your Tavily API key in the URL. For example, in your `mcp.json` :\n```json\n{\n  \"mcpServers\": {\n    \"tavily-remote-mcp\": {\n      \"command\": \"npx mcp-remote https://mcp.tavily.com/mcp\",\n      \"env\": {}\n    }\n  }\n}\n```\n\n...\n\n## Local MCP\n### Running with NPX\n```shell\nnpx -y tavily-mcp@latest\n```"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/mcp-web-search/",
+        "title": "mcp-web-search \u00b7 PyPI",
+        "publish_date": "2025-03-14",
+        "excerpts": [
+          "# mcp-web-search 0.1.0\nA mcp plugin for web search\npip install mcp-web-search Copy PIP instructions\n* Description\n* Download files\n* Release history\n\n...\n\n# A mcp plugin for web search\n## Requires\n**Python** >=3.12\n[Report project as malware](https://pypi.org/project/mcp-web-search/submit-malware-report/)\n\n...\n\n## Download files\n### Source Distribution\n[mcp_web_search-0.1.0.tar.gz](https://files.pythonhosted.org/packages/0d/07/066480796260cce5727ca0e5ce2c3421b11d0ed84a4d71706f53a9f0246a/mcp_web_search-0.1.0.tar.gz) (65.8 kB view details )\nUploaded Mar 15, 2025 `Source`\n\n...\n\n## Release history Release notifications | RSS feed\nThis release\n0.1.0 This release\nMar 15, 2025 2 files\nPyPI\nDeveloped and maintained by the [Python Software Foundation](https://www.python.org/psf/ \"External link\") and Python community, for the Python community.\n[Status: all systems operational](https://status.python.org/ \"External link\")\n\n...\n\n* \"PyPI\", \"Python Package Index\", and the blocks logos are registered trademarks of the [Python Software Foundation](https://www.python.org/psf-landing) .\n* Site map\n* Deployed from [`cfde89f`](https://github.com/pypi/warehouse/commit/cfde89fd45b2d5ae941da585a9c2864d02b70d77 \"External link\")"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/mcp",
+        "title": "mcp \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# MCP Python SDK\n[PyPI](https://pypi.org/project/mcp/) [MIT licensed](https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE) [Python Version](https://www.python.org/downloads/) [Documentation](https://py.sdk.modelcontextprotocol.io/) [Protocol](https://modelcontextprotocol.io)\n\n...\n\n## A server in 15 lines\n_Full example: [docs_src/index/tutorial001.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs_src/index/tutorial001.py)_\nThat's a complete MCP server: one tool, one templated resource. Open it in the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) :\n```\nuv run mcp dev server.py\n```\n\n...\n\n## Download files\n### Source Distribution\n[mcp-2.2.0.tar.gz](https://files.pythonhosted.org/packages/76/31/ac54fb0fdd5b37de704486e288bba4fbbb463f24cfcfedbede407b854513/mcp-2.2.0.tar.gz) (4.1 MB view details )\nUploaded Sep 7, 2026 `Source`\n\n...\n\n## File details\n### Provenance\nThe following attestation bundles were made for `mcp-2.2.0.tar.gz` :\nPublisher: [`publish-pypi.yml` on modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk/blob/HEAD/.github/workflows/publish-pypi.yml)\n\n...\n\n+ Permalink: [`modelcontextprotocol/python-sdk@9972c21aa42054fb1450c5fc614761ed11847ec6`](https://github.com/modelcontextprotocol/python-sdk/tree/9972c21aa42054fb1450c5fc614761ed11847ec6)\n+ Branch / Tag: [`refs/tags/v2.2.0`](https://github.com/modelcontextprotocol/python-sdk/tree/refs/tags/v2.2.0)\n+ Owner:\n\n...\n\n+ Permalink: [`modelcontextprotocol/python-sdk@9972c21aa42054fb1450c5fc614761ed11847ec6`](https://github.com/modelcontextprotocol/python-sdk/tree/9972c21aa42054fb1450c5fc614761ed11847ec6)\n+ Branch / Tag: [`refs/tags/v2.2.0`](https://github.com/modelcontextprotocol/python-sdk/tree/refs/tags/v2.2.0)\n+ Owner:"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/tavily-mcp",
+        "title": "tavily-mcp \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# tavily-mcp 0.2.3\nA custom MCP server implementation\npip install tavily-mcp Copy PIP instructions\n* Description\n* Download files\n* Release history\n\n...\n\n# Your MCP Server\n## Installation\n```\npip install your-mcp-server\n```\n\n...\n\n## Usage\n### Tavily\u641c\u7d22\u670d\u52a1\u5668\n\u672c\u5305\u8fd8\u63d0\u4f9b\u4e86\u4e00\u4e2a\u4e13\u95e8\u7528\u4e8eTavily\u641c\u7d22\u7684MCP\u670d\u52a1\u5668\uff1a\n```\n{ \n \"mcpServers\" : { \n \"tavily-search\" : { \n \"command\" : \"uvx\" , \n \"args\" : [ \"tavily-mcp-server\" ], \n \"env\" : { \n \"PORT\" : \"8083\" , \n \"API_KEY\" : \"${input:tavilyApiKey}\" \n } \n } \n } \n }\n```\n\n...\n\n## Development\n### \u57fa\u672c\u5f00\u53d1\u6d41\u7a0b\n1. Clone the repository\n2. Install development dependencies:\n  ```\n  pip install -e \".[dev]\"\n  ```\n3. Run the server:\n  ```\n  your-mcp-server\n  ```\n\n...\n\n## Examples\n```\n# \u8fd0\u884c\u7b80\u5355\u4f7f\u7528\u793a\u4f8b \npython examples/simple_usage.py\n\n # \u8fd0\u884c\u670d\u52a1\u5668\u793a\u4f8b\uff08\u57fa\u672cMCP\u670d\u52a1\u5668\uff09 \npython examples/run_server.py --server main --port 8000 \n\n # \u8fd0\u884c\u670d\u52a1\u5668\u793a\u4f8b\uff08Tavily MCP\u670d\u52a1\u5668\uff09 \npython examples/run_server.py --server tavily --port 8083\n```\n\n...\n\n## Publishing to PyPI\n1. Make sure you have the latest build tools:\n  ```\n  pip install --upgrade build twine\n  ```\n2. Build the package:\n  ```\n  python -m build\n  ```\n3. Upload to PyPI:\n  ```\n  python -m twine upload dist/*\n  ```\nYou'll need to provide your PyPI username and password.\n4. Alternatively, you can upload to Test PyPI first:\n\n...\n\n## Classifiers\n+ [Python :: 3](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3)"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/tavily-mcp-server",
+        "title": "tavily-mcp-server \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# Tavily MCP Server \u7b80\u5316\u7248\n## \ud83d\udee0\ufe0f \u9879\u76ee\u7ed3\u6784\n* `tavily_mcp_server/` - MCP\u670d\u52a1\u5668\u5b9e\u73b0\n  + `server.py` - \u4e3b\u670d\u52a1\u5668\u4ee3\u7801\n* `fixed_server.py` - \u7b80\u5316\u7248\u670d\u52a1\u5668\u5b9e\u73b0\n* `final_test.py` - \u6d4b\u8bd5\u811a\u672c\n* `studio_config.json` - \u5404\u5e73\u53f0MCP\u914d\u7f6e\n* `.env` - \u73af\u5883\u53d8\u91cf\u914d\u7f6e\n\n...\n\n## Project links\n* [Homepage](https://github.com/mcp-team/tavily-mcp-server)\n* [Bug Tracker](https://github.com/mcp-team/tavily-mcp-server/issues)\n* [Documentation](https://github.com/mcp-team/tavily-mcp-server)\n* [Repository](https://github.com/mcp-team/tavily-mcp-server)\n\n...\n\n## Tags\n`tavily` `search` `mcp` `ai` `agent` `fastapi` `web-search`\n\n...\n\n## Classifiers\n* Programming Language\n+ [Python :: 3](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3)\n+ [Python :: 3.8](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3.8)\n+ [Python :: 3.9](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3.9)\n+ [Python :: 3.10](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3.10)\n+ [Python :: 3.11](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3.11)\n+ [Python :: 3.12](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3.12)\n* Topic\n\n...\n\n## Download files\n### Source Distribution\n[tavily_mcp_server-1.1.3.tar.gz](https://files.pythonhosted.org/packages/71/37/1a8a25243ef6ff6d4182ebaf38756ef450b0e4f7f573884118625122dd84/tavily_mcp_server-1.1.3.tar.gz) (9.7 kB view details )\nUploaded Sep 29, 2025 `Source`"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/mcp-server-package",
+        "title": "mcp-server-package \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "Skip to main content Switch to mobile version\nPyPI\nSearch PyPI Search\n* Help\n* [Docs](https://docs.pypi.org/)\n* Help\n* [Docs](https://docs.pypi.org/)\n* Deutsch\n* English\n* espa\u00f1ol\n* Esperanto\n* fran\u00e7ais\n* portugu\u00eas (Brasil)\n* \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac\n* \u0440\u0443\u0441\u0441\u043a\u0438\u0439\n* \u0443\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430\n* \u05e2\u05d1\u05e8\u05d9\u05ea\n* \u4e2d\u6587 (\u7b80\u4f53)\n* \u4e2d\u6587 (\u7e41\u9ad4)\n* \u65e5\u672c\u8a9e\n* \ud55c\uad6d\uc5b4\nSearch PyPI Search\n\n...\n\n# mcp-server-package 0.1.0\n## Download files\n### Source Distribution\n[mcp_server_package-0.1.0.tar.gz](https://files.pythonhosted.org/packages/2e/66/5e7e01a08242465da1e9cf8d901b61b3c38de1937e51276ba563f765c280/mcp_server_package-0.1.0.tar.gz) (26.7 kB view details )\nUploaded Nov 21, 2025 `Source`\n\n...\n\n## Release history Release notifications | RSS feed\n* \"PyPI\", \"Python Package Index\", and the blocks logos are registered trademarks of the [Python Software Foundation](https://www.python.org/psf-landing) .\n* Site map\n* Deployed from [`e531d36`](https://github.com/pypi/warehouse/commit/e531d366e822259ca391972a0dc939265a65db8b \"External link\")"
+        ]
+      },
+      {
+        "url": "https://github.com/spences10/mcp-tavily-search",
+        "title": "GitHub - spences10/mcp-tavily-search: \ud83d\udd0d Model Context Protocol (MCP) tool for search using the Tavily API \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# spences10/mcp-tavily-search\n- Page: GitHub repository\n- URL: https://github.com/spences10/mcp-tavily-search\n- Description: \ud83d\udd0d Model Context Protocol (MCP) tool for search using the Tavily API - spences10/mcp-tavily-search\n- Stars: 6\n- Forks: 2\n- License: MIT license\n- Default branch: main\n- Created: 2025-01-17T20:00:42.000Z\n- Commits: 38\n\n...\n\n# mcp-tavily-search\n## \u26a0\ufe0f Notice\n**This repository is no longer maintained.**\nThe functionality of this tool is now available in [mcp-omnisearch](https://github.com/spences10/mcp-omnisearch) , which combines multiple MCP tools in one unified package.\nPlease use [mcp-omnisearch](https://github.com/spences10/mcp-omnisearch) instead.\nA Model Context Protocol (MCP) server for integrating Tavily's search\nAPI with LLMs. This server provides intelligent web search\ncapabilities optimized for high-quality, factual results, including\ncontext generation for RAG applications and direct question answering.\n[Tavily Search Server MCP server](https://glama.ai/mcp/servers/1jcttrux58)\n\n...\n\n## Domain Filtering\n* Target specific trusted sources for academic or technical searches\n* Exclude potentially unreliable or irrelevant sources\n* Customize sources based on your specific needs\n* Access all available sources when no filtering is specified\nExample domain filtering:"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/mcp-pypi",
+        "title": "mcp-pypi \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# \ud83d\udc0d MCP-PyPI\n[PyPI](https://pypi.org/project/mcp-pypi/) [License](https://github.com/kimasplund/mcp-pypi/blob/main/LICENSE) [Python](https://pypi.org/project/mcp-pypi/) [Downloads](https://pypi.org/project/mcp-pypi/) [Powered by FastMCP](https://github.com/modelcontextprotocol/python-sdk)\n\n...\n\n## \ud83e\udd1d Contributing\n### Development Setup\n```\n# Clone the repository \ngit clone https://github.com/kimasplund/mcp-pypi.git\n cd mcp-pypi\n\n # Install in development mode \npip install -e \".[dev]\" \n\n # Run tests \npytest\n\n # Run with debug logging \nmcp-pypi serve --log-level DEBUG\n```\n\n...\n\n## \ud83d\ude4f Acknowledgments\n* Enhanced with [FastMCP 2.14.4](https://github.com/modelcontextprotocol/python-sdk) - tool annotations for LLM safety\n\n...\n\n## Project links\n* [Bug Tracker](https://github.com/kimasplund/mcp-pypi/issues)\n* [Changelog](https://github.com/kimasplund/mcp-pypi/releases)\n* [Documentation](https://github.com/kimasplund/mcp-pypi)\n* [Homepage](https://github.com/kimasplund/mcp-pypi)\n* [Source Code](https://github.com/kimasplund/mcp-pypi)\n\n...\n\n## Download files\n### Source Distribution\n[mcp_pypi-3.0.0.tar.gz](https://files.pythonhosted.org/packages/01/e5/449b02994d45c754084c2522d3eb0828a628a89a6cb8c634a560c4f32acf/mcp_pypi-3.0.0.tar.gz) (126.5 kB view details )\nUploaded Jan 26, 2026 `Source`"
+        ]
+      },
+      {
+        "url": "https://github.com/mrkrsl/web-search-mcp",
+        "title": "GitHub - mrkrsl/web-search-mcp: A simple, locally hosted Web Search MCP server for use with Local LLMs \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# mrkrsl/web-search-mcp\n- Page: GitHub repository\n- URL: https://github.com/mrkrsl/web-search-mcp\n- Description: A simple, locally hosted Web Search MCP server for use with Local LLMs - mrkrsl/web-search-mcp\n- Stars: 1,141\n- Forks: 161\n- License: MIT license\n- Default branch: main\n- Created: 2025-06-27T08:38:50.000Z\n- Commits: 46\n\n...\n\n# Web Search MCP Server for use with Local LLMs\n## Features\n* **Multi-Engine Web Search** : Prioritises Bing > Brave > DuckDuckGo for optimal reliability and performance\n* **Full Page Content Extraction** : Fetches and extracts complete page content from search results\n* **Multiple Search Tools** : Three specialised tools for different use cases\n\n...\n\n## Installation (Recommended)\n```yaml\nservices:\n  api:\n    volumes:\n    - type: bind\n      source: /path/to/your/mcp/directory\n      target: /app/mcp\n```\nin `librechat.yaml` :\n```yaml\nmcpServers:\n  web-search:\n    type: stdio\n    command: node\n    args:\n    - /app/mcp/web-search-mcp/dist/index.js\n    serverInstructions: true\n```\n\n...\n\n## Standalone Usage\nYou can also run the server directly:\n```shell\n# If running from source\nnpm start\n```\n\n...\n\n## Feedback\nThis is an open source project and we welcome feedback! If you encounter any issues or have suggestions for improvements, please:\n* Open an issue on GitHub\n* Submit a pull request"
+        ]
+      }
+    ],
+    "warnings": null,
+    "usage": [
+      {
+        "name": "sku_search",
+        "count": 1
+      }
+    ],
+    "metadata": null,
+    "session_id": "session_e2a3a1c99526de761e32b36be5628e21"
+  },
+  {
+    "search_id": "search_6275e5dcf07c272a12bc18b6496630dc",
+    "results": [
+      {
+        "url": "https://pypi.org/project/mcp-tavily",
+        "title": "mcp-tavily \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# mcp-tavily 0.1.10\nA Model Context Protocol server that provides AI-powered web search capabilities using Tavily's search API\npip install mcp-tavily Copy PIP instructions\n* Description\n* Download files\n* Release history\n\n# Tavily MCP Server\nA Model Context Protocol server that provides AI-powered web search capabilities using Tavily's search API. This server enables LLMs to perform sophisticated web searches, get direct answers to questions, and search recent news articles with AI-extracted relevant content.\n\n## Features\n### Available Tools\n* `tavily_web_search` - Performs comprehensive web searches with AI-powered content extraction.\n+ `query` (string, required): Search query\n+ `max_results` (integer, optional): Maximum number of results to return (default: 5, max: 20)\n\n...\n\n### Prompts\nThe server also provides prompt templates for each search type:\n* **tavily_web_search** - Search the web using Tavily's AI-powered search engine\n* **tavily_answer_search** - Search the web and get an AI-generated answer with supporting evidence\n* **tavily_news_search** - Search recent news articles with Tavily's news search\n\n## Prerequisites\n* Python 3.11 or later\n* A Tavily API key (obtain from [Tavily's website](https://tavily.com) )\n* `uv` Python package manager (recommended)\n\n...\n\n## Configuration\n### API Key Setup\n1. Through a `.env` file in your project directory:\n  ```\n  TAVILY_API_KEY=your_api_key_here\n  ```\n2. As an environment variable:\n  ```\n  export TAVILY_API_KEY = your_api_key_here\n  ```\n3. As a command-line argument:\n  ```\n  python -m mcp_server_tavily --api-key = your_api_key_here\n  ```\n\n...\n\n## Requires\n**Python** >=3.11"
+        ]
+      },
+      {
+        "url": "https://github.com/nickclyde/duckduckgo-mcp-server",
+        "title": "GitHub - nickclyde/duckduckgo-mcp-server: A Model Context ...",
+        "publish_date": null,
+        "excerpts": [
+          "# nickclyde/duckduckgo-mcp-server\n- Page: GitHub repository\n- URL: https://github.com/nickclyde/duckduckgo-mcp-server\n- Description: A Model Context Protocol (MCP) server that provides web search capabilities through DuckDuckGo, with additional features for content fetching and parsing. - nickclyde/duckduckgo-mcp-server\n- Stars: 1,475\n\n...\n\n# DuckDuckGo Search MCP Server\n[PyPI version](https://pypi.org/project/duckduckgo-mcp-server/) [PyPI downloads](https://pypi.org/project/duckduckgo-mcp-server/) [Python versions](https://pypi.org/project/duckduckgo-mcp-server/)\nA Model Context Protocol (MCP) server that provides web search capabilities through DuckDuckGo, with additional features for content fetching and parsing.\n\n...\n\n## Usage\n### Running with SSE or Streamable HTTP\nThe server supports alternative transports for use with other MCP clients:\n```shell\n# SSE transport\nuvx duckduckgo-mcp-server --transport sse\n\n# Streamable HTTP transport\nuvx duckduckgo-mcp-server --transport streamable-http\n```\n\n...\n\n### Development\n```shell\n# Install dependencies\nuv sync\n\n# Run with the MCP Inspector\nmcp dev src/duckduckgo_mcp_server/server.py\n\n# Install locally for testing with Claude Desktop\nmcp install src/duckduckgo_mcp_server/server.py\n\n# Run all tests\nuv run python -m pytest src/duckduckgo_mcp_server/ -v\n\n# Run only unit tests\nuv run python -m pytest src/duckduckgo_mcp_server/test_server.py -v\n\n# Run only e2e tests\nuv run python -m pytest src/duckduckgo_mcp_server/test_e2e.py -v\n```\n\n## Available Tools\n### 1. Search Tool\n```python\nasync def search(query: str, max_results: int = 10, region: str = \"\") -> str\n```\nPerforms a web search on DuckDu"
+        ]
+      },
+      {
+        "url": "https://github.com/algonacci/mcp-tavily-search",
+        "title": "GitHub - algonacci/mcp-tavily-search: MCP server to give client the ability to search on the internet \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# algonacci/mcp-tavily-search\n## History\n3 Commits |\n|.env.example |.env.example | | |\n|.gitignore |.gitignore | | |\n|.python-version |.python-version | | |\n|LICENSE |LICENSE | | |\n|README.md |README.md | | |\n|main.py |main.py | | |\n|pyproject.toml |pyproject.toml | | |\n|uv.lock |uv.lock | | |\n|View all files |\n\n...\n\n# Usage\n```\n{\n  \"mcpServers\" : {\n    \"tavily_search\" : {\n      \"command\" : \" uv \" ,\n      \"args\" : [\n        \" --directory \" ,\n        \" %USERPROFILE%/Documents/GitHub/mcp-tavily-search \" ,\n        \" run \" ,\n        \" python \" ,\n        \" main.py \" \n      ]\n    }\n  }\n}\n```\nAlso provide `TAVILY_API_KEY` in `.env`\n\n...\n\n## Languages\n* [Python 100.0%](https://github.com/algonacci/mcp-tavily-search/search?l=python)"
+        ]
+      },
+      {
+        "url": "https://github.com/HughesCuit/heventure-search-mcp",
+        "title": "GitHub - HughesCuit/heventure-search-mcp: Free, API-key-free MCP web search server \u2014 DuckDuckGo, Bing, Google + optional SerpAPI/Tavily. Works with Claude Desktop, Cursor, and any MCP client. \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# HughesCuit/heventure-search-mcp\n- Page: GitHub repository\n- URL: https://github.com/HughesCuit/heventure-search-mcp\n- Description: Free, API-key-free MCP web search server \u2014 DuckDuckGo, Bing, Google + optional SerpAPI/Tavily. Works with Claude Desktop, Cursor, and any MCP client. - HughesCuit/heventure-search-mcp\n- Stars: 9\n- Forks: 0\n\n...\n\n# \ud83d\udd0d MCP Web Search Server\n> **Free forever. No API key required.** A web search MCP server that works out of the box with Claude Desktop, Cursor, and any MCP-compatible AI tool.\n```shell\npip install heventure-search-mcp\n```\n\n## \u2728 Why?\nMost MCP search servers require you to sign up for API keys (Bing, Google, SerpAPI...). This one works **immediately** \u2014 zero configuration, zero cost, zero sign-ups.\n| Feature | This Server | Others |\n| No API key needed | \u2705 | \u274c |\n| DuckDuckGo (free) | \u2705 | varies |\n| Bing (free) | \u2705 | \u274c |\n| Google (free) | \u2705 | \u274c |\n| Optional SerpAPI/Tavily | \u2705 | \u2705 |\n| Async + caching | \u2705 | varies |\n| Install in 10 seconds | \u2705 | varies |\n\n...\n\n## \ud83d\udd11 Optional: Enhanced Search\nThe free engines work great for most use cases. For higher quality results, you can optionally add paid API keys:\n```shell\n# SerpAPI \u2014 100 free searches/month\nexport SERPAPI_KEY=\"your_key\"\n\n# Tavily \u2014 1,000 free searches/month  \nexport TAVILY_API_KEY=\"your_key\"\n```\n\n## \ud83c\udfd7\ufe0f Architecture\n* **Engines** : DuckDuckGo, Bing, Google, SerpAPI, Tavily\n* **Caching** : LRU cache with 300s TTL (100 entries max)\n* **Protocol** : MCP (Model Context Protocol)\n* **Runtime** : Python 3.10+ with asyncio"
+        ]
+      },
+      {
+        "url": "https://github.com/tavily-ai/tavily-python",
+        "title": "The Tavily Python SDK allows for easy interaction with the ... - GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# Tavily Python SDK\n## Keyless mode\nYou can try Tavily without an API key. Instantiate `TavilyClient()` with no arguments and the SDK runs in keyless mode against the public Tavily API. Keyless mode supports `search()` and `extract()` only; other methods raise an error explaining that an API key is required.\n```python\nfrom tavily import TavilyClient, TavilyKeylessLimitError\n\n# No API key needed\nclient = TavilyClient()\n\ntry:\n    response = client.search(\"Who is Leo Messi?\")\n    print(response)\nexcept TavilyKeylessLimitError as e:\n    # Rate-limit cap reached. The exception carries the human-readable\n```\n\n...\n\nKeyless usage is rate-limited. For higher limits and the full set of endpoints (including `crawl` , `map` , and `research` ), [sign up for a Tavily API key](https://tavily.com/) and pass it as `TavilyClient(api_key=\"tvly-...\")` .\n\n# Tavily Search\nSearch lets you search the web for a given query.\n\n...\n\n# Tavily Feedback\n## Advanced: Custom Session / Client Injection\n### Sync (custom `requests.Session` )\n```python\n# No Tavily API key needed \u2014 auth is handled by the session\nclient = TavilyClient(\n    session=session,\n    api_base_url=\"https://your-gateway.com/tavily\",\n)\n\nresponse = client.search(\"latest AI research\")\n```\n\n...\n\n### Async (custom `httpx.AsyncClient` )\n```python\nclient = AsyncTavilyClient(client=custom_client)\n\nresponse = await client.search(\"latest AI research\")\n```"
+        ]
+      },
+      {
+        "url": "https://github.com/spences10/mcp-tavily-search",
+        "title": "GitHub - spences10/mcp-tavily-search: \ud83d\udd0d Model Context Protocol (MCP) tool for search using the Tavily API \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# mcp-tavily-search\n## \u26a0\ufe0f Notice\n**This repository is no longer maintained.**\nThe functionality of this tool is now available in [mcp-omnisearch](https://github.com/spences10/mcp-omnisearch) , which combines multiple MCP tools in one unified package.\nPlease use [mcp-omnisearch](https://github.com/spences10/mcp-omnisearch) instead.\nA Model Context Protocol (MCP) server for integrating Tavily's search\nAPI with LLMs. This server provides intelligent web search\ncapabilities optimized for high-quality, factual results, including\ncontext generation for RAG applications and direct question answering.\n\n...\n\n## Configuration\n### Cline Configuration\nAdd this to your Cline MCP settings:\n```json\n{\n\t\"mcpServers\": {\n\t\t\"mcp-tavily-search\": {\n\t\t\t\"command\": \"npx\",\n\t\t\t\"args\": [\"-y\", \"mcp-tavily-search\"],\n\t\t\t\"env\": {\n\t\t\t\t\"TAVILY_API_KEY\": \"your-tavily-api-key\"\n\t\t\t}\n\t\t}\n\t}\n}\n```\n\n...\n\n### Environment Variables\nThe server requires the following environment variable:\n* `TAVILY_API_KEY` : Your Tavily API key (required)\n\n...\n\n## API\n### tavily_search\nSearch the web using Tavily Search API, optimized for high-quality,\nfactual results.\nParameters:\n\n...\n\n## Contributing\nContributions are welcome! Please feel free to submit a Pull Request.\n\n...\n\n## Acknowledgments\n* Built on the [Model Context Protocol](https://github.com/modelcontextprotocol)\n* Powered by [Tavily Search API](https://tavily.com/)"
+        ]
+      },
+      {
+        "url": "https://github.com/searxng/searxng/blob/master/searx/engines/duckduckgo.py",
+        "title": "searxng/searx/engines/duckduckgo.py at master",
+        "publish_date": null,
+        "excerpts": [
+          "# searxng/searxng \u2014 searx/engines/duckduckgo.py\n```py\n# SPDX-License-Identifier: AGPL-3.0-or-later\n\"\"\"\nDuckDuckGo WEB\n~~~~~~~~~~~~~~\n\nDDG's WEB search:\n\n- DuckDuckGo WEB      : ``https://links.duckduckgo.com/d.js?q=..``  (HTTP GET)\n- DuckDuckGo WEB no-AI: ``https://noai.duckduckgo.com/``            (HTTP GET)\n```\n\n...\n\n```py\n  executed on a JS-capable client.\n\n  The service at https://lite.duckduckgo.com/lite offers general WEB searches\n  (no news, videos etc).  DDG-lite and DDG-html can be used by clients that do\n  not support JS, aka *no-JS*.\n\n```\n\n...\n\n```py\n    from searx.extended_types import SXNG_Response\n    from searx.search.processors import OnlineParams\n\nabout: dict[str, str | bool] = {\n    \"website\": \"https://lite.duckduckgo.com/lite/\",\n    \"wikidata_id\": \"Q12805\",\n    \"use_official_api\": False,\n    \"require_api_key\": False,\n```\n\n...\n\n```py\n       page https://html.duckduckgo.com/html do not offer a language selection\n       to the user.\n\n    DDG defines its languages by a region code (:py:obj:`fetch_traits`).  To\n    get region and language of a DDG service use:\n\n    .. code: python\n\n       eng_region = traits.get_region(params[\"searxng_locale\"], traits.all_locale)\n       eng_lang = get_ddg_lang(traits, params[\"searxng_locale\"])\n\n    It might confuse, but the ``l`` value of the cookie is what SearXNG calls\n    the *region*:\n\n    .. code:: python\n\n```\n\n...\n\n```py\n    # ===========================\n\n    # form_data: dict[str,str] = {\"v\": \"l\", \"api\": \"d.js\", \"o\": \"json\"}\n    # \"\"\"The WEB-API \"endpoint\" is ``api``.\"\"\"\n\n    data = params[\"data\"]\n    data[\"q\"] = query\n    params[\"url\"] = ddg_url\n    params[\"method\"] = \"POST\"\n\n"
+        ]
+      },
+      {
+        "url": "https://github.com/millerjes37/searxng-mcp",
+        "title": "GitHub - millerjes37/searxng-mcp: MCP server for SearXNG web search - free, private, multi-engine search for AI agents \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# millerjes37/searxng-mcp\n- Page: GitHub repository\n- URL: https://github.com/millerjes37/searxng-mcp\n- Description: MCP server for SearXNG web search - free, private, multi-engine search for AI agents - millerjes37/searxng-mcp\n- Stars: 1\n- Forks: 0\n- License: MIT license\n- Default branch: main\n- Created: 2026-02-01T19:35:00.000Z\n\n...\n\n# SearXNG MCP Server\n> A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server providing comprehensive search capabilities that rival **Brave Search API** , **Perplexity** , and other commercial search services.\nPowered by [SearXNG](https://docs.searxng.org/) , aggregating results from **89+ search engines** including Google, Bing, DuckDuckGo, Brave, and more.\n\n...\n\n## \ud83c\udf1f Features\n### Key Capabilities\n* \ud83d\udd12 **Privacy-First** : Self-hosted, no data leaves your machine\n* \ud83d\udcb0 **Free Forever** : No API keys, no usage limits, no credit cards\n* \ud83c\udf10 **89+ Search Engines** : Aggregates Google, Bing, DDG, Brave, Qwant, Startpage, Mojeek, and more\n* \u26a1 **Fast** : Local caching, concurrent requests\n\n...\n\n## \ud83d\udd27 Configuration\n### SearXNG Settings\n```yaml\nuse_default_settings: true\n\ngeneral:\n  instance_name: \"SearXNG MCP\"\n\nserver:\n  port: 8080\n  bind_address: \"0.0.0.0\"\n\nsearch:\n  safe_search: 0\n  autocomplete: \"duckduckgo\"\n  formats:\n    - html\n    - json\n\nengines:\n  - name: google\n    engine: google\n    disabled: false\n  \n  - name: bing\n    engine: bing\n```\n\n...\n\n## \ud83d\udd0d Comparison with Commercial APIs\n| Feature | SearXNG MCP | Brave API | Perplexity | SerpAPI |\n| **Cost** | \u2705 Free | Free tier | Paid | Paid |\n| **Engines** | \u2705 89+ | 1 | Multiple | Multiple |\n| **Privacy** | \u2705 Local | External | Ex"
+        ]
+      },
+      {
+        "url": "https://github.com/tavily-ai/tavily-mcp",
+        "title": "GitHub - tavily-ai/tavily-mcp at airabbit.blog \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# Tavily MCP Server\n* search, extract, map, crawl tools\n* Real-time web search capabilities through the tavily-search tool\n* Intelligent data extraction from web pages via the tavily-extract tool\n* Powerful web mapping tool that creates a structured map of website\n* Web crawler that systematically explores websites\n\n...\n\n## Connect to Claude Code\n### Option 1: API Key in URL\n#### Option 2: OAuth Authentication Flow\nAdd the server without an API key in the URL:\n```shell\nclaude mcp add --transport http tavily https://mcp.tavily.com/mcp\n```\nAfter adding, you'll need to complete the authentication flow:\n\n...\n\n```shell\nclaude mcp add --transport http --scope user tavily https://mcp.tavily.com/mcp/?tavilyApiKey=<your-api-key>\n```\nOnce configured, you'll have access to the Tavily search, extract, map, and crawl tools.\n\n...\n\n## Connect to Cursor\n### Step 3\nYou will then be redirected to your `mcp.json` file where you have to add `your-api-key` .\n```json\n{\n  \"mcpServers\": {\n    \"tavily-remote-mcp\": {\n      \"command\": \"npx -y mcp-remote https://mcp.tavily.com/mcp/?tavilyApiKey=<your-api-key>\",\n      \"env\": {}\n    }\n  }\n}\n```\n\n...\n\n### Remote MCP Server OAuth Flow\n#### How to Set Up OAuth Authentication\nYou can configure your MCP client to use OAuth without including your Tavily API key in the URL. For example, in your `mcp.json` :\n```json\n{\n  \"mcpServers\": {\n    \"tavily-remote-mcp\": {\n      \"command\": \"npx mcp-remote https://mcp.tavily.com/mcp\",\n      \"env\": {}\n    }\n  }\n}\n```\n\n...\n\n## Default Parameters Configuration \u2699\ufe0f\nYou can set default parameter values for the `tavily-search` tool using the `DEFAULT_PARAMETERS` environment variable. Th"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/web-search-searxng-mcp",
+        "title": "web-search-searxng-mcp \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "Skip to main content Switch to mobile version\nPyPI\nSearch PyPI Search\n* Help\n* Docs\n* Log in\n* Register\n* Help\n* Docs\n* Log in\n* Register\n* Deutsch\n* English\n* espa\u00f1ol\n* Esperanto\n* fran\u00e7ais\n* portugu\u00eas (Brasil)\n* \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac\n* \u0440\u0443\u0441\u0441\u043a\u0438\u0439\n* \u0443\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430\n* \u05e2\u05d1\u05e8\u05d9\u05ea\n* \u4e2d\u6587 (\u7b80\u4f53)\n* \u4e2d\u6587 (\u7e41\u9ad4)\n* \u65e5\u672c\u8a9e\n* \ud55c\uad6d\uc5b4\n  Search PyPI Search\nweb-search-searxng-mcp 0.1.1\nAdd your description here\npip install web-search-searxng-mcp Copy PIP instructions\n* Description\n* Download files\n* Release history\nStep-by-Step Setup Guide for Web Search MCP\nThis guide lists the specific steps to set up the Web Search MCP server and integrate it into your development environment or MCP clients (like Claude Desktop).\nPrerequisites\nBefore starting, ensure you have the following installed:\n1. Docker & Docker Compose : For running the local SearxNG instance.\n2. uv : An extremely fast Python package installer and resolver.\n* Install instructions: astral.sh/uv\nStep 1: Prepare Local SearxNG\nYou need the configuration files from this repository to run the local search engine instance that the MCP server will connect to.\n1. Clone the Repository\n  git clone https://github.com/ViktoriaKutseva/web-search-mcp.git\n  cd web-search-mcp\nStep 2: Start the Search Engine\nThe MCP server relies on a local instance of SearxNG.\n1. Configure SearxNG Copy the example settings file to create the actual configuration.\ncp searxng/settings.yml.example searxng/settings.yml\nNote: The settings.yml file is git-ignored. You should generate a new secret_key inside it.\n2. Start Services From the repository root run:\ndocker compose up -d\n3.\nVerify SearxNG Open your browser and navigate to http://localhost:8080 . You sho"
+        ]
+      }
+    ],
+    "warnings": null,
+    "usage": [
+      {
+        "name": "sku_search",
+        "count": 1
+      }
+    ],
+    "metadata": null,
+    "session_id": "session_6275e5dcf07c272a12bc18b6496630dc"
+  },
+  {
+    "search_id": "search_03b0881ad50906d0258ec5156eae1459",
+    "results": [
+      {
+        "url": "https://github.com/krishna1306/mcp-server-hybrid-search",
+        "title": "GitHub - krishna1306/mcp-server-hybrid-search",
+        "publish_date": "2026-03-27",
+        "excerpts": [
+          "An MCP (Model Context Protocol) server that provides read-only access to the Hybrid Search knowledge base. Enables AI assistants in Windsurf, VS Code, Open Code, and Claude Desktop to query collections and search documents using hybrid search (semantic + keyword with RRF ranking)."
+        ]
+      },
+      {
+        "url": "https://github.com/Alpha-Park/genpark-hybrid-rerank-fusion-retriever-skill",
+        "title": "GitHub - Alpha-Park/genpark-hybrid-rerank-fusion-retriever ...",
+        "publish_date": null,
+        "excerpts": [
+          "\ud83d\udccc Overview & Capability genpark-hybrid-rerank-fusion-retriever-skill is a deterministic, zero-dependency Python skill engineered with 100% production-grade functional parity for autonomous AI search, retrieval fusion, and stateful agent execution."
+        ]
+      },
+      {
+        "url": "https://github.com/pskill9/web-search",
+        "title": "GitHub - pskill9/web-search: Web search using free google search (NO API KEYS REQUIRED) \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# pskill9/web-search\n- Page: GitHub repository\n- URL: https://github.com/pskill9/web-search\n- Description: Web search using free google search (NO API KEYS REQUIRED) - pskill9/web-search\n- Stars: 469\n- Forks: 76\n- Default branch: main\n- Created: 2024-12-30T02:34:47.000Z\n- Commits: 1\n\n...\n\n# Web Search MCP Server\nA Model Context Protocol (MCP) server that enables free web searching using Google search results, with no API keys required.\n\n## Features\n* Search the web using Google search results\n* No API keys or authentication required\n* Returns structured results with titles, URLs, and descriptions\n* Configurable number of results per search\n\n## Installation\n1. Clone or download this repository\n2. Install dependencies:\n```shell\nnpm install\n```\n3. Build the server:\n```shell\nnpm run build\n```\n4. Add the server to your MCP configuration:\nFor VSCode (Claude Dev Extension):\n```json\n{\n  \"mcpServers\": {\n    \"web-search\": {\n      \"command\": \"node\",\n      \"args\": [\"/path/to/web-search/build/index.js\"]\n    }\n  }\n}\n```\nFor Claude Desktop:\n```json\n{\n  \"mcpServers\": {\n    \"web-search\": {\n      \"command\": \"node\",\n      \"args\": [\"/path/to/web-search/build/index.js\"]\n    }\n  }\n}\n```"
+        ]
+      },
+      {
+        "url": "https://github.com/oscardvs/zoteus",
+        "title": "GitHub - oscardvs/zoteus: MCP server for Zotero: search, citations, add by DOI, safe writes and semantic search for Claude and any MCP client. TypeScript, local-first. \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# oscardvs/zoteus\n- Page: GitHub repository\n- URL: https://github.com/oscardvs/zoteus\n- Description: MCP server for Zotero: search, citations, add by DOI, safe writes and semantic search for Claude and any MCP client. TypeScript, local-first. - oscardvs/zoteus\n- Stars: 29\n- Forks: 2\n- License: MIT license\n- Default branch: main\n\n...\n\n# Zoteus\n**Your whole Zotero library, inside Claude.**\nAn MCP server that gives Claude Desktop, claude.ai, Claude Code, Cursor and any other MCP client access to a [Zotero](https://www.zotero.org/) library: search by keyword or by meaning, passages from your PDFs with page numbers, citations in any CSL style, adding items, and safe writes.\n\n...\n\n## Features\n* **Search your own library.** Hybrid keyword and semantic search over titles, abstracts, creators, and tags, plus full-text keyword search inside your PDFs and notes, with the matching passage returned together with its page number.\n\n...\n\n* **Agent support.** 30 tools with structured outputs, MCP Resources and Prompts, and a generated tool tree for the [code-execution-with-MCP](https://www.anthropic.com/engineering/code-execution-with-mcp) pattern."
+        ]
+      },
+      {
+        "url": "https://github.com/sweetcornna/free-search-mcp",
+        "title": "GitHub - sweetcornna/free-search-mcp: Local-first, no-API-key MCP server for web search, fetch, and document reading. Multi-engine (DuckDuckGo, Mojeek, Startpage), smart Playwright fallback, FTS5 cache, LLM-tuned output. \u00b7 GitHub",
+        "publish_date": null,
+        "excerpts": [
+          "# sweetcornna/free-search-mcp\n- Page: GitHub repository\n- URL: https://github.com/sweetcornna/free-search-mcp\n- Description: Local-first, no-API-key MCP server for web search, fetch, and document reading. Multi-engine (DuckDuckGo, Mojeek, Startpage), smart Playwright fallback, FTS5 cache, LLM-tuned output. - sweetcornna/...\n- Stars: 72\n- Forks: 6\n- License: MIT license\n- Default branch: main\n- Created: 2026-04-24T00:25:09.000Z\n- Commits: 64\n\n...\n\n# free-search-mcp\nA **local-first, no-API-key** Model Context Protocol server that gives any\nLLM (Claude, GPT, local Ollama, \u2026) the ability to search the web, fetch and\nclean up pages, and read documents \u2014 without you signing up for a single\nsearch API.\nIt bundles together the best ideas from a handful of open-source MCPs into\none Python package, and adds the LLM-ergonomics and reliability work they\nwere each missing.\n```\nresearch(\"how does reciprocal rank fusion work\", depth=3)\n   \u2193\n# Research brief: how does reciprocal rank fusion work\n_engines: duckduckgo, mojeek, googlenews \u00b7 sources: 3 \u00b7 ~3,400 tokens_\n\n## Sources\n- [1] Reciprocal rank fusion | Elasticsearch Reference \u2014 <https://\u2026>\n- [2] Hybrid Search Scoring (RRF) | Microsoft Learn \u2014 <https://\u2026>\n- [3] RRF explained in 4 mins \u2014 Medium \u2014 <https://\u2026>\n\n## Documents\n\u2026full Markdown bodies of each page, ready for the LLM to read\u2026\n```\n\n...\n\n## Tools (11)\n| Tool | Description |\n| `search(query, ...filters)` | Parallel multi-engine search, RRF-merged, title-fuzzy + host-canonical deduped, with optional extractive `lead_snippet` |\n| `extract_structured(url, ...)` | Pull JSON-LD / OpenGraph / Twitter cards / microdata via extruct |\n\n...\n\n## Credits\nper-engine rate limiting, LLM-friendly content cleanup\n* [Mojeek](https://www.mojeek.com/) \u2014 independent search index that\ndoesn't gate on User-Agent\n* [Model Context Protocol](https://modelcontextprotocol.io/) and the [official Python SDK](https://github.com/modelcontextprotocol/python-sdk)"
+        ]
+      },
+      {
+        "url": "https://github.com/vikrambhat2/mcp-server-web-search",
+        "title": "GitHub - vikrambhat2/mcp-server-web-search",
+        "publish_date": null,
+        "excerpts": [
+          "# vikrambhat2/mcp-server-web-search\n- Page: GitHub repository\n- URL: https://github.com/vikrambhat2/mcp-server-web-search\n- Stars: 1\n- Forks: 0\n- Default branch: main\n- Created: 2025-06-28T16:01:06.000Z\n- Commits: 2\n\n...\n\n# \ud83d\udd0c MCP Server: Web Search Tool (FastMCP + Serper)\nA lightweight, Claude-ready **MCP (Model Context Protocol) server** that wraps the [Serper.dev](https://serper.dev/) Google Search API using Python, LangChain, and FastMCP.\nThis server exposes a structured, LLM-callable tool that performs a Google search and returns a filtered list of results along with a summary answer.\n\n## \ud83d\ude80 Features\n* \u2705 LLM-ready tool with structured input/output\n* \u2705 Works out-of-the-box with **Claude Desktop** , **ChatGPT** , or any **MCP-compatible agent**\n* \u2705 Built using [FastMCP](https://github.com/epfml/fastmcp)\n* \u2705 Real-world API integration via `GoogleSerperAPIWrapper`\n* \u2705 Easy to extend with more tools\n\n## \ud83d\udce6 Requirements\n* Python 3.10+\n* A free [Serper.dev API key](https://serper.dev/)\n* Optional: [Claude Desktop](https://www.anthropic.com/index/claude-desktop) for local tool calling\n* Optional: [MCP Inspector](https://github.com/epfml/mcp-inspector) for manual testing\n\n...\n\n## \ud83d\udd27 Installation\npython server.py\n```\n---\n\n## \ud83d\udd0d Tool Overview\n\nThis MCP server exposes a single tool: `google_search_tool`.\n\n### \ud83d\udce4 Input\n\n```json\n{\n\"input\": \"Your search query string\"\n}\n```\n\n...\n\n## \ud83c\udf10 Deployment (Optional)\n1. Push this project to a GitHub repo\n2. Create a new **Web Service** on Render\n3. Add build/start commands:\n+ Build: `pip install -r requirements.txt`\n+ Start: `python app.py`\n4. Add environment variables:\n+ `SERPER_API_KEY`\n+ `PORT=10000`\n5. Your server will be live at: `https://yourproject.onrender.com/mcp`\n\n...\n\n## \ud83d\udcc1 File Structure\n```\n\u251c\u2500\u2500 app.py               # Main MCP server script\n\u251c\u2500\u2500 .env                 # API key and port config\n\u251c\u2500\u2500 requirements.txt     # Python dependencies\n\u2514\u2500\u2500 README.md            # This file\n```"
+        ]
+      },
+      {
+        "url": "https://github.com/pranavms13/web-search-mcp",
+        "title": "GitHub - pranavms13/web-search-mcp: A Model Context Protocol ...",
+        "publish_date": null,
+        "excerpts": [
+          "# pranavms13/web-search-mcp\n- Page: GitHub repository\n- URL: https://github.com/pranavms13/web-search-mcp\n- Description: A Model Context Protocol (MCP) server that provides web search functionality using a headless Chrome browser to scrape Google, DuckDuckGo and Bing search results. - pranavms13/web-search-mcp\n- Stars: 13\n- Forks: 9\n\n...\n\n# Web Search MCP\n[Ask DeepWiki](https://deepwiki.com/pranavms13/web-search-mcp)\nA Model Context Protocol (MCP) server that provides web search functionality by scraping Google, DuckDuckGo, and Bing search results through a headless browser.\n[Install MCP Server](https://cursor.com/en/install-mcp?name=web-search-mcp&config=eyJjb21tYW5kIjoidXZ4IGdpdCtodHRwczovL2dpdGh1Yi5jb20vcHJhbmF2bXMxMy93ZWItc2VhcmNoLW1jcCIsImVudiI6e319)\n\n...\n\n## Usage\n### Running the MCP Server\n```shell\n# Run directly\npython main.py\n\n# Or using the installed script\nweb-search-mcp\n```\nThe server will start and listen for MCP connections.\n\n...\n\n## Requirements\n* Python 3.10+\n* A browser backend: Chrome (Selenium) **or** the Obscura binary\n* Internet connection\n\n## Dependencies\n* `fastmcp` : MCP server framework\n* `selenium` : Web browser automation (Selenium backend)\n* `beautifulsoup4` : HTML parsing\n* `webdriver-manager` : Chrome driver management (Selenium backend)\n* `lxml` : XML/HTML parser\nThe Obscura backend has no Python dependency \u2014 it is invoked as an external CLI binary.\n\n...\n\n## Development\nTo modify or extend the functionality:\n1. Clone the repository\n2. Install in development mode: `uv sync` or `pip install -e .`\n3. Make your changes\n4. Run the test suite: `uv run pytest test.py -q`\n5. Smoke-test the server: `python main.py` (or `BROWSER_BACKEND=obscura OBSCURA_BIN=/path/to/obscura python main.py` )"
+        ]
+      },
+      {
+        "url": "https://github.com/malakazlan/hybrid-search-engine",
+        "title": "GitHub - malakazlan/hybrid-search-engine: A production-ready ...",
+        "publish_date": "2026-03-02",
+        "excerpts": [
+          "# malakazlan/hybrid-search-engine\n- Page: GitHub repository\n- URL: https://github.com/malakazlan/hybrid-search-engine\n- Description: A production-ready Hybrid Search Engine that combines the precision of lexical retrieval (BM25) with the deep context of semantic vector search. Built with Python and OpenSearch, this repository de...\n- Stars: 0\n- Forks: 0\n- Default branch: master\n- Created: 2026-03-02T20:39:28.000Z\n- Commits: 27\n\n...\n\n# Hybrid Search Engine\nProduction-ready **hybrid search** (lexical BM25 + semantic k-NN) with RRF fusion, cross-encoder reranking, optional LLM query rewriting, and a LangChain RAG pipeline. Built with Python, FastAPI, OpenSearch, sentence-transformers, and Docker.\n\n...\n\n## Architecture\n```\n    B -->|Raw Query| C[Query Rewriter\\nOpenAI GPT-4]:::ai\n    B -->|Parsed Query| D[Hybrid Search\\nRRF Fusion]:::api\n    B -->|User Query| E[RAG Pipeline\\nLangChain]:::api\n\n    C -->|Expanded Query| D\n\n    D -->|Term Query| F[Lexical Search\\nBM25 + field boost\\nfunction_score]:::ai\n```\n\n...\n\n* **Hybrid** : RRF (Reciprocal Rank Fusion) with configurable `lexical_weight` / `semantic_weight` .\n* **Reranker** : `cross-encoder/ms-marco-MiniLM-L-6-v2` reranks top-20 candidates to top-5.\n* **Query rewriter** : Optional OpenAI GPT-4 call for short or ambiguous queries; original vs rewritten logged.\n\n...\n\n## Config (environment)\n| Variable | Default | Description |\n| `OPENSEARCH_HOST` | `http://localhost:9200` | OpenSearch URL |\n| `OPENSEARCH_INDEX` | `hybrid_search_index` | Index name |\n| `OPENAI_API_KEY` | - | Required for rewrite and RAG |\n| `RRF_K` | `60` | RRF constant |\n| `LEXICAL_WEIGHT` | `0.5` | RRF weight for lexical |\n\n...\n\n## Repo structure\n```\n\u2502   \u2502   \u251c\u2500\u2500 indexer.py      # Index + custom analyzers, synonym graph, edge n-gram, k-NN\n\u2502   \u2502   \u251c\u2500\u2500 lexical.py      # BM25, field boost, function score, faceting\n\u2502   \u2502   \u251c\u2500\u2500 semantic.py     # Dense search (sentence-transformers + k-NN)\n\u2502   \u2502   \u251c\u2500\u2500 hybrid.py       # RRF fusion, configurable weights\n```"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/search-fusion-mcp",
+        "title": "search-fusion-mcp \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# \ud83d\udd0d Search Fusion MCP Server\n[License: MIT](https://opensource.org/licenses/MIT) [Python 3.8+](https://www.python.org/downloads/) [FastMCP](https://github.com/jlowin/fastmcp) [Version](https://github.com/sailaoda/search-fusion-mcp/releases) [Concurrency](https://github.com/sailaoda/search-fusion-mcp)\n**\ud83c\udf0f \u4e2d\u6587\u6587\u6863**\n\n...\n\n## \u2728 Features\n### \ud83d\udd04 Multi-Engine Integration\n* **Google Search** - Premium performance with API key\n* **Serper Search** - Google search alternative with advanced features\n* **Jina AI Search** - AI-powered search with intelligent content processing\n* **DuckDuckGo** - Free search, no API key required\n* **Exa Search** - AI-powered semantic search\n\n...\n\n## \ud83c\udfd7\ufe0f Architecture\n```\n\u2502   \u251c\u2500\u2500 GoogleSearch            # Google Custom Search\n\u2502   \u251c\u2500\u2500 SerperSearch           # Serper API\n\u2502   \u251c\u2500\u2500 JinaSearch             # Jina AI Search\n\u2502   \u251c\u2500\u2500 DuckDuckGoSearch       # DuckDuckGo\n\u2502   \u251c\u2500\u2500 ExaSearch              # Exa AI\n\u2502   \u251c\u2500\u2500 BingSearch             # Bing API\n\u2502   \u2514\u2500\u2500 BaiduSearch            # Baidu API\n```\n\n...\n\n## \ud83c\udf10 Enhanced Proxy Auto-Detection (New in v2.0!)\n### \ud83c\udd9a Comparison with concurrent-browser-mcp\n| Feature | Search-Fusion | concurrent-browser-mcp |\n| **Detection Method** | \u2705 Env vars \u2192 Port scan \u2192 System proxy | \u2705 Same strategy |\n| **Port List** | \u2705 7 common ports | \u2705 7 common ports |\n| **macOS Support** | \u2705 networksetup | \u2705 networksetup |\n| **Language** | Python | TypeScript |\n\n...\n\n### Engine Priority\n1. **Google Search** (Priority 1) - Premium performance with API key\n2. **Serper Search** (Priority 1) - Google alternative with advanced features\n3. **Jina AI Search** (Priority 1.5) - AI-powered search with optional API key for advanced features\n4. **DuckDuckGo** (Priority 2) - Free, no API key required\n5.\n\n...\n\n## \ud83e\uddea Development\n### Development Setup\n```\ngit clone https://github.com/sailaoda/search-fusion-mcp.git\n cd search-fusion-mcp\npip install -r requirements.txt\npip install -e .\n```\n\n...\n\n## Tags\n`mcp` `search` `aggregation` `ai` `llm` `jina` `google` `serper` `duckduckgo` `bing` `baidu` `exa` `wikipedia` `web-scraping` `high-availability` `failover` `multi-engine`"
+        ]
+      },
+      {
+        "url": "https://pypi.org/project/chroma-hybrid-rrf",
+        "title": "chroma-hybrid-rrf \u00b7 PyPI",
+        "publish_date": null,
+        "excerpts": [
+          "# chroma-hybrid-rrf 0.1.0\nA production-grade custom LangChain retriever combining Chroma vector search and local BM25 search with Reciprocal Rank Fusion (RRF).\npip install chroma-hybrid-rrf Copy PIP instructions\n* Description\n* Download files\n* Release history\n\n# \ud83d\ude80 Chroma-Hybrid-RRF\nLicense: MIT [Python 3.9+](https://www.python.org/downloads/) [LangChain](https://github.com/langchain-ai/langchain) [Chroma](https://github.com/chroma-core/chroma)\n`chroma-hybrid-rrf` is a production-grade, highly performant custom **LangChain-compatible retriever** that merges dense vector semantic search (using **ChromaDB** ) and sparse keyword keyword search (using **BM25** ) using **Reciprocal Rank Fusion (RRF)** .\n\n...\n\n## Key dates\nPyPI data\nData sourced directly from PyPI's database.\n* **Released:** May 20, 2026\nLatest release\n\n...\n\n## Requires\n**Python** >=3.9\n\n...\n\n## Classifiers\n+ [Python :: 3](https://pypi.org/search/?c=Programming+Language+%3A%3A+Python+%3A%3A+3)\n* Topic\n+ [Scientific/Engineering :: Artificial Intelligence](https://pypi.org/search/?c=Topic+%3A%3A+Scientific%2FEngineering+%3A%3A+Artificial+Intelligence)\n\n...\n\n## Download files\n### Source Distribution\n[chroma_hybrid_rrf-0.1.0.tar.gz](https://files.pythonhosted.org/packages/0a/15/5c808702461f61fdb48648808bfb9bebf4ba364dd30ebd7662a084632cc0/chroma_hybrid_rrf-0.1.0.tar.gz) (8.1 kB view details )\nUploaded May 20, 2026 `Source`\n\n...\n\n### Built Distribution\n[chroma_hybrid_rrf-0.1.0-py3-none-any.whl](https://files.pythonhosted.org/packages/68/73/327d55911fcdeadb06f10d885322215cdceaf5d21c0554857ad1600e8ece/chroma_hybrid_rrf-0.1.0-py3-none-any.whl) (7.4 kB view details )\nUploaded May 20, 2026 `Python 3`"
+        ]
+      }
+    ],
+    "warnings": null,
+    "usage": [
+      {
+        "name": "sku_search",
+        "count": 1
+      }
+    ],
+    "metadata": null,
+    "session_id": "session_03b0881ad50906d0258ec5156eae1459"
+  }
+]

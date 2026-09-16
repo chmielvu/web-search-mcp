@@ -1,0 +1,7 @@
+name: multi-web-provider
+version: "0.1.0"
+description: "Meta web provider (search + extract) routing internally across Tavily → Exa → Brave → SearXNG → DDGS (search) and Firecrawl → Exa (extract), absorbing failures so agents never see a broken backend."
+author: Nicolas Campy
+kind: backend
+provides_web_providers:
+  - multi-web-provider
